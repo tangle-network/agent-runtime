@@ -21,10 +21,9 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import type { AnalystFinding, CostLedgerHandle } from '@tangle-network/agent-eval'
 import {
   type CodeSurface,
-  type CostLedgerHandle,
   type LabeledScenarioStore,
   type ProposeContext,
   type SurfaceProposer,

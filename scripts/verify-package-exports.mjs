@@ -37,6 +37,7 @@ try {
   const requiredSubpaths = [
     '.',
     './agent',
+    './conversation',
     './intelligence',
     './loops',
     './environment-provider',
@@ -45,6 +46,7 @@ try {
     './knowledge',
     './profiles',
     './platform',
+    './primeintellect',
     './candidate-execution',
     './mcp',
   ]
@@ -224,6 +226,29 @@ try {
     appDir,
   )
 
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const prime = await import('@tangle-network/agent-runtime/primeintellect')
+        for (const name of [
+          'createPrimeIntellectPackage',
+          'writePrimeIntellectPackage',
+          'readPrimeIntellectEpisodeContext',
+          'createPrimeIntellectBackend',
+          'runPrimeIntellectProgram',
+          'parsePrimeIntellectTraces',
+          'primeIntellectTraceToRunRecord',
+          'importPrimeIntellectTraces',
+        ]) {
+          if (typeof prime[name] !== 'function') throw new Error('missing PrimeIntellect export ' + name)
+        }
+      `,
+    ],
+    appDir,
+  )
   run(
     process.execPath,
     [

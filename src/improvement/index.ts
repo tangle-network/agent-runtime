@@ -13,6 +13,8 @@
 export {
   AGENTIC_PROFILE_RESOURCE_ROOT,
   type AgenticGeneratorOptions,
+  type AgenticGeneratorShotDisposition,
+  type AgenticGeneratorShotExecution,
   type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
@@ -38,7 +40,6 @@ export {
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
 export {
-  type AgentProfileDiffProposal,
   type ProfileDiffProposerContext,
   type ProfileDiffProposerOptions,
   profileDiffProposer,

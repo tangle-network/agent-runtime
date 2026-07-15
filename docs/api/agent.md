@@ -10,7 +10,7 @@
 
 ### AgentManifestError
 
-Defined in: [agent/define-agent.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L309)
+Defined in: [agent/define-agent.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L284)
 
 Thrown when `defineAgent` finds a required surface missing on disk.
 
@@ -24,7 +24,7 @@ Thrown when `defineAgent` finds a required surface missing on disk.
 
 > **new AgentManifestError**(`message`, `agentId`, `issues?`): [`AgentManifestError`](#agentmanifesterror)
 
-Defined in: [agent/define-agent.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L310)
+Defined in: [agent/define-agent.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L285)
 
 ###### Parameters
 
@@ -54,13 +54,13 @@ readonly `unknown`[] = `[]`
 
 > `readonly` **agentId**: `string`
 
-Defined in: [agent/define-agent.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L312)
+Defined in: [agent/define-agent.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L287)
 
 ##### issues
 
 > `readonly` **issues**: readonly `unknown`[] = `[]`
 
-Defined in: [agent/define-agent.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L313)
+Defined in: [agent/define-agent.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L288)
 
 ## Interfaces
 
@@ -187,26 +187,11 @@ Defined in: [agent/define-agent.ts:106](https://github.com/tangle-network/agent-
 Analyst LLM configuration. The substrate uses these for all four
 kinds (override per-kind via `analystKinds` if needed).
 
-##### autoApply?
-
-> `optional` **autoApply?**: [`AutoApplyPolicy`](#autoapplypolicy)
-
-Defined in: [agent/define-agent.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L118)
-
-Auto-apply policy. Knowledge / improvement edits land only when
-`enabled === true` AND the source finding's confidence meets the
-threshold. `mode` controls how applies happen: `'write'` mutates
-files in-place; `'open-pr'` writes to a branch and opens a PR.
-
-Default: knowledge auto-applies at confidence ≥0.85 in `'write'`
-mode (wiki edits are git-reversible); improvement stays at
-`enabled: false` until the agent author has measured precision.
-
 ##### lifecycles?
 
 > `optional` **lifecycles?**: readonly [`SurfaceLifecycle`](#surfacelifecycle)[]
 
-Defined in: [agent/define-agent.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L134)
+Defined in: [agent/define-agent.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L122)
 
 Declarative per-surface artifact-lifecycle config the closed loop reads.
 
@@ -225,7 +210,7 @@ absent map means "no lifecycle"; the manifest is otherwise unchanged.
 
 ### SurfaceLifecycle
 
-Defined in: [agent/define-agent.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L142)
+Defined in: [agent/define-agent.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L130)
 
 One profile surface's artifact-lifecycle wiring — the declarative config a
 `defineAgent` manifest carries and `runLifecycle` reads. It is config, not
@@ -237,7 +222,7 @@ execution: it names the generator + gate; the loop runs them.
 
 > **surface**: [`ArtifactKind`](lifecycle.md#artifactkind)
 
-Defined in: [agent/define-agent.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L144)
+Defined in: [agent/define-agent.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L132)
 
 The profile surface this lifecycle grows.
 
@@ -245,7 +230,7 @@ The profile surface this lifecycle grows.
 
 > **generator**: [`CandidateGenerator`](lifecycle.md#candidategenerator)
 
-Defined in: [agent/define-agent.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L146)
+Defined in: [agent/define-agent.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L134)
 
 Produces fresh candidate artifacts for `surface` from the agent's history.
 
@@ -253,7 +238,7 @@ Produces fresh candidate artifacts for `surface` from the agent's history.
 
 > **gate**: [`PromotionGate`](lifecycle.md#promotiongate)
 
-Defined in: [agent/define-agent.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L148)
+Defined in: [agent/define-agent.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L136)
 
 The held-back exam that decides promotion of a measured candidate.
 
@@ -261,7 +246,7 @@ The held-back exam that decides promotion of a measured candidate.
 
 > `optional` **composeK?**: `number`
 
-Defined in: [agent/define-agent.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L151)
+Defined in: [agent/define-agent.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L139)
 
 Top-`k` budget for `composeProfile` when folding this surface's promoted
  artifacts back in. Omit to fold in every active artifact.
@@ -270,7 +255,7 @@ Top-`k` budget for `composeProfile` when folding this surface's promoted
 
 ### AgentRubric
 
-Defined in: [agent/define-agent.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L154)
+Defined in: [agent/define-agent.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L142)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -292,7 +277,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **dimensions**: readonly [`RubricDimension`](#rubricdimension)\<`TRunOutput`\>[]
 
-Defined in: [agent/define-agent.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L156)
+Defined in: [agent/define-agent.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L144)
 
 Dimensions composing the weighted score. Weights sum to 1.0 by convention.
 
@@ -300,7 +285,7 @@ Dimensions composing the weighted score. Weights sum to 1.0 by convention.
 
 > `optional` **judges?**: readonly [`JudgeConfig`](#judgeconfig)\<`TRunOutput`\>[]
 
-Defined in: [agent/define-agent.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L162)
+Defined in: [agent/define-agent.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L150)
 
 Optional judges layered on top of deterministic dimensions. Each
 judge returns a score per dimension; the substrate averages judges
@@ -310,7 +295,7 @@ judge returns a score per dimension; the substrate averages judges
 
 ### RubricDimension
 
-Defined in: [agent/define-agent.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L165)
+Defined in: [agent/define-agent.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L153)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -332,7 +317,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **id**: `string`
 
-Defined in: [agent/define-agent.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L167)
+Defined in: [agent/define-agent.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L155)
 
 Unique identifier — appears in finding subjects (`rubric:<id>`).
 
@@ -340,7 +325,7 @@ Unique identifier — appears in finding subjects (`rubric:<id>`).
 
 > **weight**: `number`
 
-Defined in: [agent/define-agent.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L169)
+Defined in: [agent/define-agent.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L157)
 
 0..1 — weight in the composite.
 
@@ -348,7 +333,7 @@ Defined in: [agent/define-agent.ts:169](https://github.com/tangle-network/agent-
 
 > **score**: (`input`) => `number`
 
-Defined in: [agent/define-agent.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L175)
+Defined in: [agent/define-agent.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L163)
 
 Deterministic scorer: given the persona + run output, returns a
 0..1 score. The substrate sums weight × score across dimensions
@@ -374,7 +359,7 @@ for the deterministic composite; judges supplement subjective dims.
 
 > `optional` **label?**: `string`
 
-Defined in: [agent/define-agent.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L177)
+Defined in: [agent/define-agent.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L165)
 
 Optional human-readable label for reports.
 
@@ -382,7 +367,7 @@ Optional human-readable label for reports.
 
 ### JudgeConfig
 
-Defined in: [agent/define-agent.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L180)
+Defined in: [agent/define-agent.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L168)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -404,7 +389,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **id**: `string`
 
-Defined in: [agent/define-agent.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L182)
+Defined in: [agent/define-agent.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L170)
 
 Judge identifier — appears in trace spans + manifest.
 
@@ -412,7 +397,7 @@ Judge identifier — appears in trace spans + manifest.
 
 > **model**: `string`
 
-Defined in: [agent/define-agent.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L184)
+Defined in: [agent/define-agent.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L172)
 
 Model snapshot to invoke. Pin the snapshot (`claude-sonnet-4-6@2025-04-15`); the validator rejects bare aliases.
 
@@ -420,7 +405,7 @@ Model snapshot to invoke. Pin the snapshot (`claude-sonnet-4-6@2025-04-15`); the
 
 > **dimensions**: readonly `string`[]
 
-Defined in: [agent/define-agent.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L186)
+Defined in: [agent/define-agent.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L174)
 
 Dimensions this judge scores.
 
@@ -428,7 +413,7 @@ Dimensions this judge scores.
 
 > `optional` **anchors?**: readonly `object`[]
 
-Defined in: [agent/define-agent.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L192)
+Defined in: [agent/define-agent.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L180)
 
 Optional rubric anchors — text examples the judge sees as a
 few-shot prompt to calibrate. STRONGLY recommended for subjective
@@ -438,7 +423,7 @@ dimensions; required by the calibration gate (Pearson ≥0.7).
 
 ### AgentRuntime
 
-Defined in: [agent/define-agent.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L195)
+Defined in: [agent/define-agent.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L183)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -464,7 +449,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **act**: (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L220)
+Defined in: [agent/define-agent.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L208)
 
 Invoke the agent against one persona. Returns BOTH:
   - `events`: an `AsyncIterable<RuntimeStreamEvent>` the chat-centric
@@ -507,7 +492,7 @@ cancel. `ctx.signal` is the standard abort signal.
 
 ### AgentRunInvocation
 
-Defined in: [agent/define-agent.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L223)
+Defined in: [agent/define-agent.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L211)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -529,7 +514,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **events**: `AsyncIterable`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
 
-Defined in: [agent/define-agent.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L225)
+Defined in: [agent/define-agent.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L213)
 
 Live stream of typed runtime events. Consumed by chat UX directly.
 
@@ -537,7 +522,7 @@ Live stream of typed runtime events. Consumed by chat UX directly.
 
 > **output**: `Promise`\<`TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L227)
+Defined in: [agent/define-agent.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L215)
 
 Final structured output the rubric scores. Resolves after `events` drains.
 
@@ -545,7 +530,7 @@ Final structured output the rubric scores. Resolves after `events` drains.
 
 ### AgentRunContext
 
-Defined in: [agent/define-agent.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L267)
+Defined in: [agent/define-agent.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L255)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -561,7 +546,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **emitter**: `TraceEmitter`
 
-Defined in: [agent/define-agent.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L269)
+Defined in: [agent/define-agent.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L257)
 
 Substrate-managed trace emitter.
 
@@ -569,7 +554,7 @@ Substrate-managed trace emitter.
 
 > **runId**: `string`
 
-Defined in: [agent/define-agent.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L271)
+Defined in: [agent/define-agent.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L259)
 
 Stable run id for this persona × variant cell.
 
@@ -577,7 +562,7 @@ Stable run id for this persona × variant cell.
 
 > `optional` **variantId?**: `string`
 
-Defined in: [agent/define-agent.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L273)
+Defined in: [agent/define-agent.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L261)
 
 Variant the runtime is exercising (e.g. `'baseline'`, `'source-grounded'`).
 
@@ -585,7 +570,7 @@ Variant the runtime is exercising (e.g. `'baseline'`, `'source-grounded'`).
 
 > `optional` **deadlineMs?**: `number`
 
-Defined in: [agent/define-agent.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L275)
+Defined in: [agent/define-agent.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L263)
 
 Wall-clock deadline (epoch ms). The runtime SHOULD honour for graceful cancel.
 
@@ -593,7 +578,7 @@ Wall-clock deadline (epoch ms). The runtime SHOULD honour for graceful cancel.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [agent/define-agent.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L277)
+Defined in: [agent/define-agent.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L265)
 
 Optional abort signal.
 
@@ -601,7 +586,7 @@ Optional abort signal.
 
 ### AnalystConfig
 
-Defined in: [agent/define-agent.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L280)
+Defined in: [agent/define-agent.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L268)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -617,7 +602,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **model**: `string`
 
-Defined in: [agent/define-agent.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L282)
+Defined in: [agent/define-agent.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L270)
 
 Model the analyst kinds use. Override per-kind via `analystKinds[i].cost.models`.
 
@@ -625,7 +610,7 @@ Model the analyst kinds use. Override per-kind via `analystKinds[i].cost.models`
 
 > `optional` **budgetUsd?**: `number`
 
-Defined in: [agent/define-agent.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L284)
+Defined in: [agent/define-agent.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L272)
 
 Optional total budget across all kinds for one run. Substrate enforces via `BudgetGuard`.
 
@@ -633,7 +618,7 @@ Optional total budget across all kinds for one run. Substrate enforces via `Budg
 
 > `optional` **backend?**: `object`
 
-Defined in: [agent/define-agent.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L286)
+Defined in: [agent/define-agent.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L274)
 
 Backend hint for the AxAIService factory — same shape every kind uses.
 
@@ -648,58 +633,6 @@ Backend hint for the AxAIService factory — same shape every kind uses.
 ###### baseUrl?
 
 > `optional` **baseUrl?**: `string`
-
-***
-
-### AutoApplyPolicy
-
-Defined in: [agent/define-agent.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L293)
-
-`@tangle-network/agent-runtime/agent` — declarative agent manifest +
-substrate-default adapters.
-
-Every vertical agent (tax / legal / gtm / creative / N future
-verticals) ships ONE `defineAgent({...})` call + a thin invocation
-of `runAnalystLoop` wired through the substrate-default adapters.
-No per-vertical glue. No fabricated paths. No theater.
-
-#### Properties
-
-##### knowledge?
-
-> `optional` **knowledge?**: `object`
-
-Defined in: [agent/define-agent.ts:294](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L294)
-
-###### enabled
-
-> **enabled**: `boolean`
-
-###### confidenceThreshold?
-
-> `optional` **confidenceThreshold?**: `number`
-
-###### mode?
-
-> `optional` **mode?**: `"write"` \| `"open-pr"`
-
-##### improvement?
-
-> `optional` **improvement?**: `object`
-
-Defined in: [agent/define-agent.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L299)
-
-###### enabled
-
-> **enabled**: `boolean`
-
-###### confidenceThreshold?
-
-> `optional` **confidenceThreshold?**: `number`
-
-###### mode?
-
-> `optional` **mode?**: `"write"` \| `"open-pr"`
 
 ***
 
@@ -1745,7 +1678,7 @@ Materialization contract for a run path that injects prompt text plus inline res
 
 > **unimplementedAgentRun**\<`TRunOutput`\>(`reason?`): [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L239)
+Defined in: [agent/define-agent.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L227)
 
 Stub for agents whose `runtime.act` is not yet wired to the substrate's
 eval path. Preserves the streaming contract (empty event stream + a
@@ -1777,7 +1710,7 @@ the eval path consumes the manifest end-to-end.
 
 > **collectAgentRun**\<`TRunOutput`\>(`invocation`): `Promise`\<\{ `events`: readonly [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]; `output`: `TRunOutput`; \}\>
 
-Defined in: [agent/define-agent.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L258)
+Defined in: [agent/define-agent.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L246)
 
 Drain `act`'s `events` into an array AND await its `output`. Useful for
 eval / outcome-measurement code paths that don't care about live
@@ -1810,7 +1743,7 @@ directly in the chat surface.
 
 > **defineAgent**\<`TPersona`, `TRunOutput`\>(`manifest`): [`AgentManifest`](#agentmanifest)\<`TPersona`, `TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L333)
+Defined in: [agent/define-agent.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L308)
 
 Construct a validated agent manifest. Throws `AgentManifestError`
 if any required surface is missing on disk.

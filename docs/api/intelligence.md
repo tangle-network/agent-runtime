@@ -3305,7 +3305,7 @@ Declares the exact candidate surfaces the sandbox executor can run.
 
 > **parseAgentCandidateProfileActivation**(`input`, `expectedProfilePlanDigest?`): `AgentCandidateProfileActivation`
 
-Defined in: [candidate-execution/profile.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L94)
+Defined in: [candidate-execution/profile.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L93)
 
 Parse and check every native file hash plus both canonical document digests.
 
@@ -3610,7 +3610,7 @@ this constructor instead of rerunning either phase or rebuilding digests.
 
 > **reviewAgentImprovementProposal**(`inputProposal`, `input`): `AgentImprovementReview`
 
-Defined in: [intelligence/improvement-cycle.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L257)
+Defined in: [intelligence/improvement-cycle.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L256)
 
 Persist an approve/reject/change-request decision bound to one exact proposal.
 
@@ -3634,7 +3634,7 @@ Persist an approve/reject/change-request decision bound to one exact proposal.
 
 > **executeApprovedAgentCandidate**(`options`): `Promise`\<[`ExecuteApprovedAgentCandidateResult`](#executeapprovedagentcandidateresult)\>
 
-Defined in: [intelligence/improvement-cycle.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L286)
+Defined in: [intelligence/improvement-cycle.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L284)
 
 Verify, materialize, run, grade, and receipt only the exact approved bundle.
 
@@ -3654,7 +3654,7 @@ Verify, materialize, run, grade, and receipt only the exact approved bundle.
 
 > **verifyCandidateExecutionEvidence**(`input`, `options`): `CandidateExecutionEvidence`[]
 
-Defined in: [intelligence/improvement-cycle.ts:336](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L336)
+Defined in: [intelligence/improvement-cycle.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L333)
 
 Verify approval, receipts, uniqueness, and the exact native profile files executed.
 
@@ -3678,7 +3678,7 @@ Verify approval, receipts, uniqueness, and the exact native profile files execut
 
 > **verifyAgentImprovementProposal**(`input`): `AgentImprovementProposal`
 
-Defined in: [intelligence/improvement-cycle.ts:439](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L439)
+Defined in: [intelligence/improvement-cycle.ts:436](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L436)
 
 Validate a proposal's schema, profile, sealed bundle, and canonical digest.
 
@@ -3698,7 +3698,7 @@ Validate a proposal's schema, profile, sealed bundle, and canonical digest.
 
 > **verifyAgentImprovementReview**(`input`): `AgentImprovementReview`
 
-Defined in: [intelligence/improvement-cycle.ts:673](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L673)
+Defined in: [intelligence/improvement-cycle.ts:670](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L670)
 
 Validate a review's decision fields and canonical digest.
 
@@ -3718,7 +3718,7 @@ Validate a review's decision fields and canonical digest.
 
 > **createAgentImprovementMeasuredComparison**\<`TScenario`, `TArtifact`\>(`options`): `AgentImprovementMeasuredComparison`
 
-Defined in: [intelligence/improvement-cycle.ts:679](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L679)
+Defined in: [intelligence/improvement-cycle.ts:676](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L676)
 
 Convert agent-eval's paired result into the portable Interface comparison.
 

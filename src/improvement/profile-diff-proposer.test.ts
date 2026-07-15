@@ -25,30 +25,28 @@ describe('profileDiffProposer', () => {
   it('puts source-grounded profile diffs and generated mutations in one candidate pool', async () => {
     const discovered = profileDiffProposer({
       proposeDiffs: () => [
-        {
-          diff: defineAgentProfileDiff({
-            kind: 'agent-profile-diff',
-            id: 'github-review-skill',
-            title: 'Pinned review skill',
-            rationale: 'Existing skill covers the observed review failure.',
-            source: {
-              kind: 'frontier-author',
-              artifacts: ['https://github.com/example/skills/tree/0123456789abcdef/review'],
-              notes: ['MIT license verified by the research worker.'],
+        defineAgentProfileDiff({
+          kind: 'agent-profile-diff',
+          id: 'github-review-skill',
+          title: 'Pinned review skill',
+          rationale: 'Existing skill covers the observed review failure.',
+          source: {
+            kind: 'frontier-author',
+            artifacts: ['https://github.com/example/skills/tree/0123456789abcdef/review'],
+            notes: ['MIT license verified by the research worker.'],
+          },
+          set: {
+            resources: {
+              skills: [
+                defineInlineResource(
+                  'review.SKILL.md',
+                  '# Review\n\nRead the failing test before editing.',
+                ),
+              ],
+              failOnError: true,
             },
-            set: {
-              resources: {
-                skills: [
-                  defineInlineResource(
-                    'review.SKILL.md',
-                    '# Review\n\nRead the failing test before editing.',
-                  ),
-                ],
-                failOnError: true,
-              },
-            },
-          }),
-        },
+          },
+        }),
       ],
     })
     const generated: SurfaceProposer = {
@@ -98,12 +96,10 @@ describe('profileDiffProposer', () => {
     const proposer = profileDiffProposer({
       proposeDiffs: () => [
         {
-          diff: {
-            kind: 'agent-profile-diff',
-            set: { prompt: { systemPrompt: 'candidate' } },
-            unknownField: true,
-          } as never,
-        },
+          kind: 'agent-profile-diff',
+          set: { prompt: { systemPrompt: 'candidate' } },
+          unknownField: true,
+        } as never,
       ],
     })
     await expect(proposer.propose(context(1))).rejects.toThrow(/unsupported or non-canonical/)
@@ -112,25 +108,19 @@ describe('profileDiffProposer', () => {
   it('drops no-op diffs and respects the shared population budget', async () => {
     const proposer = profileDiffProposer({
       proposeDiffs: () => [
-        { diff: defineAgentProfileDiff({ kind: 'agent-profile-diff' }) },
-        {
-          diff: defineAgentProfileDiff({
-            kind: 'agent-profile-diff',
-            set: { prompt: { systemPrompt: 'baseline' } },
-          }),
-        },
-        {
-          diff: defineAgentProfileDiff({
-            kind: 'agent-profile-diff',
-            set: { prompt: { systemPrompt: 'first' } },
-          }),
-        },
-        {
-          diff: defineAgentProfileDiff({
-            kind: 'agent-profile-diff',
-            set: { prompt: { systemPrompt: 'first' } },
-          }),
-        },
+        defineAgentProfileDiff({ kind: 'agent-profile-diff' }),
+        defineAgentProfileDiff({
+          kind: 'agent-profile-diff',
+          set: { prompt: { systemPrompt: 'baseline' } },
+        }),
+        defineAgentProfileDiff({
+          kind: 'agent-profile-diff',
+          set: { prompt: { systemPrompt: 'first' } },
+        }),
+        defineAgentProfileDiff({
+          kind: 'agent-profile-diff',
+          set: { prompt: { systemPrompt: 'first' } },
+        }),
       ],
     })
     const candidates = await proposer.propose(context(2))

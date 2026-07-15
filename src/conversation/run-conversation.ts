@@ -453,9 +453,28 @@ async function* driveSingleAttempt(
       yield { text: event.text, timestamp: event.timestamp }
     } else if (event.type === 'llm_call') {
       args.aggregator.recordUsage(event)
+    } else if (event.type === 'backend_error') {
+      throw new BackendTransportError(args.speaker.backend.kind, event.message, {
+        status: event.error?.status,
+        body: event.error?.body,
+      })
     } else if (event.type === 'final') {
+      if (event.status !== 'completed') {
+        throw new BackendTransportError(
+          args.speaker.backend.kind,
+          event.error?.message ?? event.reason,
+          { status: event.error?.status, body: event.error?.body },
+        )
+      }
       args.aggregator.adoptFinalText(event.text)
     }
+  }
+
+  if (!args.aggregator.hasText()) {
+    throw new BackendTransportError(
+      args.speaker.backend.kind,
+      `backend '${args.speaker.backend.kind}' completed without text`,
+    )
   }
 }
 
@@ -489,6 +508,10 @@ class TurnAggregator {
     if (this.text.length > 0) return
     this.text = text
     this.adoptedFinal = true
+  }
+
+  hasText(): boolean {
+    return this.text.trim().length > 0
   }
 
   recordUsage(event: {

@@ -15,7 +15,6 @@ export type {
   AgentRunInvocation,
   AgentRuntime,
   AnalystConfig,
-  AutoApplyPolicy,
   JudgeConfig,
   RubricDimension,
   SurfaceLifecycle,

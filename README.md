@@ -15,6 +15,7 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-networ
 - [Supervise a team of agents](#supervise-a-team-of-agents)
 - [Improve an agent](#improve-an-agent)
 - [Improve a knowledge base](#improve-a-knowledge-base)
+- [Run on PrimeIntellect](#run-on-primeintellect)
 - [How it works](#how-it-works-the-short-version)
 - [Examples](#examples)
 - [Where to go next](#where-to-go-next)
@@ -33,6 +34,7 @@ pnpm tsx examples/driver-loop/driver-loop.ts
 | Have one agent **supervise a team of agents** toward a goal | `supervise(profile, task, opts)` |
 | **Improve** an agent and prove the gain on fresh tasks | `improve(profile, findings, opts)` |
 | **Improve** a knowledge base with agents, checks, and safe promotion | `runKnowledgeImprovementJob(...)` |
+| Evaluate or train the same agent on **PrimeIntellect** | `createPrimeIntellectPackage(...)` |
 
 ### Run a chat turn
 
@@ -113,6 +115,67 @@ console.log(result.promoted, result.measurement.supervisedSpent)
 
 Use it when the product needs one knob for "make this knowledge base better" instead of wiring `improveKnowledgeBase`, a runtime supervisor, candidate workspaces, readiness checks, and promotion tracking by hand.
 
+### Run on PrimeIntellect
+
+`@tangle-network/agent-runtime/primeintellect` packages typed train and eval tasks as a Verifiers v1 environment.
+Prime launches your actual runtime program against an intercepted model endpoint, so `runPersonified`, `runAgentic`, product agents, tool calls, and multiple rounds stay intact.
+Reference answers remain in Prime's task process and never enter the agent workspace.
+The runner file must be one executable bundle containing the app and its runtime dependencies.
+
+```ts
+import { readFile } from 'node:fs/promises'
+import {
+  createPrimeIntellectPackage,
+  writePrimeIntellectPackage,
+} from '@tangle-network/agent-runtime/primeintellect'
+
+const bundledRunner = await readFile('./dist/prime-runner.mjs', 'utf8')
+const bundle = createPrimeIntellectPackage({
+  name: 'support-agent-v1',
+  version: '1.0.0',
+  tasks: [
+    {
+      id: 'train-refund-policy',
+      split: 'train',
+      prompt: 'Can a subscription renewal be refunded?',
+      answer: 'No',
+    },
+    {
+      id: 'eval-final-sale',
+      split: 'eval',
+      prompt: 'Can a final-sale order be refunded?',
+      answer: 'No',
+    },
+  ],
+  scoring: { kind: 'exact', normalization: 'trim-casefold' },
+  runner: {
+    image: 'node:22-bookworm-slim',
+    files: { 'runner.mjs': bundledRunner },
+    command: ['node', 'runner.mjs'],
+  },
+})
+
+await writePrimeIntellectPackage(bundle, './prime/support-agent-v1')
+```
+
+The runner reads the episode and uses the normal runtime APIs:
+Here, `runProductAgent` is the application's existing entry point, not another loop supplied by this adapter.
+
+```ts
+import {
+  createPrimeIntellectBackend,
+  runPrimeIntellectProgram,
+} from '@tangle-network/agent-runtime/primeintellect'
+
+await runPrimeIntellectProgram(async (episode) => {
+  const backend = createPrimeIntellectBackend(episode)
+  return runProductAgent({ task: episode.task, backend })
+})
+```
+
+Prime writes complete `traces.jsonl` rows.
+Use `importPrimeIntellectTraces(...)` to convert them to agent-eval `RunRecord`s for the existing reports and release checks.
+
 ## How it works (the short version)
 
 - **One agent, run two ways.** The same agent runs at "do the task" speed and at "get better at the task" speed. "Driver", "worker", and "coordinator" are roles one agent plays, not separate types.
@@ -134,6 +197,7 @@ Runnable, grouped by what they show. Copy the one nearest your task:
 | Trace + bill + effort-gate the WebCode benchmark (the Intelligence SDK) | [`intelligence-webcode`](./examples/intelligence-webcode) |
 | Self-improve an agent, gated on a held-out set | [`improve`](./examples/improve) · [`self-improving-coder`](./examples/self-improving-coder) |
 | Improve a KB, wiki, or RAG corpus with runtime agents | [`docs/canonical-api.md`](./docs/canonical-api.md) |
+| Evaluate or train a runtime program on PrimeIntellect | `@tangle-network/agent-runtime/primeintellect` |
 | Study coordination vs raw compute | [`ablation-suite`](./examples/ablation-suite) |
 
 All 29 live in [`examples/`](./examples).
@@ -143,7 +207,7 @@ All 29 live in [`examples/`](./examples).
 - New here? [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
 - [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
 - [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
-- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/knowledge` (KB improvement), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/lifecycle`, `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
+- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/conversation` (multi-turn conversations), `/knowledge` (KB improvement), `/primeintellect` (Prime task, runtime, and trace adapter), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/lifecycle`, `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
 - [`docs/architecture.md`](./docs/architecture.md), the design, end to end.
 - [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
 

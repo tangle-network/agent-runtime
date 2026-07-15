@@ -214,262 +214,283 @@ function measuredKnowledgeComparison(
   }
 }
 
+const KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS = 15_000
+
 describe('runKnowledgeImprovementJob', () => {
-  it('leaves the live knowledge base byte-identical until approval', async () => {
-    await withKb(async (root) => {
-      const measurements: unknown[] = []
-      const before = await liveKnowledgeBytes(root)
-      let captured:
-        | {
-            profile: SupervisorProfile
-            task: unknown
-            opts: SuperviseOptions
-          }
-        | undefined
+  it(
+    'leaves the live knowledge base byte-identical until approval',
+    async () => {
+      await withKb(async (root) => {
+        const measurements: unknown[] = []
+        const before = await liveKnowledgeBytes(root)
+        let captured:
+          | {
+              profile: SupervisorProfile
+              task: unknown
+              opts: SuperviseOptions
+            }
+          | undefined
 
-      const result = await runKnowledgeImprovementJob({
-        root,
-        goal: 'Add runtime job knowledge',
-        runId: 'runtime-job',
-        strict: true,
-        budget: { maxIterations: 2, maxTokens: 1000 },
-        readinessCheck: async ({ root: candidateRoot }) => {
-          try {
-            const text = await readFile(join(candidateRoot, 'knowledge', 'runtime-job.md'), 'utf8')
-            return { ready: text.includes('candidate workspace') }
-          } catch {
-            return { ready: false, summary: 'runtime job page missing' }
-          }
-        },
-        runSupervised: async (profile, task, opts) => {
-          captured = { profile, task, opts }
-          const candidateRoot = rootFromTask(task)
-          const page = join(candidateRoot, 'knowledge', 'runtime-job.md')
-          await mkdir(dirname(page), { recursive: true })
-          await writeFile(
-            page,
-            [
-              '---',
-              'id: runtime-job',
-              'title: Runtime Job',
-              '---',
-              '# Runtime Job',
-              'The runtime job updates the candidate workspace.',
-            ].join('\n'),
-            'utf8',
-          )
-          await expect(opts.deliverable?.check({})).resolves.toBe(true)
-          return winner()
-        },
-        onMeasurement: (measurement) => measurements.push(measurement),
-      })
+        const result = await runKnowledgeImprovementJob({
+          root,
+          goal: 'Add runtime job knowledge',
+          runId: 'runtime-job',
+          strict: true,
+          budget: { maxIterations: 2, maxTokens: 1000 },
+          readinessCheck: async ({ root: candidateRoot }) => {
+            try {
+              const text = await readFile(
+                join(candidateRoot, 'knowledge', 'runtime-job.md'),
+                'utf8',
+              )
+              return { ready: text.includes('candidate workspace') }
+            } catch {
+              return { ready: false, summary: 'runtime job page missing' }
+            }
+          },
+          runSupervised: async (profile, task, opts) => {
+            captured = { profile, task, opts }
+            const candidateRoot = rootFromTask(task)
+            const page = join(candidateRoot, 'knowledge', 'runtime-job.md')
+            await mkdir(dirname(page), { recursive: true })
+            await writeFile(
+              page,
+              [
+                '---',
+                'id: runtime-job',
+                'title: Runtime Job',
+                '---',
+                '# Runtime Job',
+                'The runtime job updates the candidate workspace.',
+              ].join('\n'),
+              'utf8',
+            )
+            await expect(opts.deliverable?.check({})).resolves.toBe(true)
+            return winner()
+          },
+          onMeasurement: (measurement) => measurements.push(measurement),
+        })
 
-      expect(result.promoted).toBe(false)
-      expect(result.improvement.state.status).toBe('candidate-ready')
-      expect(captured?.profile.name).toBe('knowledge-research-supervisor')
-      expect(captured?.task).toContain('Goal: Add runtime job knowledge')
-      expect(captured?.task).toContain('Knowledge base root:')
-      await expect(
-        readFile(join(root, 'knowledge', 'runtime-job.md'), 'utf8'),
-      ).rejects.toMatchObject({
-        code: 'ENOENT',
+        expect(result.promoted).toBe(false)
+        expect(result.improvement.state.status).toBe('candidate-ready')
+        expect(captured?.profile.name).toBe('knowledge-research-supervisor')
+        expect(captured?.task).toContain('Goal: Add runtime job knowledge')
+        expect(captured?.task).toContain('Knowledge base root:')
+        await expect(
+          readFile(join(root, 'knowledge', 'runtime-job.md'), 'utf8'),
+        ).rejects.toMatchObject({
+          code: 'ENOENT',
+        })
+        expect(await liveKnowledgeBytes(root)).toEqual(before)
+        expect(result.candidateKnowledge?.candidate.candidateId).toBe(
+          result.improvement.candidate?.candidateId,
+        )
+        await withKnowledgeImprovementCandidate(
+          { root, candidate: knowledgeImprovementCandidateRef(result.improvement) },
+          async ({ root: candidateRoot }) => {
+            expect(result.candidateKnowledge?.candidate.candidateHash).toBe(
+              `sha256:${await hashKnowledgeBase(candidateRoot)}`,
+            )
+          },
+        )
+        expect(result.candidateKnowledge?.snapshot.material.files).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path: 'knowledge/runtime-job.md' })]),
+        )
+        expect(result.measurement.updateCalls).toBe(1)
+        expect(result.measurement.supervisedSpent).toMatchObject({
+          iterations: 2,
+          inputTokens: 30,
+          outputTokens: 12,
+          usdKnown: false,
+          usd: 0.004,
+          ms: 75,
+        })
+        expect(measurements).toHaveLength(1)
       })
-      expect(await liveKnowledgeBytes(root)).toEqual(before)
-      expect(result.candidateKnowledge?.candidate.candidateId).toBe(
-        result.improvement.candidate?.candidateId,
-      )
-      await withKnowledgeImprovementCandidate(
-        { root, candidate: knowledgeImprovementCandidateRef(result.improvement) },
-        async ({ root: candidateRoot }) => {
-          expect(result.candidateKnowledge?.candidate.candidateHash).toBe(
-            `sha256:${await hashKnowledgeBase(candidateRoot)}`,
-          )
-        },
-      )
-      expect(result.candidateKnowledge?.snapshot.material.files).toEqual(
-        expect.arrayContaining([expect.objectContaining({ path: 'knowledge/runtime-job.md' })]),
-      )
-      expect(result.measurement.updateCalls).toBe(1)
-      expect(result.measurement.supervisedSpent).toMatchObject({
-        iterations: 2,
-        inputTokens: 30,
-        outputTokens: 12,
-        usdKnown: false,
-        usd: 0.004,
-        ms: 75,
-      })
-      expect(measurements).toHaveLength(1)
-    })
-  })
+    },
+    KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS,
+  )
 
-  it('uses the built-in agent-knowledge readiness check by default', async () => {
-    await withKb(async (root) => {
-      const readinessSpec = defineReadinessSpec({
-        id: 'runtime-job',
-        description: 'runtime knowledge improvement job is documented',
-        query: 'runtime knowledge improvement job candidate workspaces',
-        requiredFor: ['RuntimeJob'],
-        confidenceNeeded: 0.1,
-        minSources: 1,
-        minHits: 1,
-      })
+  it(
+    'uses the built-in agent-knowledge readiness check by default',
+    async () => {
+      await withKb(async (root) => {
+        const readinessSpec = defineReadinessSpec({
+          id: 'runtime-job',
+          description: 'runtime knowledge improvement job is documented',
+          query: 'runtime knowledge improvement job candidate workspaces',
+          requiredFor: ['RuntimeJob'],
+          confidenceNeeded: 0.1,
+          minSources: 1,
+          minHits: 1,
+        })
 
-      const result = await runKnowledgeImprovementJob({
-        root,
-        goal: 'Add runtime job knowledge',
-        runId: 'runtime-job-default-readiness',
-        strict: true,
-        readinessSpecs: [readinessSpec],
-        budget: { maxIterations: 2, maxTokens: 1000 },
-        runSupervised: async (_profile, task, opts) => {
+        const result = await runKnowledgeImprovementJob({
+          root,
+          goal: 'Add runtime job knowledge',
+          runId: 'runtime-job-default-readiness',
+          strict: true,
+          readinessSpecs: [readinessSpec],
+          budget: { maxIterations: 2, maxTokens: 1000 },
+          runSupervised: async (_profile, task, opts) => {
+            await writeRuntimeJobPage(rootFromTask(task))
+            await expect(opts.deliverable?.check({})).resolves.toBe(true)
+            return winner()
+          },
+        })
+
+        expect(result.promoted).toBe(false)
+        await withKnowledgeImprovementCandidate(
+          { root, candidate: knowledgeImprovementCandidateRef(result.improvement) },
+          async ({ root: candidateRoot }) => {
+            await expect(
+              readFile(join(candidateRoot, 'knowledge', 'runtime-job.md'), 'utf8'),
+            ).resolves.toContain('source-backed evidence')
+          },
+        )
+        await expect(
+          readFile(join(root, 'knowledge', 'runtime-job.md'), 'utf8'),
+        ).rejects.toMatchObject({
+          code: 'ENOENT',
+        })
+      })
+    },
+    KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'promotes only the frozen candidate bytes after an exact approved review',
+    async () => {
+      await withKb(async (root) => {
+        const artifacts = createCandidateOutputFixture().outputArtifacts
+        const update = async (
+          _profile: SupervisorProfile,
+          task: unknown,
+          opts: SuperviseOptions,
+        ) => {
           await writeRuntimeJobPage(rootFromTask(task))
           await expect(opts.deliverable?.check({})).resolves.toBe(true)
           return winner()
-        },
-      })
-
-      expect(result.promoted).toBe(false)
-      await withKnowledgeImprovementCandidate(
-        { root, candidate: knowledgeImprovementCandidateRef(result.improvement) },
-        async ({ root: candidateRoot }) => {
-          await expect(
-            readFile(join(candidateRoot, 'knowledge', 'runtime-job.md'), 'utf8'),
-          ).resolves.toContain('source-backed evidence')
-        },
-      )
-      await expect(
-        readFile(join(root, 'knowledge', 'runtime-job.md'), 'utf8'),
-      ).rejects.toMatchObject({
-        code: 'ENOENT',
-      })
-    })
-  })
-
-  it('promotes only the frozen candidate bytes after an exact approved review', async () => {
-    await withKb(async (root) => {
-      const artifacts = createCandidateOutputFixture().outputArtifacts
-      const update = async (_profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) => {
-        await writeRuntimeJobPage(rootFromTask(task))
-        await expect(opts.deliverable?.check({})).resolves.toBe(true)
-        return winner()
-      }
-      const proposed = await runKnowledgeImprovementJob({
-        root,
-        goal: 'Add runtime job knowledge',
-        runId: 'runtime-job-approved',
-        strict: true,
-        budget: { maxIterations: 2, maxTokens: 1000 },
-        readinessCheck: async ({ root: candidateRoot }) => ({
-          ready: await readFile(join(candidateRoot, 'knowledge', 'runtime-job.md'), 'utf8')
-            .then((text) => text.includes('source-backed evidence'))
-            .catch(() => false),
-        }),
-        runSupervised: update,
-        candidateArtifacts: artifacts,
-      })
-      const knowledge = proposed.candidateKnowledge
-      if (!knowledge) throw new Error('expected frozen knowledge candidate')
-      const candidateRef = knowledgeImprovementCandidateRef(proposed.improvement)
-      const candidateBytes = await withKnowledgeImprovementCandidate(
-        { root, candidate: candidateRef },
-        ({ root: candidateRoot }) => liveKnowledgeBytes(candidateRoot),
-      )
-      const liveBeforeApproval = await liveKnowledgeBytes(root)
-      const baseBundle = candidateBundle()
-      const baselineProfile = agentCandidateProfileAsAgentProfile(baseBundle.profile)
-      const bundle = redigestCandidateBundle(baseBundle, { knowledge })
-      const proposal = createAgentImprovementProposal({
-        runId: 'runtime-job-approved',
-        baselineProfile,
-        findings: [],
-        evaluation: measuredKnowledgeComparison(baselineProfile, bundle),
-        candidateBundle: bundle,
-        now: () => new Date('2026-07-13T01:00:00.000Z'),
-      })
-      const mismatchedKnowledge: AgentCandidateKnowledge = {
-        ...knowledge,
-        candidate: { ...knowledge.candidate, candidateHash: candidateSha('0') },
-      }
-      const mismatchedBundle = redigestCandidateBundle(bundle, {
-        knowledge: mismatchedKnowledge,
-      })
-      expect(() =>
-        createAgentImprovementProposal({
-          runId: 'runtime-job-mismatched',
-          baselineProfile,
-          findings: [],
-          evaluation: measuredKnowledgeComparison(baselineProfile, bundle),
-          candidateBundle: mismatchedBundle,
-        }),
-      ).toThrow(/measured comparison does not bind the exact candidate bundle/)
-      const review = reviewAgentImprovementProposal(proposal, {
-        decision: 'approve',
-        reviewedBy: 'operator@example.com',
-        reason: 'Approve the exact frozen knowledge candidate.',
-        now: () => new Date('2026-07-13T01:01:00.000Z'),
-      })
-
-      expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
-      const approvedUpdate = async () => {
-        throw new Error('candidate-ready promotion must not rerun the updater')
-      }
-      const runApproved = (
-        approvedProposal: AgentImprovementProposal,
-        approvedReview: AgentImprovementReview,
-      ) =>
-        runKnowledgeImprovementJob({
+        }
+        const proposed = await runKnowledgeImprovementJob({
           root,
           goal: 'Add runtime job knowledge',
           runId: 'runtime-job-approved',
           strict: true,
           budget: { maxIterations: 2, maxTokens: 1000 },
-          readinessCheck: async () => ({ ready: true }),
-          runSupervised: approvedUpdate,
+          readinessCheck: async ({ root: candidateRoot }) => ({
+            ready: await readFile(join(candidateRoot, 'knowledge', 'runtime-job.md'), 'utf8')
+              .then((text) => text.includes('source-backed evidence'))
+              .catch(() => false),
+          }),
+          runSupervised: update,
           candidateArtifacts: artifacts,
-          approval: {
-            proposal: approvedProposal,
-            review: approvedReview,
-            authorizeReview: async (candidateReview) =>
-              candidateReview.digest === approvedReview.digest,
-          },
         })
-      const promoteApproved = () => runApproved(proposal, review)
-
-      await expect(
-        withKnowledgeImprovementCandidate(
+        const knowledge = proposed.candidateKnowledge
+        if (!knowledge) throw new Error('expected frozen knowledge candidate')
+        const candidateRef = knowledgeImprovementCandidateRef(proposed.improvement)
+        const candidateBytes = await withKnowledgeImprovementCandidate(
           { root, candidate: candidateRef },
-          async ({ root: candidateRoot }) => {
-            const frozenPage = join(candidateRoot, 'knowledge', 'runtime-job.md')
-            await writeFile(frozenPage, 'tampered frozen snapshot', 'utf8')
-          },
-        ),
-      ).rejects.toThrow(/snapshot changed during use/)
-      expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
+          ({ root: candidateRoot }) => liveKnowledgeBytes(candidateRoot),
+        )
+        const liveBeforeApproval = await liveKnowledgeBytes(root)
+        const baseBundle = candidateBundle()
+        const baselineProfile = agentCandidateProfileAsAgentProfile(baseBundle.profile)
+        const bundle = redigestCandidateBundle(baseBundle, { knowledge })
+        const proposal = createAgentImprovementProposal({
+          runId: 'runtime-job-approved',
+          baselineProfile,
+          findings: [],
+          evaluation: measuredKnowledgeComparison(baselineProfile, bundle),
+          candidateBundle: bundle,
+          now: () => new Date('2026-07-13T01:00:00.000Z'),
+        })
+        const mismatchedKnowledge: AgentCandidateKnowledge = {
+          ...knowledge,
+          candidate: { ...knowledge.candidate, candidateHash: candidateSha('0') },
+        }
+        const mismatchedBundle = redigestCandidateBundle(bundle, {
+          knowledge: mismatchedKnowledge,
+        })
+        expect(() =>
+          createAgentImprovementProposal({
+            runId: 'runtime-job-mismatched',
+            baselineProfile,
+            findings: [],
+            evaluation: measuredKnowledgeComparison(baselineProfile, bundle),
+            candidateBundle: mismatchedBundle,
+          }),
+        ).toThrow(/measured comparison does not bind the exact candidate bundle/)
+        const review = reviewAgentImprovementProposal(proposal, {
+          decision: 'approve',
+          reviewedBy: 'operator@example.com',
+          reason: 'Approve the exact frozen knowledge candidate.',
+          now: () => new Date('2026-07-13T01:01:00.000Z'),
+        })
 
-      const mismatchedProposal = createAgentImprovementProposal({
-        runId: 'runtime-job-mismatched',
-        baselineProfile,
-        findings: [],
-        evaluation: measuredKnowledgeComparison(baselineProfile, mismatchedBundle),
-        candidateBundle: mismatchedBundle,
+        expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
+        const approvedUpdate = async () => {
+          throw new Error('candidate-ready promotion must not rerun the updater')
+        }
+        const runApproved = (
+          approvedProposal: AgentImprovementProposal,
+          approvedReview: AgentImprovementReview,
+        ) =>
+          runKnowledgeImprovementJob({
+            root,
+            goal: 'Add runtime job knowledge',
+            runId: 'runtime-job-approved',
+            strict: true,
+            budget: { maxIterations: 2, maxTokens: 1000 },
+            readinessCheck: async () => ({ ready: true }),
+            runSupervised: approvedUpdate,
+            candidateArtifacts: artifacts,
+            approval: {
+              proposal: approvedProposal,
+              review: approvedReview,
+              authorizeReview: async (candidateReview) =>
+                candidateReview.digest === approvedReview.digest,
+            },
+          })
+        const promoteApproved = () => runApproved(proposal, review)
+
+        await expect(
+          withKnowledgeImprovementCandidate(
+            { root, candidate: candidateRef },
+            async ({ root: candidateRoot }) => {
+              const frozenPage = join(candidateRoot, 'knowledge', 'runtime-job.md')
+              await writeFile(frozenPage, 'tampered frozen snapshot', 'utf8')
+            },
+          ),
+        ).rejects.toThrow(/snapshot changed during use/)
+        expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
+
+        const mismatchedProposal = createAgentImprovementProposal({
+          runId: 'runtime-job-mismatched',
+          baselineProfile,
+          findings: [],
+          evaluation: measuredKnowledgeComparison(baselineProfile, mismatchedBundle),
+          candidateBundle: mismatchedBundle,
+        })
+        const mismatchedReview = reviewAgentImprovementProposal(mismatchedProposal, {
+          decision: 'approve',
+          reviewedBy: 'operator@example.com',
+          reason: 'Attempt to approve a candidate identity that was never measured.',
+        })
+        await expect(runApproved(mismatchedProposal, mismatchedReview)).rejects.toThrow(
+          /does not match the measured candidate/,
+        )
+        expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
+
+        const promoted = await promoteApproved()
+
+        expect(promoted.promoted).toBe(true)
+        expect(promoted.improvement.state.status).toBe('promoted')
+        expect(promoted.measurement.updateCalls).toBe(0)
+        expect(await liveKnowledgeBytes(root)).toEqual(candidateBytes)
+        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.candidate.candidateHash)
       })
-      const mismatchedReview = reviewAgentImprovementProposal(mismatchedProposal, {
-        decision: 'approve',
-        reviewedBy: 'operator@example.com',
-        reason: 'Attempt to approve a candidate identity that was never measured.',
-      })
-      await expect(runApproved(mismatchedProposal, mismatchedReview)).rejects.toThrow(
-        /does not match the measured candidate/,
-      )
-      expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
-
-      const promoted = await promoteApproved()
-
-      expect(promoted.promoted).toBe(true)
-      expect(promoted.improvement.state.status).toBe('promoted')
-      expect(promoted.measurement.updateCalls).toBe(0)
-      expect(await liveKnowledgeBytes(root)).toEqual(candidateBytes)
-      expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.candidate.candidateHash)
-    })
-  })
+    },
+    KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS,
+  )
 })

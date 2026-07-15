@@ -185,14 +185,24 @@ export function assertCandidateProfileBinding(
 
 /** Parse a complete profile without silently discarding unsupported fields. */
 export function parseExactAgentProfile(input: unknown, label: string): AgentProfile {
-  const parsed = agentProfileSchema.parse(input) as AgentProfile
+  let parsed: AgentProfile
+  try {
+    parsed = agentProfileSchema.parse(input) as AgentProfile
+  } catch (cause) {
+    throw new Error(`${label} contains unsupported or non-canonical fields`, { cause })
+  }
   assertCanonicalParse(input, parsed, label)
   return parsed
 }
 
 /** Parse a profile diff without silently discarding unsupported fields. */
 export function parseExactAgentProfileDiff(input: unknown, label: string): AgentProfileDiff {
-  const parsed = agentProfileDiffSchema.parse(input) as AgentProfileDiff
+  let parsed: AgentProfileDiff
+  try {
+    parsed = agentProfileDiffSchema.parse(input) as AgentProfileDiff
+  } catch (cause) {
+    throw new Error(`${label} contains unsupported or non-canonical fields`, { cause })
+  }
   assertCanonicalParse(input, parsed, label)
   return parsed
 }

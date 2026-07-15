@@ -10,7 +10,7 @@
 
 ### FileAgentCandidateExecutionClaimStore
 
-Defined in: [candidate-execution/claim-file-store.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L74)
+Defined in: [candidate-execution/claim-file-store.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L68)
 
 Cross-process lifecycle implemented as fsynced, create-if-absent records.
 
@@ -24,7 +24,7 @@ Cross-process lifecycle implemented as fsynced, create-if-absent records.
 
 > **new FileAgentCandidateExecutionClaimStore**(`options`): [`FileAgentCandidateExecutionClaimStore`](#fileagentcandidateexecutionclaimstore)
 
-Defined in: [candidate-execution/claim-file-store.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L78)
+Defined in: [candidate-execution/claim-file-store.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L72)
 
 ###### Parameters
 
@@ -42,7 +42,7 @@ Defined in: [candidate-execution/claim-file-store.ts:78](https://github.com/tang
 
 > **tryClaim**(`requested`): `Promise`\<[`AgentCandidateExecutionClaimResult`](#agentcandidateexecutionclaimresult)\>
 
-Defined in: [candidate-execution/claim-file-store.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L86)
+Defined in: [candidate-execution/claim-file-store.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L80)
 
 ###### Parameters
 
@@ -62,7 +62,7 @@ Defined in: [candidate-execution/claim-file-store.ts:86](https://github.com/tang
 
 > **getAttempt**(`requestedAttempt`): `Promise`\<[`AgentCandidateExecutionAttemptRecord`](#agentcandidateexecutionattemptrecord) \| `undefined`\>
 
-Defined in: [candidate-execution/claim-file-store.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L115)
+Defined in: [candidate-execution/claim-file-store.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L108)
 
 ###### Parameters
 
@@ -82,7 +82,7 @@ Defined in: [candidate-execution/claim-file-store.ts:115](https://github.com/tan
 
 > **markCandidateMayRun**(`requestedLease`): `Promise`\<[`AgentCandidateExecutionPhaseResult`](#agentcandidateexecutionphaseresult)\>
 
-Defined in: [candidate-execution/claim-file-store.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L121)
+Defined in: [candidate-execution/claim-file-store.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L114)
 
 Persist the point after which candidate code may have run.
 
@@ -104,7 +104,7 @@ Persist the point after which candidate code may have run.
 
 > **stageTerminal**(`requestedLease`, `result`): `Promise`\<[`AgentCandidateExecutionStageResult`](#agentcandidateexecutionstageresult)\>
 
-Defined in: [candidate-execution/claim-file-store.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L158)
+Defined in: [candidate-execution/claim-file-store.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L150)
 
 Fsync the complete terminal record into the durable outbox.
 
@@ -130,7 +130,7 @@ Fsync the complete terminal record into the durable outbox.
 
 > **finish**(`requestedLease`, `requestedTerminalDigest`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
 
-Defined in: [candidate-execution/claim-file-store.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L191)
+Defined in: [candidate-execution/claim-file-store.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L182)
 
 Publish exactly the staged terminal identified by `terminalDigest`.
 
@@ -156,7 +156,7 @@ Publish exactly the staged terminal identified by `terminalDigest`.
 
 > **recoverExpired**(`requestedAttempt`, `evidence`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
 
-Defined in: [candidate-execution/claim-file-store.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L228)
+Defined in: [candidate-execution/claim-file-store.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L218)
 
 Write a failed terminal only after the lease expired and a trusted worker
 independently proved process death plus model and memory closure.
@@ -183,7 +183,7 @@ independently proved process death plus model and memory closure.
 
 ### InMemoryAgentCandidateExecutionClaimStore
 
-Defined in: [candidate-execution/claim.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L286)
+Defined in: [candidate-execution/claim.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L280)
 
 Single-process lifecycle implementation.
 
@@ -197,7 +197,7 @@ Single-process lifecycle implementation.
 
 > **new InMemoryAgentCandidateExecutionClaimStore**(`options?`): [`InMemoryAgentCandidateExecutionClaimStore`](#inmemoryagentcandidateexecutionclaimstore)
 
-Defined in: [candidate-execution/claim.ts:292](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L292)
+Defined in: [candidate-execution/claim.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L286)
 
 ###### Parameters
 
@@ -215,7 +215,7 @@ Defined in: [candidate-execution/claim.ts:292](https://github.com/tangle-network
 
 > **tryClaim**(`requested`): `Promise`\<[`AgentCandidateExecutionClaimResult`](#agentcandidateexecutionclaimresult)\>
 
-Defined in: [candidate-execution/claim.ts:296](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L296)
+Defined in: [candidate-execution/claim.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L290)
 
 ###### Parameters
 
@@ -235,7 +235,7 @@ Defined in: [candidate-execution/claim.ts:296](https://github.com/tangle-network
 
 > **getAttempt**(`requestedAttempt`): `Promise`\<[`AgentCandidateExecutionAttemptRecord`](#agentcandidateexecutionattemptrecord) \| `undefined`\>
 
-Defined in: [candidate-execution/claim.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L319)
+Defined in: [candidate-execution/claim.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L313)
 
 ###### Parameters
 
@@ -255,7 +255,7 @@ Defined in: [candidate-execution/claim.ts:319](https://github.com/tangle-network
 
 > **markCandidateMayRun**(`requestedLease`): `Promise`\<[`AgentCandidateExecutionPhaseResult`](#agentcandidateexecutionphaseresult)\>
 
-Defined in: [candidate-execution/claim.ts:329](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L329)
+Defined in: [candidate-execution/claim.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L323)
 
 Persist the point after which candidate code may have run.
 
@@ -277,7 +277,7 @@ Persist the point after which candidate code may have run.
 
 > **stageTerminal**(`requestedLease`, `result`): `Promise`\<[`AgentCandidateExecutionStageResult`](#agentcandidateexecutionstageresult)\>
 
-Defined in: [candidate-execution/claim.ts:346](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L346)
+Defined in: [candidate-execution/claim.ts:340](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L340)
 
 Fsync the complete terminal record into the durable outbox.
 
@@ -303,7 +303,7 @@ Fsync the complete terminal record into the durable outbox.
 
 > **finish**(`requestedLease`, `requestedTerminalDigest`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
 
-Defined in: [candidate-execution/claim.ts:361](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L361)
+Defined in: [candidate-execution/claim.ts:355](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L355)
 
 Publish exactly the staged terminal identified by `terminalDigest`.
 
@@ -329,7 +329,7 @@ Publish exactly the staged terminal identified by `terminalDigest`.
 
 > **recoverExpired**(`requestedAttempt`, `evidence`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
 
-Defined in: [candidate-execution/claim.ts:379](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L379)
+Defined in: [candidate-execution/claim.ts:373](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L373)
 
 Write a failed terminal only after the lease expired and a trusted worker
 independently proved process death plus model and memory closure.
@@ -1323,7 +1323,7 @@ Defined in: [candidate-execution/builder.ts:64](https://github.com/tangle-networ
 
 ### FileAgentCandidateExecutionClaimStoreOptions
 
-Defined in: [candidate-execution/claim-file-store.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L66)
+Defined in: [candidate-execution/claim-file-store.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L60)
 
 #### Properties
 
@@ -1331,7 +1331,7 @@ Defined in: [candidate-execution/claim-file-store.ts:66](https://github.com/tang
 
 > **directory**: `string`
 
-Defined in: [candidate-execution/claim-file-store.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L68)
+Defined in: [candidate-execution/claim-file-store.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L62)
 
 Evaluator-owned directory shared by every process allowed to execute candidates.
 
@@ -1339,7 +1339,7 @@ Evaluator-owned directory shared by every process allowed to execute candidates.
 
 > `optional` **now?**: () => `number`
 
-Defined in: [candidate-execution/claim-file-store.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L70)
+Defined in: [candidate-execution/claim-file-store.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim-file-store.ts#L64)
 
 Testable evaluator clock; defaults to `Date.now`.
 
@@ -1351,7 +1351,7 @@ Testable evaluator clock; defaults to `Date.now`.
 
 ### AgentCandidateExecutionCleanupHandles
 
-Defined in: [candidate-execution/claim.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L42)
+Defined in: [candidate-execution/claim.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L38)
 
 Non-secret identities a trusted recovery worker needs to close an abandoned attempt.
 
@@ -1361,37 +1361,37 @@ Non-secret identities a trusted recovery worker needs to close an abandoned atte
 
 > `readonly` **preparationId**: `string`
 
-Defined in: [candidate-execution/claim.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L43)
+Defined in: [candidate-execution/claim.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L39)
 
 ##### modelGrantDigest
 
 > `readonly` **modelGrantDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/claim.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L44)
+Defined in: [candidate-execution/claim.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L40)
 
 ##### resolvedModel
 
 > `readonly` **resolvedModel**: `AgentCandidateResolvedModel`
 
-Defined in: [candidate-execution/claim.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L45)
+Defined in: [candidate-execution/claim.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L41)
 
 ##### traceRunId
 
 > `readonly` **traceRunId**: `string`
 
-Defined in: [candidate-execution/claim.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L46)
+Defined in: [candidate-execution/claim.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L42)
 
 ##### cleanupTimeoutMs
 
 > `readonly` **cleanupTimeoutMs**: `number`
 
-Defined in: [candidate-execution/claim.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L47)
+Defined in: [candidate-execution/claim.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L43)
 
 ##### memory?
 
 > `readonly` `optional` **memory?**: `object`
 
-Defined in: [candidate-execution/claim.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L48)
+Defined in: [candidate-execution/claim.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L44)
 
 ###### accessDigest
 
@@ -1405,7 +1405,7 @@ Defined in: [candidate-execution/claim.ts:48](https://github.com/tangle-network/
 
 ### AgentCandidateExecutionClaim
 
-Defined in: [candidate-execution/claim.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L55)
+Defined in: [candidate-execution/claim.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L51)
 
 Immutable signed identity stored for one execution attempt.
 
@@ -1415,43 +1415,43 @@ Immutable signed identity stored for one execution attempt.
 
 > `readonly` **executionId**: `string`
 
-Defined in: [candidate-execution/claim.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L56)
+Defined in: [candidate-execution/claim.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L52)
 
 ##### attempt
 
 > `readonly` **attempt**: `number`
 
-Defined in: [candidate-execution/claim.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L57)
+Defined in: [candidate-execution/claim.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L53)
 
 ##### maxAttempts
 
 > `readonly` **maxAttempts**: `number`
 
-Defined in: [candidate-execution/claim.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L58)
+Defined in: [candidate-execution/claim.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L54)
 
 ##### retryPolicy
 
 > `readonly` **retryPolicy**: `"none"` \| `"pre-model-infrastructure-only"`
 
-Defined in: [candidate-execution/claim.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L59)
+Defined in: [candidate-execution/claim.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L55)
 
 ##### bundleDigest
 
 > `readonly` **bundleDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/claim.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L60)
+Defined in: [candidate-execution/claim.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L56)
 
 ##### executionPlanDigest
 
 > `readonly` **executionPlanDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/claim.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L61)
+Defined in: [candidate-execution/claim.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L57)
 
 ##### preparationEvidence
 
 > `readonly` **preparationEvidence**: `AgentCandidatePreparationEvidence`
 
-Defined in: [candidate-execution/claim.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L63)
+Defined in: [candidate-execution/claim.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L59)
 
 Durable canonical bytes needed to reconstruct the signed preparation.
 
@@ -1459,7 +1459,7 @@ Durable canonical bytes needed to reconstruct the signed preparation.
 
 > `readonly` **retryLineageDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/claim.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L65)
+Defined in: [candidate-execution/claim.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L61)
 
 Frozen plan identity with only attempt number and per-attempt grant identity normalized.
 
@@ -1467,7 +1467,7 @@ Frozen plan identity with only attempt number and per-attempt grant identity nor
 
 > `readonly` **leaseExpiresAtMs**: `number`
 
-Defined in: [candidate-execution/claim.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L67)
+Defined in: [candidate-execution/claim.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L63)
 
 The winning lease stops authorizing a new terminal write at this instant.
 
@@ -1475,7 +1475,7 @@ The winning lease stops authorizing a new terminal write at this instant.
 
 > `readonly` **resultTimeoutMs**: `number`
 
-Defined in: [candidate-execution/claim.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L69)
+Defined in: [candidate-execution/claim.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L65)
 
 Frozen budget for task verification, executable grading, and receipt construction.
 
@@ -1483,7 +1483,7 @@ Frozen budget for task verification, executable grading, and receipt constructio
 
 > `readonly` **cleanup**: [`AgentCandidateExecutionCleanupHandles`](#agentcandidateexecutioncleanuphandles)
 
-Defined in: [candidate-execution/claim.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L71)
+Defined in: [candidate-execution/claim.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L67)
 
 Non-secret handles retained so an expired attempt can be closed and reconciled.
 
@@ -1491,7 +1491,7 @@ Non-secret handles retained so an expired attempt can be closed and reconciled.
 
 ### AgentCandidateExecutionLease
 
-Defined in: [candidate-execution/claim.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L75)
+Defined in: [candidate-execution/claim.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L71)
 
 Secret capability required to finish the acquired attempt.
 
@@ -1501,31 +1501,31 @@ Secret capability required to finish the acquired attempt.
 
 > `readonly` **executionId**: `string`
 
-Defined in: [candidate-execution/claim.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L76)
+Defined in: [candidate-execution/claim.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L72)
 
 ##### attempt
 
 > `readonly` **attempt**: `number`
 
-Defined in: [candidate-execution/claim.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L77)
+Defined in: [candidate-execution/claim.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L73)
 
 ##### token
 
 > `readonly` **token**: `string`
 
-Defined in: [candidate-execution/claim.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L78)
+Defined in: [candidate-execution/claim.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L74)
 
 ##### expiresAtMs
 
 > `readonly` **expiresAtMs**: `number`
 
-Defined in: [candidate-execution/claim.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L79)
+Defined in: [candidate-execution/claim.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L75)
 
 ***
 
 ### AgentCandidateExecutionRecoveryEvidence
 
-Defined in: [candidate-execution/claim.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L124)
+Defined in: [candidate-execution/claim.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L118)
 
 Trusted, independently observed closure facts for one expired winning lease.
 
@@ -1535,31 +1535,31 @@ Trusted, independently observed closure facts for one expired winning lease.
 
 > `readonly` **failureClass**: [`AgentCandidateExecutionFailureClass`](#agentcandidateexecutionfailureclass)
 
-Defined in: [candidate-execution/claim.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L125)
+Defined in: [candidate-execution/claim.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L119)
 
 ##### usage
 
 > `readonly` **usage**: `AgentCandidateFixedSpend`
 
-Defined in: [candidate-execution/claim.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L126)
+Defined in: [candidate-execution/claim.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L120)
 
 ##### modelSettlement
 
 > `readonly` **modelSettlement**: `AgentCandidateArtifactRef`
 
-Defined in: [candidate-execution/claim.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L127)
+Defined in: [candidate-execution/claim.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L121)
 
 ##### failureEvidence?
 
 > `readonly` `optional` **failureEvidence?**: `AgentCandidateArtifactRef`
 
-Defined in: [candidate-execution/claim.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L128)
+Defined in: [candidate-execution/claim.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L122)
 
 ##### process
 
 > `readonly` **process**: `object`
 
-Defined in: [candidate-execution/claim.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L129)
+Defined in: [candidate-execution/claim.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L123)
 
 ###### stopped
 
@@ -1573,7 +1573,7 @@ Defined in: [candidate-execution/claim.ts:129](https://github.com/tangle-network
 
 > `readonly` **model**: `object`
 
-Defined in: [candidate-execution/claim.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L133)
+Defined in: [candidate-execution/claim.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L127)
 
 ###### closed
 
@@ -1591,7 +1591,7 @@ Defined in: [candidate-execution/claim.ts:133](https://github.com/tangle-network
 
 > `readonly` `optional` **memory?**: `object`
 
-Defined in: [candidate-execution/claim.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L138)
+Defined in: [candidate-execution/claim.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L132)
 
 ###### closed
 
@@ -1613,7 +1613,7 @@ Defined in: [candidate-execution/claim.ts:138](https://github.com/tangle-network
 
 ### AgentCandidateExecutionAttemptRef
 
-Defined in: [candidate-execution/claim.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L146)
+Defined in: [candidate-execution/claim.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L140)
 
 #### Properties
 
@@ -1621,19 +1621,19 @@ Defined in: [candidate-execution/claim.ts:146](https://github.com/tangle-network
 
 > `readonly` **executionId**: `string`
 
-Defined in: [candidate-execution/claim.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L147)
+Defined in: [candidate-execution/claim.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L141)
 
 ##### attempt
 
 > `readonly` **attempt**: `number`
 
-Defined in: [candidate-execution/claim.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L148)
+Defined in: [candidate-execution/claim.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L142)
 
 ***
 
 ### AgentCandidateExecutionAttemptRecord
 
-Defined in: [candidate-execution/claim.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L152)
+Defined in: [candidate-execution/claim.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L146)
 
 Persisted state available to a fresh trusted recovery worker after a crash.
 
@@ -1643,19 +1643,19 @@ Persisted state available to a fresh trusted recovery worker after a crash.
 
 > `readonly` **claim**: [`AgentCandidateExecutionClaim`](#agentcandidateexecutionclaim)
 
-Defined in: [candidate-execution/claim.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L153)
+Defined in: [candidate-execution/claim.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L147)
 
 ##### phase
 
 > `readonly` **phase**: [`AgentCandidateExecutionPhase`](#agentcandidateexecutionphase)
 
-Defined in: [candidate-execution/claim.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L154)
+Defined in: [candidate-execution/claim.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L148)
 
 ##### staged?
 
 > `readonly` `optional` **staged?**: [`AgentCandidateExecutionTerminalRecord`](#agentcandidateexecutionterminalrecord)
 
-Defined in: [candidate-execution/claim.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L156)
+Defined in: [candidate-execution/claim.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L150)
 
 Durable outbox content written before the terminal compare-and-set.
 
@@ -1663,13 +1663,13 @@ Durable outbox content written before the terminal compare-and-set.
 
 > `readonly` `optional` **terminal?**: [`AgentCandidateExecutionTerminalRecord`](#agentcandidateexecutionterminalrecord)
 
-Defined in: [candidate-execution/claim.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L157)
+Defined in: [candidate-execution/claim.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L151)
 
 ***
 
 ### AgentCandidateExecutionClaimStore
 
-Defined in: [candidate-execution/claim.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L229)
+Defined in: [candidate-execution/claim.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L223)
 
 Atomic one-shot store for candidate execution attempts.
 
@@ -1685,7 +1685,7 @@ evidence rather than an ambiguous completed run.
 
 > **tryClaim**(`claim`): `Promise`\<[`AgentCandidateExecutionClaimResult`](#agentcandidateexecutionclaimresult)\>
 
-Defined in: [candidate-execution/claim.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L230)
+Defined in: [candidate-execution/claim.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L224)
 
 ###### Parameters
 
@@ -1701,7 +1701,7 @@ Defined in: [candidate-execution/claim.ts:230](https://github.com/tangle-network
 
 > **getAttempt**(`attempt`): `Promise`\<[`AgentCandidateExecutionAttemptRecord`](#agentcandidateexecutionattemptrecord) \| `undefined`\>
 
-Defined in: [candidate-execution/claim.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L231)
+Defined in: [candidate-execution/claim.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L225)
 
 ###### Parameters
 
@@ -1717,7 +1717,7 @@ Defined in: [candidate-execution/claim.ts:231](https://github.com/tangle-network
 
 > **markCandidateMayRun**(`lease`): `Promise`\<[`AgentCandidateExecutionPhaseResult`](#agentcandidateexecutionphaseresult)\>
 
-Defined in: [candidate-execution/claim.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L235)
+Defined in: [candidate-execution/claim.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L229)
 
 Persist the point after which candidate code may have run.
 
@@ -1735,7 +1735,7 @@ Persist the point after which candidate code may have run.
 
 > **stageTerminal**(`lease`, `result`): `Promise`\<[`AgentCandidateExecutionStageResult`](#agentcandidateexecutionstageresult)\>
 
-Defined in: [candidate-execution/claim.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L239)
+Defined in: [candidate-execution/claim.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L233)
 
 Fsync the complete terminal record into the durable outbox.
 
@@ -1757,7 +1757,7 @@ Fsync the complete terminal record into the durable outbox.
 
 > **finish**(`lease`, `terminalDigest`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
 
-Defined in: [candidate-execution/claim.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L244)
+Defined in: [candidate-execution/claim.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L238)
 
 Publish exactly the staged terminal identified by `terminalDigest`.
 
@@ -1779,7 +1779,7 @@ Publish exactly the staged terminal identified by `terminalDigest`.
 
 > **recoverExpired**(`attempt`, `evidence`): `Promise`\<[`AgentCandidateExecutionFinishResult`](#agentcandidateexecutionfinishresult)\>
 
-Defined in: [candidate-execution/claim.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L252)
+Defined in: [candidate-execution/claim.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L246)
 
 Write a failed terminal only after the lease expired and a trusted worker
 independently proved process death plus model and memory closure.
@@ -3850,7 +3850,7 @@ Defined in: [candidate-execution/workspace-archive.ts:63](https://github.com/tan
 
 ### CaptureAgentCandidateWorkspaceOptions
 
-Defined in: [candidate-execution/workspace-archive.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L102)
+Defined in: [candidate-execution/workspace-archive.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L101)
 
 #### Properties
 
@@ -3858,7 +3858,7 @@ Defined in: [candidate-execution/workspace-archive.ts:102](https://github.com/ta
 
 > `optional` **includeRepository?**: `boolean`
 
-Defined in: [candidate-execution/workspace-archive.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L104)
+Defined in: [candidate-execution/workspace-archive.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L103)
 
 Include Git HEAD so task preparation can prove its exact commit and tree.
 
@@ -3866,13 +3866,13 @@ Include Git HEAD so task preparation can prove its exact commit and tree.
 
 > `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
 
-Defined in: [candidate-execution/workspace-archive.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L105)
+Defined in: [candidate-execution/workspace-archive.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L104)
 
 ##### artifactPersistence?
 
 > `optional` **artifactPersistence?**: `object`
 
-Defined in: [candidate-execution/workspace-archive.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L107)
+Defined in: [candidate-execution/workspace-archive.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L106)
 
 Use the evaluator-owned artifact store when manifest or archive bytes should not be embedded.
 
@@ -3892,7 +3892,7 @@ Use the evaluator-owned artifact store when manifest or archive bytes should not
 
 ### CreateAgentCandidateWorkspacePortOptions
 
-Defined in: [candidate-execution/workspace-archive.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L114)
+Defined in: [candidate-execution/workspace-archive.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L113)
 
 #### Properties
 
@@ -3900,13 +3900,13 @@ Defined in: [candidate-execution/workspace-archive.ts:114](https://github.com/ta
 
 > `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
 
-Defined in: [candidate-execution/workspace-archive.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L115)
+Defined in: [candidate-execution/workspace-archive.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L114)
 
 ***
 
 ### CapturedAgentCandidateWorkspace
 
-Defined in: [candidate-execution/workspace-archive.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L118)
+Defined in: [candidate-execution/workspace-archive.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L117)
 
 #### Properties
 
@@ -3914,13 +3914,13 @@ Defined in: [candidate-execution/workspace-archive.ts:118](https://github.com/ta
 
 > `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
 
-Defined in: [candidate-execution/workspace-archive.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L119)
+Defined in: [candidate-execution/workspace-archive.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L118)
 
 ##### archive
 
 > `readonly` **archive**: `Uint8Array`
 
-Defined in: [candidate-execution/workspace-archive.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L121)
+Defined in: [candidate-execution/workspace-archive.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L120)
 
 Caller-owned bytes accepted by createAgentCandidateWorkspacePort.
 
@@ -5433,7 +5433,7 @@ Content type for the response.
 
 ### VerifyResult
 
-Defined in: [improvement/agentic-generator.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L72)
+Defined in: [improvement/agentic-generator.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L73)
 
 Outcome of verifying a candidate worktree. `feedback` (compiler errors,
  failing test output) is fed into the next shot when `ok` is false.
@@ -5444,19 +5444,19 @@ Outcome of verifying a candidate worktree. `feedback` (compiler errors,
 
 > **ok**: `boolean`
 
-Defined in: [improvement/agentic-generator.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L73)
+Defined in: [improvement/agentic-generator.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L74)
 
 ##### feedback?
 
 > `optional` **feedback?**: `string`
 
-Defined in: [improvement/agentic-generator.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L74)
+Defined in: [improvement/agentic-generator.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L75)
 
 ***
 
 ### AgenticGeneratorShotReceipt
 
-Defined in: [improvement/agentic-generator.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L82)
+Defined in: [improvement/agentic-generator.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L83)
 
 `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
 agent-eval's improvement loop.
@@ -5469,12 +5469,6 @@ producer, which mutates an isolated git worktree via a pluggable
   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
 
 #### Properties
-
-##### schemaVersion
-
-> `readonly` **schemaVersion**: `1`
-
-Defined in: [improvement/agentic-generator.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L83)
 
 ##### generation
 
@@ -5652,7 +5646,7 @@ Defined in: [improvement/agentic-generator.ts:115](https://github.com/tangle-net
 
 ### AgenticGeneratorOptions
 
-Defined in: [improvement/agentic-generator.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L118)
+Defined in: [improvement/agentic-generator.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L158)
 
 `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
 agent-eval's improvement loop.
@@ -5670,7 +5664,7 @@ producer, which mutates an isolated git worktree via a pluggable
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [improvement/agentic-generator.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L120)
+Defined in: [improvement/agentic-generator.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L160)
 
 Local coding harness to run in the worktree. Default `claude`.
 
@@ -5678,7 +5672,7 @@ Local coding harness to run in the worktree. Default `claude`.
 
 > `optional` **profile?**: `AgentProfile`
 
-Defined in: [improvement/agentic-generator.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L123)
+Defined in: [improvement/agentic-generator.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L163)
 
 Author profile rendered through the canonical harness mapper. Required
  for reproducible Codex so model and reasoning settings are explicit.
@@ -5687,7 +5681,7 @@ Author profile rendered through the canonical harness mapper. Required
 
 > `optional` **codexReproducible?**: `boolean`
 
-Defined in: [improvement/agentic-generator.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L126)
+Defined in: [improvement/agentic-generator.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L166)
 
 Run Codex with isolated configuration, exact prompt evidence, and required
  terminal token usage. Requires `harness: 'codex'` and `profile`.
@@ -5696,25 +5690,54 @@ Run Codex with isolated configuration, exact prompt evidence, and required
 
 > `optional` **codexReadDeniedPaths?**: readonly `string`[] \| ((`worktreePath`) => readonly `string`[])
 
-Defined in: [improvement/agentic-generator.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L129)
+Defined in: [improvement/agentic-generator.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L169)
 
 Absolute paths reproducible Codex must not read. A function can derive
  candidate-specific paths after the driver creates its worktree.
 
 ##### onShotCompleted?
 
-> `optional` **onShotCompleted?**: (`receipt`) => `void` \| `Promise`\<`void`\>
+> `optional` **onShotCompleted?**: (`receipt`, `execution`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [improvement/agentic-generator.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L132)
+Defined in: [improvement/agentic-generator.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L174)
 
 Awaited once for every attempted author shot, including process failures.
- Throwing aborts the candidate so receipt persistence can fail closed.
+ The second argument preserves the exact harness result, including stdout
+ and stderr, before worktree inspection or verification can reject the
+ shot. Throwing aborts the candidate so evidence persistence fails closed.
 
 ###### Parameters
 
 ###### receipt
 
 [`AgenticGeneratorShotReceipt`](#agenticgeneratorshotreceipt)
+
+###### execution
+
+`Readonly`\<`Omit`\<[`LocalHarnessResult`](mcp.md#localharnessresult), `"usage"` \| `"evidence"`\> & `object`\> \| `null`
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### onShotDisposition?
+
+> `optional` **onShotDisposition?**: (`receipt`, `disposition`) => `void` \| `Promise`\<`void`\>
+
+Defined in: [improvement/agentic-generator.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L180)
+
+Awaited after worktree inspection and before the shot is accepted,
+ retried, or discarded. Throwing aborts the candidate.
+
+###### Parameters
+
+###### receipt
+
+[`AgenticGeneratorShotReceipt`](#agenticgeneratorshotreceipt)
+
+###### disposition
+
+[`AgenticGeneratorShotDisposition`](#agenticgeneratorshotdisposition)
 
 ###### Returns
 
@@ -5724,7 +5747,7 @@ Awaited once for every attempted author shot, including process failures.
 
 > `optional` **maximumCharge?**: `MaximumCharge`
 
-Defined in: [improvement/agentic-generator.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L137)
+Defined in: [improvement/agentic-generator.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L188)
 
 Optional hard upper bound passed to the run-wide CostLedger before each
  author shot. This MUST be enforced by the provider or executor; a planning
@@ -5735,7 +5758,7 @@ Optional hard upper bound passed to the run-wide CostLedger before each
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [improvement/agentic-generator.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L139)
+Defined in: [improvement/agentic-generator.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L190)
 
 Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
@@ -5743,7 +5766,7 @@ Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
 > `optional` **buildPrompt?**: (`args`) => `string`
 
-Defined in: [improvement/agentic-generator.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L142)
+Defined in: [improvement/agentic-generator.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L193)
 
 Build the harness task prompt from the report + findings. Override for
  domain phrasing; the default turns findings into a concrete coder task.
@@ -5768,7 +5791,7 @@ Build the harness task prompt from the report + findings. Override for
 
 > `optional` **verify?**: [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L148)
+Defined in: [improvement/agentic-generator.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L199)
 
 Verify the worktree after each dirtying shot. When set, a candidate that
  fails verification is NOT returned — the failure feeds the next shot
@@ -5780,7 +5803,7 @@ Verify the worktree after each dirtying shot. When set, a candidate that
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [improvement/agentic-generator.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L150)
+Defined in: [improvement/agentic-generator.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L201)
 
 Test seam — inject the harness runner (defaults to `runLocalHarness`).
 
@@ -5816,7 +5839,7 @@ Does NOT throw when:
 
 > `optional` **isDirty?**: (`worktreePath`) => `boolean`
 
-Defined in: [improvement/agentic-generator.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L152)
+Defined in: [improvement/agentic-generator.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L203)
 
 Test seam — inject the worktree-dirty check (defaults to `git status`).
 
@@ -6055,7 +6078,7 @@ Release resources owned by this result. Idempotent; currently disposes
 
 ### CandidateGenerator
 
-Defined in: [improvement/improvement-driver.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L41)
+Defined in: [improvement/improvement-driver.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L40)
 
 The byte-producing seam — the ONE thing that differs between the cheap
  reflective path and the full agentic path. A generator makes (uncommitted)
@@ -6068,13 +6091,13 @@ The byte-producing seam — the ONE thing that differs between the cheap
 
 > **kind**: `string`
 
-Defined in: [improvement/improvement-driver.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L42)
+Defined in: [improvement/improvement-driver.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L41)
 
 ##### proposesWithoutFindings?
 
 > `optional` **proposesWithoutFindings?**: `boolean`
 
-Defined in: [improvement/improvement-driver.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L53)
+Defined in: [improvement/improvement-driver.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L52)
 
 Whether this generator can produce a candidate from an EMPTY findings set
  and no phase-2 report — i.e. it draws its change signal from the repo and
@@ -6093,7 +6116,7 @@ Whether this generator can produce a candidate from an EMPTY findings set
 
 > **generate**(`args`): `Promise`\<\{ `applied`: `boolean`; `summary`: `string`; \}\>
 
-Defined in: [improvement/improvement-driver.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L54)
+Defined in: [improvement/improvement-driver.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L53)
 
 ###### Parameters
 
@@ -6164,7 +6187,7 @@ Receipt attribution phase supplied alongside `costLedger`.
 
 ### ImprovementDriverOptions
 
-Defined in: [improvement/improvement-driver.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L77)
+Defined in: [improvement/improvement-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L76)
 
 #### Properties
 
@@ -6172,19 +6195,19 @@ Defined in: [improvement/improvement-driver.ts:77](https://github.com/tangle-net
 
 > **worktree**: `WorktreeAdapter`
 
-Defined in: [improvement/improvement-driver.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L78)
+Defined in: [improvement/improvement-driver.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L77)
 
 ##### generator
 
 > **generator**: [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/improvement-driver.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L79)
+Defined in: [improvement/improvement-driver.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L78)
 
 ##### baseRef?
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [improvement/improvement-driver.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L82)
+Defined in: [improvement/improvement-driver.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L81)
 
 Root ref for first-generation/direct callers. Default `main`.
  Later code generations retain the incumbent's original root.
@@ -6193,7 +6216,7 @@ Root ref for first-generation/direct callers. Default `main`.
 
 ### ManagedImprovementDriver
 
-Defined in: [improvement/improvement-driver.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L85)
+Defined in: [improvement/improvement-driver.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L84)
 
 #### Extends
 
@@ -6205,7 +6228,7 @@ Defined in: [improvement/improvement-driver.ts:85](https://github.com/tangle-net
 
 > **cleanup**(`retainWorktreeRefs?`): `Promise`\<`void`\>
 
-Defined in: [improvement/improvement-driver.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L87)
+Defined in: [improvement/improvement-driver.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L86)
 
 Remove every owned candidate except explicitly retained finalized winners.
 
@@ -6267,35 +6290,9 @@ Minimum tools the server must expose to pass. Default 1.
 
 ***
 
-### AgentProfileDiffProposal
-
-Defined in: [improvement/profile-diff-proposer.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L20)
-
-#### Properties
-
-##### diff
-
-> **diff**: `AgentProfileDiff`
-
-Defined in: [improvement/profile-diff-proposer.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L21)
-
-##### label?
-
-> `optional` **label?**: `string`
-
-Defined in: [improvement/profile-diff-proposer.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L22)
-
-##### rationale?
-
-> `optional` **rationale?**: `string`
-
-Defined in: [improvement/profile-diff-proposer.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L23)
-
-***
-
 ### ProfileDiffProposerOptions
 
-Defined in: [improvement/profile-diff-proposer.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L30)
+Defined in: [improvement/profile-diff-proposer.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L24)
 
 #### Type Parameters
 
@@ -6307,9 +6304,9 @@ Defined in: [improvement/profile-diff-proposer.ts:30](https://github.com/tangle-
 
 ##### proposeDiffs()
 
-> **proposeDiffs**(`context`): readonly [`AgentProfileDiffProposal`](#agentprofilediffproposal)[] \| `Promise`\<readonly [`AgentProfileDiffProposal`](#agentprofilediffproposal)[]\>
+> **proposeDiffs**(`context`): readonly `AgentProfileDiff`[] \| `Promise`\<readonly `AgentProfileDiff`[]\>
 
-Defined in: [improvement/profile-diff-proposer.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L31)
+Defined in: [improvement/profile-diff-proposer.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L25)
 
 ###### Parameters
 
@@ -6319,7 +6316,7 @@ Defined in: [improvement/profile-diff-proposer.ts:31](https://github.com/tangle-
 
 ###### Returns
 
-readonly [`AgentProfileDiffProposal`](#agentprofilediffproposal)[] \| `Promise`\<readonly [`AgentProfileDiffProposal`](#agentprofilediffproposal)[]\>
+readonly `AgentProfileDiff`[] \| `Promise`\<readonly `AgentProfileDiff`[]\>
 
 ***
 
@@ -10551,7 +10548,7 @@ Exact candidate wire shape before the runtime computes its canonical digest.
 
 > **AgentCandidateExecutionFailureClass** = `"pre-model-infrastructure"` \| `"execution"` \| `"post-model-infrastructure"` \| `"unknown"`
 
-Defined in: [candidate-execution/claim.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L83)
+Defined in: [candidate-execution/claim.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L79)
 
 Only the first class is retryable, and only when the closed model ledger has zero calls.
 
@@ -10559,9 +10556,9 @@ Only the first class is retryable, and only when the closed model ledger has zer
 
 ### AgentCandidateExecutionTerminalResult
 
-> **AgentCandidateExecutionTerminalResult** = \{ `schemaVersion`: `1`; `status`: `"succeeded"`; `usage`: `AgentCandidateFixedSpend`; `modelSettlement`: `AgentCandidateArtifactRef`; `taskOutcome`: `AgentCandidateArtifactRef`; `benchmarkResult`: `AgentCandidateArtifactRef`; `runReceipt`: `AgentCandidateArtifactRef`; \} \| \{ `schemaVersion`: `1`; `status`: `"failed"`; `failureClass`: [`AgentCandidateExecutionFailureClass`](#agentcandidateexecutionfailureclass); `usage`: `AgentCandidateFixedSpend`; `modelSettlement`: `AgentCandidateArtifactRef`; `failureEvidence?`: `AgentCandidateArtifactRef`; \}
+> **AgentCandidateExecutionTerminalResult** = \{ `status`: `"succeeded"`; `usage`: `AgentCandidateFixedSpend`; `modelSettlement`: `AgentCandidateArtifactRef`; `taskOutcome`: `AgentCandidateArtifactRef`; `benchmarkResult`: `AgentCandidateArtifactRef`; `runReceipt`: `AgentCandidateArtifactRef`; \} \| \{ `status`: `"failed"`; `failureClass`: [`AgentCandidateExecutionFailureClass`](#agentcandidateexecutionfailureclass); `usage`: `AgentCandidateFixedSpend`; `modelSettlement`: `AgentCandidateArtifactRef`; `failureEvidence?`: `AgentCandidateArtifactRef`; \}
 
-Defined in: [candidate-execution/claim.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L90)
+Defined in: [candidate-execution/claim.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L86)
 
 Evaluator-owned terminal facts staged durably before the terminal CAS.
 
@@ -10571,7 +10568,7 @@ Evaluator-owned terminal facts staged durably before the terminal CAS.
 
 > **AgentCandidateExecutionTerminalRecord** = [`AgentCandidateExecutionTerminalResult`](#agentcandidateexecutionterminalresult) & `object`
 
-Defined in: [candidate-execution/claim.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L110)
+Defined in: [candidate-execution/claim.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L104)
 
 Durable terminal record for one acquired execution attempt.
 
@@ -10609,7 +10606,7 @@ RFC 8785 SHA-256 of this record with `terminalDigest` omitted.
 
 > **AgentCandidateExecutionPhase** = `"claimed"` \| `"candidate-may-run"`
 
-Defined in: [candidate-execution/claim.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L121)
+Defined in: [candidate-execution/claim.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L115)
 
 Monotonic durable phase: the second value means candidate code could have started.
 
@@ -10619,7 +10616,7 @@ Monotonic durable phase: the second value means candidate code could have starte
 
 > **AgentCandidateExecutionClaimResult** = \{ `acquired`: `true`; `claim`: [`AgentCandidateExecutionClaim`](#agentcandidateexecutionclaim); `lease`: [`AgentCandidateExecutionLease`](#agentcandidateexecutionlease); \} \| \{ `acquired`: `false`; `reason`: `"already-claimed"`; `claim`: [`AgentCandidateExecutionClaim`](#agentcandidateexecutionclaim); `exactReplay`: `boolean`; \} \| \{ `acquired`: `false`; `reason`: `"retry-not-eligible"`; `claim`: [`AgentCandidateExecutionClaim`](#agentcandidateexecutionclaim); `detail`: [`AgentCandidateRetryRejection`](#agentcandidateretryrejection); \}
 
-Defined in: [candidate-execution/claim.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L161)
+Defined in: [candidate-execution/claim.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L155)
 
 Result of atomically claiming one execution attempt.
 
@@ -10667,7 +10664,7 @@ True only when every signed claim field matches the durable winner.
 
 > **AgentCandidateExecutionFinishResult** = \{ `finished`: `true`; `terminal`: [`AgentCandidateExecutionTerminalRecord`](#agentcandidateexecutionterminalrecord); \} \| \{ `finished`: `false`; `terminal`: [`AgentCandidateExecutionTerminalRecord`](#agentcandidateexecutionterminalrecord); `exactReplay`: `boolean`; \}
 
-Defined in: [candidate-execution/claim.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L183)
+Defined in: [candidate-execution/claim.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L177)
 
 Result of atomically recording an attempt's terminal facts.
 
@@ -10703,7 +10700,7 @@ True when a repeated finish supplied the same terminal digest.
 
 > **AgentCandidateExecutionStageResult** = \{ `staged`: `true`; `terminal`: [`AgentCandidateExecutionTerminalRecord`](#agentcandidateexecutionterminalrecord); \} \| \{ `staged`: `false`; `terminal`: [`AgentCandidateExecutionTerminalRecord`](#agentcandidateexecutionterminalrecord); `exactReplay`: `boolean`; \}
 
-Defined in: [candidate-execution/claim.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L196)
+Defined in: [candidate-execution/claim.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L190)
 
 Result of durably staging the one immutable terminal outbox entry.
 
@@ -10713,7 +10710,7 @@ Result of durably staging the one immutable terminal outbox entry.
 
 > **AgentCandidateExecutionPhaseResult** = \{ `marked`: `true`; `phase`: `"candidate-may-run"`; \} \| \{ `marked`: `false`; `phase`: `"candidate-may-run"`; \}
 
-Defined in: [candidate-execution/claim.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L208)
+Defined in: [candidate-execution/claim.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L202)
 
 Result of crossing the irreversible candidate-may-run boundary.
 
@@ -10723,7 +10720,7 @@ Result of crossing the irreversible candidate-may-run boundary.
 
 > **AgentCandidateRetryRejection** = `"prior-attempt-missing"` \| `"prior-attempt-running"` \| `"prior-attempt-succeeded"` \| `"prior-attempt-spent-model-calls"` \| `"prior-attempt-not-pre-model-infrastructure"` \| `"retry-lineage-mismatch"`
 
-Defined in: [candidate-execution/claim.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L212)
+Defined in: [candidate-execution/claim.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/claim.ts#L206)
 
 ***
 
@@ -11033,7 +11030,7 @@ Defined in: [conversation/types.ts:237](https://github.com/tangle-network/agent-
 
 > **Verifier** = (`worktreePath`) => `Promise`\<[`VerifyResult`](#verifyresult)\> \| [`VerifyResult`](#verifyresult)
 
-Defined in: [improvement/agentic-generator.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L80)
+Defined in: [improvement/agentic-generator.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L81)
 
 Verifies the edited worktree. Sync or async; throws only on a setup fault
  (a candidate that fails verification returns `{ok:false}`, it does not
@@ -11048,6 +11045,31 @@ Verifies the edited worktree. Sync or async; throws only on a setup fault
 #### Returns
 
 `Promise`\<[`VerifyResult`](#verifyresult)\> \| [`VerifyResult`](#verifyresult)
+
+***
+
+### AgenticGeneratorShotExecution
+
+> **AgenticGeneratorShotExecution** = `Readonly`\<`Omit`\<[`LocalHarnessResult`](mcp.md#localharnessresult), `"usage"` \| `"evidence"`\> & `object`\>
+
+Defined in: [improvement/agentic-generator.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L122)
+
+Frozen exact harness result for an author shot: full streams, process state,
+ token usage, and execution-policy evidence.
+ The `onShotCompleted` callback receives `null` when execution failed before
+ the harness returned.
+
+***
+
+### AgenticGeneratorShotDisposition
+
+> **AgenticGeneratorShotDisposition** = \{ `kind`: `"clean"`; `worktreePath`: `string`; \} \| \{ `kind`: `"rejected"`; `worktreePath`: `string`; `stage`: `"raw-trace-evidence"` \| `"verification"`; `feedback`: `string` \| `null`; \} \| \{ `kind`: `"accepted"`; `worktreePath`: `string`; `verified`: `boolean`; \} \| \{ `kind`: `"setup-error"`; `worktreePath`: `string`; `stage`: `"worktree-inspection"` \| `"raw-trace-evidence"` \| `"verification"`; `error`: \{ `name`: `string`; `message`: `string`; \}; \}
+
+Defined in: [improvement/agentic-generator.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L135)
+
+Worktree decision emitted before a completed shot is retried, accepted, or
+ discarded. The callback runs while `worktreePath` is still available, so
+ callers can persist the exact diff.
 
 ***
 
@@ -11182,7 +11204,7 @@ Custom held-back-exam decision. The string `gate` above controls whether
 
 > **ProfileDiffProposerContext**\<`TFindings`\> = `ProposeContext`\<`TFindings`\> & `object`
 
-Defined in: [improvement/profile-diff-proposer.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L26)
+Defined in: [improvement/profile-diff-proposer.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L20)
 
 #### Type Declaration
 
@@ -11901,7 +11923,7 @@ Hard cap on chained gateway hops; refused beyond this. Default keeps recursion b
 
 > `const` **AGENTIC\_PROFILE\_RESOURCE\_ROOT**: `".agent-runtime-profile-resources"` = `'.agent-runtime-profile-resources'`
 
-Defined in: [improvement/agentic-generator.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L68)
+Defined in: [improvement/agentic-generator.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L69)
 
 Dedicated ephemeral root for generic author-profile files. Every declared
 file must live below this root so cleanup cannot alter candidate-owned files.
@@ -12353,7 +12375,7 @@ Materializes a verified candidate into one immutable evaluator-owned execution p
 
 > **parseExactAgentProfile**(`input`, `label`): `AgentProfile`
 
-Defined in: [candidate-execution/profile.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L188)
+Defined in: [candidate-execution/profile.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L187)
 
 Parse a complete profile without silently discarding unsupported fields.
 
@@ -12377,7 +12399,7 @@ Parse a complete profile without silently discarding unsupported fields.
 
 > **parseExactAgentProfileDiff**(`input`, `label`): `AgentProfileDiff`
 
-Defined in: [candidate-execution/profile.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L195)
+Defined in: [candidate-execution/profile.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L199)
 
 Parse a profile diff without silently discarding unsupported fields.
 
@@ -12401,7 +12423,7 @@ Parse a profile diff without silently discarding unsupported fields.
 
 > **applyExactAgentProfileDiff**(`baseInput`, `diffInput`, `label`): `AgentProfile`
 
-Defined in: [candidate-execution/profile.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L202)
+Defined in: [candidate-execution/profile.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L211)
 
 Apply one exact diff and reject any value that cannot be preserved canonically.
 
@@ -12497,7 +12519,7 @@ Verifies every digest, resource, workspace, and Git object in a candidate bundle
 
 > **captureAgentCandidateWorkspace**(`rootInput`, `options?`): `Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
 
-Defined in: [candidate-execution/workspace-archive.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L125)
+Defined in: [candidate-execution/workspace-archive.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L124)
 
 Capture one exact regular-file workspace for immutable candidate execution.
 
@@ -12521,7 +12543,7 @@ Capture one exact regular-file workspace for immutable candidate execution.
 
 > **captureAgentCandidateWorkspaceFiles**(`input`, `options?`): `Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
 
-Defined in: [candidate-execution/workspace-archive.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L146)
+Defined in: [candidate-execution/workspace-archive.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L145)
 
 Capture detached files returned by a remote executor into the standard archive.
 
@@ -12545,7 +12567,7 @@ readonly [`AgentCandidateExecutorWorkspaceFile`](#agentcandidateexecutorworkspac
 
 > **createAgentCandidateWorkspacePort**(`options?`): [`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
 
-Defined in: [candidate-execution/workspace-archive.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L208)
+Defined in: [candidate-execution/workspace-archive.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L206)
 
 Create the standard bounded materializer for candidate execution ports.
 
@@ -13050,7 +13072,7 @@ Wire integration:
 
 > **agenticGenerator**(`opts?`): [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/agentic-generator.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L156)
+Defined in: [improvement/agentic-generator.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L207)
 
 Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place.
 
@@ -13070,7 +13092,7 @@ Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a rea
 
 > **commandVerifier**(`command`, `args?`, `timeoutMs?`): [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:692](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L692)
+Defined in: [improvement/agentic-generator.ts:861](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L861)
 
 A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
  exit ⇒ failed with stdout+stderr as feedback. The common case — verify by
@@ -13224,7 +13246,7 @@ Optimize the system prompt, default holdout gate:
 
 > **improvementDriver**(`opts`): [`ManagedImprovementDriver`](#managedimprovementdriver)
 
-Defined in: [improvement/improvement-driver.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L91)
+Defined in: [improvement/improvement-driver.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L90)
 
 The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`.
 
@@ -13264,7 +13286,7 @@ Build a `Verifier` that boots a generated MCP server over stdio and checks it ex
 
 > **profileDiffProposer**\<`TFindings`\>(`options`): `SurfaceProposer`\<`TFindings`\>
 
-Defined in: [improvement/profile-diff-proposer.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L41)
+Defined in: [improvement/profile-diff-proposer.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L35)
 
 Turn exact AgentProfileDiffs from any source into full profile candidates for
 the shared optimization loop. Research, catalogs, humans, and trace miners

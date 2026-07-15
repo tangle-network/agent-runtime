@@ -106,18 +106,6 @@ export interface AgentManifest<TPersona = unknown, TRunOutput = unknown> {
   analyst: AnalystConfig
 
   /**
-   * Auto-apply policy. Knowledge / improvement edits land only when
-   * `enabled === true` AND the source finding's confidence meets the
-   * threshold. `mode` controls how applies happen: `'write'` mutates
-   * files in-place; `'open-pr'` writes to a branch and opens a PR.
-   *
-   * Default: knowledge auto-applies at confidence ≥0.85 in `'write'`
-   * mode (wiki edits are git-reversible); improvement stays at
-   * `enabled: false` until the agent author has measured precision.
-   */
-  autoApply?: AutoApplyPolicy
-
-  /**
    * Declarative per-surface artifact-lifecycle config the closed loop reads.
    *
    * Each entry names a profile surface (`skill` / `tool` / `prompt` / `mcp` /
@@ -287,19 +275,6 @@ export interface AnalystConfig {
     name?: 'openai' | 'router'
     apiKey?: string
     baseUrl?: string
-  }
-}
-
-export interface AutoApplyPolicy {
-  knowledge?: {
-    enabled: boolean
-    confidenceThreshold?: number
-    mode?: 'write' | 'open-pr'
-  }
-  improvement?: {
-    enabled: boolean
-    confidenceThreshold?: number
-    mode?: 'write' | 'open-pr'
   }
 }
 

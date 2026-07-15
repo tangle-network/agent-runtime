@@ -474,7 +474,6 @@ describe('improve() — default proposer resolution (substrate export drift guar
       onProvenance: () => {
         provenanceCalls += 1
       },
-      collectWorkerRecords: () => [],
       expectUsage: 'assert',
       captureSource: 'eval-run',
       autoOnPromote: 'none',

@@ -8,6 +8,8 @@ import { gitWorktreeAdapter, type ProposeContext } from '@tangle-network/agent-e
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AGENTIC_PROFILE_RESOURCE_ROOT,
+  type AgenticGeneratorShotDisposition,
+  type AgenticGeneratorShotExecution,
   type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
@@ -235,6 +237,211 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     ])
   })
 
+  it('exposes exact execution before a clean-tree shot is rejected', async () => {
+    const events: string[] = []
+    const executions: AgenticGeneratorShotExecution[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const exactExecution: LocalHarnessResult = {
+      exitCode: 0,
+      stdout: 'exact stdout\nwith a second line\n',
+      stderr: 'exact stderr\n',
+      killedBySignal: null,
+      durationMs: 4321,
+      timedOut: false,
+      usage: CODEX_USAGE,
+      evidence: CODEX_EVIDENCE,
+    }
+    const isDirty = vi.fn(() => {
+      events.push('dirty-check')
+      expect(events).toEqual(['callback-complete', 'dirty-check'])
+      return false
+    })
+    const gen = agenticGenerator({
+      runHarness: (async () => exactExecution) as never,
+      isDirty,
+      onShotCompleted: async (receipt, execution) => {
+        await Promise.resolve()
+        expect(execution).not.toBeNull()
+        if (!execution) throw new Error('expected a completed execution')
+        executions.push(execution)
+        expect(execution).toEqual(exactExecution)
+        expect(Object.isFrozen(execution)).toBe(true)
+        expect(Object.isFrozen(execution.usage)).toBe(true)
+        expect(Object.isFrozen(execution.evidence)).toBe(true)
+        expect(Object.isFrozen(execution.evidence?.readDeniedPaths)).toBe(true)
+        expect(Object.isFrozen(execution.evidence?.policy)).toBe(true)
+        expect(() => Object.assign(execution, { stdout: 'mutated' })).toThrow()
+        expect(receipt.stdoutBytes).toBe(Buffer.byteLength(execution.stdout))
+        expect(receipt.stderrBytes).toBe(Buffer.byteLength(execution.stderr))
+        expect(receipt.stdoutSha256).toBe(
+          `sha256:${createHash('sha256').update(execution.stdout).digest('hex')}`,
+        )
+        expect(receipt.stderrSha256).toBe(
+          `sha256:${createHash('sha256').update(execution.stderr).digest('hex')}`,
+        )
+        events.push('callback-complete')
+      },
+      onShotDisposition: async (_receipt, disposition) => {
+        await Promise.resolve()
+        expect(disposition.kind).toBe('clean')
+        expect(disposition.worktreePath).toContain('exact-clean-shot')
+        dispositions.push(disposition)
+        events.push('disposition-complete')
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'exact-clean-shot',
+    })
+
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: FINDINGS,
+      maxShots: 1,
+      signal: new AbortController().signal,
+    })
+
+    expect(out.applied).toBe(false)
+    expect(executions).toEqual([exactExecution])
+    expect(dispositions).toEqual([
+      expect.objectContaining({ kind: 'clean', worktreePath: wt.path }),
+    ])
+    expect(events).toEqual(['callback-complete', 'dirty-check', 'disposition-complete'])
+    expect(isDirty).toHaveBeenCalledTimes(1)
+  })
+
+  it('awaits shot evidence before verification can return a candidate', async () => {
+    let evidencePersisted = false
+    let dispositionPersisted = false
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
+      return HARNESS_OK
+    })
+    const verify = vi.fn(() => {
+      expect(evidencePersisted).toBe(true)
+      return { ok: true }
+    })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotCompleted: async () => {
+        await Promise.resolve()
+        evidencePersisted = true
+      },
+      onShotDisposition: async (_receipt, disposition) => {
+        await Promise.resolve()
+        expect(disposition).toEqual({
+          kind: 'accepted',
+          worktreePath: expect.stringContaining('evidence-before-verify'),
+          verified: true,
+        })
+        dispositionPersisted = true
+      },
+      verify,
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'evidence-before-verify',
+    })
+
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: FINDINGS,
+      maxShots: 1,
+      signal: new AbortController().signal,
+    })
+
+    expect(out.applied).toBe(true)
+    expect(dispositionPersisted).toBe(true)
+    expect(verify).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails closed when shot evidence persistence throws', async () => {
+    const isDirty = vi.fn(() => false)
+    const gen = agenticGenerator({
+      runHarness: (async () => HARNESS_OK) as never,
+      isDirty,
+      onShotCompleted: () => {
+        throw new Error('shot evidence persistence failed')
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'evidence-failure',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('shot evidence persistence failed')
+    expect(isDirty).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when worktree disposition persistence throws', async () => {
+    const gen = agenticGenerator({
+      runHarness: (async () => HARNESS_OK) as never,
+      isDirty: () => false,
+      onShotDisposition: () => {
+        throw new Error('shot disposition persistence failed')
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'disposition-failure',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('shot disposition persistence failed')
+  })
+
+  it('persists a setup-error disposition before rethrowing inspection failure', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const gen = agenticGenerator({
+      runHarness: (async () => HARNESS_OK) as never,
+      isDirty: () => {
+        throw new Error('git status unavailable')
+      },
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'inspection-error',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('git status unavailable')
+    expect(dispositions).toEqual([
+      {
+        kind: 'setup-error',
+        worktreePath: wt.path,
+        stage: 'worktree-inspection',
+        error: { name: 'Error', message: 'git status unavailable' },
+      },
+    ])
+  })
+
   it('rejects profile files outside the dedicated ephemeral root before dispatch', () => {
     expect(() =>
       agenticGenerator({
@@ -258,11 +465,15 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
   it('emits a failed shot receipt before rethrowing a harness failure', async () => {
     const receipts: unknown[] = []
+    const executions: Array<AgenticGeneratorShotExecution | null> = []
     const gen = agenticGenerator({
       runHarness: (async () => {
         throw new Error('author process failed')
       }) as never,
-      onShotCompleted: (receipt) => receipts.push(receipt),
+      onShotCompleted: (receipt, execution) => {
+        receipts.push(receipt)
+        executions.push(execution)
+      },
     })
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'failed' })
 
@@ -276,6 +487,7 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
       }),
     ).rejects.toThrow('author process failed')
     expect(receipts).toHaveLength(1)
+    expect(executions).toEqual([null])
     expect(receipts[0]).toMatchObject({
       usage: null,
       evidence: null,
@@ -485,6 +697,7 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
   })
 
   it('returns applied when the harness changes the worktree', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
     // The harness "edits" by writing into its cwd (the worktree). We stub the
     // subprocess (the only process boundary) but use a REAL git dirty check.
     const runHarness = vi.fn(
@@ -504,7 +717,12 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
         return HARNESS_OK
       },
     )
-    const gen = agenticGenerator({ runHarness: runHarness as never })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cand' })
     const out = await gen.generate({
@@ -518,11 +736,18 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     expect(runHarness).toHaveBeenCalledTimes(1)
     expect(out.applied).toBe(true)
     expect(out.summary).toContain('x should be 2')
+    expect(dispositions).toEqual([{ kind: 'accepted', worktreePath: wt.path, verified: false }])
   })
 
   it('retries up to maxShots when the harness produces no change, then gives up', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
     const runHarness = vi.fn(async () => HARNESS_OK) // never edits the worktree
-    const gen = agenticGenerator({ runHarness: runHarness as never })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'noop' })
     const out = await gen.generate({
@@ -535,6 +760,11 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
     expect(runHarness).toHaveBeenCalledTimes(3)
     expect(out.applied).toBe(false)
+    expect(dispositions).toEqual([
+      { kind: 'clean', worktreePath: wt.path },
+      { kind: 'clean', worktreePath: wt.path },
+      { kind: 'clean', worktreePath: wt.path },
+    ])
   })
 
   it('stops retrying as soon as a shot produces a change', async () => {
@@ -624,6 +854,7 @@ describe('agenticGenerator — verify-in-session loop', () => {
   it('feeds the verifier failure into the next shot, then ships when it passes', async () => {
     let shot = 0
     const prompts: string[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
     const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
       prompts.push(taskPrompt)
       shot++
@@ -634,7 +865,13 @@ describe('agenticGenerator — verify-in-session loop', () => {
     const verify = vi.fn(() =>
       shot === 1 ? { ok: false, feedback: 'TS2322: x must be 2' } : { ok: true },
     )
-    const gen = agenticGenerator({ runHarness: runHarness as never, verify })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      verify,
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'vresume' })
     const out = await gen.generate({
@@ -652,6 +889,15 @@ describe('agenticGenerator — verify-in-session loop', () => {
     expect(prompts[1]).toContain('TS2322: x must be 2')
     // The first shot's prompt is the clean base — no failure note yet.
     expect(prompts[0]).not.toContain('verification FAILED')
+    expect(dispositions).toEqual([
+      {
+        kind: 'rejected',
+        worktreePath: wt.path,
+        stage: 'verification',
+        feedback: 'TS2322: x must be 2',
+      },
+      { kind: 'accepted', worktreePath: wt.path, verified: true },
+    ])
   })
 
   it('discards (applied:false) a candidate that never verifies within maxShots', async () => {
@@ -702,12 +948,18 @@ describe('agenticGenerator — raw-trace evidence discipline', () => {
 
   it('retries and discards a raw-trace candidate that edits code without citing inspected traces', async () => {
     const prompts: string[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
     const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
       prompts.push(taskPrompt)
       writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
       return HARNESS_OK
     })
-    const gen = agenticGenerator({ runHarness: runHarness as never })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'rt-miss' })
     const out = await gen.generate({
@@ -723,6 +975,21 @@ describe('agenticGenerator — raw-trace evidence discipline', () => {
     expect(prompts[0]).toContain('Raw trace evidence requirement')
     expect(prompts[0]).toContain('.improve/raw-trace-diagnosis.md')
     expect(prompts[1]).toContain('raw-trace mode requires .improve/raw-trace-diagnosis.md')
+    expect(dispositions).toHaveLength(2)
+    expect(dispositions).toEqual([
+      expect.objectContaining({
+        kind: 'rejected',
+        worktreePath: wt.path,
+        stage: 'raw-trace-evidence',
+        feedback: expect.stringContaining('requires .improve/raw-trace-diagnosis.md'),
+      }),
+      expect.objectContaining({
+        kind: 'rejected',
+        worktreePath: wt.path,
+        stage: 'raw-trace-evidence',
+        feedback: expect.stringContaining('requires .improve/raw-trace-diagnosis.md'),
+      }),
+    ])
   })
 
   it('rejects a raw-trace candidate that only writes the diagnosis artifact', async () => {

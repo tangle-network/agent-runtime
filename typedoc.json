@@ -3,6 +3,7 @@
   "entryPoints": [
     "src/index.ts",
     "src/agent/index.ts",
+    "src/conversation/index.ts",
     "src/intelligence/index.ts",
     "src/runtime/index.ts",
     "src/runtime/environment-provider.ts",
@@ -11,6 +12,7 @@
     "src/knowledge/index.ts",
     "src/profiles/index.ts",
     "src/platform/index.ts",
+    "src/primeintellect/index.ts",
     "src/candidate-execution/index.ts",
     "src/mcp/index.ts"
   ],

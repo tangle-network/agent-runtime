@@ -17,12 +17,6 @@ import {
   parseExactAgentProfileDiff,
 } from '../candidate-execution/profile'
 
-export interface AgentProfileDiffProposal {
-  diff: AgentProfileDiff
-  label?: string
-  rationale?: string
-}
-
 export type ProfileDiffProposerContext<TFindings = unknown> = ProposeContext<TFindings> & {
   profile: AgentProfile
 }
@@ -30,7 +24,7 @@ export type ProfileDiffProposerContext<TFindings = unknown> = ProposeContext<TFi
 export interface ProfileDiffProposerOptions<TFindings = unknown> {
   proposeDiffs(
     context: ProfileDiffProposerContext<TFindings>,
-  ): Promise<readonly AgentProfileDiffProposal[]> | readonly AgentProfileDiffProposal[]
+  ): Promise<readonly AgentProfileDiff[]> | readonly AgentProfileDiff[]
 }
 
 /**
@@ -61,7 +55,7 @@ export function profileDiffProposer<TFindings = unknown>(
       const seen = new Set<string>([canonicalJson(normalizedBaseline)])
       for (const [index, proposal] of proposals.entries()) {
         if (candidates.length >= ctx.populationSize || ctx.signal.aborted) break
-        const diff = parseExactAgentProfileDiff(proposal.diff, `profile diff proposal ${index}`)
+        const diff = parseExactAgentProfileDiff(proposal, `profile diff proposal ${index}`)
         const axes = changedAgentProfileAxes(diff)
         if (axes.length === 0) continue
         const candidate = applyExactAgentProfileDiff(
@@ -74,8 +68,8 @@ export function profileDiffProposer<TFindings = unknown>(
         seen.add(surface)
         candidates.push({
           surface,
-          label: proposal.label ?? diff.title ?? diff.id ?? `Change ${axes.join(', ')}`,
-          rationale: candidateRationale(proposal, diff, axes),
+          label: diff.title ?? diff.id ?? `Change ${axes.join(', ')}`,
+          rationale: candidateRationale(diff, axes),
         })
       }
       return candidates
@@ -83,12 +77,8 @@ export function profileDiffProposer<TFindings = unknown>(
   }
 }
 
-function candidateRationale(
-  proposal: AgentProfileDiffProposal,
-  diff: AgentProfileDiff,
-  axes: readonly string[],
-): string {
-  const reason = proposal.rationale ?? diff.rationale ?? `Changes profile axes: ${axes.join(', ')}.`
+function candidateRationale(diff: AgentProfileDiff, axes: readonly string[]): string {
+  const reason = diff.rationale ?? `Changes profile axes: ${axes.join(', ')}.`
   const source = diff.source
     ? [diff.source.kind, ...(diff.source.artifacts ?? [])].join(' · ')
     : 'source unspecified'
