@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.94.11",
+  "version": "0.94.12",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -116,7 +116,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "0.117.1",
+    "@tangle-network/agent-eval": "0.120.1",
     "@tangle-network/agent-interface": "^0.25.0",
     "@tangle-network/sandbox": "^0.9.7",
     "@types/node": "^25.9.3",
@@ -147,7 +147,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.117.1 <0.118.0",
+    "@tangle-network/agent-eval": ">=0.120.1 <0.121.0",
     "@tangle-network/agent-interface": ">=0.25.0 <0.26.0",
     "@tangle-network/sandbox": ">=0.8.0 <1.0.0",
     "playwright": "^1.40.0"
