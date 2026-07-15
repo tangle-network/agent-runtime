@@ -3,7 +3,7 @@
  * `rawTraceDistiller` — the meta-harness `analyzeGeneration` producer.
  *
  * The default `generationFailureDistiller` (in `improve.ts`) COMPRESSES each
- * generation's failing cells into ~400-char structured findings before the next
+ * generation's failing cells into ~1500-char structured findings before the next
  * proposal round. That is the ACE-style recipe: a small summary is the proposer's
  * whole view of what went wrong. This producer does the opposite — the
  * meta-harness recipe (yoonholee.com/meta-harness): it does NOT summarize. It
@@ -11,7 +11,7 @@
  * disk under `runDir` — the durable per-cell `spans.jsonl` event logs,
  * `cached-result.json` scores, and any artifacts the substrate persisted — and
  * instructs the agent to `grep`/`cat`/`ls` them to diagnose the failures itself
- * (up to the harness's full context, ~millions of tokens, vs a ~400-char digest).
+ * (up to the harness's full context, ~millions of tokens, vs a ~1500-char digest).
  *
  * It emits `AnalystFinding[]` so it drops into the SAME `opts.analyzeGeneration`
  * slot the default distiller uses, and renders through the same

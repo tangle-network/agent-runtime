@@ -104,7 +104,7 @@ export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
    *  trace-analyst over the runDir's traces) to replace it; pass `null` to disable
    *  and keep the static `findings` all the way through. */
   analyzeGeneration?: SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration'] | null
-  /** META-HARNESS mode: instead of the ~400-char distilled findings, feed the
+  /** META-HARNESS mode: instead of the ~1500-char distilled findings, feed the
    *  proposer RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
    *  real run traces under `runDir` (per-cell `spans.jsonl` event logs +
    *  `cached-result.json` scores + artifacts) plus a `grep`/`cat`-to-diagnose
@@ -262,6 +262,16 @@ function baselineSurfaceFor(
   }
 }
 
+/** Slice bound for distilled judge notes: wide enough that a real traceback /
+ *  failing-assertion note survives intact — clipping mid-traceback would leave
+ *  the proposer trace-blind. Referenced by the `rawTraceContext` docs. */
+const DISTILLED_NOTES_MAX_CHARS = 1500
+
+/** Slice bound for a cell's error string — tighter than notes (errors are
+ *  usually one line; the full text stays on the raw cell). Also bounds the
+ *  error-derived `claim` fallback. */
+const DISTILLED_ERROR_MAX_CHARS = 500
+
 /** The default `analyzeGeneration`: distill each generation's failing cells into
  *  findings for the next proposal round. Deliberately dependency-free — judge notes
  *  and errors are already the domain's own diagnosis (executable gates put their
@@ -300,14 +310,16 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
           .map((j) => j.notes)
           .filter((n): n is string => typeof n === 'string' && n.length > 0)
           .join('; ')
-          .slice(0, 400)
-        const claim = notes || (error ? `Scenario ${scenario} failed: ${error.slice(0, 200)}` : '')
+          .slice(0, DISTILLED_NOTES_MAX_CHARS)
+        const claim =
+          notes ||
+          (error ? `Scenario ${scenario} failed: ${error.slice(0, DISTILLED_ERROR_MAX_CHARS)}` : '')
         failures.push({
           scenario,
           composite: Number(composite.toFixed(3)),
           notes,
           ...(claim ? { claim } : {}),
-          ...(error ? { error: error.slice(0, 200) } : {}),
+          ...(error ? { error: error.slice(0, DISTILLED_ERROR_MAX_CHARS) } : {}),
         })
       }
     }
