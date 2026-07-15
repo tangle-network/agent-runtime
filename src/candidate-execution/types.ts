@@ -10,17 +10,18 @@ import type {
   AgentCandidateExecutionPlanEvidence,
   AgentCandidateGitHubRepository,
   AgentCandidateInstructionDelivery,
+  AgentCandidateKnowledgeRef,
   AgentCandidateMaterializationReceipt,
   AgentCandidateMemoryReceipt,
   AgentCandidateModelAccessNetwork,
   AgentCandidateOciPlatform,
   AgentCandidateProfilePlanEvidence,
   AgentCandidateResolvedModel,
-  AgentCandidateRunReceiptV2,
+  AgentCandidateRunReceipt,
   AgentCandidateSpend,
   AgentCandidateTaskOutcomeEvidence,
   AgentCandidateTermination,
-  AgentCandidateWorkspaceManifestMaterialV1,
+  AgentCandidateWorkspaceManifestMaterial,
   AgentCandidateWorkspaceSnapshotEvidence,
   ReasoningEffort,
   Sha256Digest,
@@ -48,6 +49,7 @@ export type AgentCandidateOutputPurpose =
   | 'benchmark-result'
   | 'model-settlement'
   | 'trace'
+  | 'executor-capture'
   | 'run-receipt'
   | 'failure-evidence'
 
@@ -82,7 +84,7 @@ export interface AgentCandidateVerificationPorts {
  */
 export interface AgentCandidateWorkspacePort {
   materialize(input: {
-    role: 'task' | 'candidate' | 'memory'
+    role: 'task' | 'candidate' | 'knowledge' | 'memory'
     snapshot: AgentCandidateWorkspaceSnapshotEvidence
     archive: Uint8Array
     destination: string
@@ -320,6 +322,14 @@ export interface PreparedAgentCandidateInstruction {
   delivery: AgentCandidateInstructionDelivery
 }
 
+/** Exact file-backed knowledge admitted by the candidate bundle. */
+export interface PreparedAgentCandidateKnowledge {
+  readonly candidate: AgentCandidateKnowledgeRef
+  readonly snapshot: AgentCandidateWorkspaceSnapshotEvidence
+  readonly files: readonly AgentCandidateExecutorWorkspaceFile[]
+  readonly retrievalConfig?: Uint8Array
+}
+
 export interface PreparedAgentCandidateTrace {
   runId: string
   tags: Readonly<Record<string, string>>
@@ -353,11 +363,7 @@ export interface PreparedAgentCandidateExecution {
   readonly launch: PreparedAgentCandidateLaunch
   readonly instruction: PreparedAgentCandidateInstruction
   readonly resolvedModel: AgentCandidateResolvedModel
-  readonly knowledge?: {
-    snapshotId: string
-    manifestDigest: Sha256Digest
-    manifest: Uint8Array
-  }
+  readonly knowledge?: PreparedAgentCandidateKnowledge
   readonly trace: PreparedAgentCandidateTrace
   readonly memory: AgentCandidateEffectiveMemory
   readonly [preparedCandidateBrand]: true
@@ -373,7 +379,7 @@ export interface AgentCandidateExecutorTaskOutcomeCapture {
   /** Claimed final tree. The runtime recomputes it independently from `gitDiff`. */
   resultTree: string
   /** Complete evaluator-captured workspace description after candidate execution. */
-  afterState: AgentCandidateWorkspaceManifestMaterialV1
+  afterState: AgentCandidateWorkspaceManifestMaterial
   /** Reproducible workspace archive corresponding to `afterState`. */
   archive: Uint8Array
   /** Exact binary patch from the signed task base to `afterState`. */
@@ -382,7 +388,7 @@ export interface AgentCandidateExecutorTaskOutcomeCapture {
 
 /** Raw isolated-memory capture made only after access has been revoked. */
 export interface AgentCandidateExecutorMemoryCapture {
-  readonly afterState: AgentCandidateWorkspaceManifestMaterialV1
+  readonly afterState: AgentCandidateWorkspaceManifestMaterial
   readonly archive: Uint8Array
 }
 
@@ -522,21 +528,22 @@ export interface AgentCandidateExecutorWorkspaceInput {
 
 export interface AgentCandidateExecutorWorkspaceFile {
   readonly path: string
-  readonly mode: 0o644 | 0o755
+  readonly mode: number
   readonly bytes: Uint8Array
 }
 
 export interface AgentCandidateExecutorProfileFile {
   readonly path: string
-  readonly mode: 0o644 | 0o755
+  readonly mode: number
   readonly bytes: Uint8Array
 }
 
 export type AgentCandidateRunFinalization =
   | {
       succeeded: true
-      receipt: CanonicalCandidateDocument<AgentCandidateRunReceiptV2>
+      receipt: CanonicalCandidateDocument<AgentCandidateRunReceipt>
       artifacts: {
+        executorCapture: AgentCandidateArtifactRef
         modelSettlement: AgentCandidateArtifactRef
         taskOutcome: AgentCandidateArtifactRef
         benchmarkResult: AgentCandidateArtifactRef

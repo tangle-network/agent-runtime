@@ -1,5 +1,5 @@
 import type {
-  AgentCandidateWorkspaceManifestMaterialV1,
+  AgentCandidateWorkspaceManifestMaterial,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
 import {
@@ -17,7 +17,7 @@ import { persistCandidateOutputArtifact } from './output-artifacts'
 import type { AgentCandidateOutputArtifactPort } from './types'
 
 export interface ProvisionalCandidateWorkspaceSnapshot {
-  readonly material: AgentCandidateWorkspaceManifestMaterialV1
+  readonly material: AgentCandidateWorkspaceManifestMaterial
   readonly manifestBytes: Uint8Array
   readonly snapshot: AgentCandidateWorkspaceSnapshotEvidence
 }
@@ -28,7 +28,7 @@ export interface ProvisionalCandidateWorkspaceSnapshot {
  * provisional value as receipt evidence.
  */
 export function provisionalCandidateWorkspaceSnapshot(
-  materialInput: AgentCandidateWorkspaceManifestMaterialV1,
+  materialInput: AgentCandidateWorkspaceManifestMaterial,
   archive: Uint8Array,
 ): ProvisionalCandidateWorkspaceSnapshot {
   const material = immutableCandidateValue(
@@ -36,7 +36,7 @@ export function provisionalCandidateWorkspaceSnapshot(
   )
   const manifestBytes = canonicalCandidateBytes(material)
   const snapshot: AgentCandidateWorkspaceSnapshotEvidence = Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256Bytes(manifestBytes),
     material,
@@ -51,7 +51,7 @@ export async function persistCandidateWorkspaceSnapshot(
   port: AgentCandidateOutputArtifactPort,
   input: {
     executionId: string
-    material: AgentCandidateWorkspaceManifestMaterialV1
+    material: AgentCandidateWorkspaceManifestMaterial
     archive: Uint8Array
     purpose: 'task' | 'memory-after'
     signal?: AbortSignal
@@ -76,7 +76,7 @@ export async function persistCandidateWorkspaceSnapshot(
   ])
   return immutableCandidateValue(
     agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'agent-candidate-workspace-snapshot',
       digest: sha256Bytes(manifestBytes),
       material,

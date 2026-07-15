@@ -1160,7 +1160,7 @@ Defined in: [intelligence/improvement-cycle.ts:76](https://github.com/tangle-net
 
 ##### candidateBundle?
 
-> `optional` **candidateBundle?**: `AgentCandidateBundleV1`
+> `optional` **candidateBundle?**: `AgentCandidateBundle`
 
 Defined in: [intelligence/improvement-cycle.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L77)
 
@@ -1338,7 +1338,7 @@ Defined in: [intelligence/improvement-cycle.ts:111](https://github.com/tangle-ne
 
 ##### buildCandidate?
 
-> `optional` **buildCandidate?**: (`input`) => `AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput) \| `Promise`\<`AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)\>
+> `optional` **buildCandidate?**: (`input`) => `AgentCandidateBundle` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput) \| `Promise`\<`AgentCandidateBundle` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)\>
 
 Defined in: [intelligence/improvement-cycle.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L117)
 
@@ -1360,7 +1360,7 @@ measured comparison recommends the candidate. Return the sealed output of
 
 ###### Returns
 
-`AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput) \| `Promise`\<`AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)\>
+`AgentCandidateBundle` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput) \| `Promise`\<`AgentCandidateBundle` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)\>
 
 ##### now?
 
@@ -1464,7 +1464,7 @@ Defined in: [intelligence/improvement-cycle.ts:139](https://github.com/tangle-ne
 
 ##### candidateBundle?
 
-> `optional` **candidateBundle?**: `AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)
+> `optional` **candidateBundle?**: `AgentCandidateBundle` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)
 
 Defined in: [intelligence/improvement-cycle.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L140)
 

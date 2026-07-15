@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.94.12` and `@tangle-network/agent-eval@0.120.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.94.13` and `@tangle-network/agent-eval@0.120.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 341 exports.
+Import from `@tangle-network/agent-runtime` — 342 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -174,6 +174,7 @@ Import from `@tangle-network/agent-runtime` — 341 exports.
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |
 | `OpenAIChatTool` | interface | OpenAI Chat Completions tool descriptor. The shape mirrors the |
 | `OtelExportConfig` | interface | OTEL span exporter — streams LoopTraceEvents to an OTLP/HTTP collector. |
+| `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
 | `RawTraceDistillerOptions` | interface | `rawTraceDistiller` — the meta-harness `analyzeGeneration` producer. |
 | `ReflectiveGeneratorOptions` | interface | `reflectiveGenerator` — the cheap, no-sandbox `CandidateGenerator`. It drafts |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
@@ -935,7 +936,7 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 95 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 96 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -981,6 +982,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 95 exports.
 | `AgentCandidateRepositoryPort` | interface | Resolves a declared GitHub repository to an already-present local Git object store. |
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
 | `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
+| `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
 | `VerifiedAgentCandidateTaskOutcome` | interface | Branded task outcome that has survived independent patch and tree verification. |
 | `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
 | `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |

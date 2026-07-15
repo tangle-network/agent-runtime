@@ -87,7 +87,16 @@ export async function verifyAgentCandidateBundle(
     artifactBytes.set(artifactCacheKey(parsed.execution.workspace.manifest), workspace.manifest)
     artifactBytes.set(artifactCacheKey(parsed.execution.workspace.archive), workspace.archive)
   }
-  if (parsed.knowledge) await readArtifact(parsed.knowledge.manifest)
+  if (parsed.knowledge) {
+    const knowledge = await verifyWorkspaceSnapshotArtifacts(
+      parsed.knowledge.snapshot,
+      ports.artifacts,
+    )
+    artifactBytes.set(artifactCacheKey(parsed.knowledge.snapshot.manifest), knowledge.manifest)
+    artifactBytes.set(artifactCacheKey(parsed.knowledge.snapshot.archive), knowledge.archive)
+    if (parsed.knowledge.retrievalConfig) await readArtifact(parsed.knowledge.retrievalConfig)
+    await readArtifact(parsed.knowledge.evaluation)
+  }
   if (parsed.memory.mode === 'isolated' && parsed.memory.seed)
     await readArtifact(parsed.memory.seed)
 

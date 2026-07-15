@@ -1,7 +1,12 @@
 import {
+  type AgentCandidateTaskOutcomeEvidence,
+  type AgentCandidateTermination,
+  type AgentCandidateWorkspaceSnapshotEvidence,
   agentCandidateTerminationSchema,
   agentCandidateWorkspaceManifestMaterialSchema,
+  type Sha256Digest,
 } from '@tangle-network/agent-interface'
+import { canonicalCandidateBytes } from './digest'
 import { assertExactObjectKeys as assertExactKeys } from './exact-object'
 import type { AgentCandidateExecutorFinalCapture, AgentCandidateProtectedRunCapture } from './types'
 
@@ -36,6 +41,26 @@ export function sealAgentCandidateExecutorFinalCapture(
     stopped: true,
     ...(taskOutcome ? { taskOutcome } : {}),
     ...(memoryAfter ? { memoryAfter: Object.freeze(memoryAfter) } : {}),
+  })
+}
+
+/** Encode the complete evaluator-owned process result as one durable artifact. */
+export function encodeAgentCandidateExecutorCapture(input: {
+  executionId: string
+  executionPlanDigest: Sha256Digest
+  termination: AgentCandidateTermination
+  taskOutcome: AgentCandidateTaskOutcomeEvidence
+  memoryAfter?: AgentCandidateWorkspaceSnapshotEvidence
+}): Uint8Array {
+  return canonicalCandidateBytes({
+    schemaVersion: 1,
+    kind: 'agent-candidate-executor-capture',
+    executionId: input.executionId,
+    executionPlanDigest: input.executionPlanDigest,
+    termination: input.termination,
+    stopped: true,
+    taskOutcome: input.taskOutcome,
+    ...(input.memoryAfter ? { memoryAfter: input.memoryAfter } : {}),
   })
 }
 

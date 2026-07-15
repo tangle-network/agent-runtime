@@ -500,6 +500,12 @@ Re-exports [PreparedAgentCandidateInstruction](index.md#preparedagentcandidatein
 
 ***
 
+### PreparedAgentCandidateKnowledge
+
+Re-exports [PreparedAgentCandidateKnowledge](index.md#preparedagentcandidateknowledge)
+
+***
+
 ### PreparedAgentCandidateLaunch
 
 Re-exports [PreparedAgentCandidateLaunch](index.md#preparedagentcandidatelaunch)

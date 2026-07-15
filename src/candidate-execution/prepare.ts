@@ -7,7 +7,7 @@ import type {
   AgentCandidateEffectiveMemory,
   AgentCandidateExecutionLimits,
   AgentCandidateExecutionPlanEvidence,
-  AgentCandidateExecutionPlanMaterialV1,
+  AgentCandidateExecutionPlanMaterial,
   AgentCandidateMaterializationReceipt,
   AgentCandidateModelAccessNetwork,
   AgentCandidateResolvedModel,
@@ -52,6 +52,7 @@ import {
 } from './digest'
 import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { verifyTaskCheckout } from './git-materialize'
+import { prepareAgentCandidateKnowledge } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
 import { assertCandidateProfileExecutionSupport } from './profile'
@@ -142,7 +143,7 @@ export async function prepareAgentCandidateExecution(
 
   let candidateArchive: Uint8Array | undefined
   let candidateExecutorFiles:
-    | ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+    | ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>
     | undefined
   if (bundle.execution.workspace) {
     if (!task.stagingRoots.candidateRoot || !task.executionRoots.candidateRoot) {
@@ -227,13 +228,7 @@ export async function prepareAgentCandidateExecution(
       cleanupTimeoutMs,
     )
     const memory = preparedMemory.value
-    const knowledge = bundle.knowledge
-      ? {
-          snapshotId: bundle.knowledge.snapshotId,
-          manifestDigest: bundle.knowledge.manifest.sha256,
-          manifest: await verifiedArtifactBytes(candidate, bundle.knowledge.manifest),
-        }
-      : undefined
+    const knowledge = await prepareAgentCandidateKnowledge(candidate, ports)
 
     const baseLaunch = buildLaunch(candidate, task, profileApplication.flags)
     const publicEnv = mergePublicEnvironment(
@@ -249,8 +244,8 @@ export async function prepareAgentCandidateExecution(
         : {},
     )
     const routes = modelRoutes(bundle.profile, task.model.requested)
-    const executionMaterial: AgentCandidateExecutionPlanMaterialV1 = {
-      schemaVersion: 1,
+    const executionMaterial: AgentCandidateExecutionPlanMaterial = {
+      schemaVersion: 2,
       kind: 'agent-candidate-execution-plan-material',
       bundleDigest: bundle.digest,
       executionId: task.executionId,
@@ -267,6 +262,7 @@ export async function prepareAgentCandidateExecution(
           delivery: bundle.execution.instructionDelivery,
         },
         repository: task.repository,
+        outcome: { kind: 'workspace' },
         workspace: task.workspace,
       },
       workspaces: {
@@ -298,7 +294,7 @@ export async function prepareAgentCandidateExecution(
         env: publicEnv,
         cwd: bundle.execution.cwd,
       },
-      ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.manifest.sha256 } : {}),
+      ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.snapshot.digest } : {}),
       memory,
       limits: task.limits,
       network: { mode: 'disabled' },
@@ -311,7 +307,7 @@ export async function prepareAgentCandidateExecution(
     }
     const executionPlan: AgentCandidateExecutionPlanEvidence =
       agentCandidateExecutionPlanEvidenceSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: 'agent-candidate-execution-plan',
         digest: executionDigest,
         material: executionMaterial,
@@ -321,7 +317,7 @@ export async function prepareAgentCandidateExecution(
     const entrypoint = candidateEntrypointReceipt(candidate)
     const materializationReceipt = canonicalCandidateDocument<AgentCandidateMaterializationReceipt>(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: 'agent-candidate-materialization',
         digestAlgorithm: 'rfc8785-sha256',
         bundleDigest: bundle.digest,
@@ -334,7 +330,7 @@ export async function prepareAgentCandidateExecution(
         harnessVersion: bundle.execution.harnessVersion,
         container,
         resolvedModel,
-        ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.manifest.sha256 } : {}),
+        ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.snapshot.digest } : {}),
         ...(entrypoint ? { entrypoint } : {}),
       },
     )
@@ -843,8 +839,8 @@ function unwrapPublicEnvironment(
 function modelRoutes(
   profile: VerifiedAgentCandidate['bundle']['profile'],
   requested: string,
-): AgentCandidateExecutionPlanMaterialV1['model']['routes'] {
-  const routes: AgentCandidateExecutionPlanMaterialV1['model']['routes'] = [
+): AgentCandidateExecutionPlanMaterial['model']['routes'] {
+  const routes: AgentCandidateExecutionPlanMaterial['model']['routes'] = [
     { kind: 'primary', requested },
   ]
   if (profile.model?.small) routes.push({ kind: 'small', requested })
@@ -943,7 +939,7 @@ function modelLimits(limits: AgentCandidateExecutionLimits): {
 function exactProfileExecutorFiles(
   sourceFiles: ReadonlyArray<{ relPath: string; content: string; mode?: number }>,
   expectedFiles: ReadonlyArray<{ relPath: string; mode: number; contentSha256: string }>,
-): Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> {
+): Array<{ path: string; mode: number; bytes: Uint8Array }> {
   const byPath = new Map(sourceFiles.map((file) => [file.relPath, file]))
   if (byPath.size !== sourceFiles.length || sourceFiles.length !== expectedFiles.length) {
     throw new Error('profile source files do not match the signed profile plan')
@@ -954,7 +950,9 @@ function exactProfileExecutorFiles(
     const bytes = Buffer.from(source?.content ?? '', 'utf8')
     if (
       !source ||
-      (mode !== 0o644 && mode !== 0o755) ||
+      !Number.isInteger(mode) ||
+      mode < 0 ||
+      mode > 0o777 ||
       mode !== expected.mode ||
       sha256Bytes(bytes) !== expected.contentSha256
     ) {
