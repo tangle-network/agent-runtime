@@ -10,7 +10,7 @@
 
 ### WritePrimeIntellectPackageOptions
 
-Defined in: [primeintellect/package.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L22)
+Defined in: [primeintellect/package.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L23)
 
 #### Properties
 
@@ -18,7 +18,7 @@ Defined in: [primeintellect/package.ts:22](https://github.com/tangle-network/age
 
 > `optional` **replace?**: `boolean`
 
-Defined in: [primeintellect/package.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L24)
+Defined in: [primeintellect/package.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L25)
 
 Replace an existing generated package and restore it if the final swap fails.
 
@@ -26,7 +26,7 @@ Replace an existing generated package and restore it if the final swap fails.
 
 ### RunPrimeIntellectProgramOptions
 
-Defined in: [primeintellect/runner.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L18)
+Defined in: [primeintellect/runner.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L17)
 
 #### Properties
 
@@ -34,7 +34,7 @@ Defined in: [primeintellect/runner.ts:18](https://github.com/tangle-network/agen
 
 > `optional` **env?**: `ProcessEnv`
 
-Defined in: [primeintellect/runner.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L19)
+Defined in: [primeintellect/runner.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L18)
 
 ***
 
@@ -580,7 +580,7 @@ Defined in: [primeintellect/types.ts:123](https://github.com/tangle-network/agen
 
 > **PrimeIntellectBackendOptions** = `Omit`\<`Parameters`\<*typeof* [`createOpenAICompatibleBackend`](index.md#createopenaicompatiblebackend)\>\[`0`\], `"apiKey"` \| `"baseUrl"` \| `"model"`\>
 
-Defined in: [primeintellect/runner.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L22)
+Defined in: [primeintellect/runner.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L21)
 
 ***
 
@@ -644,7 +644,7 @@ Defined in: [primeintellect/types.ts:60](https://github.com/tangle-network/agent
 
 > **createPrimeIntellectPackage**(`options`): [`PrimeIntellectPackageBundle`](#primeintellectpackagebundle)
 
-Defined in: [primeintellect/package.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L28)
+Defined in: [primeintellect/package.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L29)
 
 Build a complete PrimeIntellect Verifiers v1 package without writing to disk.
 
@@ -664,7 +664,7 @@ Build a complete PrimeIntellect Verifiers v1 package without writing to disk.
 
 > **writePrimeIntellectPackage**(`bundle`, `outputDirectory`, `options?`): `Promise`\<`string`\>
 
-Defined in: [primeintellect/package.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L89)
+Defined in: [primeintellect/package.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L90)
 
 Write a bundle through a sibling temporary directory, then rename it into place.
 
@@ -692,7 +692,7 @@ Write a bundle through a sibling temporary directory, then rename it into place.
 
 > **readPrimeIntellectEpisodeContext**(`env?`): [`PrimeIntellectEpisodeContext`](#primeintellectepisodecontext)
 
-Defined in: [primeintellect/runner.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L28)
+Defined in: [primeintellect/runner.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L27)
 
 Read and validate the private process contract installed by the generated Prime harness.
 
@@ -712,7 +712,7 @@ Read and validate the private process contract installed by the generated Prime 
 
 > **createPrimeIntellectBackend**(`context`, `options?`): [`AgentExecutionBackend`](index.md#agentexecutionbackend)\<[`AgentBackendInput`](index.md#agentbackendinput)\>
 
-Defined in: [primeintellect/runner.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L51)
+Defined in: [primeintellect/runner.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L50)
 
 Build the existing runtime backend against Prime's intercepted model endpoint.
 
@@ -736,7 +736,7 @@ Build the existing runtime backend against Prime's intercepted model endpoint.
 
 > **runPrimeIntellectProgram**\<`Result`\>(`run`, `options?`): `Promise`\<`Result`\>
 
-Defined in: [primeintellect/runner.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L68)
+Defined in: [primeintellect/runner.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L67)
 
 Execute the caller's canonical runtime program inside a Prime rollout.
 The callback may call runPersonified, runAgentic, runLoop, or any product wrapper.

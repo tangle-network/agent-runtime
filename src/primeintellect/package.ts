@@ -10,6 +10,7 @@ import type {
   PrimeIntellectScoring,
   PrimeIntellectTask,
 } from './types'
+import { validatePrimeIntellectJson, validatePrimeIntellectPrompt } from './validation'
 
 const VERIFIERS_RANGE = '>=0.2.0,<0.3.0' as const
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/
@@ -210,26 +211,18 @@ function validateTask(
   if (task.split !== 'train' && task.split !== 'eval') {
     throw new Error(`${path}.split must be train or eval`)
   }
-  if (typeof task.prompt === 'string') {
-    if (task.prompt.length === 0) throw new Error(`${path}.prompt must not be empty`)
-  } else if (!Array.isArray(task.prompt) || task.prompt.length === 0) {
-    throw new Error(`${path}.prompt must be a non-empty string or message array`)
-  } else {
-    task.prompt.forEach((message, messageIndex) => {
-      validateMessage(message, `${path}.prompt[${messageIndex}]`)
-    })
-    if (
-      task.systemPrompt !== undefined &&
-      task.prompt.some((message) => message.role === 'system')
-    ) {
+  const prompt = validatePrimeIntellectPrompt(task.prompt, `${path}.prompt`)
+  if (Array.isArray(prompt)) {
+    if (task.systemPrompt !== undefined && prompt.some((message) => message.role === 'system')) {
       throw new Error(`${path} must not set systemPrompt and include a system message`)
     }
   }
-  validateJson(task.prompt, `${path}.prompt`)
   if (task.systemPrompt !== undefined && typeof task.systemPrompt !== 'string') {
     throw new Error(`${path}.systemPrompt must be a string`)
   }
-  if (task.metadata !== undefined) validateJson(task.metadata, `${path}.metadata`)
+  if (task.metadata !== undefined) {
+    validatePrimeIntellectJson(task.metadata, `${path}.metadata`)
+  }
   if (scoring.kind !== 'command') {
     const answers = Array.isArray(task.answer) ? task.answer : [task.answer]
     if (
@@ -293,140 +286,6 @@ function assertRelativePath(path: string, label: string): void {
     relative('.', normalized).startsWith('..')
   ) {
     throw new Error(`${label} contains unsafe path: ${path}`)
-  }
-}
-
-function validateJson(value: unknown, path: string): void {
-  if (value === null || ['string', 'boolean'].includes(typeof value)) return
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error(`${path} contains a non-finite number`)
-    return
-  }
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) => {
-      validateJson(entry, `${path}[${index}]`)
-    })
-    return
-  }
-  if (typeof value === 'object') {
-    for (const [key, entry] of Object.entries(value)) validateJson(entry, `${path}.${key}`)
-    return
-  }
-  throw new Error(`${path} is not JSON serializable`)
-}
-
-function validateMessage(value: unknown, path: string): void {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${path} must be a message object`)
-  }
-  const message = value as Record<string, unknown>
-  const role = message.role
-  if (!['system', 'user', 'assistant', 'tool'].includes(String(role))) {
-    throw new Error(`${path}.role is invalid`)
-  }
-  if (role === 'system' || role === 'user') {
-    assertOnlyKeys(message, ['role', 'content'], path)
-    validateContent(message.content, `${path}.content`)
-  } else if (role === 'assistant') {
-    assertOnlyKeys(
-      message,
-      ['role', 'content', 'reasoning_content', 'tool_calls', 'provider_state'],
-      path,
-    )
-    if (
-      message.content !== undefined &&
-      message.content !== null &&
-      typeof message.content !== 'string'
-    ) {
-      throw new Error(`${path}.content must be a string or null`)
-    }
-    if (
-      message.reasoning_content !== undefined &&
-      message.reasoning_content !== null &&
-      typeof message.reasoning_content !== 'string'
-    ) {
-      throw new Error(`${path}.reasoning_content must be a string or null`)
-    }
-    if (message.tool_calls !== undefined) {
-      if (!Array.isArray(message.tool_calls)) throw new Error(`${path}.tool_calls must be an array`)
-      for (const [index, rawCall] of message.tool_calls.entries()) {
-        if (rawCall === null || typeof rawCall !== 'object' || Array.isArray(rawCall)) {
-          throw new Error(`${path}.tool_calls[${index}] must be an object`)
-        }
-        const call = rawCall as Record<string, unknown>
-        assertOnlyKeys(call, ['id', 'name', 'arguments'], `${path}.tool_calls[${index}]`)
-        for (const field of ['id', 'name', 'arguments']) {
-          if (typeof call[field] !== 'string' || call[field].length === 0) {
-            throw new Error(`${path}.tool_calls[${index}].${field} must be a non-empty string`)
-          }
-        }
-      }
-    }
-    if (message.provider_state !== undefined) {
-      validateProviderState(message.provider_state, `${path}.provider_state`)
-    }
-  } else {
-    assertOnlyKeys(message, ['role', 'tool_call_id', 'content', 'name'], path)
-    if (typeof message.tool_call_id !== 'string' || message.tool_call_id.length === 0) {
-      throw new Error(`${path}.tool_call_id must be a non-empty string`)
-    }
-    if (message.name !== undefined && typeof message.name !== 'string') {
-      throw new Error(`${path}.name must be a string`)
-    }
-    validateContent(message.content, `${path}.content`)
-  }
-}
-
-function validateProviderState(value: unknown, path: string): void {
-  if (!Array.isArray(value)) throw new Error(`${path} must be an array`)
-  for (const [index, entry] of value.entries()) {
-    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new Error(`${path}[${index}] must be an object`)
-    }
-    validateJson(entry, `${path}[${index}]`)
-  }
-}
-
-function validateContent(value: unknown, path: string): void {
-  if (typeof value === 'string') return
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`${path} must be a string or non-empty content array`)
-  }
-  for (const [index, rawPart] of value.entries()) {
-    if (rawPart === null || typeof rawPart !== 'object' || Array.isArray(rawPart)) {
-      throw new Error(`${path}[${index}] must be a content object`)
-    }
-    const part = rawPart as Record<string, unknown>
-    if (part.type === 'text' && typeof part.text === 'string') {
-      assertOnlyKeys(part, ['type', 'text'], `${path}[${index}]`)
-      continue
-    }
-    if (
-      part.type === 'image_url' &&
-      part.image_url !== null &&
-      typeof part.image_url === 'object' &&
-      !Array.isArray(part.image_url) &&
-      typeof (part.image_url as Record<string, unknown>).url === 'string'
-    ) {
-      assertOnlyKeys(part, ['type', 'image_url'], `${path}[${index}]`)
-      assertOnlyKeys(
-        part.image_url as Record<string, unknown>,
-        ['url'],
-        `${path}[${index}].image_url`,
-      )
-      continue
-    }
-    throw new Error(`${path}[${index}] is not a supported text or image_url content part`)
-  }
-}
-
-function assertOnlyKeys(
-  value: Record<string, unknown>,
-  allowed: readonly string[],
-  path: string,
-): void {
-  for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) throw new Error(`${path}.${key} is not supported`)
   }
 }
 
