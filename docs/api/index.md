@@ -11290,7 +11290,7 @@ Per-generation findings producer passthrough (see selfImprove.analyzeGeneration)
 
 > `optional` **rawTraceContext?**: `boolean`
 
-META-HARNESS mode: instead of the ~400-char distilled findings, feed the
+META-HARNESS mode: instead of the ~1500-char distilled findings, feed the
  proposer RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
  real run traces under `runDir` (per-cell `spans.jsonl` event logs +
  `cached-result.json` scores + artifacts) plus a `grep`/`cat`-to-diagnose
@@ -13295,7 +13295,7 @@ Build the starting instruction for a coder agent tasked with implementing a new 
 
 > **applyImprovementWinnerToProfile**(`profile`, `surface`, `winner`): `AgentProfile`
 
-Defined in: [improvement/improve.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L466)
+Defined in: [improvement/improve.ts:478](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L478)
 
 Apply a promoted winner surface back into the profile field for `surface`.
  Returns a shallow copy; never mutates the input profile.
@@ -13324,7 +13324,7 @@ Apply a promoted winner surface back into the profile field for `surface`.
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:529](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L529)
+Defined in: [improvement/improve.ts:541](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L541)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 

@@ -585,6 +585,63 @@ describe('improve() — default proposer resolution (substrate export drift guar
     }
   })
 
+  it('the distiller keeps traceback-sized notes intact and clips at the 1500/500 caps', async () => {
+    // A realistic executable-judge note (~1000 chars) must survive whole; a
+    // runaway note is clipped to exactly 1500; a cell error is clipped to 500.
+    const intactNote = `Traceback (most recent call last):\n${'  assert tour == expected\n'.repeat(38)}`
+    expect(intactNote.length).toBeGreaterThan(900)
+    expect(intactNote.length).toBeLessThan(1500)
+    const runawayNote = 'n'.repeat(1600)
+    const longError = 'e'.repeat(800)
+    const cappingJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'capping-judge',
+      dimensions: [{ key: 'q', description: 'fixture quality' }],
+      score: ({ scenario }) => {
+        if (scenario.id === 'a') return { dimensions: { q: 0 }, composite: 0, notes: intactNote }
+        if (scenario.id === 'b') return { dimensions: { q: 0 }, composite: 0, notes: runawayNote }
+        return { dimensions: { q: 1 }, composite: 1, notes: 'ok' }
+      },
+    }
+    const findingsSeen: unknown[][] = []
+    const stubProposer = {
+      kind: 'stub-recorder',
+      async propose(ctx: { findings: unknown[]; populationSize: number }) {
+        findingsSeen.push(ctx.findings)
+        return [{ surface: `candidate-${findingsSeen.length}`, label: 'stub', rationale: 'stub' }]
+      },
+    }
+    const failingAgent = async (surface: unknown, scenario: Scenario, ctx: DispatchContext) => {
+      // The baseline must stay complete (an incomplete incumbent is refused),
+      // so the error lands on a generation-1 candidate cell instead.
+      if (scenario.id === 'c' && typeof surface === 'string' && surface.startsWith('candidate-')) {
+        throw new Error(longError)
+      }
+      return stubAgent(surface, scenario, ctx)
+    }
+    await improve(promptProfile(), [], {
+      surface: 'prompt',
+      scenarios,
+      judge: cappingJudge,
+      agent: failingAgent,
+      generator: stubProposer as never,
+      budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
+    })
+    expect(findingsSeen.length).toBeGreaterThanOrEqual(1)
+    const rows = findingsSeen.flat() as Array<{
+      scenario: string
+      notes?: string
+      error?: string
+    }>
+    const intact = rows.find((row) => row.scenario === 'a')
+    expect(intact?.notes).toBe(intactNote) // below the cap ⇒ untouched
+    const clipped = rows.find((row) => row.scenario === 'b')
+    expect(clipped?.notes).toBe('n'.repeat(1500)) // at the cap ⇒ exactly 1500
+    const errored = rows.find((row) => row.scenario === 'c')
+    expect(errored?.error).toBeDefined()
+    expect(errored?.error).toContain('e'.repeat(400))
+    expect(errored?.error?.length).toBeLessThanOrEqual(500)
+  })
+
   it("surface 'code' + opts.code assembles the worktree pipeline and measures a candidate", async () => {
     const { execSync } = await import('node:child_process')
     const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')

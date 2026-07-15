@@ -262,6 +262,16 @@ function baselineSurfaceFor(
   }
 }
 
+/** Slice bound for distilled judge notes: wide enough that a real traceback /
+ *  failing-assertion note survives intact — clipping mid-traceback would leave
+ *  the proposer trace-blind. Referenced by the `rawTraceContext` docs. */
+const DISTILLED_NOTES_MAX_CHARS = 1500
+
+/** Slice bound for a cell's error string — tighter than notes (errors are
+ *  usually one line; the full text stays on the raw cell). Also bounds the
+ *  error-derived `claim` fallback. */
+const DISTILLED_ERROR_MAX_CHARS = 500
+
 /** The default `analyzeGeneration`: distill each generation's failing cells into
  *  findings for the next proposal round. Deliberately dependency-free — judge notes
  *  and errors are already the domain's own diagnosis (executable gates put their
@@ -296,21 +306,20 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
             ? 0
             : judgeScores.reduce((sum, j) => sum + (j.composite ?? 0), 0) / judgeScores.length
         if (!error && composite >= 0.999) continue
-        // 1500 chars keeps a real traceback / failing assertion intact — the old
-        // 400 clipped executable-judge notes down to a stub, leaving the proposer
-        // trace-blind. Errors stay tighter (they are usually one-line).
         const notes = judgeScores
           .map((j) => j.notes)
           .filter((n): n is string => typeof n === 'string' && n.length > 0)
           .join('; ')
-          .slice(0, 1500)
-        const claim = notes || (error ? `Scenario ${scenario} failed: ${error.slice(0, 500)}` : '')
+          .slice(0, DISTILLED_NOTES_MAX_CHARS)
+        const claim =
+          notes ||
+          (error ? `Scenario ${scenario} failed: ${error.slice(0, DISTILLED_ERROR_MAX_CHARS)}` : '')
         failures.push({
           scenario,
           composite: Number(composite.toFixed(3)),
           notes,
           ...(claim ? { claim } : {}),
-          ...(error ? { error: error.slice(0, 500) } : {}),
+          ...(error ? { error: error.slice(0, DISTILLED_ERROR_MAX_CHARS) } : {}),
         })
       }
     }
