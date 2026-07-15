@@ -62,6 +62,48 @@ function alwaysThrowsBackend(name: string, message: string): AgentExecutionBacke
   })
 }
 
+function emptyBackend(name: string): AgentExecutionBackend {
+  return createIterableBackend({
+    kind: `empty-${name}`,
+    async *stream() {},
+  })
+}
+
+function failedFinalBackend(name: string): AgentExecutionBackend {
+  return createIterableBackend({
+    kind: `failed-${name}`,
+    async *stream(_input, context) {
+      yield {
+        type: 'final',
+        task: context.task,
+        session: context.session,
+        status: 'failed',
+        reason: 'provider failed',
+        error: { kind: 'transport', message: 'provider failed', status: 503 },
+        timestamp: new Date().toISOString(),
+      } satisfies RuntimeStreamEvent
+    },
+  })
+}
+
+function backendErrorEventBackend(name: string): AgentExecutionBackend {
+  return createIterableBackend({
+    kind: `error-event-${name}`,
+    async *stream(_input, context) {
+      yield {
+        type: 'backend_error',
+        task: context.task,
+        session: context.session,
+        backend: `error-event-${name}`,
+        message: 'provider unavailable',
+        recoverable: true,
+        error: { kind: 'transport', message: 'provider unavailable', status: 503 },
+        timestamp: new Date().toISOString(),
+      } satisfies RuntimeStreamEvent
+    },
+  })
+}
+
 describe('defineConversation', () => {
   const okBackend = fakeBackend('x', ['hi'])
 
@@ -226,6 +268,57 @@ describe('runConversation — halting', () => {
     }
     expect(result.transcript).toHaveLength(1)
     expect(result.transcript[0]?.speaker).toBe('a')
+  })
+
+  it('halts when a backend completes without text', async () => {
+    const conv = defineConversation({
+      participants: [
+        { name: 'a', backend: emptyBackend('a') },
+        { name: 'b', backend: fakeBackend('b', ['unused']) },
+      ],
+      policy: { maxTurns: 2 },
+    })
+    const result = await runConversation(conv, { seed: 'go' })
+    expect(result.halted).toEqual({
+      kind: 'participant_error',
+      participant: 'a',
+      message: "backend 'empty-a' completed without text",
+    })
+    expect(result.transcript).toHaveLength(0)
+  })
+
+  it('halts when a backend emits a failed final event', async () => {
+    const conv = defineConversation({
+      participants: [
+        { name: 'a', backend: failedFinalBackend('a') },
+        { name: 'b', backend: fakeBackend('b', ['unused']) },
+      ],
+      policy: { maxTurns: 2 },
+    })
+    const result = await runConversation(conv, { seed: 'go' })
+    expect(result.halted).toEqual({
+      kind: 'participant_error',
+      participant: 'a',
+      message: 'provider failed',
+    })
+    expect(result.transcript).toHaveLength(0)
+  })
+
+  it('halts when a backend emits a backend error event', async () => {
+    const conv = defineConversation({
+      participants: [
+        { name: 'a', backend: backendErrorEventBackend('a') },
+        { name: 'b', backend: fakeBackend('b', ['unused']) },
+      ],
+      policy: { maxTurns: 2 },
+    })
+    const result = await runConversation(conv, { seed: 'go' })
+    expect(result.halted).toEqual({
+      kind: 'participant_error',
+      participant: 'a',
+      message: 'provider unavailable',
+    })
+    expect(result.transcript).toHaveLength(0)
   })
 
   it('halts on abort signal', async () => {

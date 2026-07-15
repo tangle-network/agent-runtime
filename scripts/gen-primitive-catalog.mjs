@@ -63,6 +63,7 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
 const ownSurfaceLabels = {
   '.': 'Root — task lifecycle, conversation, RSI verbs, observability',
   './agent': 'Vertical agent — manifest + improvement adapter',
+  './conversation': 'Multi-turn conversations',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
   './loops': 'Recursive atom + loop kernel (alias of ./runtime)',
   './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',

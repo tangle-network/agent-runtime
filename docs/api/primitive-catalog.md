@@ -258,6 +258,47 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentRubric`, `AgentRunContext`, `AgentRunInvocation`, `AgentRuntime`, `AnalystConfig`, `AutoApplyPolicy`, `CreateSandboxActOptions`, `CreateSurfaceImprovementAdapterOpts`, `DraftPatchInput`, `DraftPatchOutput`, `JudgeConfig`, `OutcomeMeasurementOpts`, `ResolvedSurface`, `RubricDimension`, `KnownAgentProfileMaterializationAxis`.
 
+### Multi-turn conversations
+
+Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
+| `computeBackoff` | function | Compute the delay before the next attempt. Default: 250ms exponential with jitter. |
+| `createConversationBackend` | function | Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is |
+| `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
+| `defineConversation` | function | Declarative constructor for a multi-agent `Conversation`. Validates inputs |
+| `isDepthExceeded` | function | Refuse further forwarding when the inbound depth has reached the limit. |
+| `makePerAttemptSignal` | function | Build a per-attempt AbortSignal linked to the parent signal AND fired when |
+| `readDepth` | function | Read the depth counter off an inbound request. Missing → 0 (caller is the |
+| `runConversation` | function | Conversation orchestrator. Drives N participants in turn through their own |
+| `runConversationStream` | function | Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers. |
+| `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
+| `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
+| `sleep` | function | Resolve after `ms` milliseconds — used for retry backoff in conversation call policy. |
+| `slugifySpeaker` | function | Reduce a speaker name to ASCII alphanumerics + dashes. Preserves enough |
+| `turnId` | function | Deterministic turn identifier. Stable across retries of the same logical |
+| `DEFAULT_MAX_DEPTH` | const | Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. |
+| `defaultIsRetryable` | const | Default retryable classification — network/timeout class errors. Errors |
+| `FORWARD_HEADERS` | const | Standard names — lowercased so Headers maps interop on every runtime. |
+| `CircuitBreakerState` | class | Live circuit-breaker state — one instance per (participant, conversation run). |
+| `CircuitOpenError` | class | Thrown when the circuit breaker is open for a participant and no retry is allowed yet. |
+| `DeadlineExceededError` | class | Thrown when a backend call exceeds its per-attempt deadline. |
+| `FileConversationJournal` | class | JSONL on disk. One line per record; first line is the `begin`, subsequent |
+| `InMemoryConversationJournal` | class | In-memory `ConversationJournal` — suitable for testing and single-process runs. |
+| `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
+| `CircuitBreakerConfig` | interface | Circuit-breaker tuning. `failuresToOpen` consecutive failures opens it; closed only after `cooldownMs`. |
+| `ConversationJournalEntry` | interface | Durable conversation transcript — survives a driver process crash mid-run. |
+| `D1DatabaseLike` | interface | Structural type matching the surface of `D1Database` we depend on, so the |
+| `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
+| `PersonaDriver` | type | A persona that drives the conversation: either a full driver `AgentProfile` |
+| `PropagatedHeaders` | type | Header bag carried through `AgentBackendContext.propagatedHeaders` so |
+| `RetryableErrorPredicate` | type | Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors. |
+| `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BackendCallPolicy`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `HaltContext`, `HaltSignal`, `PersonaConversationResult`, `RunConversationOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `AuthSource`, `ConversationStreamEvent`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `TurnOrder`.
+
 ### Intelligence SDK — Observe + provable-OFF billing
 
 Import from `@tangle-network/agent-runtime/intelligence` — 85 exports.

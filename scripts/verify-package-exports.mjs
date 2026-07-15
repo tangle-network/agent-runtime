@@ -45,6 +45,7 @@ try {
   const requiredExports = {
     '.': ['import', 'types'],
     './agent': ['import', 'types'],
+    './conversation': ['import', 'types'],
     './candidate-execution': ['import', 'types'],
     './intelligence': ['import', 'types'],
     './loops': ['import', 'types'],
