@@ -121,6 +121,7 @@ export interface CreateAgentImprovementMeasuredComparisonOptions<
   measuredSurface: ImproveSurface
   baselineProfile: AgentProfile
   candidateBundle: AgentCandidateBundle
+  metadata?: AgentImprovementMeasuredComparison['metadata']
 }
 
 export interface ReviewAgentImprovementInput {
@@ -779,6 +780,7 @@ export function createAgentImprovementMeasuredComparison<TScenario extends Scena
       durationMs: result.durationMs,
       totalCostUsd: result.totalCostUsd,
     },
+    ...(options.metadata ? { metadata: options.metadata } : {}),
   })
   return agentImprovementMeasuredComparisonSchema.parse(comparison)
 }

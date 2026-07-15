@@ -418,6 +418,18 @@ describe('agent improvement lifecycle', () => {
       measuredSurface: 'prompt',
       baselineProfile: profile,
       candidateBundle: proposed.proposal.candidateBundle,
+      metadata: {
+        executionTask: {
+          itemId: 'scenario-1',
+          instructionDigest: `sha256:${'c'.repeat(64)}`,
+        },
+      },
+    })
+    expect(multiJudgeComparison.metadata).toEqual({
+      executionTask: {
+        itemId: 'scenario-1',
+        instructionDigest: `sha256:${'c'.repeat(64)}`,
+      },
     })
     expect(multiJudgeComparison.objectives).toEqual(
       expect.arrayContaining([
