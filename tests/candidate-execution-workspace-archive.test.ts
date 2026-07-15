@@ -114,6 +114,7 @@ describe('candidate workspace archive', () => {
   it('restores a non-repository workspace and rejects archive drift', async () => {
     const source = temporaryRoot('candidate-workspace-files-')
     writeFileSync(join(source, 'input.txt'), 'exact bytes', { mode: 0o664 })
+    chmodSync(join(source, 'input.txt'), 0o664)
     const captured = await captureAgentCandidateWorkspace(source)
     const port = createAgentCandidateWorkspacePort()
     const destination = join(temporaryRoot('candidate-workspace-parent-'), 'restored')
