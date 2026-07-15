@@ -1872,7 +1872,7 @@ Maximum time for task verification, executable grading, and receipt construction
 
 ### PrepareAgentCandidateExecutionOptions
 
-Defined in: [candidate-execution/prepare.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L76)
+Defined in: [candidate-execution/prepare.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L81)
 
 #### Properties
 
@@ -1880,13 +1880,13 @@ Defined in: [candidate-execution/prepare.ts:76](https://github.com/tangle-networ
 
 > `optional` **cleanupTimeoutMs?**: `number`
 
-Defined in: [candidate-execution/prepare.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L77)
+Defined in: [candidate-execution/prepare.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L82)
 
 ##### resultTimeoutMs?
 
 > `optional` **resultTimeoutMs?**: `number`
 
-Defined in: [candidate-execution/prepare.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L79)
+Defined in: [candidate-execution/prepare.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L84)
 
 Maximum time for task verification, executable grading, and receipt construction.
 
@@ -11833,6 +11833,26 @@ MUST map this to `RunRecord.error` rather than recording silent
 
 ## Variables
 
+### CANDIDATE\_KNOWLEDGE\_ROOT\_ENV
+
+> `const` **CANDIDATE\_KNOWLEDGE\_ROOT\_ENV**: `"TANGLE_CANDIDATE_KNOWLEDGE_ROOT"` = `'TANGLE_CANDIDATE_KNOWLEDGE_ROOT'`
+
+Defined in: [candidate-execution/knowledge.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L14)
+
+Environment variable containing the materialized candidate knowledge root.
+
+***
+
+### CANDIDATE\_KNOWLEDGE\_RETRIEVAL\_CONFIG\_ENV
+
+> `const` **CANDIDATE\_KNOWLEDGE\_RETRIEVAL\_CONFIG\_ENV**: `"TANGLE_CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG"` = `'TANGLE_CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG'`
+
+Defined in: [candidate-execution/knowledge.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L16)
+
+Environment variable containing the materialized retrieval configuration path.
+
+***
+
 ### CANDIDATE\_TRACE\_TAGS
 
 > `const` **CANDIDATE\_TRACE\_TAGS**: `object`
@@ -12355,6 +12375,38 @@ Executes and finalizes one durably claimed candidate without exposing an unprove
 
 ***
 
+### candidateKnowledgeExecutionPaths()
+
+> **candidateKnowledgeExecutionPaths**(`taskRoot`, `hasRetrievalConfig`): `object`
+
+Defined in: [candidate-execution/knowledge.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L20)
+
+Deterministic, signed locations used by every candidate executor.
+
+#### Parameters
+
+##### taskRoot
+
+`string`
+
+##### hasRetrievalConfig
+
+`boolean`
+
+#### Returns
+
+`object`
+
+##### root
+
+> **root**: `string`
+
+##### retrievalConfig?
+
+> `optional` **retrievalConfig?**: `string`
+
+***
+
 ### persistCandidateOutputArtifact()
 
 > **persistCandidateOutputArtifact**(`port`, `input`): `Promise`\<`AgentCandidateArtifactRef`\>
@@ -12397,7 +12449,7 @@ Persist evaluator evidence, read it back, and bind the returned locator to the e
 
 > **prepareAgentCandidateExecution**(`candidate`, `task`, `ports`, `options?`): `Promise`\<[`PreparedAgentCandidateExecution`](#preparedagentcandidateexecution)\>
 
-Defined in: [candidate-execution/prepare.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L83)
+Defined in: [candidate-execution/prepare.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L88)
 
 Materializes a verified candidate into one immutable evaluator-owned execution plan.
 

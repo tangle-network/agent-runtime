@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 340 exports.
+Import from `@tangle-network/agent-runtime` — 343 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -30,6 +30,7 @@ Import from `@tangle-network/agent-runtime` — 340 exports.
 | `buildLoopSpanNodes` | function | Sink-neutral core behind {@link buildLoopOtelSpans}: reconstruct the |
 | `buildRuntimeEventOtelSpans` | function | Convert normalized runtime events into lossless, redacted child spans. |
 | `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
+| `candidateKnowledgeExecutionPaths` | function | Deterministic, signed locations used by every candidate executor. |
 | `captureAgentCandidateWorkspace` | function | Capture one exact regular-file workspace for immutable candidate execution. |
 | `captureAgentCandidateWorkspaceFiles` | function | Capture detached files returned by a remote executor into the standard archive. |
 | `cleanModelId` | function | Trim a candidate model id; `undefined` for non-strings and blanks. |
@@ -114,6 +115,8 @@ Import from `@tangle-network/agent-runtime` — 340 exports.
 | `worktreeLoopRunner` | function | `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a |
 | `AGENT_CANDIDATE_EXECUTION_SUPPORT` | const | Surfaces admitted by Runtime's verifier before an environment adapter is selected. |
 | `AGENTIC_PROFILE_RESOURCE_ROOT` | const | Dedicated ephemeral root for generic author-profile files. Every declared |
+| `CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV` | const | Environment variable containing the materialized retrieval configuration path. |
+| `CANDIDATE_KNOWLEDGE_ROOT_ENV` | const | Environment variable containing the materialized candidate knowledge root. |
 | `CANDIDATE_TRACE_ENV` | const | Environment keys used to propagate immutable candidate trace identity. |
 | `CANDIDATE_TRACE_TAGS` | const | Protected trace tags that bind a run to one prepared candidate execution. |
 | `DEFAULT_MAX_DEPTH` | const | Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. |
@@ -945,13 +948,14 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 94 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 97 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
+| `candidateKnowledgeExecutionPaths` | function | Deterministic, signed locations used by every candidate executor. |
 | `captureAgentCandidateWorkspace` | function | Capture one exact regular-file workspace for immutable candidate execution. |
 | `captureAgentCandidateWorkspaceFiles` | function | Capture detached files returned by a remote executor into the standard archive. |
 | `createAgentCandidateWorkspacePort` | function | Create the standard bounded materializer for candidate execution ports. |
@@ -966,6 +970,8 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 94 exports.
 | `sealAgentCandidateBundle` | function | Validate and content-address a candidate bundle before it crosses an approval boundary. |
 | `verifyAgentCandidateBundle` | function | Verifies every digest, resource, workspace, and Git object in a candidate bundle. |
 | `AGENT_CANDIDATE_EXECUTION_SUPPORT` | const | Surfaces admitted by Runtime's verifier before an environment adapter is selected. |
+| `CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV` | const | Environment variable containing the materialized retrieval configuration path. |
+| `CANDIDATE_KNOWLEDGE_ROOT_ENV` | const | Environment variable containing the materialized candidate knowledge root. |
 | `CANDIDATE_TRACE_ENV` | const | Environment keys used to propagate immutable candidate trace identity. |
 | `CANDIDATE_TRACE_TAGS` | const | Protected trace tags that bind a run to one prepared candidate execution. |
 | `FileAgentCandidateExecutionClaimStore` | class | Cross-process lifecycle implemented as fsynced, create-if-absent records. |

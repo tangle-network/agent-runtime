@@ -1,3 +1,6 @@
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+
 import { InMemoryTraceStore } from '@tangle-network/agent-eval'
 import type {
   AgentCandidateBundle,
@@ -8,7 +11,15 @@ import type { Process, ProcessStatus, SandboxInstance } from '@tangle-network/sa
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { InMemoryAgentCandidateExecutionClaimStore } from '../src/candidate-execution/claim'
-import { canonicalCandidateDigest } from '../src/candidate-execution/digest'
+import {
+  canonicalCandidateBytes,
+  canonicalCandidateDigest,
+  embeddedCandidateArtifact,
+} from '../src/candidate-execution/digest'
+import {
+  CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
+  CANDIDATE_KNOWLEDGE_ROOT_ENV,
+} from '../src/candidate-execution/knowledge'
 import type { AgentCandidateExecutorRequest } from '../src/candidate-execution/types'
 import {
   createAgentImprovementProposal,
@@ -23,6 +34,7 @@ import {
   cleanupCandidateFixtures,
   createCandidateOutputExecutionFixture,
   createCandidateOutputFixture,
+  redigestCandidateBundle,
 } from './helpers/candidate-execution-fixture'
 
 afterEach(cleanupCandidateFixtures)
@@ -30,6 +42,52 @@ afterEach(cleanupCandidateFixtures)
 describe('Sandbox approved candidate executor', () => {
   it('runs one exact bounded-output task in a fresh strict-egress sandbox', async () => {
     const fixture = createCandidateOutputExecutionFixture('application/json', 1_024)
+    const knowledgeBytes = Buffer.from('# Exact runbook\nUse the verified endpoint.\n', 'utf8')
+    const knowledgeMaterial = {
+      kind: 'agent-candidate-workspace-manifest' as const,
+      files: [
+        {
+          path: 'runbook.md',
+          mode: 0o644,
+          sha256: embeddedCandidateArtifact(knowledgeBytes).sha256,
+          byteLength: knowledgeBytes.byteLength,
+        },
+      ],
+    }
+    const knowledgeManifest = embeddedCandidateArtifact(canonicalCandidateBytes(knowledgeMaterial))
+    const knowledgeSnapshot = {
+      kind: 'agent-candidate-workspace-snapshot' as const,
+      digest: knowledgeManifest.sha256,
+      material: knowledgeMaterial,
+      manifest: knowledgeManifest,
+      archive: embeddedCandidateArtifact(Buffer.from('knowledge-archive', 'utf8')),
+    }
+    const retrievalConfigBytes = Buffer.from('{"topK":4}\n', 'utf8')
+    fixture.bundle = redigestCandidateBundle(fixture.bundle, {
+      knowledge: {
+        candidate: {
+          kind: 'knowledge-improvement-candidate',
+          runId: 'knowledge-run-1',
+          candidateId: 'knowledge-candidate-1',
+          goalHash: candidateSha('1'),
+          baseHash: candidateSha('2'),
+          candidateHash: candidateSha('3'),
+          evidenceHash: candidateSha('4'),
+          promotionPlanHash: candidateSha('5'),
+        },
+        snapshot: knowledgeSnapshot,
+        retrievalConfig: embeddedCandidateArtifact(retrievalConfigBytes),
+        evaluation: embeddedCandidateArtifact(Buffer.from('{"score":1}\n', 'utf8')),
+      },
+    })
+    const materialize = fixture.ports.workspaces.materialize
+    fixture.ports.workspaces.materialize = async (input) => {
+      if (input.role !== 'knowledge') return materialize(input)
+      const path = join(input.destination, 'runbook.md')
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, knowledgeBytes)
+      chmodSync(path, 0o644)
+    }
     const baselineProfile = { name: 'baseline' }
     const proposal = createAgentImprovementProposal({
       runId: 'sandbox-proposal-1',
@@ -135,6 +193,11 @@ describe('Sandbox approved candidate executor', () => {
     })
     expect(launch.env).not.toHaveProperty('PATH')
     expect(launch.env).toHaveProperty('MODEL_GATEWAY_TOKEN', 'protected')
+    expect(launch.env).toMatchObject({
+      [CANDIDATE_KNOWLEDGE_ROOT_ENV]: '/workspace/task/.tangle/knowledge',
+      [CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV]:
+        '/workspace/task/.tangle/knowledge-retrieval-config.json',
+    })
     expect(writes.length).toBeGreaterThan(0)
     expect(deleted).toBe(true)
     expect(evidence).toMatchObject({
@@ -167,6 +230,16 @@ describe('Sandbox approved candidate executor', () => {
       expect(written?.mode).toBe(file.mode)
       expect(Buffer.from(written?.content ?? '', 'base64').toString('utf8')).toBe(file.content)
     }
+    const writtenKnowledge = writes.find(
+      (entry) => entry.path === '/workspace/task/.tangle/knowledge/runbook.md',
+    )
+    expect(Buffer.from(writtenKnowledge?.content ?? '', 'base64')).toEqual(knowledgeBytes)
+    const writtenRetrievalConfig = writes.find(
+      (entry) => entry.path === '/workspace/task/.tangle/knowledge-retrieval-config.json',
+    )
+    expect(Buffer.from(writtenRetrievalConfig?.content ?? '', 'base64')).toEqual(
+      retrievalConfigBytes,
+    )
     await expect(
       adapter.executor.stop(
         {
@@ -189,7 +262,7 @@ describe('Sandbox approved candidate executor', () => {
       outputMediaTypes: ['text/*', 'application/json', '*+json'],
       code: ['disabled'],
       memory: ['disabled'],
-      knowledge: false,
+      knowledge: true,
       profile: {
         mcpTransports: ['stdio'],
         remoteMcp: false,

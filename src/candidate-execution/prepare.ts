@@ -51,7 +51,12 @@ import {
 } from './digest'
 import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { verifyTaskCheckout } from './git-materialize'
-import { prepareAgentCandidateKnowledge } from './knowledge'
+import {
+  CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
+  CANDIDATE_KNOWLEDGE_ROOT_ENV,
+  candidateKnowledgeExecutionPaths,
+  prepareAgentCandidateKnowledge,
+} from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
 import { candidateMaterializerHarness, createAgentCandidateProfileActivation } from './profile'
@@ -218,6 +223,12 @@ export async function prepareAgentCandidateExecution(
     )
     const memory = preparedMemory.value
     const knowledge = await prepareAgentCandidateKnowledge(candidate, ports)
+    const knowledgePaths = knowledge
+      ? candidateKnowledgeExecutionPaths(
+          task.executionRoots.taskRoot,
+          knowledge.retrievalConfig !== undefined,
+        )
+      : undefined
     const baseLaunch = buildLaunch(candidate, task, profileApplication.flags)
     const publicEnv = mergePublicEnvironment(
       bundle.execution.env ?? {},
@@ -228,6 +239,22 @@ export async function prepareAgentCandidateExecution(
               kind: 'public',
               value: bundle.execution.instructionDelivery.path,
             },
+          }
+        : {},
+      knowledgePaths
+        ? {
+            [CANDIDATE_KNOWLEDGE_ROOT_ENV]: {
+              kind: 'public',
+              value: knowledgePaths.root,
+            },
+            ...(knowledgePaths.retrievalConfig
+              ? {
+                  [CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV]: {
+                    kind: 'public' as const,
+                    value: knowledgePaths.retrievalConfig,
+                  },
+                }
+              : {}),
           }
         : {},
     )

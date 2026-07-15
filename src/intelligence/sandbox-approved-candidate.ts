@@ -20,6 +20,11 @@ import type {
 
 import type { AgentCandidateExecutionClaimStore } from '../candidate-execution/claim'
 import { canonicalCandidateBytes } from '../candidate-execution/digest'
+import {
+  CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
+  CANDIDATE_KNOWLEDGE_ROOT_ENV,
+  candidateKnowledgeExecutionPaths,
+} from '../candidate-execution/knowledge'
 import type { PrepareAgentCandidateExecutionOptions } from '../candidate-execution/prepare'
 import type {
   AgentCandidateBenchmarkGraderPort,
@@ -48,7 +53,7 @@ export const sandboxApprovedCandidateExecutionSupport = Object.freeze({
   outputMediaTypes: Object.freeze(['text/*', 'application/json', '*+json'] as const),
   code: Object.freeze(['disabled'] as const),
   memory: Object.freeze(['disabled'] as const),
-  knowledge: false,
+  knowledge: true,
   profile: AGENT_CANDIDATE_EXECUTION_SUPPORT.profile,
   isolation: Object.freeze({
     freshSandbox: true,
@@ -403,6 +408,7 @@ async function materializeRequest(
   sandbox: SandboxInstance,
   request: AgentCandidateExecutorRequest,
 ): Promise<void> {
+  const knowledgePaths = assertKnowledgeExecutionBinding(request)
   for (const file of request.inputs.task.files) {
     await writeExactFile(sandbox, beneath(request.roots.taskRoot, file.path), file.bytes, file.mode)
   }
@@ -419,6 +425,19 @@ async function materializeRequest(
       file.mode,
     )
   }
+  if (request.knowledge && knowledgePaths) {
+    for (const file of request.knowledge.files) {
+      await writeExactFile(sandbox, beneath(knowledgePaths.root, file.path), file.bytes, file.mode)
+    }
+    if (request.knowledge.retrievalConfig && knowledgePaths.retrievalConfig) {
+      await writeExactFile(
+        sandbox,
+        knowledgePaths.retrievalConfig,
+        request.knowledge.retrievalConfig,
+        0o644,
+      )
+    }
+  }
   if (request.instruction.delivery.kind === 'utf8-file') {
     await writeExactFile(
       sandbox,
@@ -427,6 +446,61 @@ async function materializeRequest(
       0o644,
     )
   }
+}
+
+function assertKnowledgeExecutionBinding(
+  request: AgentCandidateExecutorRequest,
+): ReturnType<typeof candidateKnowledgeExecutionPaths> | undefined {
+  const knowledge = request.knowledge
+  if (!knowledge) {
+    if (
+      request.launch.env[CANDIDATE_KNOWLEDGE_ROOT_ENV] !== undefined ||
+      request.launch.env[CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV] !== undefined
+    ) {
+      throw new Error('candidate launch declares knowledge paths without verified knowledge')
+    }
+    return undefined
+  }
+  const paths = candidateKnowledgeExecutionPaths(
+    request.roots.taskRoot,
+    knowledge.retrievalConfig !== undefined,
+  )
+  if (
+    request.launch.env[CANDIDATE_KNOWLEDGE_ROOT_ENV] !== paths.root ||
+    request.launch.env[CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV] !== paths.retrievalConfig
+  ) {
+    throw new Error('candidate knowledge paths do not match the signed launch environment')
+  }
+
+  const reserved = [paths.root, paths.retrievalConfig].filter(
+    (value): value is string => value !== undefined,
+  )
+  const profileRoot =
+    request.executionPlan.value.material.profile.targetWorkspace === 'task'
+      ? request.roots.taskRoot
+      : request.roots.candidateRoot
+  const otherFiles = [
+    ...request.inputs.task.files.map((file) => beneath(request.roots.taskRoot, file.path)),
+    ...(profileRoot
+      ? request.profileActivation.files.map((file) => beneath(profileRoot, file.path))
+      : []),
+    ...(request.instruction.delivery.kind === 'utf8-file'
+      ? [request.instruction.delivery.path]
+      : []),
+  ]
+  if (
+    otherFiles.some((path) =>
+      reserved.some(
+        (reservedPath) =>
+          path === reservedPath ||
+          path.startsWith(`${reservedPath}/`) ||
+          reservedPath.startsWith(`${path}/`),
+      ),
+    )
+  ) {
+    throw new Error('candidate knowledge paths overlap other execution inputs')
+  }
+  return paths
 }
 
 function exactLaunch(request: AgentCandidateExecutorRequest): {

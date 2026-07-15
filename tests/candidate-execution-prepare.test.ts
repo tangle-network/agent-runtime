@@ -16,6 +16,10 @@ import {
   canonicalCandidateDigest,
   embeddedCandidateArtifact,
 } from '../src/candidate-execution/digest'
+import {
+  CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
+  CANDIDATE_KNOWLEDGE_ROOT_ENV,
+} from '../src/candidate-execution/knowledge'
 import { prepareAgentCandidateExecution } from '../src/candidate-execution/prepare'
 import type {
   AgentCandidateExecutionPorts,
@@ -694,6 +698,21 @@ describe('candidate execution preparation', () => {
       files: [],
     })
     expect(Buffer.from(prepared.knowledge?.retrievalConfig ?? [])).toEqual(knowledgeBytes)
+    expect(prepared.launch.env).toMatchObject({
+      [CANDIDATE_KNOWLEDGE_ROOT_ENV]: '/workspace/task/.tangle/knowledge',
+      [CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV]:
+        '/workspace/task/.tangle/knowledge-retrieval-config.json',
+    })
+    expect(prepared.executionPlan.value.material.launch.env).toMatchObject({
+      [CANDIDATE_KNOWLEDGE_ROOT_ENV]: {
+        kind: 'public',
+        value: '/workspace/task/.tangle/knowledge',
+      },
+      [CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV]: {
+        kind: 'public',
+        value: '/workspace/task/.tangle/knowledge-retrieval-config.json',
+      },
+    })
   })
 
   it('rejects snapshot-only knowledge before artifact access', async () => {

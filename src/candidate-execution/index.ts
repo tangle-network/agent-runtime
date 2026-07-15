@@ -41,6 +41,11 @@ export {
   type ExecutePreparedAgentCandidateOptions,
   executePreparedAgentCandidate,
 } from './execute'
+export {
+  CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
+  CANDIDATE_KNOWLEDGE_ROOT_ENV,
+  candidateKnowledgeExecutionPaths,
+} from './knowledge'
 export { persistCandidateOutputArtifact } from './output-artifacts'
 export {
   type PrepareAgentCandidateExecutionOptions,

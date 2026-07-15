@@ -2530,7 +2530,7 @@ carrying an un-admitted binding kind is a hard error, not a soft drop).
 
 ### CreateSandboxApprovedCandidateExecutorOptions
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L60)
+Defined in: [intelligence/sandbox-approved-candidate.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L65)
 
 #### Properties
 
@@ -2538,43 +2538,43 @@ Defined in: [intelligence/sandbox-approved-candidate.ts:60](https://github.com/t
 
 > **client**: `SandboxClientPort`
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L61)
+Defined in: [intelligence/sandbox-approved-candidate.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L66)
 
 ##### ports
 
 > **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L62)
+Defined in: [intelligence/sandbox-approved-candidate.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L67)
 
 ##### grader
 
 > **grader**: [`AgentCandidateBenchmarkGraderPort`](index.md#agentcandidatebenchmarkgraderport)
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L63)
+Defined in: [intelligence/sandbox-approved-candidate.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L68)
 
 ##### outputArtifacts
 
 > **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](index.md#agentcandidateoutputartifactport)
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L64)
+Defined in: [intelligence/sandbox-approved-candidate.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L69)
 
 ##### traceStore
 
 > **traceStore**: `TraceStore`
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L65)
+Defined in: [intelligence/sandbox-approved-candidate.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L70)
 
 ##### claimStore
 
 > **claimStore**: [`AgentCandidateExecutionClaimStore`](index.md#agentcandidateexecutionclaimstore)
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L66)
+Defined in: [intelligence/sandbox-approved-candidate.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L71)
 
 ##### authorizeReview
 
 > **authorizeReview**: (`review`, `proposal`) => `boolean` \| `Promise`\<`boolean`\>
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L67)
+Defined in: [intelligence/sandbox-approved-candidate.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L72)
 
 ###### Parameters
 
@@ -2594,7 +2594,7 @@ Defined in: [intelligence/sandbox-approved-candidate.ts:67](https://github.com/t
 
 > `optional` **sandbox?**: `object`
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L71)
+Defined in: [intelligence/sandbox-approved-candidate.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L76)
 
 ###### teamId?
 
@@ -2616,19 +2616,19 @@ Defined in: [intelligence/sandbox-approved-candidate.ts:71](https://github.com/t
 
 > `optional` **cleanupTimeoutMs?**: `number`
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L77)
+Defined in: [intelligence/sandbox-approved-candidate.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L82)
 
 ##### resultTimeoutMs?
 
 > `optional` **resultTimeoutMs?**: `number`
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L78)
+Defined in: [intelligence/sandbox-approved-candidate.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L83)
 
 ***
 
 ### SandboxApprovedCandidateExecution
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L81)
+Defined in: [intelligence/sandbox-approved-candidate.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L86)
 
 #### Properties
 
@@ -2636,31 +2636,31 @@ Defined in: [intelligence/sandbox-approved-candidate.ts:81](https://github.com/t
 
 > **proposal**: `AgentImprovementProposal`
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L82)
+Defined in: [intelligence/sandbox-approved-candidate.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L87)
 
 ##### review
 
 > **review**: `AgentImprovementReview`
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L83)
+Defined in: [intelligence/sandbox-approved-candidate.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L88)
 
 ##### task
 
 > **task**: [`AgentCandidateTaskExecution`](index.md#agentcandidatetaskexecution)
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L84)
+Defined in: [intelligence/sandbox-approved-candidate.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L89)
 
 ##### preparation?
 
 > `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L85)
+Defined in: [intelligence/sandbox-approved-candidate.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L90)
 
 ***
 
 ### SandboxApprovedCandidateExecutor
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L88)
+Defined in: [intelligence/sandbox-approved-candidate.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L93)
 
 #### Properties
 
@@ -2668,7 +2668,7 @@ Defined in: [intelligence/sandbox-approved-candidate.ts:88](https://github.com/t
 
 > `readonly` **executor**: [`AgentCandidateExecutorPort`](index.md#agentcandidateexecutorport)
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L90)
+Defined in: [intelligence/sandbox-approved-candidate.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L95)
 
 The same port is usable by Runtime's expired-claim recovery path.
 
@@ -2678,7 +2678,7 @@ The same port is usable by Runtime's expired-claim recovery path.
 
 > **execute**(`input`): `Promise`\<`CandidateExecutionEvidence`\>
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L91)
+Defined in: [intelligence/sandbox-approved-candidate.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L96)
 
 ###### Parameters
 
@@ -3293,9 +3293,9 @@ The default tier when a client declares no effort. `'standard'` turns
 
 ### sandboxApprovedCandidateExecutionSupport
 
-> `const` **sandboxApprovedCandidateExecutionSupport**: `Readonly`\<\{ `outcomes`: readonly \[`"output"`\]; `outputMediaTypes`: readonly \[`"text/*"`, `"application/json"`, `"*+json"`\]; `code`: readonly \[`"disabled"`\]; `memory`: readonly \[`"disabled"`\]; `knowledge`: `false`; `profile`: `Readonly`\<\{ `mcpTransports`: readonly \[`"stdio"`\]; `remoteMcp`: `false`; `tools`: `false`; `permissions`: `false`; `modes`: `false`; `confidential`: `false`; \}\>; `isolation`: `Readonly`\<\{ `freshSandbox`: `true`; `exactProcess`: `true`; `egress`: readonly \[`"blocked"`, `"strict"`\]; \}\>; \}\>
+> `const` **sandboxApprovedCandidateExecutionSupport**: `Readonly`\<\{ `outcomes`: readonly \[`"output"`\]; `outputMediaTypes`: readonly \[`"text/*"`, `"application/json"`, `"*+json"`\]; `code`: readonly \[`"disabled"`\]; `memory`: readonly \[`"disabled"`\]; `knowledge`: `true`; `profile`: `Readonly`\<\{ `mcpTransports`: readonly \[`"stdio"`\]; `remoteMcp`: `false`; `tools`: `false`; `permissions`: `false`; `modes`: `false`; `confidential`: `false`; \}\>; `isolation`: `Readonly`\<\{ `freshSandbox`: `true`; `exactProcess`: `true`; `egress`: readonly \[`"blocked"`, `"strict"`\]; \}\>; \}\>
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L46)
+Defined in: [intelligence/sandbox-approved-candidate.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L51)
 
 Declares the exact candidate surfaces the sandbox executor can run.
 
@@ -3886,7 +3886,7 @@ Lower a plane `CertifiedProfile` straight into a `ResolvedSurface` via
 
 > **createSandboxApprovedCandidateExecutor**(`options`): [`SandboxApprovedCandidateExecutor`](#sandboxapprovedcandidateexecutor)
 
-Defined in: [intelligence/sandbox-approved-candidate.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L95)
+Defined in: [intelligence/sandbox-approved-candidate.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L100)
 
 Compose approved-candidate execution directly onto fresh Tangle sandboxes.
 
