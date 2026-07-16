@@ -11194,7 +11194,7 @@ Per-generation findings producer passthrough (see selfImprove.analyzeGeneration)
 
 > `optional` **rawTraceContext?**: `boolean`
 
-META-HARNESS mode: instead of the ~400-char distilled findings, feed the
+META-HARNESS mode: instead of the ~1500-char distilled findings, feed the
  proposer RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
  real run traces under `runDir` (per-cell `spans.jsonl` event logs +
  `cached-result.json` scores + artifacts) plus a `grep`/`cat`-to-diagnose
