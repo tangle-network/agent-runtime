@@ -44,7 +44,7 @@
 import { appendFile, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   agenticGenerator,
   improve,
@@ -157,6 +157,100 @@ export function porcelainChangedPaths(stdout: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Dispatch clocks. The campaign's dispatchTimeoutMs races the ENTIRE dispatch
+// — including the endpoint capacity-gate wait — so a legitimate multi-hour
+// capacity hold was billed to the cell's work budget (measured: a 58-min gate
+// hold pushed the astropy baseline cell over the 7200s clock and the whole
+// candidate became 'rejected-incomplete'). Fix: the cell's REAL work clock
+// (`runWithPostGateClock`) starts only after the gates clear, and the campaign
+// clock is widened to cover worst-case gate holds so it can never fire during
+// a legitimate wait. Both clocks still fail loud — a hung arm is bounded by
+// dispatchTimeoutMs post-gate, and the widened campaign clock is the backstop.
+// ---------------------------------------------------------------------------
+
+/** Supervisor arms gate on BOTH endpoints (worker z.ai path + brain router path). */
+export const SUPERVISOR_GATE_COUNT = 2
+
+/** capacity.ts's default waitCeilingMs (orchestrate.sh: 300 min/gate). */
+export const DEFAULT_GATE_WAIT_CEILING_MS = 300 * 60_000
+
+/** The widened ceiling handed to the campaign: per-cell work budget PLUS the
+ *  worst-case capacity-gate holds (gates run sequentially, each with its own
+ *  ceiling). The campaign clock starts at dispatch entry — before the gates —
+ *  so it must cover them; `waitForCapacity` itself fails the cell at each
+ *  gate's own ceiling, so total cell time stays bounded. */
+export function campaignDispatchCeilingMs(
+  config: Pick<OuterLoopConfig, 'dispatchTimeoutMs' | 'gateWaitCeilingMs'>,
+  gateCount = SUPERVISOR_GATE_COUNT,
+): number {
+  return config.dispatchTimeoutMs + gateCount * (config.gateWaitCeilingMs ?? DEFAULT_GATE_WAIT_CEILING_MS)
+}
+
+/** Run `work` under `timeoutMs`, with the clock started AFTER `awaitGates`
+ *  resolves — a capacity hold is never billed to the cell's work budget.
+ *  Gate failures (no capacity within a gate's own ceiling) still reject. */
+export async function runWithPostGateClock<T>(opts: {
+  awaitGates: () => Promise<void>
+  work: () => Promise<T>
+  timeoutMs: number
+  label?: string
+}): Promise<T> {
+  await opts.awaitGates()
+  if (!(opts.timeoutMs > 0)) return opts.work()
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      opts.work(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `post-gate dispatch exceeded ${opts.timeoutMs}ms${opts.label ? ` (${opts.label})` : ''} — failed loud, gate wait unbilled`,
+              ),
+            ),
+          opts.timeoutMs,
+        )
+        timer.unref?.()
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Replicate semantics — repsPerInstance. Single-rep scoring provably flips
+// instance outcomes run-to-run (judge flake + capacity noise both observed),
+// so an instance counts RESOLVED only when EVERY replicate cell resolved (AND
+// — fail-closed for keep-if-better), and coverage requires every replicate of
+// every instance to hold a real boolean verdict.
+// ---------------------------------------------------------------------------
+
+export interface ReplicateRun {
+  iid: string
+  resolved: boolean | null
+}
+
+/** Instances where ALL `reps` replicates resolved (missing replicates never count). */
+export function resolvedInstanceCount(runs: ReplicateRun[], iids: string[], reps: number): number {
+  let count = 0
+  for (const iid of iids) {
+    const mine = runs.filter((r) => r.iid === iid)
+    if (mine.length === reps && mine.every((r) => r.resolved === true)) count += 1
+  }
+  return count
+}
+
+/** Every instance has exactly `reps` replicates, each with a conclusive verdict. */
+export function replicateCoverageComplete(runs: ReplicateRun[], iids: string[], reps: number): boolean {
+  return iids.every((iid) => {
+    const mine = runs.filter((r) => r.iid === iid)
+    return mine.length === reps && mine.every((r) => r.resolved !== null)
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Staircase rows — accepted successors + rejected dots, one JSONL row each.
 // ---------------------------------------------------------------------------
 
@@ -171,6 +265,8 @@ export type StaircaseVerdict =
 
 export interface StaircasePerInstance {
   iid: string
+  /** Replicate index (0-based) — repsPerInstance cells per instance. */
+  rep: number
   resolved: boolean | null
   verify_pass: boolean | null
   patch_lines: number | null
@@ -326,6 +422,10 @@ export interface OuterLoopConfig {
   capacityModel?: string
   generations: number
   populationSize: number
+  /** Replicate cells per (candidate × instance). Default 1. Instances count as
+   *  resolved only when ALL replicates resolve (see resolvedInstanceCount) —
+   *  single-rep scoring flips instance outcomes run-to-run. */
+  repsPerInstance?: number
   /** DEPTH for the agentic generator (selfImprove does not thread
    *  maxImprovementShots, so the constrained generator applies this itself). */
   maxShots: number
@@ -352,6 +452,10 @@ export function assertFrozenArm(arm: FrozenArmParams): void {
   }
 }
 
+/** Committed per-instance verify scripts (fixtures/verify/<iid>.sh) — the
+ *  durable home; the experiment's scratchpad copy did not survive a reboot. */
+export const FIXTURES_VERIFY_DIR = fileURLToPath(new URL('./fixtures/verify', import.meta.url))
+
 export function defaultRound4Config(hh = DEFAULT_HH_SCRATCHPAD): OuterLoopConfig {
   const round3 = [
     { iid: 'astropy__astropy-13033', resolved: false },
@@ -373,13 +477,14 @@ export function defaultRound4Config(hh = DEFAULT_HH_SCRATCHPAD): OuterLoopConfig
     loopsBaseRef: 'feat/supervisor-evidence-flow',
     armName: 'R4',
     arm: { ...FROZEN_ARM },
-    verifyDir: join(hh, 'verify'),
+    verifyDir: FIXTURES_VERIFY_DIR,
     outDir: join(hh, 'r4'),
     roundsDir: '/home/drew/code/supervisor-lab/.evolve/rounds',
     secretsDir: '/home/drew/company/devops/secrets',
     envFiles: ['agent-state.env', 'tangle-router.env'],
     generations: 1,
     populationSize: 2,
+    repsPerInstance: 2,
     maxShots: 3,
     proposerHarness: 'claude',
     proposerTimeoutMs: 1_200_000,
@@ -402,6 +507,8 @@ export function defaultRound4Config(hh = DEFAULT_HH_SCRATCHPAD): OuterLoopConfig
 
 interface InstanceRun {
   iid: string
+  /** Replicate index (0-based, from the campaign's ctx.rep). */
+  rep: number
   runDir: string
   resolved: boolean | null
   verify_pass: boolean | null
@@ -423,9 +530,13 @@ interface CandidateRecord {
   violations: string[]
   diffPath: string | null
   diffSha256: string | null
+  /** Keyed `${iid}#r${rep}` — one entry per replicate cell. */
   instances: Map<string, InstanceRun>
   armProvenance: { repo: string; commit: string } | null
 }
+
+/** Replicate-cell key inside a CandidateRecord. */
+export const instanceRunKey = (iid: string, rep: number): string => `${iid}#r${rep}`
 
 class RoundRecorder {
   readonly byKey = new Map<string, CandidateRecord>()
@@ -480,8 +591,6 @@ class RoundRecorder {
 
 const sumWall = (rec: CandidateRecord): number =>
   [...rec.instances.values()].reduce((s, r) => s + (r.wall_s ?? 0), 0)
-const resolvedCount = (rec: CandidateRecord): number =>
-  [...rec.instances.values()].filter((r) => r.resolved === true).length
 
 // ---------------------------------------------------------------------------
 // Eval worktrees — a candidate commit gets its own loops checkout so the
@@ -668,6 +777,14 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   if (overlap.length > 0) {
     throw new Error(`outer-loop: improvement set leaks into the pre-registered holdout: ${overlap.join(', ')}`)
   }
+  const reps = config.repsPerInstance ?? 1
+  if (!Number.isInteger(reps) || reps < 1) {
+    throw new Error(`outer-loop: repsPerInstance must be a positive integer, got ${JSON.stringify(config.repsPerInstance)}`)
+  }
+  const resolvedCount = (rec: CandidateRecord): number =>
+    resolvedInstanceCount([...rec.instances.values()], config.instances, reps)
+  const coverageOf = (rec: CandidateRecord): boolean =>
+    replicateCoverageComplete([...rec.instances.values()], config.instances, reps)
 
   const secrets: SecretsEnv = { secretsDir: config.secretsDir, envFiles: config.envFiles }
   const excludes = await loadExcludes()
@@ -733,105 +850,119 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     // never reach a model token or a docker container.
     if (rec.violations.length > 0) {
       const err = `change-space violation (${rec.violations.length} path(s)): ${rec.violations.join(', ')}`
-      rec.instances.set(iid, {
-        iid, runDir: '', resolved: null, verify_pass: null, patch_lines: null,
+      rec.instances.set(instanceRunKey(iid, ctx.rep), {
+        iid, rep: ctx.rep, runDir: '', resolved: null, verify_pass: null, patch_lines: null,
         wall_s: null, spentTokens: null, recoveredTokens: null, judgeAttempts: null, error: err,
       })
       throw new Error(err)
     }
 
     // Capacity gates on BOTH paths the supervisor arm rides (worker + router).
-    for (const gate of gatesForArmKind('supervisor', secrets, {
-      ...(config.gateWaitCeilingMs !== undefined ? { waitCeilingMs: config.gateWaitCeilingMs } : {}),
-      ...(config.capacityModel !== undefined ? { model: config.capacityModel } : {}),
-      onStatus: log,
-    })) {
-      if (!(await waitForCapacity(gate))) throw new Error(`no capacity on ${gate.name} within ceiling`)
+    // The cell's WORK clock (config.dispatchTimeoutMs) starts only after these
+    // clear — a capacity hold is never billed to the arm's dispatch budget.
+    const awaitGates = async (): Promise<void> => {
+      for (const gate of gatesForArmKind('supervisor', secrets, {
+        ...(config.gateWaitCeilingMs !== undefined ? { waitCeilingMs: config.gateWaitCeilingMs } : {}),
+        ...(config.capacityModel !== undefined ? { model: config.capacityModel } : {}),
+        onStatus: log,
+      })) {
+        if (!(await waitForCapacity(gate))) throw new Error(`no capacity on ${gate.name} within ceiling`)
+      }
     }
 
-    const entry = images[iid]!
-    const evalWt = join(config.outDir, 'eval-wt', `${rec.tag}-${iid}-r${ctx.rep}`)
-    const armOutDir = join(config.outDir, 'arm-runs', rec.tag)
-    await addEvalWorktree(config.loopsRepo, cs.candidateCommit, evalWt)
-    try {
-      const spec: SupervisorArmSpec = {
-        kind: 'supervisor',
-        name: config.armName,
-        workerModel: config.arm.workerModel,
-        driverModel: config.arm.driverModel,
-        budget: config.arm.budget,
-        maxSandboxes: config.arm.maxSandboxes,
-        maxUsd: config.arm.maxUsd,
-        maxDepth: config.arm.maxDepth,
-        ...(config.arm.envKnobs ? { envKnobs: config.arm.envKnobs } : {}),
-        loopsRepo: evalWt,
-        extensionPath: join(evalWt, 'extensions', 'pi', 'loops.ts'),
-        timeoutMs: config.arm.timeoutMs,
-      }
-      log(`>>> ${config.armName} ${rec.tag} ${iid}`)
-      const armRes: SupervisorArmResult = await runSupervisorArm(spec, {
-        instanceId: iid,
-        image: entry.image,
-        baseCommit: entry.base_commit,
-        problemStatement: problemById.get(iid)!,
-        verifyCmd: `bash ${join(config.verifyDir, `${iid}.sh`)}`,
-        outDir: armOutDir,
-        secrets,
-        excludes,
-      })
-      const runDir = join(armOutDir, 'runs', iid, config.armName)
-      const { ws: _ws, ...armSummary } = armRes
-      await writeFile(join(runDir, 'result.json'), JSON.stringify(armSummary, null, 1))
+    const runCell = async (): Promise<R4Artifact> => {
+      const entry = images[iid]!
+      const evalWt = join(config.outDir, 'eval-wt', `${rec.tag}-${iid}-r${ctx.rep}`)
+      const armOutDir = join(config.outDir, 'arm-runs', rec.tag, `rep-${ctx.rep}`)
+      await addEvalWorktree(config.loopsRepo, cs.candidateCommit, evalWt)
+      try {
+        const spec: SupervisorArmSpec = {
+          kind: 'supervisor',
+          name: config.armName,
+          workerModel: config.arm.workerModel,
+          driverModel: config.arm.driverModel,
+          budget: config.arm.budget,
+          maxSandboxes: config.arm.maxSandboxes,
+          maxUsd: config.arm.maxUsd,
+          maxDepth: config.arm.maxDepth,
+          ...(config.arm.envKnobs ? { envKnobs: config.arm.envKnobs } : {}),
+          loopsRepo: evalWt,
+          extensionPath: join(evalWt, 'extensions', 'pi', 'loops.ts'),
+          timeoutMs: config.arm.timeoutMs,
+        }
+        log(`>>> ${config.armName} ${rec.tag} ${iid} rep=${ctx.rep}`)
+        const armRes: SupervisorArmResult = await runSupervisorArm(spec, {
+          instanceId: iid,
+          image: entry.image,
+          baseCommit: entry.base_commit,
+          problemStatement: problemById.get(iid)!,
+          verifyCmd: `bash ${join(config.verifyDir, `${iid}.sh`)}`,
+          outDir: armOutDir,
+          secrets,
+          excludes,
+        })
+        const runDir = join(armOutDir, 'runs', iid, config.armName)
+        const { ws: _ws, ...armSummary } = armRes
+        await writeFile(join(runDir, 'result.json'), JSON.stringify(armSummary, null, 1))
 
-      const verdict = await judge.judge(iid, armRes.patchPath, `${config.armName}-${rec.tag}`)
-      await writeFile(join(runDir, 'judge.json'), JSON.stringify(verdict, null, 1))
-      log(`${config.armName} ${rec.tag} ${iid} judged: resolved=${verdict.resolved} (attempts=${verdict.attempts})`)
+        const verdict = await judge.judge(iid, armRes.patchPath, `${config.armName}-${rec.tag}`)
+        await writeFile(join(runDir, 'judge.json'), JSON.stringify(verdict, null, 1))
+        log(`${config.armName} ${rec.tag} ${iid} judged: resolved=${verdict.resolved} (attempts=${verdict.attempts})`)
 
-      const recovered = armRes.recoveredSpend
-        ? armRes.recoveredSpend.brainTotal + (armRes.recoveredSpend.workerTokSqlite ?? 0)
-        : null
-      const instanceRun: InstanceRun = {
-        iid,
-        runDir,
-        resolved: verdict.resolved,
-        verify_pass: armRes.verify_pass,
-        patch_lines: armRes.patch_lines,
-        wall_s: armRes.wall_s,
-        spentTokens: armRes.spentTokens,
-        recoveredTokens: recovered,
-        judgeAttempts: verdict.attempts ?? null,
-        patchPath: armRes.patchPath,
-      }
-      rec.instances.set(iid, instanceRun)
-      rec.armProvenance = { repo: armRes.provenance.repo, commit: armRes.provenance.commit }
-      await appendFile(
-        join(config.outDir, 'progress.jsonl'),
-        JSON.stringify({ at: new Date().toISOString(), runId, candidate: rec.tag, ...instanceRun }) + '\n',
-      )
-      await ctx.artifacts.writeJson('arm-summary.json', { runDir, patchPath: armRes.patchPath, verdict })
+        const recovered = armRes.recoveredSpend
+          ? armRes.recoveredSpend.brainTotal + (armRes.recoveredSpend.workerTokSqlite ?? 0)
+          : null
+        const instanceRun: InstanceRun = {
+          iid,
+          rep: ctx.rep,
+          runDir,
+          resolved: verdict.resolved,
+          verify_pass: armRes.verify_pass,
+          patch_lines: armRes.patch_lines,
+          wall_s: armRes.wall_s,
+          spentTokens: armRes.spentTokens,
+          recoveredTokens: recovered,
+          judgeAttempts: verdict.attempts ?? null,
+          patchPath: armRes.patchPath,
+        }
+        rec.instances.set(instanceRunKey(iid, ctx.rep), instanceRun)
+        rec.armProvenance = { repo: armRes.provenance.repo, commit: armRes.provenance.commit }
+        await appendFile(
+          join(config.outDir, 'progress.jsonl'),
+          JSON.stringify({ at: new Date().toISOString(), runId, candidate: rec.tag, ...instanceRun }) + '\n',
+        )
+        await ctx.artifacts.writeJson('arm-summary.json', { runDir, patchPath: armRes.patchPath, verdict })
 
-      if (verdict.resolved === null) {
-        // Inconclusive judge (double flake / infra) — the cell must FAIL, not
-        // score a fabricated boolean; the candidate becomes coverage-incomplete.
-        throw new Error(`inconclusive judge verdict for ${iid} (${verdict.error ?? 'unknown'})`)
+        if (verdict.resolved === null) {
+          // Inconclusive judge (double flake / infra) — the cell must FAIL, not
+          // score a fabricated boolean; the candidate becomes coverage-incomplete.
+          throw new Error(`inconclusive judge verdict for ${iid} (${verdict.error ?? 'unknown'})`)
+        }
+        return {
+          kind: 'swe-arm',
+          iid,
+          commit: cs.candidateCommit,
+          resolved: verdict.resolved,
+          verifyPass: armRes.verify_pass,
+          patchLines: armRes.patch_lines,
+          wallS: armRes.wall_s,
+          spentTokens: armRes.spentTokens,
+          recoveredTokens: recovered,
+          judgeAttempts: verdict.attempts ?? null,
+          runDir,
+          patchPath: armRes.patchPath,
+        }
+      } finally {
+        await removeEvalWorktree(config.loopsRepo, evalWt)
       }
-      return {
-        kind: 'swe-arm',
-        iid,
-        commit: cs.candidateCommit,
-        resolved: verdict.resolved,
-        verifyPass: armRes.verify_pass,
-        patchLines: armRes.patch_lines,
-        wallS: armRes.wall_s,
-        spentTokens: armRes.spentTokens,
-        recoveredTokens: recovered,
-        judgeAttempts: verdict.attempts ?? null,
-        runDir,
-        patchPath: armRes.patchPath,
-      }
-    } finally {
-      await removeEvalWorktree(config.loopsRepo, evalWt)
     }
+
+    return runWithPostGateClock({
+      awaitGates,
+      work: runCell,
+      timeoutMs: config.dispatchTimeoutMs,
+      label: `${config.armName} ${rec.tag} ${iid} r${ctx.rep}`,
+    })
   }
 
   // ── judge config: a deterministic READ of the official verdict the dispatch
@@ -881,6 +1012,12 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     const runs: SupRunArtifacts[] = []
     if (input.generation === -1) {
       for (const seed of config.seedArtifactRuns) {
+        if (!existsSync(seed.dir)) {
+          // A wiped scratchpad (host reboot) must not feed EMPTY bundles to the
+          // analysts as if they were real artifacts — skip loudly.
+          log(`seed artifact dir missing — skipped from diagnosis: ${seed.dir}`)
+          continue
+        }
         runs.push({
           iid: seed.iid,
           arm: seed.arm,
@@ -956,8 +1093,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           delta = (cand - base) / Math.max(1, config.instances.length)
           const verdict = decideVerdict({
             violations: rec.violations,
-            coverageComplete: rec.instances.size === config.instances.length &&
-              [...rec.instances.values()].every((r) => r.resolved !== null),
+            coverageComplete: coverageOf(rec),
             resolvedCount: cand,
             parentResolvedCount: base,
             costRatio: ratio,
@@ -1007,14 +1143,16 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       generations: config.generations,
       populationSize: config.populationSize,
       maxConcurrency: 1,
-      reps: 1,
+      reps,
       holdoutScenarios: [staticScenario],
     },
     promotionGate,
     // Spend happens in child processes (opencode / loops driver / docker
     // judge), invisible to the campaign cost meter — the guard would misfire.
     expectUsage: 'off',
-    dispatchTimeoutMs: config.dispatchTimeoutMs,
+    // Widened: covers worst-case capacity-gate holds; the REAL per-cell work
+    // clock (config.dispatchTimeoutMs) starts post-gate inside the dispatch.
+    dispatchTimeoutMs: campaignDispatchCeilingMs(config),
     runDir: join(config.outDir, 'improve-run'),
   })
 
@@ -1035,6 +1173,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
         const perInstance: StaircasePerInstance[] = rec
           ? [...rec.instances.values()].map((r) => ({
               iid: r.iid,
+              rep: r.rep,
               resolved: r.resolved,
               verify_pass: r.verify_pass,
               patch_lines: r.patch_lines,
@@ -1048,12 +1187,18 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
         const candResolved = rec ? resolvedCount(rec) : 0
         const wallS = rec ? sumWall(rec) : 0
         const coverageComplete =
-          cand.eligibleForPromotion === true &&
-          rec !== undefined &&
-          rec.instances.size === n &&
-          [...rec.instances.values()].every((r) => r.resolved !== null)
+          cand.eligibleForPromotion === true && rec !== undefined && coverageOf(rec)
         const costRatio = baselineWallS > 0 ? wallS / baselineWallS : null
-        const parentResolvedCount = Math.round((cand.parentComposite ?? 0) * n)
+        // Parent's AND-resolved count from its own record; the composite-mean
+        // fallback (fractional under reps) only fires when the parent never ran.
+        const parentRec = cand.parentSurfaceHash
+          ? recorder.byKey.get(cand.parentSurfaceHash)
+          : recorder.baselineKey
+            ? recorder.byKey.get(recorder.baselineKey)
+            : undefined
+        const parentResolvedCount = parentRec
+          ? resolvedCount(parentRec)
+          : Math.round((cand.parentComposite ?? 0) * n)
         const violations = rec?.violations ?? []
         rows.push({
           schema: STAIRCASE_SCHEMA,

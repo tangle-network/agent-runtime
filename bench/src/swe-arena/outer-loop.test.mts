@@ -7,19 +7,28 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_GATE_WAIT_CEILING_MS,
+  FIXTURES_VERIFY_DIR,
   FROZEN_ARM,
   LOOPS_CHANGE_SPACE,
   RAW_TRACE_DIAGNOSIS_PATH,
   STAIRCASE_SCHEMA,
+  SUPERVISOR_GATE_COUNT,
   assertFrozenArm,
+  campaignDispatchCeilingMs,
   changeSpaceInstruction,
   changeSpaceViolations,
   decideVerdict,
   defaultRound4Config,
+  instanceRunKey,
   normalizeRepoPath,
   parseStaircaseRow,
   porcelainChangedPaths,
+  replicateCoverageComplete,
+  resolvedInstanceCount,
   round4BuildPrompt,
+  runWithPostGateClock,
+  type ReplicateRun,
   type StaircaseRow,
 } from './outer-loop.mts'
 
@@ -150,6 +159,7 @@ describe('staircase row schema', () => {
     perInstance: [
       {
         iid: 'django__django-11532',
+        rep: 0,
         resolved: true,
         verify_pass: true,
         patch_lines: 47,
@@ -215,6 +225,92 @@ describe('frozen arm + default config', () => {
     expect(config.instances.filter((i) => config.holdoutInstances.includes(i))).toEqual([])
     expect(config.roundsDir).toBe('/home/drew/code/supervisor-lab/.evolve/rounds')
     expect(config.analystModels.every((m) => m === 'glm-5.2')).toBe(true)
+  })
+  it('default config: verify scripts come from the COMMITTED fixtures dir and reps=2', () => {
+    const config = defaultRound4Config()
+    // The scratchpad copy died with a host reboot; the committed dir is the durable home.
+    expect(config.verifyDir).toBe(FIXTURES_VERIFY_DIR)
+    expect(config.verifyDir).toContain('fixtures/verify')
+    // Single-rep scoring flips instance outcomes run-to-run — round 4 runs 2.
+    expect(config.repsPerInstance).toBe(2)
+  })
+})
+
+describe('dispatch clocks (gate holds are never billed to the cell)', () => {
+  it('campaignDispatchCeilingMs = work budget + worst-case sequential gate holds', () => {
+    expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 7_200_000 })).toBe(
+      7_200_000 + SUPERVISOR_GATE_COUNT * DEFAULT_GATE_WAIT_CEILING_MS,
+    )
+    expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 1_000, gateWaitCeilingMs: 500 })).toBe(1_000 + 2 * 500)
+    expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 1_000, gateWaitCeilingMs: 500 }, 1)).toBe(1_500)
+  })
+
+  it('a gate hold LONGER than the work clock does not abort the cell (the pre-crash bug)', async () => {
+    // Pre-crash failure shape: 58-min capacity hold billed to the 7200s clock.
+    // Here: gate hold 120ms > work clock 60ms; the work itself takes 10ms.
+    const result = await runWithPostGateClock({
+      awaitGates: () => new Promise<void>((r) => setTimeout(r, 120)),
+      work: () => new Promise<string>((r) => setTimeout(() => r('done'), 10)),
+      timeoutMs: 60,
+    })
+    expect(result).toBe('done')
+  })
+
+  it('work exceeding the post-gate clock still fails loud', async () => {
+    await expect(
+      runWithPostGateClock({
+        awaitGates: () => Promise.resolve(),
+        work: () => new Promise<string>((r) => setTimeout(() => r('late'), 200)),
+        timeoutMs: 30,
+        label: 'R4 deadbeef00 astropy__astropy-13033 r0',
+      }),
+    ).rejects.toThrow(/post-gate dispatch exceeded 30ms .*astropy__astropy-13033/)
+  })
+
+  it('a gate failure rejects before the work clock ever starts', async () => {
+    let workStarted = false
+    await expect(
+      runWithPostGateClock({
+        awaitGates: () => Promise.reject(new Error('no capacity on router within ceiling')),
+        work: async () => {
+          workStarted = true
+          return 'x'
+        },
+        timeoutMs: 1_000,
+      }),
+    ).rejects.toThrow(/no capacity/)
+    expect(workStarted).toBe(false)
+  })
+})
+
+describe('replicate semantics (repsPerInstance)', () => {
+  const iids = ['a', 'b', 'c']
+  const run = (iid: string, resolved: boolean | null): ReplicateRun => ({ iid, resolved })
+
+  it('an instance resolves only when ALL replicates resolve (AND, fail-closed)', () => {
+    const runs = [
+      run('a', true), run('a', true),   // both reps resolved → counts
+      run('b', true), run('b', false),  // flaky split → does NOT count
+      run('c', false), run('c', false),
+    ]
+    expect(resolvedInstanceCount(runs, iids, 2)).toBe(1)
+  })
+
+  it('missing replicates never count as resolved', () => {
+    expect(resolvedInstanceCount([run('a', true)], iids, 2)).toBe(0)
+    expect(resolvedInstanceCount([run('a', true)], iids, 1)).toBe(1)
+  })
+
+  it('coverage requires every replicate of every instance with a conclusive verdict', () => {
+    const full = iids.flatMap((iid) => [run(iid, true), run(iid, false)])
+    expect(replicateCoverageComplete(full, iids, 2)).toBe(true)
+    expect(replicateCoverageComplete(full.slice(1), iids, 2)).toBe(false)
+    const inconclusive = [...full.slice(0, 5), run('c', null)]
+    expect(replicateCoverageComplete(inconclusive, iids, 2)).toBe(false)
+  })
+
+  it('instanceRunKey separates replicate cells of the same instance', () => {
+    expect(instanceRunKey('django__django-11532', 0)).not.toBe(instanceRunKey('django__django-11532', 1))
   })
 })
 
