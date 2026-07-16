@@ -61,12 +61,11 @@ export function applyRunRecordDefaults(
 }
 
 import { normalizeBackendStreamEvent } from './backends'
-import { BackendTransportError, SessionMismatchError } from './errors'
+import { BackendTransportError } from './errors'
 import { decideKnowledgeReadiness } from './readiness'
-import { newRuntimeSession, nowIso, touchSession } from './sessions'
+import { nowIso, startOrResumeRuntimeSession, touchSession } from './sessions'
 import type {
   AgentBackendInput,
-  AgentExecutionBackend,
   AgentKnowledgeProvider,
   AgentRuntimeEventSink,
   AgentTaskContext,
@@ -76,7 +75,6 @@ import type {
   BackendErrorDetail,
   RunAgentTaskOptions,
   RunAgentTaskStreamOptions,
-  RuntimeSession,
   RuntimeStreamEvent,
 } from './types'
 
@@ -248,22 +246,16 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
   }
 
   const store = options.sessionStore
-  const existing = options.sessionId ? await store?.get(options.sessionId) : undefined
-  const shouldResume = Boolean(options.resume && existing)
-  let session =
-    shouldResume && existing
-      ? await resumeBackendSession(options.backend, existing, input, {
-          task,
-          knowledge,
-          signal: options.signal,
-        })
-      : await startBackendSession(
-          options.backend,
-          input,
-          { task, knowledge, signal: options.signal },
-          options.sessionId,
-        )
-  await store?.put(session)
+  const opened = await startOrResumeRuntimeSession({
+    backend: options.backend,
+    input,
+    context: { task, knowledge, signal: options.signal },
+    store,
+    sessionId: options.sessionId,
+    resume: options.resume,
+  })
+  let session = opened.session
+  const shouldResume = opened.resumed
   const sessionEvent = streamEvent({
     type: shouldResume ? 'session_resumed' : 'session_created',
     task,
@@ -283,7 +275,7 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
 
   let finalText = ''
   try {
-    for await (const rawEvent of options.backend.stream(input, {
+    for await (const rawEvent of options.backend.stream(opened.input, {
       task,
       knowledge,
       session,
@@ -438,29 +430,6 @@ function streamEvent<T extends Omit<RuntimeStreamEvent, 'timestamp'>>(
   event: T,
 ): T & { timestamp: string } {
   return { ...event, timestamp: nowIso() }
-}
-
-async function startBackendSession<TInput extends AgentBackendInput>(
-  backend: AgentExecutionBackend<TInput>,
-  input: TInput,
-  context: { task: AgentTaskSpec; knowledge: KnowledgeReadinessReport; signal?: AbortSignal },
-  requestedSessionId?: string,
-): Promise<RuntimeSession> {
-  if (backend.start) return backend.start(input, { ...context, requestedSessionId })
-  return newRuntimeSession(backend.kind, requestedSessionId)
-}
-
-async function resumeBackendSession<TInput extends AgentBackendInput>(
-  backend: AgentExecutionBackend<TInput>,
-  session: RuntimeSession,
-  input: TInput,
-  context: { task: AgentTaskSpec; knowledge: KnowledgeReadinessReport; signal?: AbortSignal },
-): Promise<RuntimeSession> {
-  if (session.backend !== backend.kind) {
-    throw new SessionMismatchError(session.backend, backend.kind)
-  }
-  if (backend.resume) return backend.resume(session, input, context)
-  return touchSession({ ...session, status: 'active' })
 }
 
 function buildReadiness(

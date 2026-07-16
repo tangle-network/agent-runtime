@@ -1135,7 +1135,7 @@ Defined in: [errors.ts:117](https://github.com/tangle-network/agent-runtime/blob
 
 ### InMemoryRuntimeSessionStore
 
-Defined in: [sessions.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L41)
+Defined in: [sessions.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L111)
 
 In-memory `RuntimeSessionStore` for single-process use and tests.
 
@@ -1161,7 +1161,7 @@ In-memory `RuntimeSessionStore` for single-process use and tests.
 
 > **get**(`sessionId`): `RuntimeSession` \| `undefined`
 
-Defined in: [sessions.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L45)
+Defined in: [sessions.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L115)
 
 ###### Parameters
 
@@ -1181,7 +1181,7 @@ Defined in: [sessions.ts:45](https://github.com/tangle-network/agent-runtime/blo
 
 > **put**(`session`): `void`
 
-Defined in: [sessions.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L49)
+Defined in: [sessions.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L119)
 
 ###### Parameters
 
@@ -1201,7 +1201,7 @@ Defined in: [sessions.ts:49](https://github.com/tangle-network/agent-runtime/blo
 
 > **appendEvent**(`sessionId`, `event`): `void`
 
-Defined in: [sessions.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L53)
+Defined in: [sessions.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L123)
 
 ###### Parameters
 
@@ -1225,7 +1225,7 @@ Defined in: [sessions.ts:53](https://github.com/tangle-network/agent-runtime/blo
 
 > **listEvents**(`sessionId`): [`RuntimeStreamEvent`](#runtimestreamevent)[]
 
-Defined in: [sessions.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L59)
+Defined in: [sessions.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L129)
 
 ###### Parameters
 
@@ -5098,17 +5098,25 @@ Deterministic turn identifier — stable across retries of the same logical
 turn so caching gateways and trace backends can dedupe. Shape:
 `${runId}.t${index}.${speakerSlug}`.
 
+##### sessionId?
+
+> `optional` **sessionId?**: `string`
+
+Defined in: [conversation/types.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L147)
+
+Backend session used for this turn. Present on turns recorded by session-aware runners.
+
 ##### text
 
 > **text**: `string`
 
-Defined in: [conversation/types.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L146)
+Defined in: [conversation/types.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L148)
 
 ##### usage?
 
 > `optional` **usage?**: `object`
 
-Defined in: [conversation/types.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L152)
+Defined in: [conversation/types.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L154)
 
 Aggregated backend usage for this turn alone. Populated from any
 `llm_call` stream events the backend emitted; `undefined` when the
@@ -5138,7 +5146,7 @@ backend reports no usage.
 
 > **attempts**: `number`
 
-Defined in: [conversation/types.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L164)
+Defined in: [conversation/types.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L166)
 
 Number of attempts that ran before this turn committed. `1` is the
 common case; higher means the call policy retried after transient
@@ -5148,19 +5156,19 @@ failures.
 
 > **startedAt**: `string`
 
-Defined in: [conversation/types.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L165)
+Defined in: [conversation/types.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L167)
 
 ##### endedAt
 
 > **endedAt**: `string`
 
-Defined in: [conversation/types.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L166)
+Defined in: [conversation/types.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L168)
 
 ***
 
 ### Conversation
 
-Defined in: [conversation/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L170)
+Defined in: [conversation/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L172)
 
 #### Stable
 
@@ -5170,19 +5178,19 @@ Defined in: [conversation/types.ts:170](https://github.com/tangle-network/agent-
 
 > **participants**: readonly [`ConversationParticipant`](#conversationparticipant)[]
 
-Defined in: [conversation/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L171)
+Defined in: [conversation/types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L173)
 
 ##### policy
 
 > **policy**: [`ConversationPolicy`](#conversationpolicy)
 
-Defined in: [conversation/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L172)
+Defined in: [conversation/types.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L174)
 
 ***
 
 ### RunConversationOptions
 
-Defined in: [conversation/types.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L176)
+Defined in: [conversation/types.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L178)
 
 #### Stable
 
@@ -5192,7 +5200,7 @@ Defined in: [conversation/types.ts:176](https://github.com/tangle-network/agent-
 
 > **seed**: `string`
 
-Defined in: [conversation/types.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L178)
+Defined in: [conversation/types.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L180)
 
 First message kicking off the conversation. Routes to the first speaker.
 
@@ -5200,7 +5208,7 @@ First message kicking off the conversation. Routes to the first speaker.
 
 > `optional` **runId?**: `string`
 
-Defined in: [conversation/types.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L185)
+Defined in: [conversation/types.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L187)
 
 Optional run identifier for cross-participant trace correlation. Auto-
 generated when omitted. Reusing a runId against the same `journal`
@@ -5211,7 +5219,7 @@ continues from the first un-recorded turn.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [conversation/types.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L187)
+Defined in: [conversation/types.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L189)
 
 Cancellation signal — aborts mid-stream and halts with `{ kind: 'abort' }`.
 
@@ -5219,7 +5227,7 @@ Cancellation signal — aborts mid-stream and halts with `{ kind: 'abort' }`.
 
 > `optional` **onEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [conversation/types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L194)
+Defined in: [conversation/types.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L196)
 
 Event sink for per-turn micro-events. Distinct from the result transcript:
 the sink fires for every text-delta, every turn-start/end, and the
@@ -5240,18 +5248,29 @@ without waiting for the conversation to finish.
 
 > `optional` **journal?**: [`ConversationJournal`](#conversationjournal)
 
-Defined in: [conversation/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L201)
+Defined in: [conversation/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L203)
 
 Optional durable transcript. When set, the runner persists every
 committed turn before yielding `turn_end`. Reusing the same `runId`
 against the same journal resumes from the last committed turn — so a
 driver process crash mid-run loses zero acknowledged turns.
 
+##### sessionStore?
+
+> `optional` **sessionStore?**: [`RuntimeSessionStore`](#runtimesessionstore)
+
+Defined in: [conversation/types.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L210)
+
+Stores each participant's backend session. The runner keeps an in-memory
+store for one invocation when omitted. Reuse a durable store with the same
+`runId` and journal after a process restart. Backends implementing `resume`
+continue their provider session; other backends receive the full transcript.
+
 ##### propagatedHeaders?
 
 > `optional` **propagatedHeaders?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [conversation/types.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L208)
+Defined in: [conversation/types.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L217)
 
 Headers to forward verbatim to every participant backend call (gateway
 propagation: `X-Tangle-Forwarded-Authorization`, run/turn correlation,
@@ -5262,7 +5281,7 @@ their `AgentBackendContext`; backends that ignore the field still work.
 
 > `optional` **inboundDepth?**: `number`
 
-Defined in: [conversation/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L214)
+Defined in: [conversation/types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L223)
 
 Inbound depth at the point this driver was invoked. The runner
 increments it on every outbound participant call; gateways refuse at
@@ -5272,7 +5291,7 @@ increments it on every outbound participant call; gateways refuse at
 
 > `optional` **parentTurnId?**: `string`
 
-Defined in: [conversation/types.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L221)
+Defined in: [conversation/types.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L230)
 
 Parent turn id when this conversation is *inside* another turn (i.e. the
 driver is itself a participant via `createConversationBackend`). The
@@ -5283,7 +5302,7 @@ so trace stitching survives nested orchestration.
 
 ### ConversationResult
 
-Defined in: [conversation/types.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L225)
+Defined in: [conversation/types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L234)
 
 #### Stable
 
@@ -5293,49 +5312,49 @@ Defined in: [conversation/types.ts:225](https://github.com/tangle-network/agent-
 
 > **runId**: `string`
 
-Defined in: [conversation/types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L226)
+Defined in: [conversation/types.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L235)
 
 ##### transcript
 
 > **transcript**: [`ConversationTurn`](#conversationturn)[]
 
-Defined in: [conversation/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L227)
+Defined in: [conversation/types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L236)
 
 ##### turns
 
 > **turns**: `number`
 
-Defined in: [conversation/types.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L228)
+Defined in: [conversation/types.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L237)
 
 ##### spentCreditsCents
 
 > **spentCreditsCents**: `number`
 
-Defined in: [conversation/types.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L229)
+Defined in: [conversation/types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L238)
 
 ##### halted
 
 > **halted**: [`HaltReason`](#haltreason)
 
-Defined in: [conversation/types.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L230)
+Defined in: [conversation/types.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L239)
 
 ##### durationMs
 
 > **durationMs**: `number`
 
-Defined in: [conversation/types.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L231)
+Defined in: [conversation/types.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L240)
 
 ##### startedAt
 
 > **startedAt**: `string`
 
-Defined in: [conversation/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L232)
+Defined in: [conversation/types.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L241)
 
 ##### endedAt
 
 > **endedAt**: `string`
 
-Defined in: [conversation/types.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L233)
+Defined in: [conversation/types.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L242)
 
 ***
 
@@ -11170,7 +11189,7 @@ Defined in: [conversation/types.ts:100](https://github.com/tangle-network/agent-
 
 > **ConversationStreamEvent** = \{ `type`: `"conversation_start"`; `runId`: `string`; `participants`: readonly `string`[]; `seed`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"conversation_resumed"`; `runId`: `string`; `participants`: readonly `string`[]; `transcript`: readonly [`ConversationTurn`](#conversationturn)[]; `timestamp`: `string`; \} \| \{ `type`: `"turn_start"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `attempt`: `number`; `timestamp`: `string`; \} \| \{ `type`: `"turn_text_delta"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"turn_retry"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `attempt`: `number`; `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"turn_end"`; `runId`: `string`; `turn`: [`ConversationTurn`](#conversationturn); `timestamp`: `string`; \} \| \{ `type`: `"conversation_end"`; `runId`: `string`; `result`: [`ConversationResult`](#conversationresult); `timestamp`: `string`; \}
 
-Defined in: [conversation/types.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L237)
+Defined in: [conversation/types.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L246)
 
 #### Stable
 
@@ -12976,7 +12995,7 @@ imports `@cloudflare/workers-types` directly (peer-style typing).
 
 > **runConversation**(`conversation`, `options`): `Promise`\<[`ConversationResult`](#conversationresult)\>
 
-Defined in: [conversation/run-conversation.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-conversation.ts#L65)
+Defined in: [conversation/run-conversation.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-conversation.ts#L67)
 
 #### Parameters
 
@@ -12998,7 +13017,7 @@ Defined in: [conversation/run-conversation.ts:65](https://github.com/tangle-netw
 
 > **runConversationStream**(`conversation`, `options`): `AsyncIterable`\<[`ConversationStreamEvent`](#conversationstreamevent)\>
 
-Defined in: [conversation/run-conversation.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-conversation.ts#L84)
+Defined in: [conversation/run-conversation.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-conversation.ts#L86)
 
 Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers.
 
@@ -14257,7 +14276,7 @@ Stamp cross-cutting defaults onto adapter-projected RunRecords without
 
 > **runAgentTask**\<`TState`, `TAction`, `TActionResult`, `TEval`\>(`options`): `Promise`\<[`AgentTaskRunResult`](#agenttaskrunresult)\<`TState`, `TAction`, `TActionResult`, `TEval`\>\>
 
-Defined in: [run.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L88)
+Defined in: [run.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L86)
 
 Single-shot task lifecycle for adapter-driven tasks: readiness-gated, emits the runtime lifecycle event vocabulary, session-store pluggable.
 
@@ -14297,7 +14316,7 @@ Single-shot task lifecycle for adapter-driven tasks: readiness-gated, emits the 
 
 > **runAgentTaskStream**\<`TInput`\>(`options`): `AsyncIterable`\<[`RuntimeStreamEvent`](#runtimestreamevent)\>
 
-Defined in: [run.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L206)
+Defined in: [run.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L204)
 
 Streaming task lifecycle: delegates execution to an `AgentExecutionBackend` (model API, sandbox, or custom iterable) and yields lifecycle events as they happen.
 

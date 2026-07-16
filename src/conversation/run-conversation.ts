@@ -10,6 +10,8 @@
  * forward events as they arrive. Both share one driving loop.
  *
  * Distributed-systems primitives layered on top of the loop:
+ *   - **Participant sessions**: one backend session per participant is resumed
+ *     between turns; stateless backends receive one reconstructed transcript.
  *   - **Idempotent turn ids** — `turnId(runId, index, speaker)` stays stable
  *     across retries so caching gateways can dedupe.
  *   - **Durable journal** — optional `ConversationJournal` persists every
@@ -33,12 +35,12 @@
 import type { KnowledgeReadinessReport } from '@tangle-network/agent-eval'
 
 import { BackendTransportError } from '../errors'
-import { newRuntimeSession, nowIso, touchSession } from '../sessions'
+import { InMemoryRuntimeSessionStore, nowIso, startOrResumeRuntimeSession } from '../sessions'
 import type {
   AgentBackendContext,
   AgentBackendInput,
   AgentTaskSpec,
-  RuntimeSession,
+  RuntimeSessionStore,
 } from '../types'
 import {
   type BackendCallPolicy,
@@ -49,7 +51,7 @@ import {
   sleep,
 } from './call-policy'
 import { buildForwardHeaders, FORWARD_HEADERS } from './headers'
-import { turnId as deriveTurnId } from './turn-id'
+import { turnId as deriveTurnId, slugifySpeaker } from './turn-id'
 import type {
   Conversation,
   ConversationParticipant,
@@ -102,6 +104,7 @@ export async function* runConversationStream(
   let spentCreditsCents = 0
   let startedAt = nowIso()
   let resumed = false
+  const sessionStore = options.sessionStore ?? new InMemoryRuntimeSessionStore()
 
   if (options.journal) {
     const prior = await options.journal.loadRun(runId)
@@ -143,6 +146,7 @@ export async function* runConversationStream(
     }
   }
   const startedAtMs = Date.now()
+  const participantSessions = sessionIdsFrom(transcript)
 
   if (resumed) {
     yield {
@@ -267,11 +271,14 @@ export async function* runConversationStream(
         for await (const delta of driveSingleAttempt({
           speaker,
           participants: conversation.participants,
+          seed: options.seed,
           input: currentInput,
           turnIndex,
           runId,
           turnId: tid,
           transcript,
+          participantSessions,
+          sessionStore,
           signal: perAttempt.signal,
           aggregator: localAgg,
           propagatedHeaders: buildForwardHeaders({
@@ -331,6 +338,9 @@ export async function* runConversationStream(
     }
 
     const turn = aggregator.toTurn({ turnId: tid, attempts: attemptCount })
+    if (turn.sessionId) {
+      bindParticipantSession(participantSessions, turn.speaker, turn.sessionId)
+    }
     transcript.push(turn)
     spentCreditsCents += centsFromUsd(turn.usage?.costUsd ?? 0)
     if (options.journal) {
@@ -385,11 +395,14 @@ export async function* runConversationStream(
 interface SingleAttemptArgs {
   speaker: ConversationParticipant
   participants: readonly ConversationParticipant[]
+  seed: string
   input: string
   turnIndex: number
   runId: string
   turnId: string
   transcript: readonly ConversationTurn[]
+  participantSessions: Map<string, string>
+  sessionStore: RuntimeSessionStore
   signal: AbortSignal
   aggregator: TurnAggregator
   propagatedHeaders: Record<string, string>
@@ -410,10 +423,8 @@ async function* driveSingleAttempt(
     },
   }
   const knowledge = passingReadiness(task.id)
-  const messages = buildMessagesFor(args.speaker.name, args.transcript, args.input)
-  const backendInput: AgentBackendInput = { task, message: args.input, messages }
 
-  const startCtx: Omit<AgentBackendContext, 'session'> & { requestedSessionId?: string } = {
+  const startCtx: Omit<AgentBackendContext, 'session'> = {
     task,
     knowledge,
     signal: args.signal,
@@ -421,14 +432,21 @@ async function* driveSingleAttempt(
     turnId: args.turnId,
     propagatedHeaders: args.propagatedHeaders,
   }
-  const session: RuntimeSession = args.speaker.backend.start
-    ? touchSession(await args.speaker.backend.start(backendInput, startCtx))
-    : newRuntimeSession(args.speaker.backend.kind, undefined, {
-        runId: args.runId,
-        turnIndex: args.turnIndex,
-        turnId: args.turnId,
-        speaker: args.speaker.name,
-      })
+  const previousSessionId = args.participantSessions.get(args.speaker.name)
+  const opened = await startOrResumeRuntimeSession({
+    backend: args.speaker.backend,
+    input: () => fullConversationInput(task, args.speaker.name, args.seed, args.transcript),
+    continuationInput: () => continuedConversationInput(task, args.speaker.name, args.transcript),
+    context: startCtx,
+    store: args.sessionStore,
+    sessionId:
+      previousSessionId ?? participantSessionId(args.runId, args.speaker.name, args.participants),
+    resume: previousSessionId !== undefined && args.speaker.backend.resume !== undefined,
+    validateSession: (session) =>
+      assertParticipantSessionAvailable(args.participantSessions, args.speaker.name, session.id),
+  })
+  const session = opened.session
+  args.aggregator.recordSession(session.id)
 
   const streamCtx: AgentBackendContext = {
     task,
@@ -440,7 +458,7 @@ async function* driveSingleAttempt(
     propagatedHeaders: args.propagatedHeaders,
   }
 
-  for await (const event of args.speaker.backend.stream(backendInput, streamCtx)) {
+  for await (const event of args.speaker.backend.stream(opened.input, streamCtx)) {
     if (args.signal.aborted) {
       // Surface the abort so the outer retry/halt logic can react. The signal
       // either fires because of caller-cancel (propagate as-is) or because of
@@ -481,6 +499,7 @@ async function* driveSingleAttempt(
 class TurnAggregator {
   private text = ''
   private adoptedFinal = false
+  private sessionId: string | undefined
   private usage:
     | {
         tokensIn?: number
@@ -514,6 +533,10 @@ class TurnAggregator {
     return this.text.trim().length > 0
   }
 
+  recordSession(sessionId: string): void {
+    this.sessionId = sessionId
+  }
+
   recordUsage(event: {
     model?: string
     tokensIn?: number
@@ -535,6 +558,7 @@ class TurnAggregator {
       index: this.base.index,
       speaker: this.base.speaker,
       turnId: meta.turnId,
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
       text: this.text.trim(),
       usage: this.usage,
       attempts: meta.attempts,
@@ -548,14 +572,15 @@ class TurnAggregator {
  * Build the participant's POV of the transcript so an OpenAI-compatible
  * backend sees its own turns as `assistant` and everyone else's as `user`,
  * with explicit speaker tags so 3+ party conversations stay disambiguated.
- * The seed / current input is appended as the trailing user message.
  */
 function buildMessagesFor(
   speakerName: string,
+  seed: string,
   transcript: readonly ConversationTurn[],
-  currentInput: string,
 ): Array<{ role: string; content: string }> {
-  const messages: Array<{ role: string; content: string }> = []
+  const messages: Array<{ role: string; content: string }> = seed
+    ? [{ role: 'user', content: seed }]
+    : []
   for (const turn of transcript) {
     if (turn.speaker === speakerName) {
       messages.push({ role: 'assistant', content: turn.text })
@@ -563,8 +588,88 @@ function buildMessagesFor(
       messages.push({ role: 'user', content: `[${turn.speaker}] ${turn.text}` })
     }
   }
-  if (currentInput) messages.push({ role: 'user', content: currentInput })
   return messages
+}
+
+function fullConversationInput(
+  task: AgentTaskSpec,
+  speakerName: string,
+  seed: string,
+  transcript: readonly ConversationTurn[],
+): AgentBackendInput {
+  const transcriptText = transcript.map((turn) => `[${turn.speaker}] ${turn.text}`)
+  return {
+    task,
+    message: [seed, ...transcriptText].filter((part) => part.length > 0).join('\n\n'),
+    messages: buildMessagesFor(speakerName, seed, transcript),
+  }
+}
+
+function continuedConversationInput(
+  task: AgentTaskSpec,
+  speakerName: string,
+  transcript: readonly ConversationTurn[],
+): AgentBackendInput {
+  let lastOwnTurn = -1
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    if (transcript[index]?.speaker === speakerName) {
+      lastOwnTurn = index
+      break
+    }
+  }
+  const unseen = transcript.slice(lastOwnTurn + 1)
+  const message =
+    unseen.length > 0
+      ? unseen.map((turn) => `[${turn.speaker}] ${turn.text}`).join('\n\n')
+      : 'Continue.'
+  return { task, message, messages: [{ role: 'user', content: message }] }
+}
+
+function sessionIdsFrom(transcript: readonly ConversationTurn[]): Map<string, string> {
+  const sessions = new Map<string, string>()
+  for (const turn of transcript) {
+    if (turn.sessionId) bindParticipantSession(sessions, turn.speaker, turn.sessionId)
+  }
+  return sessions
+}
+
+function bindParticipantSession(
+  sessions: Map<string, string>,
+  speakerName: string,
+  sessionId: string,
+): void {
+  assertParticipantSessionAvailable(sessions, speakerName, sessionId)
+  sessions.set(speakerName, sessionId)
+}
+
+function assertParticipantSessionAvailable(
+  sessions: ReadonlyMap<string, string>,
+  speakerName: string,
+  sessionId: string,
+): void {
+  for (const [boundSpeaker, boundSessionId] of sessions) {
+    if (boundSpeaker !== speakerName && boundSessionId === sessionId) {
+      throw new BackendTransportError(
+        'conversation',
+        `session '${sessionId}' is already bound to participant '${boundSpeaker}'`,
+      )
+    }
+  }
+}
+
+function participantSessionId(
+  runId: string,
+  speakerName: string,
+  participants: readonly ConversationParticipant[],
+): string {
+  const participantIndex = participants.findIndex((participant) => participant.name === speakerName)
+  if (participantIndex < 0) {
+    throw new BackendTransportError(
+      'conversation',
+      `participant '${speakerName}' is not registered in this conversation`,
+    )
+  }
+  return `${runId}.participant.${participantIndex}.${slugifySpeaker(speakerName)}`
 }
 
 /**
