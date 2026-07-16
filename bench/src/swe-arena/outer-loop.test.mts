@@ -5,8 +5,14 @@
  * Pure — no arms, no docker, no tokens.
  */
 
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { runOk } from './proc.ts'
 import {
+  addEvalWorktree,
   DEFAULT_GATE_WAIT_CEILING_MS,
   FIXTURES_VERIFY_DIR,
   FROZEN_ARM,
@@ -24,6 +30,8 @@ import {
   normalizeRepoPath,
   parseStaircaseRow,
   porcelainChangedPaths,
+  purgeIgnoredArtifacts,
+  removeEvalWorktree,
   replicateCoverageComplete,
   resolvedInstanceCount,
   round4BuildPrompt,
@@ -345,5 +353,80 @@ describe('round4BuildPrompt', () => {
     const text = changeSpaceInstruction(LOOPS_CHANGE_SPACE)
     for (const f of LOOPS_CHANGE_SPACE.files) expect(text).toContain(f)
     for (const p of LOOPS_CHANGE_SPACE.prefixes) expect(text).toContain(`${p}**`)
+  })
+})
+
+describe('candidate worktree hygiene (finalize precondition + eval isolation)', () => {
+  const git = (dir: string, ...argv: string[]) =>
+    runOk('git', ['-C', dir, '-c', 'user.email=t@test', '-c', 'user.name=t', '-c', 'core.hooksPath=/dev/null', ...argv])
+
+  /** Base repo + candidate worktree with proposer-style state: a tracked edit,
+   *  an untracked non-ignored deliverable, and gitignored install dirt (the
+   *  exact mix round-4 gen-0 cand-1 died on). */
+  async function makeRepoWithDirtyCandidate(): Promise<{ base: string; wt: string; root: string }> {
+    const root = await mkdtemp(join(tmpdir(), 'r4-wt-hygiene-'))
+    const base = join(root, 'base')
+    await mkdir(join(base, 'src'), { recursive: true })
+    await writeFile(join(base, '.gitignore'), 'node_modules/\n*.log\n')
+    await writeFile(join(base, 'src', 'a.ts'), 'export const a = 1\n')
+    await runOk('git', ['-C', base, 'init', '-q'])
+    await git(base, 'add', '-A')
+    await git(base, 'commit', '-q', '-m', 'base')
+    const wt = join(root, 'wt')
+    await git(base, 'worktree', 'add', '-q', '-b', 'improve/test-cand', wt, 'HEAD')
+    // Proposer session: intentional edit + evidence artifact + install dirt.
+    await writeFile(join(wt, 'src', 'a.ts'), 'export const a = 2\n')
+    await mkdir(join(wt, '.improve'), { recursive: true })
+    await writeFile(join(wt, '.improve', 'raw-trace-diagnosis.md'), '# diagnosis\n')
+    await mkdir(join(wt, 'node_modules', 'pkg'), { recursive: true })
+    await writeFile(join(wt, 'node_modules', 'pkg', 'index.js'), 'module.exports = 1\n')
+    await writeFile(join(wt, 'node_modules', '.modules.yaml'), 'store: real-install\n')
+    await writeFile(join(wt, 'debug.log'), 'stray ignored file\n')
+    return { base, wt, root }
+  }
+
+  it('purgeIgnoredArtifacts removes ignored dirt but keeps tracked edits and untracked deliverables', async () => {
+    const { wt, root } = await makeRepoWithDirtyCandidate()
+    try {
+      await purgeIgnoredArtifacts(wt)
+      expect(existsSync(join(wt, 'node_modules'))).toBe(false)
+      expect(existsSync(join(wt, 'debug.log'))).toBe(false)
+      expect(existsSync(join(wt, '.improve', 'raw-trace-diagnosis.md'))).toBe(true)
+      expect(await readFile(join(wt, 'src', 'a.ts'), 'utf8')).toBe('export const a = 2\n')
+      // The exact finalize precondition the substrate enforces: zero ignored extras.
+      const ignored = await git(wt, 'ls-files', '--others', '--ignored', '--exclude-standard')
+      expect(ignored.stdout.trim()).toBe('')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('a finalized candidate worktree tree-hash is identical before and after a mocked evaluation', async () => {
+    const { base, wt, root } = await makeRepoWithDirtyCandidate()
+    try {
+      await purgeIgnoredArtifacts(wt)
+      // Finalize the candidate: everything intentional is committed.
+      await git(wt, 'add', '-A')
+      await git(wt, 'commit', '-q', '-m', 'agentic: candidate finalized')
+      const commit = (await git(wt, 'rev-parse', 'HEAD')).stdout.trim()
+      const treeBefore = (await git(wt, 'rev-parse', 'HEAD^{tree}')).stdout.trim()
+
+      // Mocked evaluation: a detached eval worktree at the candidate commit
+      // takes ALL the runtime dirt; the CodeSurface worktree is never touched.
+      const evalWt = join(root, 'eval-wt')
+      await addEvalWorktree(base, commit, evalWt)
+      await mkdir(join(evalWt, '.loops'), { recursive: true })
+      await writeFile(join(evalWt, '.loops', 'state.json'), '{"run":"mock"}\n')
+      await writeFile(join(evalWt, 'run.log'), 'arm eval output\n')
+      await removeEvalWorktree(base, evalWt)
+
+      expect(existsSync(evalWt)).toBe(false)
+      expect((await git(wt, 'rev-parse', 'HEAD^{tree}')).stdout.trim()).toBe(treeBefore)
+      expect((await git(wt, 'status', '--porcelain=v1', '--untracked-files=all')).stdout.trim()).toBe('')
+      const ignored = await git(wt, 'ls-files', '--others', '--ignored', '--exclude-standard')
+      expect(ignored.stdout.trim()).toBe('')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

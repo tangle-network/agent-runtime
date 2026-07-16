@@ -677,12 +677,29 @@ export function round4BuildPrompt(args: { report: unknown; findings: Array<Recor
   return lines.join('\n')
 }
 
-/** Verifier run after each generator shot: change-space compliance first
- *  (cheap, feedback-rich), then `tsc --noEmit` with the main repo's
+/** Purge gitignored artifacts from a candidate worktree with `git clean -Xdff`.
+ *
+ *  The proposer agent may run a dependency install inside its worktree to
+ *  verify its own change (measured: round-4 gen-0 cand-1 left a real pnpm
+ *  `node_modules/` — 38k paths — after editing loops.ts). Ignored paths are
+ *  invisible to the change-space check (`git status` honors .gitignore), but
+ *  the improvement driver's finalize-time surface verification rejects ANY
+ *  extra path, ignored included (`ls-files --others --ignored`), killing the
+ *  whole run. `-X` deletes only ignored paths, so tracked edits and untracked
+ *  non-ignored deliverables (e.g. .improve/raw-trace-diagnosis.md) survive;
+ *  the doubled `-f` clears nested git dirs some packages ship. */
+export async function purgeIgnoredArtifacts(worktreePath: string): Promise<void> {
+  await runOk('git', ['-C', worktreePath, 'clean', '-Xdff'])
+}
+
+/** Verifier run after each generator shot: ignored-dirt purge first (the
+ *  finalize precondition), then change-space compliance (cheap,
+ *  feedback-rich), then `tsc --noEmit` with the main repo's
  *  node_modules linked in TEMPORARILY (the link must not survive — the
  *  driver's finalize-time surface verification rejects any extra path). */
 export function loopsCandidateVerifier(loopsRepo: string): Verifier {
   return async (worktreePath: string) => {
+    await purgeIgnoredArtifacts(worktreePath)
     const status = await runOk('git', ['-C', worktreePath, 'status', '--porcelain=v1', '--untracked-files=all'])
     const violations = changeSpaceViolations(porcelainChangedPaths(status.stdout))
     if (violations.length > 0) {
