@@ -95,56 +95,90 @@ function section(title: string, body: string): string {
   return `--- ${title} ---\n${trimmed}\n`
 }
 
+const runSeparator = '\n\n'
+const runEvidenceTruncationMarker = '\n…[RUN EVIDENCE TRUNCATED]…\n'
+
+function boundRunEvidence(evidence: string, maxChars: number): string {
+  if (evidence.length <= maxChars) return evidence
+  if (maxChars <= 0) return ''
+  if (maxChars <= runEvidenceTruncationMarker.length) return evidence.slice(-maxChars)
+  const retainedChars = maxChars - runEvidenceTruncationMarker.length
+  const headChars = Math.floor(retainedChars / 2)
+  const tailChars = retainedChars - headChars
+  return `${evidence.slice(0, headChars)}${runEvidenceTruncationMarker}${evidence.slice(-tailChars)}`
+}
+
 /** Build the bounded shared bundle. Every section is capped so one megabyte
- *  brain log cannot crowd out the patch the analysts must actually read. */
+ *  brain log cannot crowd out the patch the analysts must actually read. When
+ *  the total cap binds, every run gets an equal share before concatenation;
+ *  its identity, judge, and result stay intact while evidence keeps bounded
+ *  head and tail excerpts (the delivered patch is ordered last). */
 export async function buildArtifactBundle(
   runs: SupRunArtifacts[],
   opts: BundleOptions = {},
 ): Promise<string> {
   const maxChars = opts.maxChars ?? 60_000
   const maxWorkers = opts.maxWorkers ?? 6
-  const parts: string[] = []
+  if (!Number.isSafeInteger(maxChars) || maxChars <= 0) {
+    throw new Error(`artifact bundle maxChars must be a positive safe integer, got ${maxChars}`)
+  }
+  const runParts: Array<{ core: string; evidence: string; full: string }> = []
   for (const r of runs) {
-    const chunks: string[] = [`### RUN ${r.iid} arm=${r.arm}\nrun dir: ${r.dir}`]
+    const coreChunks: string[] = [`### RUN ${r.iid} arm=${r.arm}\nrun dir: ${r.dir}`]
     if (r.judge) {
-      chunks.push(
+      coreChunks.push(
         `official judge: resolved=${r.judge.resolved === null ? 'INCONCLUSIVE' : r.judge.resolved}` +
           (r.judge.score !== undefined ? ` score=${r.judge.score}` : '') +
           (r.judge.note ? ` (${r.judge.note})` : ''),
       )
     }
-    chunks.push(section('result.json', head(await safeRead(join(r.dir, 'result.json')), 1_500)))
-    chunks.push(section('verify.log (tail)', tail(await safeRead(join(r.dir, 'verify.log')), 2_000)))
+    coreChunks.push(section('result.json', head(await safeRead(join(r.dir, 'result.json')), 1_500)))
+    const evidenceChunks: string[] = []
+    evidenceChunks.push(section('verify.log (tail)', tail(await safeRead(join(r.dir, 'verify.log')), 2_000)))
     const driver = await safeRead(join(r.dir, 'driver.log'))
-    chunks.push(section('driver.log (head)', head(driver, 800)))
-    chunks.push(section('driver.log (tail)', tail(driver, 4_000)))
-    chunks.push(section('brain.jsonl (tail)', tail(await safeRead(join(r.dir, 'brain.jsonl')), 4_000)))
+    evidenceChunks.push(section('driver.log (head)', head(driver, 800)))
+    evidenceChunks.push(section('driver.log (tail)', tail(driver, 4_000)))
+    evidenceChunks.push(section('brain.jsonl (tail)', tail(await safeRead(join(r.dir, 'brain.jsonl')), 4_000)))
 
     const supRunDir = await findSupervisorRunDir(join(r.dir, 'ws'))
     if (supRunDir) {
-      chunks.push(section('supervisor state.json', head(await safeRead(join(supRunDir, 'state.json')), 3_500)))
-      chunks.push(section('supervisor journal.jsonl (tail)', tail(await safeRead(join(supRunDir, 'journal.jsonl')), 3_000)))
+      evidenceChunks.push(section('supervisor state.json', head(await safeRead(join(supRunDir, 'state.json')), 3_500)))
+      evidenceChunks.push(section('supervisor journal.jsonl (tail)', tail(await safeRead(join(supRunDir, 'journal.jsonl')), 3_000)))
       const workerFiles = (await readdir(join(supRunDir, 'workers')).catch(() => [] as string[])).sort()
       const ndjson = workerFiles.filter((f) => f.endsWith('.ndjson')).slice(0, maxWorkers)
       const patches = workerFiles.filter((f) => f.endsWith('.patch')).slice(0, maxWorkers)
       for (const f of ndjson) {
-        chunks.push(section(`workers/${f} (tail)`, tail(await safeRead(join(supRunDir, 'workers', f)), 2_500)))
+        evidenceChunks.push(section(`workers/${f} (tail)`, tail(await safeRead(join(supRunDir, 'workers', f)), 2_500)))
       }
       for (const f of patches) {
-        chunks.push(section(`workers/${f} (head)`, head(await safeRead(join(supRunDir, 'workers', f)), 3_000)))
+        evidenceChunks.push(section(`workers/${f} (head)`, head(await safeRead(join(supRunDir, 'workers', f)), 3_000)))
       }
     }
     if (r.patchPath) {
-      chunks.push(section('DELIVERED PATCH (head)', head(await safeRead(r.patchPath), 6_000)))
+      evidenceChunks.push(section('DELIVERED PATCH (head)', head(await safeRead(r.patchPath), 6_000)))
     }
-    parts.push(chunks.filter(Boolean).join('\n'))
+    const core = coreChunks.filter(Boolean).join('\n')
+    const evidence = evidenceChunks.filter(Boolean).join('\n')
+    runParts.push({ core, evidence, full: [core, evidence].filter(Boolean).join('\n') })
   }
-  const bundle = parts.join('\n\n')
+  const bundle = runParts.map((part) => part.full).join(runSeparator)
   if (bundle.length <= maxChars) return bundle
-  // Keep the head (earliest runs) and the tail (latest run's patch) — the
-  // middle is the least diagnostic. Marked loudly so analysts know.
-  const keep = Math.floor(maxChars / 2)
-  return `${bundle.slice(0, keep)}\n\n…[BUNDLE TRUNCATED: ${bundle.length - maxChars} chars removed]…\n\n${bundle.slice(-keep)}`
+  const separatorChars = runSeparator.length * Math.max(0, runParts.length - 1)
+  const availableChars = maxChars - separatorChars
+  const baseRunBudget = Math.floor(availableChars / runParts.length)
+  const remainder = availableChars % runParts.length
+  const boundedRuns = runParts.map((part, index) => {
+    const runBudget = baseRunBudget + (index < remainder ? 1 : 0)
+    if (part.core.length > runBudget) {
+      throw new Error(
+        `artifact bundle maxChars=${maxChars} cannot preserve run identity/judge/result for all ${runParts.length} runs; ` +
+          `run ${runs[index]!.iid} needs ${part.core.length} chars but its fair share is ${runBudget}`,
+      )
+    }
+    const evidence = part.evidence.length > 0 ? `\n${part.evidence}` : ''
+    return `${part.core}${boundRunEvidence(evidence, runBudget - part.core.length)}`
+  })
+  return boundedRuns.join(runSeparator)
 }
 
 // ---------------------------------------------------------------------------

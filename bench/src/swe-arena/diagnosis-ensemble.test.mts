@@ -4,8 +4,12 @@
  * survive marked as competing hypotheses). Pure — no router, no tokens.
  */
 
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  buildArtifactBundle,
   classSimilarity,
   classTokens,
   defaultAnalysts,
@@ -15,6 +19,7 @@ import {
   surfacesPlacementRegex,
   type AnalystRawFinding,
   type AnalystReport,
+  type SupRunArtifacts,
 } from './diagnosis-ensemble.ts'
 
 const finding = (overrides: Partial<AnalystRawFinding>): AnalystRawFinding => ({
@@ -30,6 +35,65 @@ const report = (analystId: string, findings: AnalystRawFinding[], ok = true): An
   model: 'glm-5.2',
   ok,
   findings,
+})
+
+async function writeRunArtifacts(root: string, index: number, evidenceChars = 20_000): Promise<SupRunArtifacts> {
+  const dir = join(root, `run-${index}`)
+  const patchPath = join(dir, 'delivered.patch')
+  await mkdir(dir, { recursive: true })
+  await Promise.all([
+    writeFile(join(dir, 'result.json'), JSON.stringify({ resultMarker: `RESULT_${index}`, detail: 'r'.repeat(4_000) })),
+    writeFile(join(dir, 'verify.log'), `${'v'.repeat(evidenceChars)}\nVERIFY_TAIL_${index}`),
+    writeFile(join(dir, 'driver.log'), `DRIVER_HEAD_${index}\n${'d'.repeat(evidenceChars)}\nDRIVER_TAIL_${index}`),
+    writeFile(join(dir, 'brain.jsonl'), `${'b'.repeat(evidenceChars)}\nBRAIN_TAIL_${index}`),
+    writeFile(patchPath, `PATCH_${index}\n`.repeat(Math.ceil(evidenceChars / 8))),
+  ])
+  return {
+    iid: `instance-${index}`,
+    arm: `arm-${index}`,
+    dir,
+    patchPath,
+    judge: { resolved: index % 2 === 0, score: index, note: `JUDGE_${index}` },
+  }
+}
+
+describe('buildArtifactBundle', () => {
+  it('preserves all six run identities, outcomes, and patch evidence under the 60k cap', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'diagnosis-bundle-'))
+    try {
+      const runs = await Promise.all(Array.from({ length: 6 }, (_, index) => writeRunArtifacts(root, index)))
+      const bundle = await buildArtifactBundle(runs, { maxChars: 60_000 })
+
+      expect(bundle.length).toBeLessThanOrEqual(60_000)
+      expect(bundle.match(/^### RUN /gm)).toHaveLength(6)
+      for (let index = 0; index < 6; index++) {
+        expect(bundle).toContain(`### RUN instance-${index} arm=arm-${index}`)
+        expect(bundle).toContain(`RESULT_${index}`)
+        expect(bundle).toContain(`JUDGE_${index}`)
+        expect(bundle).toContain(`PATCH_${index}`)
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('gives oversized runs equal bounded shares instead of letting one monopolize the bundle', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'diagnosis-bundle-'))
+    try {
+      const runs = await Promise.all(
+        Array.from({ length: 6 }, (_, index) => writeRunArtifacts(root, index, index === 0 ? 200_000 : 20_000)),
+      )
+      const bundle = await buildArtifactBundle(runs, { maxChars: 60_000 })
+      const runSections = bundle.split(/\n\n(?=### RUN )/)
+      const lengths = runSections.map((part) => part.length)
+
+      expect(runSections).toHaveLength(6)
+      expect(Math.max(...lengths) - Math.min(...lengths)).toBeLessThanOrEqual(1)
+      expect(Math.max(...lengths)).toBeLessThanOrEqual(10_000)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('parseAnalystFindings', () => {
