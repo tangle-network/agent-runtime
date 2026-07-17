@@ -3,7 +3,53 @@ import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { isInsideJail, isTestPath, jailPath } from './swe-bench-env'
+import {
+  firstAvailableSweImageCandidate,
+  isInsideJail,
+  isTestPath,
+  jailPath,
+  parseSweImageIdentity,
+  parseSweImageCandidates,
+  SWE_RUN_TOOL_CONFIG,
+  SWE_SEED_PROMPT,
+  SWE_SEED_PROMPT_WITH_RUN,
+} from './swe-bench-env'
+
+describe('SWE worker prompts', () => {
+  it('keeps the run-capable prompt as the exact baseline prompt plus run guidance', () => {
+    assert.equal(SWE_SEED_PROMPT_WITH_RUN.startsWith(`${SWE_SEED_PROMPT} `), true)
+    assert.match(SWE_SEED_PROMPT_WITH_RUN, /You ALSO have a run tool/)
+  })
+
+  it('exports the exact run-tool settings used by the worker surface', () => {
+    assert.ok(SWE_RUN_TOOL_CONFIG.timeoutS > 0)
+    assert.ok(SWE_RUN_TOOL_CONFIG.outputLimit > 0)
+  })
+
+  it('captures immutable Docker image identity independently of a mutable tag', () => {
+    assert.deepEqual(
+      parseSweImageIdentity(
+        JSON.stringify([{ Id: 'sha256:image', RepoDigests: ['repo@sha256:z', 'repo@sha256:a'] }]),
+      ),
+      { id: 'sha256:image', repoDigests: ['repo@sha256:a', 'repo@sha256:z'] },
+    )
+    assert.throws(() => parseSweImageIdentity(JSON.stringify([{}])), /no image ID/)
+  })
+
+  it('preserves the local fallback namespace when only the unnamespaced image is cached', () => {
+    const candidates = parseSweImageCandidates(
+      JSON.stringify([
+        { tag: 'swebench/sweb.eval.example:latest', namespace: 'swebench' },
+        { tag: 'sweb.eval.example:latest', namespace: 'none' },
+      ]),
+    )
+    const localIdentity = { id: 'sha256:local', repoDigests: [] }
+    assert.deepEqual(
+      firstAvailableSweImageCandidate(candidates, new Map([['sweb.eval.example:latest', localIdentity]])),
+      { candidate: { tag: 'sweb.eval.example:latest', namespace: 'none' }, identity: localIdentity },
+    )
+  })
+})
 
 describe('isTestPath', () => {
   it('flags test directories and test-named python files', () => {

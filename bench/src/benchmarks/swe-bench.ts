@@ -81,6 +81,14 @@ export interface SweBenchAdapterOptions {
 }
 
 const SWE_CACHE_LEVELS = new Set<SweBenchCacheLevel>(['none', 'base', 'env', 'instance'])
+
+function scorerNamespace(): 'swebench' | 'none' {
+  const namespace = process.env.SWEBENCH_NAMESPACE ?? 'swebench'
+  if (namespace !== 'swebench' && namespace !== 'none') {
+    throw new Error(`SWEBENCH_NAMESPACE must be swebench|none, got "${namespace}"`)
+  }
+  return namespace
+}
 const TEST_FILE_EXCLUDES = [
   "':(exclude,glob)**/tests/**'",
   "':(exclude,glob)**/test/**'",
@@ -157,6 +165,7 @@ export function sweEvaluationArgv(args: {
   readonly runId: string
   readonly instanceId: string
   readonly cacheLevel: SweBenchCacheLevel
+  readonly namespace?: 'swebench' | 'none'
 }): string[] {
   return [
     '-m', 'swebench.harness.run_evaluation',
@@ -165,6 +174,7 @@ export function sweEvaluationArgv(args: {
     '--run_id', args.runId,
     '--instance_ids', args.instanceId,
     '--max_workers', '1',
+    '--namespace', args.namespace ?? scorerNamespace(),
     '--cache_level', args.cacheLevel,
   ]
 }
@@ -311,6 +321,7 @@ print(json.dumps(out))
           runId,
           instanceId: task.id,
           cacheLevel,
+          namespace: scorerNamespace(),
         }),
         async parseReport(dir) {
           // Report file: agent-runtime-bench.<run_id>.json

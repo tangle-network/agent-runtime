@@ -48,9 +48,12 @@ test('SWE evaluation command preserves the requested instance image', () => {
     runId: 'r364',
     instanceId: taskId,
     cacheLevel: 'instance',
+    namespace: 'none',
   })
   const cacheIndex = argv.indexOf('--cache_level')
+  const namespaceIndex = argv.indexOf('--namespace')
   assert.equal(argv[cacheIndex + 1], 'instance')
+  assert.equal(argv[namespaceIndex + 1], 'none')
   assert.throws(
     () => createSweBenchAdapter({ cacheLevel: 'invalid' as 'instance' }),
     /invalid cacheLevel/,
