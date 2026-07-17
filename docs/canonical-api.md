@@ -62,7 +62,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Run a genome through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })` — `/loops` | a hand-rolled `createSupervisor().run` + seam-wiring helper |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape` — `/loops` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |
 | Run a worker agent under test conversing with a **simulated-user persona**, K rounds, worker-only metered | `runPersonaConversation({ worker, persona, backendFor, systemPromptOf })` — root `.` (also `/loops`) | a hand-rolled per-agent `dispatchWithSurface` bridge / eval-dispatch loop |
-| Run **two `AgentProfile`s head-to-head** over a persistent transcript | `runConversation(...)` — root `.` | a hand-rolled two-agent turn loop |
+| Run **two `AgentProfile`s head-to-head** with a separate resumable session for each actor | `runConversation(...)` from root `.` | a hand-rolled two-agent turn loop |
 | Drop a persona⟷agent conversation into an eval matrix as its dispatch | `runPersonaDispatch` → `runProfileMatrix({ dispatch })` — root `.` / `agent-eval/campaign` | a per-agent custom dispatch bridge |
 | Best-of-N / parallel-research / map-reduce at equal compute | `fanout(items, opts)` — `/loops` | `Promise.all` over N calls + manual argmax/merge (bypasses the budget pool → breaks equal-k) |
 | Produce-then-gate with a real checker | `verify(spec)` — `/loops` | "generate, then self-check with the same model, ship if ok" (collapses selector+judge) |
