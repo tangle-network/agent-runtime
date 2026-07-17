@@ -1,5 +1,8 @@
 import type { TraceStore } from '@tangle-network/agent-eval'
-import type { AgentCandidateTermination } from '@tangle-network/agent-interface'
+import type {
+  AgentCandidateTaskOutcomeSpec,
+  AgentCandidateTermination,
+} from '@tangle-network/agent-interface'
 
 import type {
   AgentCandidateExecutionClaim,
@@ -300,6 +303,7 @@ export async function executePreparedAgentCandidate(
   const execution = await runAndStopExecutor(
     options.executor,
     request,
+    state.benchmarkTask.outcome,
     protectedTraceStore,
     deadlineAtMs,
     cleanupTimeoutMs,
@@ -544,6 +548,7 @@ type ExecutorOutcome =
 async function runAndStopExecutor(
   executor: AgentCandidateExecutorPort,
   request: AgentCandidateExecutorRequest,
+  expectedOutcome: AgentCandidateTaskOutcomeSpec,
   traceStore: TraceStore,
   deadlineAtMs: number,
   cleanupTimeoutMs: number,
@@ -629,17 +634,24 @@ async function runAndStopExecutor(
     )
     sealAgentCandidateExecutorStopAcknowledgement(stopped)
   } catch (stopError) {
+    let disposalError: unknown
+    try {
+      await disposeExecutor(executor, request, cleanupDeadlineAtMs)
+    } catch (error) {
+      disposalError = error
+    }
     if (timer) clearTimeout(timer)
     controller.abort(stopError)
     return {
       kind: 'error',
-      error: new Error(joinErrors(executionError, stopError)),
+      error: new Error(joinErrors(executionError, stopError, disposalError)),
       ...(timedOut ? { termination: { kind: 'timeout', timeoutMs } } : {}),
       processStopped: false,
     }
   }
 
-  let finalCapture: SealedAgentCandidateExecutorFinalCapture
+  let finalCapture: SealedAgentCandidateExecutorFinalCapture | undefined
+  let finalCaptureError: unknown
   try {
     finalCapture = sealAgentCandidateExecutorFinalCapture(
       await withinCandidateCleanupDeadline(
@@ -657,14 +669,24 @@ async function runAndStopExecutor(
         cleanupDeadlineAtMs,
         'candidate final evidence capture',
       ),
-      request.executionPlan.value.material.task.outcome,
+      expectedOutcome,
     )
   } catch (captureError) {
+    finalCaptureError = captureError
+  }
+
+  let disposalError: unknown
+  try {
+    await disposeExecutor(executor, request, cleanupDeadlineAtMs)
+  } catch (disposeError) {
+    disposalError = disposeError
+  }
+  if (finalCaptureError || disposalError || !finalCapture) {
     if (timer) clearTimeout(timer)
-    controller.abort(captureError)
+    controller.abort(finalCaptureError ?? disposalError)
     return {
       kind: 'error',
-      error: new Error(joinErrors(executionError, captureError)),
+      error: new Error(joinErrors(executionError, finalCaptureError, disposalError)),
       ...(timedOut ? { termination: { kind: 'timeout', timeoutMs } } : {}),
       processStopped: true,
     }
@@ -700,6 +722,35 @@ async function runAndStopExecutor(
     termination: capture.termination,
     finalCapture,
     processStopped: true,
+  }
+}
+
+async function disposeExecutor(
+  executor: AgentCandidateExecutorPort,
+  request: AgentCandidateExecutorRequest,
+  cleanupDeadlineAtMs: number,
+): Promise<void> {
+  const dispose = executor.dispose
+  if (!dispose) return
+  const disposed = await withinCandidateCleanupDeadline(
+    (cleanupSignal) =>
+      dispose.call(
+        executor,
+        {
+          executionId: request.executionId,
+          executionPlanDigest: request.executionPlan.value.digest,
+        },
+        { signal: cleanupSignal },
+      ),
+    cleanupDeadlineAtMs,
+    'candidate execution resource disposal',
+  )
+  if (
+    !disposed ||
+    disposed.disposed !== true ||
+    Object.keys(disposed).some((key) => key !== 'disposed')
+  ) {
+    throw new Error('candidate executor did not acknowledge resource disposal')
   }
 }
 

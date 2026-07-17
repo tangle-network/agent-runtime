@@ -28,6 +28,7 @@ export {
   type AgentCandidateRetryRejection,
   InMemoryAgentCandidateExecutionClaimStore,
 } from './claim'
+export type { AgentCandidatePreparationEvidence } from './claim-file-formats'
 export {
   FileAgentCandidateExecutionClaimStore,
   type FileAgentCandidateExecutionClaimStoreOptions,
@@ -78,6 +79,7 @@ export {
   type AgentCandidateExecutorFinalCapture,
   type AgentCandidateExecutorMemoryCapture,
   type AgentCandidateExecutorPort,
+  type AgentCandidateExecutorProfileFile,
   type AgentCandidateExecutorRequest,
   type AgentCandidateExecutorStopRequest,
   type AgentCandidateExecutorTaskOutcomeCapture,

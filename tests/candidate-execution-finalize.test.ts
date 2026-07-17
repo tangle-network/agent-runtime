@@ -23,6 +23,7 @@ import {
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
   createCandidateOutputFixture,
+  replaceCandidateFixtureTask,
 } from './helpers/candidate-execution-fixture'
 
 afterEach(cleanupCandidateFixtures)
@@ -45,7 +46,7 @@ async function prepared(
   },
 ): Promise<PreparedAgentCandidateExecution> {
   const fixture = createCandidateExecutionFixture()
-  fixture.task.limits = limits
+  replaceCandidateFixtureTask(fixture, { limits })
   return await prepareAgentCandidateExecution(
     await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
     fixture.task,
@@ -94,18 +95,18 @@ async function finalizePrepared(
       },
     )
   const outputs = overrides.outputs ?? createCandidateOutputFixture()
-  const expectedOutcome = state.executionPlan.value.material.task.outcome
+  const expectedOutcome = state.benchmarkTask.outcome
   if (expectedOutcome.kind !== 'workspace') {
     throw new Error('finalization fixture requires a workspace outcome')
   }
-  const repository = state.executionPlan.value.material.task.repository
+  const repository = state.benchmarkTask.repository
   if (!repository) throw new Error('finalization fixture requires repository identity')
   const finalCapture = sealAgentCandidateExecutorFinalCapture(
     {
       taskOutcome: {
         kind: 'workspace' as const,
         resultTree: repository.baseTree,
-        afterState: state.executionPlan.value.material.task.workspace.material,
+        afterState: state.benchmarkTask.workspace.material,
         archive: Buffer.from('fixture unchanged task archive', 'utf8'),
         gitDiff: Buffer.alloc(0),
       },
@@ -214,7 +215,7 @@ describe('protected candidate run finalization', () => {
     if (!result.succeeded) return
     expect(result.receipt.value.trace).toMatchObject({ eventCount: 3, modelCallCount: 1 })
     expect(result.receipt.bytes.byteLength).toBeGreaterThan(0)
-    const task = assertPreparedCandidateIntegrity(execution).executionPlan.value.material.task
+    const task = assertPreparedCandidateIntegrity(execution).benchmarkTask
     if (task.outcome.kind !== 'workspace') throw new Error('expected workspace task outcome')
     if (!task.repository) throw new Error('expected task repository identity')
     expect(result.receipt.value).toMatchObject({

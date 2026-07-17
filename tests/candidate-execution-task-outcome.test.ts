@@ -66,8 +66,8 @@ function changedOutcome(root: string, baseTree: string) {
 describe('candidate task outcome verification', () => {
   it('proves a captured binary patch and after-state against the signed base tree', async () => {
     const fixture = createCandidateExecutionFixture()
-    if (!fixture.task.repository) throw new Error('expected repository identity')
-    const repository = fixture.task.repository
+    if (!fixture.task.task.repository) throw new Error('expected repository identity')
+    const repository = fixture.task.task.repository
     const outcome = changedOutcome(fixture.task.stagingRoots.taskRoot, repository.baseTree)
     await expect(
       verifyTaskOutcomePatch({
@@ -84,8 +84,8 @@ describe('candidate task outcome verification', () => {
 
   it('rejects a claimed result tree or after-state that does not match the patch', async () => {
     const fixture = createCandidateExecutionFixture()
-    if (!fixture.task.repository) throw new Error('expected repository identity')
-    const repository = fixture.task.repository
+    if (!fixture.task.task.repository) throw new Error('expected repository identity')
+    const repository = fixture.task.task.repository
     const outcome = changedOutcome(fixture.task.stagingRoots.taskRoot, repository.baseTree)
     await expect(
       verifyTaskOutcomePatch({

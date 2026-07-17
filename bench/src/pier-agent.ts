@@ -431,7 +431,7 @@ export function protectedCaptureFromPierResult(
   const metadata = record(agentResult.metadata, 'Pier agent_result.metadata')
   const expected = {
     executionId: request.executionId,
-    bundleDigest: request.executionPlan.value.material.bundleDigest,
+    bundleDigest: request.executionPlan.value.material.runCell.bundleDigest,
     executionPlanDigest: request.executionPlan.value.digest,
     materializationReceiptDigest: request.materializationReceipt.digest,
   }
@@ -609,7 +609,7 @@ export async function executePreparedPierCandidate(
       }
       if (!result) return {}
       officialResults.set(request.executionId, result)
-      const task = options.prepared.executionPlan.value.material.task
+      const task = options.prepared.benchmark.task
       const outcome = task.outcome
       if (outcome.kind !== 'workspace') {
         throw new Error('Pier candidate execution requires a workspace task outcome')

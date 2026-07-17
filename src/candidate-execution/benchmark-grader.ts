@@ -1,11 +1,12 @@
 import type { BenchmarkEvaluation } from '@tangle-network/agent-eval'
 import type {
-  AgentCandidateArtifactRef,
+  AgentCandidateBenchmarkGraderIdentity,
+  AgentCandidateFixedSpend,
   AgentCandidateTermination,
 } from '@tangle-network/agent-interface'
 
 import { readVerifiedArtifact } from './artifacts'
-import { immutableCandidateValue, sha256Bytes } from './digest'
+import { canonicalCandidateDigest, immutableCandidateValue, sha256Bytes } from './digest'
 import type {
   AgentCandidateBenchmarkGraderPort,
   AgentCandidateOutputArtifactPort,
@@ -13,10 +14,14 @@ import type {
 } from './types'
 
 export interface BoundAgentCandidateBenchmarkRun {
-  readonly grader: {
-    readonly name: string
-    readonly version: string
-    readonly artifact: AgentCandidateArtifactRef
+  readonly grader: AgentCandidateBenchmarkGraderIdentity
+  readonly grading: {
+    readonly usage: AgentCandidateFixedSpend
+    readonly timing: {
+      readonly startedAtMs: number
+      readonly endedAtMs: number
+      readonly durationMs: number
+    }
   }
   readonly evaluation: BenchmarkEvaluation
   readonly evidence: Uint8Array
@@ -30,12 +35,13 @@ export async function runBoundCandidateBenchmarkGrader(input: {
   executionId: string
   termination: AgentCandidateTermination
   outcome: VerifiedAgentCandidateTaskOutcome
+  expectedGrader: AgentCandidateBenchmarkGraderIdentity
   grader: AgentCandidateBenchmarkGraderPort
   artifacts: AgentCandidateOutputArtifactPort
   signal?: AbortSignal
 }): Promise<BoundAgentCandidateBenchmarkRun> {
   input.signal?.throwIfAborted()
-  const descriptor = snapshotGraderDescriptor(input.grader)
+  const descriptor = snapshotGraderDescriptor(input.grader, input.expectedGrader)
   const implementationBytes = await readVerifiedArtifact(descriptor.artifact, input.artifacts)
   if (implementationBytes.byteLength === 0) {
     throw new Error('candidate benchmark grader implementation cannot be empty')
@@ -43,6 +49,7 @@ export async function runBoundCandidateBenchmarkGrader(input: {
   const expectedImplementationDigest = sha256Bytes(implementationBytes)
   const termination = immutableCandidateValue(input.termination)
   const run = input.grader.run
+  const startedAtMs = Date.now()
   const result = await run(
     Object.freeze({
       executionId: input.executionId,
@@ -52,6 +59,7 @@ export async function runBoundCandidateBenchmarkGrader(input: {
       signal: input.signal ?? new AbortController().signal,
     }),
   )
+  const endedAtMs = Math.max(startedAtMs, Date.now())
   input.signal?.throwIfAborted()
   assertExactRunnerResult(result)
 
@@ -73,6 +81,14 @@ export async function runBoundCandidateBenchmarkGrader(input: {
 
   return Object.freeze({
     grader: descriptor,
+    grading: immutableCandidateValue({
+      usage: emptyFixedSpend(),
+      timing: {
+        startedAtMs,
+        endedAtMs,
+        durationMs: endedAtMs - startedAtMs,
+      },
+    }),
     evaluation: result.evaluation,
     evidence,
   })
@@ -80,15 +96,32 @@ export async function runBoundCandidateBenchmarkGrader(input: {
 
 function snapshotGraderDescriptor(
   grader: AgentCandidateBenchmarkGraderPort,
+  expected: AgentCandidateBenchmarkGraderIdentity,
 ): BoundAgentCandidateBenchmarkRun['grader'] {
   if (!grader.name || !grader.version) {
     throw new Error('candidate benchmark grader name and version must be non-empty')
   }
-  return immutableCandidateValue({
+  const actual = {
     name: grader.name,
     version: grader.version,
+    format: 'tangle-grader' as const,
     artifact: grader.artifact,
-  })
+  }
+  if (canonicalCandidateDigest(actual) !== canonicalCandidateDigest(expected)) {
+    throw new Error('candidate benchmark grader does not match the signed task grader')
+  }
+  return immutableCandidateValue(expected)
+}
+
+function emptyFixedSpend(): AgentCandidateFixedSpend {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    reasoningTokens: 0,
+    modelCalls: 0,
+    costUsdNanos: 0,
+  }
 }
 
 function detachedImplementation(bytes: Uint8Array): {

@@ -21,13 +21,10 @@ import {
   withinCandidateCleanupDeadline,
 } from './cleanup'
 import { canonicalCandidateBytes } from './digest'
-import {
-  sealAgentCandidateExecutorFinalCapture,
-  sealAgentCandidateExecutorStopAcknowledgement,
-} from './executor-capture'
-import { persistAgentCandidateExecutorCapture } from './executor-capture-evidence'
+import { sealAgentCandidateExecutorStopAcknowledgement } from './executor-capture'
 import { sealAgentCandidateModelSettlement } from './model-settlement'
 import { persistCandidateModelSettlementEvidence } from './outcome-evidence'
+import { persistCandidateOutputArtifact } from './output-artifacts'
 import { RecoveryAgentCandidateTraceStore } from './protected-trace-store'
 import type {
   AgentCandidateExecutionPorts,
@@ -90,6 +87,18 @@ export async function recoverExpiredAgentCandidateExecution(
         },
       )
       sealAgentCandidateExecutorStopAcknowledgement(stopped)
+      if (options.executor.dispose) {
+        const disposed = await options.executor.dispose(
+          {
+            executionId: record.claim.executionId,
+            executionPlanDigest: record.claim.executionPlanDigest,
+          },
+          { signal: cleanupSignal },
+        )
+        if (disposed.disposed !== true || Object.keys(disposed).some((key) => key !== 'disposed')) {
+          throw new Error('expired candidate executor did not acknowledge resource disposal')
+        }
+      }
       return { stopped: true as const }
     },
     cleanupDeadlineAtMs,
@@ -149,48 +158,6 @@ export async function recoverExpiredAgentCandidateExecution(
   const failures: unknown[] = [preparationOutcome, processOutcome]
     .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
     .map((outcome) => outcome.reason)
-  const recoveredPreparation =
-    preparationOutcome.status === 'fulfilled' ? preparationOutcome.value : undefined
-  const processStopped = processOutcome.status === 'fulfilled'
-  let persistedCapture: Awaited<ReturnType<typeof persistAgentCandidateExecutorCapture>> | undefined
-  if (recoveredPreparation && processStopped) {
-    try {
-      const capture = sealAgentCandidateExecutorFinalCapture(
-        await withinCandidateCleanupDeadline(
-          (cleanupSignal) =>
-            options.executor.capture(
-              {
-                executionId: record.claim.executionId,
-                executionPlanDigest: record.claim.executionPlanDigest,
-              },
-              {
-                traceStore: recoveryTraceStore,
-                signal: cleanupSignal,
-              },
-            ),
-          cleanupDeadlineAtMs,
-          'expired candidate evidence capture',
-        ),
-        recoveredPreparation.plan.task.outcome,
-      )
-      persistedCapture = await withinCandidateCleanupDeadline(
-        () =>
-          persistAgentCandidateExecutorCapture(
-            {
-              executionId: record.claim.executionId,
-              executionPlanDigest: record.claim.executionPlanDigest,
-            },
-            recoveredPreparation.plan.task.outcome,
-            capture,
-            options.outputArtifacts,
-          ),
-        cleanupDeadlineAtMs,
-        'expired candidate capture persistence',
-      )
-    } catch (error) {
-      failures.push(error)
-    }
-  }
   const [modelOutcome, memoryOutcome] = await closureOutcomes
   for (const outcome of [modelOutcome, memoryOutcome]) {
     if (outcome.status === 'rejected') failures.push(outcome.reason)
@@ -198,7 +165,6 @@ export async function recoverExpiredAgentCandidateExecution(
   if (failures.length > 0) {
     throw new AggregateError(failures, 'expired candidate cleanup could not be proven')
   }
-  if (!persistedCapture) throw new Error('expired candidate capture was not persisted')
 
   if (modelOutcome.status !== 'fulfilled') {
     throw new Error('expired candidate model settlement was not recovered')
@@ -218,15 +184,38 @@ export async function recoverExpiredAgentCandidateExecution(
     cleanupDeadlineAtMs,
     'expired candidate model-settlement persistence',
   )
+  const failureClass =
+    record.phase === 'claimed' && model.usage.modelCalls === 0
+      ? 'pre-model-infrastructure'
+      : 'unknown'
+  const failureEvidence = await withinCandidateCleanupDeadline(
+    () =>
+      persistCandidateOutputArtifact(options.outputArtifacts, {
+        executionId: record.claim.executionId,
+        purpose: 'failure-evidence',
+        bytes: canonicalCandidateBytes({
+          kind: 'agent-candidate-recovery-failure',
+          executionId: record.claim.executionId,
+          attempt: record.claim.attempt,
+          bundleDigest: record.claim.bundleDigest,
+          executionPlanDigest: record.claim.executionPlanDigest,
+          materializationReceiptDigest:
+            record.claim.preparationEvidence.materializationReceipt.sha256,
+          failureClass,
+          processStopped: true,
+          modelSettlementDigest: modelSettlement.digest,
+          memoryClosed: record.claim.cleanup.memory !== undefined,
+        }),
+      }),
+    cleanupDeadlineAtMs,
+    'expired candidate failure-evidence persistence',
+  )
   const memory = record.claim.cleanup.memory
   return await options.claimStore.recoverExpired(options.attempt, {
-    failureClass:
-      record.phase === 'claimed' && model.usage.modelCalls === 0
-        ? 'pre-model-infrastructure'
-        : 'unknown',
+    failureClass,
     usage: model.usage,
     modelSettlement: modelSettlement.artifact,
-    failureEvidence: persistedCapture.evidence,
+    failureEvidence,
     process: {
       stopped: true,
       executionPlanDigest: record.claim.executionPlanDigest,
@@ -274,7 +263,7 @@ async function readRecoveryPreparation(
   if (
     receipt.bundleDigest !== claim.bundleDigest ||
     receipt.executionPlan.digest !== claim.executionPlanDigest ||
-    plan.bundleDigest !== claim.bundleDigest ||
+    plan.runCell.bundleDigest !== claim.bundleDigest ||
     plan.executionId !== claim.executionId
   ) {
     throw new Error('recovery preparation evidence does not match the durable claim')

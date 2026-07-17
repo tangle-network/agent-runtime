@@ -5,14 +5,14 @@ import type {
   AgentCandidateCodeNoOp,
   AgentCandidateExecution,
   AgentCandidateGitHubRepository,
-  AgentCandidateLineage,
+  AgentCandidateKnowledge,
   AgentCandidateMemoryPolicy,
   AgentCandidateProfile,
   AgentProfile,
   AgentProfileDiff,
 } from '@tangle-network/agent-interface'
 import { type AgentCandidateBundleInput, sealAgentCandidateBundle } from './bundle'
-import { canonicalCandidateDigest, embeddedCandidateArtifact } from './digest'
+import { embeddedCandidateArtifact } from './digest'
 import {
   applyExactAgentProfileDiff,
   freezeGenericAgentCandidateProfile,
@@ -30,7 +30,7 @@ export type AgentCandidateProfileSource =
   | {
       kind: 'profile-diffs'
       base: AgentProfile
-      /** Applied in order. Each exact diff is content-addressed into lineage. */
+      /** Applied in order before the resulting profile is frozen into the bundle. */
       diffs: readonly AgentProfileDiff[]
     }
   | {
@@ -59,9 +59,8 @@ export interface BuildAgentCandidateBundleInput {
   profile: AgentCandidateProfileSource
   code: AgentCandidateCodeSource
   execution: AgentCandidateExecution
+  knowledge?: AgentCandidateKnowledge
   memory: AgentCandidateMemoryPolicy
-  /** `profileDiffIds` is derived from `profile`; callers cannot contradict it. */
-  lineage: Omit<AgentCandidateLineage, 'profileDiffIds'>
 }
 
 /**
@@ -74,39 +73,25 @@ export interface BuildAgentCandidateBundleInput {
 export function buildAgentCandidateBundle(
   input: BuildAgentCandidateBundleInput,
 ): ReturnType<typeof sealAgentCandidateBundle> {
-  if (Object.hasOwn(input.lineage, 'profileDiffIds')) {
-    throw new Error('profileDiffIds is derived from the profile source and cannot be supplied')
-  }
-  const compiledProfile = compileCandidateProfile(input.profile)
-  const profileDiffIds = compiledProfile.profileDiffIds
   const bundle: AgentCandidateBundleInput = {
     kind: 'agent-candidate-bundle',
     digestAlgorithm: 'rfc8785-sha256',
-    profile: compiledProfile.profile,
+    profile: compileCandidateProfile(input.profile),
     code: compileCandidateCode(input.code),
     execution: input.execution,
+    ...(input.knowledge !== undefined ? { knowledge: input.knowledge } : {}),
     memory: input.memory,
-    lineage: {
-      ...input.lineage,
-      ...(profileDiffIds.length > 0 ? { profileDiffIds } : {}),
-    },
   }
   return sealAgentCandidateBundle(bundle)
 }
 
-function compileCandidateProfile(source: AgentCandidateProfileSource): {
-  profile: AgentCandidateProfile
-  profileDiffIds: string[]
-} {
+function compileCandidateProfile(source: AgentCandidateProfileSource): AgentCandidateProfile {
   if (source.kind === 'candidate-profile') {
-    return {
-      profile: parseExactCandidateProfile(source.profile),
-      profileDiffIds: [],
-    }
+    return parseExactCandidateProfile(source.profile)
   }
 
   if (source.kind === 'profile') {
-    return { profile: freezeGenericAgentCandidateProfile(source.profile), profileDiffIds: [] }
+    return freezeGenericAgentCandidateProfile(source.profile)
   }
 
   if (source.kind !== 'profile-diffs') {
@@ -118,13 +103,11 @@ function compileCandidateProfile(source: AgentCandidateProfileSource): {
     throw new Error('profile-diffs source requires at least one AgentProfileDiff')
   }
   let profile = parseExactAgentProfile(source.base, 'base profile')
-  const profileDiffIds: string[] = []
   for (const [index, inputDiff] of source.diffs.entries()) {
     const diff = parseExactAgentProfileDiff(inputDiff, `profile diff ${index}`)
     profile = applyExactAgentProfileDiff(profile, diff, `profile diff ${index}`)
-    profileDiffIds.push(canonicalCandidateDigest(diff))
   }
-  return { profile: freezeGenericAgentCandidateProfile(profile), profileDiffIds }
+  return freezeGenericAgentCandidateProfile(profile)
 }
 
 function compileCandidateCode(source: AgentCandidateCodeSource): AgentCandidateBundleInput['code'] {

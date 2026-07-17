@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import {
   type AgentCandidateCapturedArtifact,
   type AgentCandidateKnowledge,
+  type AgentImprovementActivation,
   type AgentImprovementProposal,
   type AgentImprovementReview,
   agentCandidateKnowledgeSchema,
@@ -9,6 +10,7 @@ import {
 import {
   type BuildEvalKnowledgeBundleOptions,
   evaluateKnowledgeBaseReadiness,
+  fromAgentCandidateKnowledgeRef,
   hashKnowledgeBase,
   improveKnowledgeBase,
   type KnowledgeBaseQualityOptions,
@@ -18,6 +20,7 @@ import {
   type KnowledgeReadinessSpec,
   knowledgeImprovementCandidateRef,
   promoteKnowledgeCandidate,
+  toAgentCandidateKnowledgeRef,
   withKnowledgeImprovementCandidate,
 } from '@tangle-network/agent-knowledge'
 import { canonicalCandidateBytes, embeddedCandidateArtifact } from '../candidate-execution/digest'
@@ -25,6 +28,7 @@ import { persistCandidateOutputArtifact } from '../candidate-execution/output-ar
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
 import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive'
 import {
+  verifyAgentImprovementActivation,
   verifyAgentImprovementProposal,
   verifyAgentImprovementReview,
 } from '../intelligence/improvement-cycle'
@@ -68,9 +72,11 @@ export interface RunKnowledgeImprovementJobOptions
 export interface ApprovedKnowledgeImprovementCandidate {
   proposal: AgentImprovementProposal
   review: AgentImprovementReview
-  authorizeReview: (
-    review: AgentImprovementReview,
+  activation: AgentImprovementActivation
+  authorizeActivation: (
+    activation: AgentImprovementActivation,
     proposal: AgentImprovementProposal,
+    review: AgentImprovementReview,
   ) => boolean | Promise<boolean>
 }
 
@@ -208,14 +214,8 @@ export async function runKnowledgeImprovementJob(
       ...(knowledgeOptions.onState ? { onState: knowledgeOptions.onState } : {}),
     })
     knowledgeOptions.signal?.throwIfAborted()
-    const promotedHash = knowledgeDigest(
-      await hashKnowledgeBase(options.root),
-      'promoted knowledge base',
-    )
-    if (
-      !resolvedImprovement.promoted ||
-      promotedHash !== approvedKnowledge.candidate.candidateHash
-    ) {
+    const promotedHash = await hashKnowledgeBase(options.root)
+    if (!resolvedImprovement.promoted || promotedHash !== candidate.candidateHash) {
       throw new Error('knowledge promotion did not activate the approved snapshot bytes')
     }
     candidateKnowledge = approvedKnowledge
@@ -223,7 +223,7 @@ export async function runKnowledgeImprovementJob(
     resolvedImprovement = await improveKnowledgeBase({
       ...knowledgeOptions,
       updateKnowledge: instrumentedUpdateKnowledge,
-    } as KnowledgeImprovementOptions)
+    })
     if (resolvedImprovement.candidate) {
       candidateKnowledge = await freezeKnowledgeCandidate(
         options.root,
@@ -261,7 +261,7 @@ async function freezeKnowledgeCandidate(
   const candidate = knowledgeImprovementCandidateRef(improvement)
   return withKnowledgeImprovementCandidate({ root, candidate }, async (resolved) => {
     const executionId = `knowledge-${candidate.candidateId}`
-    const candidateRef = interfaceKnowledgeCandidateRef(candidate)
+    const candidateRef = toAgentCandidateKnowledgeRef(candidate)
     const captured = await captureAgentCandidateWorkspace(await realpath(resolved.root), {
       ...(artifacts
         ? {
@@ -313,74 +313,34 @@ async function approvedKnowledgeCandidate(
 ): Promise<AgentCandidateKnowledge> {
   const proposal = verifyAgentImprovementProposal(approval.proposal)
   const review = verifyAgentImprovementReview(approval.review)
+  const activation = verifyAgentImprovementActivation({
+    proposal,
+    review,
+    activation: approval.activation,
+  })
+  const candidateBundle = proposal.evaluation.experiment.candidate
+  const knowledgeTarget = activation.targets.find((target) => target.surface === 'knowledge')
   if (
     proposal.changedSurfaces.length !== 1 ||
     proposal.changedSurfaces[0] !== 'knowledge' ||
-    !proposal.candidateBundle.knowledge ||
+    !candidateBundle.knowledge ||
+    !knowledgeTarget ||
+    knowledgeTarget.expectedBaseDigest !== candidateBundle.knowledge.candidate.baseHash ||
     review.decision !== 'approve' ||
-    review.proposalDigest !== proposal.digest ||
-    review.candidateBundleDigest !== proposal.candidateBundle.digest
+    review.proposalDigest !== proposal.digest
   ) {
     throw new Error('knowledge promotion requires an approved exact knowledge proposal')
   }
-  if (!(await approval.authorizeReview(review, proposal))) {
-    throw new Error('knowledge candidate approval was not authorized')
+  if (!(await approval.authorizeActivation(activation, proposal, review))) {
+    throw new Error('knowledge candidate activation was not authorized')
   }
-  return proposal.candidateBundle.knowledge
-}
-
-function interfaceKnowledgeCandidateRef(
-  candidate: KnowledgeImprovementCandidateRef,
-): AgentCandidateKnowledge['candidate'] {
-  return {
-    kind: 'knowledge-improvement-candidate',
-    runId: candidate.runId,
-    candidateId: candidate.candidateId,
-    goalHash: knowledgeDigest(candidate.goalHash, 'knowledge candidate goal'),
-    baseHash: knowledgeDigest(candidate.baseHash, 'knowledge candidate base'),
-    candidateHash: knowledgeDigest(candidate.candidateHash, 'knowledge candidate snapshot'),
-    evidenceHash: knowledgeDigest(candidate.evidenceHash, 'knowledge candidate evidence'),
-    promotionPlanHash: knowledgeDigest(
-      candidate.promotionPlanHash,
-      'knowledge candidate promotion plan',
-    ),
-  }
+  return candidateBundle.knowledge
 }
 
 function agentKnowledgeCandidateRef(
   knowledge: AgentCandidateKnowledge,
 ): KnowledgeImprovementCandidateRef {
-  return {
-    kind: 'knowledge-improvement-candidate',
-    runId: knowledge.candidate.runId,
-    candidateId: knowledge.candidate.candidateId,
-    goalHash: rawKnowledgeDigest(knowledge.candidate.goalHash, 'knowledge candidate goal'),
-    baseHash: rawKnowledgeDigest(knowledge.candidate.baseHash, 'knowledge candidate base'),
-    candidateHash: rawKnowledgeDigest(
-      knowledge.candidate.candidateHash,
-      'knowledge candidate snapshot',
-    ),
-    evidenceHash: rawKnowledgeDigest(
-      knowledge.candidate.evidenceHash,
-      'knowledge candidate evidence',
-    ),
-    promotionPlanHash: rawKnowledgeDigest(
-      knowledge.candidate.promotionPlanHash,
-      'knowledge candidate promotion plan',
-    ),
-  }
-}
-
-function knowledgeDigest(value: string, label: string): `sha256:${string}` {
-  const digest = value.startsWith('sha256:') ? value : `sha256:${value}`
-  if (!/^sha256:[a-f0-9]{64}$/.test(digest)) {
-    throw new Error(`${label} is not a SHA-256 digest`)
-  }
-  return digest as `sha256:${string}`
-}
-
-function rawKnowledgeDigest(value: string, label: string): string {
-  return knowledgeDigest(value, label).slice('sha256:'.length)
+  return fromAgentCandidateKnowledgeRef(knowledge.candidate)
 }
 
 function emptySpent(): KnowledgeImprovementJobMeasurement['supervisedSpent'] {

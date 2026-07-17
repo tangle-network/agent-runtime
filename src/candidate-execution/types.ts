@@ -2,6 +2,8 @@ import type { BenchmarkEvaluation, TraceStore } from '@tangle-network/agent-eval
 import type {
   AgentCandidateArtifactRef,
   AgentCandidateAttemptPolicy,
+  AgentCandidateBenchmarkSuite,
+  AgentCandidateBenchmarkTask,
   AgentCandidateBundle,
   AgentCandidateCapturedArtifact,
   AgentCandidateContainer,
@@ -20,16 +22,14 @@ import type {
   AgentCandidateProfileActivation,
   AgentCandidateProfilePlanEvidence,
   AgentCandidateResolvedModel,
+  AgentCandidateRunCell,
   AgentCandidateRunReceipt,
   AgentCandidateTaskOutcomeEvidence,
   AgentCandidateTaskOutcomeMaterial,
-  AgentCandidateTaskOutcomeSpec,
   AgentCandidateTaskOutputSpec,
-  AgentCandidateTaskRepository,
   AgentCandidateTermination,
   AgentCandidateWorkspaceManifestMaterial,
   AgentCandidateWorkspaceSnapshotEvidence,
-  ReasoningEffort,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 
@@ -58,6 +58,7 @@ export type AgentCandidateOutputPurpose =
   | 'benchmark-result'
   | 'model-settlement'
   | 'trace'
+  | 'executor-native-evidence'
   | 'executor-capture'
   | 'run-receipt'
   | 'knowledge-retrieval-config'
@@ -166,12 +167,6 @@ export type AgentCandidateModelLimits = Pick<
   'maxModelCalls' | 'maxInputTokens' | 'maxOutputTokens' | 'maxCostUsd'
 >
 
-export interface AgentCandidateBenchmarkGraderIdentity {
-  name: string
-  version: string
-  artifact: AgentCandidateArtifactRef
-}
-
 export interface AgentCandidateProtectedModelReservation {
   preparationId: string
   digest: Sha256Digest
@@ -250,24 +245,12 @@ export interface AgentCandidateExecutionPorts extends AgentCandidateVerification
   memory: AgentCandidateMemoryPort
 }
 
-/** One signed benchmark task and the exact result shape its executor must capture. */
+/** Runtime placement for one exact cell from a signed candidate experiment. */
 export interface AgentCandidateTaskExecution {
   executionId: string
-  benchmark: string
-  benchmarkVersion: string
-  taskId: string
-  splitDigest: Sha256Digest
-  /** Exact agent-visible task instruction. The runtime rejects malformed Unicode. */
-  instruction: string
-  /** Optional source identity, required when the expected outcome is a workspace. */
-  repository?: AgentCandidateTaskRepository
-  outcome: AgentCandidateTaskOutcomeSpec
-  attempt: AgentCandidateAttemptPolicy
-  model: {
-    requested: string
-    reasoningEffort: ReasoningEffort
-  }
-  grader: AgentCandidateBenchmarkGraderIdentity
+  runCell: AgentCandidateRunCell
+  benchmarkSuite: AgentCandidateBenchmarkSuite
+  task: AgentCandidateBenchmarkTask
   /** Absolute paths inside the evaluator-owned execution environment. */
   executionRoots: {
     taskRoot: string
@@ -279,9 +262,6 @@ export interface AgentCandidateTaskExecution {
     candidateRoot?: string
     profileRoot: string
   }
-  workspace: AgentCandidateWorkspaceSnapshotEvidence
-  evaluatorTaskContainer?: ResolvedAgentCandidateContainer
-  limits: AgentCandidateExecutionLimits
 }
 
 export interface VerifiedAgentCandidate {
@@ -328,6 +308,10 @@ export interface PreparedAgentCandidateTrace {
 
 export interface PreparedAgentCandidateExecution {
   readonly bundle: AgentCandidateBundle
+  readonly benchmark: {
+    readonly suite: AgentCandidateBenchmarkSuite
+    readonly task: AgentCandidateBenchmarkTask
+  }
   readonly executionId: string
   readonly roots: {
     execution: {
@@ -359,6 +343,8 @@ export interface PreparedAgentCandidateExecution {
   readonly memory: AgentCandidateEffectiveMemory
   readonly [preparedCandidateBrand]: true
 }
+
+export type { AgentCandidateBenchmarkGraderIdentity } from '@tangle-network/agent-interface'
 
 export interface AgentCandidateProtectedRunCapture {
   executionId: string
@@ -467,6 +453,7 @@ export interface AgentCandidateBenchmarkGraderPort {
 /** One detached request passed to the trusted environment-specific executor. */
 export interface AgentCandidateExecutorRequest {
   readonly executionId: string
+  readonly benchmark: PreparedAgentCandidateExecution['benchmark']
   /** Immutable bytes from which the executor creates fresh isolated workspaces. */
   readonly inputs: {
     readonly task: AgentCandidateExecutorWorkspaceInput
@@ -532,6 +519,13 @@ export interface AgentCandidateExecutorPort {
       signal: AbortSignal
     },
   ): Promise<AgentCandidateExecutorFinalCapture>
+  /** Remove evaluator-owned execution resources after final capture. Must be idempotent. */
+  dispose?(
+    request: AgentCandidateExecutorStopRequest,
+    context: {
+      signal: AbortSignal
+    },
+  ): Promise<{ readonly disposed: true }>
 }
 
 /** Opaque process identity used for termination without re-exposing launch credentials. */
@@ -551,6 +545,7 @@ export interface AgentCandidateExecutorWorkspaceFile {
   readonly bytes: Uint8Array
 }
 
+/** One exact profile file supplied to an evaluator-owned executor. */
 export interface AgentCandidateExecutorProfileFile {
   readonly path: string
   readonly mode: number

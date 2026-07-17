@@ -47,7 +47,7 @@ export async function persistAgentCandidateExecutorCapture(
   const executorEvidence = capture.evidence
     ? await persistCandidateOutputArtifact(outputArtifacts, {
         executionId: identity.executionId,
-        purpose: 'executor-capture',
+        purpose: 'executor-native-evidence',
         bytes: capture.evidence,
         signal,
       })

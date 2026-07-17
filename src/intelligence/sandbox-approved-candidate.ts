@@ -1,10 +1,8 @@
 import { posix } from 'node:path'
-
 import type { TraceStore } from '@tangle-network/agent-eval'
+import type { CandidateExperimentExecutionInput } from '@tangle-network/agent-eval/contract'
 import type {
   AgentCandidateTermination,
-  AgentImprovementProposal,
-  AgentImprovementReview,
   CandidateExecutionEvidence,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
@@ -35,20 +33,34 @@ import type {
   AgentCandidateOutputArtifactPort,
 } from '../candidate-execution/types'
 import { AGENT_CANDIDATE_EXECUTION_SUPPORT } from '../candidate-execution/verify'
-import { executeApprovedAgentCandidate } from './improvement-cycle'
+import {
+  type AgentCandidateExperimentCellPlacement,
+  executeAgentCandidateExperimentCell,
+} from './improvement-cycle'
 
 type SandboxClientPort = Pick<SandboxClient, 'create' | 'get' | 'list'>
 
-type SandboxExecutorOptions = NonNullable<CreateSandboxApprovedCandidateExecutorOptions['sandbox']>
+type SandboxExecutorOptions = NonNullable<
+  CreateSandboxCandidateExperimentExecutorOptions['sandbox']
+>
 
 interface SandboxRunState {
   sandbox: SandboxInstance
   output?: Uint8Array
   termination?: AgentCandidateTermination
+  trace?: {
+    runId: string
+    scenarioId: string
+    startedAt: number
+    deadlineAtMs: number
+    timeoutMs: number
+    tags: Record<string, string>
+    written: boolean
+  }
 }
 
 /** Declares the exact candidate surfaces the sandbox executor can run. */
-export const sandboxApprovedCandidateExecutionSupport = Object.freeze({
+export const sandboxCandidateExperimentExecutionSupport = Object.freeze({
   outcomes: Object.freeze(['output'] as const),
   outputMediaTypes: Object.freeze(['text/*', 'application/json', '*+json'] as const),
   code: Object.freeze(['disabled'] as const),
@@ -62,17 +74,13 @@ export const sandboxApprovedCandidateExecutionSupport = Object.freeze({
   }),
 })
 
-export interface CreateSandboxApprovedCandidateExecutorOptions {
+export interface CreateSandboxCandidateExperimentExecutorOptions {
   client: SandboxClientPort
   ports: AgentCandidateExecutionPorts
   grader: AgentCandidateBenchmarkGraderPort
   outputArtifacts: AgentCandidateOutputArtifactPort
   traceStore: TraceStore
   claimStore: AgentCandidateExecutionClaimStore
-  authorizeReview: (
-    review: AgentImprovementReview,
-    proposal: AgentImprovementProposal,
-  ) => boolean | Promise<boolean>
   sandbox?: {
     teamId?: string
     resources?: SandboxResources
@@ -83,32 +91,38 @@ export interface CreateSandboxApprovedCandidateExecutorOptions {
   resultTimeoutMs?: number
 }
 
-export interface SandboxApprovedCandidateExecution {
-  proposal: AgentImprovementProposal
-  review: AgentImprovementReview
-  task: Parameters<typeof executeApprovedAgentCandidate>[0]['task']
+export interface SandboxCandidateExperimentExecution extends CandidateExperimentExecutionInput {
+  executionId: string
+  attempt?: number
+  executionRoots: AgentCandidateExperimentCellPlacement['executionRoots']
+  stagingRoots: AgentCandidateExperimentCellPlacement['stagingRoots']
   preparation?: PrepareAgentCandidateExecutionOptions
 }
 
-export interface SandboxApprovedCandidateExecutor {
+export interface SandboxCandidateExperimentExecutor {
   /** The same port is usable by Runtime's expired-claim recovery path. */
   readonly executor: AgentCandidateExecutorPort
-  execute(input: SandboxApprovedCandidateExecution): Promise<CandidateExecutionEvidence>
+  execute(input: SandboxCandidateExperimentExecution): Promise<CandidateExecutionEvidence>
 }
 
-/** Compose approved-candidate execution directly onto fresh Tangle sandboxes. */
-export function createSandboxApprovedCandidateExecutor(
-  options: CreateSandboxApprovedCandidateExecutorOptions,
-): SandboxApprovedCandidateExecutor {
-  const executor = new SandboxAgentCandidateExecutor(options.client, options.sandbox)
+/** Execute one signed experiment cell inside a fresh Tangle sandbox. */
+export function createSandboxCandidateExperimentExecutor(
+  options: CreateSandboxCandidateExperimentExecutorOptions,
+): SandboxCandidateExperimentExecutor {
+  const executor = new SandboxAgentCandidateExecutor(
+    options.client,
+    options.sandbox,
+    options.resultTimeoutMs,
+  )
   return Object.freeze({
     executor,
-    async execute(input: SandboxApprovedCandidateExecution): Promise<CandidateExecutionEvidence> {
-      const result = await executeApprovedAgentCandidate({
-        proposal: input.proposal,
-        review: input.review,
-        authorizeReview: options.authorizeReview,
-        task: input.task,
+    async execute(input: SandboxCandidateExperimentExecution): Promise<CandidateExecutionEvidence> {
+      return await executeAgentCandidateExperimentCell({
+        ...input,
+        attempt: input.attempt ?? 1,
+        executionId: input.executionId,
+        executionRoots: input.executionRoots,
+        stagingRoots: input.stagingRoots,
         ports: options.ports,
         ...(input.preparation ? { preparation: input.preparation } : {}),
         execution: {
@@ -125,25 +139,6 @@ export function createSandboxApprovedCandidateExecutor(
             : { resultTimeoutMs: options.resultTimeoutMs }),
         },
       })
-      if (result.finalization.succeeded) {
-        if (!result.evidence) throw new Error('approved candidate execution returned no evidence')
-        try {
-          return result.evidence
-        } finally {
-          await executor.delete({
-            executionId: result.evidence.executionId,
-            executionPlanDigest: result.evidence.receipt.executionPlanDigest,
-          })
-        }
-      }
-      try {
-        throw new Error(`approved candidate execution failed: ${result.finalization.reason}`)
-      } finally {
-        await executor.delete({
-          executionId: result.finalization.partial.executionId,
-          executionPlanDigest: result.finalization.partial.executionPlanDigest,
-        })
-      }
     },
   })
 }
@@ -154,6 +149,7 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
   constructor(
     private readonly client: SandboxClientPort,
     private readonly options: SandboxExecutorOptions = {},
+    private readonly captureTimeoutMs = 120_000,
   ) {}
 
   async execute(
@@ -161,7 +157,7 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     context: Parameters<AgentCandidateExecutorPort['execute']>[1],
   ) {
     assertSupportedRequest(request)
-    const outcome = request.executionPlan.value.material.task.outcome
+    const outcome = request.benchmark.task.outcome
     if (outcome.kind !== 'output') throw new Error('sandbox executor requires an output task')
     const key = executionKey(request.executionId, request.executionPlan.value.digest)
     const sandbox = await this.client.create(sandboxCreateOptions(request, this.options), {
@@ -176,6 +172,15 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     await materializeRequest(sandbox, request)
     const launch = exactLaunch(request)
     const startedAt = Date.now()
+    state.trace = {
+      runId: request.trace.runId,
+      scenarioId: request.benchmark.task.scenario.id,
+      startedAt,
+      deadlineAtMs: context.deadlineAtMs,
+      timeoutMs: request.hardLimits.timeoutMs,
+      tags: { ...request.trace.tags, sandboxId: sandbox.id },
+      written: false,
+    }
     const process = await sandbox.process.spawnExact(launch.executable, launch.args, {
       cwd: request.launch.cwd,
       env: { ...request.launch.env },
@@ -207,14 +212,7 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
       }
       state.output = await awaitOutput(outputPromise, context.signal, context.deadlineAtMs)
       state.termination = cancellationTermination ?? processTermination(status)
-      await context.traceStore.appendRun({
-        runId: request.trace.runId,
-        scenarioId: request.executionPlan.value.material.task.taskId,
-        startedAt,
-        endedAt: Date.now(),
-        status: status.exitCode === 0 ? 'completed' : 'failed',
-        tags: { ...request.trace.tags, sandboxId: sandbox.id },
-      })
+      await appendSandboxTrace(state, context.traceStore, status)
       return { executionId: request.executionId, termination: state.termination }
     } finally {
       context.signal.removeEventListener('abort', cancel)
@@ -242,6 +240,13 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     if (remaining.some((entry) => entry.running)) {
       throw new Error('candidate sandbox process termination is not proven')
     }
+    const state = this.states.get(executionKey(request.executionId, request.executionPlanDigest))
+    if (state) {
+      if (context.reason === 'timeout') {
+        state.termination = { kind: 'timeout', timeoutMs: state.trace?.timeoutMs ?? 0 }
+      }
+      await appendSandboxTrace(state, context.traceStore, remaining[0])
+    }
     return { stopped: true }
   }
 
@@ -259,16 +264,18 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     let output = state?.output
     let termination = state?.termination
     const status = statuses[0]
-    if (status && (!output || !termination)) {
+    if (status && !output) {
       const process = await sandbox.process.get(status.pid)
       if (!process) throw new Error('candidate sandbox lost its captured process handle')
       const expected = sandboxOutputSpec(sandbox)
       output = await awaitOutput(
         collectOutput(process, expected.maxBytes),
         context.signal,
-        Date.now() + (this.options.createTimeoutMs ?? 120_000),
+        Date.now() + this.captureTimeoutMs,
       )
-      termination = processTermination(await process.status())
+    }
+    if (status && !termination) {
+      termination = processTermination(status)
     }
     context.signal.throwIfAborted()
     const evidence = canonicalCandidateBytes({
@@ -293,15 +300,21 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     }
   }
 
-  async delete(request: AgentCandidateExecutorStopRequest): Promise<void> {
+  async dispose(
+    request: AgentCandidateExecutorStopRequest,
+    context: { signal: AbortSignal },
+  ): Promise<{ readonly disposed: true }> {
+    context.signal.throwIfAborted()
     const sandbox = await this.resolve(request, true)
-    if (!sandbox) return
+    if (!sandbox) return { disposed: true }
     try {
       await sandbox.delete()
     } catch (error) {
       if (await this.client.get(sandbox.id)) throw error
     }
+    context.signal.throwIfAborted()
     this.states.delete(executionKey(request.executionId, request.executionPlanDigest))
+    return { disposed: true }
   }
 
   private async resolve(
@@ -337,8 +350,30 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
   }
 }
 
+async function appendSandboxTrace(
+  state: SandboxRunState,
+  traceStore: TraceStore,
+  status?: ProcessStatus,
+): Promise<void> {
+  const trace = state.trace
+  if (!trace || trace.written) return
+  const endedAt = Math.max(trace.startedAt, Math.min(Date.now(), trace.deadlineAtMs))
+  await traceStore.appendRun({
+    runId: trace.runId,
+    scenarioId: trace.scenarioId,
+    startedAt: trace.startedAt,
+    endedAt,
+    status:
+      state.termination?.kind !== 'timeout' && status?.running === false && status.exitCode === 0
+        ? 'completed'
+        : 'failed',
+    tags: trace.tags,
+  })
+  trace.written = true
+}
+
 function assertSupportedRequest(request: AgentCandidateExecutorRequest): void {
-  if (request.executionPlan.value.material.task.outcome.kind !== 'output') {
+  if (request.benchmark.task.outcome.kind !== 'output') {
     throw new Error('sandbox candidate executor does not support workspace outcomes; use Pier')
   }
   if (request.executionPlan.value.material.codeKind !== 'disabled' || request.inputs.candidate) {
@@ -347,7 +382,7 @@ function assertSupportedRequest(request: AgentCandidateExecutorRequest): void {
   if (request.memory.mode !== 'disabled') {
     throw new Error('sandbox candidate executor does not support isolated memory')
   }
-  const mediaType = request.executionPlan.value.material.task.outcome.mediaType.toLowerCase()
+  const mediaType = request.benchmark.task.outcome.mediaType.toLowerCase()
   if (
     !(
       mediaType.startsWith('text/') ||
@@ -395,8 +430,13 @@ function sandboxCreateOptions(
       executionId: request.executionId,
       executionPlanDigest: request.executionPlan.value.digest,
       outputMediaType:
-        material.task.outcome.kind === 'output' ? material.task.outcome.mediaType : '',
-      outputMaxBytes: material.task.outcome.kind === 'output' ? material.task.outcome.maxBytes : 0,
+        request.benchmark.task.outcome.kind === 'output'
+          ? request.benchmark.task.outcome.mediaType
+          : '',
+      outputMaxBytes:
+        request.benchmark.task.outcome.kind === 'output'
+          ? request.benchmark.task.outcome.maxBytes
+          : 0,
     },
     ...(options.teamId ? { teamId: options.teamId } : {}),
     ...(options.resources ? { resources: options.resources } : {}),

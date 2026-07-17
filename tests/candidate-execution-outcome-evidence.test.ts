@@ -78,7 +78,7 @@ describe('candidate outcome evidence', () => {
         {
           kind: 'workspace',
           resultTree: '0'.repeat(40),
-          afterState: fixture.task.workspace.material,
+          afterState: fixture.task.task.workspace.material,
           archive: Buffer.from('archive'),
           gitDiff: new Uint8Array(),
         },
@@ -107,6 +107,56 @@ describe('candidate outcome evidence', () => {
       ]),
     ).rejects.toThrow(/protected value/)
     expect(puts).toBe(0)
+  })
+
+  it('screens native executor evidence and stores it separately from the capture summary', async () => {
+    const fixture = createCandidateOutputExecutionFixture('text/plain', 32)
+    const state = await preparedState(fixture)
+    const outputs = createCandidateOutputFixture()
+    const purposes: string[] = []
+    const outputArtifacts = {
+      read: outputs.outputArtifacts.read,
+      put: async (input: Parameters<typeof outputs.outputArtifacts.put>[0]) => {
+        purposes.push(input.purpose)
+        return await outputs.outputArtifacts.put(input)
+      },
+    }
+    const capture = sealAgentCandidateExecutorFinalCapture(
+      {
+        taskOutcome: { kind: 'output', bytes: Buffer.from('answer', 'utf8') },
+        evidence: Buffer.from('native evidence', 'utf8'),
+      },
+      state.benchmarkTask.outcome,
+    )
+
+    await persistVerifiedAgentCandidateExecutorCapture(state, capture, outputArtifacts, [])
+    expect(purposes).toContain('executor-native-evidence')
+    expect(purposes).toContain('executor-capture')
+
+    let protectedPuts = 0
+    const secret = 'sk-native-evidence-secret-123456789'
+    const protectedCapture = sealAgentCandidateExecutorFinalCapture(
+      {
+        taskOutcome: { kind: 'output', bytes: Buffer.from('answer', 'utf8') },
+        evidence: Buffer.from(secret, 'utf8'),
+      },
+      state.benchmarkTask.outcome,
+    )
+    await expect(
+      persistVerifiedAgentCandidateExecutorCapture(
+        state,
+        protectedCapture,
+        {
+          read: outputs.outputArtifacts.read,
+          put: async (input) => {
+            protectedPuts++
+            return await outputs.outputArtifacts.put(input)
+          },
+        },
+        [secret],
+      ),
+    ).rejects.toThrow(/protected value/)
+    expect(protectedPuts).toBe(0)
   })
 
   it('validates task manifest material before any output write', async () => {
@@ -422,7 +472,7 @@ async function persistTaskOutcome(
 ) {
   const capture = sealAgentCandidateExecutorFinalCapture(
     { taskOutcome },
-    state.executionPlan.value.material.task.outcome,
+    state.benchmarkTask.outcome,
   )
   return (
     await persistVerifiedAgentCandidateExecutorCapture(

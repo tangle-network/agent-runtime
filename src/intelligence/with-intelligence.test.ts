@@ -247,20 +247,24 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
             ],
             candidateExecution: {
               kind: 'agent-candidate-execution-evidence',
-              proposalDigest: `sha256:${'1'.repeat(64)}`,
-              reviewDigest: `sha256:${'2'.repeat(64)}`,
-              executionId: 'candidate-execution-1',
-              succeeded: true,
-              materializationReceipt: {} as CandidateExecutionEvidence['materializationReceipt'],
-              profileActivation: {} as CandidateExecutionEvidence['profileActivation'],
+              materializationReceipt: {
+                executionPlan: {
+                  material: {
+                    executionId: 'candidate-execution-1',
+                    runCell: { experimentDigest: `sha256:${'1'.repeat(64)}` },
+                  },
+                },
+              },
               receipt: {
                 bundleDigest: `sha256:${'3'.repeat(64)}`,
                 executionPlanDigest: `sha256:${'4'.repeat(64)}`,
                 materializationReceiptDigest: `sha256:${'5'.repeat(64)}`,
+                termination: { kind: 'exit', exitCode: 0 },
+                benchmarkResult: { material: { passed: true } },
                 digest: `sha256:${'6'.repeat(64)}`,
-              } as CandidateExecutionEvidence['receipt'],
+              },
               digest: `sha256:${'7'.repeat(64)}`,
-            },
+            } as CandidateExecutionEvidence,
           })
           return 'answer'
         },
@@ -309,7 +313,7 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(attrs['tool.name']).toBe('mcp__linear__linear_graphql')
       expect(String(attrs['tool.input'])).toContain(longInput)
       expect(attrs['tangle.candidate.execution_id']).toBe('candidate-execution-1')
-      expect(attrs['tangle.candidate.proposal_digest']).toBe(`sha256:${'1'.repeat(64)}`)
+      expect(attrs['tangle.candidate.experiment_digest']).toBe(`sha256:${'1'.repeat(64)}`)
       expect(attrs['tangle.candidate.run_receipt_digest']).toBe(`sha256:${'6'.repeat(64)}`)
     } finally {
       vi.useRealTimers()

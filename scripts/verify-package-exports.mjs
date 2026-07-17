@@ -107,7 +107,10 @@ try {
           '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
           ...peerDependencies,
         },
-        devDependencies: { typescript: repoPackageJson.devDependencies.typescript },
+        devDependencies: {
+          '@types/node': repoPackageJson.devDependencies['@types/node'],
+          typescript: repoPackageJson.devDependencies.typescript,
+        },
       },
       null,
       2,
@@ -140,18 +143,17 @@ try {
     `
       import type {
         AgentCandidateProfileActivation,
-        AgentImprovementProposal,
-        AgentImprovementReview,
         CandidateExecutionEvidence,
       } from '@tangle-network/agent-interface'
       import { SandboxClient } from '@tangle-network/sandbox'
-      import type { AgentCandidateTaskExecution } from '@tangle-network/agent-runtime/candidate-execution'
       import {
-        createSandboxApprovedCandidateExecutor,
+        createSandboxCandidateExperimentExecutor,
         parseAgentCandidateProfileActivation,
-        sandboxApprovedCandidateExecutionSupport,
+        sandboxCandidateExperimentExecutionSupport,
         verifyCandidateExecutionEvidence,
-        type CreateSandboxApprovedCandidateExecutorOptions,
+        type CreateSandboxCandidateExperimentExecutorOptions,
+        type SandboxCandidateExperimentExecution,
+        type VerifyCandidateExecutionEvidenceOptions,
       } from '@tangle-network/agent-runtime/intelligence'
 
       const client = new SandboxClient({
@@ -159,38 +161,31 @@ try {
         baseUrl: 'https://sandbox.example.com',
         trustLocalCliAuth: false,
       })
-      declare const ports: CreateSandboxApprovedCandidateExecutorOptions['ports']
-      declare const grader: CreateSandboxApprovedCandidateExecutorOptions['grader']
-      declare const outputArtifacts: CreateSandboxApprovedCandidateExecutorOptions['outputArtifacts']
-      declare const traceStore: CreateSandboxApprovedCandidateExecutorOptions['traceStore']
-      declare const claimStore: CreateSandboxApprovedCandidateExecutorOptions['claimStore']
-      declare const proposal: AgentImprovementProposal
-      declare const review: AgentImprovementReview
-      declare const task: AgentCandidateTaskExecution
+      declare const ports: CreateSandboxCandidateExperimentExecutorOptions['ports']
+      declare const grader: CreateSandboxCandidateExperimentExecutorOptions['grader']
+      declare const outputArtifacts: CreateSandboxCandidateExperimentExecutorOptions['outputArtifacts']
+      declare const traceStore: CreateSandboxCandidateExperimentExecutorOptions['traceStore']
+      declare const claimStore: CreateSandboxCandidateExperimentExecutorOptions['claimStore']
+      declare const executionInput: SandboxCandidateExperimentExecution
+      declare const verification: VerifyCandidateExecutionEvidenceOptions
       declare const storedEvidence: unknown
 
-      const executor = createSandboxApprovedCandidateExecutor({
+      const executor = createSandboxCandidateExperimentExecutor({
         client,
         ports,
         grader,
         outputArtifacts,
         traceStore,
         claimStore,
-        authorizeReview: async () => true,
       })
-      const execution: Promise<CandidateExecutionEvidence> = executor.execute({
-        proposal,
-        review,
-        task,
-      })
-      const evidence = verifyCandidateExecutionEvidence([storedEvidence], {
-        proposal,
-        review,
-        expectedCount: 1,
-      })[0]
+      const execution: Promise<CandidateExecutionEvidence> = executor.execute(executionInput)
+      const evidence = verifyCandidateExecutionEvidence(storedEvidence, verification)
       const activation: AgentCandidateProfileActivation =
-        parseAgentCandidateProfileActivation(evidence?.profileActivation)
-      const outcome: 'output' = sandboxApprovedCandidateExecutionSupport.outcomes[0]
+        parseAgentCandidateProfileActivation(
+          evidence.materializationReceipt.profileActivation,
+          evidence.materializationReceipt.profileActivation.profilePlan.digest,
+        )
+      const outcome: 'output' = sandboxCandidateExperimentExecutionSupport.outcomes[0]
       void execution
       void activation
       void outcome
@@ -259,9 +254,11 @@ try {
           'composeCertifiedProfile',
           'manifestFromProfile',
           'CapabilityNotAdmittedError',
-          'createSandboxApprovedCandidateExecutor',
+          'createSandboxCandidateExperimentExecutor',
+          'executeAgentCandidateExperimentCell',
           'parseAgentCandidateProfileActivation',
-          'sandboxApprovedCandidateExecutionSupport',
+          'runAgentCandidateExperiment',
+          'sandboxCandidateExperimentExecutionSupport',
           'verifyCandidateExecutionEvidence',
         ]
         for (const name of expectedIntelligence) {
@@ -290,7 +287,7 @@ try {
             kind: 'profile',
             profile: { name: 'packed-consumer', harness: 'codex' },
           },
-          code: { kind: 'disabled', reason: 'control' },
+          code: { kind: 'disabled' },
           execution: {
             harness: 'codex',
             harnessVersion: '1.0.0',
@@ -305,7 +302,6 @@ try {
             },
           },
           memory: { mode: 'disabled' },
-          lineage: { source: 'human' },
         })
         const verified = await candidates.verifyAgentCandidateBundle(bundle, {
           artifacts: { read: async () => { throw new Error('unexpected artifact read') } },

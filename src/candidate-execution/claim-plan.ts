@@ -16,7 +16,11 @@ export function candidateExecutionClaim(
 ): AgentCandidateExecutionClaim {
   const state = assertPreparedCandidateIntegrity(prepared)
   const material = prepared.executionPlan.value.material
-  const attempt = material.attempt
+  const attempt = {
+    number: material.runCell.attempt,
+    maxAttempts: state.benchmarkTask.attempt.maxAttempts,
+    retryPolicy: state.benchmarkTask.attempt.retryPolicy,
+  } as const
   const nowMs = Date.now()
   if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
     throw new Error('candidate execution claim-store clock returned an invalid timestamp')
@@ -89,7 +93,11 @@ function retryLineageDigest(
     resultTimeoutMs,
     executionPlan: {
       ...material,
-      attempt: { ...material.attempt, number: 0 },
+      runCell: {
+        ...material.runCell,
+        attempt: 0,
+        digest: `sha256:${'0'.repeat(64)}`,
+      },
       model: {
         ...material.model,
         access: {

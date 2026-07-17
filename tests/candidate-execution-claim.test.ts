@@ -55,15 +55,15 @@ describe('candidate execution claim lifecycle', () => {
 
     const requested = candidateExecutionClaim(prepared, preparationEvidenceFor(prepared))
     const ownerWindowMs = candidateExecutionOwnerWindowMs(
-      fixture.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
       cleanupTimeoutMs,
-      fixture.task.limits.timeoutMs,
-      fixture.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
     )
 
     expect(requested.leaseExpiresAtMs).toBe(claimedAtMs + ownerWindowMs)
     expect(requested.cleanup.cleanupTimeoutMs).toBe(cleanupTimeoutMs)
-    expect(requested.resultTimeoutMs).toBe(fixture.task.limits.timeoutMs)
+    expect(requested.resultTimeoutMs).toBe(fixture.task.task.limits.timeoutMs)
     expect(ownerWindowMs).toBeLessThan(15 * 60_000)
   })
 
@@ -83,10 +83,10 @@ describe('candidate execution claim lifecycle', () => {
       { cleanupTimeoutMs },
     )
     const ownerWindowMs = candidateExecutionOwnerWindowMs(
-      fixture.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
       cleanupTimeoutMs,
-      fixture.task.limits.timeoutMs,
-      fixture.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
     )
     vi.spyOn(Date, 'now').mockReturnValue(reservationExpiresAtMs - ownerWindowMs + 1)
 

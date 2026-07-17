@@ -96,10 +96,13 @@ export function parseAgentCandidateProfileActivation(
 ): AgentCandidateProfileActivation {
   const activation = agentCandidateProfileActivationSchema.parse(input)
   const planBytes = canonicalCandidateBytes(activation.profilePlan.material)
+  const profilePlanArtifact = activation.profilePlan.artifact
   if (
     sha256Bytes(planBytes) !== activation.profilePlan.digest ||
-    activation.profilePlan.artifact.sha256 !== activation.profilePlan.digest ||
-    activation.profilePlan.artifact.byteLength !== planBytes.byteLength ||
+    profilePlanArtifact.sha256 !== activation.profilePlan.digest ||
+    profilePlanArtifact.byteLength !== planBytes.byteLength ||
+    ('content' in profilePlanArtifact &&
+      !Buffer.from(profilePlanArtifact.content, 'base64').equals(Buffer.from(planBytes))) ||
     (expectedProfilePlanDigest !== undefined &&
       activation.profilePlan.digest !== expectedProfilePlanDigest)
   ) {

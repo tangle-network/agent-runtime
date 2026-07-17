@@ -1,4 +1,9 @@
 import {
+  type AgentCandidateBenchmarkSuite,
+  type AgentCandidateBenchmarkTask,
+  type AgentCandidateWorkspaceManifestMaterial,
+  agentCandidateBenchmarkSuiteSchema,
+  agentCandidateBenchmarkTaskSchema,
   agentCandidateExecutionPlanEvidenceSchema,
   agentCandidateMaterializationReceiptSchema,
   agentCandidateProfilePlanEvidenceSchema,
@@ -28,6 +33,8 @@ import { CANDIDATE_TRACE_ENV, CANDIDATE_TRACE_TAGS, preparedCandidateBrand } fro
 export interface PreparedCandidateState {
   ports: AgentCandidateExecutionPorts
   bundle: PreparedAgentCandidateExecution['bundle']
+  benchmarkSuite: AgentCandidateBenchmarkSuite
+  benchmarkTask: AgentCandidateBenchmarkTask
   executionId: string
   roots: PreparedAgentCandidateExecution['roots']
   profilePlan: PreparedAgentCandidateExecution['profilePlan']
@@ -96,6 +103,7 @@ export function createPreparedCandidateExecution(
   assertPrivateCandidateIntegrity(state)
   const prepared = Object.freeze({
     bundle: state.bundle,
+    benchmark: Object.freeze({ suite: state.benchmarkSuite, task: state.benchmarkTask }),
     executionId: state.executionId,
     roots: state.roots,
     profilePlan: evidenceView(state.profilePlan),
@@ -174,8 +182,9 @@ export function beginPreparedCandidateRun(
   const material = state.executionPlan.value.material
   const request = Object.freeze({
     executionId: state.executionId,
+    benchmark: preparedBenchmark(state),
     inputs: Object.freeze({
-      task: workspaceInputView(material.task.workspace, state.executorInputs.taskFiles),
+      task: workspaceInputView(state.benchmarkTask.workspace, state.executorInputs.taskFiles),
       ...(material.candidateWorkspace && state.executorInputs.candidateFiles
         ? {
             candidate: workspaceInputView(
@@ -207,6 +216,12 @@ export function beginPreparedCandidateRun(
   return { state, request }
 }
 
+function preparedBenchmark(
+  state: PreparedCandidateState,
+): PreparedAgentCandidateExecution['benchmark'] {
+  return Object.freeze({ suite: state.benchmarkSuite, task: state.benchmarkTask })
+}
+
 export function consumePreparedCandidateExecution(
   prepared: PreparedAgentCandidateExecution,
   outcome: 'succeeded' | 'failed' | 'disposed' | 'disposal-failed' | 'cleanup-failed',
@@ -227,11 +242,15 @@ export async function assertPreparedCandidateWorkspaces(
   state: PreparedCandidateState,
 ): Promise<void> {
   const plan = state.executionPlan.value.material
-  await verifyMaterializedWorkspace(state.roots.staging.taskRoot, plan.task.workspace.material, {
-    ignoredProtectedRootEntries: ['.git', '.sidecar'],
-  })
-  if (plan.task.repository) {
-    await verifyTaskCheckout(state.roots.staging.taskRoot, plan.task.repository)
+  await verifyMaterializedWorkspace(
+    state.roots.staging.taskRoot,
+    state.benchmarkTask.workspace.material,
+    {
+      ignoredProtectedRootEntries: ['.git', '.sidecar'],
+    },
+  )
+  if (state.benchmarkTask.repository) {
+    await verifyTaskCheckout(state.roots.staging.taskRoot, state.benchmarkTask.repository)
   }
   await verifyMaterializedProfileWorkspace(
     state.roots.staging.profileRoot,
@@ -247,6 +266,12 @@ export async function assertPreparedCandidateWorkspaces(
 }
 
 function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCandidateState {
+  const benchmarkSuite = immutableCandidateValue(
+    agentCandidateBenchmarkSuiteSchema.parse(input.benchmarkSuite),
+  )
+  const benchmarkTask = immutableCandidateValue(
+    agentCandidateBenchmarkTaskSchema.parse(input.benchmarkTask),
+  )
   const profilePlan = immutableCandidateValue(
     agentCandidateProfilePlanEvidenceSchema.parse(input.profilePlan.value),
   )
@@ -269,6 +294,8 @@ function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCa
   return Object.freeze({
     ports: input.ports,
     bundle: input.bundle,
+    benchmarkSuite,
+    benchmarkTask,
     executionId: input.executionId,
     roots: immutableCandidateValue(input.roots),
     profilePlan: Object.freeze({
@@ -341,11 +368,12 @@ function assertPrivateCandidateIntegrity(state: PreparedCandidateState): void {
     throw new Error('prepared materialization receipt no longer matches its canonical bytes')
   }
 
-  const instruction = state.executionPlan.value.material.task.instruction
+  assertSignedBenchmarkInput(state)
+  const instruction = Buffer.from(state.benchmarkTask.instruction, 'utf8')
   if (
-    sha256Bytes(state.instruction.bytes) !== instruction.sha256 ||
-    state.instruction.bytes.byteLength !== instruction.byteLength ||
-    JSON.stringify(state.instruction.delivery) !== JSON.stringify(instruction.delivery)
+    !Buffer.from(state.instruction.bytes).equals(instruction) ||
+    JSON.stringify(state.instruction.delivery) !==
+      JSON.stringify(state.executionPlan.value.material.instructionDelivery)
   ) {
     throw new Error('prepared instruction no longer matches the signed execution plan')
   }
@@ -405,7 +433,7 @@ function assertPrivateCandidateIntegrity(state: PreparedCandidateState): void {
   }
   if (
     !state.trace.runId.startsWith(
-      `${state.executionId}:attempt-${state.executionPlan.value.material.attempt.number}:`,
+      `${state.executionId}:attempt-${state.executionPlan.value.material.runCell.attempt}:`,
     ) ||
     canonicalCandidateDigest(state.trace.tags) !== canonicalCandidateDigest(expectedTags) ||
     canonicalCandidateDigest(state.trace.env) !== canonicalCandidateDigest(expectedTraceEnvironment)
@@ -511,7 +539,10 @@ function executorFileView(
 
 function assertExecutorInputs(state: PreparedCandidateState): void {
   const material = state.executionPlan.value.material
-  assertWorkspaceExecutorFiles(state.executorInputs.taskFiles, material.task.workspace.material)
+  assertWorkspaceExecutorFiles(
+    state.executorInputs.taskFiles,
+    state.benchmarkTask.workspace.material,
+  )
   if (material.candidateWorkspace) {
     if (!state.executorInputs.candidateFiles) {
       throw new Error('prepared candidate executor files are missing')
@@ -575,7 +606,7 @@ function assertPreparedKnowledge(state: PreparedCandidateState): void {
 
 function assertWorkspaceExecutorFiles(
   actualFiles: PreparedCandidateState['executorInputs']['taskFiles'],
-  expected: PreparedAgentCandidateExecution['executionPlan']['value']['material']['task']['workspace']['material'],
+  expected: AgentCandidateWorkspaceManifestMaterial,
 ): void {
   if (actualFiles.length !== expected.files.length) {
     throw new Error('prepared workspace executor files do not match the signed manifest')
@@ -593,6 +624,42 @@ function assertWorkspaceExecutorFiles(
     ) {
       throw new Error('prepared workspace executor files do not match the signed manifest')
     }
+  }
+}
+
+function assertSignedBenchmarkInput(state: PreparedCandidateState): void {
+  const plan = state.executionPlan.value.material
+  const cell = plan.runCell
+  const suite = state.benchmarkSuite
+  const task = state.benchmarkTask
+  const receipt = state.materializationReceipt.value
+  const cellIndex = cell.taskIndex * suite.reps + cell.repetition
+  if (
+    canonicalCandidateDigest(omitTopLevelDigest(suite)) !== suite.digest ||
+    canonicalCandidateDigest(omitTopLevelDigest(task)) !== task.digest ||
+    canonicalCandidateDigest(omitTopLevelDigest(cell)) !== cell.digest ||
+    cell.bundleDigest !== state.bundle.digest ||
+    cell.suiteDigest !== suite.digest ||
+    cell.taskDigest !== task.digest ||
+    suite.taskDigests[cell.taskIndex] !== task.digest ||
+    suite.seeds[cellIndex] !== cell.seed ||
+    cell.repetition >= suite.reps ||
+    cell.attempt < 1 ||
+    cell.attempt > task.attempt.maxAttempts
+  ) {
+    throw new Error('prepared candidate no longer matches its signed experiment cell')
+  }
+  const suiteBytes = canonicalCandidateBytes(omitTopLevelDigest(suite))
+  const taskBytes = canonicalCandidateBytes(omitTopLevelDigest(task))
+  if (
+    receipt.benchmark.suite.digest !== suite.digest ||
+    receipt.benchmark.suite.material.sha256 !== sha256Bytes(suiteBytes) ||
+    receipt.benchmark.suite.material.byteLength !== suiteBytes.byteLength ||
+    receipt.benchmark.task.digest !== task.digest ||
+    receipt.benchmark.task.material.sha256 !== sha256Bytes(taskBytes) ||
+    receipt.benchmark.task.material.byteLength !== taskBytes.byteLength
+  ) {
+    throw new Error('materialization receipt no longer matches its signed benchmark input')
   }
 }
 

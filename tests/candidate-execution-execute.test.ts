@@ -21,6 +21,7 @@ import {
   createAgentCandidateWorkspacePort,
 } from '../src/candidate-execution/workspace-archive'
 import {
+  bindCandidateFixtureBundle,
   candidateBundle,
   candidateSha,
   cleanupCandidateFixtures,
@@ -29,6 +30,8 @@ import {
   createCandidateOutputFixture,
   emptyCandidateSnapshot,
   redigestCandidateBundle,
+  replaceCandidateFixtureAttempt,
+  replaceCandidateFixtureTask,
   unchangedTaskOutcomeCapture,
 } from './helpers/candidate-execution-fixture'
 
@@ -57,6 +60,7 @@ interface TestExecutor {
   execute: AgentCandidateExecutorPort['execute']
   stop: AgentCandidateExecutorPort['stop']
   capture?: AgentCandidateExecutorPort['capture']
+  dispose?: AgentCandidateExecutorPort['dispose']
 }
 
 function options(
@@ -73,6 +77,7 @@ function options(
         return await executor.execute(...args)
       },
       stop: executor.stop,
+      ...(executor.dispose !== undefined ? { dispose: executor.dispose } : {}),
       capture: async (
         stopRequest: Parameters<AgentCandidateExecutorPort['capture']>[0],
         context: Parameters<AgentCandidateExecutorPort['capture']>[1],
@@ -81,18 +86,18 @@ function options(
         if (capture.taskOutcome) return capture
         const request = requests.get(stopRequest.executionId)
         if (!request) throw new Error('fixture capture has no execution request')
-        const outcome = request.executionPlan.value.material.task.outcome
+        const outcome = request.benchmark.task.outcome
         if (outcome.kind !== 'workspace') {
           throw new Error('fixture fallback requires a workspace outcome')
         }
-        const repository = request.executionPlan.value.material.task.repository
+        const repository = request.benchmark.task.repository
         if (!repository) throw new Error('fixture fallback requires repository identity')
         return {
           ...capture,
           taskOutcome: {
             kind: 'workspace' as const,
             resultTree: repository.baseTree,
-            afterState: request.executionPlan.value.material.task.workspace.material,
+            afterState: request.benchmark.task.workspace.material,
             archive: Buffer.from('fixture unchanged task archive', 'utf8'),
             gitDiff: Buffer.alloc(0),
           },
@@ -108,9 +113,10 @@ function options(
 describe('atomic prepared candidate execution', () => {
   it('reveals credentials only to one trusted executor and returns a durable receipt', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.bundle = candidateBundle({
-      env: { PUBLIC_MODE: { kind: 'public', value: 'fixture' } },
-    })
+    bindCandidateFixtureBundle(
+      fixture,
+      candidateBundle({ env: { PUBLIC_MODE: { kind: 'public', value: 'fixture' } } }),
+    )
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -134,8 +140,8 @@ describe('atomic prepared candidate execution', () => {
           TANGLE_CANDIDATE_EXECUTION_ID: prepared.executionId,
         })
         expect(request.launch.env.PATH).toBeUndefined()
-        expect(request.hardLimits).toEqual({ timeoutMs: fixture.task.limits.timeoutMs })
-        expect(request.observedLimits).toEqual({ maxSteps: fixture.task.limits.maxSteps })
+        expect(request.hardLimits).toEqual({ timeoutMs: fixture.task.task.limits.timeoutMs })
+        expect(request.observedLimits).toEqual({ maxSteps: fixture.task.task.limits.maxSteps })
         expect(request.executionPlan.value.material.model.access.network).toEqual({
           mode: 'gateway-only',
           domains: ['router.tangle.tools'],
@@ -507,7 +513,7 @@ describe('atomic prepared candidate execution', () => {
     const claimStore = {
       tryClaim: async (claim: Parameters<typeof baseStore.tryClaim>[0]) => {
         const result = await baseStore.tryClaim(claim)
-        now += fixture.task.limits.timeoutMs + 1
+        now += fixture.task.task.limits.timeoutMs + 1
         return result
       },
       getAttempt: (attempt: Parameters<typeof baseStore.getAttempt>[0]) =>
@@ -552,7 +558,9 @@ describe('atomic prepared candidate execution', () => {
     let now = 1_000_000
     vi.spyOn(Date, 'now').mockImplementation(() => now)
     const fixture = createCandidateExecutionFixture()
-    fixture.task.limits = { ...fixture.task.limits, timeoutMs: 100 }
+    replaceCandidateFixtureTask(fixture, {
+      limits: { ...fixture.task.task.limits, timeoutMs: 100 },
+    })
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -566,7 +574,7 @@ describe('atomic prepared candidate execution', () => {
         baseStore.getAttempt(attempt),
       markCandidateMayRun: async (lease: Parameters<typeof baseStore.markCandidateMayRun>[0]) => {
         const result = await baseStore.markCandidateMayRun(lease)
-        now += fixture.task.limits.timeoutMs
+        now += fixture.task.task.limits.timeoutMs
         return result
       },
       stageTerminal: (
@@ -614,7 +622,9 @@ describe('atomic prepared candidate execution', () => {
     vi.spyOn(Date, 'now').mockImplementation(() => now)
     const cleanupTimeoutMs = 100
     const fixture = createCandidateExecutionFixture()
-    fixture.task.limits = { ...fixture.task.limits, timeoutMs: 1_000 }
+    replaceCandidateFixtureTask(fixture, {
+      limits: { ...fixture.task.task.limits, timeoutMs: 1_000 },
+    })
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
       now += cleanupTimeoutMs - 1
       return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
@@ -698,7 +708,9 @@ describe('atomic prepared candidate execution', () => {
 
   it('allows executable grading to exceed cleanup time inside its frozen result budget', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.task.limits = { ...fixture.task.limits, timeoutMs: 1_000 }
+    replaceCandidateFixtureTask(fixture, {
+      limits: { ...fixture.task.task.limits, timeoutMs: 1_000 },
+    })
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -746,7 +758,9 @@ describe('atomic prepared candidate execution', () => {
 
   it('cancels over-budget grading without any output appearing after terminal failure', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.task.limits = { ...fixture.task.limits, timeoutMs: 1_000 }
+    replaceCandidateFixtureTask(fixture, {
+      limits: { ...fixture.task.task.limits, timeoutMs: 1_000 },
+    })
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -1195,7 +1209,9 @@ describe('atomic prepared candidate execution', () => {
 
   it('owns the deadline, aborts, waits for process death, and then settles', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.task.limits = { ...fixture.task.limits, timeoutMs: 15 }
+    replaceCandidateFixtureTask(fixture, {
+      limits: { ...fixture.task.task.limits, timeoutMs: 15 },
+    })
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -1260,7 +1276,9 @@ describe('atomic prepared candidate execution', () => {
 
   it('cannot turn a stop acknowledgement after the frozen deadline into an exit success', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.task.limits = { ...fixture.task.limits, timeoutMs: 15 }
+    replaceCandidateFixtureTask(fixture, {
+      limits: { ...fixture.task.task.limits, timeoutMs: 15 },
+    })
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -1332,6 +1350,7 @@ describe('atomic prepared candidate execution', () => {
   it('withholds a receipt but still revokes model access when process death is unproven', async () => {
     const fixture = createCandidateExecutionFixture()
     let settlements = 0
+    let disposals = 0
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
       settlements++
       return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
@@ -1353,6 +1372,10 @@ describe('atomic prepared candidate execution', () => {
           stop: async () => {
             throw new Error('container death not observed')
           },
+          dispose: async () => {
+            disposals++
+            return { disposed: true }
+          },
         },
         traceStore,
       ),
@@ -1362,17 +1385,17 @@ describe('atomic prepared candidate execution', () => {
       reason: expect.stringMatching(/death not observed/),
       usage: { modelCalls: 0 },
     })
-    expect(settlements).toBe(1)
+    expect({ settlements, disposals }).toEqual({ settlements: 1, disposals: 1 })
   })
 
   it('leaves unknown settlement unfinished so a retry cannot guess zero spend', async () => {
     const claimStore = new InMemoryAgentCandidateExecutionClaimStore()
     const first = createCandidateExecutionFixture()
-    first.task.attempt = {
+    replaceCandidateFixtureAttempt(first, {
       number: 1,
       maxAttempts: 2,
       retryPolicy: 'pre-model-infrastructure-only',
-    }
+    })
     first.ports.models.settleGrant = async () => {
       throw new Error('gateway settlement unavailable')
     }
@@ -1398,11 +1421,11 @@ describe('atomic prepared candidate execution', () => {
 
     rmSync(first.task.stagingRoots.profileRoot, { recursive: true })
     mkdirSync(first.task.stagingRoots.profileRoot)
-    first.task.attempt = {
+    replaceCandidateFixtureAttempt(first, {
       number: 2,
       maxAttempts: 2,
       retryPolicy: 'pre-model-infrastructure-only',
-    }
+    })
     const retryPrepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(first.bundle, first.ports),
       first.task,
@@ -1432,11 +1455,11 @@ describe('atomic prepared candidate execution', () => {
 
   it('admits a zero-call retry only for an explicit pre-model infrastructure failure', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.task.attempt = {
+    replaceCandidateFixtureAttempt(fixture, {
       number: 1,
       maxAttempts: 2,
       retryPolicy: 'pre-model-infrastructure-only',
-    }
+    })
     const claimStore = new InMemoryAgentCandidateExecutionClaimStore()
     let activations = 0
     fixture.ports.models.activateGrant = async () => {
@@ -1467,11 +1490,11 @@ describe('atomic prepared candidate execution', () => {
 
     rmSync(fixture.task.stagingRoots.profileRoot, { recursive: true })
     mkdirSync(fixture.task.stagingRoots.profileRoot)
-    fixture.task.attempt = {
+    replaceCandidateFixtureAttempt(fixture, {
       number: 2,
       maxAttempts: 2,
       retryPolicy: 'pre-model-infrastructure-only',
-    }
+    })
     const retryPrepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -1497,9 +1520,12 @@ describe('atomic prepared candidate execution', () => {
 
   it('closes isolated memory and persists a large after-state archive by reference', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.bundle = redigestCandidateBundle(fixture.bundle, {
-      memory: { mode: 'isolated', scope: 'task' },
-    })
+    bindCandidateFixtureBundle(
+      fixture,
+      redigestCandidateBundle(fixture.bundle, {
+        memory: { mode: 'isolated', scope: 'task' },
+      }),
+    )
     const before = emptyCandidateSnapshot('before')
     const after = emptyCandidateSnapshot('after')
     const order: string[] = []
@@ -1574,9 +1600,12 @@ describe('atomic prepared candidate execution', () => {
 
   it('rejects a compressed protected value in isolated memory before persisting memory evidence', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.bundle = redigestCandidateBundle(fixture.bundle, {
-      memory: { mode: 'isolated', scope: 'task' },
-    })
+    bindCandidateFixtureBundle(
+      fixture,
+      redigestCandidateBundle(fixture.bundle, {
+        memory: { mode: 'isolated', scope: 'task' },
+      }),
+    )
     const before = emptyCandidateSnapshot('secret-memory-before')
     fixture.ports.memory.reset = async ({ preparationId, expiresAtMs }) => ({
       preparationId,
@@ -1721,9 +1750,10 @@ describe('atomic prepared candidate execution', () => {
 
   it('rejects protected environment collisions before executor access', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.bundle = candidateBundle({
-      env: { PUBLIC_MODE: { kind: 'public', value: 'fixture' } },
-    })
+    bindCandidateFixtureBundle(
+      fixture,
+      candidateBundle({ env: { PUBLIC_MODE: { kind: 'public', value: 'fixture' } } }),
+    )
     fixture.ports.models.activateGrant = async () => ({ env: { PUBLIC_MODE: 'secret-value' } })
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),

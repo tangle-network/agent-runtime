@@ -152,6 +152,12 @@ Re-exports [InMemoryAgentCandidateExecutionClaimStore](index.md#inmemoryagentcan
 
 ***
 
+### AgentCandidatePreparationEvidence
+
+Re-exports [AgentCandidatePreparationEvidence](index.md#agentcandidatepreparationevidence)
+
+***
+
 ### FileAgentCandidateExecutionClaimStore
 
 Re-exports [FileAgentCandidateExecutionClaimStore](index.md#fileagentcandidateexecutionclaimstore)
@@ -308,12 +314,6 @@ Re-exports [AgentCandidateArtifactPort](index.md#agentcandidateartifactport)
 
 ***
 
-### AgentCandidateBenchmarkGraderIdentity
-
-Re-exports [AgentCandidateBenchmarkGraderIdentity](index.md#agentcandidatebenchmarkgraderidentity)
-
-***
-
 ### AgentCandidateBenchmarkGraderPort
 
 Re-exports [AgentCandidateBenchmarkGraderPort](index.md#agentcandidatebenchmarkgraderport)
@@ -347,6 +347,12 @@ Re-exports [AgentCandidateExecutorMemoryCapture](index.md#agentcandidateexecutor
 ### AgentCandidateExecutorPort
 
 Re-exports [AgentCandidateExecutorPort](index.md#agentcandidateexecutorport)
+
+***
+
+### AgentCandidateExecutorProfileFile
+
+Re-exports [AgentCandidateExecutorProfileFile](index.md#agentcandidateexecutorprofilefile)
 
 ***
 

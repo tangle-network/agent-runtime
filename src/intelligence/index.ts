@@ -3,8 +3,9 @@
  * Tangle Intelligence SDK — trace capture plus reviewable improvement.
  *
  * The client keeps live-agent trace delivery best-effort. The separate
- * improvement-cycle exports analyze completed traces, measure one candidate,
- * bind human review, and execute only an approved immutable bundle.
+ * improvement-cycle exports analyze completed traces, run a signed baseline
+ * versus candidate experiment, bind review to its result, and activate only
+ * the exact measured candidate.
  *
  *   1. OBSERVE — wrap a generic agent and export one trace span per call to
  *      Tangle Intelligence, swallowing every export failure so a live agent
@@ -102,20 +103,27 @@ export {
   resolveEffort,
 } from './effort'
 export type {
+  AgentCandidateExperimentCellPlacement,
+  CreateAgentImprovementActivationOptions,
   CreateAgentImprovementProposalOptions,
-  ExecuteApprovedAgentCandidateOptions,
-  ExecuteApprovedAgentCandidateResult,
+  ExecuteAgentCandidateExperimentCellOptions,
   ProposeAgentImprovementOptions,
   ProposeAgentImprovementResult,
   ReviewAgentImprovementInput,
+  RunAgentCandidateExperimentOptions,
+  RunAgentCandidateExperimentResult,
   VerifyCandidateExecutionEvidenceOptions,
 } from './improvement-cycle'
 export {
+  AgentCandidateExperimentCellExecutionError,
+  createAgentImprovementActivation,
   createAgentImprovementMeasuredComparison,
   createAgentImprovementProposal,
-  executeApprovedAgentCandidate,
+  executeAgentCandidateExperimentCell,
   proposeAgentImprovement,
   reviewAgentImprovementProposal,
+  runAgentCandidateExperiment,
+  verifyAgentImprovementActivation,
   verifyAgentImprovementProposal,
   verifyAgentImprovementReview,
   verifyCandidateExecutionEvidence,
@@ -128,13 +136,13 @@ export {
   composeCertifiedProfileFromWire,
 } from './resolver'
 export type {
-  CreateSandboxApprovedCandidateExecutorOptions,
-  SandboxApprovedCandidateExecution,
-  SandboxApprovedCandidateExecutor,
+  CreateSandboxCandidateExperimentExecutorOptions,
+  SandboxCandidateExperimentExecution,
+  SandboxCandidateExperimentExecutor,
 } from './sandbox-approved-candidate'
 export {
-  createSandboxApprovedCandidateExecutor,
-  sandboxApprovedCandidateExecutionSupport,
+  createSandboxCandidateExperimentExecutor,
+  sandboxCandidateExperimentExecutionSupport,
 } from './sandbox-approved-candidate'
 export type {
   AppliedIntelligence,
@@ -599,15 +607,20 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
           : {}),
         ...(record.candidateExecution
           ? {
-              'tangle.candidate.proposal_digest': record.candidateExecution.proposalDigest,
-              'tangle.candidate.review_digest': record.candidateExecution.reviewDigest,
               'tangle.candidate.bundle_digest': record.candidateExecution.receipt.bundleDigest,
-              'tangle.candidate.execution_id': record.candidateExecution.executionId,
+              'tangle.candidate.experiment_digest':
+                record.candidateExecution.materializationReceipt.executionPlan.material.runCell
+                  .experimentDigest,
+              'tangle.candidate.execution_id':
+                record.candidateExecution.materializationReceipt.executionPlan.material.executionId,
               'tangle.candidate.execution_plan_digest':
                 record.candidateExecution.receipt.executionPlanDigest,
               'tangle.candidate.materialization_receipt_digest':
                 record.candidateExecution.receipt.materializationReceiptDigest,
-              'tangle.candidate.succeeded': record.candidateExecution.succeeded,
+              'tangle.candidate.succeeded':
+                record.candidateExecution.receipt.termination.kind === 'exit' &&
+                record.candidateExecution.receipt.termination.exitCode === 0 &&
+                record.candidateExecution.receipt.benchmarkResult.material.passed,
               'tangle.candidate.run_receipt_digest': record.candidateExecution.receipt.digest,
             }
           : {}),

@@ -138,7 +138,8 @@ export async function persistVerifiedAgentCandidateExecutorCapture(
   signal?.throwIfAborted()
   const taskCapture = capture.taskOutcome
   if (!taskCapture) throw new Error('candidate final capture is missing the task outcome')
-  const expected = state.executionPlan.value.material.task.outcome
+  if (capture.evidence) assertNoProtectedBytes(capture.evidence, protectedValues)
+  const expected = state.benchmarkTask.outcome
   if (taskCapture.kind !== expected.kind) {
     throw new Error(
       `candidate captured ${taskCapture.kind} outcome does not match expected ${expected.kind} outcome`,
@@ -203,7 +204,7 @@ async function verifyWorkspaceTaskCapture(
   protectedValues: readonly string[],
   signal?: AbortSignal,
 ): Promise<VerifiedWorkspaceTaskCapture> {
-  const repository = state.executionPlan.value.material.task.repository
+  const repository = state.benchmarkTask.repository
   if (!repository) throw new Error('workspace task outcome is missing repository identity')
   const patch = Uint8Array.from(capture.gitDiff)
   const archive = Uint8Array.from(capture.archive)
@@ -401,6 +402,7 @@ export async function persistCandidateBenchmarkResult(
     executionId: state.executionId,
     termination: frozenTermination,
     outcome,
+    expectedGrader: state.benchmarkTask.grader,
     grader,
     artifacts: outputArtifacts,
     signal,
@@ -416,23 +418,13 @@ export async function persistCandidateBenchmarkResult(
     bytes: rawEvidence,
     signal,
   })
-  const task = state.executionPlan.value.material.task
   const material = {
     kind: 'agent-candidate-benchmark-result-material' as const,
     executionPlanDigest: state.executionPlan.value.digest,
     taskOutcomeDigest: outcome.evidence.digest,
-    benchmark: {
-      name: task.benchmark,
-      version: task.benchmarkVersion,
-      taskId: task.taskId,
-      splitDigest: task.splitDigest,
-    },
-    grader: {
-      name: graded.grader.name,
-      version: graded.grader.version,
-      artifact: graded.grader.artifact,
-    },
+    grader: graded.grader,
     evidence: evidenceRef,
+    grading: graded.grading,
     score: evaluation.score,
     passed: evaluation.passed,
     dimensions: evaluation.dimensions,

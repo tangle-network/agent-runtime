@@ -13,12 +13,15 @@ import type {
   AgentCandidateResolvedModel,
 } from '@tangle-network/agent-interface'
 import {
+  agentCandidateBenchmarkSuiteSchema,
+  agentCandidateBenchmarkTaskSchema,
   agentCandidateContainerSchema,
   agentCandidateExecutionLimitsSchema,
   agentCandidateExecutionPlanEvidenceSchema,
   agentCandidateExecutionPlanMaterialSchema,
   agentCandidateMaterializationReceiptSchema,
   agentCandidateModelAccessNetworkSchema,
+  agentCandidateRunCellSchema,
   agentCandidateTaskOutcomeSpecSchema,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
   sha256DigestSchema,
@@ -47,6 +50,7 @@ import {
   canonicalCandidateDigest,
   canonicalCandidateDocument,
   embeddedCandidateArtifact,
+  omitTopLevelDigest,
   sha256Bytes,
 } from './digest'
 import { candidateExecutionOwnerWindowMs } from './execution-window'
@@ -59,7 +63,7 @@ import {
 } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
-import { candidateMaterializerHarness, createAgentCandidateProfileActivation } from './profile'
+import { candidateMaterializerHarness } from './profile'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
@@ -95,11 +99,23 @@ export async function prepareAgentCandidateExecution(
   const verifiedState = getVerifiedCandidateState(candidate)
   assertSameVerificationPorts(verifiedState.ports, ports)
   const bundle = candidate.bundle
+  if (task.runCell.bundleDigest !== bundle.digest) {
+    throw new Error('candidate experiment cell does not bind the verified bundle')
+  }
+  const benchmarkTask = task.task
+  const attempt = {
+    number: task.runCell.attempt,
+    maxAttempts: benchmarkTask.attempt.maxAttempts,
+    retryPolicy: benchmarkTask.attempt.retryPolicy,
+  } as const
   const harness = candidateMaterializerHarness(bundle.execution.harness)
   assertTaskInput(task, bundle.execution.instructionDelivery)
-  const resultTimeoutMs = candidateResultTimeout(options.resultTimeoutMs, task.limits.timeoutMs)
+  const resultTimeoutMs = candidateResultTimeout(
+    options.resultTimeoutMs,
+    benchmarkTask.limits.timeoutMs,
+  )
   const ownerWindowMs = candidateExecutionOwnerWindowMs(
-    task.limits.timeoutMs,
+    benchmarkTask.limits.timeoutMs,
     cleanupTimeoutMs,
     resultTimeoutMs,
   )
@@ -109,25 +125,27 @@ export async function prepareAgentCandidateExecution(
   }
   assertDisjointHostStagingRoots(task)
 
-  const instructionBytes = Buffer.from(task.instruction, 'utf8')
-  const instructionDigest = sha256Bytes(instructionBytes)
+  const instructionBytes = Buffer.from(benchmarkTask.instruction, 'utf8')
 
-  const taskArtifacts = await verifyWorkspaceSnapshotArtifacts(task.workspace, ports.artifacts)
+  const taskArtifacts = await verifyWorkspaceSnapshotArtifacts(
+    benchmarkTask.workspace,
+    ports.artifacts,
+  )
   await ports.workspaces.materialize({
     role: 'task',
-    snapshot: task.workspace,
+    snapshot: benchmarkTask.workspace,
     archive: taskArtifacts.archive,
     destination: task.stagingRoots.taskRoot,
   })
-  await verifyMaterializedWorkspace(task.stagingRoots.taskRoot, task.workspace.material, {
+  await verifyMaterializedWorkspace(task.stagingRoots.taskRoot, benchmarkTask.workspace.material, {
     ignoredProtectedRootEntries: ['.git', '.sidecar'],
   })
-  if (task.repository) {
-    await verifyTaskCheckout(task.stagingRoots.taskRoot, task.repository)
+  if (benchmarkTask.repository) {
+    await verifyTaskCheckout(task.stagingRoots.taskRoot, benchmarkTask.repository)
   }
   const taskExecutorFiles = await readMaterializedWorkspaceFiles(
     task.stagingRoots.taskRoot,
-    task.workspace.material,
+    benchmarkTask.workspace.material,
     { ignoredProtectedRootEntries: ['.git', '.sidecar'] },
   )
 
@@ -169,23 +187,22 @@ export async function prepareAgentCandidateExecution(
   )
   await verifyMaterializedProfileWorkspace(
     task.stagingRoots.profileRoot,
-    profileApplication.profilePlan.material,
+    profileApplication.profileActivation.profilePlan.material,
   )
   const profilePlanBytes = await readVerifiedArtifact(
-    profileApplication.profilePlan.artifact,
+    profileApplication.profileActivation.profilePlan.artifact,
     ports.artifacts,
   )
   if (
     !Buffer.from(profilePlanBytes).equals(
-      Buffer.from(canonicalCandidateBytes(profileApplication.profilePlan.material)),
+      Buffer.from(
+        canonicalCandidateBytes(profileApplication.profileActivation.profilePlan.material),
+      ),
     )
   ) {
     throw new Error('profile materializer did not capture exact canonical plan bytes')
   }
-  const profileActivation = createAgentCandidateProfileActivation(
-    profileWorkspacePlan,
-    profileApplication.profilePlan,
-  )
+  const profileActivation = profileApplication.profileActivation
 
   const container = await resolveContainer(candidate, task, ports)
   const resolvedModel = await resolveModel(candidate, task, ports)
@@ -197,10 +214,10 @@ export async function prepareAgentCandidateExecution(
         executionId: task.executionId,
         preparationId,
         expiresAtMs: reservationExpiresAtMs,
-        attempt: task.attempt,
+        attempt,
         bundleDigest: bundle.digest,
         resolved: resolvedModel,
-        limits: modelLimits(task.limits),
+        limits: modelLimits(benchmarkTask.limits),
       }),
     candidateCleanupDeadline(cleanupTimeoutMs),
     'protected model reservation',
@@ -209,7 +226,7 @@ export async function prepareAgentCandidateExecution(
   try {
     validateProtectedModelReservation(
       modelReservation,
-      task.limits,
+      benchmarkTask.limits,
       preparationId,
       reservationExpiresAtMs,
     )
@@ -258,27 +275,11 @@ export async function prepareAgentCandidateExecution(
           }
         : {},
     )
-    const routes = modelRoutes(bundle.profile, task.model.requested)
+    const routes = modelRoutes(bundle.profile, benchmarkTask.model.requested)
     const executionMaterial: AgentCandidateExecutionPlanMaterial = {
       kind: 'agent-candidate-execution-plan-material',
-      bundleDigest: bundle.digest,
+      runCell: task.runCell,
       executionId: task.executionId,
-      attempt: task.attempt,
-      task: {
-        benchmark: task.benchmark,
-        benchmarkVersion: task.benchmarkVersion,
-        taskId: task.taskId,
-        splitDigest: task.splitDigest,
-        instruction: {
-          encoding: 'utf8',
-          sha256: instructionDigest,
-          byteLength: instructionBytes.byteLength,
-          delivery: bundle.execution.instructionDelivery,
-        },
-        ...(task.repository ? { repository: task.repository } : {}),
-        outcome: task.outcome,
-        workspace: task.workspace,
-      },
       workspaces: {
         taskRoot: task.executionRoots.taskRoot,
         ...(task.executionRoots.candidateRoot
@@ -290,6 +291,8 @@ export async function prepareAgentCandidateExecution(
       profile: profileApplication.application,
       harness: bundle.execution.harness,
       harnessVersion: bundle.execution.harnessVersion,
+      instructionDelivery: bundle.execution.instructionDelivery,
+      limits: benchmarkTask.limits,
       container,
       model: {
         policy: 'single',
@@ -301,7 +304,6 @@ export async function prepareAgentCandidateExecution(
         },
         routes,
       },
-      grader: task.grader,
       launch: {
         executable: baseLaunch.executable,
         args: baseLaunch.args,
@@ -310,7 +312,6 @@ export async function prepareAgentCandidateExecution(
       },
       ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.snapshot.digest } : {}),
       memory,
-      limits: task.limits,
       network: { mode: 'disabled' },
     }
     agentCandidateExecutionPlanMaterialSchema.parse(executionMaterial)
@@ -333,7 +334,21 @@ export async function prepareAgentCandidateExecution(
         kind: 'agent-candidate-materialization',
         digestAlgorithm: 'rfc8785-sha256',
         bundleDigest: bundle.digest,
-        profilePlan: profileApplication.profilePlan,
+        benchmark: {
+          suite: {
+            digest: task.benchmarkSuite.digest,
+            material: embeddedCandidateArtifact(
+              canonicalCandidateBytes(omitTopLevelDigest(task.benchmarkSuite)),
+            ),
+          },
+          task: {
+            digest: benchmarkTask.digest,
+            material: embeddedCandidateArtifact(
+              canonicalCandidateBytes(omitTopLevelDigest(benchmarkTask)),
+            ),
+          },
+        },
+        profileActivation,
         executionPlan,
         ...(bundle.execution.workspace ? { candidateWorkspace: bundle.execution.workspace } : {}),
         codeKind: bundle.code.kind,
@@ -348,7 +363,7 @@ export async function prepareAgentCandidateExecution(
     )
     agentCandidateMaterializationReceiptSchema.parse(materializationReceipt.value)
 
-    const traceRunId = `${task.executionId}:attempt-${task.attempt.number}:${canonicalCandidateDigest({ preparationId }).slice(7, 23)}`
+    const traceRunId = `${task.executionId}:attempt-${attempt.number}:${canonicalCandidateDigest({ preparationId }).slice(7, 23)}`
     const traceTags = {
       [CANDIDATE_TRACE_TAGS.executionId]: task.executionId,
       [CANDIDATE_TRACE_TAGS.bundleDigest]: bundle.digest,
@@ -367,13 +382,15 @@ export async function prepareAgentCandidateExecution(
     return createPreparedCandidateExecution({
       ports,
       bundle,
+      benchmarkSuite: task.benchmarkSuite,
+      benchmarkTask,
       executionId: task.executionId,
       roots: {
         execution: { ...task.executionRoots },
         staging: { ...task.stagingRoots },
       },
       profilePlan: {
-        value: profileApplication.profilePlan,
+        value: profileApplication.profileActivation.profilePlan,
         bytes: profilePlanBytes,
         written: [...profileApplication.application.mountPaths],
       },
@@ -408,7 +425,7 @@ export async function prepareAgentCandidateExecution(
         ...(candidateExecutorFiles ? { candidateFiles: candidateExecutorFiles } : {}),
         profileFiles: exactProfileExecutorFiles(
           profileWorkspacePlan.files,
-          profileApplication.profilePlan.material.files,
+          profileApplication.profileActivation.profilePlan.material.files,
         ),
       },
       ...(preparedMemory.accessDigest && preparedMemory.value.mode === 'isolated'
@@ -508,19 +525,22 @@ function assertTaskInput(
   task: AgentCandidateTaskExecution,
   delivery: VerifiedAgentCandidate['bundle']['execution']['instructionDelivery'],
 ): void {
+  const benchmarkTask = agentCandidateBenchmarkTaskSchema.parse(task.task)
+  const benchmarkSuite = agentCandidateBenchmarkSuiteSchema.parse(task.benchmarkSuite)
+  const runCell = agentCandidateRunCellSchema.parse(task.runCell)
   const requiredStrings: Array<[string, string]> = [
     ['executionId', task.executionId],
-    ['benchmark', task.benchmark],
-    ['benchmarkVersion', task.benchmarkVersion],
-    ['taskId', task.taskId],
+    ['benchmark', benchmarkTask.benchmark.name],
+    ['benchmarkVersion', benchmarkTask.benchmark.version],
+    ['taskId', benchmarkTask.scenario.id],
   ]
-  if (task.outcome.kind === 'workspace' && !task.repository) {
+  if (benchmarkTask.outcome.kind === 'workspace' && !benchmarkTask.repository) {
     throw new Error('workspace task outcome requires repository identity')
   }
-  if (task.repository) {
+  if (benchmarkTask.repository) {
     requiredStrings.push(
-      ['repository identity', task.repository.identity],
-      ['repository root identity', task.repository.rootIdentity],
+      ['repository identity', benchmarkTask.repository.identity],
+      ['repository root identity', benchmarkTask.repository.rootIdentity],
     )
   }
   for (const [name, value] of requiredStrings) {
@@ -529,21 +549,39 @@ function assertTaskInput(
   if (!/^[A-Za-z0-9._:-]{1,200}$/.test(task.executionId)) {
     throw new Error('executionId must be a stable filesystem-neutral identifier')
   }
-  if (!task.instruction || !isWellFormedUnicode(task.instruction)) {
+  if (!benchmarkTask.instruction || !isWellFormedUnicode(benchmarkTask.instruction)) {
     throw new Error('task instruction must be non-empty well-formed Unicode')
   }
-  sha256DigestSchema.parse(task.splitDigest)
-  agentCandidateTaskOutcomeSpecSchema.parse(task.outcome)
-  agentCandidateWorkspaceSnapshotEvidenceSchema.parse(task.workspace)
-  agentCandidateExecutionLimitsSchema.parse(task.limits)
-  if (task.repository) {
-    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(task.repository.baseCommit)) {
+  if (
+    canonicalCandidateDigest(omitTopLevelDigest(benchmarkTask)) !== benchmarkTask.digest ||
+    canonicalCandidateDigest(omitTopLevelDigest(benchmarkSuite)) !== benchmarkSuite.digest ||
+    canonicalCandidateDigest(omitTopLevelDigest(runCell)) !== runCell.digest
+  ) {
+    throw new Error('candidate experiment cell contains an invalid content digest')
+  }
+  const cellIndex = runCell.taskIndex * benchmarkSuite.reps + runCell.repetition
+  if (
+    runCell.suiteDigest !== benchmarkSuite.digest ||
+    runCell.taskDigest !== benchmarkTask.digest ||
+    benchmarkSuite.taskDigests[runCell.taskIndex] !== benchmarkTask.digest ||
+    runCell.repetition >= benchmarkSuite.reps ||
+    benchmarkSuite.seeds[cellIndex] !== runCell.seed ||
+    runCell.attempt > benchmarkTask.attempt.maxAttempts
+  ) {
+    throw new Error('candidate experiment cell does not match its signed suite and task')
+  }
+  sha256DigestSchema.parse(benchmarkTask.benchmark.splitDigest)
+  agentCandidateTaskOutcomeSpecSchema.parse(benchmarkTask.outcome)
+  agentCandidateWorkspaceSnapshotEvidenceSchema.parse(benchmarkTask.workspace)
+  agentCandidateExecutionLimitsSchema.parse(benchmarkTask.limits)
+  if (benchmarkTask.repository) {
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(benchmarkTask.repository.baseCommit)) {
       throw new Error('task repository base commit is not a full Git object id')
     }
-    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(task.repository.baseTree)) {
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(benchmarkTask.repository.baseTree)) {
       throw new Error('task repository base tree is not a full Git object id')
     }
-    if (task.repository.baseCommit.length !== task.repository.baseTree.length) {
+    if (benchmarkTask.repository.baseCommit.length !== benchmarkTask.repository.baseTree.length) {
       throw new Error('task repository Git object formats disagree')
     }
   }
@@ -561,15 +599,15 @@ function assertTaskInput(
     if (!canonical) throw new Error(`${name} must be a canonical absolute path`)
   }
   if (
-    !Number.isInteger(task.attempt.number) ||
-    !Number.isInteger(task.attempt.maxAttempts) ||
-    task.attempt.number < 1 ||
-    task.attempt.number > task.attempt.maxAttempts ||
-    (task.attempt.retryPolicy === 'none' && task.attempt.maxAttempts !== 1)
+    !Number.isInteger(runCell.attempt) ||
+    !Number.isInteger(benchmarkTask.attempt.maxAttempts) ||
+    runCell.attempt < 1 ||
+    runCell.attempt > benchmarkTask.attempt.maxAttempts ||
+    (benchmarkTask.attempt.retryPolicy === 'none' && benchmarkTask.attempt.maxAttempts !== 1)
   ) {
     throw new Error('task attempt policy is invalid')
   }
-  const limits = task.limits
+  const limits = benchmarkTask.limits
   if (
     !Number.isInteger(limits.timeoutMs) ||
     limits.timeoutMs <= 0 ||
@@ -588,28 +626,33 @@ function assertTaskInput(
     throw new Error('task execution limits are invalid')
   }
   usdToNanos(limits.maxCostUsd, 'task maxCostUsd')
-  if (!task.model.requested.trim()) throw new Error('evaluator model request must be non-empty')
-  if (!task.grader.name.trim() || !task.grader.version.trim()) {
+  if (!benchmarkTask.model.requested.trim()) {
+    throw new Error('evaluator model request must be non-empty')
+  }
+  if (!benchmarkTask.grader.name.trim() || !benchmarkTask.grader.version.trim()) {
     throw new Error('evaluator benchmark grader identity must be non-empty')
   }
-  if (!Number.isInteger(task.grader.artifact.byteLength) || task.grader.artifact.byteLength <= 0) {
+  if (
+    !Number.isInteger(benchmarkTask.grader.artifact.byteLength) ||
+    benchmarkTask.grader.artifact.byteLength <= 0
+  ) {
     throw new Error('evaluator benchmark grader artifact must be non-empty')
   }
-  sha256DigestSchema.parse(task.grader.artifact.sha256)
-  if (task.evaluatorTaskContainer) {
+  sha256DigestSchema.parse(benchmarkTask.grader.artifact.sha256)
+  if (benchmarkTask.evaluatorTaskContainer) {
     if (
-      task.evaluatorTaskContainer.source !== 'evaluator-task-container' ||
-      !task.evaluatorTaskContainer.image.trim() ||
-      !task.evaluatorTaskContainer.platform.os.trim() ||
-      !task.evaluatorTaskContainer.platform.architecture.trim()
+      benchmarkTask.evaluatorTaskContainer.source !== 'evaluator-task-container' ||
+      !benchmarkTask.evaluatorTaskContainer.image.trim() ||
+      !benchmarkTask.evaluatorTaskContainer.platform.os.trim() ||
+      !benchmarkTask.evaluatorTaskContainer.platform.architecture.trim()
     ) {
       throw new Error('evaluator task container evidence is incomplete')
     }
-    sha256DigestSchema.parse(task.evaluatorTaskContainer.indexDigest)
-    sha256DigestSchema.parse(task.evaluatorTaskContainer.manifestDigest)
+    sha256DigestSchema.parse(benchmarkTask.evaluatorTaskContainer.indexDigest)
+    sha256DigestSchema.parse(benchmarkTask.evaluatorTaskContainer.manifestDigest)
     agentCandidateContainerSchema.parse({
-      image: task.evaluatorTaskContainer.image,
-      indexDigest: task.evaluatorTaskContainer.indexDigest,
+      image: benchmarkTask.evaluatorTaskContainer.image,
+      indexDigest: benchmarkTask.evaluatorTaskContainer.indexDigest,
     })
   }
   if (delivery.kind === 'utf8-file') {
@@ -671,24 +714,25 @@ async function resolveContainer(
   ports: AgentCandidateExecutionPorts,
 ): Promise<ResolvedAgentCandidateContainer> {
   const environment = candidate.bundle.execution.environment
+  const evaluatorTaskContainer = task.task.evaluatorTaskContainer
   const pinned = environment.kind === 'pinned-container' ? environment.container : undefined
-  if (environment.kind === 'evaluator-task-container' && !task.evaluatorTaskContainer) {
+  if (environment.kind === 'evaluator-task-container' && !evaluatorTaskContainer) {
     throw new Error('evaluator-task-container candidate requires an evaluator-owned task image')
   }
-  if (environment.kind === 'pinned-container' && task.evaluatorTaskContainer) {
+  if (environment.kind === 'pinned-container' && evaluatorTaskContainer) {
     throw new Error('pinned candidate containers cannot be replaced by a task image')
   }
   const resolved = await ports.containers.resolve({
     candidate: pinned,
-    evaluatorTaskContainer: task.evaluatorTaskContainer,
+    evaluatorTaskContainer,
   })
   if (resolved.source !== environment.kind) throw new Error('resolved container source drifted')
   if (pinned && (resolved.image !== pinned.image || resolved.indexDigest !== pinned.indexDigest)) {
     throw new Error('resolved pinned container does not match the candidate image index')
   }
   if (
-    task.evaluatorTaskContainer &&
-    JSON.stringify(resolved) !== JSON.stringify(task.evaluatorTaskContainer)
+    evaluatorTaskContainer &&
+    canonicalCandidateDigest(resolved) !== canonicalCandidateDigest(evaluatorTaskContainer)
   ) {
     throw new Error('resolved task container does not match evaluator-owned image evidence')
   }
@@ -701,25 +745,20 @@ async function resolveModel(
   ports: AgentCandidateExecutionPorts,
 ): Promise<AgentCandidateResolvedModel> {
   const hints = candidate.bundle.profile.model
-  if (hints?.default !== undefined && hints.default !== task.model.requested) {
+  const expected = task.task.model
+  if (hints?.default !== undefined && hints.default !== expected.requested) {
     throw new Error('candidate model preference conflicts with the evaluator-owned model')
   }
-  if (
-    hints?.reasoningEffort !== undefined &&
-    hints.reasoningEffort !== task.model.reasoningEffort
-  ) {
+  if (hints?.reasoningEffort !== undefined && hints.reasoningEffort !== expected.reasoningEffort) {
     throw new Error('candidate reasoning effort conflicts with the evaluator-owned effort')
   }
   const resolved = await ports.models.resolve({
-    requested: task.model.requested,
+    requested: expected.requested,
     harness: candidate.bundle.execution.harness,
-    reasoningEffort: task.model.reasoningEffort,
+    reasoningEffort: expected.reasoningEffort,
   })
-  if (
-    resolved.requested !== task.model.requested ||
-    resolved.reasoningEffort !== task.model.reasoningEffort
-  ) {
-    throw new Error('model resolver drifted from the evaluator-owned request')
+  if (canonicalCandidateDigest(resolved) !== canonicalCandidateDigest(expected)) {
+    throw new Error('model resolver drifted from the signed benchmark model')
   }
   return resolved
 }
@@ -739,7 +778,7 @@ async function prepareMemory(
   if (policy.mode === 'disabled') return { value: { mode: 'disabled' } }
   const seed = policy.seed ? await verifiedArtifactBytes(candidate, policy.seed) : undefined
   const executionSegment = canonicalCandidateDigest({ executionId: task.executionId }).slice(7)
-  const taskSegment = canonicalCandidateDigest({ taskId: task.taskId }).slice(7)
+  const taskSegment = canonicalCandidateDigest({ taskDigest: task.task.digest }).slice(7)
   const preparationSegment = canonicalCandidateDigest({ preparationId }).slice(7, 23)
   const effectiveNamespace = `candidate/${candidate.bundle.digest.slice(7, 23)}/${executionSegment}/${taskSegment}/${preparationSegment}`
   const reset = await withinCandidateCleanupDeadline(

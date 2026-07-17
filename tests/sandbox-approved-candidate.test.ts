@@ -2,18 +2,26 @@ import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { InMemoryTraceStore } from '@tangle-network/agent-eval'
+import {
+  type CandidateExperimentExecutionInput,
+  sealCandidateBenchmarkSuite,
+  sealCandidateExperiment,
+} from '@tangle-network/agent-eval/contract'
 import type {
   AgentCandidateBundle,
-  AgentImprovementMeasuredComparison,
-  AgentProfile,
+  AgentCandidateExperiment,
 } from '@tangle-network/agent-interface'
-import type { Process, ProcessStatus, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  CreateSandboxOptions,
+  Process,
+  ProcessStatus,
+  SandboxInstance,
+} from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { InMemoryAgentCandidateExecutionClaimStore } from '../src/candidate-execution/claim'
 import {
   canonicalCandidateBytes,
-  canonicalCandidateDigest,
   embeddedCandidateArtifact,
 } from '../src/candidate-execution/digest'
 import {
@@ -22,12 +30,8 @@ import {
 } from '../src/candidate-execution/knowledge'
 import type { AgentCandidateExecutorRequest } from '../src/candidate-execution/types'
 import {
-  createAgentImprovementProposal,
-  reviewAgentImprovementProposal,
-} from '../src/intelligence/improvement-cycle'
-import {
-  createSandboxApprovedCandidateExecutor,
-  sandboxApprovedCandidateExecutionSupport,
+  createSandboxCandidateExperimentExecutor,
+  sandboxCandidateExperimentExecutionSupport,
 } from '../src/intelligence/sandbox-approved-candidate'
 import {
   candidateSha,
@@ -35,13 +39,15 @@ import {
   createCandidateOutputExecutionFixture,
   createCandidateOutputFixture,
   redigestCandidateBundle,
+  replaceCandidateFixtureTask,
 } from './helpers/candidate-execution-fixture'
 
 afterEach(cleanupCandidateFixtures)
 
-describe('Sandbox approved candidate executor', () => {
-  it('runs one exact bounded-output task in a fresh strict-egress sandbox', async () => {
+describe('sandbox candidate experiment executor', () => {
+  it('runs one exact bounded-output cell with profile and knowledge bytes', async () => {
     const fixture = createCandidateOutputExecutionFixture('application/json', 1_024)
+    const baseline = fixture.bundle
     const knowledgeBytes = Buffer.from('# Exact runbook\nUse the verified endpoint.\n', 'utf8')
     const knowledgeMaterial = {
       kind: 'agent-candidate-workspace-manifest' as const,
@@ -55,15 +61,8 @@ describe('Sandbox approved candidate executor', () => {
       ],
     }
     const knowledgeManifest = embeddedCandidateArtifact(canonicalCandidateBytes(knowledgeMaterial))
-    const knowledgeSnapshot = {
-      kind: 'agent-candidate-workspace-snapshot' as const,
-      digest: knowledgeManifest.sha256,
-      material: knowledgeMaterial,
-      manifest: knowledgeManifest,
-      archive: embeddedCandidateArtifact(Buffer.from('knowledge-archive', 'utf8')),
-    }
     const retrievalConfigBytes = Buffer.from('{"topK":4}\n', 'utf8')
-    fixture.bundle = redigestCandidateBundle(fixture.bundle, {
+    const candidate = redigestCandidateBundle(baseline, {
       knowledge: {
         candidate: {
           kind: 'knowledge-improvement-candidate',
@@ -75,56 +74,28 @@ describe('Sandbox approved candidate executor', () => {
           evidenceHash: candidateSha('4'),
           promotionPlanHash: candidateSha('5'),
         },
-        snapshot: knowledgeSnapshot,
+        snapshot: {
+          kind: 'agent-candidate-workspace-snapshot',
+          digest: knowledgeManifest.sha256,
+          material: knowledgeMaterial,
+          manifest: knowledgeManifest,
+          archive: embeddedCandidateArtifact(Buffer.from('knowledge-archive', 'utf8')),
+        },
         retrievalConfig: embeddedCandidateArtifact(retrievalConfigBytes),
         evaluation: embeddedCandidateArtifact(Buffer.from('{"score":1}\n', 'utf8')),
       },
     })
+    const experiment = candidateExperiment(fixture, candidate)
     const materialize = fixture.ports.workspaces.materialize
     fixture.ports.workspaces.materialize = async (input) => {
-      if (input.role !== 'knowledge') return materialize(input)
+      if (input.role !== 'knowledge') return await materialize(input)
       const path = join(input.destination, 'runbook.md')
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, knowledgeBytes)
       chmodSync(path, 0o644)
     }
-    const baselineProfile = { name: 'baseline' }
-    const proposal = createAgentImprovementProposal({
-      runId: 'sandbox-proposal-1',
-      baselineProfile,
-      findings: [],
-      evaluation: measuredProfileResult(baselineProfile, fixture.bundle),
-      candidateBundle: fixture.bundle,
-      now: () => new Date('2026-07-13T12:00:00.000Z'),
-    })
-    const review = reviewAgentImprovementProposal(proposal, {
-      decision: 'approve',
-      reviewedBy: 'operator@example.com',
-      reason: 'Held-back comparison passed.',
-      now: () => new Date('2026-07-13T12:01:00.000Z'),
-    })
-    const status: ProcessStatus = {
-      pid: 42,
-      command: 'codex',
-      cwd: '/workspace/task',
-      running: false,
-      exitCode: 0,
-      startedAt: new Date('2026-07-13T12:02:00.000Z'),
-      exitedAt: new Date('2026-07-13T12:02:01.000Z'),
-    }
-    const process = {
-      wait: vi.fn(async () => 0),
-      status: vi.fn(async () => status),
-      stdout: async function* () {
-        yield '{"accepted":true}\n'
-      },
-      kill: vi.fn(async () => undefined),
-    } as unknown as Process
+    const process = completedProcess('{"accepted":true}\n')
     const writes: Array<{ path: string; content: string; mode: number }> = []
-    const spawnExact = vi.fn(async () => {
-      spawned = true
-      return process
-    })
     let spawned = false
     let deleted = false
     const sandbox = {
@@ -136,8 +107,11 @@ describe('Sandbox approved candidate executor', () => {
         }),
       },
       process: {
-        spawnExact,
-        list: vi.fn(async () => (spawned ? [status] : [])),
+        spawnExact: vi.fn(async () => {
+          spawned = true
+          return process
+        }),
+        list: vi.fn(async () => (spawned ? [stoppedStatus(0)] : [])),
         get: vi.fn(async () => process),
       },
       delete: vi.fn(async () => {
@@ -146,7 +120,7 @@ describe('Sandbox approved candidate executor', () => {
     } as unknown as SandboxInstance
     const create = vi.fn(async () => sandbox)
     const outputs = createCandidateOutputFixture()
-    const adapter = createSandboxApprovedCandidateExecutor({
+    const adapter = createSandboxCandidateExperimentExecutor({
       client: {
         create,
         get: vi.fn(async () => (deleted ? null : sandbox)),
@@ -156,10 +130,10 @@ describe('Sandbox approved candidate executor', () => {
       ...outputs,
       traceStore: new InMemoryTraceStore(),
       claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
-      authorizeReview: async (candidateReview) => candidateReview.digest === review.digest,
     })
 
-    const evidence = await adapter.execute({ proposal, review, task: fixture.task })
+    const input = candidateCell(experiment, fixture)
+    const evidence = await adapter.execute(input)
 
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -174,7 +148,7 @@ describe('Sandbox approved candidate executor', () => {
         },
         metadata: expect.objectContaining({
           kind: 'agent-candidate-execution',
-          executionId: evidence.executionId,
+          executionId: input.executionId,
           executionPlanDigest: evidence.receipt.executionPlanDigest,
           outputMediaType: 'application/json',
           outputMaxBytes: 1_024,
@@ -182,14 +156,15 @@ describe('Sandbox approved candidate executor', () => {
       }),
       expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: 120_000 }),
     )
+    const spawnExact = sandbox.process.spawnExact as ReturnType<typeof vi.fn>
     expect(spawnExact).toHaveBeenCalledOnce()
     const [executable, args, launch] = spawnExact.mock.calls[0]!
     expect(executable).toBe('codex')
     expect(args).toEqual(expect.any(Array))
     expect(launch).toMatchObject({
       cwd: '/workspace/task',
-      stdin: fixture.task.instruction,
-      timeoutMs: fixture.task.limits.timeoutMs,
+      stdin: fixture.task.task.instruction,
+      timeoutMs: fixture.task.task.limits.timeoutMs,
     })
     expect(launch.env).not.toHaveProperty('PATH')
     expect(launch.env).toHaveProperty('MODEL_GATEWAY_TOKEN', 'protected')
@@ -198,23 +173,14 @@ describe('Sandbox approved candidate executor', () => {
       [CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV]:
         '/workspace/task/.tangle/knowledge-retrieval-config.json',
     })
-    expect(writes.length).toBeGreaterThan(0)
     expect(deleted).toBe(true)
     expect(evidence).toMatchObject({
-      proposalDigest: proposal.digest,
-      reviewDigest: review.digest,
-      succeeded: true,
       materializationReceipt: {
-        profilePlan: { material: { files: expect.any(Array) } },
-      },
-      profileActivation: {
-        profilePlan: { digest: evidence.materializationReceipt.profilePlan.digest },
-        files: expect.any(Array),
+        profileActivation: { files: expect.any(Array) },
       },
       receipt: {
-        executorCapture: expect.objectContaining({
-          sha256: expect.stringMatching(/^sha256:/),
-        }),
+        bundleDigest: candidate.digest,
+        executorCapture: expect.objectContaining({ sha256: expect.stringMatching(/^sha256:/) }),
         taskOutcome: {
           material: {
             outcome: {
@@ -225,39 +191,28 @@ describe('Sandbox approved candidate executor', () => {
         },
       },
     })
-    for (const file of evidence.profileActivation.files) {
+    for (const file of evidence.materializationReceipt.profileActivation.files) {
       const written = writes.find((entry) => entry.path === `/workspace/task/${file.path}`)
       expect(written?.mode).toBe(file.mode)
       expect(Buffer.from(written?.content ?? '', 'base64').toString('utf8')).toBe(file.content)
     }
-    const writtenKnowledge = writes.find(
-      (entry) => entry.path === '/workspace/task/.tangle/knowledge/runbook.md',
-    )
-    expect(Buffer.from(writtenKnowledge?.content ?? '', 'base64')).toEqual(knowledgeBytes)
-    const writtenRetrievalConfig = writes.find(
-      (entry) => entry.path === '/workspace/task/.tangle/knowledge-retrieval-config.json',
-    )
-    expect(Buffer.from(writtenRetrievalConfig?.content ?? '', 'base64')).toEqual(
-      retrievalConfigBytes,
-    )
-    await expect(
-      adapter.executor.stop(
-        {
-          executionId: evidence.executionId,
-          executionPlanDigest: evidence.receipt.executionPlanDigest,
-        },
-        {
-          traceStore: new InMemoryTraceStore(),
-          reason: 'completed',
-          signal: new AbortController().signal,
-          deadlineAtMs: Date.now() + 1_000,
-        },
+    expect(
+      Buffer.from(
+        writes.find((entry) => entry.path.endsWith('/knowledge/runbook.md'))?.content ?? '',
+        'base64',
       ),
-    ).resolves.toEqual({ stopped: true })
+    ).toEqual(knowledgeBytes)
+    expect(
+      Buffer.from(
+        writes.find((entry) => entry.path.endsWith('knowledge-retrieval-config.json'))?.content ??
+          '',
+        'base64',
+      ),
+    ).toEqual(retrievalConfigBytes)
   })
 
-  it('declares and enforces its bounded capability instead of claiming universality', async () => {
-    expect(sandboxApprovedCandidateExecutionSupport).toEqual({
+  it('declares and enforces its bounded capability', async () => {
+    expect(sandboxCandidateExperimentExecutionSupport).toEqual({
       outcomes: ['output'],
       outputMediaTypes: ['text/*', 'application/json', '*+json'],
       code: ['disabled'],
@@ -277,7 +232,7 @@ describe('Sandbox approved candidate executor', () => {
         egress: ['blocked', 'strict'],
       },
     })
-    const adapter = createSandboxApprovedCandidateExecutor({
+    const adapter = createSandboxCandidateExperimentExecutor({
       client: {
         create: vi.fn(async () => {
           throw new Error('unsupported requests must fail before sandbox creation')
@@ -290,7 +245,6 @@ describe('Sandbox approved candidate executor', () => {
       outputArtifacts: {} as never,
       traceStore: new InMemoryTraceStore(),
       claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
-      authorizeReview: async () => true,
     })
     const request = minimalExecutorRequest()
 
@@ -314,8 +268,74 @@ describe('Sandbox approved candidate executor', () => {
     ).rejects.toThrow(/only UTF-8 text and JSON/)
   })
 
+  it('blocks all sandbox egress when the signed task disables model calls', async () => {
+    const fixture = createCandidateOutputExecutionFixture('application/json', 32)
+    replaceCandidateFixtureTask(fixture, {
+      limits: { ...fixture.task.task.limits, maxModelCalls: 0 },
+    })
+    const experiment = candidateExperiment(fixture)
+    const process = completedProcess('{"accepted":true}\n')
+    const { adapter, create } = sandboxAdapter(fixture, process, () => stoppedStatus(0))
+
+    await adapter.execute(candidateCell(experiment, fixture))
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ egressPolicy: { mode: 'blocked' } }),
+      expect.any(Object),
+    )
+  })
+
+  it('recovers bounded output from sandbox metadata in a fresh worker', async () => {
+    const executionPlanDigest = candidateSha('a')
+    const process = completedProcess('{"recovered":true}\n')
+    let deleted = false
+    const sandbox = {
+      id: 'sandbox-recovery',
+      metadata: {
+        kind: 'agent-candidate-execution',
+        executionId: 'recovery-execution',
+        executionPlanDigest,
+        outputMaxBytes: 64,
+      },
+      process: {
+        list: vi.fn(async () => [stoppedStatus(0)]),
+        get: vi.fn(async () => process),
+      },
+      delete: vi.fn(async () => {
+        deleted = true
+      }),
+    } as unknown as SandboxInstance
+    const adapter = createSandboxCandidateExperimentExecutor({
+      client: {
+        create: vi.fn(async () => sandbox),
+        get: vi.fn(async () => (deleted ? null : sandbox)),
+        list: vi.fn(async () => (deleted ? [] : [sandbox])),
+      },
+      ports: {} as never,
+      grader: {} as never,
+      outputArtifacts: {} as never,
+      traceStore: new InMemoryTraceStore(),
+      claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
+      resultTimeoutMs: 100,
+    })
+    const request = { executionId: 'recovery-execution', executionPlanDigest }
+    const signal = new AbortController().signal
+
+    const capture = await adapter.executor.capture(request, {
+      traceStore: new InMemoryTraceStore(),
+      signal,
+    })
+    await adapter.executor.dispose?.(request, { signal })
+
+    expect(Buffer.from(capture.taskOutcome?.bytes ?? []).toString('utf8')).toBe(
+      '{"recovered":true}\n',
+    )
+    expect(deleted).toBe(true)
+  })
+
   it('kills oversized output and deletes the failed sandbox', async () => {
-    const { fixture, proposal, review } = approvedExecution(4)
+    const fixture = createCandidateOutputExecutionFixture('application/json', 4)
+    const experiment = candidateExperiment(fixture)
     let running = true
     let resolveWait!: (exitCode: number) => void
     const wait = new Promise<number>((resolve) => {
@@ -334,18 +354,21 @@ describe('Sandbox approved candidate executor', () => {
       },
       kill,
     } as unknown as Process
-    const { adapter, deleted } = sandboxAdapter(fixture, proposal, review, process, status)
+    const { adapter, deleted } = sandboxAdapter(fixture, process, status)
 
-    await expect(adapter.execute({ proposal, review, task: fixture.task })).rejects.toThrow(
+    await expect(adapter.execute(candidateCell(experiment, fixture))).rejects.toThrow(
       /output exceeds/,
     )
     expect(kill).toHaveBeenCalledWith('SIGKILL', { tree: true })
     expect(deleted()).toBe(true)
   })
 
-  it('kills and deletes a sandbox whose process exceeds the task timeout', async () => {
-    const { fixture, proposal, review } = approvedExecution(32)
-    fixture.task.limits = { ...fixture.task.limits, timeoutMs: 25 }
+  it('records timeout evidence and deletes the sandbox', async () => {
+    const fixture = createCandidateOutputExecutionFixture('application/json', 32)
+    replaceCandidateFixtureTask(fixture, {
+      limits: { ...fixture.task.task.limits, timeoutMs: 100 },
+    })
+    const experiment = candidateExperiment(fixture)
     let running = true
     let resolveWait!: (exitCode: number) => void
     const wait = new Promise<number>((resolve) => {
@@ -359,35 +382,101 @@ describe('Sandbox approved candidate executor', () => {
     const process = {
       wait: vi.fn(async () => wait),
       status: vi.fn(async () => status()),
-      stdout: async function* () {},
+      stdout: async function* () {
+        yield 'partial'
+      },
       kill,
     } as unknown as Process
-    const { adapter, deleted } = sandboxAdapter(fixture, proposal, review, process, status)
+    const { adapter, deleted } = sandboxAdapter(fixture, process, status)
 
-    await expect(adapter.execute({ proposal, review, task: fixture.task })).rejects.toThrow(
-      /approved candidate execution failed/,
-    )
+    const evidence = await adapter.execute(candidateCell(experiment, fixture))
+    expect(evidence.receipt.termination).toEqual({ kind: 'timeout', timeoutMs: 100 })
     expect(kill).toHaveBeenCalledWith('SIGKILL', { tree: true })
     expect(deleted()).toBe(true)
   })
+
+  it('fails before durable success when sandbox deletion is not proven', async () => {
+    const fixture = createCandidateOutputExecutionFixture('application/json', 32)
+    const experiment = candidateExperiment(fixture)
+    const process = completedProcess('{"accepted":true}\n')
+    const status = () => stoppedStatus(0)
+    const { adapter, sandbox } = sandboxAdapter(fixture, process, status, true)
+
+    await expect(adapter.execute(candidateCell(experiment, fixture))).rejects.toThrow(
+      /resource disposal|sandbox deletion failed/,
+    )
+    expect(sandbox.delete).toHaveBeenCalledOnce()
+  })
 })
 
-function approvedExecution(maxBytes: number) {
-  const fixture = createCandidateOutputExecutionFixture('application/json', maxBytes)
-  const baselineProfile = { name: 'baseline' }
-  const proposal = createAgentImprovementProposal({
-    runId: `sandbox-proposal-${maxBytes}`,
-    baselineProfile,
-    findings: [],
-    evaluation: measuredProfileResult(baselineProfile, fixture.bundle),
-    candidateBundle: fixture.bundle,
+function candidateExperiment(
+  fixture: ReturnType<typeof createCandidateOutputExecutionFixture>,
+  candidate: AgentCandidateBundle = redigestCandidateBundle(fixture.bundle, {
+    profile: {
+      ...fixture.bundle.profile,
+      prompt: { ...fixture.bundle.profile.prompt, systemPrompt: 'Candidate prompt.' },
+    },
+  }),
+): AgentCandidateExperiment {
+  return sealCandidateExperiment({
+    kind: 'agent-candidate-experiment',
+    digestAlgorithm: 'rfc8785-sha256',
+    baseline: fixture.bundle,
+    candidate,
+    candidateLineage: { source: 'human' },
+    benchmark: sealCandidateBenchmarkSuite({
+      tasks: [fixture.task.task],
+      reps: 1,
+      seeds: [101],
+    }),
+    policy: {
+      confidenceLevel: 0.95,
+      resamples: 500,
+      bootstrapSeed: 1_337,
+      deltaThreshold: 0,
+      minProductiveRuns: 3,
+      budgetUsd: 1,
+      criticalDimensions: [],
+      regressionTolerance: 0.05,
+    },
   })
-  const review = reviewAgentImprovementProposal(proposal, {
-    decision: 'approve',
-    reviewedBy: 'operator@example.com',
-    reason: 'Held-back comparison passed.',
-  })
-  return { fixture, proposal, review }
+}
+
+function candidateCell(
+  experiment: AgentCandidateExperiment,
+  fixture: ReturnType<typeof createCandidateOutputExecutionFixture>,
+) {
+  const input: CandidateExperimentExecutionInput & {
+    executionId: string
+    executionRoots: typeof fixture.task.executionRoots
+    stagingRoots: typeof fixture.task.stagingRoots
+  } = {
+    experiment,
+    arm: 'candidate',
+    bundle: experiment.candidate,
+    task: experiment.benchmark.tasks[0]!,
+    benchmarkCell: {
+      suiteDigest: experiment.benchmark.suite.digest,
+      taskIndex: 0,
+      repetition: 0,
+    },
+    seed: 101,
+    executionId: 'sandbox-execution-1',
+    executionRoots: fixture.task.executionRoots,
+    stagingRoots: fixture.task.stagingRoots,
+  }
+  return input
+}
+
+function completedProcess(output: string): Process {
+  return {
+    wait: vi.fn(async () => 0),
+    status: vi.fn(async () => stoppedStatus(0)),
+    stdout: async function* () {
+      yield output
+    },
+    kill: vi.fn(async () => undefined),
+  } as unknown as Process
 }
 
 function stoppedStatus(exitCode: number): ProcessStatus {
@@ -404,15 +493,14 @@ function stoppedStatus(exitCode: number): ProcessStatus {
 
 function sandboxAdapter(
   fixture: ReturnType<typeof createCandidateOutputExecutionFixture>,
-  proposal: ReturnType<typeof createAgentImprovementProposal>,
-  review: ReturnType<typeof reviewAgentImprovementProposal>,
   process: Process,
   currentStatus: () => ProcessStatus,
+  failDelete = false,
 ) {
   let spawned = false
   let wasDeleted = false
   const sandbox = {
-    id: `sandbox-${proposal.runId}`,
+    id: 'sandbox-candidate-test',
     metadata: undefined,
     fs: { write: vi.fn(async () => undefined) },
     process: {
@@ -424,13 +512,18 @@ function sandboxAdapter(
       get: vi.fn(async () => process),
     },
     delete: vi.fn(async () => {
+      if (failDelete) throw new Error('sandbox deletion failed')
       wasDeleted = true
     }),
   } as unknown as SandboxInstance
   const outputs = createCandidateOutputFixture()
-  const adapter = createSandboxApprovedCandidateExecutor({
+  const create = vi.fn(async (options: CreateSandboxOptions) => {
+    ;(sandbox as unknown as { metadata: Record<string, unknown> }).metadata = options.metadata ?? {}
+    return sandbox
+  })
+  const adapter = createSandboxCandidateExperimentExecutor({
     client: {
-      create: vi.fn(async () => sandbox),
+      create,
       get: vi.fn(async () => (wasDeleted ? null : sandbox)),
       list: vi.fn(async () => (wasDeleted ? [] : [sandbox])),
     },
@@ -438,112 +531,16 @@ function sandboxAdapter(
     ...outputs,
     traceStore: new InMemoryTraceStore(),
     claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
-    authorizeReview: async (candidateReview) => candidateReview.digest === review.digest,
   })
-  return { adapter, deleted: () => wasDeleted }
-}
-
-function measuredProfileResult(
-  baselineProfile: AgentProfile,
-  bundle: AgentCandidateBundle,
-): AgentImprovementMeasuredComparison {
-  return {
-    kind: 'agent-improvement-measured-comparison',
-    benchmark: { name: 'development', version: '1', splitDigest: candidateSha('f') },
-    baselineProfileDigest: canonicalCandidateDigest(baselineProfile),
-    candidateBundleDigest: bundle.digest,
-    overall: {
-      name: 'composite',
-      baseline: 0,
-      candidate: 1,
-      delta: 1,
-      confidenceInterval: {
-        level: 0.95,
-        lower: 1,
-        upper: 1,
-        method: 'paired-bootstrap',
-        statistic: 'mean',
-        resamples: 2_000,
-      },
-      n: 3,
-      direction: 'higher-is-better',
-      unit: 'score',
-    },
-    objectives: [
-      {
-        kind: 'objective',
-        name: 'profile-quality',
-        availability: 'measured',
-        baseline: 0,
-        candidate: 1,
-        delta: 1,
-        confidenceInterval: {
-          level: 0.95,
-          lower: 1,
-          upper: 1,
-          method: 'paired-bootstrap',
-          statistic: 'mean',
-          resamples: 2_000,
-        },
-        n: 3,
-        direction: 'higher-is-better',
-        unit: 'score',
-      },
-      measuredResourceObjective('cost', 'usd'),
-      measuredResourceObjective('latency', 'milliseconds'),
-    ],
-    candidate: { label: 'measured profile' },
-    decision: {
-      outcome: 'ship',
-      reasons: ['paired heldout interval cleared the promotion threshold'],
-      contributingChecks: [{ name: 'heldout', passed: true }],
-    },
-    power: {
-      sufficient: true,
-      n: 3,
-      minimumDetectableDelta: 0.5,
-      confidenceLevel: 0.95,
-      scaleAssumed: true,
-      sharedScorerChannel: true,
-      reason: 'paired sample can detect the measured effect',
-    },
-    provenance: {
-      kind: 'agent-eval-loop',
-      schema: 'tangle.loop-provenance.v2',
-      runId: 'heldout-1',
-      recordDigest: candidateSha('1'),
-      baselineContentHash: candidateSha('2'),
-      candidateContentHash: candidateSha('3'),
-    },
-    diff: 'measured profile replacement',
-    evaluation: { generationsExplored: 1, durationMs: 1, totalCostUsd: 0 },
-  }
-}
-
-function measuredResourceObjective(
-  kind: 'cost' | 'latency',
-  unit: 'usd' | 'milliseconds',
-): AgentImprovementMeasuredComparison['objectives'][number] {
-  return {
-    kind,
-    name: kind,
-    availability: 'unavailable',
-    reason: `${kind} was not captured by this fixture`,
-    direction: 'lower-is-better' as const,
-    unit,
-  }
+  return { adapter, sandbox, create, deleted: () => wasDeleted }
 }
 
 function minimalExecutorRequest(): AgentCandidateExecutorRequest {
   return {
-    executionPlan: {
-      value: {
-        material: {
-          task: { outcome: { kind: 'output', mediaType: 'text/plain', maxBytes: 10 } },
-          codeKind: 'disabled',
-        },
-      },
+    benchmark: {
+      task: { outcome: { kind: 'output', mediaType: 'text/plain', maxBytes: 10 } },
     },
+    executionPlan: { value: { material: { codeKind: 'disabled' } } },
     inputs: {},
     memory: { mode: 'disabled' },
   } as unknown as AgentCandidateExecutorRequest
@@ -558,27 +555,27 @@ function withRequest(
     mediaType?: string
   },
 ): AgentCandidateExecutorRequest {
-  const material = request.executionPlan.value.material
+  const outcome = request.benchmark.task.outcome
   return {
     ...request,
+    benchmark: {
+      ...request.benchmark,
+      task: {
+        ...request.benchmark.task,
+        outcome:
+          change.taskOutcome ??
+          (outcome.kind === 'output'
+            ? { ...outcome, mediaType: change.mediaType ?? outcome.mediaType }
+            : outcome),
+      },
+    },
     executionPlan: {
       ...request.executionPlan,
       value: {
         ...request.executionPlan.value,
         material: {
-          ...material,
-          task: {
-            ...material.task,
-            outcome:
-              change.taskOutcome ??
-              (material.task.outcome.kind === 'output'
-                ? {
-                    ...material.task.outcome,
-                    mediaType: change.mediaType ?? material.task.outcome.mediaType,
-                  }
-                : material.task.outcome),
-          },
-          codeKind: change.codeKind ?? material.codeKind,
+          ...request.executionPlan.value.material,
+          codeKind: change.codeKind ?? request.executionPlan.value.material.codeKind,
         },
       },
     },

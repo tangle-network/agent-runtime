@@ -218,6 +218,7 @@ export async function runWorktreeHarness(
 
   try {
     assertSupportedWorktreeProfile(opts.profile, opts.harness)
+    assertSafeProfileResourcePaths(opts.profile)
     const resourceInstructions = resolveResourceInstructions(opts.profile)
     const workspaceProfile = materializationOnlyProfile(opts.profile)
     const plan = materializeProfile(workspaceProfile, opts.harness)
@@ -229,7 +230,7 @@ export async function runWorktreeHarness(
       )
     }
     assertSafeMaterializedPaths(plan)
-    const applied = applyWorkspacePlan(plan, worktree.path)
+    const applied = applyWorkspacePlan(plan, worktree.path, { existingFiles: 'reject' })
     if (applied.unsupported.length > 0) {
       throw new Error('runWorktreeHarness: applied profile unexpectedly retained unsupported rows')
     }
@@ -432,6 +433,16 @@ function assertSafeMaterializedPaths(plan: WorkspacePlan): void {
     if (file.relPath.split('/').some(isGitMetadataSegment)) {
       throw new Error(
         `runWorktreeHarness: profile file cannot target reserved Git metadata: ${file.relPath}`,
+      )
+    }
+  }
+}
+
+function assertSafeProfileResourcePaths(profile: AgentProfile): void {
+  for (const file of profile.resources?.files ?? []) {
+    if (file.path.split('/').some(isGitMetadataSegment)) {
+      throw new Error(
+        `runWorktreeHarness: profile file cannot target reserved Git metadata: ${file.path}`,
       )
     }
   }

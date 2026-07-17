@@ -23,22 +23,22 @@ const digest = (bytes: Uint8Array): `sha256:${string}` =>
 function prepared(root: string): PreparedAgentCandidateExecution {
   const bundleDigest = `sha256:${'b'.repeat(64)}` as const
   const executionId = 'pier-test-execution'
+  const task = {
+    outcome: {
+      kind: 'workspace',
+      repository: {
+        identity: 'fixture/repository',
+        rootIdentity: 'fixture/repository',
+        baseCommit: '1'.repeat(40),
+        baseTree: '2'.repeat(40),
+      },
+    },
+  }
   const material = {
     schemaVersion: 1,
     kind: 'agent-candidate-execution-plan-material',
-    bundleDigest,
+    runCell: { bundleDigest },
     executionId,
-    task: {
-      outcome: {
-        kind: 'workspace',
-        repository: {
-          identity: 'fixture/repository',
-          rootIdentity: 'fixture/repository',
-          baseCommit: '1'.repeat(40),
-          baseTree: '2'.repeat(40),
-        },
-      },
-    },
     limits: {
       timeoutMs: 60_000,
       maxSteps: 8,
@@ -62,6 +62,7 @@ function prepared(root: string): PreparedAgentCandidateExecution {
   const profileBytes = Buffer.from('fixture profile\n')
   return {
     bundle: { digest: bundleDigest },
+    benchmark: { task },
     executionId,
     roots: {
       execution: { taskRoot: '/app' },

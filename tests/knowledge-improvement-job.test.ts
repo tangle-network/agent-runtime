@@ -1,12 +1,7 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
-import type {
-  AgentCandidateBundle,
-  AgentCandidateKnowledge,
-  AgentImprovementMeasuredComparison,
-  AgentProfile,
-} from '@tangle-network/agent-interface'
+import type { AgentImprovementActivation } from '@tangle-network/agent-interface'
 import {
   addSourceText,
   defineReadinessSpec,
@@ -15,12 +10,13 @@ import {
   knowledgeImprovementCandidateRef,
   withKnowledgeImprovementCandidate,
 } from '@tangle-network/agent-knowledge'
-import { describe, expect, it } from 'vitest'
-import { canonicalCandidateDigest } from '../src/candidate-execution/digest'
-import { agentCandidateProfileAsAgentProfile } from '../src/candidate-execution/profile'
+import { afterEach, describe, expect, it } from 'vitest'
+import { createAgentCandidateWorkspacePort } from '../src/candidate-execution/workspace-archive'
 import {
+  createAgentImprovementActivation,
   createAgentImprovementProposal,
   reviewAgentImprovementProposal,
+  runAgentCandidateExperiment,
 } from '../src/intelligence/improvement-cycle'
 import { runKnowledgeImprovementJob } from '../src/knowledge'
 import type { SuperviseOptions } from '../src/runtime/supervise/supervise'
@@ -28,10 +24,19 @@ import type { SupervisorProfile } from '../src/runtime/supervise/supervisor-agen
 import type { SupervisedResult } from '../src/runtime/supervise/types'
 import {
   candidateBundle,
-  candidateSha,
+  cleanupCandidateFixtures,
   createCandidateOutputFixture,
   redigestCandidateBundle,
 } from './helpers/candidate-execution-fixture'
+import {
+  cleanupCandidateExperimentFixtures,
+  createCandidateExperimentFixture,
+} from './helpers/candidate-experiment-fixture'
+
+afterEach(() => {
+  cleanupCandidateExperimentFixtures()
+  cleanupCandidateFixtures()
+})
 
 async function withKb(fn: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'agent-runtime-knowledge-job-'))
@@ -127,91 +132,6 @@ async function collectFiles(
 
 function isMissingFile(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
-}
-
-function measuredKnowledgeComparison(
-  baselineProfile: AgentProfile,
-  bundle: AgentCandidateBundle,
-): AgentImprovementMeasuredComparison {
-  const confidenceInterval = {
-    level: 0.95,
-    lower: 0,
-    upper: 0,
-    method: 'paired-bootstrap' as const,
-    statistic: 'mean' as const,
-    resamples: 2_000,
-  }
-  return {
-    kind: 'agent-improvement-measured-comparison',
-    benchmark: { name: 'development', version: '1', splitDigest: candidateSha('f') },
-    baselineProfileDigest: canonicalCandidateDigest(baselineProfile),
-    candidateBundleDigest: bundle.digest,
-    overall: {
-      name: 'composite',
-      baseline: 0,
-      candidate: 1,
-      delta: 1,
-      confidenceInterval: { ...confidenceInterval, lower: 1, upper: 1 },
-      n: 1,
-      direction: 'higher-is-better',
-      unit: 'score',
-    },
-    objectives: [
-      {
-        availability: 'measured',
-        kind: 'objective',
-        name: 'knowledge-readiness',
-        baseline: 0,
-        candidate: 1,
-        delta: 1,
-        confidenceInterval: { ...confidenceInterval, lower: 1, upper: 1 },
-        n: 1,
-        direction: 'higher-is-better',
-        unit: 'score',
-      },
-      {
-        availability: 'unavailable',
-        kind: 'cost',
-        name: 'cost',
-        direction: 'lower-is-better',
-        unit: 'usd',
-        reason: 'This deterministic fixture does not measure cost.',
-      },
-      {
-        availability: 'unavailable',
-        kind: 'latency',
-        name: 'latency',
-        direction: 'lower-is-better',
-        unit: 'milliseconds',
-        reason: 'This deterministic fixture does not measure latency.',
-      },
-    ],
-    candidate: { label: 'frozen knowledge candidate' },
-    decision: {
-      outcome: 'ship',
-      reasons: ['The paired held-out comparison approved this exact knowledge candidate.'],
-      contributingChecks: [{ name: 'heldout', passed: true }],
-    },
-    power: {
-      sufficient: true,
-      n: 1,
-      minimumDetectableDelta: 0,
-      confidenceLevel: 0.95,
-      scaleAssumed: true,
-      sharedScorerChannel: false,
-      reason: 'Fixture measurement is deterministic.',
-    },
-    provenance: {
-      kind: 'agent-eval-loop',
-      schema: '1.0.0',
-      runId: 'knowledge-heldout',
-      recordDigest: candidateSha('1'),
-      baselineContentHash: candidateSha('2'),
-      candidateContentHash: candidateSha('3'),
-    },
-    diff: 'knowledge candidate bytes changed',
-    evaluation: { generationsExplored: 1, durationMs: 1, totalCostUsd: 0 },
-  }
 }
 
 const KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS = 15_000
@@ -395,37 +315,48 @@ describe('runKnowledgeImprovementJob', () => {
         )
         const liveBeforeApproval = await liveKnowledgeBytes(root)
         const baseBundle = candidateBundle()
-        const baselineProfile = agentCandidateProfileAsAgentProfile(baseBundle.profile)
         const bundle = redigestCandidateBundle(baseBundle, { knowledge })
+        const rig = createCandidateExperimentFixture({
+          baseline: baseBundle,
+          candidate: bundle,
+          configureFixture: (fixture) => {
+            fixture.ports.artifacts = artifacts
+            const materialize = fixture.ports.workspaces.materialize
+            const archivedWorkspaces = createAgentCandidateWorkspacePort()
+            fixture.ports.workspaces.materialize = async (input) =>
+              input.role === 'knowledge'
+                ? archivedWorkspaces.materialize(input)
+                : materialize(input)
+          },
+        })
+        const measured = await runAgentCandidateExperiment({
+          experiment: rig.experiment,
+          runId: 'runtime-job-approved',
+          placeCell: rig.placeCell,
+        })
         const proposal = createAgentImprovementProposal({
           runId: 'runtime-job-approved',
-          baselineProfile,
           findings: [],
-          evaluation: measuredKnowledgeComparison(baselineProfile, bundle),
-          candidateBundle: bundle,
+          evaluation: measured.evaluation,
           now: () => new Date('2026-07-13T01:00:00.000Z'),
         })
-        const mismatchedKnowledge: AgentCandidateKnowledge = {
-          ...knowledge,
-          candidate: { ...knowledge.candidate, candidateHash: candidateSha('0') },
-        }
-        const mismatchedBundle = redigestCandidateBundle(bundle, {
-          knowledge: mismatchedKnowledge,
-        })
-        expect(() =>
-          createAgentImprovementProposal({
-            runId: 'runtime-job-mismatched',
-            baselineProfile,
-            findings: [],
-            evaluation: measuredKnowledgeComparison(baselineProfile, bundle),
-            candidateBundle: mismatchedBundle,
-          }),
-        ).toThrow(/measured comparison does not bind the exact candidate bundle/)
         const review = reviewAgentImprovementProposal(proposal, {
           decision: 'approve',
           reviewedBy: 'operator@example.com',
           reason: 'Approve the exact frozen knowledge candidate.',
           now: () => new Date('2026-07-13T01:01:00.000Z'),
+        })
+        const activation = createAgentImprovementActivation(proposal, review, {
+          targets: [
+            {
+              surface: 'knowledge',
+              identity: root,
+              expectedBaseDigest: knowledge.candidate.baseHash,
+            },
+          ],
+          fundingOwner: 'tenant/default',
+          authorizedBy: 'operator@example.com',
+          now: () => new Date('2026-07-13T01:02:00.000Z'),
         })
 
         expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
@@ -433,8 +364,9 @@ describe('runKnowledgeImprovementJob', () => {
           throw new Error('candidate-ready promotion must not rerun the updater')
         }
         const runApproved = (
-          approvedProposal: AgentImprovementProposal,
-          approvedReview: AgentImprovementReview,
+          approvedProposal: typeof proposal,
+          approvedReview: typeof review,
+          approvedActivation: AgentImprovementActivation,
         ) =>
           runKnowledgeImprovementJob({
             root,
@@ -448,11 +380,12 @@ describe('runKnowledgeImprovementJob', () => {
             approval: {
               proposal: approvedProposal,
               review: approvedReview,
-              authorizeReview: async (candidateReview) =>
-                candidateReview.digest === approvedReview.digest,
+              activation: approvedActivation,
+              authorizeActivation: async (candidateActivation) =>
+                candidateActivation.digest === approvedActivation.digest,
             },
           })
-        const promoteApproved = () => runApproved(proposal, review)
+        const promoteApproved = () => runApproved(proposal, review, activation)
 
         await expect(
           withKnowledgeImprovementCandidate(
@@ -463,23 +396,6 @@ describe('runKnowledgeImprovementJob', () => {
             },
           ),
         ).rejects.toThrow(/snapshot changed during use/)
-        expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
-
-        const mismatchedProposal = createAgentImprovementProposal({
-          runId: 'runtime-job-mismatched',
-          baselineProfile,
-          findings: [],
-          evaluation: measuredKnowledgeComparison(baselineProfile, mismatchedBundle),
-          candidateBundle: mismatchedBundle,
-        })
-        const mismatchedReview = reviewAgentImprovementProposal(mismatchedProposal, {
-          decision: 'approve',
-          reviewedBy: 'operator@example.com',
-          reason: 'Attempt to approve a candidate identity that was never measured.',
-        })
-        await expect(runApproved(mismatchedProposal, mismatchedReview)).rejects.toThrow(
-          /does not match the measured candidate/,
-        )
         expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
 
         const promoted = await promoteApproved()

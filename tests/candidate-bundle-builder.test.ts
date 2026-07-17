@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { canonicalJson } from '@tangle-network/agent-eval'
 import { gitWorktreeAdapter } from '@tangle-network/agent-eval/campaign'
 import type {
   AgentCandidateArtifactRef,
@@ -98,16 +97,6 @@ describe('public agent candidate bundle builder', () => {
         evaluation: knowledgeEvaluation,
       },
       memory: { mode: 'isolated', scope: 'task', seed: memorySeed },
-      lineage: {
-        source: 'compound',
-        parentDigests: [
-          fixture.bundle.lineage.parentDigests?.[0] ?? candidateSha('e'),
-          candidateSha('9'),
-        ],
-        runIds: ['optimizer-run-1'],
-        benchmark: fixture.bundle.lineage.benchmark,
-        spend: fixture.bundle.lineage.spend,
-      },
     }
 
     try {
@@ -134,9 +123,7 @@ describe('public agent candidate bundle builder', () => {
         name: 'review/SKILL.md',
         sha256: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       })
-      expect(first.lineage.profileDiffIds).toEqual([
-        `sha256:${createHash('sha256').update(canonicalJson(diff)).digest('hex')}`,
-      ])
+      expect(first.knowledge).toEqual(input.knowledge)
 
       const verified = await verifyAgentCandidateBundle(first, {
         repositories: fixture.ports.repositories,
@@ -179,7 +166,6 @@ describe('public agent candidate bundle builder', () => {
           },
           execution: fixture.bundle.execution,
           memory: { mode: 'disabled' },
-          lineage: { source: 'optimizer' },
         }),
       ).toThrow(/CodeSurface|patch/i)
 
@@ -193,10 +179,9 @@ describe('public agent candidate bundle builder', () => {
   it('fails closed when a generic profile would lose behavior or byte identity', () => {
     const fixture = createCandidateExecutionFixture(false)
     const base = {
-      code: { kind: 'disabled', reason: 'control' } as const,
+      code: { kind: 'disabled' } as const,
       execution: fixture.bundle.execution,
       memory: { mode: 'disabled' } as const,
-      lineage: { source: 'human' } as const,
     }
     expect(() =>
       buildAgentCandidateBundle({
@@ -246,16 +231,6 @@ describe('public agent candidate bundle builder', () => {
         code: { kind: 'git-patch' } as unknown as BuildAgentCandidateBundleInput['code'],
       }),
     ).toThrow(/unsupported candidate code source/)
-    expect(() =>
-      buildAgentCandidateBundle({
-        ...base,
-        profile: { kind: 'profile', profile: simpleProfile() },
-        lineage: {
-          source: 'human',
-          profileDiffIds: ['caller-controlled'],
-        } as unknown as BuildAgentCandidateBundleInput['lineage'],
-      }),
-    ).toThrow(/profileDiffIds.*derived/)
   })
 
   it('round-trips every currently representable generic profile surface', () => {
@@ -327,10 +302,9 @@ describe('public agent candidate bundle builder', () => {
 
     const bundle = buildAgentCandidateBundle({
       profile: { kind: 'profile', profile },
-      code: { kind: 'disabled', reason: 'control' },
+      code: { kind: 'disabled' },
       execution: fixture.bundle.execution,
       memory: { mode: 'disabled' },
-      lineage: { source: 'human' },
     })
 
     expect(bundle.profile).toMatchObject({
@@ -361,10 +335,9 @@ describe('public agent candidate bundle builder', () => {
           },
         },
       },
-      code: { kind: 'disabled', reason: 'control' },
+      code: { kind: 'disabled' },
       execution: fixture.bundle.execution,
       memory: { mode: 'disabled' },
-      lineage: { source: 'human' },
     })
     expect(bundle.profile.hooks?.Stop?.[0]).toEqual({
       executable: 'node',

@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -77,20 +78,17 @@ describe('runWorktreeHarness profile materialization', () => {
     }
   })
 
-  it('delivers mounted inputs, captures the worker edit, and excludes tracked and untracked inputs', async () => {
-    const repoRoot = initializeRepository({
-      'src/value.ts': 'export const value = 1\n',
-      'profile-tracked.txt': 'repository version\n',
-    })
+  it('delivers mounted inputs, captures the worker edit, and excludes profile inputs', async () => {
     const runId = 'profile-real-path'
     const newInputPath = '.agent-profile/[literal]*:context.txt'
-    const trackedInputPath = 'profile-tracked.txt'
     const newInputMarker = 'PROFILE_NEW_INPUT_8f08e9f8'
-    const trackedInputMarker = 'PROFILE_TRACKED_INPUT_c521cd4d'
     const systemMarker = 'SYSTEM_PROMPT_2ef237df'
     const promptInstructionMarker = 'PROMPT_INSTRUCTION_6dcc8c4e'
     const resourceInstructionMarker = 'RESOURCE_INSTRUCTION_75b98d68'
     const taskMarker = 'TASK_PROMPT_d5ade1ac'
+    const repoRoot = initializeRepository({
+      'src/value.ts': 'export const value = 1\n',
+    })
     const profile: AgentProfile = {
       model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
       prompt: {
@@ -102,14 +100,6 @@ describe('runWorktreeHarness profile materialization', () => {
           {
             path: newInputPath,
             resource: { kind: 'inline', name: 'new-context', content: newInputMarker },
-          },
-          {
-            path: trackedInputPath,
-            resource: {
-              kind: 'inline',
-              name: 'tracked-context',
-              content: trackedInputMarker,
-            },
           },
         ],
         instructions: {
@@ -131,7 +121,6 @@ describe('runWorktreeHarness profile materialization', () => {
         codexReproducible: true,
         runHarness: async (options: RunLocalHarnessOptions) => {
           expect(readFileSync(join(options.cwd, newInputPath), 'utf8')).toBe(newInputMarker)
-          expect(readFileSync(join(options.cwd, trackedInputPath), 'utf8')).toBe(trackedInputMarker)
           const prompt = options.invocation?.args[1] ?? ''
           expect(options.codexReproducible).toBe(true)
           expect(options.invocation?.args).toContain('project_doc_max_bytes=0')
@@ -146,10 +135,6 @@ describe('runWorktreeHarness profile materialization', () => {
 
           writeFileSync(join(options.cwd, 'src/value.ts'), 'export const value = 2\n')
           writeFileSync(join(options.cwd, newInputPath), 'worker changed new profile input\n')
-          writeFileSync(
-            join(options.cwd, trackedInputPath),
-            'worker changed tracked profile input\n',
-          )
           return successfulHarnessResult()
         },
       })
@@ -159,13 +144,11 @@ describe('runWorktreeHarness profile materialization', () => {
         expect(execution.out.patch).toContain('diff --git a/src/value.ts b/src/value.ts')
         expect(execution.out.patch).toContain('+export const value = 2')
         expect(execution.out.patch).not.toContain(newInputPath)
-        expect(execution.out.patch).not.toContain(trackedInputPath)
         expect(execution.out.patch).not.toContain(newInputMarker)
-        expect(execution.out.patch).not.toContain(trackedInputMarker)
         expect(execution.out.stats).toEqual({ filesChanged: 1, insertions: 1, deletions: 1 })
         expect(execution.out.profileMaterialization).toMatchObject({
           workspacePlanDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
-          writtenPaths: [newInputPath, trackedInputPath],
+          writtenPaths: [newInputPath],
           unsupported: [],
           environmentNames: [],
           flags: [],
@@ -188,6 +171,51 @@ describe('runWorktreeHarness profile materialization', () => {
     }
   })
 
+  it('rejects profile inputs that shadow repository files', async () => {
+    const repoRoot = initializeRepository({
+      'profile-tracked.txt': 'repository version\n',
+      'src/value.ts': 'export const value = 1\n',
+    })
+    const runId = 'profile-existing-file'
+    const runHarness = vi.fn()
+    chmodSync(join(repoRoot, 'profile-tracked.txt'), 0o755)
+    git(repoRoot, ['add', 'profile-tracked.txt'])
+    git(repoRoot, ['commit', '-q', '-m', 'make profile fixture executable'])
+    const previousUmask = process.umask(0o022)
+    try {
+      await expect(
+        runWorktreeHarness({
+          repoRoot,
+          profile: {
+            resources: {
+              files: [
+                {
+                  path: 'profile-tracked.txt',
+                  executable: true,
+                  resource: {
+                    kind: 'inline',
+                    name: 'tracked-context',
+                    content: 'repository version\n',
+                  },
+                },
+              ],
+            },
+          },
+          harness: 'codex',
+          taskPrompt: 'task',
+          runId,
+          runHarness,
+        }),
+      ).rejects.toThrow(/Refusing to replace existing workspace file: profile-tracked\.txt/u)
+      expect(runHarness).not.toHaveBeenCalled()
+      expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
+      expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+    } finally {
+      process.umask(previousUmask)
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
   it('materializes every Claude-supported structural axis and delivers instructions once', async () => {
     const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
     const runId = 'supported-structural-axes'
@@ -198,8 +226,8 @@ describe('runWorktreeHarness profile materialization', () => {
       nativeAgent: '.claude/agents/native-reviewer.md',
       command: '.claude/commands/audit.md',
       subagent: '.claude/agents/helper.md',
-      mcp: '.mcp.json',
-      settings: '.claude/settings.json',
+      mcp: '.tangle/claude-mcp.json',
+      settings: '.tangle/claude-settings.json',
     } as const
     try {
       const run = await runWorktreeHarness({
@@ -276,8 +304,16 @@ describe('runWorktreeHarness profile materialization', () => {
           const settings = JSON.parse(
             readFileSync(join(options.cwd, paths.settings), 'utf8'),
           ) as Record<string, unknown>
-          expect(settings).toHaveProperty('enabledMcpjsonServers')
           expect(settings).toHaveProperty('hooks')
+          expect(options.invocation?.args).toEqual(
+            expect.arrayContaining([
+              '--mcp-config',
+              paths.mcp,
+              '--strict-mcp-config',
+              '--settings',
+              paths.settings,
+            ]),
+          )
           const prompt = options.invocation?.args[1] ?? ''
           expect(count(prompt, resourceInstructionMarker)).toBe(1)
           expect(count(prompt, 'DIRECT_SYSTEM_a3563f03')).toBe(1)

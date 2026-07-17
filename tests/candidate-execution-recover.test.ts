@@ -17,11 +17,13 @@ import type {
 } from '../src/candidate-execution/types'
 import { verifyAgentCandidateBundle } from '../src/candidate-execution/verify'
 import {
+  bindCandidateFixtureBundle,
   candidateSha,
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
   emptyCandidateSnapshot,
   redigestCandidateBundle,
+  replaceCandidateFixtureAttempt,
 } from './helpers/candidate-execution-fixture'
 
 afterEach(cleanupCandidateFixtures)
@@ -42,6 +44,7 @@ describe('expired candidate recovery', () => {
     expect(acquired.acquired).toBe(true)
     now = claim.leaseExpiresAtMs
     let stops = 0
+    let disposals = 0
     let settlements = 0
     const originalSettle = fixture.ports.models.settleGrant
     fixture.ports.models.settleGrant = async (input) => {
@@ -68,6 +71,15 @@ describe('expired candidate recovery', () => {
           expect(context.signal.aborted).toBe(false)
           expect(context.deadlineAtMs).toBeGreaterThan(Date.now())
           return { stopped: true }
+        },
+        dispose: async (request, context) => {
+          disposals++
+          expect(request).toEqual({
+            executionId: claim.executionId,
+            executionPlanDigest: claim.executionPlanDigest,
+          })
+          expect(context.signal.aborted).toBe(false)
+          return { disposed: true }
         },
         capture: async () => ({ evidence: Buffer.from('official recovery evidence') }),
       },
@@ -113,7 +125,7 @@ describe('expired candidate recovery', () => {
       },
     })
     expect(replay).toMatchObject({ finished: false, exactReplay: true })
-    expect({ stops, settlements }).toEqual({ stops: 1, settlements: 1 })
+    expect({ stops, disposals, settlements }).toEqual({ stops: 1, disposals: 1, settlements: 1 })
   })
 
   it('does no outward cleanup before expiry and records nothing when cleanup is unproven', async () => {
@@ -162,11 +174,11 @@ describe('expired candidate recovery', () => {
 
   it('unlocks attempt two only when a recovered pre-run crash used zero model calls', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.task.attempt = {
+    replaceCandidateFixtureAttempt(fixture, {
       number: 1,
       maxAttempts: 2,
       retryPolicy: 'pre-model-infrastructure-only',
-    }
+    })
     const first = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -200,11 +212,11 @@ describe('expired candidate recovery', () => {
 
     rmSync(fixture.task.stagingRoots.profileRoot, { recursive: true, force: true })
     mkdirSync(fixture.task.stagingRoots.profileRoot)
-    fixture.task.attempt = {
+    replaceCandidateFixtureAttempt(fixture, {
       number: 2,
       maxAttempts: 2,
       retryPolicy: 'pre-model-infrastructure-only',
-    }
+    })
     const second = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -217,9 +229,12 @@ describe('expired candidate recovery', () => {
 
   it('repeats idempotent cleanup after a partial recovery failure', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.bundle = redigestCandidateBundle(fixture.bundle, {
-      memory: { mode: 'isolated', scope: 'task' },
-    })
+    bindCandidateFixtureBundle(
+      fixture,
+      redigestCandidateBundle(fixture.bundle, {
+        memory: { mode: 'isolated', scope: 'task' },
+      }),
+    )
     const before = emptyCandidateSnapshot('recovery-before')
     fixture.ports.memory.reset = async ({ preparationId, expiresAtMs }) => ({
       preparationId,
@@ -286,14 +301,14 @@ describe('expired candidate recovery', () => {
       })
 
     await expect(recover()).rejects.toThrow(/cleanup could not be proven/)
-    expect(persistedPurposes).toContain('executor-capture')
+    expect(persistedPurposes).not.toContain('executor-capture')
     expect(
       await claimStore.getAttempt({ executionId: claim.executionId, attempt: 1 }),
     ).not.toHaveProperty('terminal')
     await expect(recover()).resolves.toMatchObject({ finished: true })
     expect({ stops, captures, settlements, memoryCloses }).toEqual({
       stops: 2,
-      captures: 2,
+      captures: 0,
       settlements: 2,
       memoryCloses: 2,
     })
