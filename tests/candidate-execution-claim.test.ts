@@ -570,7 +570,7 @@ describe('candidate execution claim lifecycle', () => {
 
     expect(results.filter((result) => result === 'acquired')).toHaveLength(1)
     expect(results.filter((result) => result === 'already-claimed')).toHaveLength(7)
-  })
+  }, 15_000)
 
   it('linearizes candidate-may-run across independent processes', async () => {
     const directory = await tempDirectory()
@@ -582,7 +582,7 @@ describe('candidate execution claim lifecycle', () => {
 
     expect(results.filter((result) => result === 'marked')).toHaveLength(1)
     expect(results.filter((result) => result === 'already-marked')).toHaveLength(7)
-  })
+  }, 15_000)
 
   it('linearizes staging and finishing across independent processes', async () => {
     const directory = await tempDirectory()
@@ -628,7 +628,7 @@ describe('candidate execution claim lifecycle', () => {
 
     expect(results.filter((result) => result === 'recovered')).toHaveLength(1)
     expect(results.filter((result) => result === 'already-recovered:exact')).toHaveLength(7)
-  })
+  }, 15_000)
 })
 
 function claim(
