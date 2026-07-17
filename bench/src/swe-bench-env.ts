@@ -25,6 +25,25 @@ import { absoluteSweTempDir } from './swe-temp'
 const exec = promisify(execFile)
 export const isTestPath = (p: string) => /(^|\/)(tests?)\//.test(p) || /test_.*\.py$|_test\.py$|conftest\.py$/.test(p)
 
+/** Copy a cached git checkout without rewriting repository-relative symlinks, then prove that the
+ *  copy is byte-for-byte clean from git's perspective before a worker can observe it. */
+export async function copyPristineGitCheckout(sourceDir: string, destinationDir: string): Promise<void> {
+  cpSync(sourceDir, destinationDir, { recursive: true, verbatimSymlinks: true })
+  let status: string
+  try {
+    const result = await exec('git', ['-C', destinationDir, 'status', '--porcelain'], {
+      timeout: 60_000,
+      maxBuffer: 20_000_000,
+    })
+    status = result.stdout
+  } catch (error) {
+    throw new Error(`could not verify cached checkout copy: ${(error as Error).message}`)
+  }
+  if (status.length > 0) {
+    throw new Error(`cached checkout copy is not pristine:\n${status.slice(0, 4_000)}`)
+  }
+}
+
 /**
  * The read/edit-only SWE agent system prompt — the ESTABLISHED baseline surface (glm-5.2 raw = 7/12,
  * glm-4.6 = 3/12). Exported as the single source of truth so `tasks()` here and the improve() seed in
@@ -319,7 +338,7 @@ export async function createSweBenchEnvironment(
       const md = bt.metadata as Record<string, string>
       const dir = mkdtempSync(join(absoluteSweTempDir(), 'swe-'))
       try {
-        if (cloneCache) cpSync(await pristineClone(task.id, md), dir, { recursive: true })
+        if (cloneCache) await copyPristineGitCheckout(await pristineClone(task.id, md), dir)
         else await clonedAt(md, dir)
         const handle: ArtifactHandle = { id: dir, surface: 'swe-bench-verified' }
         workspaces.set(dir, { dir, task: bt })

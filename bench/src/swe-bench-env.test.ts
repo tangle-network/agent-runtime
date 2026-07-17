@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import {
+  copyPristineGitCheckout,
   firstAvailableSweImageCandidate,
   isInsideJail,
   isTestPath,
@@ -15,6 +17,43 @@ import {
   SWE_SEED_PROMPT_WITH_RUN,
 } from './swe-bench-env'
 import { absoluteSweTempDir } from './swe-temp'
+
+const makeRelativeSymlinkRepo = (): { root: string; source: string; destination: string; links: string[] } => {
+  const root = mkdtempSync(join(tmpdir(), 'swe-cache-copy-'))
+  const source = join(root, 'source')
+  const destination = join(root, 'destination')
+  const targetDir = join(source, 'docs/_theme/djangodocs/static')
+  const linkDir = join(source, 'docs/_theme/djangodocs-epub/static')
+  const hooksDir = join(root, 'empty-hooks')
+  const links = ['docicons-note.png', 'docicons-philosophy.png', 'docicons-behindscenes.png', 'docicons-warning.png']
+  mkdirSync(targetDir, { recursive: true })
+  mkdirSync(linkDir, { recursive: true })
+  mkdirSync(hooksDir)
+  mkdirSync(destination)
+  for (const name of links) {
+    writeFileSync(join(targetDir, name), `${name}\n`)
+    symlinkSync(`../../djangodocs/static/${name}`, join(linkDir, name))
+  }
+  execFileSync('git', ['-C', source, 'init', '--quiet'])
+  execFileSync('git', ['-C', source, 'add', '.'])
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'user.name=SWE Fixture',
+    '-c',
+    'user.email=swe-fixture@example.invalid',
+    '-c',
+    `core.hooksPath=${hooksDir}`,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '--quiet',
+    '-m',
+    'fixture',
+  ])
+  return { root, source, destination, links }
+}
 
 describe('SWE worker prompts', () => {
   it('keeps the run-capable prompt as the exact baseline prompt plus run guidance', () => {
@@ -68,6 +107,35 @@ describe('SWE temporary directory', () => {
       else process.env.TEMP = priorTemp
       if (priorTemperature === undefined) delete process.env.TEMPERATURE
       else process.env.TEMPERATURE = priorTemperature
+    }
+  })
+})
+
+describe('SWE clone cache copy', () => {
+  it('preserves Django-style relative symlinks and produces a clean worktree', async () => {
+    const fixture = makeRelativeSymlinkRepo()
+    try {
+      await copyPristineGitCheckout(fixture.source, fixture.destination)
+      for (const name of fixture.links) {
+        const copiedLink = join(fixture.destination, 'docs/_theme/djangodocs-epub/static', name)
+        assert.equal(readlinkSync(copiedLink), `../../djangodocs/static/${name}`)
+      }
+      assert.equal(
+        execFileSync('git', ['-C', fixture.destination, 'status', '--porcelain'], { encoding: 'utf8' }),
+        '',
+      )
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when a cached copy is not pristine', async () => {
+    const fixture = makeRelativeSymlinkRepo()
+    try {
+      writeFileSync(join(fixture.source, 'docs/_theme/djangodocs/static/docicons-note.png'), 'dirty\n')
+      await assert.rejects(copyPristineGitCheckout(fixture.source, fixture.destination), /not pristine/)
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
     }
   })
 })
