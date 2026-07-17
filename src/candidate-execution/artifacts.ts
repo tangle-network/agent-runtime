@@ -117,7 +117,6 @@ export function candidateWorkspaceManifest(
   files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
 ): AgentCandidateWorkspaceManifestMaterial {
   return {
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-manifest',
     files: files
       .map((file) => ({

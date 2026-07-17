@@ -50,7 +50,6 @@ function changedOutcome(root: string, baseTree: string) {
   const resultTree = git(root, ['write-tree'], undefined, environment)
   const resultBytes = Buffer.from('export const value = 2\n')
   const afterState = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: [
       {
@@ -67,15 +66,14 @@ function changedOutcome(root: string, baseTree: string) {
 describe('candidate task outcome verification', () => {
   it('proves a captured binary patch and after-state against the signed base tree', async () => {
     const fixture = createCandidateExecutionFixture()
-    const outcome = changedOutcome(
-      fixture.task.stagingRoots.taskRoot,
-      fixture.task.repository.baseTree,
-    )
+    if (!fixture.task.task.repository) throw new Error('expected repository identity')
+    const repository = fixture.task.task.repository
+    const outcome = changedOutcome(fixture.task.stagingRoots.taskRoot, repository.baseTree)
     await expect(
       verifyTaskOutcomePatch({
         repositoryRoot: fixture.task.stagingRoots.taskRoot,
-        baseCommit: fixture.task.repository.baseCommit,
-        baseTree: fixture.task.repository.baseTree,
+        baseCommit: repository.baseCommit,
+        baseTree: repository.baseTree,
         ...outcome,
       }),
     ).resolves.toMatchObject({
@@ -86,24 +84,23 @@ describe('candidate task outcome verification', () => {
 
   it('rejects a claimed result tree or after-state that does not match the patch', async () => {
     const fixture = createCandidateExecutionFixture()
-    const outcome = changedOutcome(
-      fixture.task.stagingRoots.taskRoot,
-      fixture.task.repository.baseTree,
-    )
+    if (!fixture.task.task.repository) throw new Error('expected repository identity')
+    const repository = fixture.task.task.repository
+    const outcome = changedOutcome(fixture.task.stagingRoots.taskRoot, repository.baseTree)
     await expect(
       verifyTaskOutcomePatch({
         repositoryRoot: fixture.task.stagingRoots.taskRoot,
-        baseCommit: fixture.task.repository.baseCommit,
-        baseTree: fixture.task.repository.baseTree,
+        baseCommit: repository.baseCommit,
+        baseTree: repository.baseTree,
         ...outcome,
-        resultTree: '0'.repeat(fixture.task.repository.baseTree.length),
+        resultTree: '0'.repeat(repository.baseTree.length),
       }),
     ).rejects.toThrow(/materialized tree/)
     await expect(
       verifyTaskOutcomePatch({
         repositoryRoot: fixture.task.stagingRoots.taskRoot,
-        baseCommit: fixture.task.repository.baseCommit,
-        baseTree: fixture.task.repository.baseTree,
+        baseCommit: repository.baseCommit,
+        baseTree: repository.baseTree,
         ...outcome,
         afterState: {
           ...outcome.afterState,

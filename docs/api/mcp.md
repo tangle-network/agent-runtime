@@ -432,7 +432,7 @@ readonly `string`[]
 
 ### InMemoryFeedbackStore
 
-Defined in: [mcp/feedback-store.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L42)
+Defined in: [mcp/feedback-store.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L41)
 
 **`Experimental`**
 
@@ -460,7 +460,7 @@ In-memory `FeedbackStore` — suitable for single-process use and tests.
 
 > **put**(`event`): `Promise`\<`void`\>
 
-Defined in: [mcp/feedback-store.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L45)
+Defined in: [mcp/feedback-store.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L44)
 
 **`Experimental`**
 
@@ -484,7 +484,7 @@ Append a new event. Never dedupes — every rating is its own event.
 
 > **list**(`filter?`): `Promise`\<[`FeedbackEvent`](#feedbackevent)[]\>
 
-Defined in: [mcp/feedback-store.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L49)
+Defined in: [mcp/feedback-store.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L48)
 
 **`Experimental`**
 
@@ -2081,7 +2081,7 @@ machineId so workers don't compete with the orchestrator on the same VM.
 
 ### FeedbackEvent
 
-Defined in: [mcp/feedback-store.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L21)
+Defined in: [mcp/feedback-store.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L20)
 
 **`Experimental`**
 
@@ -2091,7 +2091,7 @@ Defined in: [mcp/feedback-store.ts:21](https://github.com/tangle-network/agent-r
 
 > **id**: `string`
 
-Defined in: [mcp/feedback-store.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L22)
+Defined in: [mcp/feedback-store.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L21)
 
 **`Experimental`**
 
@@ -2099,7 +2099,7 @@ Defined in: [mcp/feedback-store.ts:22](https://github.com/tangle-network/agent-r
 
 > **refersTo**: [`FeedbackRefersTo`](#feedbackrefersto)
 
-Defined in: [mcp/feedback-store.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L23)
+Defined in: [mcp/feedback-store.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L22)
 
 **`Experimental`**
 
@@ -2107,7 +2107,7 @@ Defined in: [mcp/feedback-store.ts:23](https://github.com/tangle-network/agent-r
 
 > **rating**: [`FeedbackRating`](#feedbackrating)
 
-Defined in: [mcp/feedback-store.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L24)
+Defined in: [mcp/feedback-store.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L23)
 
 **`Experimental`**
 
@@ -2115,7 +2115,7 @@ Defined in: [mcp/feedback-store.ts:24](https://github.com/tangle-network/agent-r
 
 > **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
 
-Defined in: [mcp/feedback-store.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L25)
+Defined in: [mcp/feedback-store.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L24)
 
 **`Experimental`**
 
@@ -2123,7 +2123,7 @@ Defined in: [mcp/feedback-store.ts:25](https://github.com/tangle-network/agent-r
 
 > **capturedAt**: `string`
 
-Defined in: [mcp/feedback-store.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L26)
+Defined in: [mcp/feedback-store.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L25)
 
 **`Experimental`**
 
@@ -2131,7 +2131,7 @@ Defined in: [mcp/feedback-store.ts:26](https://github.com/tangle-network/agent-r
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/feedback-store.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L27)
+Defined in: [mcp/feedback-store.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L26)
 
 **`Experimental`**
 
@@ -2139,7 +2139,7 @@ Defined in: [mcp/feedback-store.ts:27](https://github.com/tangle-network/agent-r
 
 ### FeedbackStore
 
-Defined in: [mcp/feedback-store.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L31)
+Defined in: [mcp/feedback-store.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L30)
 
 **`Experimental`**
 
@@ -2149,7 +2149,7 @@ Defined in: [mcp/feedback-store.ts:31](https://github.com/tangle-network/agent-r
 
 > **put**(`event`): `Promise`\<`void`\>
 
-Defined in: [mcp/feedback-store.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L33)
+Defined in: [mcp/feedback-store.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L32)
 
 **`Experimental`**
 
@@ -2169,7 +2169,7 @@ Append a new event. Never dedupes — every rating is its own event.
 
 > **list**(`filter?`): `Promise`\<[`FeedbackEvent`](#feedbackevent)[]\>
 
-Defined in: [mcp/feedback-store.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L38)
+Defined in: [mcp/feedback-store.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L37)
 
 **`Experimental`**
 
@@ -5503,9 +5503,9 @@ Defined in: [mcp/types.ts:235](https://github.com/tangle-network/agent-runtime/b
 
 **`Experimental`**
 
-Loose shape of a research output over the wire — the substrate cannot
-import the `ResearchOutput` type from agent-knowledge without inducing
-a dependency cycle, so the MCP layer treats it structurally.
+Provider-neutral research output carried over the MCP boundary. The MCP
+layer accepts this structural shape instead of coupling its wire contract to
+one research implementation.
 
 #### Indexable
 
@@ -7580,7 +7580,7 @@ cross-sandbox copy step.
 
 > **eventToSnapshot**(`event`): [`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)
 
-Defined in: [mcp/feedback-store.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L67)
+Defined in: [mcp/feedback-store.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L66)
 
 **`Experimental`**
 

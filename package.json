@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.94.13",
+  "version": "0.95.0",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -100,13 +100,15 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "prepare": "(git rev-parse --git-dir > /dev/null 2>&1 && git config core.hooksPath .githooks) || true; tsup",
+    "prepublishOnly": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check src tests examples",
     "lint:fix": "biome check --write src tests examples",
     "typecheck": "tsc --noEmit && pnpm run typecheck:examples",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
+    "verify:bench": "pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
+    "verify:bench:published": "pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
     "verify:package": "node scripts/verify-package-exports.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect-v1.mjs",
     "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
@@ -116,9 +118,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "0.120.1",
-    "@tangle-network/agent-interface": "0.26.1",
-    "@tangle-network/sandbox": "^0.9.7",
+    "@tangle-network/agent-eval": "0.122.1",
+    "@tangle-network/agent-interface": "0.30.0",
+    "@tangle-network/sandbox": "^0.11.1",
     "@types/node": "^25.9.3",
     "@types/tar-stream": "3.1.4",
     "playwright": "^1.61.0",
@@ -134,6 +136,7 @@
     "minimumReleaseAgeExclude": [
       "@tangle-network/agent-eval",
       "@tangle-network/agent-interface",
+      "@tangle-network/agent-knowledge",
       "@tangle-network/agent-profile-materialize",
       "@tangle-network/sandbox"
     ],
@@ -147,9 +150,9 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.120.1 <0.121.0",
-    "@tangle-network/agent-interface": ">=0.26.1 <0.27.0",
-    "@tangle-network/sandbox": ">=0.8.0 <1.0.0",
+    "@tangle-network/agent-eval": ">=0.122.1 <0.123.0",
+    "@tangle-network/agent-interface": ">=0.30.0 <0.31.0",
+    "@tangle-network/sandbox": ">=0.11.1 <1.0.0",
     "playwright": "^1.40.0"
   },
   "peerDependenciesMeta": {
@@ -161,8 +164,8 @@
     }
   },
   "dependencies": {
-    "@tangle-network/agent-knowledge": "^1.12.1",
-    "@tangle-network/agent-profile-materialize": "0.3.2",
+    "@tangle-network/agent-knowledge": "^3.0.1",
+    "@tangle-network/agent-profile-materialize": "0.5.1",
     "tar-stream": "3.2.0"
   }
 }

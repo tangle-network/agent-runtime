@@ -1,24 +1,118 @@
 import type {
   AgentCandidateConfigValue,
   AgentCandidateProfile,
+  AgentCandidateProfileActivation,
+  AgentCandidateProfilePlanEvidence,
   AgentCandidateResourceRef,
   AgentProfile,
   AgentProfileDiff,
   AgentProfileMcpServer,
   AgentProfileResourceRef,
+  HarnessType,
 } from '@tangle-network/agent-interface'
 import {
+  agentCandidateProfileActivationSchema,
   agentCandidateProfileSchema,
   agentProfileDiffSchema,
   agentProfileSchema,
   applyAgentProfileDiff,
 } from '@tangle-network/agent-interface'
+import type {
+  AgentCandidateWorkspacePlan,
+  HarnessId,
+} from '@tangle-network/agent-profile-materialize'
 
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
+  canonicalCandidateDocument,
   embeddedCandidateArtifact,
+  immutableCandidateValue,
+  omitTopLevelDigest,
+  sha256Bytes,
 } from './digest'
+
+const MATERIALIZER_HARNESSES = new Set<HarnessType>([
+  'claude-code',
+  'claude',
+  'claudish',
+  'nanoclaw',
+  'codex',
+  'opencode',
+  'kimi-code',
+  'kimi',
+  'pi',
+  'gemini',
+  'hermes',
+  'openclaw',
+])
+
+export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
+  if (!MATERIALIZER_HARNESSES.has(harness)) {
+    throw new Error(
+      `sealed candidate profile materialization is unsupported for harness ${harness}`,
+    )
+  }
+  return harness as HarnessId
+}
+
+/** Bind exact native profile text to the canonical plan captured during preparation. */
+export function createAgentCandidateProfileActivation(
+  plan: AgentCandidateWorkspacePlan,
+  profilePlan: AgentCandidateProfilePlanEvidence,
+): AgentCandidateProfileActivation {
+  const sourceByPath = new Map(plan.files.map((file) => [file.relPath, file]))
+  if (sourceByPath.size !== plan.files.length) {
+    throw new Error('candidate profile activation contains duplicate native file paths')
+  }
+  const files = profilePlan.material.files.map((expected) => {
+    const source = sourceByPath.get(expected.relPath)
+    if (!source) {
+      throw new Error(`candidate profile activation is missing ${expected.relPath}`)
+    }
+    const mode = source.mode ?? 0o644
+    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 0o777) {
+      throw new Error(`candidate profile activation has invalid mode for ${expected.relPath}`)
+    }
+    return { path: expected.relPath, mode, content: source.content }
+  })
+  if (files.length !== plan.files.length) {
+    throw new Error('candidate profile activation contains unplanned native files')
+  }
+  return parseAgentCandidateProfileActivation(
+    canonicalCandidateDocument<AgentCandidateProfileActivation>({
+      kind: 'agent-candidate-profile-activation',
+      profilePlan,
+      files,
+    }).value,
+    profilePlan.digest,
+  )
+}
+
+/** Parse and check every native file hash plus both canonical document digests. */
+export function parseAgentCandidateProfileActivation(
+  input: unknown,
+  expectedProfilePlanDigest?: AgentCandidateProfilePlanEvidence['digest'],
+): AgentCandidateProfileActivation {
+  const activation = agentCandidateProfileActivationSchema.parse(input)
+  const planBytes = canonicalCandidateBytes(activation.profilePlan.material)
+  const profilePlanArtifact = activation.profilePlan.artifact
+  if (
+    sha256Bytes(planBytes) !== activation.profilePlan.digest ||
+    profilePlanArtifact.sha256 !== activation.profilePlan.digest ||
+    profilePlanArtifact.byteLength !== planBytes.byteLength ||
+    ('content' in profilePlanArtifact &&
+      !Buffer.from(profilePlanArtifact.content, 'base64').equals(Buffer.from(planBytes))) ||
+    (expectedProfilePlanDigest !== undefined &&
+      activation.profilePlan.digest !== expectedProfilePlanDigest)
+  ) {
+    throw new Error('candidate profile activation has an invalid canonical profile plan')
+  }
+  if (canonicalCandidateDigest(omitTopLevelDigest(activation)) !== activation.digest) {
+    throw new Error('candidate profile activation digest does not match')
+  }
+  return immutableCandidateValue(activation)
+}
 
 const CANDIDATE_PROFILE_DIRECT_FIELDS = [
   'name',
@@ -86,7 +180,7 @@ export function assertCandidateProfileBinding(
   if (measured.connections || measured.metadata || measured.extensions) {
     throw new Error('proposal candidate profile contains fields unsupported by sealed candidates')
   }
-  const normalized = candidateProfileAsAgentProfile(bundled)
+  const normalized = agentCandidateProfileAsAgentProfile(bundled)
   if (canonicalCandidateDigest(measured) !== canonicalCandidateDigest(normalized)) {
     throw new Error('proposal candidateProfile does not match candidateBundle.profile')
   }
@@ -94,14 +188,24 @@ export function assertCandidateProfileBinding(
 
 /** Parse a complete profile without silently discarding unsupported fields. */
 export function parseExactAgentProfile(input: unknown, label: string): AgentProfile {
-  const parsed = agentProfileSchema.parse(input) as AgentProfile
+  let parsed: AgentProfile
+  try {
+    parsed = agentProfileSchema.parse(input) as AgentProfile
+  } catch (cause) {
+    throw new Error(`${label} contains unsupported or non-canonical fields`, { cause })
+  }
   assertCanonicalParse(input, parsed, label)
   return parsed
 }
 
 /** Parse a profile diff without silently discarding unsupported fields. */
 export function parseExactAgentProfileDiff(input: unknown, label: string): AgentProfileDiff {
-  const parsed = agentProfileDiffSchema.parse(input) as AgentProfileDiff
+  let parsed: AgentProfileDiff
+  try {
+    parsed = agentProfileDiffSchema.parse(input) as AgentProfileDiff
+  } catch (cause) {
+    throw new Error(`${label} contains unsupported or non-canonical fields`, { cause })
+  }
   assertCanonicalParse(input, parsed, label)
   return parsed
 }
@@ -135,7 +239,9 @@ export function assertCandidateProfileExecutionSupport(profile: AgentCandidatePr
   }
 }
 
-function candidateProfileAsAgentProfile(candidate: AgentCandidateProfile): AgentProfile {
+export function agentCandidateProfileAsAgentProfile(
+  candidate: AgentCandidateProfile,
+): AgentProfile {
   const output: Record<string, unknown> = {}
   copyDirectProfileFields(output, candidate as unknown as Record<string, unknown>)
   if (candidate.model) output.model = { ...candidate.model }

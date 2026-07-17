@@ -2,9 +2,13 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-
+import {
+  sealCandidateBenchmarkSuite,
+  sealCandidateBenchmarkTask,
+} from '@tangle-network/agent-eval/contract'
 import type {
   AgentCandidateArtifactRef,
+  AgentCandidateBenchmarkTask,
   AgentCandidateBundle,
   AgentCandidateExecution,
   AgentCandidateWorkspaceSnapshotEvidence,
@@ -13,6 +17,7 @@ import type {
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
+  canonicalCandidateDocument,
   embeddedCandidateArtifact,
   sha256Bytes,
 } from '../../src/candidate-execution/digest'
@@ -68,7 +73,6 @@ function snapshot(
   files: Array<{ path: string; mode: number }>,
 ): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: files
       .map((file) => {
@@ -87,7 +91,6 @@ function snapshot(
   }
   const manifest = embeddedCandidateArtifact(canonicalCandidateBytes(material))
   return {
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: manifest.sha256,
     material,
@@ -105,7 +108,6 @@ export function candidateBundle(
   },
 ): AgentCandidateBundle {
   const value = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-bundle' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     profile: {
@@ -123,7 +125,7 @@ export function candidateBundle(
           baseCommit: active.commit,
           baseTree: active.tree,
         }
-      : { kind: 'disabled' as const, reason: 'control' as const },
+      : { kind: 'disabled' as const },
     execution: {
       harness: 'codex' as const,
       harnessVersion: '1.2.3',
@@ -146,22 +148,6 @@ export function candidateBundle(
       ...execution,
     },
     memory: { mode: 'disabled' as const },
-    lineage: active
-      ? {
-          source: 'optimizer' as const,
-          parentDigests: [candidateSha('e')],
-          runIds: ['optimizer-run-1'],
-          benchmark: {
-            name: 'development',
-            version: '1',
-            splitDigest: candidateSha('f'),
-          },
-          spend: {
-            proposal: { costUsd: 0, inputTokens: 0, outputTokens: 0, modelCalls: 0 },
-            evaluation: { costUsd: 0, inputTokens: 0, outputTokens: 0, modelCalls: 0 },
-          },
-        }
-      : { source: 'human' as const },
   }
   return { ...value, digest: canonicalCandidateDigest(value) }
 }
@@ -175,15 +161,70 @@ export function redigestCandidateBundle(
   return { ...value, digest: canonicalCandidateDigest(value) }
 }
 
+export function bindCandidateFixtureBundle(
+  fixture: CandidateExecutionFixture,
+  bundle: AgentCandidateBundle = fixture.bundle,
+): void {
+  const { digest: _digest, ...cell } = fixture.task.runCell
+  fixture.bundle = bundle
+  fixture.task = {
+    ...fixture.task,
+    runCell: canonicalCandidateDocument({ ...cell, bundleDigest: bundle.digest }).value,
+  }
+}
+
+export function replaceCandidateFixtureTask(
+  fixture: CandidateExecutionFixture,
+  overrides: Partial<Omit<AgentCandidateBenchmarkTask, 'digest'>>,
+): void {
+  const material = { ...omitTaskDigest(fixture.task.task), ...overrides }
+  const task = sealCandidateBenchmarkTask(material)
+  const benchmark = sealCandidateBenchmarkSuite({
+    tasks: [task],
+    reps: fixture.task.benchmarkSuite.reps,
+    seeds: fixture.task.benchmarkSuite.seeds,
+  })
+  const { digest: _digest, ...cell } = fixture.task.runCell
+  fixture.task = {
+    ...fixture.task,
+    task,
+    benchmarkSuite: benchmark.suite,
+    runCell: canonicalCandidateDocument({
+      ...cell,
+      suiteDigest: benchmark.suite.digest,
+      taskDigest: task.digest,
+    }).value,
+  }
+}
+
+export function replaceCandidateFixtureAttempt(
+  fixture: CandidateExecutionFixture,
+  attempt: {
+    number: number
+    maxAttempts: number
+    retryPolicy: 'none' | 'pre-model-infrastructure-only'
+  },
+): void {
+  replaceCandidateFixtureTask(fixture, {
+    attempt: {
+      maxAttempts: attempt.maxAttempts,
+      retryPolicy: attempt.retryPolicy,
+    },
+  })
+  const { digest: _digest, ...cell } = fixture.task.runCell
+  fixture.task = {
+    ...fixture.task,
+    runCell: canonicalCandidateDocument({ ...cell, attempt: attempt.number }).value,
+  }
+}
+
 export function emptyCandidateSnapshot(label: string): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: [],
   }
   const manifest = embeddedCandidateArtifact(canonicalCandidateBytes(material))
   return {
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: manifest.sha256,
     material,
@@ -202,10 +243,17 @@ export interface CandidateExecutionFixture {
 export function unchangedTaskOutcomeCapture(
   fixture: CandidateExecutionFixture,
 ): AgentCandidateExecutorTaskOutcomeCapture {
+  if (fixture.task.task.outcome.kind !== 'workspace') {
+    throw new Error('unchanged workspace capture requires a workspace outcome')
+  }
+  if (!fixture.task.task.repository) {
+    throw new Error('workspace task is missing repository identity')
+  }
   return {
-    resultTree: fixture.task.repository.baseTree,
-    afterState: fixture.task.workspace.material,
-    archive: Buffer.from(`task-archive:${fixture.task.workspace.digest}`, 'utf8'),
+    kind: 'workspace',
+    resultTree: fixture.task.task.repository.baseTree,
+    afterState: fixture.task.task.workspace.material,
+    archive: Buffer.from(`task-archive:${fixture.task.task.workspace.digest}`, 'utf8'),
     gitDiff: Buffer.alloc(0),
   }
 }
@@ -294,6 +342,7 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
           }
           return
         }
+        if (role === 'knowledge' && workspace.material.files.length === 0) return
         const source = role === 'task' ? repository.root : candidateRoot
         if (!source) throw new Error(`fixture ${role} workspace source is missing`)
         if (source === destination) return
@@ -344,12 +393,25 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
       },
     },
   }
-  const task: AgentCandidateTaskExecution = {
-    executionId: 'execution-1',
-    benchmark: 'repository-disjoint-smoke',
-    benchmarkVersion: '1',
-    taskId: 'owner-repo-1',
-    splitDigest: candidateSha('d'),
+  const bundle = candidateBundle(
+    {},
+    active && candidateWorkspace
+      ? { commit: repository.commit, tree: repository.tree, workspace: candidateWorkspace }
+      : undefined,
+  )
+  const benchmarkTask = sealCandidateBenchmarkTask({
+    kind: 'agent-candidate-benchmark-task',
+    digestAlgorithm: 'rfc8785-sha256',
+    benchmark: {
+      name: 'repository-disjoint-smoke',
+      version: '1',
+      splitDigest: candidateSha('d'),
+    },
+    scenario: {
+      id: 'owner-repo-1',
+      kind: 'coding',
+      scenarioDigest: candidateSha('8'),
+    },
     instruction: 'Fix the failing behavior without changing the public API.',
     repository: {
       identity: 'github.com/owner/repo',
@@ -357,25 +419,28 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
       baseCommit: repository.commit,
       baseTree: repository.tree,
     },
-    attempt: { number: 1, maxAttempts: 1, retryPolicy: 'none' },
-    model: { requested: 'provider/model', reasoningEffort: 'high' },
+    outcome: { kind: 'workspace' },
+    attempt: { maxAttempts: 1, retryPolicy: 'none' },
+    model: {
+      requested: 'provider/model',
+      provider: 'provider',
+      model: 'model-snapshot',
+      snapshot: 'model-snapshot-2026-07-01',
+      reasoningEffort: 'high',
+    },
     grader: {
       name: 'fixture-executable-grader',
       version: '1.0.0',
+      format: 'tangle-grader',
       artifact: {
-        locator: { kind: 's3', bucket: 'candidate-test-artifacts', key: 'grader/fixture' },
+        locator: {
+          kind: 's3',
+          bucket: 'candidate-test-artifacts',
+          key: `grader/${sha256Bytes(fixtureGraderBytes).slice('sha256:'.length)}`,
+        },
         sha256: sha256Bytes(fixtureGraderBytes),
         byteLength: fixtureGraderBytes.byteLength,
       },
-    },
-    executionRoots: {
-      taskRoot: '/workspace/task',
-      ...(active ? { candidateRoot: '/opt/candidate' } : {}),
-    },
-    stagingRoots: {
-      taskRoot: repository.root,
-      ...(candidateRoot ? { candidateRoot } : {}),
-      profileRoot,
     },
     workspace: taskWorkspace,
     evaluatorTaskContainer: selectedContainer,
@@ -387,16 +452,106 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
       maxOutputTokens: 50_000,
       maxCostUsd: 5,
     },
+  })
+  const benchmark = sealCandidateBenchmarkSuite({
+    tasks: [benchmarkTask],
+    reps: 1,
+    seeds: [42],
+  })
+  const task: AgentCandidateTaskExecution = {
+    executionId: 'execution-1',
+    runCell: canonicalCandidateDocument({
+      kind: 'agent-candidate-run-cell' as const,
+      experimentDigest: candidateSha('9'),
+      arm: 'candidate' as const,
+      bundleDigest: bundle.digest,
+      suiteDigest: benchmark.suite.digest,
+      taskDigest: benchmarkTask.digest,
+      taskIndex: 0,
+      repetition: 0,
+      seed: 42,
+      attempt: 1,
+    }).value,
+    benchmarkSuite: benchmark.suite,
+    task: benchmarkTask,
+    executionRoots: {
+      taskRoot: '/workspace/task',
+      ...(active ? { candidateRoot: '/opt/candidate' } : {}),
+    },
+    stagingRoots: {
+      taskRoot: repository.root,
+      ...(candidateRoot ? { candidateRoot } : {}),
+      profileRoot,
+    },
   }
   return {
-    bundle: candidateBundle(
-      {},
-      active && candidateWorkspace
-        ? { commit: repository.commit, tree: repository.tree, workspace: candidateWorkspace }
-        : undefined,
-    ),
+    bundle,
     task,
     ports,
     ...(candidateRoot ? { candidateRoot } : {}),
+  }
+}
+
+export function createCandidateOutputExecutionFixture(
+  mediaType = 'application/json',
+  maxBytes = 1_048_576,
+  withRepository = false,
+): CandidateExecutionFixture {
+  const fixture = createCandidateExecutionFixture()
+  if (withRepository) {
+    return withBenchmarkTask(fixture, {
+      ...omitTaskDigest(fixture.task.task),
+      outcome: { kind: 'output', mediaType, maxBytes },
+    })
+  }
+  const taskRoot = temporaryRoot('candidate-output-task-')
+  const { repository: _repository, ...taskWithoutRepository } = omitTaskDigest(fixture.task.task)
+  return withBenchmarkTask(
+    {
+      ...fixture,
+      task: {
+        ...fixture.task,
+        stagingRoots: { ...fixture.task.stagingRoots, taskRoot },
+      },
+    },
+    {
+      ...taskWithoutRepository,
+      outcome: { kind: 'output', mediaType, maxBytes },
+      workspace: emptyCandidateSnapshot('output-task'),
+    },
+  )
+}
+
+function omitTaskDigest(
+  task: AgentCandidateBenchmarkTask,
+): Omit<AgentCandidateBenchmarkTask, 'digest'> {
+  const { digest: _digest, ...material } = task
+  return material
+}
+
+function withBenchmarkTask(
+  fixture: CandidateExecutionFixture,
+  material: Omit<AgentCandidateBenchmarkTask, 'digest'>,
+): CandidateExecutionFixture {
+  const task = sealCandidateBenchmarkTask(material)
+  const benchmark = sealCandidateBenchmarkSuite({
+    tasks: [task],
+    reps: fixture.task.benchmarkSuite.reps,
+    seeds: fixture.task.benchmarkSuite.seeds,
+  })
+  const { digest: _cellDigest, ...cell } = fixture.task.runCell
+  const runCell = canonicalCandidateDocument({
+    ...cell,
+    suiteDigest: benchmark.suite.digest,
+    taskDigest: task.digest,
+  }).value
+  return {
+    ...fixture,
+    task: {
+      ...fixture.task,
+      runCell,
+      benchmarkSuite: benchmark.suite,
+      task,
+    },
   }
 }

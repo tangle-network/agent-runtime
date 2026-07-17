@@ -2,28 +2,34 @@ import type { BenchmarkEvaluation, TraceStore } from '@tangle-network/agent-eval
 import type {
   AgentCandidateArtifactRef,
   AgentCandidateAttemptPolicy,
+  AgentCandidateBenchmarkSuite,
+  AgentCandidateBenchmarkTask,
   AgentCandidateBundle,
   AgentCandidateCapturedArtifact,
   AgentCandidateContainer,
   AgentCandidateEffectiveMemory,
   AgentCandidateExecutionLimits,
   AgentCandidateExecutionPlanEvidence,
+  AgentCandidateFixedSpend,
   AgentCandidateGitHubRepository,
   AgentCandidateInstructionDelivery,
   AgentCandidateKnowledgeRef,
   AgentCandidateMaterializationReceipt,
   AgentCandidateMemoryReceipt,
   AgentCandidateModelAccessNetwork,
+  AgentCandidateModelSettlementCall,
   AgentCandidateOciPlatform,
+  AgentCandidateProfileActivation,
   AgentCandidateProfilePlanEvidence,
   AgentCandidateResolvedModel,
+  AgentCandidateRunCell,
   AgentCandidateRunReceipt,
-  AgentCandidateSpend,
   AgentCandidateTaskOutcomeEvidence,
+  AgentCandidateTaskOutcomeMaterial,
+  AgentCandidateTaskOutputSpec,
   AgentCandidateTermination,
   AgentCandidateWorkspaceManifestMaterial,
   AgentCandidateWorkspaceSnapshotEvidence,
-  ReasoningEffort,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 
@@ -37,11 +43,14 @@ export interface AgentCandidateArtifactPort {
 }
 
 export type AgentCandidateOutputPurpose =
+  | 'execution-plan'
+  | 'materialization-receipt'
   | 'candidate-workspace-manifest'
   | 'candidate-workspace-archive'
   | 'task-manifest'
   | 'task-archive'
   | 'task-patch'
+  | 'task-output'
   | 'task-outcome'
   | 'memory-after-manifest'
   | 'memory-after-archive'
@@ -49,8 +58,11 @@ export type AgentCandidateOutputPurpose =
   | 'benchmark-result'
   | 'model-settlement'
   | 'trace'
+  | 'executor-native-evidence'
   | 'executor-capture'
   | 'run-receipt'
+  | 'knowledge-retrieval-config'
+  | 'knowledge-evaluation'
   | 'failure-evidence'
 
 /** Durable content-addressed evidence store controlled only by the evaluator. */
@@ -155,12 +167,6 @@ export type AgentCandidateModelLimits = Pick<
   'maxModelCalls' | 'maxInputTokens' | 'maxOutputTokens' | 'maxCostUsd'
 >
 
-export interface AgentCandidateBenchmarkGraderIdentity {
-  name: string
-  version: string
-  artifact: AgentCandidateArtifactRef
-}
-
 export interface AgentCandidateProtectedModelReservation {
   preparationId: string
   digest: Sha256Digest
@@ -177,30 +183,11 @@ export interface AgentCandidateProtectedModelActivation {
   env: Readonly<Record<string, string>>
 }
 
-/** One evaluator-gateway call in the final, revoked model-access ledger. */
-export interface AgentCandidateProtectedModelCall {
-  callId: string
-  /** Router-generated public response identity. */
-  generationId: string
-  /** Exact protected agent-eval LLM span produced from the router ledger. */
-  traceSpanId: string
-  status: 'succeeded' | 'failed'
-  model: string
-  startedAtMs: number
-  endedAtMs: number
-  inputTokens: number
-  outputTokens: number
-  cachedInputTokens: number
-  reasoningTokens: number
-  /** Integer billionths of one US dollar; avoids floating-point ledger drift. */
-  costUsdNanos: number
-}
-
 export interface AgentCandidateProtectedModelSettlement {
   preparationId: string
   grantDigest: Sha256Digest
   closed: true
-  calls: readonly AgentCandidateProtectedModelCall[]
+  calls: readonly AgentCandidateModelSettlementCall[]
 }
 
 export interface AgentCandidateMemoryResetResult {
@@ -258,26 +245,12 @@ export interface AgentCandidateExecutionPorts extends AgentCandidateVerification
   memory: AgentCandidateMemoryPort
 }
 
+/** Runtime placement for one exact cell from a signed candidate experiment. */
 export interface AgentCandidateTaskExecution {
   executionId: string
-  benchmark: string
-  benchmarkVersion: string
-  taskId: string
-  splitDigest: Sha256Digest
-  /** Exact agent-visible task instruction. The runtime rejects malformed Unicode. */
-  instruction: string
-  repository: {
-    identity: string
-    rootIdentity: string
-    baseCommit: string
-    baseTree: string
-  }
-  attempt: AgentCandidateAttemptPolicy
-  model: {
-    requested: string
-    reasoningEffort: ReasoningEffort
-  }
-  grader: AgentCandidateBenchmarkGraderIdentity
+  runCell: AgentCandidateRunCell
+  benchmarkSuite: AgentCandidateBenchmarkSuite
+  task: AgentCandidateBenchmarkTask
   /** Absolute paths inside the evaluator-owned execution environment. */
   executionRoots: {
     taskRoot: string
@@ -289,9 +262,6 @@ export interface AgentCandidateTaskExecution {
     candidateRoot?: string
     profileRoot: string
   }
-  workspace: AgentCandidateWorkspaceSnapshotEvidence
-  evaluatorTaskContainer?: ResolvedAgentCandidateContainer
-  limits: AgentCandidateExecutionLimits
 }
 
 export interface VerifiedAgentCandidate {
@@ -338,6 +308,10 @@ export interface PreparedAgentCandidateTrace {
 
 export interface PreparedAgentCandidateExecution {
   readonly bundle: AgentCandidateBundle
+  readonly benchmark: {
+    readonly suite: AgentCandidateBenchmarkSuite
+    readonly task: AgentCandidateBenchmarkTask
+  }
   readonly executionId: string
   readonly roots: {
     execution: {
@@ -355,6 +329,7 @@ export interface PreparedAgentCandidateExecution {
     bytes: Uint8Array
     written: readonly string[]
   }
+  readonly profileActivation: AgentCandidateProfileActivation
   readonly executionPlan: {
     value: AgentCandidateExecutionPlanEvidence
     bytes: Uint8Array
@@ -369,22 +344,31 @@ export interface PreparedAgentCandidateExecution {
   readonly [preparedCandidateBrand]: true
 }
 
+export type { AgentCandidateBenchmarkGraderIdentity } from '@tangle-network/agent-interface'
+
 export interface AgentCandidateProtectedRunCapture {
   executionId: string
   termination: AgentCandidateTermination
 }
 
 /** Raw evaluator capture made only after the candidate process is dead. */
-export interface AgentCandidateExecutorTaskOutcomeCapture {
-  /** Claimed final tree. The runtime recomputes it independently from `gitDiff`. */
-  resultTree: string
-  /** Complete evaluator-captured workspace description after candidate execution. */
-  afterState: AgentCandidateWorkspaceManifestMaterial
-  /** Reproducible workspace archive corresponding to `afterState`. */
-  archive: Uint8Array
-  /** Exact binary patch from the signed task base to `afterState`. */
-  gitDiff: Uint8Array
-}
+export type AgentCandidateExecutorTaskOutcomeCapture =
+  | {
+      readonly kind: 'workspace'
+      /** Claimed final tree. The runtime recomputes it independently from `gitDiff`. */
+      readonly resultTree: string
+      /** Complete evaluator-captured workspace description after candidate execution. */
+      readonly afterState: AgentCandidateWorkspaceManifestMaterial
+      /** Reproducible workspace archive corresponding to `afterState`. */
+      readonly archive: Uint8Array
+      /** Exact binary patch from the signed task base to `afterState`. */
+      readonly gitDiff: Uint8Array
+    }
+  | {
+      readonly kind: 'output'
+      /** Exact evaluator-captured final output bytes. */
+      readonly bytes: Uint8Array
+    }
 
 /** Raw isolated-memory capture made only after access has been revoked. */
 export interface AgentCandidateExecutorMemoryCapture {
@@ -392,22 +376,39 @@ export interface AgentCandidateExecutorMemoryCapture {
   readonly archive: Uint8Array
 }
 
-/** Idempotent executor result after process death and trace drain. */
+/** Replayable evaluator result captured only after process death and trace drain. */
 export interface AgentCandidateExecutorFinalCapture {
-  readonly stopped: true
   readonly taskOutcome?: AgentCandidateExecutorTaskOutcomeCapture
   /** Required only when the prepared candidate uses isolated task memory. */
   readonly memoryAfter?: AgentCandidateExecutorMemoryCapture
+  /** Executor-native bytes preserved when a fresh worker cannot reconstruct a verified outcome. */
+  readonly evidence?: Uint8Array
 }
 
-/** Branded task outcome that has survived independent patch and tree verification. */
-export interface VerifiedAgentCandidateTaskOutcome {
-  readonly evidence: AgentCandidateTaskOutcomeEvidence & {
-    readonly artifact: AgentCandidateArtifactRef
+type PersistedTaskOutcomeEvidence<
+  Kind extends AgentCandidateTaskOutcomeMaterial['outcome']['kind'],
+> = Omit<AgentCandidateTaskOutcomeEvidence, 'material'> & {
+  readonly artifact: AgentCandidateArtifactRef
+  readonly material: Omit<AgentCandidateTaskOutcomeMaterial, 'outcome'> & {
+    readonly outcome: Extract<AgentCandidateTaskOutcomeMaterial['outcome'], { kind: Kind }>
   }
-  readonly patch: Uint8Array
-  readonly [verifiedTaskOutcomeBrand]: true
 }
+
+/** Branded task outcome that has survived independent evaluator verification. */
+export type VerifiedAgentCandidateTaskOutcome =
+  | {
+      readonly kind: 'workspace'
+      readonly evidence: PersistedTaskOutcomeEvidence<'workspace'>
+      readonly patch: Uint8Array
+      readonly [verifiedTaskOutcomeBrand]: true
+    }
+  | {
+      readonly kind: 'output'
+      readonly evidence: PersistedTaskOutcomeEvidence<'output'>
+      readonly spec: AgentCandidateTaskOutputSpec
+      readonly bytes: Uint8Array
+      readonly [verifiedTaskOutcomeBrand]: true
+    }
 
 /**
  * Evaluator-owned executable grader, pinned by immutable implementation bytes.
@@ -452,6 +453,7 @@ export interface AgentCandidateBenchmarkGraderPort {
 /** One detached request passed to the trusted environment-specific executor. */
 export interface AgentCandidateExecutorRequest {
   readonly executionId: string
+  readonly benchmark: PreparedAgentCandidateExecution['benchmark']
   /** Immutable bytes from which the executor creates fresh isolated workspaces. */
   readonly inputs: {
     readonly task: AgentCandidateExecutorWorkspaceInput
@@ -462,6 +464,7 @@ export interface AgentCandidateExecutorRequest {
   }
   readonly roots: PreparedAgentCandidateExecution['roots']['execution']
   readonly profilePlan: PreparedAgentCandidateExecution['profilePlan']
+  readonly profileActivation: AgentCandidateProfileActivation
   readonly executionPlan: PreparedAgentCandidateExecution['executionPlan']
   readonly materializationReceipt: CanonicalCandidateDocument<AgentCandidateMaterializationReceipt>
   readonly launch: PreparedAgentCandidateLaunch
@@ -471,7 +474,7 @@ export interface AgentCandidateExecutorRequest {
   readonly hardLimits: Pick<AgentCandidateExecutionLimits, 'timeoutMs'>
   /** Validity bound checked against protected traces; generic black-box executors cannot preempt it. */
   readonly observedLimits: Pick<AgentCandidateExecutionLimits, 'maxSteps'>
-  readonly knowledge?: PreparedAgentCandidateExecution['knowledge']
+  readonly knowledge?: PreparedAgentCandidateKnowledge
   readonly trace: PreparedAgentCandidateTrace
   readonly memory: AgentCandidateEffectiveMemory
 }
@@ -495,14 +498,8 @@ export interface AgentCandidateExecutorPort {
       deadlineAtMs: number
     },
   ): Promise<AgentCandidateProtectedRunCapture>
-  /**
-   * Kill any process/container still associated with the request, drain trace
-   * writes, and capture the final task workspace before teardown.
-   * The runtime calls this on success, failure, and timeout before model settlement.
-   * Implementations must be idempotent and concurrency-safe for this exact
-   * execution/plan pair because a fresh worker may repeat crash recovery.
-   */
-  stopAndCapture(
+  /** Kill the exact process/container and drain trace writes. Must be idempotent. */
+  stop(
     request: AgentCandidateExecutorStopRequest,
     context: {
       traceStore: TraceStore
@@ -512,7 +509,23 @@ export interface AgentCandidateExecutorPort {
       /** Absolute execution deadline; a later stop acknowledgement cannot produce success. */
       deadlineAtMs: number
     },
+  ): Promise<{ readonly stopped: true }>
+  /** Capture immutable final evidence after stop. Must be replayable by a fresh worker. */
+  capture(
+    request: AgentCandidateExecutorStopRequest,
+    context: {
+      traceStore: TraceStore
+      /** Aborted at the frozen execution deadline or evaluator cleanup deadline. */
+      signal: AbortSignal
+    },
   ): Promise<AgentCandidateExecutorFinalCapture>
+  /** Remove evaluator-owned execution resources after final capture. Must be idempotent. */
+  dispose?(
+    request: AgentCandidateExecutorStopRequest,
+    context: {
+      signal: AbortSignal
+    },
+  ): Promise<{ readonly disposed: true }>
 }
 
 /** Opaque process identity used for termination without re-exposing launch credentials. */
@@ -532,6 +545,7 @@ export interface AgentCandidateExecutorWorkspaceFile {
   readonly bytes: Uint8Array
 }
 
+/** One exact profile file supplied to an evaluator-owned executor. */
 export interface AgentCandidateExecutorProfileFile {
   readonly path: string
   readonly mode: number
@@ -561,7 +575,7 @@ export type AgentCandidateRunFinalization =
         termination?: AgentCandidateTermination
       }
       /** Independent evaluator-gateway usage, even when execution or trace capture failed. */
-      usage: AgentCandidateSpend | null
+      usage: AgentCandidateFixedSpend | null
     }
 
 /** Protected trace tags that bind a run to one prepared candidate execution. */

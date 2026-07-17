@@ -1,22 +1,49 @@
 import { type AnalystFinding, assertNoJudgeVerdict } from '@tangle-network/agent-eval/analyst'
-import type { Scenario, SelfImproveResult } from '@tangle-network/agent-eval/contract'
+import {
+  type CandidateExperimentExecutionInput,
+  type CompareCandidateExperimentOptions,
+  measuredComparisonFromCandidateExperiment,
+  runCandidateExperiment,
+  type Scenario,
+  verifyCandidateExperiment,
+  verifyCandidateExperimentComparison,
+} from '@tangle-network/agent-eval/contract'
 import type {
+  AgentCandidateBenchmarkCellRef,
   AgentCandidateBundle,
+  AgentCandidateExperiment,
+  AgentCandidateExperimentMeasurement,
+  AgentCandidateRunCell,
+  AgentImprovementActivation,
+  AgentImprovementActivationTarget,
+  AgentImprovementMeasuredComparison,
+  AgentImprovementProposal,
+  AgentImprovementReview,
+  AgentImprovementReviewDecision,
+  AgentImprovementSurface,
   AgentProfile,
+  CandidateExecutionEvidence,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
-import { agentCandidateBundleSchema } from '@tangle-network/agent-interface'
+import {
+  agentCandidateMaterializationReceiptSchema,
+  agentCandidateRunReceiptSchema,
+  agentImprovementActivationSchema,
+  agentImprovementProposalSchema,
+  agentImprovementReviewSchema,
+  candidateExecutionEvidenceSchema,
+} from '@tangle-network/agent-interface'
+import { materializeCandidateProfile } from '@tangle-network/agent-profile-materialize'
+
 import { runAnalystLoop } from '../analyst-loop'
 import type { RunAnalystLoopOpts, RunAnalystLoopResult } from '../analyst-loop/types'
 import {
-  type AgentCandidateBundleInput,
-  sealAgentCandidateBundle,
-} from '../candidate-execution/bundle'
-import {
+  canonicalCandidateBytes,
   canonicalCandidateDigest,
   canonicalCandidateDocument,
   immutableCandidateValue,
   omitTopLevelDigest,
+  verifyCanonicalCandidateDocument,
 } from '../candidate-execution/digest'
 import {
   type ExecutePreparedAgentCandidateOptions,
@@ -27,119 +54,90 @@ import {
   prepareAgentCandidateExecution,
 } from '../candidate-execution/prepare'
 import {
-  assertCandidateProfileBinding,
-  parseExactAgentProfile,
+  agentCandidateProfileAsAgentProfile,
+  candidateMaterializerHarness,
+  createAgentCandidateProfileActivation,
+  parseAgentCandidateProfileActivation,
 } from '../candidate-execution/profile'
 import type {
   AgentCandidateExecutionPorts,
   AgentCandidateRunFinalization,
   AgentCandidateTaskExecution,
 } from '../candidate-execution/types'
-import { verifyAgentCandidateBundle } from '../candidate-execution/verify'
 import {
-  applyImprovementWinnerToProfile,
-  type ImproveOptions,
-  type ImproveResult,
-  type ImproveSurface,
-  improve,
-} from '../improvement/improve'
+  verifiedResourceTextByDigest,
+  verifyAgentCandidateBundle,
+} from '../candidate-execution/verify'
+import { rethrowAfterCleanup } from '../improvement/cleanup'
+import { type ImproveOptions, type ImproveResult, improve } from '../improvement/improve'
 
-export type AgentImprovementEvaluation<TScenario extends Scenario, TArtifact> = Pick<
-  SelfImproveResult<TScenario, TArtifact>,
-  | 'baseline'
-  | 'winner'
-  | 'lift'
-  | 'diff'
-  | 'provenance'
-  | 'gateDecision'
-  | 'generationsExplored'
-  | 'durationMs'
-  | 'totalCostUsd'
-  | 'insight'
-  | 'power'
->
+export type {
+  AgentImprovementActivation,
+  AgentImprovementMeasuredComparison,
+  AgentImprovementProposal,
+  AgentImprovementReview,
+  AgentImprovementReviewDecision,
+  CandidateExecutionEvidence,
+} from '@tangle-network/agent-interface'
 
-export interface AgentImprovementProposal<
-  TScenario extends Scenario = Scenario,
-  TArtifact = unknown,
-> {
-  schemaVersion: 1
-  kind: 'agent-improvement-proposal'
-  runId: string
-  surface: ImproveSurface
-  proposedAt: string
-  baselineProfile: AgentProfile
-  baselineProfileHash: string
-  candidateProfile: AgentProfile
-  candidateProfileHash: string
-  findings: AnalystFinding[]
-  evaluation: AgentImprovementEvaluation<TScenario, TArtifact>
-  candidateBundle?: AgentCandidateBundle
-  digest: Sha256Digest
-}
-
-export type AgentImprovementReviewDecision = 'approve' | 'reject' | 'request-changes'
-
-export interface AgentImprovementReview {
-  schemaVersion: 1
-  kind: 'agent-improvement-review'
-  proposalDigest: Sha256Digest
-  candidateBundleDigest?: Sha256Digest
-  decision: AgentImprovementReviewDecision
-  reviewedBy: string
-  reviewedAt: string
-  reason: string
-  feedback?: string
-  digest: Sha256Digest
-}
-
-export interface CandidateExecutionEvidence {
-  proposalDigest: Sha256Digest
-  reviewDigest: Sha256Digest
-  bundleDigest: Sha256Digest
+export interface AgentCandidateExperimentCellPlacement {
   executionId: string
-  executionPlanDigest: Sha256Digest
-  materializationReceiptDigest: Sha256Digest
-  succeeded: boolean
-  runReceiptDigest?: Sha256Digest
+  attempt?: number
+  executionRoots: AgentCandidateTaskExecution['executionRoots']
+  stagingRoots: AgentCandidateTaskExecution['stagingRoots']
+  ports: AgentCandidateExecutionPorts
+  preparation?: PrepareAgentCandidateExecutionOptions
+  execution: ExecutePreparedAgentCandidateOptions
 }
 
-export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArtifact> {
+export interface RunAgentCandidateExperimentOptions
+  extends Omit<CompareCandidateExperimentOptions, 'experiment' | 'measurements'> {
+  experiment: AgentCandidateExperiment
+  placeCell: (
+    input: CandidateExperimentExecutionInput,
+  ) => AgentCandidateExperimentCellPlacement | Promise<AgentCandidateExperimentCellPlacement>
+  maxConcurrency?: number
+  signal?: AbortSignal
+}
+
+export interface RunAgentCandidateExperimentResult {
+  experiment: AgentCandidateExperiment
+  measurements: AgentCandidateExperimentMeasurement[]
+  evaluation: AgentImprovementMeasuredComparison
+}
+
+export interface ExecuteAgentCandidateExperimentCellOptions
+  extends CandidateExperimentExecutionInput,
+    AgentCandidateExperimentCellPlacement {}
+
+export interface VerifyCandidateExecutionEvidenceOptions {
+  experiment: AgentCandidateExperiment
+  arm: 'baseline' | 'candidate'
+  benchmarkCell: AgentCandidateBenchmarkCellRef
+  seed: number
+  attempt?: number
+  resolvedResources?: ReadonlyMap<Sha256Digest, string>
+}
+
+/** A failed baseline or candidate cell with its complete Runtime failure result. */
+export class AgentCandidateExperimentCellExecutionError extends Error {
+  readonly finalization: Extract<AgentCandidateRunFinalization, { succeeded: false }>
+
+  constructor(finalization: Extract<AgentCandidateRunFinalization, { succeeded: false }>) {
+    super(`candidate experiment cell failed: ${finalization.reason}`)
+    this.name = 'AgentCandidateExperimentCellExecutionError'
+    this.finalization = finalization
+  }
+}
+
+export interface CreateAgentImprovementProposalOptions {
   runId: string
-  profile: AgentProfile
-  analysis: Omit<RunAnalystLoopOpts, 'runId' | 'improvementAdapter' | 'autoApply'>
-  improvement: ImproveOptions<TScenario, TArtifact>
-  /**
-   * Optional environment adapter that freezes an executable bundle after the
-   * measured comparison recommends the candidate. Return the sealed output of
-   * `buildAgentCandidateBundle` directly, or a low-level digest-free input.
-   */
-  buildCandidate?: (input: {
-    analysis: RunAnalystLoopResult
-    improvement: ImproveResult<TScenario, TArtifact>
-  }) =>
-    | AgentCandidateBundleInput
-    | AgentCandidateBundle
-    | Promise<AgentCandidateBundleInput | AgentCandidateBundle>
-  now?: () => Date
-}
-
-export interface ProposeAgentImprovementResult<TScenario extends Scenario, TArtifact> {
-  analysis: RunAnalystLoopResult
-  improvement: ImproveResult<TScenario, TArtifact>
-  proposal: AgentImprovementProposal<TScenario, TArtifact>
-}
-
-export interface CreateAgentImprovementProposalOptions<TScenario extends Scenario, TArtifact> {
-  runId: string
-  surface: ImproveSurface
-  baselineProfile: AgentProfile
-  candidateProfile: AgentProfile
   findings: readonly AnalystFinding[]
-  evaluation: SelfImproveResult<TScenario, TArtifact>
-  candidateBundle?: AgentCandidateBundleInput | AgentCandidateBundle
+  evaluation: AgentImprovementMeasuredComparison
   now?: () => Date
 }
+
+export type CreateAgentImprovementMeasuredComparisonOptions = CompareCandidateExperimentOptions
 
 export interface ReviewAgentImprovementInput {
   decision: AgentImprovementReviewDecision
@@ -149,50 +147,137 @@ export interface ReviewAgentImprovementInput {
   now?: () => Date
 }
 
-export interface ExecuteApprovedAgentCandidateOptions {
+export interface CreateAgentImprovementActivationOptions {
+  targets: [AgentImprovementActivationTarget, ...AgentImprovementActivationTarget[]]
+  fundingOwner: string
+  authorizedBy: string
+  now?: () => Date
+}
+
+export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArtifact> {
+  runId: string
+  profile: AgentProfile
+  analysis: Omit<RunAnalystLoopOpts, 'runId' | 'improvementAdapter' | 'autoApply'>
+  improvement: ImproveOptions<TScenario, TArtifact>
+  buildExperiment: (input: {
+    analysis: RunAnalystLoopResult
+    improvement: ImproveResult<TScenario, TArtifact>
+  }) => AgentCandidateExperiment | Promise<AgentCandidateExperiment>
+  placeCell: RunAgentCandidateExperimentOptions['placeCell']
+  maxConcurrency?: number
+  signal?: AbortSignal
+  candidate?: AgentImprovementMeasuredComparison['candidate']
+  metadata?: AgentImprovementMeasuredComparison['metadata']
+  now?: () => Date
+}
+
+export interface ProposeAgentImprovementResult<TScenario extends Scenario, TArtifact> {
+  analysis: RunAnalystLoopResult
+  improvement: ImproveResult<TScenario, TArtifact>
+  experiment: AgentCandidateExperiment
+  measurements: AgentCandidateExperimentMeasurement[]
   proposal: AgentImprovementProposal
-  review: AgentImprovementReview
-  /** Product-owned authentication check for the persisted approval record. */
-  authorizeReview: (
-    review: AgentImprovementReview,
-    proposal: AgentImprovementProposal,
-  ) => boolean | Promise<boolean>
-  task: AgentCandidateTaskExecution
-  ports: AgentCandidateExecutionPorts
-  preparation?: PrepareAgentCandidateExecutionOptions
-  execution: ExecutePreparedAgentCandidateOptions
 }
 
-export interface ExecuteApprovedAgentCandidateResult {
-  finalization: AgentCandidateRunFinalization
-  evidence: CandidateExecutionEvidence
+type AnalystImprovementProposal = Omit<AgentImprovementProposal, 'findings'> & {
+  findings: AnalystFinding[]
 }
 
-async function rethrowAfterImprovementDispose<TScenario extends Scenario, TArtifact>(
-  cause: unknown,
-  improvement: ImproveResult<TScenario, TArtifact>,
-): Promise<never> {
-  const disposeErrors: unknown[] = []
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      await improvement.dispose()
-    } catch (disposeCause) {
-      disposeErrors.push(disposeCause)
-      continue
-    }
-    if (disposeErrors.length === 0) throw cause
-    throw new AggregateError(
-      [cause, ...disposeErrors],
-      'proposeAgentImprovement failed; the improvement cleanup retry succeeded',
-    )
+/** Execute both arms of one immutable experiment and derive its paired result. */
+export async function runAgentCandidateExperiment(
+  options: RunAgentCandidateExperimentOptions,
+): Promise<RunAgentCandidateExperimentResult> {
+  const experiment = verifyCandidateExperiment(options.experiment)
+  const measurements = await runCandidateExperiment({
+    experiment,
+    ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
+    ...(options.signal ? { signal: options.signal } : {}),
+    execute: async (input) => {
+      const placement = await options.placeCell(input)
+      return await executeAgentCandidateExperimentCell({ ...input, ...placement })
+    },
+  })
+  const evaluation = createAgentImprovementMeasuredComparison({
+    experiment,
+    measurements,
+    runId: options.runId,
+    ...(options.candidate ? { candidate: options.candidate } : {}),
+    ...(options.generationsExplored === undefined
+      ? {}
+      : { generationsExplored: options.generationsExplored }),
+    ...(options.searchDurationMs === undefined
+      ? {}
+      : { searchDurationMs: options.searchDurationMs }),
+    ...(options.searchCostUsd === undefined ? {} : { searchCostUsd: options.searchCostUsd }),
+    ...(options.metadata ? { metadata: options.metadata } : {}),
+  })
+  return { experiment, measurements, evaluation }
+}
+
+/** Execute one exact arm, task, repetition, seed, and attempt through Runtime. */
+export async function executeAgentCandidateExperimentCell(
+  options: ExecuteAgentCandidateExperimentCellOptions,
+): Promise<CandidateExecutionEvidence> {
+  const experiment = verifyCandidateExperiment(options.experiment)
+  const bundle = experiment[options.arm]
+  assertExactExperimentInput(options, experiment, bundle)
+  const attempt = options.attempt ?? 1
+  if (attempt > options.task.attempt.maxAttempts) {
+    throw new Error('candidate experiment attempt exceeds the signed task policy')
   }
-  throw new AggregateError(
-    [cause, ...disposeErrors],
-    'proposeAgentImprovement failed and its improvement resources could not be cleaned',
+  const runCell = canonicalCandidateDocument<AgentCandidateRunCell>({
+    kind: 'agent-candidate-run-cell',
+    experimentDigest: experiment.digest,
+    arm: options.arm,
+    bundleDigest: bundle.digest,
+    suiteDigest: options.benchmarkCell.suiteDigest,
+    taskDigest: options.task.digest,
+    taskIndex: options.benchmarkCell.taskIndex,
+    repetition: options.benchmarkCell.repetition,
+    seed: options.seed,
+    attempt,
+  }).value
+  const verified = await verifyAgentCandidateBundle(bundle, options.ports)
+  const prepared = await prepareAgentCandidateExecution(
+    verified,
+    {
+      executionId: options.executionId,
+      runCell,
+      benchmarkSuite: experiment.benchmark.suite,
+      task: options.task,
+      executionRoots: options.executionRoots,
+      stagingRoots: options.stagingRoots,
+    },
+    options.ports,
+    options.preparation,
   )
+  const finalization = await executePreparedAgentCandidate(prepared, options.execution)
+  if (!finalization.succeeded) {
+    throw new AgentCandidateExperimentCellExecutionError(finalization)
+  }
+  const evidence = canonicalCandidateDocument<CandidateExecutionEvidence>({
+    kind: 'agent-candidate-execution-evidence',
+    materializationReceipt: prepared.materializationReceipt.value,
+    receipt: finalization.receipt.value,
+  }).value
+  return verifyCandidateExecutionEvidence(evidence, {
+    experiment,
+    arm: options.arm,
+    benchmarkCell: options.benchmarkCell,
+    seed: options.seed,
+    attempt,
+    resolvedResources: verifiedResourceTextByDigest(verified),
+  })
 }
 
-/** Analyze one run and produce one measured, review-only improvement proposal. */
+/** Delegate all statistics and promotion checks to agent-eval's receipt-based comparison. */
+export function createAgentImprovementMeasuredComparison(
+  options: CreateAgentImprovementMeasuredComparisonOptions,
+): AgentImprovementMeasuredComparison {
+  return verifyCandidateExperimentComparison(measuredComparisonFromCandidateExperiment(options))
+}
+
+/** Analyze, search, then remeasure the resulting exact candidate before proposing it. */
 export async function proposeAgentImprovement<TScenario extends Scenario, TArtifact>(
   options: ProposeAgentImprovementOptions<TScenario, TArtifact>,
 ): Promise<ProposeAgentImprovementResult<TScenario, TArtifact>> {
@@ -202,95 +287,89 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
       ? 'memory'
       : null
   if (writeBackSurface) {
-    throw new Error(
-      `proposeAgentImprovement cannot write ${writeBackSurface} before human approval`,
-    )
+    throw new Error(`proposeAgentImprovement cannot write ${writeBackSurface} before approval`)
   }
-  const analysis = await runAnalystLoop({
-    ...options.analysis,
-    runId: options.runId,
-  })
+  const analysis = await runAnalystLoop({ ...options.analysis, runId: options.runId })
   const findings = assertNoJudgeVerdict(
     analysis.analystResult.findings,
     'proposeAgentImprovement findings',
   )
   const improvement = await improve(options.profile, [...findings], options.improvement)
   try {
-    const candidateBundle =
-      improvement.shipped && options.buildCandidate
-        ? await options.buildCandidate({ analysis, improvement })
-        : undefined
+    if (!improvement.shipped) {
+      throw new Error('agent improvement search did not produce a promotable candidate')
+    }
+    const experiment = verifyCandidateExperiment(
+      await options.buildExperiment({ analysis, improvement }),
+    )
+    if (
+      canonicalCandidateDigest(experiment.baseline.profile) !==
+      canonicalCandidateDigest(options.profile)
+    ) {
+      throw new Error('candidate experiment baseline does not match the analyzed agent profile')
+    }
+    const measured = await runAgentCandidateExperiment({
+      experiment,
+      runId: options.runId,
+      placeCell: options.placeCell,
+      ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.candidate ? { candidate: options.candidate } : {}),
+      ...(options.metadata ? { metadata: options.metadata } : {}),
+      generationsExplored: improvement.raw.generationsExplored,
+      searchDurationMs: improvement.raw.durationMs,
+      searchCostUsd: improvement.raw.totalCostUsd,
+    })
     const proposal = createAgentImprovementProposal({
       runId: options.runId,
-      surface: options.improvement.surface ?? 'prompt',
-      baselineProfile: options.profile,
-      candidateProfile: improvement.profile,
       findings,
-      evaluation: improvement.raw,
-      ...(candidateBundle ? { candidateBundle } : {}),
+      evaluation: measured.evaluation,
       ...(options.now ? { now: options.now } : {}),
     })
-    return { analysis, improvement, proposal }
+    return {
+      analysis,
+      improvement,
+      experiment,
+      measurements: measured.measurements,
+      proposal,
+    }
   } catch (cause) {
-    return rethrowAfterImprovementDispose(cause, improvement)
+    return rethrowAfterCleanup(cause, () => improvement.dispose(), 'proposeAgentImprovement failed')
   }
 }
 
-/**
- * Freeze an already-measured improvement into the one reviewable proposal
- * contract. Products that run analysis or evaluation in separate workers use
- * this constructor instead of rerunning either phase or rebuilding digests.
- */
-export function createAgentImprovementProposal<TScenario extends Scenario, TArtifact>(
-  options: CreateAgentImprovementProposalOptions<TScenario, TArtifact>,
-): AgentImprovementProposal<TScenario, TArtifact> {
+/** Create the reviewable record only from a complete, recomputable experiment result. */
+export function createAgentImprovementProposal(
+  options: CreateAgentImprovementProposalOptions,
+): AgentImprovementProposal {
   const findings = assertNoJudgeVerdict(
     [...options.findings],
     'createAgentImprovementProposal findings',
   )
-  const candidateBundle = options.candidateBundle
-    ? sealBuiltCandidate(options.candidateBundle)
-    : undefined
-  const baselineProfile = parseExactAgentProfile(
-    options.baselineProfile,
-    'proposal baseline profile',
-  )
-  const candidateProfile = parseExactAgentProfile(
-    options.candidateProfile,
-    'proposal candidate profile',
-  )
-  assertMeasuredProfileBinding({
-    surface: options.surface,
-    baselineProfile,
-    candidateProfile,
-    evaluation: options.evaluation,
-    hasExecutableBundle: candidateBundle !== undefined,
-  })
-  if (candidateBundle) {
-    if (options.evaluation.gateDecision !== 'ship') {
-      throw new Error('executable candidate bundle requires a passing measured comparison')
-    }
-    assertCandidateProfileBinding(candidateProfile, candidateBundle.profile)
+  const evaluation = verifyCandidateExperimentComparison(options.evaluation)
+  if (evaluation.decision.outcome !== 'ship') {
+    throw new Error('agent improvement proposal requires a passing experiment')
   }
-  const withoutDigest = {
-    schemaVersion: 1 as const,
-    kind: 'agent-improvement-proposal' as const,
-    runId: options.runId,
-    surface: options.surface,
-    proposedAt: (options.now ?? (() => new Date()))().toISOString(),
-    baselineProfile,
-    baselineProfileHash: canonicalCandidateDigest(baselineProfile),
-    candidateProfile,
-    candidateProfileHash: canonicalCandidateDigest(candidateProfile),
-    findings: canonicalJsonValue([...findings]),
-    evaluation: canonicalJsonValue(improvementEvaluation(options.evaluation)),
-    ...(candidateBundle ? { candidateBundle } : {}),
+  if (options.runId !== evaluation.provenance.runId) {
+    throw new Error('proposal runId does not match its measured experiment')
   }
-  return canonicalCandidateDocument<AgentImprovementProposal<TScenario, TArtifact>>(withoutDigest)
-    .value
+  const changedSurfaces = deriveChangedSurfaces(
+    evaluation.experiment.baseline,
+    evaluation.experiment.candidate,
+  )
+  return agentImprovementProposalSchema.parse(
+    canonicalCandidateDocument<AnalystImprovementProposal>({
+      kind: 'agent-improvement-proposal',
+      runId: options.runId,
+      changedSurfaces,
+      proposedAt: (options.now ?? (() => new Date()))().toISOString(),
+      findings: [...findings],
+      evaluation,
+    }).value,
+  )
 }
 
-/** Persist an approve/reject/change-request decision bound to one exact proposal. */
+/** Persist a human or tenant-policy decision bound to one exact proposal. */
 export function reviewAgentImprovementProposal(
   inputProposal: AgentImprovementProposal,
   input: ReviewAgentImprovementInput,
@@ -298,250 +377,383 @@ export function reviewAgentImprovementProposal(
   const proposal = verifyAgentImprovementProposal(inputProposal)
   if (!input.reviewedBy.trim()) throw new Error('candidate review requires reviewedBy')
   if (!input.reason.trim()) throw new Error('candidate review requires a reason')
-  if (input.decision === 'approve') {
-    if (proposal.evaluation.gateDecision !== 'ship') {
-      throw new Error('candidate cannot be approved without a passing measured comparison')
-    }
-    if (!proposal.candidateBundle) {
-      throw new Error('candidate cannot be approved until an executable bundle is sealed')
-    }
+  if (input.decision === 'approve' && proposal.evaluation.decision.outcome !== 'ship') {
+    throw new Error('candidate cannot be approved without a passing experiment')
   }
-  const withoutDigest = {
-    schemaVersion: 1 as const,
-    kind: 'agent-improvement-review' as const,
-    proposalDigest: proposal.digest,
-    ...(proposal.candidateBundle ? { candidateBundleDigest: proposal.candidateBundle.digest } : {}),
-    decision: input.decision,
-    reviewedBy: input.reviewedBy,
-    reviewedAt: (input.now ?? (() => new Date()))().toISOString(),
-    reason: input.reason,
-    ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
-  }
-  return canonicalCandidateDocument<AgentImprovementReview>(withoutDigest).value
+  return agentImprovementReviewSchema.parse(
+    canonicalCandidateDocument<AgentImprovementReview>({
+      kind: 'agent-improvement-review',
+      proposalDigest: proposal.digest,
+      decision: input.decision,
+      reviewedBy: input.reviewedBy,
+      reviewedAt: (input.now ?? (() => new Date()))().toISOString(),
+      reason: input.reason,
+      ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
+    }).value,
+  )
 }
 
-/** Verify, materialize, run, grade, and receipt only the exact approved bundle. */
-export async function executeApprovedAgentCandidate(
-  options: ExecuteApprovedAgentCandidateOptions,
-): Promise<ExecuteApprovedAgentCandidateResult> {
-  const proposal = verifyAgentImprovementProposal(options.proposal)
-  const review = verifyAgentImprovementReview(options.review)
-  if (review.decision !== 'approve') throw new Error('candidate review is not an approval')
-  if (review.proposalDigest !== proposal.digest) {
-    throw new Error('candidate approval does not match the proposed improvement')
+/** Authorize product-owned writes only after the exact candidate was measured and approved. */
+export function createAgentImprovementActivation(
+  inputProposal: AgentImprovementProposal,
+  inputReview: AgentImprovementReview,
+  options: CreateAgentImprovementActivationOptions,
+): AgentImprovementActivation {
+  const proposal = verifyAgentImprovementProposal(inputProposal)
+  const review = verifyAgentImprovementReview(inputReview)
+  if (review.decision !== 'approve' || review.proposalDigest !== proposal.digest) {
+    throw new Error('candidate activation requires an approval for the exact proposal')
   }
-  const bundle = proposal.candidateBundle
-  if (!bundle) throw new Error('approved proposal does not contain an executable candidate bundle')
-  if (review.candidateBundleDigest !== bundle.digest) {
-    throw new Error('candidate approval does not match the executable bundle')
+  if (!options.fundingOwner.trim() || !options.authorizedBy.trim()) {
+    throw new Error('candidate activation authority must be non-empty')
   }
-  if (!(await options.authorizeReview(review, proposal))) {
-    throw new Error('candidate approval was not authorized by the configured authority')
-  }
-
-  const verified = await verifyAgentCandidateBundle(bundle, options.ports)
-  const prepared = await prepareAgentCandidateExecution(
-    verified,
-    options.task,
-    options.ports,
-    options.preparation,
-  )
-  const finalization = await executePreparedAgentCandidate(prepared, options.execution)
-  return {
-    finalization,
-    evidence: {
+  const experiment = proposal.evaluation.experiment
+  assertActivationTargets(proposal.changedSurfaces, experiment, options.targets)
+  return agentImprovementActivationSchema.parse(
+    canonicalCandidateDocument<AgentImprovementActivation>({
+      kind: 'agent-improvement-activation',
       proposalDigest: proposal.digest,
       reviewDigest: review.digest,
-      bundleDigest: bundle.digest,
-      executionId: prepared.executionId,
-      executionPlanDigest: prepared.executionPlan.value.digest,
-      materializationReceiptDigest: prepared.materializationReceipt.digest,
-      succeeded: finalization.succeeded,
-      ...(finalization.succeeded ? { runReceiptDigest: finalization.receipt.digest } : {}),
-    },
-  }
+      experimentDigest: experiment.digest,
+      candidateBundleDigest: experiment.candidate.digest,
+      targets: options.targets,
+      fundingOwner: options.fundingOwner,
+      authorizedBy: options.authorizedBy,
+      authorizedAt: (options.now ?? (() => new Date()))().toISOString(),
+    }).value,
+  )
 }
 
-/** Validate a proposal's schema, profile, sealed bundle, and canonical digest. */
+/** Validate a proposal and recompute every binding to its measured experiment. */
 export function verifyAgentImprovementProposal(input: unknown): AgentImprovementProposal {
-  if (
-    !isRecord(input) ||
-    input.kind !== 'agent-improvement-proposal' ||
-    input.schemaVersion !== 1
-  ) {
-    throw new Error('invalid agent improvement proposal')
-  }
-  const proposal = input as unknown as AgentImprovementProposal
-  const parsedBaselineProfile = parseExactAgentProfile(
-    proposal.baselineProfile,
-    'proposal baseline profile',
+  const proposal = verifyCanonicalCandidateDocument(
+    agentImprovementProposalSchema.parse(input),
+    'agent improvement proposal',
   )
-  if (proposal.baselineProfileHash !== canonicalCandidateDigest(parsedBaselineProfile)) {
-    throw new Error('proposal baselineProfileHash does not match baselineProfile')
+  const evaluation = verifyCandidateExperimentComparison(proposal.evaluation)
+  if (evaluation.decision.outcome !== 'ship') {
+    throw new Error('agent improvement proposal does not contain a passing experiment')
   }
-  const parsedProfile = parseExactAgentProfile(
-    proposal.candidateProfile,
-    'proposal candidate profile',
+  if (proposal.runId !== evaluation.provenance.runId) {
+    throw new Error('proposal runId does not match its measured experiment')
+  }
+  const changedSurfaces = deriveChangedSurfaces(
+    evaluation.experiment.baseline,
+    evaluation.experiment.candidate,
   )
-  if (proposal.candidateProfileHash !== canonicalCandidateDigest(parsedProfile)) {
-    throw new Error('proposal candidateProfileHash does not match candidateProfile')
+  if (!sameOrderedValues(proposal.changedSurfaces, changedSurfaces)) {
+    throw new Error('proposal changed surfaces do not match its exact experiment')
   }
-  assertMeasuredProfileBinding({
-    surface: proposal.surface,
-    baselineProfile: parsedBaselineProfile,
-    candidateProfile: parsedProfile,
-    evaluation: proposal.evaluation,
-    hasExecutableBundle: proposal.candidateBundle !== undefined,
-  })
-  if (!Array.isArray(proposal.findings)) throw new Error('proposal findings must be an array')
-  if (!isSha256Digest(proposal.digest)) throw new Error('proposal digest is invalid')
-  if (proposal.candidateBundle) {
-    const parsedBundle = agentCandidateBundleSchema.parse(proposal.candidateBundle)
-    const sealed = sealAgentCandidateBundle(omitTopLevelDigest(parsedBundle))
-    if (sealed.digest !== parsedBundle.digest)
-      throw new Error('proposal candidate bundle digest is invalid')
-    assertCandidateProfileBinding(parsedProfile, sealed.profile)
-  }
-  const actual = canonicalCandidateDigest(omitTopLevelDigest(proposal))
-  if (actual !== proposal.digest)
-    throw new Error('agent improvement proposal digest does not match')
-  return immutableCandidateValue(proposal)
+  assertNoJudgeDerivedProposalFindings(proposal.findings)
+  return proposal
 }
 
-function assertMeasuredProfileBinding(input: {
-  surface: ImproveSurface
-  baselineProfile: AgentProfile
-  candidateProfile: AgentProfile
-  evaluation: Pick<AgentImprovementEvaluation<Scenario, unknown>, 'gateDecision' | 'winner'>
-  hasExecutableBundle: boolean
-}): void {
-  const baselineDigest = canonicalCandidateDigest(input.baselineProfile)
-  if (input.evaluation.gateDecision !== 'ship') {
-    if (canonicalCandidateDigest(input.candidateProfile) !== baselineDigest) {
-      throw new Error('non-shipping evaluation must retain the baseline candidate profile')
-    }
-    return
-  }
-
-  const measured = measuredWinnerProfile(
-    input.baselineProfile,
-    input.surface,
-    input.evaluation.winner.surface,
-  )
-  if (!measured) {
-    if (input.hasExecutableBundle) {
-      throw new Error(
-        `executable '${input.surface}' candidate cannot be bound to its measured winner surface`,
-      )
-    }
-    if (canonicalCandidateDigest(input.candidateProfile) !== baselineDigest) {
-      throw new Error(
-        `unbound '${input.surface}' improvement must retain the baseline candidate profile`,
-      )
-    }
-    return
-  }
-  if (canonicalCandidateDigest(input.candidateProfile) !== canonicalCandidateDigest(measured)) {
-    throw new Error('proposal candidate profile does not match the measured winner surface')
-  }
-}
-
-function measuredWinnerProfile(
-  baselineProfile: AgentProfile,
-  surface: ImproveSurface,
-  winner: unknown,
-): AgentProfile | null {
-  if (surface === 'code' || surface === 'memory') return null
-  if (typeof winner !== 'string') {
-    throw new Error(`measured '${surface}' winner is not a serializable profile surface`)
-  }
-  if (surface !== 'skills') {
-    return applyImprovementWinnerToProfile(baselineProfile, surface, winner)
-  }
-  try {
-    return applyImprovementWinnerToProfile(baselineProfile, surface, winner)
-  } catch {
-    // A skill document is text stored outside the profile; a skill-ref array is
-    // JSON stored on the profile. Only the latter can bind to a profile bundle.
-    return null
-  }
-}
-
-function sealBuiltCandidate(
-  input: AgentCandidateBundleInput | AgentCandidateBundle,
-): AgentCandidateBundle {
-  if (!('digest' in input)) return sealAgentCandidateBundle(input)
-  const parsed = agentCandidateBundleSchema.parse(input)
-  const sealed = sealAgentCandidateBundle(omitTopLevelDigest(parsed))
-  if (sealed.digest !== parsed.digest) {
-    throw new Error('built candidate bundle digest is invalid')
-  }
-  return sealed
-}
-
-/** Validate a review's decision fields and canonical digest. */
+/** Validate the canonical identity and wire shape of an improvement review. */
 export function verifyAgentImprovementReview(input: unknown): AgentImprovementReview {
-  if (!isRecord(input) || input.kind !== 'agent-improvement-review' || input.schemaVersion !== 1) {
-    throw new Error('invalid agent improvement review')
-  }
-  const review = input as unknown as AgentImprovementReview
-  if (!isSha256Digest(review.digest) || !isSha256Digest(review.proposalDigest)) {
-    throw new Error('candidate review digest is invalid')
-  }
-  if (review.candidateBundleDigest !== undefined && !isSha256Digest(review.candidateBundleDigest)) {
-    throw new Error('candidate review bundle digest is invalid')
-  }
-  if (!['approve', 'reject', 'request-changes'].includes(review.decision)) {
-    throw new Error('candidate review decision is invalid')
-  }
-  const actual = canonicalCandidateDigest(omitTopLevelDigest(review))
-  if (actual !== review.digest) throw new Error('agent improvement review digest does not match')
-  return immutableCandidateValue(review)
+  return verifyCanonicalCandidateDocument(
+    agentImprovementReviewSchema.parse(input),
+    'agent improvement review',
+  )
 }
 
-function improvementEvaluation<TScenario extends Scenario, TArtifact>(
-  result: SelfImproveResult<TScenario, TArtifact>,
-): AgentImprovementEvaluation<TScenario, TArtifact> {
+/** Validate activation authority against the exact proposal, review, experiment, and base state. */
+export function verifyAgentImprovementActivation(input: {
+  proposal: unknown
+  review: unknown
+  activation: unknown
+}): AgentImprovementActivation {
+  const proposal = verifyAgentImprovementProposal(input.proposal)
+  const review = verifyAgentImprovementReview(input.review)
+  const activation = verifyCanonicalCandidateDocument(
+    agentImprovementActivationSchema.parse(input.activation),
+    'agent improvement activation',
+  )
+  const experiment = proposal.evaluation.experiment
+  if (
+    review.decision !== 'approve' ||
+    review.proposalDigest !== proposal.digest ||
+    activation.proposalDigest !== proposal.digest ||
+    activation.reviewDigest !== review.digest ||
+    activation.experimentDigest !== experiment.digest ||
+    activation.candidateBundleDigest !== experiment.candidate.digest
+  ) {
+    throw new Error('candidate activation does not bind the measured and approved candidate')
+  }
+  assertActivationTargets(proposal.changedSurfaces, experiment, activation.targets)
+  return activation
+}
+
+/** Recheck one Runtime receipt against its exact signed experiment cell. */
+export function verifyCandidateExecutionEvidence(
+  input: unknown,
+  options: VerifyCandidateExecutionEvidenceOptions,
+): CandidateExecutionEvidence {
+  const experiment = verifyCandidateExperiment(options.experiment)
+  const bundle = experiment[options.arm]
+  const task = experiment.benchmark.tasks[options.benchmarkCell.taskIndex]
+  const index =
+    options.benchmarkCell.taskIndex * experiment.benchmark.suite.reps +
+    options.benchmarkCell.repetition
+  if (
+    !task ||
+    options.benchmarkCell.suiteDigest !== experiment.benchmark.suite.digest ||
+    options.seed !== experiment.benchmark.suite.seeds[index]
+  ) {
+    throw new Error('candidate execution evidence points outside its signed experiment')
+  }
+  const evidence = verifyCanonicalCandidateDocument(
+    candidateExecutionEvidenceSchema.parse(input),
+    'candidate execution evidence',
+  )
+  const materialization = verifyCanonicalCandidateDocument(
+    agentCandidateMaterializationReceiptSchema.parse(evidence.materializationReceipt),
+    'candidate materialization receipt',
+  )
+  const receipt = verifyCanonicalCandidateDocument(
+    agentCandidateRunReceiptSchema.parse(evidence.receipt),
+    'candidate run receipt',
+  )
+  const plan = materialization.executionPlan
+  const cell = plan.material.runCell
+  const attempt = options.attempt ?? 1
+  if (
+    cell.experimentDigest !== experiment.digest ||
+    cell.arm !== options.arm ||
+    cell.bundleDigest !== bundle.digest ||
+    cell.suiteDigest !== experiment.benchmark.suite.digest ||
+    cell.taskDigest !== task.digest ||
+    cell.taskIndex !== options.benchmarkCell.taskIndex ||
+    cell.repetition !== options.benchmarkCell.repetition ||
+    cell.seed !== options.seed ||
+    cell.attempt !== attempt ||
+    canonicalCandidateDigest(omitTopLevelDigest(cell)) !== cell.digest
+  ) {
+    throw new Error('candidate execution receipt substituted its signed experiment cell')
+  }
+  assertCapturedInput(
+    materialization.benchmark.suite,
+    experiment.benchmark.suite,
+    'benchmark suite',
+  )
+  assertCapturedInput(materialization.benchmark.task, task, 'benchmark task')
+  assertEvidenceMaterialDigest(plan, 'candidate execution plan')
+  assertEvidenceMaterialDigest(
+    materialization.profileActivation.profilePlan,
+    'candidate profile plan',
+  )
+  const expectedProfilePlan = materializeCandidateProfile(
+    bundle.profile,
+    candidateMaterializerHarness(materialization.harness),
+    { resolvedResources: options.resolvedResources },
+  )
+  const activation = parseAgentCandidateProfileActivation(
+    materialization.profileActivation,
+    materialization.profileActivation.profilePlan.digest,
+  )
+  const regeneratedActivation = createAgentCandidateProfileActivation(
+    expectedProfilePlan,
+    materialization.profileActivation.profilePlan,
+  )
+  if (activation.digest !== regeneratedActivation.digest) {
+    throw new Error('candidate profile activation does not match the experiment bundle')
+  }
+  if (
+    materialization.bundleDigest !== bundle.digest ||
+    receipt.bundleDigest !== bundle.digest ||
+    receipt.runCellDigest !== cell.digest ||
+    receipt.materializationReceiptDigest !== materialization.digest ||
+    receipt.executionPlanDigest !== plan.digest
+  ) {
+    throw new Error('candidate execution evidence does not bind one exact Runtime run')
+  }
+  assertEvidenceMaterialDigest(receipt.modelSettlement, 'candidate model settlement')
+  assertEvidenceMaterialDigest(receipt.taskOutcome, 'candidate task outcome')
+  assertEvidenceMaterialDigest(receipt.benchmarkResult, 'candidate benchmark result')
+  return immutableCandidateValue(evidence)
+}
+
+function assertExactExperimentInput(
+  input: CandidateExperimentExecutionInput,
+  experiment: AgentCandidateExperiment,
+  bundle: AgentCandidateBundle,
+): void {
+  const task = experiment.benchmark.tasks[input.benchmarkCell.taskIndex]
+  const index =
+    input.benchmarkCell.taskIndex * experiment.benchmark.suite.reps + input.benchmarkCell.repetition
+  if (
+    input.experiment.digest !== experiment.digest ||
+    input.bundle.digest !== bundle.digest ||
+    !task ||
+    input.task.digest !== task.digest ||
+    input.benchmarkCell.suiteDigest !== experiment.benchmark.suite.digest ||
+    input.seed !== experiment.benchmark.suite.seeds[index]
+  ) {
+    throw new Error('Runtime received a substituted candidate experiment cell')
+  }
+}
+
+function assertCapturedInput(
+  captured: { digest: Sha256Digest; material: { sha256: Sha256Digest; byteLength: number } },
+  expected: { digest: Sha256Digest },
+  label: string,
+): void {
+  const bytes = canonicalCandidateBytes(omitTopLevelDigest(expected))
+  if (
+    captured.digest !== expected.digest ||
+    captured.material.sha256 !== expected.digest ||
+    captured.material.byteLength !== bytes.byteLength
+  ) {
+    throw new Error(`candidate materialization substituted its ${label}`)
+  }
+}
+
+function assertEvidenceMaterialDigest(
+  evidence: {
+    digest: Sha256Digest
+    material: unknown
+    artifact: { sha256: Sha256Digest; byteLength: number }
+  },
+  label: string,
+): void {
+  const bytes = canonicalCandidateBytes(evidence.material)
+  if (
+    canonicalCandidateDigest(evidence.material) !== evidence.digest ||
+    evidence.artifact.sha256 !== evidence.digest ||
+    evidence.artifact.byteLength !== bytes.byteLength
+  ) {
+    throw new Error(`${label} digest does not match its canonical material`)
+  }
+}
+
+const CHANGED_SURFACE_ORDER: readonly AgentImprovementSurface[] = [
+  'prompt',
+  'skills',
+  'tools',
+  'mcp',
+  'hooks',
+  'subagents',
+  'agent-profile',
+  'memory',
+  'code',
+  'knowledge',
+]
+
+function deriveChangedSurfaces(
+  baselineBundle: AgentCandidateBundle,
+  candidateBundle: AgentCandidateBundle,
+): [AgentImprovementSurface, ...AgentImprovementSurface[]] {
+  const baseline = improvementSurfaceValues(baselineBundle)
+  const candidate = improvementSurfaceValues(candidateBundle)
+  const changed = new Set<AgentImprovementSurface>()
+  for (const surface of CHANGED_SURFACE_ORDER) {
+    if (
+      canonicalCandidateDigest(baseline[surface]) !== canonicalCandidateDigest(candidate[surface])
+    ) {
+      changed.add(surface)
+    }
+  }
+  const ordered = CHANGED_SURFACE_ORDER.filter((surface) => changed.has(surface))
+  if (ordered.length === 0) throw new Error('candidate experiment does not change an agent surface')
+  return ordered as [AgentImprovementSurface, ...AgentImprovementSurface[]]
+}
+
+function improvementSurfaceValues(
+  bundle: AgentCandidateBundle,
+): Record<AgentImprovementSurface, unknown> {
+  const profile = agentCandidateProfileAsAgentProfile(bundle.profile)
   return {
-    baseline: result.baseline,
-    winner: result.winner,
-    lift: result.lift,
-    diff: result.diff,
-    provenance: result.provenance,
-    gateDecision: result.gateDecision,
-    generationsExplored: result.generationsExplored,
-    durationMs: result.durationMs,
-    totalCostUsd: result.totalCostUsd,
-    insight: result.insight,
-    ...(result.power === undefined ? {} : { power: result.power }),
+    prompt: {
+      prompt: profile.prompt ?? null,
+      instructions: profile.resources?.instructions ?? null,
+    },
+    skills: profile.resources?.skills ?? null,
+    tools: {
+      tools: profile.tools ?? null,
+      resources: profile.resources?.tools ?? null,
+    },
+    mcp: profile.mcp ?? null,
+    hooks: profile.hooks ?? null,
+    subagents: {
+      subagents: profile.subagents ?? null,
+      resources: profile.resources?.agents ?? null,
+    },
+    'agent-profile': { profile: opaqueProfileSlice(profile), execution: bundle.execution },
+    memory: bundle.memory,
+    code: bundle.code,
+    knowledge: bundle.knowledge ?? null,
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+function opaqueProfileSlice(profile: AgentProfile): unknown {
+  const {
+    prompt: _prompt,
+    tools: _tools,
+    mcp: _mcp,
+    hooks: _hooks,
+    subagents: _subagents,
+    resources,
+    ...opaqueProfile
+  } = profile
+  const {
+    instructions: _instructions,
+    skills: _skills,
+    tools: _resourceTools,
+    agents: _agents,
+    ...opaqueResources
+  } = resources ?? {}
+  return {
+    ...opaqueProfile,
+    ...(Object.keys(opaqueResources).length > 0 ? { resources: opaqueResources } : {}),
+  }
 }
 
-function isSha256Digest(value: unknown): value is Sha256Digest {
-  return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value)
+function assertActivationTargets(
+  surfaces: readonly AgentImprovementSurface[],
+  experiment: AgentCandidateExperiment,
+  targets: readonly AgentImprovementActivationTarget[],
+): void {
+  const expected = new Set(surfaces)
+  const actual = new Set(targets.map((target) => target.surface))
+  const baselineValues = improvementSurfaceValues(experiment.baseline)
+  if (
+    targets.some((target) => !target.identity.trim()) ||
+    targets.some(
+      (target) =>
+        target.expectedBaseDigest !==
+        expectedActivationBaseDigest(experiment, target.surface, baselineValues),
+    ) ||
+    expected.size !== actual.size ||
+    [...expected].some((surface) => !actual.has(surface))
+  ) {
+    throw new Error('candidate activation targets must cover exactly the changed surfaces')
+  }
 }
 
-function canonicalJsonValue<T>(value: T, path = '$'): T {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error(`non-finite number at ${path}`)
-    return value
+function expectedActivationBaseDigest(
+  experiment: AgentCandidateExperiment,
+  surface: AgentImprovementSurface,
+  baselineValues: Record<AgentImprovementSurface, unknown>,
+): Sha256Digest {
+  if (surface === 'knowledge' && experiment.candidate.knowledge) {
+    return experiment.candidate.knowledge.candidate.baseHash
   }
-  if (Array.isArray(value)) {
-    return value.map((entry, index) => {
-      if (entry === undefined) throw new Error(`undefined array entry at ${path}[${index}]`)
-      return canonicalJsonValue(entry, `${path}[${index}]`)
-    }) as T
-  }
-  if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .map(([key, entry]) => [key, canonicalJsonValue(entry, `${path}.${key}`)])
-    return Object.fromEntries(entries) as T
-  }
-  throw new Error(`unsupported proposal value at ${path}`)
+  return canonicalCandidateDigest(baselineValues[surface])
+}
+
+function sameOrderedValues<T>(left: readonly T[], right: readonly T[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function assertNoJudgeDerivedProposalFindings(
+  findings: AgentImprovementProposal['findings'],
+): void {
+  const leaked = findings.filter((finding) => finding.derived_from_judge === true)
+  if (leaked.length === 0) return
+  const identifiers = leaked.map((finding) =>
+    typeof finding.finding_id === 'string' ? finding.finding_id : '<unknown>',
+  )
+  throw new Error(
+    'agent improvement proposal findings: judge-derived findings cannot steer an improvement: ' +
+      `[${identifiers.join(', ')}]`,
+  )
 }

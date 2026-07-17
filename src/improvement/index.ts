@@ -40,7 +40,6 @@ export {
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
 export {
-  type AgentProfileDiffProposal,
   type ProfileDiffProposerContext,
   type ProfileDiffProposerOptions,
   profileDiffProposer,

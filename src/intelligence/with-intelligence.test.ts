@@ -1,4 +1,8 @@
-import type { AgentProfile, AgentProfileDiff } from '@tangle-network/agent-interface'
+import type {
+  AgentProfile,
+  AgentProfileDiff,
+  CandidateExecutionEvidence,
+} from '@tangle-network/agent-interface'
 import { applyAgentProfileDiff } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProposedProfileDiff } from './delivery'
@@ -8,7 +12,6 @@ import { withIntelligence } from './with-intelligence'
 /** A valid, promoted profile diff — the previously-DROPPED typed artifact the
  *  composed endpoint returns alongside prompt/skill artifacts. */
 const DIFF: AgentProfileDiff = {
-  schemaVersion: 1,
   kind: 'agent-profile-diff',
   id: 'diff-1',
   title: 'certified refund tool',
@@ -243,15 +246,25 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
               },
             ],
             candidateExecution: {
-              proposalDigest: `sha256:${'1'.repeat(64)}`,
-              reviewDigest: `sha256:${'2'.repeat(64)}`,
-              bundleDigest: `sha256:${'3'.repeat(64)}`,
-              executionId: 'candidate-execution-1',
-              executionPlanDigest: `sha256:${'4'.repeat(64)}`,
-              materializationReceiptDigest: `sha256:${'5'.repeat(64)}`,
-              succeeded: true,
-              runReceiptDigest: `sha256:${'6'.repeat(64)}`,
-            },
+              kind: 'agent-candidate-execution-evidence',
+              materializationReceipt: {
+                executionPlan: {
+                  material: {
+                    executionId: 'candidate-execution-1',
+                    runCell: { experimentDigest: `sha256:${'1'.repeat(64)}` },
+                  },
+                },
+              },
+              receipt: {
+                bundleDigest: `sha256:${'3'.repeat(64)}`,
+                executionPlanDigest: `sha256:${'4'.repeat(64)}`,
+                materializationReceiptDigest: `sha256:${'5'.repeat(64)}`,
+                termination: { kind: 'exit', exitCode: 0 },
+                benchmarkResult: { material: { passed: true } },
+                digest: `sha256:${'6'.repeat(64)}`,
+              },
+              digest: `sha256:${'7'.repeat(64)}`,
+            } as CandidateExecutionEvidence,
           })
           return 'answer'
         },
@@ -300,7 +313,7 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(attrs['tool.name']).toBe('mcp__linear__linear_graphql')
       expect(String(attrs['tool.input'])).toContain(longInput)
       expect(attrs['tangle.candidate.execution_id']).toBe('candidate-execution-1')
-      expect(attrs['tangle.candidate.proposal_digest']).toBe(`sha256:${'1'.repeat(64)}`)
+      expect(attrs['tangle.candidate.experiment_digest']).toBe(`sha256:${'1'.repeat(64)}`)
       expect(attrs['tangle.candidate.run_receipt_digest']).toBe(`sha256:${'6'.repeat(64)}`)
     } finally {
       vi.useRealTimers()

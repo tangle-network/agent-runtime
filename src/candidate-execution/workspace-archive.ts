@@ -73,7 +73,7 @@ const defaultLimits: AgentCandidateWorkspaceArchiveLimits = Object.freeze({
   maxRepositoryBundleBytes: 128 * 1024 * 1024,
 })
 
-interface WorkspaceArchiveRepositoryV1 {
+interface WorkspaceArchiveRepository {
   headCommit: string
   headTree: string
   bundle: {
@@ -83,8 +83,7 @@ interface WorkspaceArchiveRepositoryV1 {
   }
 }
 
-interface WorkspaceArchiveRepositoryMetadataV1 {
-  schemaVersion: 1
+interface WorkspaceArchiveRepositoryMetadata {
   kind: typeof archiveKind
   headCommit: string
   headTree: string
@@ -96,7 +95,7 @@ interface WorkspaceArchiveRepositoryMetadataV1 {
 
 interface DecodedWorkspaceArchive {
   files: Array<{ path: string; mode: number; bytes: Uint8Array }>
-  repository?: WorkspaceArchiveRepositoryV1
+  repository?: WorkspaceArchiveRepository
 }
 
 export interface CaptureAgentCandidateWorkspaceOptions {
@@ -158,7 +157,7 @@ export async function captureAgentCandidateWorkspaceFiles(
 
 async function captureWorkspaceFiles(
   files: readonly AgentCandidateExecutorWorkspaceFile[],
-  repository: WorkspaceArchiveRepositoryV1 | undefined,
+  repository: WorkspaceArchiveRepository | undefined,
   limits: AgentCandidateWorkspaceArchiveLimits,
   artifactPersistence: CaptureAgentCandidateWorkspaceOptions['artifactPersistence'],
 ): Promise<CapturedAgentCandidateWorkspace> {
@@ -177,7 +176,6 @@ async function captureWorkspaceFiles(
   const manifestArtifact = await captureWorkspaceArtifact('manifest', manifest, artifactPersistence)
   const archiveArtifact = await captureWorkspaceArtifact('archive', archive, artifactPersistence)
   const snapshot = deepFreezeCandidate({
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: canonicalCandidateDigest(material),
     material,
@@ -265,7 +263,7 @@ async function captureRepository(
   limits: AgentCandidateWorkspaceArchiveLimits,
 ): Promise<{
   files: Array<{ path: string; mode: number; bytes: Uint8Array }>
-  repository: WorkspaceArchiveRepositoryV1
+  repository: WorkspaceArchiveRepository
 }> {
   const stats = await lstat(root)
   if (!stats.isDirectory() || stats.isSymbolicLink() || (await realpath(root)) !== root) {
@@ -338,7 +336,7 @@ async function captureRepository(
 
 async function encodeWorkspaceArchive(
   files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
-  repository: WorkspaceArchiveRepositoryV1 | undefined,
+  repository: WorkspaceArchiveRepository | undefined,
   maxArchiveBytes: number,
 ): Promise<Uint8Array> {
   const archive = pack()
@@ -356,7 +354,7 @@ async function encodeWorkspaceArchive(
 
 async function verifyCanonicalWorkspaceArchive(
   files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
-  repository: WorkspaceArchiveRepositoryV1 | undefined,
+  repository: WorkspaceArchiveRepository | undefined,
   expected: Uint8Array,
   maxArchiveBytes: number,
 ): Promise<void> {
@@ -381,14 +379,13 @@ async function verifyCanonicalWorkspaceArchive(
 async function writeWorkspaceArchiveEntries(
   archive: Pack,
   files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
-  repository: WorkspaceArchiveRepositoryV1 | undefined,
+  repository: WorkspaceArchiveRepository | undefined,
 ): Promise<void> {
   for (const file of files) {
     await writeTarEntry(archive, `${workspaceEntryPrefix}${file.path}`, file.mode, file.bytes)
   }
   if (!repository) return
   const metadata = canonicalCandidateBytes({
-    schemaVersion: 1,
     kind: archiveKind,
     headCommit: repository.headCommit,
     headTree: repository.headTree,
@@ -396,7 +393,7 @@ async function writeWorkspaceArchiveEntries(
       sha256: repository.bundle.sha256,
       byteLength: repository.bundle.byteLength,
     },
-  } satisfies WorkspaceArchiveRepositoryMetadataV1)
+  } satisfies WorkspaceArchiveRepositoryMetadata)
   await writeTarEntry(archive, repositoryMetadataEntry, 0o600, metadata)
   await writeTarEntry(archive, repositoryBundleEntry, 0o600, repository.bundle.bytes)
 }
@@ -415,7 +412,7 @@ async function parseWorkspaceArchive(
   let totalBytes = 0
   let retainedEntryBytes = 0
   let previousPath: string | undefined
-  let repositoryMetadata: WorkspaceArchiveRepositoryMetadataV1 | undefined
+  let repositoryMetadata: WorkspaceArchiveRepositoryMetadata | undefined
   let repositoryBundle: Uint8Array | undefined
   const decoded = (async () => {
     for await (const entry of parser) {
@@ -433,7 +430,7 @@ async function parseWorkspaceArchive(
           throw new Error('candidate workspace archive has an invalid file count')
         }
         const path = safeArchivePath(name.slice(workspaceEntryPrefix.length), limits.maxPathBytes)
-        if (!isRegularFileMode(entry.header.mode)) {
+        if (!isWorkspaceFileMode(entry.header.mode)) {
           throw new Error(`candidate workspace archive has an unsupported mode: ${path}`)
         }
         assertRetainedArchiveSize(bytes.byteLength, retainedEntryBytes, entry.header.size, limits)
@@ -517,7 +514,7 @@ function assertRetainedArchiveSize(
 function parseRepositoryMetadata(
   bytes: Uint8Array,
   maxBundleBytes: number,
-): WorkspaceArchiveRepositoryMetadataV1 {
+): WorkspaceArchiveRepositoryMetadata {
   let value: unknown
   try {
     value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
@@ -526,8 +523,7 @@ function parseRepositoryMetadata(
   }
   if (
     !isRecord(value) ||
-    Object.keys(value).sort().join(',') !== 'bundle,headCommit,headTree,kind,schemaVersion' ||
-    value.schemaVersion !== 1 ||
+    Object.keys(value).sort().join(',') !== 'bundle,headCommit,headTree,kind' ||
     value.kind !== archiveKind ||
     typeof value.headCommit !== 'string' ||
     typeof value.headTree !== 'string' ||
@@ -550,7 +546,6 @@ function parseRepositoryMetadata(
     throw new Error('candidate repository HEAD and tree use different object formats')
   }
   return {
-    schemaVersion: 1,
     kind: archiveKind,
     headCommit: value.headCommit,
     headTree: value.headTree,
@@ -562,9 +557,9 @@ function parseRepositoryMetadata(
 }
 
 function repositoryFromTar(
-  metadata: WorkspaceArchiveRepositoryMetadataV1,
+  metadata: WorkspaceArchiveRepositoryMetadata,
   bundle: Uint8Array,
-): WorkspaceArchiveRepositoryV1 {
+): WorkspaceArchiveRepository {
   verifyBytes(bundle, metadata.bundle.sha256, metadata.bundle.byteLength, 'candidate Git bundle')
   return {
     headCommit: metadata.headCommit,
@@ -699,7 +694,7 @@ async function writeWorkspaceFiles(
 }
 
 async function materializeRepository(
-  repository: WorkspaceArchiveRepositoryV1,
+  repository: WorkspaceArchiveRepository,
   destination: string,
 ): Promise<void> {
   const temporary = await mkdtemp(join(tmpdir(), 'agent-candidate-workspace-bundle-'))
@@ -780,7 +775,7 @@ function assertWorkspaceFilesWithinLimits(
       'candidate workspace paths must be unique and sorted',
     )
     previousPath = path
-    if (!isRegularFileMode(file.mode)) {
+    if (!isWorkspaceFileMode(file.mode)) {
       throw new Error(`candidate workspace file has unsupported mode: ${path}`)
     }
     if (file.bytes.byteLength > limits.maxFileBytes) {
@@ -822,7 +817,7 @@ function normalizeWorkspaceFiles(
     const path = safeArchivePath(descriptors.path?.value, limits.maxPathBytes)
     const mode = descriptors.mode?.value
     const inputBytes = descriptors.bytes?.value
-    if (!isRegularFileMode(mode)) {
+    if (!isWorkspaceFileMode(mode)) {
       throw new Error(`candidate workspace file has unsupported mode: ${path}`)
     }
     const view = inspectWorkspaceBytes(inputBytes, path)
@@ -843,8 +838,8 @@ function normalizeWorkspaceFiles(
   return files
 }
 
-function isRegularFileMode(value: unknown): value is number {
-  return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 0o777
+function isWorkspaceFileMode(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 0o777
 }
 
 function workspaceLimits(

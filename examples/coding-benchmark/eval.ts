@@ -94,7 +94,7 @@ export const heldoutPassRateOf = (artifact: RunArtifact): number => artifact.hel
  *  seeding never interpolates a path into a command string. */
 export interface CheckBox {
   exec(command: string): Promise<{ exitCode: number; stdout: string; stderr: string }>
-  fs?: { write(path: string, content: string): Promise<void> }
+  fs?: { write(path: string, content: string): Promise<unknown> }
 }
 
 /** Seed a test file into the box. Prefers the structured `fs.write` seam so the path/

@@ -2,7 +2,10 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import type { AgentCandidateArtifactRef } from '@tangle-network/agent-interface'
+import type {
+  AgentCandidateArtifactRef,
+  AgentCandidateFixedSpend,
+} from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -12,7 +15,6 @@ import {
   type AgentCandidateExecutionLease,
   type AgentCandidateExecutionRecoveryEvidence,
   type AgentCandidateExecutionTerminalResult,
-  type AgentCandidateExecutionUsage,
   InMemoryAgentCandidateExecutionClaimStore,
 } from '../src/candidate-execution/claim'
 import { FileAgentCandidateExecutionClaimStore } from '../src/candidate-execution/claim-file-store'
@@ -51,17 +53,17 @@ describe('candidate execution claim lifecycle', () => {
     const claimedAtMs = Date.now()
     vi.spyOn(Date, 'now').mockReturnValue(claimedAtMs)
 
-    const requested = candidateExecutionClaim(prepared)
+    const requested = candidateExecutionClaim(prepared, preparationEvidenceFor(prepared))
     const ownerWindowMs = candidateExecutionOwnerWindowMs(
-      fixture.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
       cleanupTimeoutMs,
-      fixture.task.limits.timeoutMs,
-      fixture.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
     )
 
     expect(requested.leaseExpiresAtMs).toBe(claimedAtMs + ownerWindowMs)
     expect(requested.cleanup.cleanupTimeoutMs).toBe(cleanupTimeoutMs)
-    expect(requested.resultTimeoutMs).toBe(fixture.task.limits.timeoutMs)
+    expect(requested.resultTimeoutMs).toBe(fixture.task.task.limits.timeoutMs)
     expect(ownerWindowMs).toBeLessThan(15 * 60_000)
   })
 
@@ -81,14 +83,14 @@ describe('candidate execution claim lifecycle', () => {
       { cleanupTimeoutMs },
     )
     const ownerWindowMs = candidateExecutionOwnerWindowMs(
-      fixture.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
       cleanupTimeoutMs,
-      fixture.task.limits.timeoutMs,
-      fixture.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
+      fixture.task.task.limits.timeoutMs,
     )
     vi.spyOn(Date, 'now').mockReturnValue(reservationExpiresAtMs - ownerWindowMs + 1)
 
-    expect(() => candidateExecutionClaim(prepared)).toThrow(
+    expect(() => candidateExecutionClaim(prepared, preparationEvidenceFor(prepared))).toThrow(
       /full execution and cleanup owner window/,
     )
   })
@@ -172,7 +174,6 @@ describe('candidate execution claim lifecycle', () => {
 
     expect(terminal.usage).toEqual(result.usage)
     expect(terminal).toMatchObject({
-      schemaVersion: 1,
       modelSettlement: result.modelSettlement,
       taskOutcome: result.taskOutcome,
       benchmarkResult: result.benchmarkResult,
@@ -519,7 +520,7 @@ describe('candidate execution claim lifecycle', () => {
     ).toMatchObject({ acquired: false, detail: 'retry-lineage-mismatch' })
   })
 
-  it('persists claim7, pending1, terminal3, phase, staged, and full usage across stores', async () => {
+  it('persists claims, transitions, terminals, and full usage across stores', async () => {
     const directory = await tempDirectory()
     const store = new FileAgentCandidateExecutionClaimStore({ directory })
     const acquired = await acquire(store, claim())
@@ -539,9 +540,7 @@ describe('candidate execution claim lifecycle', () => {
       staged: terminal,
       terminal,
     })
-    expect(files.find(({ name }) => name.endsWith('.claim.json'))?.text).toContain('"version":7')
-    expect(files.find(({ name }) => name.includes('transition-2'))?.text).toContain('"version":1')
-    expect(files.find(({ name }) => name.endsWith('.terminal.json'))?.text).toContain('"version":3')
+    for (const file of files) expect(JSON.parse(file.text)).not.toHaveProperty('version')
     expect(files.map(({ text }) => text).join('\n')).not.toContain(acquired.lease.token)
   })
 
@@ -642,6 +641,10 @@ function claim(
     retryPolicy: 'none',
     bundleDigest: sha256('a'),
     executionPlanDigest: sha256('b'),
+    preparationEvidence: {
+      executionPlan: artifact('b'),
+      materializationReceipt: artifact('e'),
+    },
     retryLineageDigest: sha256('c'),
     leaseExpiresAtMs: FUTURE_EXPIRY_MS,
     resultTimeoutMs: 60_000,
@@ -656,10 +659,27 @@ function retryClaim(
   return claim({ maxAttempts: 3, retryPolicy: 'pre-model-infrastructure-only', ...overrides })
 }
 
+function preparationEvidenceFor(
+  prepared: Parameters<typeof candidateExecutionClaim>[0],
+): AgentCandidateExecutionClaim['preparationEvidence'] {
+  return {
+    executionPlan: {
+      locator: { kind: 's3', bucket: 'candidate-evidence', key: 'execution-plan.json' },
+      sha256: prepared.executionPlan.value.digest,
+      byteLength: prepared.executionPlan.bytes.byteLength,
+    },
+    materializationReceipt: {
+      locator: { kind: 's3', bucket: 'candidate-evidence', key: 'materialization-receipt.json' },
+      sha256: prepared.materializationReceipt.digest,
+      byteLength: prepared.materializationReceipt.bytes.byteLength,
+    },
+  }
+}
+
 function usage(
   modelCalls = 0,
-  overrides: Partial<AgentCandidateExecutionUsage> = {},
-): AgentCandidateExecutionUsage {
+  overrides: Partial<AgentCandidateFixedSpend> = {},
+): AgentCandidateFixedSpend {
   return {
     costUsdNanos: modelCalls * 123_456,
     inputTokens: modelCalls * 101,
@@ -677,7 +697,6 @@ function failed(
   overrides: Partial<Extract<AgentCandidateExecutionTerminalResult, { status: 'failed' }>> = {},
 ): Extract<AgentCandidateExecutionTerminalResult, { status: 'failed' }> {
   return {
-    schemaVersion: 1,
     status: 'failed',
     failureClass,
     usage: usage(modelCalls),
@@ -688,7 +707,6 @@ function failed(
 
 function succeeded(): Extract<AgentCandidateExecutionTerminalResult, { status: 'succeeded' }> {
   return {
-    schemaVersion: 1,
     status: 'succeeded',
     usage: usage(2),
     modelSettlement: artifact('1'),
@@ -731,14 +749,14 @@ function cleanupHandles(memory = false): AgentCandidateExecutionClaim['cleanup']
 }
 
 function preparationId(character: string): string {
-  return `candidate-preparation-v1.${character.repeat(43)}`
+  return `candidate-preparation.${character.repeat(43)}`
 }
 
 function recoveryEvidence(
   requested: AgentCandidateExecutionClaim,
   overrides: {
     failureClass?: AgentCandidateExecutionFailureClass
-    usage?: AgentCandidateExecutionUsage
+    usage?: AgentCandidateFixedSpend
     modelSettlement?: AgentCandidateArtifactRef
   } = {},
 ): AgentCandidateExecutionRecoveryEvidence {
@@ -770,7 +788,7 @@ function sha256(character: string): `sha256:${string}` {
 }
 
 function leaseToken(character: string): string {
-  return `candidate-execution-lease-v1.${character.repeat(43)}`
+  return `candidate-execution-lease.${character.repeat(43)}`
 }
 
 async function acquire(

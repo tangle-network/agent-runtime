@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
 import {
-  type AgentCandidateOutputArtifactPort,
   captureAgentCandidateWorkspaceFiles,
   createAgentCandidateWorkspacePort,
 } from '@tangle-network/agent-runtime/candidate-execution'
@@ -77,7 +75,7 @@ test('Pier task outcome preserves the signed base for an empty patch', async () 
   }
 })
 
-test('Pier task outcome externalizes workspace evidence above the embedded limit', async () => {
+test('Pier task outcome returns large workspace bytes for the runtime capture path', async () => {
   const root = mkdtempSync(join(tmpdir(), 'pier-task-outcome-test-'))
   try {
     const payload = Buffer.alloc(1024 * 1024 + 1, 7)
@@ -89,44 +87,19 @@ test('Pier task outcome externalizes workspace evidence above the embedded limit
     git(root, ['commit', '-m', 'base'])
     const baseCommit = git(root, ['rev-parse', 'HEAD'])
     const baseTree = git(root, ['rev-parse', 'HEAD^{tree}'])
-    const stored = new Map<string, Uint8Array>()
-    const outputArtifacts: AgentCandidateOutputArtifactPort = {
-      put: async ({ bytes, purpose }) => {
-        const detached = Uint8Array.from(bytes)
-        const digest = sha256(detached)
-        stored.set(digest, detached)
-        return {
-          locator: {
-            kind: 's3',
-            bucket: 'pier-test-artifacts',
-            key: `${purpose}/${digest}`,
-          },
-          sha256: digest,
-          byteLength: detached.byteLength,
-        }
-      },
-      read: async (ref) => Uint8Array.from(stored.get(ref.sha256) ?? []),
-    }
-
     const captured = await capturePierTaskOutcome({
       repositoryRoot: root,
       baseCommit,
       baseTree,
       patch: Buffer.alloc(0),
-      artifactPersistence: { executionId: 'pier-large-1', outputArtifacts },
     })
 
     assert.ok(captured.archive.byteLength > 1024 * 1024)
     assert.equal(captured.afterState.files[0]?.byteLength, payload.byteLength)
-    assert.deepEqual(Buffer.from(stored.get(sha256(captured.archive)) ?? []), captured.archive)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
-
-function sha256(bytes: Uint8Array): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`
-}
 
 function git(root: string, args: string[]): string {
   return execFileSync('git', ['-C', root, ...args], {

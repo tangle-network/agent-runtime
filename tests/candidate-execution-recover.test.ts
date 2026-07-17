@@ -11,14 +11,19 @@ import {
 } from '../src/candidate-execution/claim'
 import { prepareAgentCandidateExecution } from '../src/candidate-execution/prepare'
 import { recoverExpiredAgentCandidateExecution } from '../src/candidate-execution/recover'
-import type { AgentCandidateOutputArtifactPort } from '../src/candidate-execution/types'
+import type {
+  AgentCandidateOutputArtifactPort,
+  PreparedAgentCandidateExecution,
+} from '../src/candidate-execution/types'
 import { verifyAgentCandidateBundle } from '../src/candidate-execution/verify'
 import {
+  bindCandidateFixtureBundle,
   candidateSha,
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
   emptyCandidateSnapshot,
   redigestCandidateBundle,
+  replaceCandidateFixtureAttempt,
 } from './helpers/candidate-execution-fixture'
 
 afterEach(cleanupCandidateFixtures)
@@ -33,19 +38,19 @@ describe('expired candidate recovery', () => {
     )
     let now = Date.now()
     const claimStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
-    const claim = candidateExecutionClaim(prepared)
+    const outputArtifacts = outputArtifactPort()
+    const claim = await persistedClaim(prepared, outputArtifacts)
     const acquired = await claimStore.tryClaim(claim)
     expect(acquired.acquired).toBe(true)
     now = claim.leaseExpiresAtMs
     let stops = 0
+    let disposals = 0
     let settlements = 0
     const originalSettle = fixture.ports.models.settleGrant
     fixture.ports.models.settleGrant = async (input) => {
       settlements++
       return await originalSettle(input)
     }
-    const outputArtifacts = outputArtifactPort()
-
     const result = await recoverExpiredAgentCandidateExecution({
       attempt: { executionId: claim.executionId, attempt: claim.attempt },
       claimStore,
@@ -57,16 +62,26 @@ describe('expired candidate recovery', () => {
         execute: async () => {
           throw new Error('recovery must not execute')
         },
-        stopAndCapture: async (request, context) => {
+        stop: async (request, context) => {
           stops++
           expect(request).toEqual({
             executionId: claim.executionId,
             executionPlanDigest: claim.executionPlanDigest,
           })
-          expect(context.signal.aborted).toBe(true)
-          expect(context.deadlineAtMs).toBe(claim.leaseExpiresAtMs)
+          expect(context.signal.aborted).toBe(false)
+          expect(context.deadlineAtMs).toBeGreaterThan(Date.now())
           return { stopped: true }
         },
+        dispose: async (request, context) => {
+          disposals++
+          expect(request).toEqual({
+            executionId: claim.executionId,
+            executionPlanDigest: claim.executionPlanDigest,
+          })
+          expect(context.signal.aborted).toBe(false)
+          return { disposed: true }
+        },
+        capture: async () => ({ evidence: Buffer.from('official recovery evidence') }),
       },
     })
     expect(result).toMatchObject({
@@ -101,13 +116,16 @@ describe('expired candidate recovery', () => {
         execute: async () => {
           throw new Error('recovery must not execute')
         },
-        stopAndCapture: async () => {
+        stop: async () => {
           throw new Error('terminal recovery must not stop twice')
+        },
+        capture: async () => {
+          throw new Error('terminal recovery must not capture twice')
         },
       },
     })
     expect(replay).toMatchObject({ finished: false, exactReplay: true })
-    expect({ stops, settlements }).toEqual({ stops: 1, settlements: 1 })
+    expect({ stops, disposals, settlements }).toEqual({ stops: 1, disposals: 1, settlements: 1 })
   })
 
   it('does no outward cleanup before expiry and records nothing when cleanup is unproven', async () => {
@@ -119,10 +137,10 @@ describe('expired candidate recovery', () => {
     )
     let now = Date.now()
     const claimStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
-    const claim = candidateExecutionClaim(prepared)
+    const outputArtifacts = outputArtifactPort()
+    const claim = await persistedClaim(prepared, outputArtifacts)
     await claimStore.tryClaim(claim)
     let stops = 0
-    const outputArtifacts = outputArtifactPort()
     const recover = () =>
       recoverExpiredAgentCandidateExecution({
         attempt: { executionId: claim.executionId, attempt: claim.attempt },
@@ -136,10 +154,11 @@ describe('expired candidate recovery', () => {
           execute: async () => {
             throw new Error('recovery must not execute')
           },
-          stopAndCapture: async () => {
+          stop: async () => {
             stops++
             throw new Error('process still live')
           },
+          capture: async () => ({}),
         },
       })
 
@@ -155,11 +174,11 @@ describe('expired candidate recovery', () => {
 
   it('unlocks attempt two only when a recovered pre-run crash used zero model calls', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.task.attempt = {
+    replaceCandidateFixtureAttempt(fixture, {
       number: 1,
       maxAttempts: 2,
       retryPolicy: 'pre-model-infrastructure-only',
-    }
+    })
     const first = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
@@ -167,7 +186,8 @@ describe('expired candidate recovery', () => {
     )
     let now = Date.now()
     const claimStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
-    const firstClaim = candidateExecutionClaim(first)
+    const outputArtifacts = outputArtifactPort()
+    const firstClaim = await persistedClaim(first, outputArtifacts)
     await claimStore.tryClaim(firstClaim)
     now = firstClaim.leaseExpiresAtMs
     const recovered = await recoverExpiredAgentCandidateExecution({
@@ -175,13 +195,14 @@ describe('expired candidate recovery', () => {
       claimStore,
       traceStore: new InMemoryTraceStore(),
       ports: fixture.ports,
-      outputArtifacts: outputArtifactPort(),
+      outputArtifacts,
       now: () => now,
       executor: {
         execute: async () => {
           throw new Error('recovery must not execute')
         },
-        stopAndCapture: async () => ({ stopped: true }),
+        stop: async () => ({ stopped: true }),
+        capture: async () => ({}),
       },
     })
     expect(recovered).toMatchObject({
@@ -191,26 +212,29 @@ describe('expired candidate recovery', () => {
 
     rmSync(fixture.task.stagingRoots.profileRoot, { recursive: true, force: true })
     mkdirSync(fixture.task.stagingRoots.profileRoot)
-    fixture.task.attempt = {
+    replaceCandidateFixtureAttempt(fixture, {
       number: 2,
       maxAttempts: 2,
       retryPolicy: 'pre-model-infrastructure-only',
-    }
+    })
     const second = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
       fixture.ports,
     )
-    await expect(claimStore.tryClaim(candidateExecutionClaim(second))).resolves.toMatchObject({
-      acquired: true,
-    })
+    await expect(
+      claimStore.tryClaim(await persistedClaim(second, outputArtifacts)),
+    ).resolves.toMatchObject({ acquired: true })
   })
 
   it('repeats idempotent cleanup after a partial recovery failure', async () => {
     const fixture = createCandidateExecutionFixture()
-    fixture.bundle = redigestCandidateBundle(fixture.bundle, {
-      memory: { mode: 'isolated', scope: 'task' },
-    })
+    bindCandidateFixtureBundle(
+      fixture,
+      redigestCandidateBundle(fixture.bundle, {
+        memory: { mode: 'isolated', scope: 'task' },
+      }),
+    )
     const before = emptyCandidateSnapshot('recovery-before')
     fixture.ports.memory.reset = async ({ preparationId, expiresAtMs }) => ({
       preparationId,
@@ -239,11 +263,20 @@ describe('expired candidate recovery', () => {
     )
     let now = Date.now()
     const claimStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
-    const claim = candidateExecutionClaim(prepared)
+    const artifactStore = outputArtifactPort()
+    const persistedPurposes: string[] = []
+    const outputArtifacts: AgentCandidateOutputArtifactPort = {
+      ...artifactStore,
+      put: async (input) => {
+        persistedPurposes.push(input.purpose)
+        return artifactStore.put(input)
+      },
+    }
+    const claim = await persistedClaim(prepared, outputArtifacts)
     await claimStore.tryClaim(claim)
     now = claim.leaseExpiresAtMs
     let stops = 0
-    const outputArtifacts = outputArtifactPort()
+    let captures = 0
     const recover = () =>
       recoverExpiredAgentCandidateExecution({
         attempt: { executionId: claim.executionId, attempt: claim.attempt },
@@ -256,20 +289,26 @@ describe('expired candidate recovery', () => {
           execute: async () => {
             throw new Error('recovery must not execute')
           },
-          stopAndCapture: async () => {
+          stop: async () => {
             stops++
             return { stopped: true }
+          },
+          capture: async () => {
+            captures++
+            return { evidence: Buffer.from(`capture-${captures}`) }
           },
         },
       })
 
     await expect(recover()).rejects.toThrow(/cleanup could not be proven/)
+    expect(persistedPurposes).not.toContain('executor-capture')
     expect(
       await claimStore.getAttempt({ executionId: claim.executionId, attempt: 1 }),
     ).not.toHaveProperty('terminal')
     await expect(recover()).resolves.toMatchObject({ finished: true })
-    expect({ stops, settlements, memoryCloses }).toEqual({
+    expect({ stops, captures, settlements, memoryCloses }).toEqual({
       stops: 2,
+      captures: 0,
       settlements: 2,
       memoryCloses: 2,
     })
@@ -284,7 +323,8 @@ describe('expired candidate recovery', () => {
     )
     let now = Date.now()
     const claimStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
-    const claim = candidateExecutionClaim(prepared)
+    const outputArtifacts = outputArtifactPort()
+    const claim = await persistedClaim(prepared, outputArtifacts)
     await claimStore.tryClaim(claim)
     now = claim.leaseExpiresAtMs
     const traceStore = new InMemoryTraceStore()
@@ -295,13 +335,13 @@ describe('expired candidate recovery', () => {
         claimStore,
         traceStore,
         ports: fixture.ports,
-        outputArtifacts: outputArtifactPort(),
+        outputArtifacts,
         now: () => now,
         executor: {
           execute: async () => {
             throw new Error('recovery must not execute')
           },
-          stopAndCapture: async (_request, context) => {
+          stop: async (_request, context) => {
             await context.traceStore.appendEvent({
               runId: claim.cleanup.traceRunId,
               eventId: 'late-secret',
@@ -311,6 +351,7 @@ describe('expired candidate recovery', () => {
             })
             return { stopped: true }
           },
+          capture: async () => ({}),
         },
       }),
     ).rejects.toThrow(/cleanup could not be proven/)
@@ -320,6 +361,25 @@ describe('expired candidate recovery', () => {
     ).resolves.not.toHaveProperty('terminal')
   })
 })
+
+async function persistedClaim(
+  prepared: PreparedAgentCandidateExecution,
+  outputArtifacts: AgentCandidateOutputArtifactPort,
+) {
+  const [executionPlan, materializationReceipt] = await Promise.all([
+    outputArtifacts.put({
+      executionId: prepared.executionId,
+      purpose: 'execution-plan',
+      bytes: prepared.executionPlan.bytes,
+    }),
+    outputArtifacts.put({
+      executionId: prepared.executionId,
+      purpose: 'materialization-receipt',
+      bytes: prepared.materializationReceipt.bytes,
+    }),
+  ])
+  return candidateExecutionClaim(prepared, { executionPlan, materializationReceipt })
+}
 
 function outputArtifactPort(): AgentCandidateOutputArtifactPort {
   const stored = new Map<string, Uint8Array>()

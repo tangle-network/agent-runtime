@@ -9,17 +9,33 @@ import {
   type AgentCandidateModelSettlementEvidence,
   type AgentCandidateResolvedModel,
   type AgentCandidateTaskOutcomeEvidence,
+  type AgentCandidateTaskOutcomeMaterial,
+  type AgentCandidateTaskOutcomeSpec,
+  type AgentCandidateTaskOutputSpec,
+  type AgentCandidateTaskRepository,
   type AgentCandidateTermination,
   type AgentCandidateWorkspaceSnapshotEvidence,
   agentCandidateBenchmarkResultEvidenceSchema,
   agentCandidateModelSettlementEvidenceSchema,
   agentCandidateTaskOutcomeEvidenceSchema,
+  agentCandidateWorkspaceSnapshotEvidenceSchema,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 
 import { readMaterializedWorkspaceFiles } from './artifacts'
 import { runBoundCandidateBenchmarkGrader } from './benchmark-grader'
-import { canonicalCandidateBytes, immutableCandidateValue, sha256Bytes } from './digest'
+import {
+  canonicalCandidateBytes,
+  embeddedCandidateArtifact,
+  immutableCandidateValue,
+  sha256Bytes,
+} from './digest'
+import type { SealedAgentCandidateExecutorFinalCapture } from './executor-capture'
+import {
+  type PersistedAgentCandidateExecutorCapture,
+  type PersistedAgentCandidateTaskCapture,
+  persistAgentCandidateExecutorCapture,
+} from './executor-capture-evidence'
 import { verifyTaskOutcomePatch } from './git-materialize'
 import type { SealedAgentCandidateModelSettlement } from './model-settlement'
 import { persistCandidateOutputArtifact } from './output-artifacts'
@@ -32,11 +48,6 @@ import type {
   VerifiedAgentCandidateTaskOutcome,
 } from './types'
 import { verifiedTaskOutcomeBrand } from './types'
-import {
-  persistCandidateWorkspaceSnapshot,
-  provisionalCandidateWorkspaceSnapshot,
-} from './workspace-snapshot'
-import { workspaceTaskRepository } from './workspace-task'
 
 export type PersistedAgentCandidateModelSettlement = AgentCandidateModelSettlementEvidence & {
   artifact: AgentCandidateArtifactRef
@@ -46,7 +57,7 @@ export type PersistedAgentCandidateBenchmarkResult = AgentCandidateBenchmarkResu
   artifact: AgentCandidateArtifactRef
 }
 
-/** Persist the closed evaluator model ledger as canonical V2 receipt evidence. */
+/** Persist the closed evaluator model ledger as canonical receipt evidence. */
 export async function persistCandidateModelSettlement(
   state: PreparedCandidateState,
   settlement: SealedAgentCandidateModelSettlement,
@@ -74,7 +85,6 @@ export async function persistCandidateModelSettlementEvidence(
   outputArtifacts: AgentCandidateOutputArtifactPort,
 ): Promise<PersistedAgentCandidateModelSettlement> {
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-model-settlement-material' as const,
     executionPlanDigest: identity.executionPlanDigest,
     preparationId: settlement.value.preparationId,
@@ -95,7 +105,7 @@ export async function persistCandidateModelSettlementEvidence(
       reasoningTokens: call.reasoningTokens ?? 0,
       costUsdNanos: call.costUsdNanos,
     })),
-    usage: settlement.fixedUsage,
+    usage: settlement.usage,
   }
   const bytes = canonicalCandidateBytes(material)
   const digest = sha256Bytes(bytes)
@@ -106,7 +116,6 @@ export async function persistCandidateModelSettlementEvidence(
   })
   return immutableCandidateValue(
     agentCandidateModelSettlementEvidenceSchema.parse({
-      schemaVersion: 2,
       kind: 'agent-candidate-model-settlement',
       digest,
       material,
@@ -115,23 +124,94 @@ export async function persistCandidateModelSettlementEvidence(
   ) as PersistedAgentCandidateModelSettlement
 }
 
-/** Recompute the result tree from the patch, then persist its exact task evidence. */
-export async function persistVerifiedCandidateTaskOutcome(
+/** Verify once, persist the sealed capture once, and bind the resulting task evidence. */
+export async function persistVerifiedAgentCandidateExecutorCapture(
   state: PreparedCandidateState,
-  capture: AgentCandidateExecutorTaskOutcomeCapture,
+  capture: SealedAgentCandidateExecutorFinalCapture,
   outputArtifacts: AgentCandidateOutputArtifactPort,
   protectedValues: readonly string[],
   signal?: AbortSignal,
-): Promise<VerifiedAgentCandidateTaskOutcome> {
+): Promise<{
+  persistedCapture: PersistedAgentCandidateExecutorCapture
+  taskOutcome: VerifiedAgentCandidateTaskOutcome
+}> {
   signal?.throwIfAborted()
+  const taskCapture = capture.taskOutcome
+  if (!taskCapture) throw new Error('candidate final capture is missing the task outcome')
+  if (capture.evidence) assertNoProtectedBytes(capture.evidence, protectedValues)
+  const expected = state.benchmarkTask.outcome
+  if (taskCapture.kind !== expected.kind) {
+    throw new Error(
+      `candidate captured ${taskCapture.kind} outcome does not match expected ${expected.kind} outcome`,
+    )
+  }
+  const verified =
+    taskCapture.kind === 'output' && expected.kind === 'output'
+      ? verifyOutputTaskCapture(taskCapture.bytes, expected, protectedValues)
+      : taskCapture.kind === 'workspace' && expected.kind === 'workspace'
+        ? await verifyWorkspaceTaskCapture(state, taskCapture, protectedValues, signal)
+        : undefined
+  if (!verified) throw new Error('candidate task outcome kind could not be narrowed')
+  await verifyMemoryCapture(state, capture, protectedValues, signal)
+
+  const persistedCapture = await persistAgentCandidateExecutorCapture(
+    {
+      executionId: state.executionId,
+      executionPlanDigest: state.executionPlan.value.digest,
+    },
+    expected,
+    capture,
+    outputArtifacts,
+    signal,
+  )
+  const persisted = persistedCapture.taskOutcome
+  if (!persisted || persisted.kind !== verified.kind) {
+    throw new Error('persisted task capture kind changed')
+  }
+  const taskOutcome =
+    verified.kind === 'output' && persisted.kind === 'output'
+      ? await persistVerifiedOutputTaskOutcome(state, verified, persisted, outputArtifacts, signal)
+      : verified.kind === 'workspace' && persisted.kind === 'workspace'
+        ? await persistVerifiedWorkspaceTaskOutcome(
+            state,
+            verified,
+            persisted,
+            outputArtifacts,
+            signal,
+          )
+        : undefined
+  if (!taskOutcome) throw new Error('persisted task outcome kind could not be narrowed')
+  return Object.freeze({ persistedCapture, taskOutcome })
+}
+
+interface VerifiedWorkspaceTaskCapture {
+  readonly kind: 'workspace'
+  readonly patch: Uint8Array
+  readonly archive: Uint8Array
+  readonly afterState: Extract<
+    AgentCandidateExecutorTaskOutcomeCapture,
+    { kind: 'workspace' }
+  >['afterState']
+  readonly manifestBytes: Uint8Array
+  readonly resultCommit: string
+  readonly resultTree: string
+  readonly repository: AgentCandidateTaskRepository
+}
+
+async function verifyWorkspaceTaskCapture(
+  state: PreparedCandidateState,
+  capture: Extract<AgentCandidateExecutorTaskOutcomeCapture, { kind: 'workspace' }>,
+  protectedValues: readonly string[],
+  signal?: AbortSignal,
+): Promise<VerifiedWorkspaceTaskCapture> {
+  const repository = state.benchmarkTask.repository
+  if (!repository) throw new Error('workspace task outcome is missing repository identity')
   const patch = Uint8Array.from(capture.gitDiff)
   const archive = Uint8Array.from(capture.archive)
   if (archive.byteLength === 0) throw new Error('candidate task archive cannot be empty')
   assertNoProtectedBytes(patch, protectedValues)
   assertNoProtectedBytes(archive, protectedValues)
-  const provisional = provisionalCandidateWorkspaceSnapshot(capture.afterState, archive)
-  const afterState = provisional.material
-  const repository = workspaceTaskRepository(state.executionPlan.value.material.task)
+  const afterState = immutableCandidateValue(capture.afterState)
   const verified = await verifyTaskOutcomePatch({
     repositoryRoot: state.roots.staging.taskRoot,
     baseCommit: repository.baseCommit,
@@ -141,24 +221,45 @@ export async function persistVerifiedCandidateTaskOutcome(
     afterState,
   })
   signal?.throwIfAborted()
-  assertNoProtectedBytes(provisional.manifestBytes, protectedValues)
-  await verifyTaskOutcomeArchive(state, provisional.snapshot, archive, protectedValues)
-  signal?.throwIfAborted()
-  const snapshot = await persistCandidateWorkspaceSnapshot(outputArtifacts, {
-    executionId: state.executionId,
+  const manifestBytes = canonicalCandidateBytes(afterState)
+  assertNoProtectedBytes(manifestBytes, protectedValues)
+  const provisionalSnapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
+    kind: 'agent-candidate-workspace-snapshot',
+    digest: sha256Bytes(manifestBytes),
     material: afterState,
-    archive,
-    purpose: 'task',
-    signal,
+    manifest: embeddedCandidateArtifact(manifestBytes),
+    archive: embeddedCandidateArtifact(archive),
   })
-  const gitDiff = await persistCandidateOutputArtifact(outputArtifacts, {
-    executionId: state.executionId,
-    purpose: 'task-patch',
-    bytes: patch,
-    signal,
+  await verifyTaskOutcomeArchive(state, provisionalSnapshot, archive, protectedValues)
+  signal?.throwIfAborted()
+  return {
+    kind: 'workspace',
+    patch,
+    archive,
+    afterState,
+    manifestBytes,
+    resultCommit: verified.resultCommit,
+    resultTree: verified.resultTree,
+    repository,
+  }
+}
+
+async function persistVerifiedWorkspaceTaskOutcome(
+  state: PreparedCandidateState,
+  verified: VerifiedWorkspaceTaskCapture,
+  persisted: Extract<PersistedAgentCandidateTaskCapture, { kind: 'workspace' }>,
+  outputArtifacts: AgentCandidateOutputArtifactPort,
+  signal?: AbortSignal,
+): Promise<VerifiedAgentCandidateTaskOutcome> {
+  const { afterState, manifestBytes, patch, repository } = verified
+  const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
+    kind: 'agent-candidate-workspace-snapshot',
+    digest: sha256Bytes(manifestBytes),
+    material: afterState,
+    manifest: persisted.manifest,
+    archive: persisted.archive,
   })
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-task-outcome-material' as const,
     executionPlanDigest: state.executionPlan.value.digest,
     outcome: {
@@ -178,10 +279,92 @@ export async function persistVerifiedCandidateTaskOutcome(
       afterState: snapshot,
       gitDiff: {
         format: 'git-diff-binary' as const,
-        artifact: gitDiff,
+        artifact: persisted.gitDiff,
       },
     },
+  } satisfies AgentCandidateTaskOutcomeMaterial
+  const evidence = await persistTaskOutcomeEvidence(state, material, outputArtifacts, signal)
+  const storedPatch = Uint8Array.from(patch)
+  return Object.freeze({
+    kind: 'workspace' as const,
+    evidence,
+    get patch(): Uint8Array {
+      return Uint8Array.from(storedPatch)
+    },
+    [verifiedTaskOutcomeBrand]: true as const,
+  })
+}
+
+interface VerifiedOutputTaskCapture {
+  readonly kind: 'output'
+  readonly bytes: Uint8Array
+  readonly spec: AgentCandidateTaskOutputSpec
+}
+
+function verifyOutputTaskCapture(
+  capturedBytes: Uint8Array,
+  expected: Extract<AgentCandidateTaskOutcomeSpec, { kind: 'output' }>,
+  protectedValues: readonly string[],
+): VerifiedOutputTaskCapture {
+  if (capturedBytes.byteLength === 0) throw new Error('candidate task output cannot be empty')
+  if (capturedBytes.byteLength > expected.maxBytes) {
+    throw new Error(`candidate task output exceeds the frozen ${expected.maxBytes}-byte maximum`)
   }
+  const output = Uint8Array.from(capturedBytes)
+  assertNoProtectedBytes(output, protectedValues)
+  return {
+    kind: 'output',
+    bytes: output,
+    spec: { mediaType: expected.mediaType, maxBytes: expected.maxBytes },
+  }
+}
+
+async function persistVerifiedOutputTaskOutcome(
+  state: PreparedCandidateState,
+  verified: VerifiedOutputTaskCapture,
+  persisted: Extract<PersistedAgentCandidateTaskCapture, { kind: 'output' }>,
+  outputArtifacts: AgentCandidateOutputArtifactPort,
+  signal?: AbortSignal,
+): Promise<VerifiedAgentCandidateTaskOutcome> {
+  if (
+    persisted.spec.mediaType !== verified.spec.mediaType ||
+    persisted.spec.maxBytes !== verified.spec.maxBytes
+  ) {
+    throw new Error('persisted task output changed the signed media constraints')
+  }
+  const material = {
+    kind: 'agent-candidate-task-outcome-material' as const,
+    executionPlanDigest: state.executionPlan.value.digest,
+    outcome: {
+      kind: 'output' as const,
+      spec: verified.spec,
+      artifact: persisted.artifact,
+    },
+  } satisfies AgentCandidateTaskOutcomeMaterial
+  const evidence = await persistTaskOutcomeEvidence(state, material, outputArtifacts, signal)
+  const storedOutput = Uint8Array.from(verified.bytes)
+  return Object.freeze({
+    kind: 'output' as const,
+    evidence,
+    spec: immutableCandidateValue(verified.spec),
+    get bytes(): Uint8Array {
+      return Uint8Array.from(storedOutput)
+    },
+    [verifiedTaskOutcomeBrand]: true as const,
+  })
+}
+
+async function persistTaskOutcomeEvidence<Material extends AgentCandidateTaskOutcomeMaterial>(
+  state: PreparedCandidateState,
+  material: Material,
+  outputArtifacts: AgentCandidateOutputArtifactPort,
+  signal?: AbortSignal,
+): Promise<
+  Omit<AgentCandidateTaskOutcomeEvidence, 'material'> & {
+    material: Material
+    artifact: AgentCandidateArtifactRef
+  }
+> {
   const bytes = canonicalCandidateBytes(material)
   const digest = sha256Bytes(bytes)
   const artifact = await persistCandidateOutputArtifact(outputArtifacts, {
@@ -190,23 +373,17 @@ export async function persistVerifiedCandidateTaskOutcome(
     bytes,
     signal,
   })
-  const evidence = immutableCandidateValue(
+  return immutableCandidateValue(
     agentCandidateTaskOutcomeEvidenceSchema.parse({
-      schemaVersion: 2,
       kind: 'agent-candidate-task-outcome',
       digest,
       material,
       artifact,
     }),
-  ) as AgentCandidateTaskOutcomeEvidence & { artifact: AgentCandidateArtifactRef }
-  const storedPatch = Uint8Array.from(patch)
-  return Object.freeze({
-    evidence,
-    get patch(): Uint8Array {
-      return Uint8Array.from(storedPatch)
-    },
-    [verifiedTaskOutcomeBrand]: true as const,
-  })
+  ) as Omit<AgentCandidateTaskOutcomeEvidence, 'material'> & {
+    material: Material
+    artifact: AgentCandidateArtifactRef
+  }
 }
 
 /** Grade only a runtime-verified outcome and persist both raw and normalized evidence. */
@@ -225,6 +402,7 @@ export async function persistCandidateBenchmarkResult(
     executionId: state.executionId,
     termination: frozenTermination,
     outcome,
+    expectedGrader: state.benchmarkTask.grader,
     grader,
     artifacts: outputArtifacts,
     signal,
@@ -240,24 +418,13 @@ export async function persistCandidateBenchmarkResult(
     bytes: rawEvidence,
     signal,
   })
-  const task = state.executionPlan.value.material.task
   const material = {
-    schemaVersion: 1 as const,
     kind: 'agent-candidate-benchmark-result-material' as const,
     executionPlanDigest: state.executionPlan.value.digest,
     taskOutcomeDigest: outcome.evidence.digest,
-    benchmark: {
-      name: task.benchmark,
-      version: task.benchmarkVersion,
-      taskId: task.taskId,
-      splitDigest: task.splitDigest,
-    },
-    grader: {
-      name: graded.grader.name,
-      version: graded.grader.version,
-      artifact: graded.grader.artifact,
-    },
+    grader: graded.grader,
     evidence: evidenceRef,
+    grading: graded.grading,
     score: evaluation.score,
     passed: evaluation.passed,
     dimensions: evaluation.dimensions,
@@ -272,7 +439,6 @@ export async function persistCandidateBenchmarkResult(
   })
   return immutableCandidateValue(
     agentCandidateBenchmarkResultEvidenceSchema.parse({
-      schemaVersion: 1,
       kind: 'agent-candidate-benchmark-result',
       digest,
       material,
@@ -297,6 +463,45 @@ async function verifyTaskOutcomeArchive(
     })
     const files = await readMaterializedWorkspaceFiles(root, snapshot.material)
     for (const file of files) assertNoProtectedBytes(file.bytes, protectedValues)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
+async function verifyMemoryCapture(
+  state: PreparedCandidateState,
+  capture: SealedAgentCandidateExecutorFinalCapture,
+  protectedValues: readonly string[],
+  signal?: AbortSignal,
+): Promise<void> {
+  if (state.memory.mode === 'disabled') {
+    if (capture.memoryAfter) throw new Error('disabled memory cannot return an after-state')
+    return
+  }
+  const memory = capture.memoryAfter
+  if (!memory) throw new Error('isolated memory is missing its protected after-state')
+  if (memory.archive.byteLength === 0) throw new Error('isolated memory archive cannot be empty')
+  const manifestBytes = canonicalCandidateBytes(memory.afterState)
+  assertNoProtectedBytes(manifestBytes, protectedValues)
+  assertNoProtectedBytes(memory.archive, protectedValues)
+  const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
+    kind: 'agent-candidate-workspace-snapshot',
+    digest: sha256Bytes(manifestBytes),
+    material: memory.afterState,
+    manifest: embeddedCandidateArtifact(manifestBytes),
+    archive: embeddedCandidateArtifact(memory.archive),
+  })
+  const root = await mkdtemp(join(tmpdir(), 'agent-candidate-memory-after-'))
+  try {
+    await state.ports.workspaces.materialize({
+      role: 'memory',
+      snapshot,
+      archive: Uint8Array.from(memory.archive),
+      destination: root,
+    })
+    const files = await readMaterializedWorkspaceFiles(root, memory.afterState)
+    for (const file of files) assertNoProtectedBytes(file.bytes, protectedValues)
+    signal?.throwIfAborted()
   } finally {
     await rm(root, { recursive: true, force: true })
   }

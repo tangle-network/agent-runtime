@@ -36,7 +36,7 @@ describe('prepared candidate disposal', () => {
       disposed: true,
     })
     expect(reasons).toHaveLength(1)
-    expect(reasons[0]).toMatch(/candidate-preparation-v1\..+:abandoned/)
+    expect(reasons[0]).toMatch(/candidate-preparation\..+:abandoned/)
     await expect(
       executePreparedAgentCandidate(prepared, {
         traceStore: {} as never,

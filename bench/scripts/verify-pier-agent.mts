@@ -16,6 +16,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { canonicalJson, InMemoryTraceStore } from '@tangle-network/agent-eval'
+import {
+  sealCandidateBenchmarkSuite,
+  sealCandidateBenchmarkTask,
+} from '@tangle-network/agent-eval/contract'
 import type {
   AgentCandidateArtifactRef,
   AgentCandidateBundle,
@@ -31,6 +35,7 @@ import {
   type AgentCandidateOutputArtifactPort,
   type AgentCandidateTaskExecution,
   type ResolvedAgentCandidateContainer,
+  sealAgentCandidateBundle,
   verifyAgentCandidateBundle,
 } from '@tangle-network/agent-runtime'
 
@@ -83,6 +88,10 @@ function canonicalBytes(value: unknown): Buffer {
   return Buffer.from(canonicalJson(value), 'utf8')
 }
 
+function sealCanonical<T extends object>(material: T): T & { digest: Sha256Digest } {
+  return { ...material, digest: sha256(canonicalBytes(material)) }
+}
+
 function embedded(bytes: Uint8Array) {
   return {
     encoding: 'base64' as const,
@@ -113,13 +122,11 @@ function workspaceSnapshot(
     })
     .sort((left, right) => left.path.localeCompare(right.path))
   const material = {
-    schemaVersion: 1 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files,
-  }
+  } satisfies AgentCandidateWorkspaceSnapshotEvidence['material']
   const manifest = canonicalBytes(material)
   return {
-    schemaVersion: 1,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256(manifest),
     material,
@@ -309,7 +316,6 @@ try {
       `[environment]\ndocker_image = "${pinnedImage}"\nos = "linux"\n`,
     ),
   )
-
   mkdirSync(candidateRoot)
   mkdirSync(profileRoot)
   const instruction = readFileSync(path.join(taskDir, 'instruction.md'), 'utf8')
@@ -330,7 +336,6 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
   const taskWorkspace = workspaceSnapshot(taskRoot, ['src/status.txt'])
   const candidateWorkspace = workspaceSnapshot(candidateRoot, ['runner.py'])
   const bundleWithoutDigest = {
-    schemaVersion: 1 as const,
     kind: 'agent-candidate-bundle' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     profile: {
@@ -374,25 +379,8 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
       },
     },
     memory: { mode: 'disabled' as const },
-    lineage: {
-      source: 'optimizer' as const,
-      parentDigests: [`sha256:${'a'.repeat(64)}` as Sha256Digest],
-      runIds: [`pier-no-model-proposer-${proofArm}`],
-      benchmark: {
-        name: 'pier-runtime-proof',
-        version: '1',
-        splitDigest: `sha256:${'b'.repeat(64)}` as Sha256Digest,
-      },
-      spend: {
-        proposal: { costUsd: 0, inputTokens: 0, outputTokens: 0, modelCalls: 0 },
-        evaluation: { costUsd: 0, inputTokens: 0, outputTokens: 0, modelCalls: 0 },
-      },
-    },
   }
-  const bundle = {
-    ...bundleWithoutDigest,
-    digest: sha256(canonicalBytes(bundleWithoutDigest)),
-  } as AgentCandidateBundle
+  const bundle: AgentCandidateBundle = sealAgentCandidateBundle(bundleWithoutDigest)
   const container: ResolvedAgentCandidateContainer = {
     source: 'evaluator-task-container',
     image: fixtureImage,
@@ -408,12 +396,19 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
     artifact: graderArtifact,
   })
   const executionId = `pier-no-model-${proofArm}-${contextDigest}`
-  const task: AgentCandidateTaskExecution = {
-    executionId,
-    benchmark: 'pier-runtime-proof',
-    benchmarkVersion: '1',
-    taskId: `agent-bench/pier-candidate-no-model-${proofArm}`,
-    splitDigest: `sha256:${'b'.repeat(64)}`,
+  const benchmarkTask = sealCandidateBenchmarkTask({
+    kind: 'agent-candidate-benchmark-task',
+    digestAlgorithm: 'rfc8785-sha256',
+    benchmark: {
+      name: 'pier-runtime-proof',
+      version: '1',
+      splitDigest: `sha256:${'b'.repeat(64)}`,
+    },
+    scenario: {
+      id: `agent-bench/pier-candidate-no-model-${proofArm}`,
+      kind: 'coding',
+      scenarioDigest: sha256(Buffer.from(`pier-runtime-proof:${proofArm}`, 'utf8')),
+    },
     instruction,
     repository: {
       identity: 'github.com/tangle-network/agent-bench-pier-fixture',
@@ -421,15 +416,21 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
       baseCommit: repositoryState.commit,
       baseTree: repositoryState.tree,
     },
-    attempt: { number: 1, maxAttempts: 1, retryPolicy: 'none' },
-    model: { requested: modelRequest, reasoningEffort: 'xhigh' },
+    outcome: { kind: 'workspace' },
+    attempt: { maxAttempts: 1, retryPolicy: 'none' },
+    model: {
+      requested: modelRequest,
+      provider: 'openai',
+      model: 'gpt-5.4',
+      snapshot: 'gpt-5.4-no-model-proof',
+      reasoningEffort: 'xhigh',
+    },
     grader: {
       name: grader.name,
       version: grader.version,
+      format: 'tangle-grader',
       artifact: grader.artifact,
     },
-    executionRoots: { taskRoot: '/app', candidateRoot: '/opt/tangle-candidate' },
-    stagingRoots: { taskRoot, candidateRoot, profileRoot },
     workspace: taskWorkspace,
     evaluatorTaskContainer: container,
     limits: {
@@ -440,6 +441,30 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
       maxOutputTokens: 0,
       maxCostUsd: 0,
     },
+  })
+  const benchmark = sealCandidateBenchmarkSuite({
+    tasks: [benchmarkTask],
+    reps: 1,
+    seeds: [42],
+  })
+  const task: AgentCandidateTaskExecution = {
+    executionId,
+    runCell: sealCanonical({
+      kind: 'agent-candidate-run-cell' as const,
+      experimentDigest: sha256(Buffer.from('pier-runtime-proof-experiment', 'utf8')),
+      arm: 'candidate' as const,
+      bundleDigest: bundle.digest,
+      suiteDigest: benchmark.suite.digest,
+      taskDigest: benchmarkTask.digest,
+      taskIndex: 0,
+      repetition: 0,
+      seed: 42,
+      attempt: 1,
+    }),
+    benchmarkSuite: benchmark.suite,
+    task: benchmarkTask,
+    executionRoots: { taskRoot: '/app', candidateRoot: '/opt/tangle-candidate' },
+    stagingRoots: { taskRoot, candidateRoot, profileRoot },
   }
   const workspaces = createAgentCandidateWorkspacePort()
   const ports: AgentCandidateExecutionPorts = {
@@ -512,7 +537,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
         prepared: true,
         disposed: true,
         executionPlanDigest: prepared.executionPlan.value.digest,
-        graderDigest: task.grader.artifact.sha256,
+        graderDigest: benchmarkTask.grader.artifact.sha256,
       })}\n`,
     )
   } else {
@@ -525,6 +550,17 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
   const jobName = `tangle-runtime-candidate-no-model-${proofArm}`
   const controller = new FilePierCandidateTrialController({
     directory: path.join(scratch, 'trial-control'),
+    readResult: async ({ jobsDirectory, jobName }) => {
+      const trialResult = findTrialResult(path.join(jobsDirectory, jobName))
+      if (!trialResult) return undefined
+      return {
+        value: trialResult.value,
+        resultBytes: readFileSync(trialResult.path),
+        taskPatch: readFileSync(
+          path.join(path.dirname(trialResult.path), 'artifacts', 'model.patch'),
+        ),
+      }
+    },
     launch: (staged, { request }) => {
       const evaluatorArgs = Object.keys(staged.evaluatorEnv).flatMap((name) => [
         '--agent-env',
@@ -590,7 +626,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
           const endedAt = Date.now()
           await traceStore.appendRun({
             runId: request.trace.runId,
-            scenarioId: task.taskId,
+            scenarioId: benchmarkTask.scenario.id,
             startedAt: endedAt - observedElapsedMs,
             endedAt,
             status: 'completed',

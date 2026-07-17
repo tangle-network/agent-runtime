@@ -4,6 +4,7 @@ import hashlib
 import importlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -162,7 +163,6 @@ def _embedded(raw):
 
 def _workspace(files):
     material = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-workspace-manifest",
         "files": [
             {
@@ -176,7 +176,6 @@ def _workspace(files):
     }
     manifest = _canonical(material)
     return {
-        "schemaVersion": 1,
         "kind": "agent-candidate-workspace-snapshot",
         "digest": _sha(manifest),
         "material": material,
@@ -242,18 +241,17 @@ def _fixture(root: Path):
     os.chmod(candidate_staging / "runner.py", 0o755)
     profile = b"fixture-profile\n"
     (profile_staging / "AGENTS.md").write_bytes(profile)
-    os.chmod(profile_staging / "AGENTS.md", 0o644)
+    os.chmod(profile_staging / "AGENTS.md", 0o600)
 
     instruction = "make the task ready".encode()
     task_snapshot = _workspace([("src/status.txt", 0o644, status)])
     candidate_snapshot = _workspace([("runner.py", 0o755, runner)])
     profile_material = {
-        "version": 1,
         "harness": "codex",
         "files": [
             {
                 "relPath": "AGENTS.md",
-                "mode": 0o644,
+                "mode": 0o600,
                 "contentSha256": _sha(profile),
             }
         ],
@@ -265,7 +263,6 @@ def _fixture(root: Path):
     profile_digest = _sha(profile_raw)
     bundle_digest = f"sha256:{'b' * 64}"
     plan = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-execution-plan-material",
         "bundleDigest": bundle_digest,
         "executionId": "pier-fixture-execution",
@@ -287,6 +284,7 @@ def _fixture(root: Path):
                 "baseCommit": base_commit,
                 "baseTree": base_tree,
             },
+            "outcome": {"kind": "workspace"},
             "workspace": task_snapshot,
         },
         "workspaces": {
@@ -345,21 +343,18 @@ def _fixture(root: Path):
     plan_raw = _canonical(plan)
     plan_digest = _sha(plan_raw)
     execution_evidence = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-execution-plan",
         "digest": plan_digest,
         "material": plan,
         "artifact": _embedded(plan_raw),
     }
     profile_evidence = {
-        "schemaVersion": 1,
         "kind": "agent-profile-workspace-plan",
         "digest": profile_digest,
         "material": profile_material,
         "artifact": _embedded(profile_raw),
     }
     receipt = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-materialization",
         "digestAlgorithm": "rfc8785-sha256",
         "bundleDigest": bundle_digest,
@@ -403,7 +398,6 @@ def _rewrite_signed_plan(fixture):
     plan_digest = _sha(plan_raw)
     receipt = json.loads(fixture["receipt_path"].read_text())
     receipt["executionPlan"] = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-execution-plan",
         "digest": plan_digest,
         "material": fixture["plan"],
@@ -781,6 +775,21 @@ class CandidateContractTest(unittest.TestCase):
                     fixture["receipt_digest"],
                 )
 
+    def test_rejects_obsolete_contract_version_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            fixture["plan"]["schemaVersion"] = 1
+            _rewrite_signed_plan(fixture)
+
+            with self.assertRaisesRegex(
+                contract_module.CandidateContractError, "obsolete version fields"
+            ):
+                contract_module.load_prepared_candidate_contract(
+                    fixture["plan_path"],
+                    fixture["receipt_path"],
+                    fixture["receipt_digest"],
+                )
+
     def test_accepts_only_frozen_public_model_gateway_domains(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = _fixture(Path(directory))
@@ -957,7 +966,7 @@ class TangleCandidateAgentTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = _fixture(Path(directory))
             fixture["plan"]["launch"]["env"] = {
-                "FIXTURE_SLEEP": {"kind": "public", "value": "0.25"}
+                "FIXTURE_SLEEP": {"kind": "public", "value": "2"}
             }
             fixture["plan"]["limits"]["timeoutMs"] = 10
             _rewrite_signed_plan(fixture)
@@ -968,9 +977,17 @@ class TangleCandidateAgentTest(unittest.TestCase):
             started = time.monotonic()
             with self.assertRaises(asyncio.TimeoutError):
                 asyncio.run(agent.run("make the task ready", environment, context))
-            self.assertLess(time.monotonic() - started, 0.2)
+            wall_elapsed = time.monotonic() - started
+            candidate_command = next(
+                command
+                for command in environment.commands
+                if "/run-" in command and "/timeout-" in command
+            )
+            self.assertEqual(shlex.split(candidate_command)[4], "0.010")
             self.assertEqual(context.metadata["termination"]["kind"], "timeout")
             self.assertEqual(context.metadata["termination"]["timeoutMs"], 10)
+            self.assertLess(context.metadata["observedElapsedMs"], 250)
+            self.assertLess(wall_elapsed, 1)
 
     def test_profile_cleanup_does_not_follow_candidate_links(self):
         for attack in ("symlink", "hardlink"):

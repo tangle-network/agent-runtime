@@ -612,22 +612,25 @@ function sandboxInstanceAsEnvironment(
           },
         }
       : {}),
-    ...(hasCheckpoint(box)
-      ? {
-          async checkpoint(options?: CheckpointRequest): Promise<CheckpointRef> {
-            const result = await box.checkpoint(options as never)
-            return { id: checkpointIdFromResult(result), provider: providerName }
-          },
-        }
-      : {}),
-    ...(hasFork(box)
-      ? {
-          async fork(checkpoint: CheckpointRef, options?: ForkRequest): Promise<AgentEnvironment> {
-            const forked = await box.fork(checkpoint.id, options as never)
-            return sandboxInstanceAsEnvironment(forked, providerName, client)
-          },
-        }
-      : {}),
+    async checkpoint(options?: CheckpointRequest): Promise<CheckpointRef> {
+      const result = await box.snapshot({
+        ...(options?.name ? { tags: [options.name] } : {}),
+      })
+      return {
+        id: result.snapshotId,
+        provider: providerName,
+        ...(options?.metadata ? { metadata: options.metadata } : {}),
+      }
+    },
+    async fork(checkpoint: CheckpointRef, options?: ForkRequest): Promise<AgentEnvironment> {
+      const forked = await client.create({
+        fromSnapshot: checkpoint.id,
+        fromSandboxId: String(box.id),
+        ...(options?.name ? { name: options.name } : {}),
+        ...(options?.metadata ? { metadata: options.metadata } : {}),
+      })
+      return sandboxInstanceAsEnvironment(forked, providerName, client)
+    },
     async placement(): Promise<PlacementInfo> {
       return placementInfoFromLoopPlacement(client.describePlacement?.(box), box)
     },
@@ -1049,15 +1052,6 @@ function placementInfoFromLoopPlacement(
   }
 }
 
-function checkpointIdFromResult(result: unknown): string {
-  const record = result && typeof result === 'object' ? (result as Record<string, unknown>) : {}
-  const id = record.checkpointId ?? record.id
-  if (typeof id !== 'string' || id.length === 0) {
-    throw new ValidationError('sandboxClientAsProvider: checkpoint returned no checkpoint id')
-  }
-  return id
-}
-
 function defaultTangleSandboxCapabilities(): AgentEnvironmentCapabilities {
   return {
     profile: {
@@ -1157,18 +1151,6 @@ function hasExec(box: SandboxInstance): box is SandboxInstance & {
   exec(command: string, options?: unknown): Promise<SandboxExecResult>
 } {
   return typeof (box as { exec?: unknown }).exec === 'function'
-}
-
-function hasCheckpoint(
-  box: SandboxInstance,
-): box is SandboxInstance & { checkpoint(options?: unknown): Promise<unknown> } {
-  return typeof (box as { checkpoint?: unknown }).checkpoint === 'function'
-}
-
-function hasFork(box: SandboxInstance): box is SandboxInstance & {
-  fork(checkpointId: string, options?: unknown): Promise<SandboxInstance>
-} {
-  return typeof (box as { fork?: unknown }).fork === 'function'
 }
 
 interface SandboxSessionLike {

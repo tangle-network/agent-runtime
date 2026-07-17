@@ -24,23 +24,19 @@
     "test": "node scripts/run-package-tests.mjs",
     "typecheck:public": "tsc -p tsconfig.public.json",
     "verify:package": "node scripts/verify-packed-consumer.mjs",
+    "verify:package:local-runtime": "node scripts/verify-packed-consumer.mjs --local-runtime",
     "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.117.1",
-    "@tangle-network/agent-interface": "^0.25.0",
-    "@tangle-network/agent-runtime": "0.94.9",
-    "@tangle-network/sandbox": "^0.10.3"
+    "@tangle-network/agent-eval": "0.122.1",
+    "@tangle-network/agent-interface": "0.30.0",
+    "@tangle-network/agent-runtime": "workspace:*",
+    "@tangle-network/sandbox": "^0.11.1"
   },
   "devDependencies": {
-    "@types/node": "^25.0.0",
-    "tsx": "^4.19.0",
-    "typescript": "^6.0.3"
-  },
-  "pnpm": {
-    "overrides": {
-      "@tangle-network/agent-eval": "0.117.1"
-    }
+    "@types/node": "^25.9.3",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.0"
   },
   "files": [
     "src",

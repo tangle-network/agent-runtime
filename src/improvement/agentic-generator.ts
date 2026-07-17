@@ -81,7 +81,6 @@ export interface VerifyResult {
 export type Verifier = (worktreePath: string) => Promise<VerifyResult> | VerifyResult
 
 export interface AgenticGeneratorShotReceipt {
-  readonly schemaVersion: 1
   readonly generation: number | null
   readonly candidateIndex: number | null
   /** One-based shot number within this candidate. */
@@ -250,7 +249,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
       if (opts.codexReproducible) {
         if (!costLedger) {
           throw new Error(
-            'agenticGenerator: reproducible Codex requires the run-wide CostLedger supplied by agent-eval 0.117+',
+            'agenticGenerator: reproducible Codex requires the run-wide CostLedger supplied by agent-eval',
           )
         }
         reproducibleCostLedger = costLedger
@@ -674,7 +673,6 @@ function shotReceipt(input: {
   const result = input.result
   const costBasis = costBasisFor(input.costReceipt)
   return {
-    schemaVersion: 1,
     generation: input.generation ?? null,
     candidateIndex: input.candidateIndex ?? null,
     shot: input.shot + 1,

@@ -14,6 +14,12 @@ Re-exports [AgentKnowledgeReadinessCheckOptions](index.md#agentknowledgereadines
 
 ***
 
+### ApprovedKnowledgeImprovementCandidate
+
+Re-exports [ApprovedKnowledgeImprovementCandidate](index.md#approvedknowledgeimprovementcandidate)
+
+***
+
 ### createAgentKnowledgeReadinessCheck
 
 Re-exports [createAgentKnowledgeReadinessCheck](index.md#createagentknowledgereadinesscheck)

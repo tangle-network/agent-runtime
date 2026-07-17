@@ -2,11 +2,10 @@
  *
  * Feedback persistence surface for the MCP layer.
  *
- * The substrate cannot import `@tangle-network/agent-knowledge` (it would
- * induce a dependency cycle), so the store is an abstract interface. The
- * default implementation is in-memory; consumers wire their own adapter
- * (a real KbStore-backed sink, an HTTP relay to gtm-agent's knowledge
- * service, etc.) via `createMcpServer({ feedbackStore })`.
+ * Feedback storage is product policy, so the MCP layer depends on this narrow
+ * interface instead of choosing a knowledge store. The default implementation
+ * is in-memory; consumers wire their own durable adapter via
+ * `createMcpServer({ feedbackStore })`.
  *
  * Feedback events are append-only: every rating is a new event with a
  * fresh id, even when the same delegation is rated multiple times. The

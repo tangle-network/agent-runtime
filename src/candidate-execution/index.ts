@@ -25,10 +25,10 @@ export {
   type AgentCandidateExecutionStageResult,
   type AgentCandidateExecutionTerminalRecord,
   type AgentCandidateExecutionTerminalResult,
-  type AgentCandidateExecutionUsage,
   type AgentCandidateRetryRejection,
   InMemoryAgentCandidateExecutionClaimStore,
 } from './claim'
+export type { AgentCandidatePreparationEvidence } from './claim-file-formats'
 export {
   FileAgentCandidateExecutionClaimStore,
   type FileAgentCandidateExecutionClaimStoreOptions,
@@ -42,6 +42,11 @@ export {
   type ExecutePreparedAgentCandidateOptions,
   executePreparedAgentCandidate,
 } from './execute'
+export {
+  CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
+  CANDIDATE_KNOWLEDGE_ROOT_ENV,
+  candidateKnowledgeExecutionPaths,
+} from './knowledge'
 export { persistCandidateOutputArtifact } from './output-artifacts'
 export {
   type PrepareAgentCandidateExecutionOptions,
@@ -87,7 +92,6 @@ export {
   type AgentCandidateOutputArtifactPort,
   type AgentCandidateOutputPurpose,
   type AgentCandidateProtectedModelActivation,
-  type AgentCandidateProtectedModelCall,
   type AgentCandidateProtectedModelReservation,
   type AgentCandidateProtectedModelSettlement,
   type AgentCandidateProtectedRunCapture,
@@ -108,7 +112,7 @@ export {
   type VerifiedAgentCandidate,
   type VerifiedAgentCandidateTaskOutcome,
 } from './types'
-export { verifyAgentCandidateBundle } from './verify'
+export { AGENT_CANDIDATE_EXECUTION_SUPPORT, verifyAgentCandidateBundle } from './verify'
 export {
   type AgentCandidateWorkspaceArchiveLimits,
   type CaptureAgentCandidateWorkspaceOptions,

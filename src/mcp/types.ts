@@ -226,9 +226,9 @@ export interface DelegateUiAuditResult {
 }
 
 /**
- * Loose shape of a research output over the wire — the substrate cannot
- * import the `ResearchOutput` type from agent-knowledge without inducing
- * a dependency cycle, so the MCP layer treats it structurally.
+ * Provider-neutral research output carried over the MCP boundary. The MCP
+ * layer accepts this structural shape instead of coupling its wire contract to
+ * one research implementation.
  *
  * @experimental
  */

@@ -1,6 +1,6 @@
 import { InMemoryTraceStore } from '@tangle-network/agent-eval'
 import { afterEach, describe, expect, it } from 'vitest'
-
+import { sealAgentCandidateExecutorFinalCapture } from '../src/candidate-execution/executor-capture'
 import { finalizeAgentCandidateRun } from '../src/candidate-execution/finalize'
 import {
   type SealedAgentCandidateModelSettlement,
@@ -9,7 +9,7 @@ import {
 import {
   persistCandidateBenchmarkResult,
   persistCandidateModelSettlement,
-  persistVerifiedCandidateTaskOutcome,
+  persistVerifiedAgentCandidateExecutorCapture,
 } from '../src/candidate-execution/outcome-evidence'
 import { prepareAgentCandidateExecution } from '../src/candidate-execution/prepare'
 import { assertPreparedCandidateIntegrity } from '../src/candidate-execution/prepared-state'
@@ -23,6 +23,7 @@ import {
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
   createCandidateOutputFixture,
+  replaceCandidateFixtureTask,
 } from './helpers/candidate-execution-fixture'
 
 afterEach(cleanupCandidateFixtures)
@@ -45,7 +46,7 @@ async function prepared(
   },
 ): Promise<PreparedAgentCandidateExecution> {
   const fixture = createCandidateExecutionFixture()
-  fixture.task.limits = limits
+  replaceCandidateFixtureTask(fixture, { limits })
   return await prepareAgentCandidateExecution(
     await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
     fixture.task,
@@ -94,24 +95,29 @@ async function finalizePrepared(
       },
     )
   const outputs = overrides.outputs ?? createCandidateOutputFixture()
-  const finalCapture = {
-    stopped: true as const,
-    taskOutcome: {
-      resultTree: state.executionPlan.value.material.task.repository.baseTree,
-      afterState: state.executionPlan.value.material.task.workspace.material,
-      archive: Buffer.from('fixture unchanged task archive', 'utf8'),
-      gitDiff: Buffer.alloc(0),
-    },
+  const expectedOutcome = state.benchmarkTask.outcome
+  if (expectedOutcome.kind !== 'workspace') {
+    throw new Error('finalization fixture requires a workspace outcome')
   }
-  const [modelSettlement, taskOutcome] = await Promise.all([
+  const repository = state.benchmarkTask.repository
+  if (!repository) throw new Error('finalization fixture requires repository identity')
+  const finalCapture = sealAgentCandidateExecutorFinalCapture(
+    {
+      taskOutcome: {
+        kind: 'workspace' as const,
+        resultTree: repository.baseTree,
+        afterState: state.benchmarkTask.workspace.material,
+        archive: Buffer.from('fixture unchanged task archive', 'utf8'),
+        gitDiff: Buffer.alloc(0),
+      },
+    },
+    expectedOutcome,
+  )
+  const [modelSettlement, verifiedCapture] = await Promise.all([
     persistCandidateModelSettlement(state, settlement, outputs.outputArtifacts),
-    persistVerifiedCandidateTaskOutcome(
-      state,
-      finalCapture.taskOutcome,
-      outputs.outputArtifacts,
-      [],
-    ),
+    persistVerifiedAgentCandidateExecutorCapture(state, finalCapture, outputs.outputArtifacts, []),
   ])
+  const { persistedCapture, taskOutcome } = verifiedCapture
   const benchmarkResult = await persistCandidateBenchmarkResult(
     state,
     capture.termination,
@@ -127,6 +133,7 @@ async function finalizePrepared(
     settlement,
     {
       finalCapture,
+      persistedCapture,
       modelSettlement,
       taskOutcome,
       benchmarkResult,
@@ -194,7 +201,7 @@ async function traceStore(
 }
 
 describe('protected candidate run finalization', () => {
-  it('derives exact V3 evidence and durable trace bytes from tied agent-eval spans', async () => {
+  it('derives exact evidence and durable trace bytes from tied agent-eval spans', async () => {
     const execution = await prepared()
     const store = await traceStore(execution)
     const outputs = createCandidateOutputFixture()
@@ -208,11 +215,10 @@ describe('protected candidate run finalization', () => {
     if (!result.succeeded) return
     expect(result.receipt.value.trace).toMatchObject({ eventCount: 3, modelCallCount: 1 })
     expect(result.receipt.bytes.byteLength).toBeGreaterThan(0)
-    const task = assertPreparedCandidateIntegrity(execution).executionPlan.value.material.task
-    if (!task.repository) throw new Error('workspace task repository is missing')
+    const task = assertPreparedCandidateIntegrity(execution).benchmarkTask
+    if (task.outcome.kind !== 'workspace') throw new Error('expected workspace task outcome')
+    if (!task.repository) throw new Error('expected task repository identity')
     expect(result.receipt.value).toMatchObject({
-      schemaVersion: 3,
-      executorCapture: result.artifacts.executorCapture,
       taskOutcome: {
         artifact: result.artifacts.taskOutcome,
         material: {
@@ -252,6 +258,7 @@ describe('protected candidate run finalization', () => {
             inputTokens: 10,
             outputTokens: 5,
             cachedInputTokens: 2,
+            reasoningTokens: 0,
             modelCalls: 1,
           },
         },
@@ -263,9 +270,13 @@ describe('protected candidate run finalization', () => {
       expect(outputs.outputArtifacts.read(result.artifacts.runReceipt)).resolves.toEqual(
         result.receipt.bytes,
       ),
-      expect(outputs.outputArtifacts.read(taskOutcome.gitDiff.artifact)).resolves.toEqual(
-        new Uint8Array(),
-      ),
+      expect(
+        outputs.outputArtifacts.read(
+          result.receipt.value.taskOutcome.material.outcome.kind === 'workspace'
+            ? result.receipt.value.taskOutcome.material.outcome.gitDiff.artifact
+            : result.receipt.value.taskOutcome.material.outcome.artifact,
+        ),
+      ).resolves.toEqual(new Uint8Array()),
       expect(
         outputs.outputArtifacts.read(result.receipt.value.benchmarkResult.material.evidence),
       ).resolves.toEqual(Uint8Array.from(Buffer.from('{"reward":1}\n', 'utf8'))),
@@ -279,15 +290,11 @@ describe('protected candidate run finalization', () => {
       ),
     )
     expect(executorCapture).toMatchObject({
-      schemaVersion: 1,
       kind: 'agent-candidate-executor-capture',
-      executionId: execution.executionId,
       executionPlanDigest: execution.executionPlan.value.digest,
-      termination: { kind: 'exit', exitCode: 0 },
-      stopped: true,
       taskOutcome: {
-        digest: result.receipt.value.taskOutcome.digest,
-        artifact: result.receipt.value.taskOutcome.artifact,
+        kind: 'workspace',
+        gitDiff: taskOutcome.gitDiff.artifact,
       },
     })
     expect(JSON.stringify(executorCapture)).not.toContain('content')

@@ -6,7 +6,6 @@ import { join, resolve } from 'node:path'
 
 import {
   type AgentCandidateExecutorTaskOutcomeCapture,
-  type AgentCandidateOutputArtifactPort,
   captureAgentCandidateWorkspaceFiles,
 } from '@tangle-network/agent-runtime/candidate-execution'
 
@@ -22,11 +21,7 @@ export async function capturePierTaskOutcome(input: {
   readonly baseTree: string
   readonly patch: Uint8Array
   readonly signal?: AbortSignal
-  readonly artifactPersistence?: {
-    readonly executionId: string
-    readonly outputArtifacts: AgentCandidateOutputArtifactPort
-  }
-}): Promise<AgentCandidateExecutorTaskOutcomeCapture> {
+}): Promise<Extract<AgentCandidateExecutorTaskOutcomeCapture, { kind: 'workspace' }>> {
   input.signal?.throwIfAborted()
   const repositoryRoot = resolve(input.repositoryRoot)
   const head = (await git(repositoryRoot, ['rev-parse', 'HEAD'], undefined, {}, input.signal)).stdout
@@ -124,16 +119,10 @@ export async function capturePierTaskOutcome(input: {
     // The executor outcome must still return exact bytes; the runtime verifies
     // and persists its final task references after this capture completes.
     const captured = await captureAgentCandidateWorkspaceFiles(files, {
-      ...(input.artifactPersistence
-        ? {
-            artifactPersistence: {
-              ...input.artifactPersistence,
-              ...(input.signal ? { signal: input.signal } : {}),
-            },
-          }
-        : {}),
+      limits: { maxEmbeddedArtifactBytes: 512 * 1024 * 1024 },
     })
     return {
+      kind: 'workspace',
       resultTree,
       afterState: captured.snapshot.material,
       archive: captured.archive,

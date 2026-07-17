@@ -1,5 +1,6 @@
 export {
   type AgentKnowledgeReadinessCheckOptions,
+  type ApprovedKnowledgeImprovementCandidate,
   createAgentKnowledgeReadinessCheck,
   type KnowledgeImprovementJobMeasurement,
   type KnowledgeImprovementJobResult,

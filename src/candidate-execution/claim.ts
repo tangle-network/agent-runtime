@@ -5,19 +5,18 @@ import { readFile } from 'node:fs/promises'
 import {
   type AgentCandidateArtifactRef,
   type AgentCandidateAttemptPolicy,
+  type AgentCandidateFixedSpend,
   type AgentCandidateResolvedModel,
   agentCandidateResolvedModelSchema,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
-  CLAIM_FORMAT_VERSION,
-  PENDING_FORMAT_VERSION,
+  type AgentCandidatePreparationEvidence,
   type PersistedAgentCandidateExecutionClaim,
   type PersistedAgentCandidateExecutionPending,
   type PersistedAgentCandidateExecutionPhase,
   type PersistedAgentCandidateExecutionTerminal,
-  PHASE_FORMAT_VERSION,
-  TERMINAL_FORMAT_VERSION,
+  sealCandidatePreparationEvidence,
 } from './claim-file-formats'
 import {
   assertRecoveryMatchesStaged,
@@ -56,6 +55,8 @@ export interface AgentCandidateExecutionClaim {
   readonly retryPolicy: AgentCandidateAttemptPolicy['retryPolicy']
   readonly bundleDigest: Sha256Digest
   readonly executionPlanDigest: Sha256Digest
+  /** Durable canonical bytes needed to reconstruct the signed preparation. */
+  readonly preparationEvidence: AgentCandidatePreparationEvidence
   /** Frozen plan identity with only attempt number and per-attempt grant identity normalized. */
   readonly retryLineageDigest: Sha256Digest
   /** The winning lease stops authorizing a new terminal write at this instant. */
@@ -81,32 +82,20 @@ export type AgentCandidateExecutionFailureClass =
   | 'post-model-infrastructure'
   | 'unknown'
 
-/** Exact fixed-point usage proven by the closed evaluator model ledger. */
-export interface AgentCandidateExecutionUsage {
-  readonly costUsdNanos: number
-  readonly inputTokens: number
-  readonly outputTokens: number
-  readonly cachedInputTokens: number
-  readonly reasoningTokens: number
-  readonly modelCalls: number
-}
-
 /** Evaluator-owned terminal facts staged durably before the terminal CAS. */
 export type AgentCandidateExecutionTerminalResult =
   | {
-      readonly schemaVersion: 1
       readonly status: 'succeeded'
-      readonly usage: AgentCandidateExecutionUsage
+      readonly usage: AgentCandidateFixedSpend
       readonly modelSettlement: AgentCandidateArtifactRef
       readonly taskOutcome: AgentCandidateArtifactRef
       readonly benchmarkResult: AgentCandidateArtifactRef
       readonly runReceipt: AgentCandidateArtifactRef
     }
   | {
-      readonly schemaVersion: 1
       readonly status: 'failed'
       readonly failureClass: AgentCandidateExecutionFailureClass
-      readonly usage: AgentCandidateExecutionUsage
+      readonly usage: AgentCandidateFixedSpend
       readonly modelSettlement: AgentCandidateArtifactRef
       readonly failureEvidence?: AgentCandidateArtifactRef
     }
@@ -117,6 +106,7 @@ export type AgentCandidateExecutionTerminalRecord = AgentCandidateExecutionTermi
   readonly attempt: number
   readonly bundleDigest: Sha256Digest
   readonly executionPlanDigest: Sha256Digest
+  readonly preparationEvidence: AgentCandidateExecutionClaim['preparationEvidence']
   /** RFC 8785 SHA-256 of this record with `terminalDigest` omitted. */
   readonly terminalDigest: Sha256Digest
 }
@@ -127,7 +117,7 @@ export type AgentCandidateExecutionPhase = 'claimed' | 'candidate-may-run'
 /** Trusted, independently observed closure facts for one expired winning lease. */
 export interface AgentCandidateExecutionRecoveryEvidence {
   readonly failureClass: AgentCandidateExecutionFailureClass
-  readonly usage: AgentCandidateExecutionUsage
+  readonly usage: AgentCandidateFixedSpend
   readonly modelSettlement: AgentCandidateArtifactRef
   readonly failureEvidence?: AgentCandidateArtifactRef
   readonly process: {
@@ -409,8 +399,8 @@ export class InMemoryAgentCandidateExecutionClaimStore
 }
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/
-const LEASE_TOKEN_PATTERN = /^candidate-execution-lease-v1\.[A-Za-z0-9_-]{43}$/
-const PREPARATION_ID_PATTERN = /^candidate-preparation-v1\.[A-Za-z0-9_-]{43}$/
+const LEASE_TOKEN_PATTERN = /^candidate-execution-lease\.[A-Za-z0-9_-]{43}$/
+const PREPARATION_ID_PATTERN = /^candidate-preparation\.[A-Za-z0-9_-]{43}$/
 
 function sealClaim(claim: AgentCandidateExecutionClaim): AgentCandidateExecutionClaim {
   assertExactKeys(
@@ -422,6 +412,7 @@ function sealClaim(claim: AgentCandidateExecutionClaim): AgentCandidateExecution
       'retryPolicy',
       'bundleDigest',
       'executionPlanDigest',
+      'preparationEvidence',
       'retryLineageDigest',
       'leaseExpiresAtMs',
       'resultTimeoutMs',
@@ -447,6 +438,10 @@ function sealClaim(claim: AgentCandidateExecutionClaim): AgentCandidateExecution
   }
   assertSha256Digest(claim.bundleDigest, 'bundleDigest')
   assertSha256Digest(claim.executionPlanDigest, 'executionPlanDigest')
+  const preparationEvidence = sealCandidatePreparationEvidence(
+    claim.preparationEvidence,
+    claim.executionPlanDigest,
+  )
   assertSha256Digest(claim.retryLineageDigest, 'retryLineageDigest')
   assertPositiveTimestamp(claim.leaseExpiresAtMs, 'leaseExpiresAtMs')
   candidateResultTimeout(claim.resultTimeoutMs, claim.resultTimeoutMs)
@@ -458,6 +453,7 @@ function sealClaim(claim: AgentCandidateExecutionClaim): AgentCandidateExecution
     retryPolicy: claim.retryPolicy,
     bundleDigest: claim.bundleDigest,
     executionPlanDigest: claim.executionPlanDigest,
+    preparationEvidence,
     retryLineageDigest: claim.retryLineageDigest,
     leaseExpiresAtMs: claim.leaseExpiresAtMs,
     resultTimeoutMs: claim.resultTimeoutMs,
@@ -554,7 +550,7 @@ function newLease(claim: AgentCandidateExecutionClaim): AgentCandidateExecutionL
   return Object.freeze({
     executionId: claim.executionId,
     attempt: claim.attempt,
-    token: `candidate-execution-lease-v1.${randomBytes(32).toString('base64url')}`,
+    token: `candidate-execution-lease.${randomBytes(32).toString('base64url')}`,
     expiresAtMs: claim.leaseExpiresAtMs,
   })
 }
@@ -646,19 +642,16 @@ function rejectedRetry(
 async function readClaim(path: string): Promise<StoredClaim> {
   const parsed = await readJsonObject(path, 'claim')
   const record = parsed as Partial<PersistedAgentCandidateExecutionClaim>
-  if (record.version !== CLAIM_FORMAT_VERSION) {
-    throw new Error(`candidate execution claim at ${path} has unsupported version`)
-  }
   assertExactKeys(
     parsed,
     [
-      'version',
       'executionId',
       'attempt',
       'maxAttempts',
       'retryPolicy',
       'bundleDigest',
       'executionPlanDigest',
+      'preparationEvidence',
       'retryLineageDigest',
       'leaseExpiresAtMs',
       'resultTimeoutMs',
@@ -679,6 +672,11 @@ async function readClaim(path: string): Promise<StoredClaim> {
       path,
       'executionPlanDigest',
     ) as Sha256Digest,
+    preparationEvidence: requireObject(
+      record.preparationEvidence,
+      path,
+      'preparationEvidence',
+    ) as unknown as AgentCandidateExecutionClaim['preparationEvidence'],
     retryLineageDigest: requireString(
       record.retryLineageDigest,
       path,
@@ -716,10 +714,7 @@ async function readClaimIfPresent(path: string): Promise<StoredClaim | undefined
 async function readTerminal(path: string): Promise<AgentCandidateExecutionTerminalRecord> {
   const parsed = await readJsonObject(path, 'terminal record')
   const record = parsed as Partial<PersistedAgentCandidateExecutionTerminal>
-  if (record.version !== TERMINAL_FORMAT_VERSION) {
-    throw new Error(`candidate execution terminal record at ${path} has unsupported version`)
-  }
-  assertExactKeys(parsed, ['version', 'terminal'], `candidate execution terminal record at ${path}`)
+  assertExactKeys(parsed, ['terminal'], `candidate execution terminal record at ${path}`)
   return sealTerminalRecordValue(
     requireObject(record.terminal, path, 'terminal'),
     `candidate execution terminal record at ${path}`,
@@ -754,12 +749,9 @@ async function readTransitionIfPresent(
   }
   if (parsed.kind === 'candidate-execution-phase') {
     const record = parsed as unknown as PersistedAgentCandidateExecutionPhase
-    if (record.version !== PHASE_FORMAT_VERSION) {
-      throw new Error(`candidate execution phase record at ${path} has unsupported version`)
-    }
     assertExactKeys(
       parsed,
-      ['version', 'kind', 'executionId', 'attempt', 'executionPlanDigest', 'phase'],
+      ['kind', 'executionId', 'attempt', 'executionPlanDigest', 'phase'],
       `candidate execution phase record at ${path}`,
     )
     if (
@@ -774,14 +766,7 @@ async function readTransitionIfPresent(
   }
   if (parsed.kind === 'candidate-execution-pending-terminal') {
     const record = parsed as unknown as PersistedAgentCandidateExecutionPending
-    if (record.version !== PENDING_FORMAT_VERSION) {
-      throw new Error(`candidate execution pending record at ${path} has unsupported version`)
-    }
-    assertExactKeys(
-      parsed,
-      ['version', 'kind', 'terminal'],
-      `candidate execution pending record at ${path}`,
-    )
+    assertExactKeys(parsed, ['kind', 'terminal'], `candidate execution pending record at ${path}`)
     const terminal = sealTerminalRecordValue(
       requireObject(record.terminal, path, 'terminal'),
       `candidate execution pending record at ${path}`,

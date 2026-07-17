@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,10 +7,14 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const benchDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const repoRoot = path.resolve(benchDir, '..')
 const scratch = await mkdtemp(path.join(tmpdir(), 'agent-bench-consumer-'))
-const runtimePackage = process.env.AGENT_RUNTIME_PACKAGE
-  ? path.resolve(process.env.AGENT_RUNTIME_PACKAGE)
-  : undefined
+const args = new Set(process.argv.slice(2))
+const useLocalRuntime = args.delete('--local-runtime')
+if (args.size > 0) throw new Error(`unknown arguments: ${[...args].join(', ')}`)
+
+const TYPESCRIPT_5 = '5.9.3'
+const TYPESCRIPT_6 = '6.0.3'
 
 async function run(command, args, cwd, env = process.env) {
   try {
@@ -29,15 +33,38 @@ async function run(command, args, cwd, env = process.env) {
   }
 }
 
+async function resolveRuntimePackage(packDir) {
+  if (process.env.AGENT_RUNTIME_PACKAGE) {
+    return path.resolve(process.env.AGENT_RUNTIME_PACKAGE)
+  }
+  if (!useLocalRuntime) return undefined
+  const manifest = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'))
+  if (manifest.name !== '@tangle-network/agent-runtime') {
+    throw new Error('--local-runtime requires an agent-runtime source workspace')
+  }
+  await run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
+  const tarballs = (await readdir(packDir)).filter((name) => name.endsWith('.tgz'))
+  if (tarballs.length !== 1) {
+    throw new Error(`expected one packed agent-runtime tarball, found ${tarballs.length}`)
+  }
+  return path.join(packDir, tarballs[0])
+}
+
 try {
   const packDir = path.join(scratch, 'pack')
+  const runtimePackDir = path.join(scratch, 'runtime-pack')
   const consumerDir = path.join(scratch, 'consumer')
   await mkdir(packDir)
+  await mkdir(runtimePackDir)
   await mkdir(consumerDir)
 
-  const packed = await run('npm', ['pack', '--json', '--pack-destination', packDir], benchDir)
-  const [{ filename }] = JSON.parse(packed.stdout)
-  const tarball = path.join(packDir, filename)
+  await run('pnpm', ['pack', '--pack-destination', packDir], benchDir)
+  const packedFiles = (await readdir(packDir)).filter((name) => name.endsWith('.tgz'))
+  if (packedFiles.length !== 1) {
+    throw new Error(`expected one packed agent-bench tarball, found ${packedFiles.length}`)
+  }
+  const tarball = path.join(packDir, packedFiles[0])
+  const runtimePackage = await resolveRuntimePackage(runtimePackDir)
   const manifest = JSON.parse(await readFile(path.join(benchDir, 'package.json'), 'utf8'))
   const devDependencies = manifest.devDependencies
   if (
@@ -73,7 +100,7 @@ try {
         },
         devDependencies: {
           '@types/node': devDependencies['@types/node'],
-          typescript: devDependencies.typescript,
+          typescript: TYPESCRIPT_5,
           tsx: devDependencies.tsx,
         },
       },
@@ -128,6 +155,28 @@ for name in sorted(expected):
     consumerDir,
   )
   await run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], consumerDir)
+  const typescript5 = await run('npm', ['exec', '--', 'tsc', '--version'], consumerDir)
+  if (typescript5.stdout.trim() !== `Version ${TYPESCRIPT_5}`) {
+    throw new Error(`expected TypeScript ${TYPESCRIPT_5}, received ${typescript5.stdout.trim()}`)
+  }
+  await run(
+    'npm',
+    [
+      'install',
+      '--ignore-scripts',
+      '--no-audit',
+      '--no-fund',
+      '--no-save',
+      '--package-lock=false',
+      `typescript@${TYPESCRIPT_6}`,
+    ],
+    consumerDir,
+  )
+  await run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], consumerDir)
+  const typescript6 = await run('npm', ['exec', '--', 'tsc', '--version'], consumerDir)
+  if (typescript6.stdout.trim() !== `Version ${TYPESCRIPT_6}`) {
+    throw new Error(`expected TypeScript ${TYPESCRIPT_6}, received ${typescript6.stdout.trim()}`)
+  }
   await run('npm', ['exec', '--', 'tsx', 'index.ts'], consumerDir)
   const installedPackage = path.join(consumerDir, 'node_modules', '@tangle-network', 'agent-bench')
   const prepared = await run(
@@ -168,7 +217,7 @@ for name in sorted(expected):
     })
   }
   console.log(
-    `packed consumer verified: ${manifest.name}@${manifest.version} with @tangle-network/agent-runtime@${runtimeManifest.version}; prepared ${prepareProof.executionPlanDigest}`,
+    `packed consumer verified: ${manifest.name}@${manifest.version} with @tangle-network/agent-runtime@${runtimeManifest.version}, TypeScript ${TYPESCRIPT_5} and ${TYPESCRIPT_6}; prepared ${prepareProof.executionPlanDigest}`,
   )
 } finally {
   await rm(scratch, { recursive: true, force: true })

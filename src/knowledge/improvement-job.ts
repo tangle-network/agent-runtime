@@ -1,12 +1,37 @@
+import { realpath } from 'node:fs/promises'
+import {
+  type AgentCandidateCapturedArtifact,
+  type AgentCandidateKnowledge,
+  type AgentImprovementActivation,
+  type AgentImprovementProposal,
+  type AgentImprovementReview,
+  agentCandidateKnowledgeSchema,
+} from '@tangle-network/agent-interface'
 import {
   type BuildEvalKnowledgeBundleOptions,
   evaluateKnowledgeBaseReadiness,
+  fromAgentCandidateKnowledgeRef,
+  hashKnowledgeBase,
   improveKnowledgeBase,
   type KnowledgeBaseQualityOptions,
+  type KnowledgeImprovementCandidateRef,
   type KnowledgeImprovementOptions,
   type KnowledgeImprovementResult,
   type KnowledgeReadinessSpec,
+  knowledgeImprovementCandidateRef,
+  promoteKnowledgeCandidate,
+  toAgentCandidateKnowledgeRef,
+  withKnowledgeImprovementCandidate,
 } from '@tangle-network/agent-knowledge'
+import { canonicalCandidateBytes, embeddedCandidateArtifact } from '../candidate-execution/digest'
+import { persistCandidateOutputArtifact } from '../candidate-execution/output-artifacts'
+import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
+import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive'
+import {
+  verifyAgentImprovementActivation,
+  verifyAgentImprovementProposal,
+  verifyAgentImprovementReview,
+} from '../intelligence/improvement-cycle'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { SuperviseOptions } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
@@ -39,7 +64,20 @@ export interface RunKnowledgeImprovementJobOptions
     task: unknown,
     opts: SuperviseOptions,
   ) => Promise<SupervisedResult<unknown>>
+  candidateArtifacts?: AgentCandidateOutputArtifactPort
+  approval?: ApprovedKnowledgeImprovementCandidate
   onMeasurement?: (measurement: KnowledgeImprovementJobMeasurement) => Promise<void> | void
+}
+
+export interface ApprovedKnowledgeImprovementCandidate {
+  proposal: AgentImprovementProposal
+  review: AgentImprovementReview
+  activation: AgentImprovementActivation
+  authorizeActivation: (
+    activation: AgentImprovementActivation,
+    proposal: AgentImprovementProposal,
+    review: AgentImprovementReview,
+  ) => boolean | Promise<boolean>
 }
 
 export interface KnowledgeImprovementJobMeasurement {
@@ -52,6 +90,7 @@ export interface KnowledgeImprovementJobMeasurement {
     iterations: number
     inputTokens: number
     outputTokens: number
+    usdKnown: boolean
     usd: number
     ms: number
   }
@@ -59,6 +98,7 @@ export interface KnowledgeImprovementJobMeasurement {
 
 export interface KnowledgeImprovementJobResult {
   improvement: KnowledgeImprovementResult
+  candidateKnowledge?: AgentCandidateKnowledge
   measurement: KnowledgeImprovementJobMeasurement
   promoted: boolean
   blocked: boolean
@@ -104,7 +144,7 @@ export function createAgentKnowledgeReadinessCheck(
   }
 }
 
-/** Run the full KB improvement job: candidate workspace, runtime supervisor update, readiness check, and promotion. */
+/** Produce a frozen KB candidate, and promote it only when an exact signed review is supplied. */
 export async function runKnowledgeImprovementJob(
   options: RunKnowledgeImprovementJobOptions,
 ): Promise<KnowledgeImprovementJobResult> {
@@ -112,9 +152,11 @@ export async function runKnowledgeImprovementJob(
     allowedModels,
     backend,
     budget,
+    candidateArtifacts,
     harness,
     makeWorkerAgent,
     onMeasurement,
+    approval,
     readinessCheck,
     runSupervised,
     supervisorModel,
@@ -147,17 +189,50 @@ export async function runKnowledgeImprovementJob(
     runSupervised,
   } satisfies SupervisedKnowledgeUpdateOptions)
 
-  const resolvedImprovement = await improveKnowledgeBase({
-    ...knowledgeOptions,
-    updateKnowledge: async (input) => {
-      const updateStartedAt = Date.now()
-      updateCalls += 1
-      const result = await updateKnowledge(input)
-      updateDurationMs += Date.now() - updateStartedAt
-      addSpent(supervisedSpent, result.supervised)
-      return result
-    },
-  } as KnowledgeImprovementOptions)
+  const instrumentedUpdateKnowledge: KnowledgeImprovementOptions['updateKnowledge'] = async (
+    input,
+  ) => {
+    const updateStartedAt = Date.now()
+    updateCalls += 1
+    const result = await updateKnowledge(input)
+    updateDurationMs += Date.now() - updateStartedAt
+    addSpent(supervisedSpent, result.supervised)
+    return result
+  }
+  let resolvedImprovement: KnowledgeImprovementResult
+  let candidateKnowledge: AgentCandidateKnowledge | undefined
+  if (approval) {
+    const approvedKnowledge = await approvedKnowledgeCandidate(approval)
+    const candidate = agentKnowledgeCandidateRef(approvedKnowledge)
+    knowledgeOptions.signal?.throwIfAborted()
+    resolvedImprovement = await promoteKnowledgeCandidate({
+      root: options.root,
+      candidate,
+      ...(knowledgeOptions.ownerId ? { ownerId: knowledgeOptions.ownerId } : {}),
+      ...(knowledgeOptions.leaseTtlMs ? { leaseTtlMs: knowledgeOptions.leaseTtlMs } : {}),
+      ...(knowledgeOptions.now ? { now: knowledgeOptions.now } : {}),
+      ...(knowledgeOptions.onState ? { onState: knowledgeOptions.onState } : {}),
+    })
+    knowledgeOptions.signal?.throwIfAborted()
+    const promotedHash = await hashKnowledgeBase(options.root)
+    if (!resolvedImprovement.promoted || promotedHash !== candidate.candidateHash) {
+      throw new Error('knowledge promotion did not activate the approved snapshot bytes')
+    }
+    candidateKnowledge = approvedKnowledge
+  } else {
+    resolvedImprovement = await improveKnowledgeBase({
+      ...knowledgeOptions,
+      updateKnowledge: instrumentedUpdateKnowledge,
+    })
+    if (resolvedImprovement.candidate) {
+      candidateKnowledge = await freezeKnowledgeCandidate(
+        options.root,
+        resolvedImprovement,
+        candidateArtifacts,
+        knowledgeOptions.signal,
+      )
+    }
+  }
   const finishedAtMs = Date.now()
   const measurement: KnowledgeImprovementJobMeasurement = {
     startedAt,
@@ -170,14 +245,106 @@ export async function runKnowledgeImprovementJob(
   await onMeasurement?.(measurement)
   return {
     improvement: resolvedImprovement,
+    ...(candidateKnowledge ? { candidateKnowledge } : {}),
     measurement,
     promoted: resolvedImprovement.promoted,
     blocked: resolvedImprovement.blocked,
   }
 }
 
+async function freezeKnowledgeCandidate(
+  root: string,
+  improvement: KnowledgeImprovementResult,
+  artifacts: AgentCandidateOutputArtifactPort | undefined,
+  signal: AbortSignal | undefined,
+): Promise<AgentCandidateKnowledge> {
+  const candidate = knowledgeImprovementCandidateRef(improvement)
+  return withKnowledgeImprovementCandidate({ root, candidate }, async (resolved) => {
+    const executionId = `knowledge-${candidate.candidateId}`
+    const candidateRef = toAgentCandidateKnowledgeRef(candidate)
+    const captured = await captureAgentCandidateWorkspace(await realpath(resolved.root), {
+      ...(artifacts
+        ? {
+            artifactPersistence: {
+              executionId,
+              outputArtifacts: artifacts,
+              ...(signal ? { signal } : {}),
+            },
+          }
+        : {}),
+    })
+    const evaluation = await captureKnowledgeEvidence(
+      canonicalCandidateBytes({
+        kind: 'agent-knowledge-candidate-evaluation',
+        candidate: candidateRef,
+        metric: resolved.evaluation,
+      }),
+      'knowledge-evaluation',
+      executionId,
+      artifacts,
+      signal,
+    )
+    return agentCandidateKnowledgeSchema.parse({
+      candidate: candidateRef,
+      snapshot: captured.snapshot,
+      evaluation,
+    })
+  })
+}
+
+async function captureKnowledgeEvidence(
+  bytes: Uint8Array,
+  purpose: 'knowledge-evaluation',
+  executionId: string,
+  artifacts: AgentCandidateOutputArtifactPort | undefined,
+  signal: AbortSignal | undefined,
+): Promise<AgentCandidateCapturedArtifact> {
+  if (!artifacts) return embeddedCandidateArtifact(bytes)
+  return persistCandidateOutputArtifact(artifacts, {
+    executionId,
+    purpose,
+    bytes,
+    ...(signal ? { signal } : {}),
+  })
+}
+
+async function approvedKnowledgeCandidate(
+  approval: ApprovedKnowledgeImprovementCandidate,
+): Promise<AgentCandidateKnowledge> {
+  const proposal = verifyAgentImprovementProposal(approval.proposal)
+  const review = verifyAgentImprovementReview(approval.review)
+  const activation = verifyAgentImprovementActivation({
+    proposal,
+    review,
+    activation: approval.activation,
+  })
+  const candidateBundle = proposal.evaluation.experiment.candidate
+  const knowledgeTarget = activation.targets.find((target) => target.surface === 'knowledge')
+  if (
+    proposal.changedSurfaces.length !== 1 ||
+    proposal.changedSurfaces[0] !== 'knowledge' ||
+    !candidateBundle.knowledge ||
+    !knowledgeTarget ||
+    knowledgeTarget.expectedBaseDigest !== candidateBundle.knowledge.candidate.baseHash ||
+    review.decision !== 'approve' ||
+    review.proposalDigest !== proposal.digest
+  ) {
+    throw new Error('knowledge promotion requires an approved exact knowledge proposal')
+  }
+  if (!(await approval.authorizeActivation(activation, proposal, review))) {
+    throw new Error('knowledge candidate activation was not authorized')
+  }
+  return candidateBundle.knowledge
+}
+
+function agentKnowledgeCandidateRef(
+  knowledge: AgentCandidateKnowledge,
+): KnowledgeImprovementCandidateRef {
+  return fromAgentCandidateKnowledgeRef(knowledge.candidate)
+}
+
 function emptySpent(): KnowledgeImprovementJobMeasurement['supervisedSpent'] {
-  return { iterations: 0, inputTokens: 0, outputTokens: 0, usd: 0, ms: 0 }
+  return { iterations: 0, inputTokens: 0, outputTokens: 0, usdKnown: true, usd: 0, ms: 0 }
 }
 
 function addSpent(
@@ -185,9 +352,10 @@ function addSpent(
   result: SupervisedResult<unknown>,
 ): void {
   const spent = result.spentTotal
-  target.iterations += spent.iterations ?? 0
-  target.inputTokens += spent.tokens?.input ?? 0
-  target.outputTokens += spent.tokens?.output ?? 0
-  target.usd += spent.usd ?? 0
-  target.ms += spent.ms ?? 0
+  target.iterations += spent.iterations
+  target.inputTokens += spent.tokens.input
+  target.outputTokens += spent.tokens.output
+  target.usdKnown = target.usdKnown && spent.usdKnown !== false
+  target.usd += spent.usd
+  target.ms += spent.ms
 }

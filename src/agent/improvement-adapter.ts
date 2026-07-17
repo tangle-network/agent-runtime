@@ -131,6 +131,9 @@ export function createSurfaceImprovementAdapter(
   opts: CreateSurfaceImprovementAdapterOpts,
 ): ImprovementAdapter<SurfaceImprovementEdit> {
   const mode = opts.mode ?? 'none'
+  if (mode === 'open-pr' && !opts.ghRepo) {
+    throw new Error('createSurfaceImprovementAdapter: mode=open-pr requires `ghRepo`')
+  }
   const allowCreate = opts.allowCreateForKinds ?? DEFAULT_CREATE_KINDS
 
   return {
@@ -230,14 +233,7 @@ export function createSurfaceImprovementAdapter(
 
       if (mode === 'none') {
         warnings.push(
-          'createSurfaceImprovementAdapter: mode=none; no edits applied — adjust manifest.autoApply.improvement.mode',
-        )
-        return { applied, warnings }
-      }
-
-      if (mode === 'open-pr' && !opts.ghRepo) {
-        warnings.push(
-          'createSurfaceImprovementAdapter: mode=open-pr requires `ghRepo`; falling back to no-op',
+          'createSurfaceImprovementAdapter: mode=none; no edits applied — configure mode=write or mode=open-pr',
         )
         return { applied, warnings }
       }

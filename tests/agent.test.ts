@@ -460,16 +460,15 @@ describe('createSurfaceImprovementAdapter — apply', () => {
     expect(r.warnings.join(' ')).toMatch(/mode=none/)
   })
 
-  it('mode=open-pr without ghRepo fails loud (no silent fallback)', async () => {
-    const adapter = createSurfaceImprovementAdapter({
-      surfaces,
-      repoRoot: tmpRoot,
-      draftPatch: async () => ({ patch: 'x', summary: 'y', rationale: 'z' }),
-      mode: 'open-pr',
-    })
-    const r = await adapter.apply!([])
-    expect(r.applied).toEqual([])
-    expect(r.warnings.join(' ')).toMatch(/requires `ghRepo`/)
+  it('mode=open-pr without ghRepo fails at construction', () => {
+    expect(() =>
+      createSurfaceImprovementAdapter({
+        surfaces,
+        repoRoot: tmpRoot,
+        draftPatch: async () => ({ patch: 'x', summary: 'y', rationale: 'z' }),
+        mode: 'open-pr',
+      }),
+    ).toThrow(/requires `ghRepo`/)
   })
 })
 

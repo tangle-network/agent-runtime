@@ -1,44 +1,25 @@
-import { type AnalystFinding, InMemoryTraceStore } from '@tangle-network/agent-eval'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-  SurfaceProposer,
-} from '@tangle-network/agent-eval/contract'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AnalystRegistryLike } from '../src/analyst-loop/types'
-import { buildAgentCandidateBundle } from '../src/candidate-execution/builder'
-import { InMemoryAgentCandidateExecutionClaimStore } from '../src/candidate-execution/claim'
-import { assertCandidateProfileBinding } from '../src/candidate-execution/profile'
-import type {
-  AgentCandidateExecutorPort,
-  AgentCandidateExecutorRequest,
-} from '../src/candidate-execution/types'
+import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { canonicalCandidateDigest } from '../src/candidate-execution/digest'
+import { agentCandidateProfileAsAgentProfile } from '../src/candidate-execution/profile'
 import {
+  createAgentImprovementActivation,
   createAgentImprovementProposal,
-  executeApprovedAgentCandidate,
   proposeAgentImprovement,
   reviewAgentImprovementProposal,
+  runAgentCandidateExperiment,
+  verifyAgentImprovementActivation,
   verifyAgentImprovementProposal,
   verifyAgentImprovementReview,
+  verifyCandidateExecutionEvidence,
 } from '../src/intelligence/improvement-cycle'
+import { cleanupCandidateFixtures } from './helpers/candidate-execution-fixture'
 import {
-  candidateSha,
-  cleanupCandidateFixtures,
-  createCandidateExecutionFixture,
-  createCandidateOutputFixture,
-  unchangedTaskOutcomeCapture,
-} from './helpers/candidate-execution-fixture'
-
-interface DemoScenario extends Scenario {
-  kind: 'demo'
-}
-
-const scenarios: DemoScenario[] = Array.from({ length: 12 }, (_, index) => ({
-  id: `scenario-${index}`,
-  kind: 'demo' as const,
-}))
+  type CandidateExperimentFixture,
+  cleanupCandidateExperimentFixtures,
+  createCandidateExperimentFixture,
+} from './helpers/candidate-experiment-fixture'
 
 const finding: AnalystFinding = {
   schema_version: '1.0.0',
@@ -47,527 +28,240 @@ const finding: AnalystFinding = {
   produced_at: '2026-07-10T00:00:00.000Z',
   severity: 'high',
   area: 'prompt',
-  claim: 'The agent omits the required marker.',
+  claim: 'The agent omits the required answer.',
   evidence_refs: [{ kind: 'span', id: 'span-1' }],
-  recommended_action: 'Add the measured marker.',
+  recommended_action: 'Return the measured answer.',
   confidence: 0.9,
   subject: 'agent-profile:prompt.systemPrompt',
 }
 
-const registry = (findings: AnalystFinding[]): AnalystRegistryLike => ({
-  list: () => [{ id: 'improvement' }],
-  run: async (runId) => ({
-    run_id: runId,
-    correlation_id: `correlation-${runId}`,
-    started_at: '2026-07-10T00:00:00.000Z',
-    ended_at: '2026-07-10T00:00:01.000Z',
-    findings,
-    per_analyst: [
-      {
-        analyst_id: 'improvement',
-        status: 'ok',
-        findings_count: findings.length,
-        latency_ms: 1,
-        cost_usd: 0,
-      },
-    ],
-    total_cost_usd: 0,
-  }),
-})
-
-const proposer: SurfaceProposer = {
-  kind: 'scripted',
-  propose: async () => [
-    { surface: 'PROMOTED', label: 'measured winner', rationale: 'addresses finding-1' },
-  ],
-}
-
-const judge: JudgeConfig<string, DemoScenario> = {
-  name: 'literal-marker',
-  dimensions: [{ key: 'marker', description: 'Contains the required marker.' }],
-  score: ({ artifact }) => {
-    const composite = artifact.includes('PROMOTED') ? 1 : 0
-    return { dimensions: { marker: composite }, composite, notes: '' }
-  },
-}
-
-async function agent(
-  surface: MutableSurface,
-  _scenario: DemoScenario,
-  context: DispatchContext,
-): Promise<string> {
-  const paid = await context.cost.runPaidCall({
-    channel: 'agent',
-    actor: 'fixture',
-    model: 'fixture-model',
-    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => String(surface),
-    receipt: () => ({
-      model: 'fixture-model',
-      inputTokens: 1,
-      outputTokens: 1,
-      actualCostUsd: 0.0001,
-    }),
-  })
-  if (!paid.succeeded) throw paid.error
-  return paid.value
-}
-
-function fixtureProfile() {
-  return {
-    name: 'candidate',
-    prompt: {
-      systemPrompt: 'BASELINE',
-      instructions: ['Inspect the repository, implement the fix, and run tests.'],
-    },
-    model: { default: 'provider/model', reasoningEffort: 'high' as const },
-    harness: 'codex' as const,
-    resources: { failOnError: true as const },
-  }
-}
-
-function alignedBundle(
-  bundle: Omit<ReturnType<typeof createCandidateExecutionFixture>['bundle'], 'digest'>,
-  profile: { prompt?: { systemPrompt?: string } },
-) {
-  return {
-    ...bundle,
-    profile: {
-      ...bundle.profile,
-      prompt: {
-        ...bundle.profile.prompt,
-        systemPrompt: profile.prompt?.systemPrompt,
-      },
-    },
-  }
-}
-
-function alignedSealedBundle(
-  bundle: Omit<ReturnType<typeof createCandidateExecutionFixture>['bundle'], 'digest'>,
-  profile: { prompt?: { systemPrompt?: string } },
-) {
-  const aligned = alignedBundle(bundle, profile)
-  const { profileDiffIds: _profileDiffIds, ...lineage } = aligned.lineage
-  return buildAgentCandidateBundle({
-    profile: { kind: 'candidate-profile', profile: aligned.profile },
-    code: aligned.code,
-    execution: aligned.execution,
-    ...(aligned.knowledge ? { knowledge: aligned.knowledge } : {}),
-    memory: aligned.memory,
-    lineage,
-  })
-}
-
 afterEach(() => {
+  cleanupCandidateExperimentFixtures()
   cleanupCandidateFixtures()
-  vi.restoreAllMocks()
 })
 
 describe('agent improvement lifecycle', () => {
-  it('refuses memory persistence before human approval', async () => {
-    const writeBack = vi.fn()
-    await expect(
-      proposeAgentImprovement({
-        runId: 'analysis-run-memory-writeback',
-        profile: fixtureProfile(),
-        analysis: { registry: registry([finding]), inputs: {}, findingsStore: null, log: () => {} },
-        improvement: {
-          surface: 'memory',
-          memory: {
-            document: '# Durable memory\n',
-            writeBack,
-          },
-          generator: proposer,
-          scenarios,
-          judge,
-          agent,
-          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
-        },
-      }),
-    ).rejects.toThrow('cannot write memory before human approval')
-    expect(writeBack).not.toHaveBeenCalled()
-  })
-
-  it('disposes a retained code winner when candidate construction fails', async () => {
-    const { execFileSync } = await import('node:child_process')
-    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const repoRoot = mkdtempSync(join(tmpdir(), 'improvement-cycle-code-cleanup-'))
-    const git = (...args: string[]) =>
-      execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' })
-    try {
-      git('init', '-q', '-b', 'main')
-      git('config', 'user.email', 'improvement-cycle@test.local')
-      git('config', 'user.name', 'improvement-cycle-test')
-      writeFileSync(join(repoRoot, 'module.txt'), 'BASELINE\n')
-      git('add', 'module.txt')
-      git('commit', '-qm', 'baseline')
-
-      const buildCandidate = vi.fn(async () => {
-        throw new Error('candidate construction failed')
-      })
-      await expect(
-        proposeAgentImprovement({
-          runId: 'analysis-run-code-build-failure',
-          profile: fixtureProfile(),
-          analysis: {
-            registry: registry([finding]),
-            inputs: {},
-            findingsStore: null,
-            log: () => {},
-          },
-          improvement: {
-            surface: 'code',
-            scenarios,
-            judge: {
-              name: 'code-marker',
-              dimensions: [{ key: 'marker', description: 'Code contains the promoted marker.' }],
-              score: ({ artifact }) => {
-                const composite = artifact.includes('PROMOTED') ? 1 : 0
-                return { dimensions: { marker: composite }, composite, notes: '' }
-              },
-            },
-            agent: async (surface, _scenario, context) => {
-              const paid = await context.cost.runPaidCall({
-                channel: 'agent',
-                actor: 'fixture',
-                model: 'fixture-model',
-                maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-                execute: async () => {
-                  if (typeof surface === 'string') throw new Error('expected code surface')
-                  return readFileSync(join(surface.worktreeRef, 'module.txt'), 'utf8')
-                },
-                receipt: () => ({
-                  model: 'fixture-model',
-                  inputTokens: 1,
-                  outputTokens: 1,
-                  actualCostUsd: 0.0001,
-                }),
-              })
-              if (!paid.succeeded) throw paid.error
-              return paid.value
-            },
-            code: {
-              repoRoot,
-              generator: {
-                kind: 'fixture',
-                async generate({ worktreePath }) {
-                  writeFileSync(join(worktreePath, 'module.txt'), 'PROMOTED\n')
-                  return { applied: true, summary: 'write promoted marker' }
-                },
-              },
-            },
-            promotionGate: {
-              name: 'fixture-ship',
-              decide: async () => ({
-                decision: 'ship',
-                reasons: ['candidate passes the fixture comparison'],
-                contributingGates: [],
-              }),
-            },
-            budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
-          },
-          buildCandidate,
-        }),
-      ).rejects.toThrow('candidate construction failed')
-
-      expect(buildCandidate).toHaveBeenCalledOnce()
-      expect(git('worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1)
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
-    }
-  })
-
-  it('binds typed candidate hooks to their equivalent measured profile commands', () => {
-    expect(() =>
-      assertCandidateProfileBinding(
-        {
-          hooks: {
-            beforeTool: [
-              {
-                command: "node 'path with space.js'",
-                timeoutMs: 1_000,
-                env: { MODE: 'check' },
-              },
-            ],
-          },
-        },
-        {
-          hooks: {
-            beforeTool: [
-              {
-                executable: 'node',
-                args: [{ kind: 'public', value: 'path with space.js' }],
-                timeoutMs: 1_000,
-                env: { MODE: { kind: 'public', value: 'check' } },
-              },
-            ],
-          },
-        },
-      ),
-    ).not.toThrow()
-  })
-
-  it('analyzes, measures, approves, executes, grades, and links one exact receipt', async () => {
-    const fixture = createCandidateExecutionFixture()
-    const { digest: _digest, ...bundleInput } = fixture.bundle
-    const profile = fixtureProfile()
-    const proposed = await proposeAgentImprovement({
-      runId: 'analysis-run-1',
-      profile,
-      analysis: { registry: registry([finding]), inputs: {}, findingsStore: null, log: () => {} },
-      improvement: {
-        surface: 'prompt',
-        generator: proposer,
-        scenarios,
-        judge,
-        agent,
-        budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+  it('measures the exact paired matrix before review and activation', async () => {
+    const rig = createCandidateExperimentFixture()
+    const executed: string[] = []
+    const result = await runAgentCandidateExperiment({
+      experiment: rig.experiment,
+      runId: 'paired-run-1',
+      maxConcurrency: 2,
+      placeCell: (input) => {
+        executed.push(`${input.arm}:${input.benchmarkCell.repetition}`)
+        return rig.placeCell(input)
       },
-      buildCandidate: ({ improvement }) => alignedSealedBundle(bundleInput, improvement.profile),
-      now: () => new Date('2026-07-10T01:00:00.000Z'),
     })
 
-    expect(proposed.proposal.evaluation.gateDecision).toBe('ship')
-    expect(proposed.proposal.evaluation.lift).toBeGreaterThan(0)
-    expect(proposed.proposal.findings).toEqual([finding])
-    expect(proposed.proposal.candidateProfile.prompt?.systemPrompt).toBe('PROMOTED')
-    expect(proposed.proposal.candidateBundle?.digest).toMatch(/^sha256:[a-f0-9]{64}$/)
-    expect(verifyAgentImprovementProposal(proposed.proposal)).toEqual(proposed.proposal)
-    expect(
-      createAgentImprovementProposal({
-        runId: 'analysis-run-1',
-        surface: 'prompt',
-        baselineProfile: profile,
-        candidateProfile: proposed.improvement.profile,
-        findings: proposed.analysis.analystResult.findings,
-        evaluation: proposed.improvement.raw,
-        candidateBundle: proposed.proposal.candidateBundle,
-        now: () => new Date('2026-07-10T01:00:00.000Z'),
-      }),
-    ).toEqual(proposed.proposal)
-    expect(() =>
-      createAgentImprovementProposal({
-        runId: 'analysis-run-unmeasured',
-        surface: 'prompt',
-        baselineProfile: profile,
-        candidateProfile: {
-          ...proposed.improvement.profile,
-          prompt: { systemPrompt: 'UNMEASURED' },
-        },
-        findings: proposed.analysis.analystResult.findings,
-        evaluation: proposed.improvement.raw,
-      }),
-    ).toThrow(/does not match the measured winner surface/)
-    expect(() =>
-      createAgentImprovementProposal({
-        runId: 'analysis-run-malformed-profile',
-        surface: 'agent-profile',
-        baselineProfile: profile,
-        candidateProfile: profile,
-        findings: proposed.analysis.analystResult.findings,
-        evaluation: {
-          ...proposed.improvement.raw,
-          winner: {
-            ...proposed.improvement.raw.winner,
-            surface: '{not-json',
-          },
-        },
-      }),
-    ).toThrow(/not valid JSON/)
+    expect(executed.sort()).toEqual([
+      'baseline:0',
+      'baseline:1',
+      'baseline:2',
+      'candidate:0',
+      'candidate:1',
+      'candidate:2',
+    ])
+    expect(result.measurements).toHaveLength(3)
+    expect(result.evaluation).toMatchObject({
+      experiment: { digest: rig.experiment.digest },
+      overall: { baseline: 0, candidate: 1, delta: 1, n: 3 },
+      decision: { outcome: 'ship' },
+      evaluation: { executionCostUsd: 0, searchCostUsd: 0, totalCostUsd: 0 },
+    })
 
-    const review = reviewAgentImprovementProposal(proposed.proposal, {
+    const proposal = createAgentImprovementProposal({
+      runId: 'paired-run-1',
+      findings: [finding],
+      evaluation: result.evaluation,
+      now: () => new Date('2026-07-10T01:00:00.000Z'),
+    })
+    expect(proposal.changedSurfaces).toEqual(['prompt'])
+    expect(verifyAgentImprovementProposal(proposal)).toEqual(proposal)
+    const { digest: _proposalDigest, ...proposalWithoutDigest } = proposal
+    const judgeDerivedProposalWithoutDigest = {
+      ...proposalWithoutDigest,
+      findings: proposal.findings.map((item) => ({ ...item, derived_from_judge: true })),
+    }
+    const judgeDerivedProposal = {
+      ...judgeDerivedProposalWithoutDigest,
+      digest: canonicalCandidateDigest(judgeDerivedProposalWithoutDigest),
+    }
+    expect(() => verifyAgentImprovementProposal(judgeDerivedProposal)).toThrow(/judge-derived/)
+
+    const review = reviewAgentImprovementProposal(proposal, {
       decision: 'approve',
       reviewedBy: 'operator@example.com',
-      reason: 'Measured winner passed the held-back scenarios.',
-      now: () => new Date('2026-07-10T02:00:00.000Z'),
+      reason: 'All three paired tasks improved.',
+      now: () => new Date('2026-07-10T01:01:00.000Z'),
     })
     expect(verifyAgentImprovementReview(review)).toEqual(review)
 
-    const traceStore = new InMemoryTraceStore()
-    let request: AgentCandidateExecutorRequest | undefined
-    const executor: AgentCandidateExecutorPort = {
-      execute: async (input) => {
-        request = input
-        await traceStore.appendRun({
-          runId: input.trace.runId,
-          scenarioId: 'approved-candidate',
-          startedAt: 100,
-          endedAt: 200,
-          status: 'completed',
-          tags: { ...input.trace.tags },
-        })
-        return { executionId: input.executionId, termination: { kind: 'exit', exitCode: 0 } }
-      },
-      stopAndCapture: async () => ({
-        stopped: true,
-        taskOutcome: unchangedTaskOutcomeCapture(fixture),
-      }),
-    }
-    const outputs = createCandidateOutputFixture()
-    const executed = await executeApprovedAgentCandidate({
-      proposal: proposed.proposal,
-      review,
-      authorizeReview: async (candidateReview) => candidateReview.digest === review.digest,
-      task: fixture.task,
-      ports: fixture.ports,
-      execution: {
-        executor,
-        traceStore,
-        claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
-        ...outputs,
-      },
+    const activation = createAgentImprovementActivation(proposal, review, {
+      targets: [
+        {
+          surface: 'prompt',
+          identity: 'tenant/default/profile',
+          expectedBaseDigest: promptSurfaceDigest(rig),
+        },
+      ],
+      fundingOwner: 'tenant/default',
+      authorizedBy: 'operator@example.com',
+      now: () => new Date('2026-07-10T01:02:00.000Z'),
     })
-
-    expect(request).toBeDefined()
-    expect(executed.finalization.succeeded).toBe(true)
-    expect(executed.evidence).toMatchObject({
-      proposalDigest: proposed.proposal.digest,
-      reviewDigest: review.digest,
-      bundleDigest: proposed.proposal.candidateBundle?.digest,
-      executionId: fixture.task.executionId,
-      succeeded: true,
-      runReceiptDigest: expect.stringMatching(/^sha256:/),
-    })
+    expect(verifyAgentImprovementActivation({ proposal, review, activation })).toEqual(activation)
   })
 
-  it('records rejection and refuses to execute it', async () => {
-    const fixture = createCandidateExecutionFixture()
-    const { digest: _digest, ...bundleInput } = fixture.bundle
-    const proposed = await proposeAgentImprovement({
-      runId: 'analysis-run-2',
-      profile: fixtureProfile(),
-      analysis: { registry: registry([finding]), inputs: {}, findingsStore: null, log: () => {} },
-      improvement: {
-        surface: 'prompt',
-        generator: proposer,
-        scenarios,
-        judge,
-        agent,
-        budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-      },
-      buildCandidate: ({ improvement }) => alignedBundle(bundleInput, improvement.profile),
+  it('runs isolated memory as a real candidate surface', async () => {
+    const rig = createCandidateExperimentFixture({ candidateSurface: 'memory' })
+    const result = await runAgentCandidateExperiment({
+      experiment: rig.experiment,
+      runId: 'memory-run-1',
+      placeCell: rig.placeCell,
     })
-    const review = reviewAgentImprovementProposal(proposed.proposal, {
+    const proposal = createAgentImprovementProposal({
+      runId: 'memory-run-1',
+      findings: [finding],
+      evaluation: result.evaluation,
+    })
+
+    expect(proposal.changedSurfaces).toEqual(['memory'])
+    expect(result.measurements).toHaveLength(3)
+    for (const measurement of result.measurements) {
+      expect(measurement.baseline.receipt.memory.mode).toBe('disabled')
+      expect(measurement.candidate.receipt.memory.mode).toBe('isolated')
+    }
+  })
+
+  it('rejects receipt substitution and stale activation targets', async () => {
+    const rig = createCandidateExperimentFixture()
+    const result = await runAgentCandidateExperiment({
+      experiment: rig.experiment,
+      runId: 'binding-run-1',
+      placeCell: rig.placeCell,
+    })
+    const evidence = result.measurements[0]?.candidate
+    if (!evidence) throw new Error('expected candidate evidence')
+    const benchmarkCell = {
+      suiteDigest: rig.experiment.benchmark.suite.digest,
+      taskIndex: 0,
+      repetition: 0,
+    }
+    expect(
+      verifyCandidateExecutionEvidence(evidence, {
+        experiment: rig.experiment,
+        arm: 'candidate',
+        benchmarkCell,
+        seed: 101,
+      }),
+    ).toEqual(evidence)
+    expect(() =>
+      verifyCandidateExecutionEvidence(evidence, {
+        experiment: rig.experiment,
+        arm: 'baseline',
+        benchmarkCell,
+        seed: 101,
+      }),
+    ).toThrow(/substituted|bind/)
+
+    const proposal = createAgentImprovementProposal({
+      runId: 'binding-run-1',
+      findings: [],
+      evaluation: result.evaluation,
+    })
+    const review = reviewAgentImprovementProposal(proposal, {
+      decision: 'approve',
+      reviewedBy: 'operator@example.com',
+      reason: 'Exact measured candidate approved.',
+    })
+    expect(() =>
+      createAgentImprovementActivation(proposal, review, {
+        targets: [
+          {
+            surface: 'prompt',
+            identity: 'tenant/default/profile',
+            expectedBaseDigest: canonicalCandidateDigest('stale-profile'),
+          },
+        ],
+        fundingOwner: 'tenant/default',
+        authorizedBy: 'operator@example.com',
+      }),
+    ).toThrow(/activation targets/)
+  })
+
+  it('does not create a proposal from an inconclusive comparison', async () => {
+    const rig = createCandidateExperimentFixture({ scoreFor: () => 1 })
+    const result = await runAgentCandidateExperiment({
+      experiment: rig.experiment,
+      runId: 'no-lift-run',
+      placeCell: rig.placeCell,
+    })
+
+    expect(result.evaluation.decision.outcome).not.toBe('ship')
+    expect(() =>
+      createAgentImprovementProposal({
+        runId: 'no-lift-run',
+        findings: [],
+        evaluation: result.evaluation,
+      }),
+    ).toThrow(/passing experiment/)
+  })
+
+  it('does not activate a rejected proposal', async () => {
+    const rig = createCandidateExperimentFixture()
+    const result = await runAgentCandidateExperiment({
+      experiment: rig.experiment,
+      runId: 'rejected-run',
+      placeCell: rig.placeCell,
+    })
+    const proposal = createAgentImprovementProposal({
+      runId: 'rejected-run',
+      findings: [],
+      evaluation: result.evaluation,
+    })
+    const review = reviewAgentImprovementProposal(proposal, {
       decision: 'reject',
       reviewedBy: 'operator@example.com',
-      reason: 'The change is not appropriate for this deployment.',
-      feedback: 'Keep the baseline behavior.',
+      reason: 'Not suitable for this deployment.',
     })
 
-    await expect(
-      executeApprovedAgentCandidate({
-        proposal: proposed.proposal,
-        review,
-        authorizeReview: async () => true,
-        task: fixture.task,
-        ports: fixture.ports,
-        execution: {
-          executor: {
-            execute: async () => {
-              throw new Error('must not execute')
-            },
-            stopAndCapture: async () => ({ stopped: true }),
+    expect(() =>
+      createAgentImprovementActivation(proposal, review, {
+        targets: [
+          {
+            surface: 'prompt',
+            identity: 'tenant/default/profile',
+            expectedBaseDigest: promptSurfaceDigest(rig),
           },
-          traceStore: new InMemoryTraceStore(),
-          claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
-          ...createCandidateOutputFixture(),
-        },
+        ],
+        fundingOwner: 'tenant/default',
+        authorizedBy: 'operator@example.com',
       }),
-    ).rejects.toThrow('not an approval')
+    ).toThrow(/requires an approval/)
   })
 
-  it('rejects a sealed build candidate whose digest was tampered', async () => {
-    const fixture = createCandidateExecutionFixture()
-    const { digest: _digest, ...bundleInput } = fixture.bundle
-
+  it('blocks optimizer write-back before measurement and approval', async () => {
     await expect(
       proposeAgentImprovement({
-        runId: 'analysis-run-tampered-bundle',
-        profile: fixtureProfile(),
-        analysis: { registry: registry([finding]), inputs: {}, findingsStore: null, log: () => {} },
-        improvement: {
-          surface: 'prompt',
-          generator: proposer,
-          scenarios,
-          judge,
-          agent,
-          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+        runId: 'unsafe-memory-write',
+        profile: { name: 'fixture' },
+        analysis: {} as never,
+        improvement: { memory: { writeBack: async () => undefined } } as never,
+        buildExperiment: async () => {
+          throw new Error('must not build an experiment')
         },
-        buildCandidate: ({ improvement }) => ({
-          ...alignedSealedBundle(bundleInput, improvement.profile),
-          digest: candidateSha('0'),
-        }),
-      }),
-    ).rejects.toThrow('built candidate bundle digest is invalid')
-  })
-
-  it('refuses a structurally valid approval that its authority does not recognize', async () => {
-    const fixture = createCandidateExecutionFixture()
-    const { digest: _digest, ...bundleInput } = fixture.bundle
-    const proposed = await proposeAgentImprovement({
-      runId: 'analysis-run-unauthorized',
-      profile: fixtureProfile(),
-      analysis: { registry: registry([finding]), inputs: {}, findingsStore: null, log: () => {} },
-      improvement: {
-        surface: 'prompt',
-        generator: proposer,
-        scenarios,
-        judge,
-        agent,
-        budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-      },
-      buildCandidate: ({ improvement }) => alignedBundle(bundleInput, improvement.profile),
-    })
-    const review = reviewAgentImprovementProposal(proposed.proposal, {
-      decision: 'approve',
-      reviewedBy: 'forged@example.com',
-      reason: 'Self-authored approval.',
-    })
-
-    await expect(
-      executeApprovedAgentCandidate({
-        proposal: proposed.proposal,
-        review,
-        authorizeReview: async () => false,
-        task: fixture.task,
-        ports: fixture.ports,
-        execution: {
-          executor: {
-            execute: async () => {
-              throw new Error('must not execute')
-            },
-            stopAndCapture: async () => ({ stopped: true }),
-          },
-          traceStore: new InMemoryTraceStore(),
-          claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
-          ...createCandidateOutputFixture(),
+        placeCell: () => {
+          throw new Error('must not place a cell')
         },
       }),
-    ).rejects.toThrow('not authorized')
-  })
-
-  it('rejects judge-derived findings before they can steer a proposal', async () => {
-    await expect(
-      proposeAgentImprovement({
-        runId: 'analysis-run-3',
-        profile: fixtureProfile(),
-        analysis: {
-          registry: registry([{ ...finding, derived_from_judge: true }]),
-          inputs: {},
-          findingsStore: null,
-          log: () => {},
-        },
-        improvement: {
-          surface: 'prompt',
-          generator: proposer,
-          scenarios,
-          judge,
-          agent,
-          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-        },
-      }),
-    ).rejects.toThrow(/judge/i)
+    ).rejects.toThrow(/cannot write memory before approval/)
   })
 })
+
+function promptSurfaceDigest(rig: CandidateExperimentFixture): `sha256:${string}` {
+  const profile = agentCandidateProfileAsAgentProfile(rig.experiment.baseline.profile)
+  return canonicalCandidateDigest({
+    prompt: profile.prompt ?? null,
+    instructions: profile.resources?.instructions ?? null,
+  })
+}

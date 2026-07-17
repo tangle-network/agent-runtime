@@ -1,19 +1,16 @@
 import { isLlmSpan, type LlmSpan, type TraceStore } from '@tangle-network/agent-eval'
-import type { AgentCandidateSpend } from '@tangle-network/agent-interface'
-import type { AgentCandidateExecutionUsage } from './claim'
-import { assertExactObjectKeys } from './exact-object'
 import type {
-  AgentCandidateProtectedModelCall,
-  AgentCandidateProtectedModelSettlement,
-} from './types'
+  AgentCandidateFixedSpend,
+  AgentCandidateModelSettlementCall,
+} from '@tangle-network/agent-interface'
+import { assertExactObjectKeys } from './exact-object'
+import type { AgentCandidateProtectedModelSettlement } from './types'
 
 const USD_NANOS = 1_000_000_000
 
 export interface SealedAgentCandidateModelSettlement {
   readonly value: AgentCandidateProtectedModelSettlement
-  readonly usage: AgentCandidateSpend
-  readonly fixedUsage: AgentCandidateExecutionUsage
-  readonly costUsdNanos: number
+  readonly usage: AgentCandidateFixedSpend
 }
 
 /** Validate and detach the evaluator gateway's terminal, revoked call ledger. */
@@ -43,7 +40,6 @@ export function sealAgentCandidateModelSettlement(
   let outputTokens = 0
   let cachedInputTokens = 0
   let reasoningTokens = 0
-  let hasCachedInput = false
   let costUsdNanos = 0
   const calls = settlement.calls.map((source, index) => {
     assertExactObjectKeys(
@@ -96,7 +92,6 @@ export function sealAgentCandidateModelSettlement(
       source.cachedInputTokens,
       'cached input token total',
     )
-    hasCachedInput = true
     assertCount(source.reasoningTokens, `model settlement call ${index} reasoningTokens`)
     reasoningTokens = safeAdd(reasoningTokens, source.reasoningTokens, 'reasoning token total')
     assertCount(source.costUsdNanos, `model settlement call ${index} costUsdNanos`)
@@ -107,13 +102,6 @@ export function sealAgentCandidateModelSettlement(
   })
 
   const usage = Object.freeze({
-    costUsd: costUsdNanos / USD_NANOS,
-    inputTokens,
-    outputTokens,
-    ...(hasCachedInput ? { cachedInputTokens } : {}),
-    modelCalls: calls.length,
-  })
-  const fixedUsage = Object.freeze({
     costUsdNanos,
     inputTokens,
     outputTokens,
@@ -129,8 +117,6 @@ export function sealAgentCandidateModelSettlement(
       calls: Object.freeze(calls),
     }),
     usage,
-    fixedUsage,
-    costUsdNanos,
   })
 }
 
@@ -213,7 +199,7 @@ export function usdToNanos(value: number, label: string): number {
   return nanos
 }
 
-function assertTraceCall(span: LlmSpan, call: AgentCandidateProtectedModelCall): void {
+function assertTraceCall(span: LlmSpan, call: AgentCandidateModelSettlementCall): void {
   if (span.model !== call.model) {
     throw new Error(`protected trace span ${span.spanId} model does not match model ledger`)
   }

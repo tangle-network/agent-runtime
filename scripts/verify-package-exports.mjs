@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-exports-'))
+const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -14,18 +14,6 @@ try {
   mkdirSync(packDir, { recursive: true })
   mkdirSync(unpackDir, { recursive: true })
   mkdirSync(appDir, { recursive: true })
-  writeFileSync(
-    join(appDir, 'package.json'),
-    `${JSON.stringify(
-      {
-        name: 'agent-runtime-package-verification',
-        private: true,
-        type: 'module',
-      },
-      null,
-      2,
-    )}\n`,
-  )
 
   run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
   const tarballs = run('find', [packDir, '-maxdepth', '1', '-name', '*.tgz', '-print'], repoRoot)
@@ -42,23 +30,33 @@ try {
   if (packageJson.peerDependenciesMeta?.['@tangle-network/agent-eval']?.optional) {
     throw new Error('@tangle-network/agent-eval must stay required: root and ./loops import it at runtime')
   }
-  const requiredExports = {
-    '.': ['import', 'types'],
-    './agent': ['import', 'types'],
-    './conversation': ['import', 'types'],
-    './candidate-execution': ['import', 'types'],
-    './intelligence': ['import', 'types'],
-    './loops': ['import', 'types'],
-    './environment-provider': ['import', 'types'],
-    './primeintellect': ['import', 'types'],
-    './profiles': ['import', 'types'],
-    './mcp': ['import', 'types'],
+  const packageExports = packageJson.exports
+  if (!packageExports || typeof packageExports !== 'object') {
+    throw new Error('packed package has no exports map')
   }
-
-  for (const [subpath, fields] of Object.entries(requiredExports)) {
-    const exportTarget = packageJson.exports?.[subpath]
-    if (!exportTarget) throw new Error(`missing package export ${subpath}`)
-    for (const field of fields) {
+  const requiredSubpaths = [
+    '.',
+    './agent',
+    './conversation',
+    './intelligence',
+    './loops',
+    './environment-provider',
+    './analyst-loop',
+    './lifecycle',
+    './knowledge',
+    './profiles',
+    './platform',
+    './primeintellect',
+    './candidate-execution',
+    './mcp',
+  ]
+  for (const subpath of requiredSubpaths) {
+    if (!(subpath in packageExports)) {
+      throw new Error(`packed package removed public export ${subpath}`)
+    }
+  }
+  for (const [subpath, exportTarget] of Object.entries(packageExports)) {
+    for (const field of ['import', 'types']) {
       const relativeTarget = exportTarget[field]
       if (typeof relativeTarget !== 'string') {
         throw new Error(`missing ${field} target for package export ${subpath}`)
@@ -67,20 +65,135 @@ try {
     }
   }
 
-  // Install into an empty app so dependency resolution uses only published package metadata.
-  run(
-    'npm',
-    [
-      'install',
-      '--ignore-scripts',
-      '--no-package-lock',
-      '--no-save',
-      '--no-audit',
-      '--no-fund',
-      tarballs[0],
-    ],
-    appDir,
+  const repoPackageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
+  const knowledgePackageDir = join(
+    repoRoot,
+    'node_modules',
+    '@tangle-network',
+    'agent-knowledge',
   )
+  const knowledgePackageJson = JSON.parse(
+    readFileSync(join(knowledgePackageDir, 'package.json'), 'utf8'),
+  )
+  if (
+    knowledgePackageJson.name !== '@tangle-network/agent-knowledge' ||
+    typeof knowledgePackageJson.version !== 'string' ||
+    knowledgePackageJson.version.length === 0
+  ) {
+    throw new Error('packed consumer requires an installed @tangle-network/agent-knowledge release')
+  }
+  const peerPackages = [
+    '@tangle-network/agent-eval',
+    '@tangle-network/agent-interface',
+    '@tangle-network/sandbox',
+    'playwright',
+  ]
+  const peerDependencies = Object.fromEntries(
+    peerPackages.map((name) => {
+      const version = repoPackageJson.devDependencies?.[name]
+      if (typeof version !== 'string' || version.length === 0) {
+        throw new Error(`packed consumer requires a ${name} development dependency`)
+      }
+      return [name, version]
+    }),
+  )
+  writeFileSync(
+    join(appDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        private: true,
+        type: 'module',
+        dependencies: {
+          '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
+          ...peerDependencies,
+        },
+        devDependencies: {
+          '@types/node': repoPackageJson.devDependencies['@types/node'],
+          typescript: repoPackageJson.devDependencies.typescript,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  writeFileSync(
+    join(appDir, 'pnpm-workspace.yaml'),
+    `overrides:\n  '@tangle-network/agent-knowledge': ${knowledgePackageJson.version}\n`,
+  )
+  writeFileSync(
+    join(appDir, 'tsconfig.json'),
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          strict: true,
+          noEmit: true,
+          skipLibCheck: false,
+        },
+        include: ['consumer.ts'],
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  writeFileSync(
+    join(appDir, 'consumer.ts'),
+    `
+      import type {
+        AgentCandidateProfileActivation,
+        CandidateExecutionEvidence,
+      } from '@tangle-network/agent-interface'
+      import { SandboxClient } from '@tangle-network/sandbox'
+      import {
+        createSandboxCandidateExperimentExecutor,
+        parseAgentCandidateProfileActivation,
+        sandboxCandidateExperimentExecutionSupport,
+        verifyCandidateExecutionEvidence,
+        type CreateSandboxCandidateExperimentExecutorOptions,
+        type SandboxCandidateExperimentExecution,
+        type VerifyCandidateExecutionEvidenceOptions,
+      } from '@tangle-network/agent-runtime/intelligence'
+
+      const client = new SandboxClient({
+        apiKey: 'sk_sandbox_compile_only',
+        baseUrl: 'https://sandbox.example.com',
+        trustLocalCliAuth: false,
+      })
+      declare const ports: CreateSandboxCandidateExperimentExecutorOptions['ports']
+      declare const grader: CreateSandboxCandidateExperimentExecutorOptions['grader']
+      declare const outputArtifacts: CreateSandboxCandidateExperimentExecutorOptions['outputArtifacts']
+      declare const traceStore: CreateSandboxCandidateExperimentExecutorOptions['traceStore']
+      declare const claimStore: CreateSandboxCandidateExperimentExecutorOptions['claimStore']
+      declare const executionInput: SandboxCandidateExperimentExecution
+      declare const verification: VerifyCandidateExecutionEvidenceOptions
+      declare const storedEvidence: unknown
+
+      const executor = createSandboxCandidateExperimentExecutor({
+        client,
+        ports,
+        grader,
+        outputArtifacts,
+        traceStore,
+        claimStore,
+      })
+      const execution: Promise<CandidateExecutionEvidence> = executor.execute(executionInput)
+      const evidence = verifyCandidateExecutionEvidence(storedEvidence, verification)
+      const activation: AgentCandidateProfileActivation =
+        parseAgentCandidateProfileActivation(
+          evidence.materializationReceipt.profileActivation,
+          evidence.materializationReceipt.profileActivation.profilePlan.digest,
+        )
+      const outcome: 'output' = sandboxCandidateExperimentExecutionSupport.outcomes[0]
+      void execution
+      void activation
+      void outcome
+    `,
+  )
+  run('pnpm', ['install', '--config.auto-install-peers=false'], appDir)
+  run('pnpm', ['exec', 'tsc', '-p', 'tsconfig.json'], appDir)
+
   run(
     process.execPath,
     [
@@ -91,14 +204,16 @@ try {
         const packageJson = JSON.parse(
           readFileSync('node_modules/@tangle-network/agent-runtime/package.json', 'utf8'),
         )
-        const subpaths = Object.keys(packageJson.exports).map((subpath) =>
-          subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1),
-        )
-        for (const subpath of subpaths) await import(subpath)
+        for (const subpath of Object.keys(packageJson.exports)) {
+          const specifier =
+            subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1)
+          await import(specifier)
+        }
       `,
     ],
     appDir,
   )
+
   run(
     process.execPath,
     [
@@ -139,6 +254,12 @@ try {
           'composeCertifiedProfile',
           'manifestFromProfile',
           'CapabilityNotAdmittedError',
+          'createSandboxCandidateExperimentExecutor',
+          'executeAgentCandidateExperimentCell',
+          'parseAgentCandidateProfileActivation',
+          'runAgentCandidateExperiment',
+          'sandboxCandidateExperimentExecutionSupport',
+          'verifyCandidateExecutionEvidence',
         ]
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
@@ -166,7 +287,7 @@ try {
             kind: 'profile',
             profile: { name: 'packed-consumer', harness: 'codex' },
           },
-          code: { kind: 'disabled', reason: 'control' },
+          code: { kind: 'disabled' },
           execution: {
             harness: 'codex',
             harnessVersion: '1.0.0',
@@ -181,7 +302,6 @@ try {
             },
           },
           memory: { mode: 'disabled' },
-          lineage: { source: 'human' },
         })
         const verified = await candidates.verifyAgentCandidateBundle(bundle, {
           artifacts: { read: async () => { throw new Error('unexpected artifact read') } },
@@ -213,6 +333,31 @@ try {
     ],
     appDir,
   )
+
+  const installedPackageDir = join(
+    appDir,
+    'node_modules',
+    '@tangle-network',
+    'agent-runtime',
+  )
+  const repackDir = join(tempRoot, 'repack')
+  mkdirSync(repackDir, { recursive: true })
+  run(
+    'npm',
+    ['pack', '--ignore-scripts=false', '--pack-destination', repackDir],
+    installedPackageDir,
+  )
+  const repackedTarballs = run(
+    'find',
+    [repackDir, '-maxdepth', '1', '-name', '*.tgz', '-print'],
+    repoRoot,
+  )
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+  if (repackedTarballs.length !== 1) {
+    throw new Error(`expected exactly one repacked runtime tarball, found ${repackedTarballs.length}`)
+  }
 } finally {
   rmSync(tempRoot, { recursive: true, force: true })
 }

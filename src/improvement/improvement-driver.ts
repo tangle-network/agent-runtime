@@ -31,6 +31,7 @@ import {
   type Worktree,
   type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
+import { rethrowAfterCleanup } from './cleanup'
 
 /** The byte-producing seam — the ONE thing that differs between the cheap
  *  reflective path and the full agentic path. A generator makes (uncommitted)
@@ -146,24 +147,14 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
           owned.delete(wt.path)
           owned.set(surface.worktreeRef, wt)
         } catch (err) {
-          const cleanupErrors: unknown[] = []
-          for (let attempt = 0; attempt < 2; attempt += 1) {
-            try {
+          const failure = err instanceof Error ? err.message : String(err)
+          return rethrowAfterCleanup(
+            err,
+            async () => {
               await opts.worktree.discard(wt)
               owned.delete(wt.path)
-              break
-            } catch (cause) {
-              cleanupErrors.push(cause)
-            }
-          }
-          if (cleanupErrors.length === 0) throw err
-          const failure = err instanceof Error ? err.message : String(err)
-          const cleanupSucceeded = !owned.has(wt.path)
-          throw new AggregateError(
-            [err, ...cleanupErrors],
-            cleanupSucceeded
-              ? `improvementDriver: ${failure}; candidate cleanup retry succeeded`
-              : `improvementDriver: ${failure}; candidate worktree could not be cleaned`,
+            },
+            `improvementDriver: ${failure}`,
           )
         }
       }

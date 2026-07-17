@@ -22,12 +22,6 @@ import {
   candidateClaimFileInternals,
 } from './claim'
 import {
-  CLAIM_FORMAT_VERSION,
-  PENDING_FORMAT_VERSION,
-  PHASE_FORMAT_VERSION,
-  TERMINAL_FORMAT_VERSION,
-} from './claim-file-formats'
-import {
   assertRecoveryMatchesStaged,
   assertTerminalAllowedInPhase,
   assertTerminalMatchesClaim,
@@ -100,7 +94,6 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
 
     const lease = newLease(claim)
     const acquired = await writeRecordIfAbsent(this.directory, claimPath, {
-      version: CLAIM_FORMAT_VERSION,
       ...claim,
       phase: 'claimed',
       leaseDigest: leaseDigest(lease),
@@ -138,7 +131,6 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
       this.directory,
       this.transitionPath(stored.claim, 1),
       {
-        version: PHASE_FORMAT_VERSION,
         kind: 'candidate-execution-phase',
         executionId: stored.claim.executionId,
         attempt: stored.claim.attempt,
@@ -174,7 +166,6 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
       this.directory,
       this.transitionPath(stored.claim, transition),
       {
-        version: PENDING_FORMAT_VERSION,
         kind: 'candidate-execution-pending-terminal',
         terminal,
       },
@@ -212,7 +203,6 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
       this.directory,
       terminalPath,
       {
-        version: TERMINAL_FORMAT_VERSION,
         terminal: staged,
       },
       this.ownerPublication(stored.claim),
@@ -245,7 +235,6 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
         this.directory,
         this.transitionPath(record.claim, transition),
         {
-          version: PENDING_FORMAT_VERSION,
           kind: 'candidate-execution-pending-terminal',
           terminal: recovered,
         },
@@ -266,7 +255,6 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
 
     const terminalPath = this.terminalPath(attempt)
     const didFinish = await writeRecordIfAbsent(this.directory, terminalPath, {
-      version: TERMINAL_FORMAT_VERSION,
       terminal: staged,
     })
     if (didFinish) return Object.freeze({ finished: true, terminal: staged })

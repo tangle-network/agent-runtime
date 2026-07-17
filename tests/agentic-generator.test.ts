@@ -194,7 +194,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     expect(out.applied).toBe(true)
     expect(receipts).toHaveLength(1)
     expect(receipts[0]).toMatchObject({
-      schemaVersion: 1,
       generation: 4,
       candidateIndex: 2,
       shot: 1,

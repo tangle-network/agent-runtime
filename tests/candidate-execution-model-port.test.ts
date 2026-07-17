@@ -1,5 +1,9 @@
 import { InMemoryTraceStore, type LlmSpan } from '@tangle-network/agent-eval'
-import type { AgentCandidateResolvedModel, Sha256Digest } from '@tangle-network/agent-interface'
+import type {
+  AgentCandidateModelSettlementCall,
+  AgentCandidateResolvedModel,
+  Sha256Digest,
+} from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   appendAuthoritativeModelSettlementSpans,
@@ -17,7 +21,6 @@ import {
 import type {
   AgentCandidateModelPort,
   AgentCandidateProtectedModelActivation,
-  AgentCandidateProtectedModelCall,
   AgentCandidateProtectedModelSettlement,
 } from '../src/candidate-execution/types'
 
@@ -95,8 +98,8 @@ function settleInput(
 
 function modelCall(
   index: number,
-  overrides: Partial<AgentCandidateProtectedModelCall> = {},
-): AgentCandidateProtectedModelCall {
+  overrides: Partial<AgentCandidateModelSettlementCall> = {},
+): AgentCandidateModelSettlementCall {
   return {
     callId: `call-${index}`,
     generationId: `generation-${index}`,
@@ -115,7 +118,7 @@ function modelCall(
 }
 
 function settlement(
-  calls: readonly AgentCandidateProtectedModelCall[] = [],
+  calls: readonly AgentCandidateModelSettlementCall[] = [],
 ): AgentCandidateProtectedModelSettlement {
   return {
     preparationId: 'preparation-1',

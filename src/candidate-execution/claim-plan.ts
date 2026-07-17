@@ -1,4 +1,4 @@
-import type { Sha256Digest } from '@tangle-network/agent-interface'
+import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/agent-interface'
 
 import { type AgentCandidateExecutionClaim, candidateClaimFileInternals } from './claim'
 import { canonicalCandidateDigest } from './digest'
@@ -9,10 +9,18 @@ import type { PreparedAgentCandidateExecution } from './types'
 /** Extract the complete durable claim from a prepared execution. */
 export function candidateExecutionClaim(
   prepared: PreparedAgentCandidateExecution,
+  preparationEvidence: {
+    executionPlan: AgentCandidateArtifactRef
+    materializationReceipt: AgentCandidateArtifactRef
+  },
 ): AgentCandidateExecutionClaim {
   const state = assertPreparedCandidateIntegrity(prepared)
   const material = prepared.executionPlan.value.material
-  const attempt = material.attempt
+  const attempt = {
+    number: material.runCell.attempt,
+    maxAttempts: state.benchmarkTask.attempt.maxAttempts,
+    retryPolicy: state.benchmarkTask.attempt.retryPolicy,
+  } as const
   const nowMs = Date.now()
   if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
     throw new Error('candidate execution claim-store clock returned an invalid timestamp')
@@ -32,6 +40,21 @@ export function candidateExecutionClaim(
       'candidate preparation expires before its full execution and cleanup owner window',
     )
   }
+  if (
+    preparationEvidence.executionPlan.sha256 !== prepared.executionPlan.value.digest ||
+    preparationEvidence.executionPlan.byteLength !== state.executionPlan.bytes.byteLength
+  ) {
+    throw new Error('persisted execution plan does not match its canonical preparation bytes')
+  }
+  if (
+    preparationEvidence.materializationReceipt.sha256 !== state.materializationReceipt.digest ||
+    preparationEvidence.materializationReceipt.byteLength !==
+      state.materializationReceipt.bytes.byteLength
+  ) {
+    throw new Error(
+      'persisted materialization receipt does not match its canonical preparation bytes',
+    )
+  }
   return candidateClaimFileInternals.sealClaim({
     executionId: prepared.executionId,
     attempt: attempt.number,
@@ -39,6 +62,7 @@ export function candidateExecutionClaim(
     retryPolicy: attempt.retryPolicy,
     bundleDigest: prepared.bundle.digest,
     executionPlanDigest: prepared.executionPlan.value.digest,
+    preparationEvidence,
     retryLineageDigest: retryLineageDigest(prepared, state.resultTimeoutMs),
     leaseExpiresAtMs,
     resultTimeoutMs: state.resultTimeoutMs,
@@ -69,7 +93,11 @@ function retryLineageDigest(
     resultTimeoutMs,
     executionPlan: {
       ...material,
-      attempt: { ...material.attempt, number: 0 },
+      runCell: {
+        ...material.runCell,
+        attempt: 0,
+        digest: `sha256:${'0'.repeat(64)}`,
+      },
       model: {
         ...material.model,
         access: {

@@ -140,12 +140,6 @@ Re-exports [AgentCandidateExecutionTerminalResult](index.md#agentcandidateexecut
 
 ***
 
-### AgentCandidateExecutionUsage
-
-Re-exports [AgentCandidateExecutionUsage](index.md#agentcandidateexecutionusage)
-
-***
-
 ### AgentCandidateRetryRejection
 
 Re-exports [AgentCandidateRetryRejection](index.md#agentcandidateretryrejection)
@@ -155,6 +149,12 @@ Re-exports [AgentCandidateRetryRejection](index.md#agentcandidateretryrejection)
 ### InMemoryAgentCandidateExecutionClaimStore
 
 Re-exports [InMemoryAgentCandidateExecutionClaimStore](index.md#inmemoryagentcandidateexecutionclaimstore)
+
+***
+
+### AgentCandidatePreparationEvidence
+
+Re-exports [AgentCandidatePreparationEvidence](index.md#agentcandidatepreparationevidence)
 
 ***
 
@@ -197,6 +197,24 @@ Re-exports [ExecutePreparedAgentCandidateOptions](index.md#executepreparedagentc
 ### executePreparedAgentCandidate
 
 Re-exports [executePreparedAgentCandidate](index.md#executepreparedagentcandidate)
+
+***
+
+### CANDIDATE\_KNOWLEDGE\_RETRIEVAL\_CONFIG\_ENV
+
+Re-exports [CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV](index.md#candidate_knowledge_retrieval_config_env)
+
+***
+
+### CANDIDATE\_KNOWLEDGE\_ROOT\_ENV
+
+Re-exports [CANDIDATE_KNOWLEDGE_ROOT_ENV](index.md#candidate_knowledge_root_env)
+
+***
+
+### candidateKnowledgeExecutionPaths
+
+Re-exports [candidateKnowledgeExecutionPaths](index.md#candidateknowledgeexecutionpaths)
 
 ***
 
@@ -293,12 +311,6 @@ Re-exports [recoverExpiredAgentCandidateExecution](index.md#recoverexpiredagentc
 ### AgentCandidateArtifactPort
 
 Re-exports [AgentCandidateArtifactPort](index.md#agentcandidateartifactport)
-
-***
-
-### AgentCandidateBenchmarkGraderIdentity
-
-Re-exports [AgentCandidateBenchmarkGraderIdentity](index.md#agentcandidatebenchmarkgraderidentity)
 
 ***
 
@@ -416,12 +428,6 @@ Re-exports [AgentCandidateProtectedModelActivation](index.md#agentcandidateprote
 
 ***
 
-### AgentCandidateProtectedModelCall
-
-Re-exports [AgentCandidateProtectedModelCall](index.md#agentcandidateprotectedmodelcall)
-
-***
-
 ### AgentCandidateProtectedModelReservation
 
 Re-exports [AgentCandidateProtectedModelReservation](index.md#agentcandidateprotectedmodelreservation)
@@ -533,6 +539,12 @@ Re-exports [VerifiedAgentCandidate](index.md#verifiedagentcandidate)
 ### VerifiedAgentCandidateTaskOutcome
 
 Re-exports [VerifiedAgentCandidateTaskOutcome](index.md#verifiedagentcandidatetaskoutcome)
+
+***
+
+### AGENT\_CANDIDATE\_EXECUTION\_SUPPORT
+
+Re-exports [AGENT_CANDIDATE_EXECUTION_SUPPORT](index.md#agent_candidate_execution_support)
 
 ***
 

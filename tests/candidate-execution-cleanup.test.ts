@@ -41,9 +41,11 @@ describe('candidate cleanup timer bounds', () => {
 
   it('rejects results observed exactly at their frozen deadline', async () => {
     vi.useFakeTimers({ now: 100 })
+    let observedCleanupSignal: AbortSignal | undefined
     await expect(
       withinCandidateCleanupDeadline(
-        async () => {
+        async (signal) => {
+          observedCleanupSignal = signal
           vi.setSystemTime(110)
           return 'ambiguous'
         },
@@ -51,6 +53,7 @@ describe('candidate cleanup timer bounds', () => {
         'cleanup',
       ),
     ).rejects.toBeInstanceOf(CandidateCleanupTimeoutError)
+    expect(observedCleanupSignal?.aborted).toBe(true)
 
     let observedSignal: AbortSignal | undefined
     await expect(

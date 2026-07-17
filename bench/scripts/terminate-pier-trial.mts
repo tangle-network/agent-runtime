@@ -48,7 +48,7 @@ const controller = new FilePierCandidateTrialController({
   ...(dockerConnection ? { dockerConnection } : {}),
 })
 const executor = createPierCandidateRecoveryExecutor(controller)
-const recovered = await executor.stopAndCapture(
+const recovered = await executor.stop(
   {
     executionId,
     executionPlanDigest: executionPlanDigest as `sha256:${string}`,

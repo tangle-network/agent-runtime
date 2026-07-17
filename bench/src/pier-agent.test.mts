@@ -23,10 +23,21 @@ const digest = (bytes: Uint8Array): `sha256:${string}` =>
 function prepared(root: string): PreparedAgentCandidateExecution {
   const bundleDigest = `sha256:${'b'.repeat(64)}` as const
   const executionId = 'pier-test-execution'
+  const task = {
+    outcome: {
+      kind: 'workspace',
+      repository: {
+        identity: 'fixture/repository',
+        rootIdentity: 'fixture/repository',
+        baseCommit: '1'.repeat(40),
+        baseTree: '2'.repeat(40),
+      },
+    },
+  }
   const material = {
     schemaVersion: 1,
     kind: 'agent-candidate-execution-plan-material',
-    bundleDigest,
+    runCell: { bundleDigest },
     executionId,
     limits: {
       timeoutMs: 60_000,
@@ -51,6 +62,7 @@ function prepared(root: string): PreparedAgentCandidateExecution {
   const profileBytes = Buffer.from('fixture profile\n')
   return {
     bundle: { digest: bundleDigest },
+    benchmark: { task },
     executionId,
     roots: {
       execution: { taskRoot: '/app' },
@@ -77,6 +89,9 @@ function prepared(root: string): PreparedAgentCandidateExecution {
       },
       bytes: Buffer.from('{}'),
       written: ['AGENTS.md'],
+    },
+    profileActivation: {
+      files: [{ path: 'AGENTS.md', mode: 0o644, content: profileBytes.toString('utf8') }],
     },
     materializationReceipt: {
       value: { ...receiptMaterial, digest: receiptDigest },
@@ -133,12 +148,10 @@ function request(execution: PreparedAgentCandidateExecution): AgentCandidateExec
         },
         files: [{ path: 'src/status.txt', mode: 0o644, bytes: taskBytes }],
       },
-      profile: {
-        files: [{ path: 'AGENTS.md', mode: 0o644, bytes: profileBytes }],
-      },
     },
     roots: execution.roots.execution,
     profilePlan: execution.profilePlan,
+    profileActivation: execution.profileActivation,
     executionPlan: execution.executionPlan,
     materializationReceipt: execution.materializationReceipt,
     launch: {
