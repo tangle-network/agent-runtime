@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import {
   firstAvailableSweImageCandidate,
@@ -14,6 +14,7 @@ import {
   SWE_SEED_PROMPT,
   SWE_SEED_PROMPT_WITH_RUN,
 } from './swe-bench-env'
+import { absoluteSweTempDir } from './swe-temp'
 
 describe('SWE worker prompts', () => {
   it('keeps the run-capable prompt as the exact baseline prompt plus run guidance', () => {
@@ -48,6 +49,26 @@ describe('SWE worker prompts', () => {
       firstAvailableSweImageCandidate(candidates, new Map([['sweb.eval.example:latest', localIdentity]])),
       { candidate: { tag: 'sweb.eval.example:latest', namespace: 'none' }, identity: localIdentity },
     )
+  })
+})
+
+describe('SWE temporary directory', () => {
+  it('stays absolute when model temperature is configured through TEMPERATURE', () => {
+    const priorTemp = process.env.TEMP
+    const priorTemperature = process.env.TEMPERATURE
+    try {
+      delete process.env.TEMP
+      process.env.TEMPERATURE = '0.8'
+      assert.equal(isAbsolute(absoluteSweTempDir()), true)
+
+      process.env.TEMP = '0.8'
+      assert.throws(() => absoluteSweTempDir(), /must be absolute.*TEMPERATURE/)
+    } finally {
+      if (priorTemp === undefined) delete process.env.TEMP
+      else process.env.TEMP = priorTemp
+      if (priorTemperature === undefined) delete process.env.TEMPERATURE
+      else process.env.TEMPERATURE = priorTemperature
+    }
   })
 })
 

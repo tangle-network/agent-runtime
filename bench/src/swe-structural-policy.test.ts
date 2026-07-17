@@ -7,6 +7,7 @@ import {
   continuationStateNotice,
   preferLaterCandidate,
   resolveExperimentArm,
+  resolveExperimentTemperature,
   shouldAcceptContinuation,
   shouldRunContinuation,
 } from './swe-structural-policy'
@@ -40,6 +41,17 @@ describe('structural experiment arms', () => {
   it('rejects every untyped arm instead of accepting free-form K/repair settings', () => {
     assert.throws(() => resolveExperimentArm('system'), /independent-2\|persistent-refine-2/)
     assert.throws(() => resolveExperimentArm(''), /independent-2\|persistent-refine-2/)
+  })
+
+  it('uses TEMPERATURE without repurposing Node TEMP as a model knob', () => {
+    assert.equal(resolveExperimentTemperature({}), 0.8)
+    assert.equal(resolveExperimentTemperature({ TEMPERATURE: '0.35' }), 0.35)
+    assert.equal(resolveExperimentTemperature({ TEMP: '/tmp', TEMPERATURE: '0.35' }), 0.35)
+    assert.throws(
+      () => resolveExperimentTemperature({ TEMP: '0.8' }),
+      /TEMP is the operating-system temporary-directory root.*TEMPERATURE/,
+    )
+    assert.throws(() => resolveExperimentTemperature({ TEMPERATURE: 'hot' }), /finite number/)
   })
 })
 

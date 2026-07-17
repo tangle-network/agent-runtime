@@ -10,7 +10,7 @@
  * MODE=judge-only requires INDEPENDENT_PHASE_A, PERSISTENT_PHASE_A, and a distinct OUT. It validates
  * both complete Phase-A files and every paired fingerprint before the first serialized official score.
  *
- * Generate env: ZAI_API_KEY, REPRO_MANIFEST, IDS, OUT, MODEL, ZAI_BASE, MAX_TOKENS, TEMP,
+ * Generate env: ZAI_API_KEY, REPRO_MANIFEST, IDS, OUT, MODEL, ZAI_BASE, MAX_TOKENS, TEMPERATURE,
  * INNER_TURNS, CONC, REPRO_TIMEOUT, LLM_TIMEOUT_MS, SWE_RUN_TIMEOUT, SWE_RUN_OUTPUT_LIMIT,
  * PRICE_IN, PRICE_OUT. Judge env: INDEPENDENT_PHASE_A, PERSISTENT_PHASE_A, OUT.
  */
@@ -48,6 +48,7 @@ import {
   continuationStateNotice,
   preferLaterCandidate,
   resolveExperimentArm,
+  resolveExperimentTemperature,
   shouldAcceptContinuation,
   shouldRunContinuation,
 } from './swe-structural-policy'
@@ -74,6 +75,7 @@ import {
 } from './swe-structural-judge-policy'
 
 const exec = promisify(execFile)
+const TEMPERATURE = resolveExperimentTemperature(process.env)
 
 function sourceTreeReceipt(
   rootUrl: URL,
@@ -126,7 +128,6 @@ if (MODE === 'generate' && !ZAI_KEY) throw new Error('ZAI_API_KEY required for M
 const MODEL = process.env.MODEL ?? 'glm-5.2'
 // glm-5.2 is a reasoning model: hidden reasoning consumes max_tokens, so <8000 starves content.
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 12_000)
-const TEMP = Number(process.env.TEMP ?? 0.8)
 const INNER_TURNS = Number(process.env.INNER_TURNS ?? 40)
 const CONC = Math.max(1, Math.min(4, Number(process.env.CONC ?? 2)))
 const REPRO_TIMEOUT_S = Number(process.env.REPRO_TIMEOUT ?? 120)
@@ -182,6 +183,7 @@ const SOURCE_RECEIPT = [
   ['swe-structural-judge-policy.ts', new URL('./swe-structural-judge-policy.ts', import.meta.url)],
   ['swe-bench-env.ts', new URL('./swe-bench-env.ts', import.meta.url)],
   ['swe-jail.ts', new URL('./swe-jail.ts', import.meta.url)],
+  ['swe-temp.ts', new URL('./swe-temp.ts', import.meta.url)],
   ['benchmarks/swe-bench.ts', new URL('./benchmarks/swe-bench.ts', import.meta.url)],
   ['benchmarks/_harness.ts', new URL('./benchmarks/_harness.ts', import.meta.url)],
   ['runtime/strategy.ts', new URL('../../src/runtime/strategy.ts', import.meta.url)],
@@ -221,7 +223,7 @@ function makeExperimentConfig(preset: ExperimentArmPreset, taskIds: string[]): E
     model: MODEL,
     zaiBase: ZAI_BASE,
     maxTokens: MAX_TOKENS,
-    temperature: TEMP,
+    temperature: TEMPERATURE,
     innerTurns: INNER_TURNS,
     concurrency: CONC,
     reproTimeoutS: REPRO_TIMEOUT_S,
@@ -574,7 +576,7 @@ async function phaseA(env: Env, bt: BenchTask, ctx: PhaseAContext): Promise<Phas
     instanceId: bt.id, arm: ctx.preset.arm, config: ctx.config,
     fingerprints: expectedFingerprints(bt, ctx.config, ctx.tools, MANIFEST[bt.id]),
     repo: md.repo, model: MODEL, image: null, execution: null, executionFingerprint: '', execMode: 'image',
-    temperature: TEMP, innerTurns: INNER_TURNS,
+    temperature: TEMPERATURE, innerTurns: INNER_TURNS,
     k: ctx.preset.k, maxRepairs: ctx.preset.repairs,
     canaryExit: null, canaryPass: null, reproSource: 'none', reproStage0Class: null,
     reproStatus: 'none', reproScript: null,
@@ -634,7 +636,7 @@ async function phaseA(env: Env, bt: BenchTask, ctx: PhaseAContext): Promise<Phas
     // 3. k independent candidates (serial within the instance — CONC instances bound zai concurrency).
     const diffs: string[] = []
     for (let i = 0; i < ctx.preset.k; i += 1) {
-      const a = await emitAttempt(env.environment, bt, { temperature: TEMP, marks, instanceCounter: counter })
+      const a = await emitAttempt(env.environment, bt, { temperature: TEMPERATURE, marks, instanceCounter: counter })
       diffs.push(a.diff)
       row.candidates.push({
         idx: i, diff: a.diff, diffHash: diffFingerprint(a.diff), diffBytes: a.diff.length,
@@ -696,7 +698,7 @@ async function phaseA(env: Env, bt: BenchTask, ctx: PhaseAContext): Promise<Phas
           '--- REPAIR INSTRUCTIONS ---\n' +
           repairInstruction
         const a = await emitAttempt(env.environment, bt, {
-          temperature: TEMP, marks, instanceCounter: counter, preApply: best.diff, promptAppendix: appendix,
+          temperature: TEMPERATURE, marks, instanceCounter: counter, preApply: best.diff, promptAppendix: appendix,
         })
         const ns = await scoreCandidate(img.identity.id, repro, a.diff)
         const finalDiffHash = diffFingerprint(a.diff)
@@ -1027,7 +1029,7 @@ async function generateMain(): Promise<void> {
   console.log(`═══ SWE-bench Phase A — ${preset.arm} ═══`)
   console.log(
     `sessions=2 k=${preset.k} repairs=${preset.repairs} persistent=${preset.persistent ? 1 : 0} ` +
-      `model=${MODEL} maxTokens=${MAX_TOKENS} innerTurns=${INNER_TURNS} temp=${TEMP} runTool=1 judge=DISABLED`,
+      `model=${MODEL} maxTokens=${MAX_TOKENS} innerTurns=${INNER_TURNS} temperature=${TEMPERATURE} runTool=1 judge=DISABLED`,
   )
   console.log(`instances=${ids.length} out=${out}`)
 

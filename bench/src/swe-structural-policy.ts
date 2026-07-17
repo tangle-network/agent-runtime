@@ -1,3 +1,5 @@
+import { isAbsolute } from 'node:path'
+
 export type ExperimentArm = 'independent-2' | 'persistent-refine-2'
 
 export interface ExperimentArmPreset {
@@ -42,6 +44,23 @@ export function resolveExperimentArm(value: string): ExperimentArmPreset {
     )
   }
   return preset
+}
+
+/** Keep model sampling configuration disjoint from Node's TEMP-controlled filesystem root. */
+export function resolveExperimentTemperature(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  if (env.TEMP?.trim() && !isAbsolute(env.TEMP)) {
+    throw new Error(
+      `TEMP is the operating-system temporary-directory root and must be absolute, got "${env.TEMP}"; ` +
+        'use TEMPERATURE for model sampling',
+    )
+  }
+  const value = Number(env.TEMPERATURE ?? 0.8)
+  if (!Number.isFinite(value)) {
+    throw new Error(`TEMPERATURE must be a finite number, got "${env.TEMPERATURE}"`)
+  }
+  return value
 }
 
 /** Both arms use one selection rule: lower visible severity wins and a tie prefers session two. */

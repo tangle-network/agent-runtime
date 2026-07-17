@@ -14,13 +14,13 @@
  */
 import { execFile } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { promisify } from 'node:util'
 import type { AgenticSurface, AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
 import { runVenvPython } from './benchmarks/_harness'
 import { createSweBenchAdapter, type SweBenchAdapterOptions } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
+import { absoluteSweTempDir } from './swe-temp'
 
 const exec = promisify(execFile)
 export const isTestPath = (p: string) => /(^|\/)(tests?)\//.test(p) || /test_.*\.py$|_test\.py$|conftest\.py$/.test(p)
@@ -296,7 +296,7 @@ export async function createSweBenchEnvironment(
     let pending = pristine.get(id)
     if (!pending) {
       pending = (async () => {
-        const dir = mkdtempSync(join(tmpdir(), 'swe-cache-'))
+        const dir = mkdtempSync(join(absoluteSweTempDir(), 'swe-cache-'))
         try {
           await clonedAt(md, dir)
           return dir
@@ -317,7 +317,7 @@ export async function createSweBenchEnvironment(
       const bt = byId.get(task.id)
       if (!bt) throw new Error(`swe-bench-env: unknown task ${task.id}`)
       const md = bt.metadata as Record<string, string>
-      const dir = mkdtempSync(join(tmpdir(), 'swe-'))
+      const dir = mkdtempSync(join(absoluteSweTempDir(), 'swe-'))
       try {
         if (cloneCache) cpSync(await pristineClone(task.id, md), dir, { recursive: true })
         else await clonedAt(md, dir)
