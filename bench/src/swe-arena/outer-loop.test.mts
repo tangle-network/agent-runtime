@@ -16,19 +16,25 @@ import {
   DEFAULT_GATE_WAIT_CEILING_MS,
   FIXTURES_VERIFY_DIR,
   FROZEN_ARM,
+  INSTANCE_LOCK_FILENAME,
   LOOPS_CHANGE_SPACE,
   RAW_TRACE_DIAGNOSIS_PATH,
   STAIRCASE_SCHEMA,
   SUPERVISOR_GATE_COUNT,
+  acquireInstanceLock,
   assertFrozenArm,
+  assertLaunchEnv,
+  baselineDriftWarnings,
   campaignDispatchCeilingMs,
   changeSpaceInstruction,
   changeSpaceViolations,
   decideVerdict,
   defaultRound4Config,
   instanceRunKey,
+  isPidAlive,
   normalizeRepoPath,
   parseStaircaseRow,
+  pinnedBaselineResolvedCount,
   porcelainChangedPaths,
   purgeIgnoredArtifacts,
   removeEvalWorktree,
@@ -242,6 +248,13 @@ describe('frozen arm + default config', () => {
     // Single-rep scoring flips instance outcomes run-to-run — round 4 runs 2.
     expect(config.repsPerInstance).toBe(2)
   })
+  it('default config: author-shot timeout doubled after 3 gen-1 timeouts; outDir name is overridable', () => {
+    const config = defaultRound4Config()
+    // 20-min shots died 3× under degraded capacity ("author shot timed out").
+    expect(config.proposerTimeoutMs).toBe(2_400_000)
+    expect(defaultRound4Config(undefined, { outDirName: 'r4-gen2' }).outDir.endsWith('/r4-gen2')).toBe(true)
+    expect(config.outDir.endsWith('/r4')).toBe(true)
+  })
 })
 
 describe('dispatch clocks (gate holds are never billed to the cell)', () => {
@@ -319,6 +332,116 @@ describe('replicate semantics (repsPerInstance)', () => {
 
   it('instanceRunKey separates replicate cells of the same instance', () => {
     expect(instanceRunKey('django__django-11532', 0)).not.toBe(instanceRunKey('django__django-11532', 1))
+  })
+})
+
+describe('pinned baseline (the gate never recomputes its denominator)', () => {
+  const iids = ['astropy__astropy-13033', 'django__django-11532', 'matplotlib__matplotlib-20826']
+  const pin = {
+    'astropy__astropy-13033': false,
+    'django__django-11532': false,
+    'matplotlib__matplotlib-20826': true,
+  }
+  const run = (iid: string, resolved: boolean | null): ReplicateRun => ({ iid, resolved })
+
+  it('counts pinned-true instances (the measured gen-1 baseline is 1/3)', () => {
+    expect(pinnedBaselineResolvedCount(pin, iids)).toBe(1)
+  })
+
+  it('fails loud on a missing instance and on an unknown pinned iid', () => {
+    expect(() => pinnedBaselineResolvedCount({ ...pin, 'django__django-11532': undefined as never }, iids)).toThrow(
+      /missing boolean verdict for django__django-11532/,
+    )
+    expect(() => pinnedBaselineResolvedCount({ ...pin, 'scipy__scipy-1': true }, iids)).toThrow(
+      /unknown instance/,
+    )
+  })
+
+  it('default round-4 config pins the measured baseline', () => {
+    const config = defaultRound4Config()
+    expect(config.pinnedBaseline).toEqual(pin)
+    expect(pinnedBaselineResolvedCount(config.pinnedBaseline!, config.instances)).toBe(1)
+  })
+
+  it('drift warnings fire on a reps-complete contradiction, both directions', () => {
+    const runs = [
+      run(iids[0]!, true), run(iids[0]!, true),   // pinned false, measured true → drift
+      run(iids[1]!, false), run(iids[1]!, false), // pinned false, measured false → quiet
+      run(iids[2]!, true), run(iids[2]!, false),  // pinned true, measured false → drift
+    ]
+    const warnings = baselineDriftWarnings(pin, runs, iids, 2)
+    expect(warnings).toHaveLength(2)
+    expect(warnings[0]).toContain('astropy__astropy-13033: pinned=false')
+    expect(warnings[1]).toContain('matplotlib__matplotlib-20826: pinned=true')
+    expect(warnings.every((w) => w.includes('gate uses the PIN'))).toBe(true)
+  })
+
+  it('a partial or inconclusive baseline record has no AND-verdict — no drift claim', () => {
+    // Partial coverage (1 of 2 reps per instance): no AND-verdict exists yet,
+    // even where the single present cell disagrees with the pin.
+    const partial = [run(iids[1]!, true), run(iids[2]!, false)]
+    expect(baselineDriftWarnings(pin, partial, iids, 2)).toEqual([])
+    const inconclusive = [run(iids[2]!, true), run(iids[2]!, null)]
+    expect(baselineDriftWarnings(pin, inconclusive, iids, 2)).toEqual([])
+  })
+})
+
+describe('launch guards', () => {
+  it('assertLaunchEnv refuses when either key is absent or blank, naming dotenvx', () => {
+    expect(() => assertLaunchEnv({})).toThrow(/TANGLE_API_KEY \+ ZAI_API_KEY absent .*dotenvx/)
+    expect(() => assertLaunchEnv({ TANGLE_API_KEY: 'x' })).toThrow(/ZAI_API_KEY/)
+    expect(() => assertLaunchEnv({ TANGLE_API_KEY: 'x', ZAI_API_KEY: '  ' })).toThrow(/ZAI_API_KEY/)
+    expect(() => assertLaunchEnv({ TANGLE_API_KEY: 'x', ZAI_API_KEY: 'y' })).not.toThrow()
+  })
+
+  it('isPidAlive: own pid is alive; an absurd pid is not', () => {
+    expect(isPidAlive(process.pid)).toBe(true)
+    expect(isPidAlive(2 ** 30)).toBe(false)
+  })
+
+  it('instance lock: acquire, refuse a live second instance, release', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'r4-lock-'))
+    try {
+      const lock = await acquireInstanceLock(dir)
+      expect(lock.path).toBe(join(dir, INSTANCE_LOCK_FILENAME))
+      expect((await readFile(lock.path, 'utf8')).trim()).toBe(String(process.pid))
+      // A DIFFERENT live pid (init/pid 1 is always alive) must be refused.
+      await writeFile(lock.path, '1\n')
+      await expect(acquireInstanceLock(dir)).rejects.toThrow(/pid 1.*refusing to race/s)
+      await writeFile(lock.path, `${process.pid}\n`)
+      await lock.release()
+      expect(existsSync(lock.path)).toBe(false)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('instance lock: a stale lock (dead pid or garbage) is reclaimed', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'r4-lock-stale-'))
+    try {
+      await writeFile(join(dir, INSTANCE_LOCK_FILENAME), `${2 ** 30}\n`)
+      const lock = await acquireInstanceLock(dir)
+      expect((await readFile(lock.path, 'utf8')).trim()).toBe(String(process.pid))
+      await lock.release()
+      await writeFile(join(dir, INSTANCE_LOCK_FILENAME), 'not-a-pid\n')
+      const lock2 = await acquireInstanceLock(dir)
+      expect((await readFile(lock2.path, 'utf8')).trim()).toBe(String(process.pid))
+      await lock2.release()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('release only removes a lock this instance still owns', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'r4-lock-own-'))
+    try {
+      const lock = await acquireInstanceLock(dir)
+      await writeFile(lock.path, '424242\n') // another instance reclaimed it
+      await lock.release()
+      expect((await readFile(lock.path, 'utf8')).trim()).toBe('424242')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
 

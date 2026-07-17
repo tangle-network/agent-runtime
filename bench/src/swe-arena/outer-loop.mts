@@ -43,6 +43,7 @@
 
 import { appendFile, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import process from 'node:process'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
@@ -251,6 +252,126 @@ export function replicateCoverageComplete(runs: ReplicateRun[], iids: string[], 
 }
 
 // ---------------------------------------------------------------------------
+// Pinned baseline. The accept/reject gate compares candidates against a
+// MEASURED, reps-confirmed baseline pinned in config — never a per-run
+// recomputation. Root cause (r4-mroh3rkt): improve() resumes its campaign from
+// runDir, replaying cached baseline cells WITHOUT dispatching them, so the
+// in-process recorder saw a candidate first, mislabeled it as the baseline,
+// and graded "winner 0/3 vs baseline 0/3" while the measured baseline was 1/3.
+// The pin makes the gate's denominator immune to that whole failure class.
+// ---------------------------------------------------------------------------
+
+/** Fail-loud pinned resolved-count: every improvement-set instance must carry a
+ *  pinned boolean, and every pinned iid must be in the improvement set. */
+export function pinnedBaselineResolvedCount(pin: Record<string, boolean>, iids: string[]): number {
+  const missing = iids.filter((iid) => typeof pin[iid] !== 'boolean')
+  if (missing.length > 0) {
+    throw new Error(`pinnedBaseline: missing boolean verdict for ${missing.join(', ')}`)
+  }
+  const unknown = Object.keys(pin).filter((iid) => !iids.includes(iid))
+  if (unknown.length > 0) {
+    throw new Error(`pinnedBaseline: unknown instance(s) not in the improvement set: ${unknown.join(', ')}`)
+  }
+  return iids.filter((iid) => pin[iid] === true).length
+}
+
+/** Per-instance contradictions between the pin and a run's OWN baseline cells.
+ *  Only instances with full-reps, conclusive coverage in the run are compared —
+ *  a partial baseline record has no AND-verdict to contradict the pin with.
+ *  The caller logs these loud and STILL uses the pin. */
+export function baselineDriftWarnings(
+  pin: Record<string, boolean>,
+  runs: ReplicateRun[],
+  iids: string[],
+  reps: number,
+): string[] {
+  const warnings: string[] = []
+  for (const iid of iids) {
+    const pinned = pin[iid]
+    if (typeof pinned !== 'boolean') continue
+    const mine = runs.filter((r) => r.iid === iid)
+    if (mine.length !== reps || mine.some((r) => r.resolved === null)) continue
+    const measured = mine.every((r) => r.resolved === true)
+    if (measured !== pinned) {
+      warnings.push(
+        `${iid}: pinned=${pinned} but this run's baseline cells measured ${measured} ` +
+          `(reps: ${mine.map((r) => String(r.resolved)).join('/')}) — gate uses the PIN`,
+      )
+    }
+  }
+  return warnings
+}
+
+// ---------------------------------------------------------------------------
+// Launch guards. (a) The arms + judge + proposer all die confusingly hours in
+// when the two API keys are absent (the launcher forgot dotenvx) — refuse at
+// t=0 instead. (b) Two outer-loops sharing an outDir corrupt the campaign
+// runDir and the arm-run caches — a pid-file lock with a staleness check makes
+// the race impossible.
+// ---------------------------------------------------------------------------
+
+export const REQUIRED_LAUNCH_ENV = ['TANGLE_API_KEY', 'ZAI_API_KEY'] as const
+
+export function assertLaunchEnv(env: Record<string, string | undefined> = process.env): void {
+  const missing = REQUIRED_LAUNCH_ENV.filter((k) => !env[k] || env[k]!.trim().length === 0)
+  if (missing.length > 0) {
+    throw new Error(
+      `outer-loop: ${missing.join(' + ')} absent from env — launch through dotenvx (dotenvx run -f agent-state.env -f tangle-router.env -- ...)`,
+    )
+  }
+}
+
+/** True when `pid` is a live process (EPERM = alive but not ours — still live). */
+export function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+export const INSTANCE_LOCK_FILENAME = 'outer-loop.pid'
+
+export interface InstanceLock {
+  path: string
+  release: () => Promise<void>
+}
+
+/** Single-instance pid-file lock in `outDir`. `wx` creation is the atomic
+ *  claim; an existing file is honored only while its pid is alive (a crashed
+ *  loop's stale lock — dead pid or garbage — is reclaimed). Pid reuse can in
+ *  principle false-positive a stale lock as live; that fails SAFE (refuses to
+ *  start) and clears on the next reboot cycle. */
+export async function acquireInstanceLock(outDir: string, pid: number = process.pid): Promise<InstanceLock> {
+  await mkdir(outDir, { recursive: true })
+  const lockPath = join(outDir, INSTANCE_LOCK_FILENAME)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await writeFile(lockPath, `${pid}\n`, { flag: 'wx' })
+      return {
+        path: lockPath,
+        release: async () => {
+          const raw = (await readFile(lockPath, 'utf8').catch(() => '')).trim()
+          if (raw === String(pid)) await unlink(lockPath).catch(() => {})
+        },
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      const raw = (await readFile(lockPath, 'utf8').catch(() => '')).trim()
+      const holder = Number.parseInt(raw, 10)
+      if (Number.isInteger(holder) && holder > 0 && holder !== pid && isPidAlive(holder)) {
+        throw new Error(
+          `outer-loop: another outer-loop (pid ${holder}) holds ${lockPath} — single-instance lock, refusing to race`,
+        )
+      }
+      await unlink(lockPath).catch(() => {}) // stale: dead pid or garbage content
+    }
+  }
+  throw new Error(`outer-loop: could not acquire ${lockPath} after clearing a stale lock`)
+}
+
+// ---------------------------------------------------------------------------
 // Staircase rows — accepted successors + rejected dots, one JSONL row each.
 // ---------------------------------------------------------------------------
 
@@ -426,6 +547,12 @@ export interface OuterLoopConfig {
    *  resolved only when ALL replicates resolve (see resolvedInstanceCount) —
    *  single-rep scoring flips instance outcomes run-to-run. */
   repsPerInstance?: number
+  /** MEASURED baseline verdicts (iid → reps-confirmed resolved bool) the
+   *  accept/reject gate compares candidates against — never a per-run
+   *  recomputation (see pinnedBaselineResolvedCount). When a run's own
+   *  baseline cells contradict the pin, a loud BASELINE-DRIFT warning is
+   *  logged with both values and the pin still wins. */
+  pinnedBaseline?: Record<string, boolean>
   /** DEPTH for the agentic generator (selfImprove does not thread
    *  maxImprovementShots, so the constrained generator applies this itself). */
   maxShots: number
@@ -456,7 +583,10 @@ export function assertFrozenArm(arm: FrozenArmParams): void {
  *  durable home; the experiment's scratchpad copy did not survive a reboot. */
 export const FIXTURES_VERIFY_DIR = fileURLToPath(new URL('./fixtures/verify', import.meta.url))
 
-export function defaultRound4Config(hh = DEFAULT_HH_SCRATCHPAD): OuterLoopConfig {
+export function defaultRound4Config(
+  hh = DEFAULT_HH_SCRATCHPAD,
+  opts: { outDirName?: string } = {},
+): OuterLoopConfig {
   const round3 = [
     { iid: 'astropy__astropy-13033', resolved: false },
     { iid: 'django__django-11532', resolved: false },
@@ -478,16 +608,25 @@ export function defaultRound4Config(hh = DEFAULT_HH_SCRATCHPAD): OuterLoopConfig
     armName: 'R4',
     arm: { ...FROZEN_ARM },
     verifyDir: FIXTURES_VERIFY_DIR,
-    outDir: join(hh, 'r4'),
+    outDir: join(hh, opts.outDirName ?? 'r4'),
     roundsDir: '/home/drew/code/supervisor-lab/.evolve/rounds',
     secretsDir: '/home/drew/company/devops/secrets',
     envFiles: ['agent-state.env', 'tangle-router.env'],
     generations: 1,
     populationSize: 2,
     repsPerInstance: 2,
+    // Reps-confirmed gen-1 baseline (arm 1deb554c45, run r4-mrnts1n4):
+    // astropy F/F, django T/F → F fail-closed, matplotlib T/T. 1/3.
+    pinnedBaseline: {
+      'astropy__astropy-13033': false,
+      'django__django-11532': false,
+      'matplotlib__matplotlib-20826': true,
+    },
     maxShots: 3,
     proposerHarness: 'claude',
-    proposerTimeoutMs: 1_200_000,
+    // Per author SHOT (agenticGenerator timeoutMs). 20 min timed out 3× under
+    // degraded capacity in gen-1 ("author shot timed out") — doubled to 40 min.
+    proposerTimeoutMs: 2_400_000,
     analystModels: ['glm-5.2', 'glm-5.2', 'glm-5.2'],
     seedArtifactRuns: round3.map((r) => ({
       iid: r.iid,
@@ -582,9 +721,14 @@ class RoundRecorder {
       armProvenance: null,
     }
     this.byKey.set(key, rec)
-    // The FIRST surface the campaign dispatches is the baseline incumbent
-    // (runOptimization runs search.baseline before any candidate).
-    this.baselineKey ??= key
+    // The baseline incumbent is the surface with NO diff (candidateCommit ==
+    // baseCommit — worktree.finalize of an untouched baseRef checkout).
+    // Identifying it positionally ("first dispatched") mislabeled a CANDIDATE
+    // as the baseline when a resumed campaign replayed the cached baseline
+    // cells without dispatching them (measured: r4-mroh3rkt's round summary
+    // published candidate b08d31c910's cells as "baseline 0/3" while the
+    // measured baseline was 1/3).
+    if (surface.candidateCommit === surface.baseCommit) this.baselineKey ??= key
     return rec
   }
 }
@@ -798,6 +942,10 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   if (!Number.isInteger(reps) || reps < 1) {
     throw new Error(`outer-loop: repsPerInstance must be a positive integer, got ${JSON.stringify(config.repsPerInstance)}`)
   }
+  // Validated up front so a malformed pin fails at t=0, not at gate time.
+  const pinnedCount: number | null = config.pinnedBaseline
+    ? pinnedBaselineResolvedCount(config.pinnedBaseline, config.instances)
+    : null
   const resolvedCount = (rec: CandidateRecord): number =>
     resolvedInstanceCount([...rec.instances.values()], config.instances, reps)
   const coverageOf = (rec: CandidateRecord): boolean =>
@@ -1101,11 +1249,23 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       if (staticArt) {
         const rec = recorder.byCommit(staticArt.commit)
         const baseRec = recorder.baselineKey ? recorder.byKey.get(recorder.baselineKey) : undefined
-        if (rec && baseRec) {
+        if (rec && (baseRec || pinnedCount !== null)) {
           const cand = resolvedCount(rec)
-          const base = resolvedCount(baseRec)
+          // The PIN is the gate's denominator; a per-run baseline record is
+          // only a drift detector + the cost-ratio denominator.
+          const base = pinnedCount ?? resolvedCount(baseRec!)
+          if (pinnedCount !== null && baseRec) {
+            for (const w of baselineDriftWarnings(
+              config.pinnedBaseline!,
+              [...baseRec.instances.values()],
+              config.instances,
+              reps,
+            )) {
+              log(`BASELINE-DRIFT: ${w}`)
+            }
+          }
           const candWall = sumWall(rec)
-          const baseWall = sumWall(baseRec)
+          const baseWall = baseRec ? sumWall(baseRec) : 0
           const ratio = baseWall > 0 ? candWall / baseWall : null
           delta = (cand - base) / Math.max(1, config.instances.length)
           const verdict = decideVerdict({
@@ -1118,7 +1278,8 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           })
           wouldKeep = verdict === 'accepted' && staticArt.violations.length === 0 && staticArt.typecheckOk
           reasons.push(
-            `improvement set: winner ${cand}/${config.instances.length} vs baseline ${base}/${config.instances.length}; ` +
+            `improvement set: winner ${cand}/${config.instances.length} vs baseline ${base}/${config.instances.length}` +
+              `${pinnedCount !== null ? ' (pinned)' : ''}; ` +
               `wall ${candWall}s vs ${baseWall}s (ratio ${ratio === null ? 'n/a' : ratio.toFixed(2)}, guard ${config.costGuardRatio}); ` +
               `protocol verdict: ${verdict}${wouldKeep ? ' (WOULD-BE KEEP)' : ''}`,
           )
@@ -1206,16 +1367,25 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
         const coverageComplete =
           cand.eligibleForPromotion === true && rec !== undefined && coverageOf(rec)
         const costRatio = baselineWallS > 0 ? wallS / baselineWallS : null
-        // Parent's AND-resolved count from its own record; the composite-mean
-        // fallback (fractional under reps) only fires when the parent never ran.
+        // Parent's AND-resolved count. When the parent is the baseline
+        // incumbent (or was never dispatched in this process — the campaign
+        // resume replay), the PIN wins; a non-baseline parent uses its own
+        // record; the composite-mean fallback (fractional under reps) only
+        // fires with no pin and no record.
         const parentRec = cand.parentSurfaceHash
           ? recorder.byKey.get(cand.parentSurfaceHash)
           : recorder.baselineKey
             ? recorder.byKey.get(recorder.baselineKey)
             : undefined
-        const parentResolvedCount = parentRec
-          ? resolvedCount(parentRec)
-          : Math.round((cand.parentComposite ?? 0) * n)
+        const parentIsBaseline =
+          parentRec === undefined ||
+          (recorder.baselineKey !== undefined && parentRec.surfaceKey === recorder.baselineKey)
+        const parentResolvedCount =
+          pinnedCount !== null && parentIsBaseline
+            ? pinnedCount
+            : parentRec
+              ? resolvedCount(parentRec)
+              : Math.round((cand.parentComposite ?? 0) * n)
         const violations = rec?.violations ?? []
         rows.push({
           schema: STAIRCASE_SCHEMA,
@@ -1275,6 +1445,10 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       runId,
       at: new Date().toISOString(),
       loops: { repo: config.loopsRepo, baseRef: config.loopsBaseRef },
+      // The gate's denominator (pin when present); `baseline` below is this
+      // run's MEASURED baseline record, kept for drift/cost forensics.
+      pinnedBaseline: config.pinnedBaseline ?? null,
+      pinnedBaselineResolvedCount: pinnedCount,
       baseline: baseRec
         ? { resolvedCount: resolvedCount(baseRec), wallS: sumWall(baseRec), perInstance: [...baseRec.instances.values()] }
         : null,
@@ -1404,11 +1578,15 @@ if (isMain) {
   }
   if (argv[0] === '--write-config') {
     const path = argv[1]
-    if (!path) {
-      console.error('usage: outer-loop.mts --write-config <path>')
+    if (!path || path.startsWith('--')) {
+      console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>]')
       process.exit(2)
     }
-    await writeFile(path, JSON.stringify(defaultRound4Config(), null, 2) + '\n')
+    const outDirName = flag('--out-name')
+    await writeFile(
+      path,
+      JSON.stringify(defaultRound4Config(undefined, outDirName ? { outDirName } : {}), null, 2) + '\n',
+    )
     console.log(`default round-4 config → ${path}`)
   } else if (argv[0] === '--calibration-smoke') {
     const dir = argv[1] && !argv[1].startsWith('--') ? argv[1] : undefined
@@ -1429,11 +1607,19 @@ if (isMain) {
     })
   } else if (argv[0] && !argv[0].startsWith('--')) {
     const config = JSON.parse(await readFile(argv[0], 'utf8')) as OuterLoopConfig
-    await runRound(config)
+    // Launch guards BEFORE any spend: keys present (dotenvx forgotten = hours
+    // of confusing downstream failures) and exactly one loop per outDir.
+    assertLaunchEnv()
+    const lock = await acquireInstanceLock(config.outDir)
+    try {
+      await runRound(config)
+    } finally {
+      await lock.release()
+    }
   } else {
     console.error(
       'usage: tsx src/swe-arena/outer-loop.mts <config.json>            # SPENDS: arms + judges + proposer\n' +
-        '       tsx src/swe-arena/outer-loop.mts --write-config <path>\n' +
+        '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>]\n' +
         '       tsx src/swe-arena/outer-loop.mts --calibration-smoke [supRunDir] [--analysts N] [--model M] [--endpoint router|zai] [--retries N]',
     )
     process.exit(2)
