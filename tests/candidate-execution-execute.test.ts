@@ -496,15 +496,14 @@ describe('atomic prepared candidate execution', () => {
   })
 
   it('refuses activation when slow claim persistence consumed the execution window', async () => {
-    let now = Date.now()
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    vi.useFakeTimers({ now: Date.now() })
     const fixture = createCandidateExecutionFixture()
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
       fixture.ports,
     )
-    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
+    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => Date.now() })
     let activations = 0
     fixture.ports.models.activateGrant = async () => {
       activations++
@@ -513,7 +512,7 @@ describe('atomic prepared candidate execution', () => {
     const claimStore = {
       tryClaim: async (claim: Parameters<typeof baseStore.tryClaim>[0]) => {
         const result = await baseStore.tryClaim(claim)
-        now += fixture.task.task.limits.timeoutMs + 1
+        vi.setSystemTime(Date.now() + fixture.task.task.limits.timeoutMs + 1)
         return result
       },
       getAttempt: (attempt: Parameters<typeof baseStore.getAttempt>[0]) =>
@@ -555,8 +554,7 @@ describe('atomic prepared candidate execution', () => {
   })
 
   it('does not launch when phase persistence consumes the frozen execution window', async () => {
-    let now = 1_000_000
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    vi.useFakeTimers({ now: 1_000_000 })
     const fixture = createCandidateExecutionFixture()
     replaceCandidateFixtureTask(fixture, {
       limits: { ...fixture.task.task.limits, timeoutMs: 100 },
@@ -567,14 +565,14 @@ describe('atomic prepared candidate execution', () => {
       fixture.ports,
       { cleanupTimeoutMs: 25, resultTimeoutMs: 100 },
     )
-    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
+    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => Date.now() })
     const claimStore = {
       tryClaim: (claim: Parameters<typeof baseStore.tryClaim>[0]) => baseStore.tryClaim(claim),
       getAttempt: (attempt: Parameters<typeof baseStore.getAttempt>[0]) =>
         baseStore.getAttempt(attempt),
       markCandidateMayRun: async (lease: Parameters<typeof baseStore.markCandidateMayRun>[0]) => {
         const result = await baseStore.markCandidateMayRun(lease)
-        now += fixture.task.task.limits.timeoutMs
+        vi.setSystemTime(Date.now() + fixture.task.task.limits.timeoutMs)
         return result
       },
       stageTerminal: (
