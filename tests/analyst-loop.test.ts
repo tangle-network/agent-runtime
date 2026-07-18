@@ -10,8 +10,8 @@ import type {
   AnalystRegistryLike,
   AnalystRegistryStreamingLike,
   FindingsStoreLike,
-  ImprovementAdapter,
-  KnowledgeAdapter,
+  ImprovementProposalSource,
+  KnowledgeProposalSource,
 } from '../src/analyst-loop'
 import { runAnalystLoop } from '../src/analyst-loop'
 
@@ -172,13 +172,13 @@ describe('runAnalystLoop', () => {
     expect(out.diff).toBeNull()
   })
 
-  it('knowledge adapter: high-confidence proposals auto-apply, low-confidence withhold', async () => {
+  it('returns every knowledge proposal without applying customer state', async () => {
     const findings = [
       f('high', 'knowledge-gap', { confidence: 0.95, subject: 'agent-knowledge:wiki:x' }),
       f('low', 'knowledge-gap', { confidence: 0.6, subject: 'agent-knowledge:wiki:y' }),
     ]
     const registry = stubRegistry({ findings }, ['knowledge-gap'])
-    const adapter: KnowledgeAdapter = {
+    const source: KnowledgeProposalSource = {
       proposeFromFindings: () => ({
         proposals: findings.map((f) => ({
           sourceFindingId: f.finding_id,
@@ -187,10 +187,6 @@ describe('runAnalystLoop', () => {
         skipped: 0,
         errors: [],
       }),
-      apply: vi.fn(async (proposals: unknown[]) => ({
-        written: proposals.map((_, i) => `applied-${i}`),
-        warnings: [],
-      })),
     }
 
     const out = await runAnalystLoop({
@@ -198,60 +194,28 @@ describe('runAnalystLoop', () => {
       registry,
       inputs: {},
       findingsStore: null,
-      knowledgeAdapter: adapter,
-      autoApply: { knowledge: true, knowledgeConfidenceThreshold: 0.85 },
+      knowledgeProposalSource: source,
       log: () => {},
     })
 
-    expect(adapter.apply).toHaveBeenCalledTimes(1)
-    const applyCall = (adapter.apply as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as Array<{
-      sourceFindingId: string
-    }>
-    expect(applyCall.map((p) => p.sourceFindingId)).toEqual(['high'])
-    expect(out.knowledge?.applied).toEqual(['applied-0'])
-    expect(out.knowledge?.withheld_for_review).toBe(1)
+    expect(out.knowledge?.proposals).toEqual([
+      { sourceFindingId: 'high', path: 'knowledge/agent-knowledge:wiki:x.md' },
+      { sourceFindingId: 'low', path: 'knowledge/agent-knowledge:wiki:y.md' },
+    ])
   })
 
-  it('knowledge adapter without apply: all proposals withhold for review (default safe)', async () => {
-    const findings = [f('any', 'knowledge-gap', { confidence: 0.99 })]
-    const registry = stubRegistry({ findings }, ['knowledge-gap'])
-    const adapter: KnowledgeAdapter = {
-      proposeFromFindings: () => ({
-        proposals: [{ sourceFindingId: 'any' }],
-        skipped: 0,
-        errors: [],
-      }),
-    }
-
-    const out = await runAnalystLoop({
-      runId: 'run-cur',
-      registry,
-      inputs: {},
-      findingsStore: null,
-      knowledgeAdapter: adapter,
-      log: () => {},
-    })
-
-    expect(out.knowledge?.applied).toEqual([])
-    expect(out.knowledge?.withheld_for_review).toBe(1)
-  })
-
-  it('improvement adapter mirrors knowledge but with its own threshold', async () => {
+  it('returns every agent-surface edit without applying customer state', async () => {
     const findings = [
       f('h', 'improvement', { confidence: 0.92, subject: 'system-prompt:x' }),
       f('l', 'improvement', { confidence: 0.85, subject: 'tool-doc:y' }),
     ]
     const registry = stubRegistry({ findings }, ['improvement'])
-    const adapter: ImprovementAdapter = {
+    const source: ImprovementProposalSource = {
       proposeFromFindings: () => ({
         edits: findings.map((f) => ({ sourceFindingId: f.finding_id })),
         skipped: 0,
         errors: [],
       }),
-      apply: vi.fn(async (edits: unknown[]) => ({
-        applied: edits.map((_, i) => `edit-${i}`),
-        warnings: [],
-      })),
     }
 
     const out = await runAnalystLoop({
@@ -259,16 +223,11 @@ describe('runAnalystLoop', () => {
       registry,
       inputs: {},
       findingsStore: null,
-      improvementAdapter: adapter,
-      autoApply: { improvement: true, improvementConfidenceThreshold: 0.9 },
+      improvementProposalSource: source,
       log: () => {},
     })
 
-    const applyCall = (adapter.apply as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as Array<{
-      sourceFindingId: string
-    }>
-    expect(applyCall.map((e) => e.sourceFindingId)).toEqual(['h'])
-    expect(out.improvement?.withheld_for_review).toBe(1)
+    expect(out.improvement?.edits).toEqual([{ sourceFindingId: 'h' }, { sourceFindingId: 'l' }])
   })
 
   it('persists findings even when knowledge adapter is missing (ledger is source of truth)', async () => {
@@ -448,21 +407,17 @@ describe('runAnalystLoop onEvent', () => {
     expect(types).toEqual(['baseline-resolved', 'loop-completed'])
   })
 
-  it('emits knowledge-proposed + knowledge-applied with applied count and withheld count', async () => {
+  it('emits one knowledge-proposed event and no write event', async () => {
     const findings = [
       f('high', 'knowledge-gap', { confidence: 0.95 }),
       f('low', 'knowledge-gap', { confidence: 0.6 }),
     ]
     const registry = stubRegistry({ findings }, ['knowledge-gap'])
-    const adapter: KnowledgeAdapter = {
+    const source: KnowledgeProposalSource = {
       proposeFromFindings: () => ({
         proposals: findings.map((fi) => ({ sourceFindingId: fi.finding_id })),
         skipped: 0,
         errors: [],
-      }),
-      apply: async (props) => ({
-        written: props.map((_, i) => `applied-${i}`),
-        warnings: [],
       }),
     }
     const events: AnalystLoopEvent[] = []
@@ -472,8 +427,7 @@ describe('runAnalystLoop onEvent', () => {
       registry,
       inputs: {},
       findingsStore: null,
-      knowledgeAdapter: adapter,
-      autoApply: { knowledge: true, knowledgeConfidenceThreshold: 0.85 },
+      knowledgeProposalSource: source,
       onEvent: (ev) => {
         events.push(ev)
       },
@@ -485,18 +439,17 @@ describe('runAnalystLoop onEvent', () => {
         e.type === 'knowledge-proposed',
     )!
     expect(proposed.proposalCount).toBe(2)
-    const applied = events.find(
-      (e): e is Extract<AnalystLoopEvent, { type: 'knowledge-applied' }> =>
-        e.type === 'knowledge-applied',
-    )!
-    expect(applied.writtenCount).toBe(1)
-    expect(applied.withheldForReview).toBe(1)
+    expect(events.map((event) => event.type)).toEqual([
+      'baseline-resolved',
+      'knowledge-proposed',
+      'loop-completed',
+    ])
   })
 
-  it('emits improvement-proposed + improvement-applied with no adapter.apply (all withheld)', async () => {
+  it('emits one improvement-proposed event and no write event', async () => {
     const findings = [f('e', 'improvement', { confidence: 0.99 })]
     const registry = stubRegistry({ findings }, ['improvement'])
-    const adapter: ImprovementAdapter = {
+    const source: ImprovementProposalSource = {
       proposeFromFindings: () => ({
         edits: [{ sourceFindingId: 'e' }],
         skipped: 0,
@@ -510,7 +463,7 @@ describe('runAnalystLoop onEvent', () => {
       registry,
       inputs: {},
       findingsStore: null,
-      improvementAdapter: adapter,
+      improvementProposalSource: source,
       onEvent: (ev) => {
         events.push(ev)
       },
@@ -522,12 +475,11 @@ describe('runAnalystLoop onEvent', () => {
         e.type === 'improvement-proposed',
     )!
     expect(proposed.editCount).toBe(1)
-    const applied = events.find(
-      (e): e is Extract<AnalystLoopEvent, { type: 'improvement-applied' }> =>
-        e.type === 'improvement-applied',
-    )!
-    expect(applied.appliedCount).toBe(0)
-    expect(applied.withheldForReview).toBe(1)
+    expect(events.map((event) => event.type)).toEqual([
+      'baseline-resolved',
+      'improvement-proposed',
+      'loop-completed',
+    ])
   })
 
   it('awaits slow onEvent so subscribers apply backpressure', async () => {

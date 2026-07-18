@@ -1,8 +1,26 @@
 import type { AnalystFinding } from '@tangle-network/agent-eval'
+import type {
+  DispatchContext,
+  JudgeConfig,
+  MutableSurface,
+  Scenario,
+  SurfaceProposer,
+} from '@tangle-network/agent-eval/contract'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { canonicalCandidateDigest } from '../src/candidate-execution/digest'
-import { agentCandidateProfileAsAgentProfile } from '../src/candidate-execution/profile'
+import {
+  canonicalCandidateDigest,
+  embeddedCandidateArtifact,
+} from '../src/candidate-execution/digest'
+import {
+  agentCandidateProfileAsAgentProfile,
+  freezeGenericAgentCandidateProfile,
+} from '../src/candidate-execution/profile'
+import {
+  createAgentImprovementActivationResult,
+  executeAgentImprovementActivation,
+  verifyAgentImprovementActivationResult,
+} from '../src/intelligence/activation'
 import {
   createAgentImprovementActivation,
   createAgentImprovementProposal,
@@ -14,7 +32,14 @@ import {
   verifyAgentImprovementReview,
   verifyCandidateExecutionEvidence,
 } from '../src/intelligence/improvement-cycle'
-import { cleanupCandidateFixtures } from './helpers/candidate-execution-fixture'
+import { deriveChangedSurfaces } from '../src/intelligence/improvement-surfaces'
+import {
+  candidateBundle,
+  candidateSha,
+  cleanupCandidateFixtures,
+  emptyCandidateSnapshot,
+  redigestCandidateBundle,
+} from './helpers/candidate-execution-fixture'
 import {
   type CandidateExperimentFixture,
   cleanupCandidateExperimentFixtures,
@@ -35,12 +60,287 @@ const finding: AnalystFinding = {
   subject: 'agent-profile:prompt.systemPrompt',
 }
 
+interface ImprovementScenario extends Scenario {
+  kind: 'improvement-test'
+}
+
+const improvementScenarios: ImprovementScenario[] = Array.from({ length: 12 }, (_, index) => ({
+  id: `improvement-${index}`,
+  kind: 'improvement-test',
+}))
+
+const improvementAgent = async (
+  surface: MutableSurface,
+  _scenario: ImprovementScenario,
+  context: DispatchContext,
+): Promise<string> => {
+  const paid = await context.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'improvement-cycle-test',
+    model: 'deterministic-test',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => String(surface),
+    receipt: () => ({
+      model: 'deterministic-test',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
+}
+
+const improvementJudge: JudgeConfig<string, ImprovementScenario> = {
+  name: 'exact-prompt',
+  dimensions: [{ key: 'quality', description: 'Candidate prompt selected.' }],
+  score: ({ artifact }) => {
+    const composite = artifact === 'PROMOTED' ? 1 : 0
+    return { dimensions: { quality: composite }, composite, notes: '' }
+  },
+}
+
+const improvementProposer: SurfaceProposer = {
+  kind: 'deterministic-candidate',
+  propose: async () => [
+    { surface: 'PROMOTED', label: 'measured candidate', rationale: 'test fixture' },
+  ],
+}
+
 afterEach(() => {
   cleanupCandidateExperimentFixtures()
   cleanupCandidateFixtures()
 })
 
 describe('agent improvement lifecycle', () => {
+  it('runs analysis through exact activation using only public inputs', async () => {
+    const seed = createCandidateExperimentFixture()
+    const profile = agentCandidateProfileAsAgentProfile(seed.experiment.baseline.profile)
+    let measured: CandidateExperimentFixture | undefined
+    const result = await proposeAgentImprovement({
+      runId: 'public-flow-run',
+      profile,
+      analysis: {
+        registry: {
+          list: () => [{ id: 'improvement' }],
+          run: async () => ({
+            run_id: 'public-flow-run',
+            correlation_id: 'public-flow-run',
+            started_at: '2026-07-10T00:00:00.000Z',
+            ended_at: '2026-07-10T00:00:01.000Z',
+            findings: [finding],
+            per_analyst: [],
+            total_cost_usd: 0,
+          }),
+        },
+        inputs: {},
+        findingsStore: null,
+        log: () => {},
+      },
+      improvement: {
+        surface: 'prompt',
+        generator: improvementProposer,
+        scenarios: improvementScenarios,
+        judge: improvementJudge,
+        agent: improvementAgent,
+        budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+      },
+      buildExperiment: ({ improvement }) => {
+        if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
+        const candidate = redigestCandidateBundle(seed.experiment.baseline, {
+          profile: freezeGenericAgentCandidateProfile(improvement.candidate.profile),
+        })
+        measured = createCandidateExperimentFixture({
+          baseline: seed.experiment.baseline,
+          candidate,
+        })
+        return measured.experiment
+      },
+      placeCell: (input) => {
+        if (!measured) throw new Error('experiment was not built')
+        return measured.placeCell(input)
+      },
+      now: () => new Date('2026-07-10T01:00:00.000Z'),
+    })
+
+    const review = reviewAgentImprovementProposal(result.proposal, {
+      decision: 'approve',
+      reviewedBy: 'operator@example.com',
+      reason: 'Exact candidate passed all paired tasks.',
+      now: () => new Date('2026-07-10T01:01:00.000Z'),
+    })
+    const activation = createAgentImprovementActivation(result.proposal, review, {
+      intent: 'activate-candidate',
+      targets: [{ surface: 'prompt', identity: 'tenant/default/profile' }],
+      fundingOwner: 'tenant/default',
+      authorizedBy: 'operator@example.com',
+      expiresAt: '2026-07-10T01:07:00.000Z',
+      now: () => new Date('2026-07-10T01:02:00.000Z'),
+    })
+    const activationResult = await executeAgentImprovementActivation(
+      { proposal: result.proposal, review, activation },
+      {
+        transition: async (input) => {
+          const target = input.targets[0]
+          return createAgentImprovementActivationResult(input, {
+            completedAt: '2026-07-10T01:03:00.000Z',
+            outcome: {
+              status: 'applied',
+              transactionId: 'profile-version:2',
+              targets: [
+                {
+                  surface: target.surface,
+                  identity: target.identity,
+                  beforeDigest: target.expectedBaseDigest,
+                  afterDigest: target.desiredDigest,
+                },
+              ],
+            },
+          })
+        },
+        now: () => new Date('2026-07-10T01:03:00.000Z'),
+      },
+    )
+
+    expect(result.proposal.changedSurfaces).toEqual(['prompt'])
+    if (!measured) throw new Error('experiment was not built')
+    expect(activation.targets[0].expectedBaseDigest).toBe(promptSurfaceDigest(measured))
+    expect(activationResult.outcome.status).toBe('applied')
+    expect(profile.prompt?.systemPrompt).not.toBe('PROMOTED')
+    await result.improvement.dispose()
+  })
+
+  it('rejects an experiment that substitutes a different candidate', async () => {
+    const seed = createCandidateExperimentFixture()
+    const profile = agentCandidateProfileAsAgentProfile(seed.experiment.baseline.profile)
+
+    await expect(
+      proposeAgentImprovement({
+        runId: 'substituted-candidate-run',
+        profile,
+        analysis: {
+          registry: {
+            list: () => [{ id: 'improvement' }],
+            run: async () => ({
+              run_id: 'substituted-candidate-run',
+              correlation_id: 'substituted-candidate-run',
+              started_at: '2026-07-10T00:00:00.000Z',
+              ended_at: '2026-07-10T00:00:01.000Z',
+              findings: [finding],
+              per_analyst: [],
+              total_cost_usd: 0,
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+          log: () => {},
+        },
+        improvement: {
+          surface: 'prompt',
+          generator: improvementProposer,
+          scenarios: improvementScenarios,
+          judge: improvementJudge,
+          agent: improvementAgent,
+          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+        },
+        buildExperiment: ({ improvement }) => {
+          if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
+          const substituted = {
+            ...improvement.candidate.profile,
+            prompt: { ...improvement.candidate.profile.prompt, systemPrompt: 'SUBSTITUTED' },
+          }
+          const candidate = redigestCandidateBundle(seed.experiment.baseline, {
+            profile: freezeGenericAgentCandidateProfile(substituted),
+          })
+          return createCandidateExperimentFixture({
+            baseline: seed.experiment.baseline,
+            candidate,
+          }).experiment
+        },
+        placeCell: () => {
+          throw new Error('substituted candidates must fail before execution')
+        },
+      }),
+    ).rejects.toThrow(/does not contain the improvement winner/)
+  })
+
+  it('requires both knowledge arms to share one measured candidate identity', () => {
+    const withoutKnowledge = candidateBundle()
+    const reference = {
+      kind: 'knowledge-improvement-candidate' as const,
+      runId: 'knowledge-pair-run',
+      candidateId: 'knowledge-pair-candidate',
+      goalHash: candidateSha('1'),
+      baseHash: candidateSha('2'),
+      candidateHash: candidateSha('3'),
+      evidenceHash: candidateSha('4'),
+      promotionPlanHash: candidateSha('5'),
+    }
+    const evaluation = embeddedCandidateArtifact(Buffer.from('{"score":1}', 'utf8'))
+    const baseline = redigestCandidateBundle(withoutKnowledge, {
+      knowledge: {
+        candidate: reference,
+        snapshot: emptyCandidateSnapshot('knowledge-baseline'),
+        evaluation,
+      },
+    })
+    const candidate = redigestCandidateBundle(baseline, {
+      knowledge: {
+        candidate: reference,
+        snapshot: emptyCandidateSnapshot('knowledge-candidate'),
+        evaluation,
+      },
+    })
+
+    expect(deriveChangedSurfaces(baseline, candidate)).toEqual(['knowledge'])
+    expect(() => deriveChangedSurfaces(withoutKnowledge, candidate)).toThrow(
+      /must share one measured candidate and evaluation identity/,
+    )
+
+    const substituted = redigestCandidateBundle(candidate, {
+      knowledge: {
+        ...candidate.knowledge!,
+        candidate: { ...reference, baseHash: candidateSha('6') },
+      },
+    })
+    expect(() => deriveChangedSurfaces(baseline, substituted)).toThrow(
+      /must share one measured candidate and evaluation identity/,
+    )
+  })
+
+  it('requires a code patch to extend the exact baseline repository tree', () => {
+    const repository = { kind: 'github' as const, owner: 'owner', repo: 'repo' }
+    const baseline = redigestCandidateBundle(candidateBundle(), {
+      code: {
+        kind: 'no-op',
+        reason: 'proposer-no-change',
+        repository,
+        baseCommit: 'a'.repeat(40),
+        baseTree: 'b'.repeat(40),
+      },
+    })
+    const patch = embeddedCandidateArtifact(Buffer.from('exact patch bytes', 'utf8'))
+    const candidate = redigestCandidateBundle(baseline, {
+      code: {
+        kind: 'git-patch',
+        repository,
+        baseCommit: 'a'.repeat(40),
+        baseTree: 'b'.repeat(40),
+        candidateTree: 'c'.repeat(40),
+        patch: { format: 'git-diff-binary', artifact: patch },
+      },
+    })
+
+    expect(deriveChangedSurfaces(baseline, candidate)).toEqual(['code'])
+
+    const substituted = redigestCandidateBundle(candidate, {
+      code: { ...candidate.code, baseTree: 'd'.repeat(40) },
+    })
+    expect(() => deriveChangedSurfaces(baseline, substituted)).toThrow(
+      /exact repository tree measured by the baseline arm/,
+    )
+  })
+
   it('measures the exact paired matrix before review and activation', async () => {
     const rig = createCandidateExperimentFixture()
     const executed: string[] = []
@@ -89,6 +389,15 @@ describe('agent improvement lifecycle', () => {
     }
     expect(() => verifyAgentImprovementProposal(judgeDerivedProposal)).toThrow(/judge-derived/)
 
+    expect(() =>
+      reviewAgentImprovementProposal(proposal, {
+        decision: 'approve',
+        reviewedBy: 'operator@example.com',
+        reason: 'Invalid clock order.',
+        now: () => new Date('2026-07-10T00:59:00.000Z'),
+      }),
+    ).toThrow(/cannot predate/)
+
     const review = reviewAgentImprovementProposal(proposal, {
       decision: 'approve',
       reviewedBy: 'operator@example.com',
@@ -97,19 +406,117 @@ describe('agent improvement lifecycle', () => {
     })
     expect(verifyAgentImprovementReview(review)).toEqual(review)
 
+    expect(() =>
+      createAgentImprovementActivation(proposal, review, {
+        intent: 'activate-candidate',
+        targets: [
+          {
+            surface: 'prompt',
+            identity: 'tenant/default/profile',
+          },
+        ],
+        fundingOwner: 'tenant/default',
+        authorizedBy: 'operator@example.com',
+        expiresAt: '2026-07-10T01:07:00.000Z',
+        now: () => new Date('2026-07-10T01:00:30.000Z'),
+      }),
+    ).toThrow(/cannot predate/)
+
+    expect(() =>
+      createAgentImprovementActivation(proposal, review, {
+        intent: 'activate-candidate',
+        targets: [
+          {
+            surface: 'prompt',
+            identity: 'tenant/default/profile',
+          },
+        ],
+        fundingOwner: 'tenant/default',
+        authorizedBy: 'operator@example.com',
+        expiresAt: '2026-07-10T01:02:00.000Z',
+        now: () => new Date('2026-07-10T01:02:00.000Z'),
+      }),
+    ).toThrow(/expiry must follow/)
+
     const activation = createAgentImprovementActivation(proposal, review, {
+      intent: 'activate-candidate',
       targets: [
         {
           surface: 'prompt',
           identity: 'tenant/default/profile',
-          expectedBaseDigest: promptSurfaceDigest(rig),
         },
       ],
       fundingOwner: 'tenant/default',
       authorizedBy: 'operator@example.com',
+      expiresAt: '2026-07-10T01:07:00.000Z',
       now: () => new Date('2026-07-10T01:02:00.000Z'),
     })
     expect(verifyAgentImprovementActivation({ proposal, review, activation })).toEqual(activation)
+
+    const { digest: _reviewDigest, ...reviewMaterial } = review
+    const prematureReviewMaterial = {
+      ...reviewMaterial,
+      reviewedAt: '2026-07-10T00:59:00.000Z',
+    }
+    const prematureReview = {
+      ...prematureReviewMaterial,
+      digest: canonicalCandidateDigest(prematureReviewMaterial),
+    }
+    const { digest: _activationDigest, ...activationMaterial } = activation
+    const prematureReviewActivationMaterial = {
+      ...activationMaterial,
+      reviewDigest: prematureReview.digest,
+    }
+    const prematureReviewActivation = {
+      ...prematureReviewActivationMaterial,
+      digest: canonicalCandidateDigest(prematureReviewActivationMaterial),
+    }
+    expect(() =>
+      verifyAgentImprovementActivation({
+        proposal,
+        review: prematureReview,
+        activation: prematureReviewActivation,
+      }),
+    ).toThrow(/does not bind/)
+
+    const prematureActivationMaterial = {
+      ...activationMaterial,
+      authorizedAt: '2026-07-10T01:00:30.000Z',
+    }
+    const prematureActivation = {
+      ...prematureActivationMaterial,
+      digest: canonicalCandidateDigest(prematureActivationMaterial),
+    }
+    expect(() =>
+      verifyAgentImprovementActivation({ proposal, review, activation: prematureActivation }),
+    ).toThrow(/does not bind/)
+
+    const impossibleExpiryMaterial = {
+      ...activationMaterial,
+      expiresAt: activationMaterial.authorizedAt,
+    }
+    const impossibleExpiry = {
+      ...impossibleExpiryMaterial,
+      digest: canonicalCandidateDigest(impossibleExpiryMaterial),
+    }
+    expect(() =>
+      verifyAgentImprovementActivation({ proposal, review, activation: impossibleExpiry }),
+    ).toThrow(/expiry must follow/)
+  })
+
+  it('keeps protected trace identities coherent after redaction', async () => {
+    const rig = createCandidateExperimentFixture({
+      executionIdFor: (input) =>
+        `experiment-${input.arm}-4111111111111111-${input.benchmarkCell.repetition}`,
+    })
+    const result = await runAgentCandidateExperiment({
+      experiment: rig.experiment,
+      runId: 'redacted-trace-identity',
+      placeCell: rig.placeCell,
+    })
+
+    expect(result.measurements).toHaveLength(3)
+    expect(result.evaluation.decision.outcome).toBe('ship')
   })
 
   it('runs isolated memory as a real candidate surface', async () => {
@@ -176,15 +583,34 @@ describe('agent improvement lifecycle', () => {
     })
     expect(() =>
       createAgentImprovementActivation(proposal, review, {
+        intent: 'activate-candidate',
         targets: [
           {
-            surface: 'prompt',
+            surface: 'skills',
             identity: 'tenant/default/profile',
-            expectedBaseDigest: canonicalCandidateDigest('stale-profile'),
           },
         ],
         fundingOwner: 'tenant/default',
         authorizedBy: 'operator@example.com',
+        expiresAt: '2026-07-10T01:07:00.000Z',
+      }),
+    ).toThrow(/activation targets/)
+    expect(() =>
+      createAgentImprovementActivation(proposal, review, {
+        intent: 'activate-candidate',
+        targets: [
+          {
+            surface: 'prompt',
+            identity: 'tenant/default/profile',
+          },
+          {
+            surface: 'prompt',
+            identity: 'tenant/other/profile',
+          },
+        ],
+        fundingOwner: 'tenant/default',
+        authorizedBy: 'operator@example.com',
+        expiresAt: '2026-07-10T01:07:00.000Z',
       }),
     ).toThrow(/activation targets/)
   })
@@ -227,41 +653,290 @@ describe('agent improvement lifecycle', () => {
 
     expect(() =>
       createAgentImprovementActivation(proposal, review, {
+        intent: 'activate-candidate',
         targets: [
           {
             surface: 'prompt',
             identity: 'tenant/default/profile',
-            expectedBaseDigest: promptSurfaceDigest(rig),
           },
         ],
         fundingOwner: 'tenant/default',
         authorizedBy: 'operator@example.com',
+        expiresAt: '2026-07-10T01:07:00.000Z',
       }),
     ).toThrow(/requires an approval/)
   })
 
-  it('blocks optimizer write-back before measurement and approval', async () => {
-    await expect(
-      proposeAgentImprovement({
-        runId: 'unsafe-memory-write',
-        profile: { name: 'fixture' },
-        analysis: {} as never,
-        improvement: { memory: { writeBack: async () => undefined } } as never,
-        buildExperiment: async () => {
-          throw new Error('must not build an experiment')
+  it('retries a lost activation response without repeating the write', async () => {
+    const approved = await approvedPromptImprovement('activate-candidate')
+    let stored: ReturnType<typeof createAgentImprovementActivationResult> | undefined
+    let writes = 0
+    let loseFirstResponse = true
+    const transition = async (
+      input: Parameters<typeof createAgentImprovementActivationResult>[0],
+    ) => {
+      expect(input.candidateBundle.digest).toBe(approved.rig.experiment.candidate.digest)
+      expect(input.bundle.digest).toBe(approved.rig.experiment.candidate.digest)
+      expect(input.targets[0].desiredDigest).toBe(promptSurfaceDigest(approved.rig, 'candidate'))
+      if (stored) return stored
+      writes += 1
+      stored = createAgentImprovementActivationResult(input, {
+        completedAt: '2026-07-10T01:03:01.000Z',
+        outcome: {
+          status: 'applied',
+          transactionId: 'profile-version:2',
+          targets: [
+            {
+              surface: input.targets[0].surface,
+              identity: input.targets[0].identity,
+              beforeDigest: input.targets[0].expectedBaseDigest,
+              afterDigest: input.targets[0].desiredDigest,
+            },
+          ],
         },
-        placeCell: () => {
-          throw new Error('must not place a cell')
-        },
+      })
+      if (loseFirstResponse) {
+        loseFirstResponse = false
+        throw new Error('response lost after commit')
+      }
+      return stored
+    }
+
+    const first = await executeAgentImprovementActivation(approved, {
+      transition,
+      now: () => new Date('2026-07-10T01:03:00.000Z'),
+    })
+    expect(first.outcome.status).toBe('indeterminate')
+
+    const retry = await executeAgentImprovementActivation(approved, {
+      transition,
+      now: () => new Date('2026-07-10T01:04:00.000Z'),
+    })
+    expect(retry).toEqual(stored)
+    expect(retry.outcome.status).toBe('applied')
+    expect(writes).toBe(1)
+  })
+
+  it('records stale target state without applying the candidate', async () => {
+    const approved = await approvedPromptImprovement('activate-candidate')
+    const result = await executeAgentImprovementActivation(approved, {
+      transition: async (input) =>
+        createAgentImprovementActivationResult(input, {
+          completedAt: '2026-07-10T01:03:01.000Z',
+          outcome: {
+            status: 'conflict',
+            targets: [
+              {
+                surface: 'prompt',
+                identity: 'tenant/default/profile',
+                currentDigest: canonicalCandidateDigest('newer-profile'),
+              },
+            ],
+          },
+        }),
+      now: () => new Date('2026-07-10T01:03:00.000Z'),
+    })
+
+    expect(result.outcome.status).toBe('conflict')
+    expect(verifyAgentImprovementActivationResult({ ...approved, result })).toEqual(result)
+  })
+
+  it('restores the measured baseline only from the candidate state', async () => {
+    const approved = await approvedPromptImprovement('restore-baseline')
+    const result = await executeAgentImprovementActivation(approved, {
+      transition: async (input) => {
+        expect(input.candidateBundle.digest).toBe(approved.rig.experiment.candidate.digest)
+        expect(input.bundle.digest).toBe(approved.rig.experiment.baseline.digest)
+        expect(input.targets[0]).toMatchObject({
+          expectedBaseDigest: promptSurfaceDigest(approved.rig, 'candidate'),
+          desiredDigest: promptSurfaceDigest(approved.rig, 'baseline'),
+        })
+        return createAgentImprovementActivationResult(input, {
+          completedAt: '2026-07-10T01:03:01.000Z',
+          outcome: {
+            status: 'applied',
+            transactionId: 'profile-version:3',
+            targets: [
+              {
+                surface: 'prompt',
+                identity: 'tenant/default/profile',
+                beforeDigest: input.targets[0].expectedBaseDigest,
+                afterDigest: input.targets[0].desiredDigest,
+              },
+            ],
+          },
+        })
+      },
+      now: () => new Date('2026-07-10T01:03:00.000Z'),
+    })
+
+    expect(result.outcome.status).toBe('applied')
+  })
+
+  it('clamps a skewed executor clock to the authorization time', async () => {
+    const approved = await approvedPromptImprovement('activate-candidate')
+    let attemptedAt = ''
+    const result = await executeAgentImprovementActivation(approved, {
+      transition: async (input) => {
+        attemptedAt = input.attemptedAt
+        return createAgentImprovementActivationResult(input, {
+          completedAt: input.attemptedAt,
+          outcome: { status: 'failed', code: 'TEST', message: 'No write attempted.' },
+        })
+      },
+      now: () => new Date('2026-07-10T01:00:30.000Z'),
+    })
+
+    expect(attemptedAt).toBe(approved.activation.authorizedAt)
+    expect(result.outcome.status).toBe('failed')
+  })
+
+  it('expires unused authority and marks invalid product results indeterminate', async () => {
+    const expired = await approvedPromptImprovement(
+      'activate-candidate',
+      '2026-07-10T01:02:30.000Z',
+    )
+    let writes = 0
+    const expiredResult = await executeAgentImprovementActivation(expired, {
+      transition: async () => {
+        writes += 1
+        throw new Error('expired write function must not run')
+      },
+      now: () => new Date('2026-07-10T01:03:00.000Z'),
+    })
+    expect(expiredResult.outcome).toMatchObject({
+      status: 'indeterminate',
+      code: 'RECONCILIATION_UNAVAILABLE',
+    })
+    expect(writes).toBe(0)
+
+    const reconciled = await executeAgentImprovementActivation(expired, {
+      transition: async () => {
+        writes += 1
+        throw new Error('expired write function must not run')
+      },
+      reconcile: async (input) =>
+        createAgentImprovementActivationResult(input, {
+          completedAt: '2026-07-10T01:03:01.000Z',
+          outcome: {
+            status: 'already-applied',
+            targets: [
+              {
+                surface: 'prompt',
+                identity: 'tenant/default/profile',
+                currentDigest: input.targets[0].desiredDigest,
+              },
+            ],
+          },
+        }),
+      now: () => new Date('2026-07-10T01:03:00.000Z'),
+    })
+    expect(reconciled.outcome.status).toBe('already-applied')
+    expect(writes).toBe(0)
+
+    const backwardsTime = await executeAgentImprovementActivation(
+      await approvedPromptImprovement('activate-candidate'),
+      {
+        transition: async (input) =>
+          createAgentImprovementActivationResult(input, {
+            completedAt: '2026-07-10T01:02:59.000Z',
+            outcome: { status: 'failed', code: 'TEST', message: 'Invalid completion time.' },
+          }),
+        now: () => new Date('2026-07-10T01:03:00.000Z'),
+      },
+    )
+    expect(backwardsTime.outcome).toMatchObject({
+      status: 'indeterminate',
+      code: 'TRANSITION_THROW',
+    })
+
+    const approved = {
+      ...expired,
+      activation: createAgentImprovementActivation(expired.proposal, expired.review, {
+        intent: 'activate-candidate',
+        targets: [
+          {
+            surface: 'prompt',
+            identity: 'tenant/default/profile',
+          },
+        ],
+        fundingOwner: 'tenant/default',
+        authorizedBy: 'operator@example.com',
+        expiresAt: '2026-07-10T01:07:00.000Z',
+        now: () => new Date('2026-07-10T01:02:00.000Z'),
       }),
-    ).rejects.toThrow(/cannot write memory before approval/)
+    }
+    const invalidResult = await executeAgentImprovementActivation(approved, {
+      transition: async (input) => {
+        writes += 1
+        return createAgentImprovementActivationResult(input, {
+          completedAt: '2026-07-10T01:03:01.000Z',
+          outcome: {
+            status: 'already-applied',
+            targets: [
+              {
+                surface: 'prompt',
+                identity: 'tenant/default/profile',
+                currentDigest: input.targets[0].expectedBaseDigest,
+              },
+            ],
+          },
+        })
+      },
+      now: () => new Date('2026-07-10T01:03:00.000Z'),
+    })
+    expect(invalidResult.outcome).toMatchObject({
+      status: 'indeterminate',
+      code: 'TRANSITION_THROW',
+    })
+    expect(writes).toBe(1)
   })
 })
 
-function promptSurfaceDigest(rig: CandidateExperimentFixture): `sha256:${string}` {
-  const profile = agentCandidateProfileAsAgentProfile(rig.experiment.baseline.profile)
+async function approvedPromptImprovement(
+  intent: 'activate-candidate' | 'restore-baseline',
+  expiresAt = '2026-07-10T01:07:00.000Z',
+) {
+  const rig = createCandidateExperimentFixture()
+  const measured = await runAgentCandidateExperiment({
+    experiment: rig.experiment,
+    runId: `activation-${intent}`,
+    placeCell: rig.placeCell,
+  })
+  const proposal = createAgentImprovementProposal({
+    runId: `activation-${intent}`,
+    findings: [finding],
+    evaluation: measured.evaluation,
+    now: () => new Date('2026-07-10T01:00:00.000Z'),
+  })
+  const review = reviewAgentImprovementProposal(proposal, {
+    decision: 'approve',
+    reviewedBy: 'operator@example.com',
+    reason: 'Measured candidate approved.',
+    now: () => new Date('2026-07-10T01:01:00.000Z'),
+  })
+  const activation = createAgentImprovementActivation(proposal, review, {
+    intent,
+    targets: [
+      {
+        surface: 'prompt',
+        identity: 'tenant/default/profile',
+      },
+    ],
+    fundingOwner: 'tenant/default',
+    authorizedBy: 'operator@example.com',
+    expiresAt,
+    now: () => new Date('2026-07-10T01:02:00.000Z'),
+  })
+  return { rig, proposal, review, activation }
+}
+
+function promptSurfaceDigest(
+  rig: CandidateExperimentFixture,
+  arm: 'baseline' | 'candidate' = 'baseline',
+): `sha256:${string}` {
+  const profile = agentCandidateProfileAsAgentProfile(rig.experiment[arm].profile)
   return canonicalCandidateDigest({
     prompt: profile.prompt ?? null,
-    instructions: profile.resources?.instructions ?? null,
   })
 }

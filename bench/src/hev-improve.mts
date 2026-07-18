@@ -151,7 +151,7 @@ async function main(): Promise<void> {
   })
 
   console.log('\n═══ RESULT ═══')
-  console.log(`gateDecision=${out.gateDecision}  shipped=${out.shipped}  lift=${out.lift}`)
+  console.log(`decision=${out.decision}  lift=${out.lift}`)
   console.log(`baseline holdout pass-rate = ${out.raw.baseline.compositeMean}`)
   console.log(`winner   holdout pass-rate = ${out.raw.winner.compositeMean}`)
   console.log(`baseline per-scenario: ${JSON.stringify(out.raw.baseline.perScenario)}`)
@@ -160,6 +160,7 @@ async function main(): Promise<void> {
   if ((out.raw.winner as { surface?: unknown }).surface) {
     console.log(`winner instruction:\n${String((out.raw.winner as { surface?: unknown }).surface).slice(0, 1200)}`)
   }
+  console.log(`live instruction unchanged: ${profile.prompt?.systemPrompt}`)
 }
 
 main().catch((e) => {

@@ -1,20 +1,12 @@
 /**
- * Substrate-default `ImprovementAdapter` — surfaces-driven, LLM-drafted
- * patches, optional auto-apply or PR-open.
+ * Surface improvement proposer — resolves analyst findings into LLM-drafted
+ * candidate patches without changing the caller's repository.
  *
- * This is the one ImprovementAdapter every vertical agent uses. The
- * substrate parses each finding's `subject` via
+ * The proposer parses each finding's `subject` via
  * `parseFindingSubject` (agent-eval), resolves it to a real file path
  * via the agent's `AgentSurfaces`, reads the current content, and asks
  * an LLM to draft a unified-diff patch given the finding + current
  * content + per-kind editing-discipline rules.
- *
- * Auto-apply gates on the source-finding's confidence and the
- * autoApply.improvement policy. Two modes:
- *   `write` — apply the patch in-place via `git apply -p0`. Operator
- *     reviews via `git diff`.
- *   `open-pr` — write to a branch, commit, push, open a PR via `gh`.
- *     Operator reviews via the PR UI.
  *
  * Fail-loud rules:
  *   - Findings whose subject doesn't parse → counted in `errors`.
@@ -30,11 +22,11 @@
  * loop's report surfaces.
  */
 
-import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { AnalystFinding, FindingSubject } from '@tangle-network/agent-eval'
 import { parseFindingSubject } from '@tangle-network/agent-eval/analyst'
-import type { ImprovementAdapter } from '../analyst-loop/types'
+import type { ImprovementProposalSource } from '../analyst-loop/types'
 import type { AgentSurfaces, ResolvedSurface } from './surfaces'
 import { resolveSubjectPath } from './surfaces'
 
@@ -63,7 +55,7 @@ export interface SurfaceImprovementEdit {
   severity: AnalystFinding['severity']
 }
 
-export interface CreateSurfaceImprovementAdapterOpts {
+export interface CreateSurfaceImprovementProposerOptions {
   surfaces: AgentSurfaces
   repoRoot: string
   /**
@@ -75,21 +67,6 @@ export interface CreateSurfaceImprovementAdapterOpts {
    * substantive prompt rewrites, etc.) via this callback.
    */
   draftPatch: (input: DraftPatchInput) => Promise<DraftPatchOutput>
-  /**
-   * Apply mode:
-   *   `write` — `git apply` in-place; operator reviews via `git diff`
-   *   `open-pr` — branch + commit + push + `gh pr create`
-   *   `none` — never apply; collect proposals for the report only
-   *
-   * The `apply` method honours this even when the loop calls it; the
-   * effective behaviour is also gated on the per-finding confidence
-   * threshold via `runAnalystLoop`'s `autoApply` policy.
-   */
-  mode?: 'write' | 'open-pr' | 'none'
-  /** When `mode === 'open-pr'`, the base branch new PRs target. Default: `main`. */
-  baseBranch?: string
-  /** Required for `mode === 'open-pr'` — the GH owner/repo (`tangle-network/tax-agent`). */
-  ghRepo?: string
   /**
    * When the resolved target doesn't exist, allow the substrate to
    * CREATE the file (for `knowledge.wiki`, `new-tool` subjects). Default
@@ -126,14 +103,10 @@ const DEFAULT_CREATE_KINDS: ReadonlyArray<FindingSubject['kind']> = [
   'new-tool',
 ]
 
-/** The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR. */
-export function createSurfaceImprovementAdapter(
-  opts: CreateSurfaceImprovementAdapterOpts,
-): ImprovementAdapter<SurfaceImprovementEdit> {
-  const mode = opts.mode ?? 'none'
-  if (mode === 'open-pr' && !opts.ghRepo) {
-    throw new Error('createSurfaceImprovementAdapter: mode=open-pr requires `ghRepo`')
-  }
+/** Resolve each finding to a real surface and draft a detached patch candidate. */
+export function createSurfaceImprovementProposer(
+  opts: CreateSurfaceImprovementProposerOptions,
+): ImprovementProposalSource<SurfaceImprovementEdit> {
   const allowCreate = opts.allowCreateForKinds ?? DEFAULT_CREATE_KINDS
 
   return {
@@ -165,8 +138,7 @@ export function createSurfaceImprovementAdapter(
           continue
         }
 
-        // `agent-knowledge:*` findings flow to the KnowledgeAdapter;
-        // the ImprovementAdapter skips them so subjects don't double-route.
+        // Knowledge findings flow to the knowledge proposal source so they do not double-route.
         if (subject.kind.startsWith('knowledge.')) {
           skipped += 1
           continue
@@ -226,121 +198,9 @@ export function createSurfaceImprovementAdapter(
 
       return { edits, skipped, errors }
     },
-
-    async apply(edits) {
-      const applied: string[] = []
-      const warnings: string[] = []
-
-      if (mode === 'none') {
-        warnings.push(
-          'createSurfaceImprovementAdapter: mode=none; no edits applied — configure mode=write or mode=open-pr',
-        )
-        return { applied, warnings }
-      }
-
-      for (const edit of edits) {
-        // Race-detection: confirm the file content hasn't moved since the
-        // patch was drafted. A diff applied against drifted content is a
-        // recipe for silent corruption.
-        const current = edit.target.exists ? readFileSync(edit.target.absolutePath, 'utf-8') : ''
-        if (sha256(current) !== edit.baseSha256) {
-          warnings.push(
-            `${edit.target.repoRelativePath}: base SHA mismatch; file changed after draft. Skipping.`,
-          )
-          continue
-        }
-
-        const ok = applyPatchInPlace(edit, opts.repoRoot)
-        if (!ok) {
-          warnings.push(`${edit.target.repoRelativePath}: git apply failed`)
-          continue
-        }
-        applied.push(edit.target.repoRelativePath)
-      }
-
-      if (mode === 'open-pr' && applied.length > 0 && opts.ghRepo) {
-        const prUrl = openPullRequest(
-          applied,
-          edits.filter((e) => applied.includes(e.target.repoRelativePath)),
-          opts.repoRoot,
-          opts.ghRepo,
-          opts.baseBranch ?? 'main',
-        )
-        if (prUrl) warnings.push(`opened PR: ${prUrl}`)
-        else warnings.push('PR creation failed; edits are committed to a local branch only')
-      }
-
-      return { applied, warnings }
-    },
   }
 }
 
-// ── apply helpers ────────────────────────────────────────────────────
-
-function applyPatchInPlace(edit: SurfaceImprovementEdit, repoRoot: string): boolean {
-  const result = spawnSync('git', ['apply', '--whitespace=fix', '-p0', '-'], {
-    cwd: repoRoot,
-    input: edit.patch,
-    encoding: 'utf-8',
-  })
-  return result.status === 0
-}
-
-function openPullRequest(
-  paths: ReadonlyArray<string>,
-  edits: ReadonlyArray<SurfaceImprovementEdit>,
-  repoRoot: string,
-  ghRepo: string,
-  baseBranch: string,
-): string | null {
-  const branch = `analyst-loop/${Date.now()}-${edits[0]?.sourceFindingId.slice(0, 12) ?? 'edits'}`
-  // Create branch, stage, commit
-  const checkout = spawnSync('git', ['checkout', '-b', branch], { cwd: repoRoot })
-  if (checkout.status !== 0) return null
-  const add = spawnSync('git', ['add', ...paths], { cwd: repoRoot })
-  if (add.status !== 0) return null
-  const title = `analyst-loop: ${edits[0]?.summary ?? `${edits.length} improvement edits`}`
-  const body = [
-    `Automated analyst-loop edits — review carefully before merge.`,
-    '',
-    `Source findings:`,
-    ...edits.map(
-      (e) =>
-        `  - ${e.sourceFindingId} (confidence ${e.confidence.toFixed(2)}, severity ${e.severity})`,
-    ),
-    '',
-    'Rationales:',
-    ...edits.map((e) => `\n## ${e.target.repoRelativePath}\n\n${e.rationale}`),
-  ].join('\n')
-  const commit = spawnSync('git', ['commit', '-m', title, '-m', body], { cwd: repoRoot })
-  if (commit.status !== 0) return null
-  const push = spawnSync('git', ['push', '-u', 'origin', branch], { cwd: repoRoot })
-  if (push.status !== 0) return null
-  const pr = spawnSync(
-    'gh',
-    [
-      'pr',
-      'create',
-      '--repo',
-      ghRepo,
-      '--title',
-      title,
-      '--body',
-      body,
-      '--base',
-      baseBranch,
-      '--head',
-      branch,
-    ],
-    { cwd: repoRoot, encoding: 'utf-8' },
-  )
-  if (pr.status !== 0) return null
-  return pr.stdout.trim()
-}
-
 function sha256(s: string): string {
-  // node:crypto is dynamic-imported lazily so the adapter can be tested in
-  // environments without crypto (browser tests, mocked envs).
-  const crypto = require('node:crypto') as typeof import('node:crypto')
-  return crypto.createHash('sha256').update(s, 'utf-8').digest('hex')
+  return createHash('sha256').update(s, 'utf-8').digest('hex')
 }

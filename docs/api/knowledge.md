@@ -8,21 +8,51 @@
 
 ## References
 
+### CreateKnowledgeImprovementActivationExecutorOptions
+
+Re-exports [CreateKnowledgeImprovementActivationExecutorOptions](index.md#createknowledgeimprovementactivationexecutoroptions)
+
+***
+
+### createKnowledgeImprovementActivationExecutor
+
+Re-exports [createKnowledgeImprovementActivationExecutor](index.md#createknowledgeimprovementactivationexecutor)
+
+***
+
+### KnowledgeImprovementActivationExecutor
+
+Re-exports [KnowledgeImprovementActivationExecutor](index.md#knowledgeimprovementactivationexecutor)
+
+***
+
 ### AgentKnowledgeReadinessCheckOptions
 
 Re-exports [AgentKnowledgeReadinessCheckOptions](index.md#agentknowledgereadinesscheckoptions)
 
 ***
 
-### ApprovedKnowledgeImprovementCandidate
+### buildKnowledgeImprovementExperimentBundles
 
-Re-exports [ApprovedKnowledgeImprovementCandidate](index.md#approvedknowledgeimprovementcandidate)
+Re-exports [buildKnowledgeImprovementExperimentBundles](index.md#buildknowledgeimprovementexperimentbundles)
 
 ***
 
 ### createAgentKnowledgeReadinessCheck
 
 Re-exports [createAgentKnowledgeReadinessCheck](index.md#createagentknowledgereadinesscheck)
+
+***
+
+### KnowledgeImprovementCandidatePair
+
+Re-exports [KnowledgeImprovementCandidatePair](index.md#knowledgeimprovementcandidatepair)
+
+***
+
+### KnowledgeImprovementExperimentBundles
+
+Re-exports [KnowledgeImprovementExperimentBundles](index.md#knowledgeimprovementexperimentbundles)
 
 ***
 

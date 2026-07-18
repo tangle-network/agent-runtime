@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { AgentCandidateBundle } from '@tangle-network/agent-interface'
+import { type AgentCandidateBundle, sha256DigestSchema } from '@tangle-network/agent-interface'
+import { hashKnowledgeBase } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MAX_CANDIDATE_TIMER_INTERVAL_MS } from '../src/candidate-execution/cleanup'
 import {
@@ -394,6 +395,9 @@ describe('candidate execution preparation', () => {
     const knowledgeSnapshot = emptySnapshot('knowledge')
     const retrievalConfig = embeddedCandidateArtifact(knowledgeBytes)
     const evaluation = embeddedCandidateArtifact(Buffer.from('{"score":1}'))
+    const emptyKnowledgeHash = sha256DigestSchema.parse(
+      `sha256:${await hashKnowledgeBase(value.task.stagingRoots.profileRoot)}`,
+    )
     value.bundle = redigestBundle(value.bundle, {
       memory: { mode: 'isolated', scope: 'task', seed },
       knowledge: {
@@ -403,7 +407,7 @@ describe('candidate execution preparation', () => {
           candidateId: 'knowledge-1',
           goalHash: sha('1'),
           baseHash: sha('2'),
-          candidateHash: sha('3'),
+          candidateHash: emptyKnowledgeHash,
           evidenceHash: sha('4'),
           promotionPlanHash: sha('5'),
         },
@@ -464,6 +468,43 @@ describe('candidate execution preparation', () => {
         value: '/workspace/task/.tangle/knowledge-retrieval-config.json',
       },
     })
+  })
+
+  it('rejects materialized knowledge that does not match the measured candidate', async () => {
+    const value = fixture()
+    const knowledgeSnapshot = emptySnapshot('mismatched-knowledge')
+    value.bundle = redigestBundle(value.bundle, {
+      knowledge: {
+        candidate: {
+          kind: 'knowledge-improvement-candidate',
+          runId: 'knowledge-run-mismatch',
+          candidateId: 'knowledge-mismatch',
+          goalHash: sha('1'),
+          baseHash: sha('2'),
+          candidateHash: sha('3'),
+          evidenceHash: sha('4'),
+          promotionPlanHash: sha('5'),
+        },
+        snapshot: knowledgeSnapshot,
+        evaluation: embeddedCandidateArtifact(Buffer.from('{"score":1}')),
+      },
+    })
+    bindCandidateFixtureBundle(value)
+    let settledReservations = 0
+    const settleGrant = value.ports.models.settleGrant
+    value.ports.models.settleGrant = async (input) => {
+      settledReservations += 1
+      return await settleGrant(input)
+    }
+
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/materialized candidate knowledge does not match its measured content/)
+    expect(settledReservations).toBe(1)
   })
 
   it('rejects snapshot-only knowledge before artifact access', async () => {

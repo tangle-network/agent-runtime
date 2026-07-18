@@ -97,9 +97,22 @@ const promptProfile = (): AgentProfile => ({
   prompt: { systemPrompt: 'be careful' },
 })
 
+const skillDocument = '# Fixture skill\n\nCheck the result.\n'
+
 const skillProfile = (): AgentProfile => ({
   name: 'fixture-agent',
-  resources: { skills: [] },
+  resources: {
+    failOnError: true,
+    skills: [{ kind: 'inline', name: 'fixture-skill', content: skillDocument }],
+  },
+})
+
+const memoryProfile = (document = '# Durable memory\n'): AgentProfile => ({
+  name: 'fixture-agent',
+  resources: {
+    failOnError: true,
+    instructions: { kind: 'inline', name: 'durable-memory', content: document },
+  },
 })
 
 describe('improve() — default proposer resolution (substrate export drift guard)', () => {
@@ -114,10 +127,12 @@ describe('improve() — default proposer resolution (substrate export drift guar
 
     // The default gepaProposer was constructed (not undefined) and selfImprove
     // ran to a gate decision; a baseline-only run holds.
-    expect(result.gateDecision).toBe('hold')
-    expect(result.shipped).toBe(false)
-    // Baseline-only: nothing shipped, so the profile is returned unchanged.
-    expect(result.profile.prompt?.systemPrompt).toBe('be careful')
+    expect(result.decision).toBe('hold')
+    expect(result.candidate).toMatchObject({
+      surface: 'prompt',
+      value: 'be careful',
+      profile: { prompt: { systemPrompt: 'be careful' } },
+    })
   })
 
   it("surface 'skills' resolves skillOptProposer and runs the baseline loop without crashing", async () => {
@@ -127,15 +142,18 @@ describe('improve() — default proposer resolution (substrate export drift guar
       scenarios,
       judge,
       agent: stubAgent,
-      skills: { document: '# Fixture skill\n\nCheck the result.\n' },
+      skills: { resourceName: 'fixture-skill' },
     })
 
-    expect(result.gateDecision).toBe('hold')
-    expect(result.shipped).toBe(false)
-    expect(result.profile.resources?.skills).toEqual([])
+    expect(result.decision).toBe('hold')
+    expect(result.candidate).toMatchObject({
+      surface: 'skills',
+      value: skillDocument,
+      profile: { resources: { skills: [{ content: skillDocument }] } },
+    })
   })
 
-  it("surface 'skills' fails loud when the default document optimizer receives only resource refs", async () => {
+  it("surface 'skills' fails loud without an exact inline resource identity", async () => {
     await expect(
       improve(skillProfile(), [], {
         surface: 'skills',
@@ -144,21 +162,25 @@ describe('improve() — default proposer resolution (substrate export drift guar
         judge,
         agent: stubAgent,
       }),
-    ).rejects.toThrow(/requires opts\.skills\.document/)
+    ).rejects.toThrow(/requires opts\.skills\.resourceName/)
   })
 
-  it("surface 'memory' resolves memoryCurationProposer and requires a real baseline", async () => {
-    const result = await improve(promptProfile(), [], {
+  it("surface 'memory' resolves memoryCurationProposer from exact profile instructions", async () => {
+    const result = await improve(memoryProfile(), [], {
       surface: 'memory',
       gate: 'none',
       scenarios,
       judge,
       agent: stubAgent,
-      memory: { document: '# Durable memory\n' },
     })
 
-    expect(result.gateDecision).toBe('hold')
-    expect(result.shipped).toBe(false)
+    expect(result.decision).toBe('hold')
+    expect(result.candidate.value).toBe('# Durable memory\n')
+    expect(result.candidate.profile?.resources?.instructions).toEqual({
+      kind: 'inline',
+      name: 'durable-memory',
+      content: '# Durable memory\n',
+    })
     await expect(
       improve(promptProfile(), [], {
         surface: 'memory',
@@ -167,24 +189,17 @@ describe('improve() — default proposer resolution (substrate export drift guar
         judge,
         agent: stubAgent,
       }),
-    ).rejects.toThrow(/requires opts\.memory\.document/)
+    ).rejects.toThrow(/requires profile\.resources\.failOnError/)
   })
 
-  it("surface 'memory' curates seed findings and awaits persistence of the promoted document", async () => {
+  it("surface 'memory' returns a frozen profile without changing the baseline", async () => {
     const baseline = '# Durable memory\n'
-    let writtenBack: string | null = null
-    const result = await improve(promptProfile(), [{ claim: 'improved verification lesson' }], {
+    const profile = memoryProfile(baseline)
+    const result = await improve(profile, [{ claim: 'improved verification lesson' }], {
       surface: 'memory',
       scenarios,
       judge: improvementJudge,
       agent: stubAgent,
-      memory: {
-        document: baseline,
-        writeBack: async (winner) => {
-          await Promise.resolve()
-          writtenBack = winner
-        },
-      },
       promotionGate: {
         name: 'test-ship',
         decide: async () => ({
@@ -196,13 +211,20 @@ describe('improve() — default proposer resolution (substrate export drift guar
       budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
     })
 
-    expect(result.shipped).toBe(true)
-    expect(writtenBack).toContain('improved verification lesson')
-    expect(result.profile).toEqual(promptProfile())
+    expect(result.decision).toBe('ship')
+    expect(result.candidate.value).toContain('improved verification lesson')
+    expect(result.candidate.profile?.resources?.instructions).toMatchObject({
+      content: expect.stringContaining('improved verification lesson'),
+    })
+    expect(Object.isFrozen(result.candidate)).toBe(true)
+    expect(profile.resources?.instructions).toEqual({
+      kind: 'inline',
+      name: 'durable-memory',
+      content: baseline,
+    })
   })
 
-  it("surface 'memory' rejects a shipped non-text winner before persistence", async () => {
-    let writeCalls = 0
+  it("surface 'memory' rejects a non-text candidate", async () => {
     const nonTextSurface: CodeSurface = {
       kind: 'code',
       worktreeRef: 'not-a-memory-document',
@@ -236,7 +258,7 @@ describe('improve() — default proposer resolution (substrate export drift guar
       ],
     }
     await expect(
-      improve(promptProfile(), [], {
+      improve(memoryProfile(), [], {
         surface: 'memory',
         scenarios,
         judge: surfaceKindJudge,
@@ -244,12 +266,6 @@ describe('improve() — default proposer resolution (substrate export drift guar
           return paidStubCall(ctx, 'stub-agent', () => ({
             text: typeof surface === 'string' ? 'text' : surface.kind,
           }))
-        },
-        memory: {
-          document: '# Durable memory\n',
-          writeBack: () => {
-            writeCalls += 1
-          },
         },
         generator: malformedMemory,
         promotionGate: {
@@ -262,28 +278,20 @@ describe('improve() — default proposer resolution (substrate export drift guar
         },
         budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
       }),
-    ).rejects.toThrow(/winner must be text/)
-    expect(writeCalls).toBe(0)
+    ).rejects.toThrow(/incompatible surface value/)
   })
 
-  it("surface 'memory' never writes back a held candidate", async () => {
-    let writeCalls = 0
-    const result = await improve(promptProfile(), [], {
+  it("surface 'memory' returns a held candidate without side effects", async () => {
+    const result = await improve(memoryProfile(), [], {
       surface: 'memory',
       gate: 'none',
       scenarios,
       judge,
       agent: stubAgent,
-      memory: {
-        document: '# Durable memory\n',
-        writeBack: () => {
-          writeCalls += 1
-        },
-      },
     })
 
-    expect(result.shipped).toBe(false)
-    expect(writeCalls).toBe(0)
+    expect(result.decision).toBe('hold')
+    expect(result.candidate.value).toBe('# Durable memory\n')
   })
 
   it('a real runDir makes the loop durable: provenance lands on the filesystem', async () => {
@@ -300,7 +308,7 @@ describe('improve() — default proposer resolution (substrate export drift guar
         agent: stubAgent,
         runDir,
       })
-      expect(result.gateDecision).toBe('hold')
+      expect(result.decision).toBe('hold')
       // The durable-storage default keys off a real (non-mem://) runDir: the loop
       // provenance record must survive the call on disk — this is what a 5-hour
       // search recovers from after a process death.
@@ -310,11 +318,10 @@ describe('improve() — default proposer resolution (substrate export drift guar
     }
   })
 
-  it("surface 'skills' with a document optimizes CONTENT and writes back the shipped winner", async () => {
+  it("surface 'skills' returns an exact profile without changing the baseline", async () => {
     // Baseline document; a scenario whose judge rewards the presence of a rule the
     // skillOpt proposer will add. A deterministic stub proposer stands in for the LLM.
     const baselineDoc = '# OR skills\n- always run a solver\n'
-    let writtenBack: string | null = null
     const stubProposer = {
       kind: 'stub-skillopt',
       async propose(ctx: { currentSurface: unknown }) {
@@ -340,10 +347,14 @@ describe('improve() — default proposer resolution (substrate export drift guar
     }
     const skillProfileWithRef = (): AgentProfile => ({
       name: 'fixture-agent',
-      resources: { skills: [{ kind: 'github', path: 'or-skills.md' }] },
+      resources: {
+        failOnError: true,
+        skills: [{ kind: 'inline', name: 'or-skills', content: baselineDoc }],
+      },
     })
 
-    const result = await improve(skillProfileWithRef(), [], {
+    const profile = skillProfileWithRef()
+    const result = await improve(profile, [], {
       surface: 'skills',
       scenarios,
       judge: docJudge,
@@ -351,22 +362,18 @@ describe('improve() — default proposer resolution (substrate export drift guar
         return paidStubCall(ctx, 'stub', () => ({ doc: String(surface) }))
       },
       generator: stubProposer as never,
-      skills: {
-        document: baselineDoc,
-        writeBack: (winner) => {
-          writtenBack = winner
-        },
-      },
+      skills: { resourceName: 'or-skills' },
       budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
     })
 
-    expect(typeof result.gateDecision).toBe('string')
-    if (result.shipped) {
-      // The winner document (content, not a refs array) was written back.
-      expect(writtenBack).toContain('recompute the objective')
-      // The profile ref is unchanged (writeBack owns the file, not the profile).
-      expect(result.profile.resources?.skills).toEqual(skillProfileWithRef().resources?.skills)
-    }
+    expect(typeof result.decision).toBe('string')
+    expect(result.candidate.value).toContain('recompute the objective')
+    expect(result.candidate.profile?.resources?.skills?.[0]).toMatchObject({
+      content: expect.stringContaining('recompute the objective'),
+    })
+    expect(profile.resources?.skills).toEqual([
+      { kind: 'inline', name: 'or-skills', content: baselineDoc },
+    ])
   })
 
   it.each([
@@ -387,7 +394,7 @@ describe('improve() — default proposer resolution (substrate export drift guar
       read: (profile: AgentProfile) => profile.prompt?.systemPrompt,
       expected: 'improved whole profile',
     },
-  ])('applies a valid shipped $surface winner to the AgentProfile', async (fixture) => {
+  ])('materializes a valid $surface profile candidate', async (fixture) => {
     const result = await improve(fixture.profile, [{ finding: 'surface needs improvement' }], {
       surface: fixture.surface,
       scenarios,
@@ -410,11 +417,12 @@ describe('improve() — default proposer resolution (substrate export drift guar
       budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
     })
 
-    expect(result.shipped).toBe(true)
-    expect(fixture.read(result.profile)).toEqual(fixture.expected)
+    expect(result.decision).toBe('ship')
+    if (!result.candidate.profile) throw new Error('expected a profile candidate')
+    expect(fixture.read(result.candidate.profile)).toEqual(fixture.expected)
   })
 
-  it('rejects a shipped config that cannot form a valid AgentProfile', async () => {
+  it('rejects a config candidate that cannot form a valid AgentProfile', async () => {
     await expect(
       improve(
         { name: 'fixture-agent', subagents: {} },
@@ -480,7 +488,7 @@ describe('improve() — default proposer resolution (substrate export drift guar
       budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
     })
 
-    expect(result.gateDecision).toBe('hold')
+    expect(result.decision).toBe('hold')
     expect(decisionCalls).toBe(1)
     expect(provenanceCalls).toBe(1)
     expect(progressKinds).toContain('baseline.completed')
@@ -573,7 +581,7 @@ describe('improve() — default proposer resolution (substrate export drift guar
       generator: stubProposer as never,
       budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
     })
-    expect(typeof result.gateDecision).toBe('string')
+    expect(typeof result.decision).toBe('string')
     expect(findingsSeen.length).toBeGreaterThanOrEqual(2)
     // Current selfImprove analyzes the baseline before generation 1, so every
     // proposal round starts from measured failures instead of wasting a round
@@ -708,7 +716,7 @@ describe('improve() — default proposer resolution (substrate export drift guar
       // loop measured them (code surfaces reached the agent), and the gate decided.
       expect(generatorCalls).toBe(2)
       expect(startingContents).toEqual(['baseline contents\n', 'baseline contents\nimproved 1\n'])
-      expect(result.gateDecision).toBe('hold')
+      expect(result.decision).toBe('hold')
       const codeSurfaces = measured.filter(
         (m) =>
           typeof m === 'object' && m !== null && 'worktreeRef' in (m as Record<string, unknown>),
@@ -719,13 +727,11 @@ describe('improve() — default proposer resolution (substrate export drift guar
           String((surface as { worktreeRef: string }).worktreeRef).includes('incumbent-baseline'),
         ),
       ).toBe(true)
-      // A code winner is a worktree ref, not a profile field — profile unchanged.
-      expect(result.profile.prompt?.systemPrompt).toBe('be careful')
-      expect(result.shipped).toBe(false)
-      if (typeof result.raw.winner.surface === 'string') {
+      expect(result.candidate.profile).toBeUndefined()
+      if (typeof result.candidate.value === 'string') {
         throw new Error('expected code winner')
       }
-      expect(readFileSync(join(result.raw.winner.surface.worktreeRef, 'module.txt'), 'utf8')).toBe(
+      expect(readFileSync(join(result.candidate.value.worktreeRef, 'module.txt'), 'utf8')).toBe(
         'baseline contents\nimproved 1\n',
       )
       expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(2)
@@ -778,11 +784,11 @@ describe('improve() — default proposer resolution (substrate export drift guar
         },
       })
 
-      if (typeof result.raw.winner.surface === 'string') {
+      if (typeof result.candidate.value === 'string') {
         throw new Error('expected code winner')
       }
-      expect(result.gateDecision).toBe('hold')
-      expect(readFileSync(join(result.raw.winner.surface.worktreeRef, 'module.txt'), 'utf8')).toBe(
+      expect(result.decision).toBe('hold')
+      expect(readFileSync(join(result.candidate.value.worktreeRef, 'module.txt'), 'utf8')).toBe(
         'baseline contents\n',
       )
       expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(2)

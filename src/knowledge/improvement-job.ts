@@ -1,37 +1,31 @@
 import { realpath } from 'node:fs/promises'
 import {
+  type AgentCandidateBundle,
   type AgentCandidateCapturedArtifact,
   type AgentCandidateKnowledge,
-  type AgentImprovementActivation,
-  type AgentImprovementProposal,
-  type AgentImprovementReview,
   agentCandidateKnowledgeSchema,
 } from '@tangle-network/agent-interface'
 import {
   type BuildEvalKnowledgeBundleOptions,
   evaluateKnowledgeBaseReadiness,
-  fromAgentCandidateKnowledgeRef,
-  hashKnowledgeBase,
   improveKnowledgeBase,
   type KnowledgeBaseQualityOptions,
-  type KnowledgeImprovementCandidateRef,
   type KnowledgeImprovementOptions,
   type KnowledgeImprovementResult,
   type KnowledgeReadinessSpec,
   knowledgeImprovementCandidateRef,
-  promoteKnowledgeCandidate,
   toAgentCandidateKnowledgeRef,
-  withKnowledgeImprovementCandidate,
+  withKnowledgeImprovementComparison,
 } from '@tangle-network/agent-knowledge'
-import { canonicalCandidateBytes, embeddedCandidateArtifact } from '../candidate-execution/digest'
+import { sealAgentCandidateBundle } from '../candidate-execution/bundle'
+import {
+  canonicalCandidateBytes,
+  embeddedCandidateArtifact,
+  omitTopLevelDigest,
+} from '../candidate-execution/digest'
 import { persistCandidateOutputArtifact } from '../candidate-execution/output-artifacts'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
 import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive'
-import {
-  verifyAgentImprovementActivation,
-  verifyAgentImprovementProposal,
-  verifyAgentImprovementReview,
-} from '../intelligence/improvement-cycle'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { SuperviseOptions } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
@@ -65,19 +59,7 @@ export interface RunKnowledgeImprovementJobOptions
     opts: SuperviseOptions,
   ) => Promise<SupervisedResult<unknown>>
   candidateArtifacts?: AgentCandidateOutputArtifactPort
-  approval?: ApprovedKnowledgeImprovementCandidate
   onMeasurement?: (measurement: KnowledgeImprovementJobMeasurement) => Promise<void> | void
-}
-
-export interface ApprovedKnowledgeImprovementCandidate {
-  proposal: AgentImprovementProposal
-  review: AgentImprovementReview
-  activation: AgentImprovementActivation
-  authorizeActivation: (
-    activation: AgentImprovementActivation,
-    proposal: AgentImprovementProposal,
-    review: AgentImprovementReview,
-  ) => boolean | Promise<boolean>
 }
 
 export interface KnowledgeImprovementJobMeasurement {
@@ -98,10 +80,21 @@ export interface KnowledgeImprovementJobMeasurement {
 
 export interface KnowledgeImprovementJobResult {
   improvement: KnowledgeImprovementResult
-  candidateKnowledge?: AgentCandidateKnowledge
+  knowledge?: KnowledgeImprovementCandidatePair
   measurement: KnowledgeImprovementJobMeasurement
-  promoted: boolean
   blocked: boolean
+}
+
+export interface KnowledgeImprovementCandidatePair {
+  reference: AgentCandidateKnowledge['candidate']
+  evaluation: AgentCandidateCapturedArtifact
+  baseline: AgentCandidateKnowledge['snapshot']
+  candidate: AgentCandidateKnowledge['snapshot']
+}
+
+export interface KnowledgeImprovementExperimentBundles {
+  baseline: AgentCandidateBundle
+  candidate: AgentCandidateBundle
 }
 
 export interface AgentKnowledgeReadinessCheckOptions {
@@ -144,7 +137,7 @@ export function createAgentKnowledgeReadinessCheck(
   }
 }
 
-/** Produce a frozen KB candidate, and promote it only when an exact signed review is supplied. */
+/** Produce a frozen KB candidate while leaving live knowledge content unchanged. */
 export async function runKnowledgeImprovementJob(
   options: RunKnowledgeImprovementJobOptions,
 ): Promise<KnowledgeImprovementJobResult> {
@@ -156,7 +149,6 @@ export async function runKnowledgeImprovementJob(
     harness,
     makeWorkerAgent,
     onMeasurement,
-    approval,
     readinessCheck,
     runSupervised,
     supervisorModel,
@@ -199,39 +191,21 @@ export async function runKnowledgeImprovementJob(
     addSpent(supervisedSpent, result.supervised)
     return result
   }
-  let resolvedImprovement: KnowledgeImprovementResult
-  let candidateKnowledge: AgentCandidateKnowledge | undefined
-  if (approval) {
-    const approvedKnowledge = await approvedKnowledgeCandidate(approval)
-    const candidate = agentKnowledgeCandidateRef(approvedKnowledge)
-    knowledgeOptions.signal?.throwIfAborted()
-    resolvedImprovement = await promoteKnowledgeCandidate({
-      root: options.root,
-      candidate,
-      ...(knowledgeOptions.ownerId ? { ownerId: knowledgeOptions.ownerId } : {}),
-      ...(knowledgeOptions.leaseTtlMs ? { leaseTtlMs: knowledgeOptions.leaseTtlMs } : {}),
-      ...(knowledgeOptions.now ? { now: knowledgeOptions.now } : {}),
-      ...(knowledgeOptions.onState ? { onState: knowledgeOptions.onState } : {}),
-    })
-    knowledgeOptions.signal?.throwIfAborted()
-    const promotedHash = await hashKnowledgeBase(options.root)
-    if (!resolvedImprovement.promoted || promotedHash !== candidate.candidateHash) {
-      throw new Error('knowledge promotion did not activate the approved snapshot bytes')
-    }
-    candidateKnowledge = approvedKnowledge
-  } else {
-    resolvedImprovement = await improveKnowledgeBase({
-      ...knowledgeOptions,
-      updateKnowledge: instrumentedUpdateKnowledge,
-    })
-    if (resolvedImprovement.candidate) {
-      candidateKnowledge = await freezeKnowledgeCandidate(
-        options.root,
-        resolvedImprovement,
-        candidateArtifacts,
-        knowledgeOptions.signal,
-      )
-    }
+  const resolvedImprovement = await improveKnowledgeBase({
+    ...knowledgeOptions,
+    updateKnowledge: instrumentedUpdateKnowledge,
+  })
+  let knowledge: KnowledgeImprovementCandidatePair | undefined
+  if (
+    resolvedImprovement.candidate?.status === 'candidate-ready' ||
+    resolvedImprovement.candidate?.status === 'promoted'
+  ) {
+    knowledge = await freezeKnowledgeCandidatePair(
+      options.root,
+      resolvedImprovement,
+      candidateArtifacts,
+      knowledgeOptions.signal,
+    )
   }
   const finishedAtMs = Date.now()
   const measurement: KnowledgeImprovementJobMeasurement = {
@@ -245,49 +219,77 @@ export async function runKnowledgeImprovementJob(
   await onMeasurement?.(measurement)
   return {
     improvement: resolvedImprovement,
-    ...(candidateKnowledge ? { candidateKnowledge } : {}),
+    ...(knowledge ? { knowledge } : {}),
     measurement,
-    promoted: resolvedImprovement.promoted,
     blocked: resolvedImprovement.blocked,
   }
 }
 
-async function freezeKnowledgeCandidate(
+/** Attach both frozen knowledge inputs to one otherwise-identical bundle pair. */
+export function buildKnowledgeImprovementExperimentBundles(
+  bundle: AgentCandidateBundle,
+  knowledge: KnowledgeImprovementCandidatePair,
+): KnowledgeImprovementExperimentBundles {
+  const input = omitTopLevelDigest(bundle)
+  const withSnapshot = (snapshot: AgentCandidateKnowledge['snapshot']) =>
+    agentCandidateKnowledgeSchema.parse({
+      candidate: knowledge.reference,
+      snapshot,
+      evaluation: knowledge.evaluation,
+    })
+  return Object.freeze({
+    baseline: sealAgentCandidateBundle({ ...input, knowledge: withSnapshot(knowledge.baseline) }),
+    candidate: sealAgentCandidateBundle({ ...input, knowledge: withSnapshot(knowledge.candidate) }),
+  })
+}
+
+async function freezeKnowledgeCandidatePair(
   root: string,
   improvement: KnowledgeImprovementResult,
   artifacts: AgentCandidateOutputArtifactPort | undefined,
   signal: AbortSignal | undefined,
-): Promise<AgentCandidateKnowledge> {
+): Promise<KnowledgeImprovementCandidatePair> {
   const candidate = knowledgeImprovementCandidateRef(improvement)
-  return withKnowledgeImprovementCandidate({ root, candidate }, async (resolved) => {
-    const executionId = `knowledge-${candidate.candidateId}`
-    const candidateRef = toAgentCandidateKnowledgeRef(candidate)
-    const captured = await captureAgentCandidateWorkspace(await realpath(resolved.root), {
-      ...(artifacts
-        ? {
-            artifactPersistence: {
-              executionId,
-              outputArtifacts: artifacts,
-              ...(signal ? { signal } : {}),
-            },
-          }
-        : {}),
-    })
+  const candidateRef = toAgentCandidateKnowledgeRef(candidate)
+  return withKnowledgeImprovementComparison({ root, candidate }, async (comparison) => {
+    const freeze = async (
+      target: 'baseline' | 'candidate',
+    ): Promise<AgentCandidateKnowledge['snapshot']> => {
+      const executionId = `knowledge-${candidate.candidateId}-${target}`
+      const captured = await captureAgentCandidateWorkspace(
+        await realpath(comparison[target].root),
+        {
+          ...(artifacts
+            ? {
+                artifactPersistence: {
+                  executionId,
+                  outputArtifacts: artifacts,
+                  ...(signal ? { signal } : {}),
+                },
+              }
+            : {}),
+        },
+      )
+      return captured.snapshot
+    }
     const evaluation = await captureKnowledgeEvidence(
       canonicalCandidateBytes({
         kind: 'agent-knowledge-candidate-evaluation',
         candidate: candidateRef,
-        metric: resolved.evaluation,
+        metric: comparison.evaluation,
       }),
       'knowledge-evaluation',
-      executionId,
+      `knowledge-${candidate.candidateId}`,
       artifacts,
       signal,
     )
-    return agentCandidateKnowledgeSchema.parse({
-      candidate: candidateRef,
-      snapshot: captured.snapshot,
+    const baseline = await freeze('baseline')
+    const proposed = await freeze('candidate')
+    return Object.freeze({
+      reference: candidateRef,
       evaluation,
+      baseline,
+      candidate: proposed,
     })
   })
 }
@@ -306,41 +308,6 @@ async function captureKnowledgeEvidence(
     bytes,
     ...(signal ? { signal } : {}),
   })
-}
-
-async function approvedKnowledgeCandidate(
-  approval: ApprovedKnowledgeImprovementCandidate,
-): Promise<AgentCandidateKnowledge> {
-  const proposal = verifyAgentImprovementProposal(approval.proposal)
-  const review = verifyAgentImprovementReview(approval.review)
-  const activation = verifyAgentImprovementActivation({
-    proposal,
-    review,
-    activation: approval.activation,
-  })
-  const candidateBundle = proposal.evaluation.experiment.candidate
-  const knowledgeTarget = activation.targets.find((target) => target.surface === 'knowledge')
-  if (
-    proposal.changedSurfaces.length !== 1 ||
-    proposal.changedSurfaces[0] !== 'knowledge' ||
-    !candidateBundle.knowledge ||
-    !knowledgeTarget ||
-    knowledgeTarget.expectedBaseDigest !== candidateBundle.knowledge.candidate.baseHash ||
-    review.decision !== 'approve' ||
-    review.proposalDigest !== proposal.digest
-  ) {
-    throw new Error('knowledge promotion requires an approved exact knowledge proposal')
-  }
-  if (!(await approval.authorizeActivation(activation, proposal, review))) {
-    throw new Error('knowledge candidate activation was not authorized')
-  }
-  return candidateBundle.knowledge
-}
-
-function agentKnowledgeCandidateRef(
-  knowledge: AgentCandidateKnowledge,
-): KnowledgeImprovementCandidateRef {
-  return fromAgentCandidateKnowledgeRef(knowledge.candidate)
 }
 
 function emptySpent(): KnowledgeImprovementJobMeasurement['supervisedSpent'] {

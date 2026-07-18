@@ -15,12 +15,11 @@ import type {
   AgentCandidateExperimentMeasurement,
   AgentCandidateRunCell,
   AgentImprovementActivation,
-  AgentImprovementActivationTarget,
+  AgentImprovementActivationIntent,
   AgentImprovementMeasuredComparison,
   AgentImprovementProposal,
   AgentImprovementReview,
   AgentImprovementReviewDecision,
-  AgentImprovementSurface,
   AgentProfile,
   CandidateExecutionEvidence,
   Sha256Digest,
@@ -54,7 +53,7 @@ import {
   prepareAgentCandidateExecution,
 } from '../candidate-execution/prepare'
 import {
-  agentCandidateProfileAsAgentProfile,
+  assertCandidateProfileBinding,
   candidateMaterializerHarness,
   createAgentCandidateProfileActivation,
   parseAgentCandidateProfileActivation,
@@ -70,6 +69,12 @@ import {
 } from '../candidate-execution/verify'
 import { rethrowAfterCleanup } from '../improvement/cleanup'
 import { type ImproveOptions, type ImproveResult, improve } from '../improvement/improve'
+import {
+  type AgentImprovementActivationTargetIdentity,
+  assertAgentImprovementActivationTargets,
+  buildAgentImprovementActivationTargets,
+  deriveChangedSurfaces,
+} from './improvement-surfaces'
 
 export type {
   AgentImprovementActivation,
@@ -148,16 +153,19 @@ export interface ReviewAgentImprovementInput {
 }
 
 export interface CreateAgentImprovementActivationOptions {
-  targets: [AgentImprovementActivationTarget, ...AgentImprovementActivationTarget[]]
+  intent: AgentImprovementActivationIntent
+  /** Runtime derives each exact source digest; callers identify only the records to change. */
+  targets: [AgentImprovementActivationTargetIdentity, ...AgentImprovementActivationTargetIdentity[]]
   fundingOwner: string
   authorizedBy: string
+  expiresAt: string
   now?: () => Date
 }
 
 export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArtifact> {
   runId: string
   profile: AgentProfile
-  analysis: Omit<RunAnalystLoopOpts, 'runId' | 'improvementAdapter' | 'autoApply'>
+  analysis: Omit<RunAnalystLoopOpts, 'runId' | 'improvementProposalSource'>
   improvement: ImproveOptions<TScenario, TArtifact>
   buildExperiment: (input: {
     analysis: RunAnalystLoopResult
@@ -281,14 +289,6 @@ export function createAgentImprovementMeasuredComparison(
 export async function proposeAgentImprovement<TScenario extends Scenario, TArtifact>(
   options: ProposeAgentImprovementOptions<TScenario, TArtifact>,
 ): Promise<ProposeAgentImprovementResult<TScenario, TArtifact>> {
-  const writeBackSurface = options.improvement.skills?.writeBack
-    ? 'skill'
-    : options.improvement.memory?.writeBack
-      ? 'memory'
-      : null
-  if (writeBackSurface) {
-    throw new Error(`proposeAgentImprovement cannot write ${writeBackSurface} before approval`)
-  }
   const analysis = await runAnalystLoop({ ...options.analysis, runId: options.runId })
   const findings = assertNoJudgeVerdict(
     analysis.analystResult.findings,
@@ -296,18 +296,14 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
   )
   const improvement = await improve(options.profile, [...findings], options.improvement)
   try {
-    if (!improvement.shipped) {
+    if (improvement.decision !== 'ship') {
       throw new Error('agent improvement search did not produce a promotable candidate')
     }
     const experiment = verifyCandidateExperiment(
       await options.buildExperiment({ analysis, improvement }),
     )
-    if (
-      canonicalCandidateDigest(experiment.baseline.profile) !==
-      canonicalCandidateDigest(options.profile)
-    ) {
-      throw new Error('candidate experiment baseline does not match the analyzed agent profile')
-    }
+    assertCandidateProfileBinding(options.profile, experiment.baseline.profile)
+    assertImprovementCandidateBinding(improvement, experiment)
     const measured = await runAgentCandidateExperiment({
       experiment,
       runId: options.runId,
@@ -335,6 +331,46 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
     }
   } catch (cause) {
     return rethrowAfterCleanup(cause, () => improvement.dispose(), 'proposeAgentImprovement failed')
+  }
+}
+
+function assertImprovementCandidateBinding<TScenario extends Scenario, TArtifact>(
+  improvement: ImproveResult<TScenario, TArtifact>,
+  experiment: AgentCandidateExperiment,
+): void {
+  const candidate = improvement.candidate
+  if (candidate.surface !== 'code') {
+    if (!candidate.profile) {
+      throw new Error(`improvement surface '${candidate.surface}' did not produce an exact profile`)
+    }
+    try {
+      assertCandidateProfileBinding(candidate.profile, experiment.candidate.profile)
+    } catch (cause) {
+      throw new Error('candidate experiment does not contain the improvement winner', { cause })
+    }
+    return
+  }
+
+  const surface = candidate.value
+  const code = experiment.candidate.code
+  if (
+    typeof surface !== 'object' ||
+    surface === null ||
+    surface.kind !== 'code' ||
+    code.kind !== 'git-patch' ||
+    code.baseCommit !== surface.baseCommit ||
+    code.baseTree !== surface.baseTree ||
+    code.candidateTree !== surface.candidateTree ||
+    code.patch.artifact.sha256 !== surface.patch.sha256 ||
+    code.patch.artifact.byteLength !== surface.patch.byteLength
+  ) {
+    throw new Error('candidate experiment does not contain the improvement winner')
+  }
+  if (
+    canonicalCandidateDigest(experiment.baseline.profile) !==
+    canonicalCandidateDigest(experiment.candidate.profile)
+  ) {
+    throw new Error('code improvement candidate changed the agent profile')
   }
 }
 
@@ -380,13 +416,17 @@ export function reviewAgentImprovementProposal(
   if (input.decision === 'approve' && proposal.evaluation.decision.outcome !== 'ship') {
     throw new Error('candidate cannot be approved without a passing experiment')
   }
+  const reviewedAt = (input.now ?? (() => new Date()))().toISOString()
+  if (Date.parse(reviewedAt) < Date.parse(proposal.proposedAt)) {
+    throw new Error('candidate review cannot predate its proposal')
+  }
   return agentImprovementReviewSchema.parse(
     canonicalCandidateDocument<AgentImprovementReview>({
       kind: 'agent-improvement-review',
       proposalDigest: proposal.digest,
       decision: input.decision,
       reviewedBy: input.reviewedBy,
-      reviewedAt: (input.now ?? (() => new Date()))().toISOString(),
+      reviewedAt,
       reason: input.reason,
       ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
     }).value,
@@ -408,7 +448,16 @@ export function createAgentImprovementActivation(
     throw new Error('candidate activation authority must be non-empty')
   }
   const experiment = proposal.evaluation.experiment
-  assertActivationTargets(proposal.changedSurfaces, experiment, options.targets)
+  const authorizedAt = (options.now ?? (() => new Date()))().toISOString()
+  if (Date.parse(authorizedAt) < Date.parse(review.reviewedAt)) {
+    throw new Error('candidate activation cannot predate its approval')
+  }
+  const targets = buildAgentImprovementActivationTargets(
+    proposal.changedSurfaces,
+    experiment,
+    options.intent,
+    options.targets,
+  )
   return agentImprovementActivationSchema.parse(
     canonicalCandidateDocument<AgentImprovementActivation>({
       kind: 'agent-improvement-activation',
@@ -416,10 +465,12 @@ export function createAgentImprovementActivation(
       reviewDigest: review.digest,
       experimentDigest: experiment.digest,
       candidateBundleDigest: experiment.candidate.digest,
-      targets: options.targets,
+      intent: options.intent,
+      targets,
       fundingOwner: options.fundingOwner,
       authorizedBy: options.authorizedBy,
-      authorizedAt: (options.now ?? (() => new Date()))().toISOString(),
+      authorizedAt,
+      expiresAt: options.expiresAt,
     }).value,
   )
 }
@@ -475,11 +526,18 @@ export function verifyAgentImprovementActivation(input: {
     activation.proposalDigest !== proposal.digest ||
     activation.reviewDigest !== review.digest ||
     activation.experimentDigest !== experiment.digest ||
-    activation.candidateBundleDigest !== experiment.candidate.digest
+    activation.candidateBundleDigest !== experiment.candidate.digest ||
+    Date.parse(review.reviewedAt) < Date.parse(proposal.proposedAt) ||
+    Date.parse(activation.authorizedAt) < Date.parse(review.reviewedAt)
   ) {
     throw new Error('candidate activation does not bind the measured and approved candidate')
   }
-  assertActivationTargets(proposal.changedSurfaces, experiment, activation.targets)
+  assertAgentImprovementActivationTargets(
+    proposal.changedSurfaces,
+    experiment,
+    activation.intent,
+    activation.targets,
+  )
   return activation
 }
 
@@ -623,121 +681,6 @@ function assertEvidenceMaterialDigest(
   ) {
     throw new Error(`${label} digest does not match its canonical material`)
   }
-}
-
-const CHANGED_SURFACE_ORDER: readonly AgentImprovementSurface[] = [
-  'prompt',
-  'skills',
-  'tools',
-  'mcp',
-  'hooks',
-  'subagents',
-  'agent-profile',
-  'memory',
-  'code',
-  'knowledge',
-]
-
-function deriveChangedSurfaces(
-  baselineBundle: AgentCandidateBundle,
-  candidateBundle: AgentCandidateBundle,
-): [AgentImprovementSurface, ...AgentImprovementSurface[]] {
-  const baseline = improvementSurfaceValues(baselineBundle)
-  const candidate = improvementSurfaceValues(candidateBundle)
-  const changed = new Set<AgentImprovementSurface>()
-  for (const surface of CHANGED_SURFACE_ORDER) {
-    if (
-      canonicalCandidateDigest(baseline[surface]) !== canonicalCandidateDigest(candidate[surface])
-    ) {
-      changed.add(surface)
-    }
-  }
-  const ordered = CHANGED_SURFACE_ORDER.filter((surface) => changed.has(surface))
-  if (ordered.length === 0) throw new Error('candidate experiment does not change an agent surface')
-  return ordered as [AgentImprovementSurface, ...AgentImprovementSurface[]]
-}
-
-function improvementSurfaceValues(
-  bundle: AgentCandidateBundle,
-): Record<AgentImprovementSurface, unknown> {
-  const profile = agentCandidateProfileAsAgentProfile(bundle.profile)
-  return {
-    prompt: {
-      prompt: profile.prompt ?? null,
-      instructions: profile.resources?.instructions ?? null,
-    },
-    skills: profile.resources?.skills ?? null,
-    tools: {
-      tools: profile.tools ?? null,
-      resources: profile.resources?.tools ?? null,
-    },
-    mcp: profile.mcp ?? null,
-    hooks: profile.hooks ?? null,
-    subagents: {
-      subagents: profile.subagents ?? null,
-      resources: profile.resources?.agents ?? null,
-    },
-    'agent-profile': { profile: opaqueProfileSlice(profile), execution: bundle.execution },
-    memory: bundle.memory,
-    code: bundle.code,
-    knowledge: bundle.knowledge ?? null,
-  }
-}
-
-function opaqueProfileSlice(profile: AgentProfile): unknown {
-  const {
-    prompt: _prompt,
-    tools: _tools,
-    mcp: _mcp,
-    hooks: _hooks,
-    subagents: _subagents,
-    resources,
-    ...opaqueProfile
-  } = profile
-  const {
-    instructions: _instructions,
-    skills: _skills,
-    tools: _resourceTools,
-    agents: _agents,
-    ...opaqueResources
-  } = resources ?? {}
-  return {
-    ...opaqueProfile,
-    ...(Object.keys(opaqueResources).length > 0 ? { resources: opaqueResources } : {}),
-  }
-}
-
-function assertActivationTargets(
-  surfaces: readonly AgentImprovementSurface[],
-  experiment: AgentCandidateExperiment,
-  targets: readonly AgentImprovementActivationTarget[],
-): void {
-  const expected = new Set(surfaces)
-  const actual = new Set(targets.map((target) => target.surface))
-  const baselineValues = improvementSurfaceValues(experiment.baseline)
-  if (
-    targets.some((target) => !target.identity.trim()) ||
-    targets.some(
-      (target) =>
-        target.expectedBaseDigest !==
-        expectedActivationBaseDigest(experiment, target.surface, baselineValues),
-    ) ||
-    expected.size !== actual.size ||
-    [...expected].some((surface) => !actual.has(surface))
-  ) {
-    throw new Error('candidate activation targets must cover exactly the changed surfaces')
-  }
-}
-
-function expectedActivationBaseDigest(
-  experiment: AgentCandidateExperiment,
-  surface: AgentImprovementSurface,
-  baselineValues: Record<AgentImprovementSurface, unknown>,
-): Sha256Digest {
-  if (surface === 'knowledge' && experiment.candidate.knowledge) {
-    return experiment.candidate.knowledge.candidate.baseHash
-  }
-  return canonicalCandidateDigest(baselineValues[surface])
 }
 
 function sameOrderedValues<T>(left: readonly T[], right: readonly T[]): boolean {

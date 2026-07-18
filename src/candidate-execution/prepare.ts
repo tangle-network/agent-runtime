@@ -239,7 +239,7 @@ export async function prepareAgentCandidateExecution(
       cleanupTimeoutMs,
     )
     const memory = preparedMemory.value
-    const knowledge = await prepareAgentCandidateKnowledge(candidate, ports)
+    const knowledge = await prepareAgentCandidateKnowledge(candidate, ports, task.runCell.arm)
     const knowledgePaths = knowledge
       ? candidateKnowledgeExecutionPaths(
           task.executionRoots.taskRoot,

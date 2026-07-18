@@ -51,7 +51,7 @@ import {
   type PreparedCandidateState,
 } from './prepared-state'
 import { redactProtectedReason } from './protected-redaction'
-import { ProtectedAgentCandidateTraceStore } from './protected-trace-store'
+import { createProtectedAgentCandidateTraceAccess } from './protected-trace-store'
 import type {
   AgentCandidateBenchmarkGraderPort,
   AgentCandidateExecutorPort,
@@ -296,15 +296,16 @@ export async function executePreparedAgentCandidate(
   }
 
   const protectedValues = protectedEnvironmentValues(activation, memoryActivation)
-  const protectedTraceStore = new ProtectedAgentCandidateTraceStore(
+  const protectedTrace = createProtectedAgentCandidateTraceAccess(
     options.traceStore,
     protectedValues,
   )
+  const persistedTrace = protectedTrace.identity(state.trace)
   const execution = await runAndStopExecutor(
     options.executor,
     request,
     state.benchmarkTask.outcome,
-    protectedTraceStore,
+    protectedTrace.store,
     deadlineAtMs,
     cleanupTimeoutMs,
   )
@@ -317,11 +318,25 @@ export async function executePreparedAgentCandidate(
       : execution.kind === 'capture'
         ? 'completed'
         : 'failed'
-  const [memoryClose, settlementResult] = await Promise.all([
+  const traceClosure = withinCandidateCleanupDeadline(
+    () => protectedTrace.closeWrites(),
+    cleanupDeadlineAtMs,
+    'candidate trace write closure',
+  ).then(
+    () => ({ closed: true as const, error: undefined }),
+    (error: unknown) => ({ closed: false as const, error }),
+  )
+  const [traceClose, memoryClose, settlementResult] = await Promise.all([
+    traceClosure,
     closeMemoryAccess(state, accessReason, cleanupDeadlineAtMs),
     settleModelGrant(state, accessReason, cleanupDeadlineAtMs),
   ])
-  if (!execution.processStopped || !settlementResult.settlement || !memoryClose.closed) {
+  if (
+    !execution.processStopped ||
+    !traceClose.closed ||
+    !settlementResult.settlement ||
+    !memoryClose.closed
+  ) {
     consumePreparedCandidateExecution(prepared, 'failed')
     return failedAgentCandidateRun(
       state,
@@ -331,6 +346,7 @@ export async function executePreparedAgentCandidate(
           !execution.processStopped
             ? new Error('candidate process termination is not proven')
             : undefined,
+          traceClose.error,
           memoryClose.error,
           settlementResult.error ??
             (!settlementResult.settlement ? new Error('model settlement failed') : undefined),
@@ -405,7 +421,7 @@ export async function executePreparedAgentCandidate(
         async (signal) => {
           await appendAuthoritativeModelSettlementSpans(
             options.traceStore,
-            state.trace.runId,
+            persistedTrace.runId,
             settlementResult.settlement as SealedAgentCandidateModelSettlement,
           )
           const { persistedCapture, taskOutcome } =
@@ -429,6 +445,7 @@ export async function executePreparedAgentCandidate(
             state,
             capture,
             options.traceStore,
+            persistedTrace,
             settlementResult.settlement as SealedAgentCandidateModelSettlement,
             {
               finalCapture: execution.finalCapture,
@@ -439,7 +456,7 @@ export async function executePreparedAgentCandidate(
               outputArtifacts: options.outputArtifacts,
             },
             protectedValues,
-            protectedTraceStore.report(),
+            protectedTrace.report(),
             signal,
           )
         },

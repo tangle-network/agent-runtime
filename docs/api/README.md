@@ -13,7 +13,6 @@
 - [index](index.md)
 - [intelligence](intelligence.md)
 - [knowledge](knowledge.md)
-- [lifecycle](lifecycle.md)
 - [mcp](mcp.md)
 - [platform](platform.md)
 - [primeintellect](primeintellect.md)

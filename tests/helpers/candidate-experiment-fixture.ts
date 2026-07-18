@@ -16,6 +16,7 @@ import type {
 
 import { InMemoryAgentCandidateExecutionClaimStore } from '../../src/candidate-execution/claim'
 import { sha256Bytes } from '../../src/candidate-execution/digest'
+import type { AgentCandidateExecutorRequest } from '../../src/candidate-execution/types'
 import type { AgentCandidateExperimentCellPlacement } from '../../src/intelligence/improvement-cycle'
 import {
   type CandidateExecutionFixture,
@@ -40,6 +41,11 @@ export interface CreateCandidateExperimentFixtureOptions {
   candidateSurface?: 'prompt' | 'memory'
   reps?: number
   scoreFor?: (input: CandidateExperimentExecutionInput) => number
+  scoreForRequest?: (
+    request: AgentCandidateExecutorRequest,
+    input: CandidateExperimentExecutionInput,
+  ) => number | Promise<number>
+  executionIdFor?: (input: CandidateExperimentExecutionInput) => string
   configureFixture?: (fixture: CandidateExecutionFixture) => void
 }
 
@@ -108,21 +114,25 @@ export function createCandidateExperimentFixture(
       const profileRoot = temporaryRoot('candidate-experiment-profile-')
       const traceStore = new InMemoryTraceStore()
       const outputs = createCandidateOutputFixture()
-      const score = options.scoreFor?.(input) ?? (input.arm === 'candidate' ? 1 : 0)
-      const output = Buffer.from(score === 1 ? 'strong' : 'weak', 'utf8')
+      let score = options.scoreFor?.(input) ?? (input.arm === 'candidate' ? 1 : 0)
       return {
-        executionId: [
-          'experiment',
-          input.arm,
-          input.benchmarkCell.taskIndex,
-          input.benchmarkCell.repetition,
-        ].join('-'),
+        executionId:
+          options.executionIdFor?.(input) ??
+          [
+            'experiment',
+            input.arm,
+            input.benchmarkCell.taskIndex,
+            input.benchmarkCell.repetition,
+          ].join('-'),
         executionRoots: { taskRoot: '/workspace/task' },
         stagingRoots: { taskRoot, profileRoot },
         ports: fixture.ports,
         execution: {
           executor: {
             execute: async (request, context) => {
+              if (options.scoreForRequest) {
+                score = await options.scoreForRequest(request, input)
+              }
               const startedAt = 1_000 + input.benchmarkCell.repetition * 100
               await context.traceStore.appendRun({
                 runId: request.trace.runId,
@@ -139,7 +149,10 @@ export function createCandidateExperimentFixture(
             },
             stop: async () => ({ stopped: true }),
             capture: async () => ({
-              taskOutcome: { kind: 'output' as const, bytes: output },
+              taskOutcome: {
+                kind: 'output' as const,
+                bytes: Buffer.from(score === 1 ? 'strong' : 'weak', 'utf8'),
+              },
               ...(input.bundle.memory.mode === 'isolated'
                 ? {
                     memoryAfter: {

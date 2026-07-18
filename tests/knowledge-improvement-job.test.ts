@@ -1,7 +1,10 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
-import type { AgentImprovementActivation } from '@tangle-network/agent-interface'
+import type {
+  AgentImprovementActivationResult,
+  Sha256Digest,
+} from '@tangle-network/agent-interface'
 import {
   addSourceText,
   defineReadinessSpec,
@@ -12,13 +15,18 @@ import {
 } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createAgentCandidateWorkspacePort } from '../src/candidate-execution/workspace-archive'
+import { executeAgentImprovementActivation } from '../src/intelligence/activation'
 import {
   createAgentImprovementActivation,
   createAgentImprovementProposal,
   reviewAgentImprovementProposal,
   runAgentCandidateExperiment,
 } from '../src/intelligence/improvement-cycle'
-import { runKnowledgeImprovementJob } from '../src/knowledge'
+import {
+  buildKnowledgeImprovementExperimentBundles,
+  createKnowledgeImprovementActivationExecutor,
+  runKnowledgeImprovementJob,
+} from '../src/knowledge'
 import type { SuperviseOptions } from '../src/runtime/supervise/supervise'
 import type { SupervisorProfile } from '../src/runtime/supervise/supervisor-agent'
 import type { SupervisedResult } from '../src/runtime/supervise/types'
@@ -26,7 +34,6 @@ import {
   candidateBundle,
   cleanupCandidateFixtures,
   createCandidateOutputFixture,
-  redigestCandidateBundle,
 } from './helpers/candidate-execution-fixture'
 import {
   cleanupCandidateExperimentFixtures,
@@ -138,7 +145,7 @@ const KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS = 15_000
 
 describe('runKnowledgeImprovementJob', () => {
   it(
-    'leaves the live knowledge base byte-identical until approval',
+    'leaves the live knowledge base byte-identical until activation',
     async () => {
       await withKb(async (root) => {
         const measurements: unknown[] = []
@@ -191,7 +198,7 @@ describe('runKnowledgeImprovementJob', () => {
           onMeasurement: (measurement) => measurements.push(measurement),
         })
 
-        expect(result.promoted).toBe(false)
+        expect(result.improvement.promoted).toBe(false)
         expect(result.improvement.state.status).toBe('candidate-ready')
         expect(captured?.profile.name).toBe('knowledge-research-supervisor')
         expect(captured?.task).toContain('Goal: Add runtime job knowledge')
@@ -202,18 +209,21 @@ describe('runKnowledgeImprovementJob', () => {
           code: 'ENOENT',
         })
         expect(await liveKnowledgeBytes(root)).toEqual(before)
-        expect(result.candidateKnowledge?.candidate.candidateId).toBe(
+        expect(result.knowledge?.reference.candidateId).toBe(
           result.improvement.candidate?.candidateId,
         )
         await withKnowledgeImprovementCandidate(
           { root, candidate: knowledgeImprovementCandidateRef(result.improvement) },
           async ({ root: candidateRoot }) => {
-            expect(result.candidateKnowledge?.candidate.candidateHash).toBe(
+            expect(result.knowledge?.reference.candidateHash).toBe(
               `sha256:${await hashKnowledgeBase(candidateRoot)}`,
             )
           },
         )
-        expect(result.candidateKnowledge?.snapshot.material.files).toEqual(
+        expect(result.knowledge?.candidate.material.files).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path: 'knowledge/runtime-job.md' })]),
+        )
+        expect(result.knowledge?.baseline.material.files).not.toEqual(
           expect.arrayContaining([expect.objectContaining({ path: 'knowledge/runtime-job.md' })]),
         )
         expect(result.measurement.updateCalls).toBe(1)
@@ -259,7 +269,7 @@ describe('runKnowledgeImprovementJob', () => {
           },
         })
 
-        expect(result.promoted).toBe(false)
+        expect(result.improvement.promoted).toBe(false)
         await withKnowledgeImprovementCandidate(
           { root, candidate: knowledgeImprovementCandidateRef(result.improvement) },
           async ({ root: candidateRoot }) => {
@@ -279,7 +289,7 @@ describe('runKnowledgeImprovementJob', () => {
   )
 
   it(
-    'promotes only the frozen candidate bytes after an exact approved review',
+    'applies and restores only frozen candidate bytes through one activation result path',
     async () => {
       await withKb(async (root) => {
         const artifacts = createCandidateOutputFixture().outputArtifacts
@@ -306,7 +316,7 @@ describe('runKnowledgeImprovementJob', () => {
           runSupervised: update,
           candidateArtifacts: artifacts,
         })
-        const knowledge = proposed.candidateKnowledge
+        const knowledge = proposed.knowledge
         if (!knowledge) throw new Error('expected frozen knowledge candidate')
         const candidateRef = knowledgeImprovementCandidateRef(proposed.improvement)
         const candidateBytes = await withKnowledgeImprovementCandidate(
@@ -315,10 +325,19 @@ describe('runKnowledgeImprovementJob', () => {
         )
         const liveBeforeApproval = await liveKnowledgeBytes(root)
         const baseBundle = candidateBundle()
-        const bundle = redigestCandidateBundle(baseBundle, { knowledge })
+        const bundles = buildKnowledgeImprovementExperimentBundles(baseBundle, knowledge)
         const rig = createCandidateExperimentFixture({
-          baseline: baseBundle,
-          candidate: bundle,
+          baseline: bundles.baseline,
+          candidate: bundles.candidate,
+          scoreForRequest: (request) => {
+            const page = request.knowledge?.files.find(
+              (file) => file.path === 'knowledge/runtime-job.md',
+            )
+            return page &&
+              Buffer.from(page.bytes).toString('utf8').includes('source-backed evidence')
+              ? 1
+              : 0
+          },
           configureFixture: (fixture) => {
             fixture.ports.artifacts = artifacts
             const materialize = fixture.ports.workspaces.materialize
@@ -347,45 +366,42 @@ describe('runKnowledgeImprovementJob', () => {
           now: () => new Date('2026-07-13T01:01:00.000Z'),
         })
         const activation = createAgentImprovementActivation(proposal, review, {
+          intent: 'activate-candidate',
           targets: [
             {
               surface: 'knowledge',
               identity: root,
-              expectedBaseDigest: knowledge.candidate.baseHash,
             },
           ],
           fundingOwner: 'tenant/default',
           authorizedBy: 'operator@example.com',
+          expiresAt: '2026-07-14T00:00:00.000Z',
           now: () => new Date('2026-07-13T01:02:00.000Z'),
         })
 
         expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
-        const approvedUpdate = async () => {
-          throw new Error('candidate-ready promotion must not rerun the updater')
-        }
-        const runApproved = (
-          approvedProposal: typeof proposal,
-          approvedReview: typeof review,
-          approvedActivation: AgentImprovementActivation,
-        ) =>
-          runKnowledgeImprovementJob({
-            root,
-            goal: 'Add runtime job knowledge',
-            runId: 'runtime-job-approved',
-            strict: true,
-            budget: { maxIterations: 2, maxTokens: 1000 },
-            readinessCheck: async () => ({ ready: true }),
-            runSupervised: approvedUpdate,
-            candidateArtifacts: artifacts,
-            approval: {
-              proposal: approvedProposal,
-              review: approvedReview,
-              activation: approvedActivation,
-              authorizeActivation: async (candidateActivation) =>
-                candidateActivation.digest === approvedActivation.digest,
+        const stored = new Map<Sha256Digest, AgentImprovementActivationResult>()
+        let failNextResultWrite = false
+        const activationExecutor = createKnowledgeImprovementActivationExecutor({
+          root,
+          identity: root,
+          now: () => new Date('2026-07-13T01:02:59.000Z'),
+          results: {
+            async load(idempotencyKey) {
+              return stored.get(idempotencyKey)
             },
-          })
-        const promoteApproved = () => runApproved(proposal, review, activation)
+            async putIfAbsent(result) {
+              if (failNextResultWrite) {
+                failNextResultWrite = false
+                throw new Error('result store response was lost')
+              }
+              const existing = stored.get(result.idempotencyKey)
+              if (existing) return existing
+              stored.set(result.idempotencyKey, result)
+              return result
+            },
+          },
+        })
 
         await expect(
           withKnowledgeImprovementCandidate(
@@ -398,13 +414,134 @@ describe('runKnowledgeImprovementJob', () => {
         ).rejects.toThrow(/snapshot changed during use/)
         expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
 
-        const promoted = await promoteApproved()
+        const applied = await executeAgentImprovementActivation(
+          { proposal, review, activation },
+          {
+            ...activationExecutor,
+            now: () => new Date('2026-07-13T01:03:00.000Z'),
+          },
+        )
 
-        expect(promoted.promoted).toBe(true)
-        expect(promoted.improvement.state.status).toBe('promoted')
-        expect(promoted.measurement.updateCalls).toBe(0)
+        expect(applied.outcome.status).toBe('applied')
+        expect(applied.completedAt).toBe('2026-07-13T01:03:00.000Z')
         expect(await liveKnowledgeBytes(root)).toEqual(candidateBytes)
-        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.candidate.candidateHash)
+        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.candidateHash)
+
+        const restore = createAgentImprovementActivation(proposal, review, {
+          intent: 'restore-baseline',
+          targets: [
+            {
+              surface: 'knowledge',
+              identity: root,
+            },
+          ],
+          fundingOwner: 'tenant/default',
+          authorizedBy: 'operator@example.com',
+          expiresAt: '2026-07-14T00:00:00.000Z',
+          now: () => new Date('2026-07-13T01:05:00.000Z'),
+        })
+        const restored = await executeAgentImprovementActivation(
+          { proposal, review, activation: restore },
+          {
+            ...activationExecutor,
+            now: () => new Date('2026-07-13T01:06:00.000Z'),
+          },
+        )
+
+        expect(restored.outcome.status).toBe('applied')
+        expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
+        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.baseHash)
+        await expect(
+          executeAgentImprovementActivation(
+            { proposal, review, activation: restore },
+            {
+              ...activationExecutor,
+              now: () => new Date('2026-07-13T01:07:00.000Z'),
+            },
+          ),
+        ).resolves.toEqual(restored)
+
+        const reapply = createAgentImprovementActivation(proposal, review, {
+          intent: 'activate-candidate',
+          targets: [
+            {
+              surface: 'knowledge',
+              identity: root,
+            },
+          ],
+          fundingOwner: 'tenant/default',
+          authorizedBy: 'operator@example.com',
+          expiresAt: '2026-07-13T01:09:30.000Z',
+          now: () => new Date('2026-07-13T01:08:00.000Z'),
+        })
+        failNextResultWrite = true
+        const uncertain = await executeAgentImprovementActivation(
+          { proposal, review, activation: reapply },
+          {
+            ...activationExecutor,
+            now: () => new Date('2026-07-13T01:09:00.000Z'),
+          },
+        )
+        expect(uncertain.outcome.status).toBe('indeterminate')
+        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.candidateHash)
+
+        const restoreAfterLostResponse = createAgentImprovementActivation(proposal, review, {
+          intent: 'restore-baseline',
+          targets: [
+            {
+              surface: 'knowledge',
+              identity: root,
+            },
+          ],
+          fundingOwner: 'tenant/default',
+          authorizedBy: 'operator@example.com',
+          expiresAt: '2026-07-13T01:11:00.000Z',
+          now: () => new Date('2026-07-13T01:09:05.000Z'),
+        })
+        const restoredAfterLostResponse = await executeAgentImprovementActivation(
+          { proposal, review, activation: restoreAfterLostResponse },
+          {
+            ...activationExecutor,
+            now: () => new Date('2026-07-13T01:09:10.000Z'),
+          },
+        )
+        expect(restoredAfterLostResponse.outcome.status).toBe('applied')
+        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.baseHash)
+
+        const reconciled = await executeAgentImprovementActivation(
+          { proposal, review, activation: reapply },
+          {
+            ...activationExecutor,
+            now: () => new Date('2026-07-13T01:10:00.000Z'),
+          },
+        )
+        expect(reconciled.outcome.status).toBe('applied')
+        expect(stored.get(reapply.digest)).toEqual(reconciled)
+        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.baseHash)
+
+        const expiredRestore = createAgentImprovementActivation(proposal, review, {
+          intent: 'restore-baseline',
+          targets: [
+            {
+              surface: 'knowledge',
+              identity: root,
+            },
+          ],
+          fundingOwner: 'tenant/default',
+          authorizedBy: 'operator@example.com',
+          expiresAt: '2026-07-13T01:12:00.000Z',
+          now: () => new Date('2026-07-13T01:11:00.000Z'),
+        })
+        const expired = await executeAgentImprovementActivation(
+          { proposal, review, activation: expiredRestore },
+          {
+            ...activationExecutor,
+            now: () => new Date('2026-07-13T01:12:00.000Z'),
+          },
+        )
+        expect(expired.outcome.status).toBe('expired')
+        expect(stored.has(expiredRestore.digest)).toBe(false)
+        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.baseHash)
       })
     },
     KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS,

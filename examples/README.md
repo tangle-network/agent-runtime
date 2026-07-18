@@ -80,7 +80,7 @@ repeat. A failing validator prunes a bad candidate so the loop can't keep it.
 | # | Example | What it shows |
 |---|---|---|
 | 16 | [`strategy-evolution/`](./strategy-evolution/) | Full policy search with a safety gate: write new tactics from past losses, promote a champion only if a statistical test says the win isn't luck. Needs `TANGLE_API_KEY`. |
-| 17 | [`improve/`](./improve/) | The one self-improvement verb: `improve(profile, findings)` rewrites a prompt and ships the new version only if it beats the old one on a held-out test set. Offline. |
+| 17 | [`improve/`](./improve/) | The one self-improvement verb: `improve(profile, findings)` rewrites a prompt and returns a detached winner plus a held-out decision. Offline. |
 | 17b | [`self-improving-coder/`](./self-improving-coder/) | The flywheel on a contamination-proof coding task: an agent writes strategies from its training losses, graded by real pytest, promoted only if a fresh holdout confirms the gain. `CALIBRATE=1` is a $0 no-key check. |
 | 18 | [`self-improving-loop/`](./self-improving-loop/) | #17 unrolled step by step: v0 → judge → analyst → mutation → v1 → gate, showing which part owns each phase. Offline. |
 | 19 | [`intelligence-recommend/`](./intelligence-recommend/) | The improvement loop offline end to end: read a run's trace → derive findings → `improve()` → a gated candidate. |

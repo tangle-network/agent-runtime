@@ -2,6 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, posix } from 'node:path'
 
+import type { AgentCandidateRunCell } from '@tangle-network/agent-interface'
+import { hashKnowledgeBase } from '@tangle-network/agent-knowledge'
+
 import { readMaterializedWorkspaceFiles } from './artifacts'
 import type {
   AgentCandidateExecutionPorts,
@@ -37,6 +40,7 @@ export function candidateKnowledgeExecutionPaths(
 export async function prepareAgentCandidateKnowledge(
   candidate: VerifiedAgentCandidate,
   ports: AgentCandidateExecutionPorts,
+  arm: AgentCandidateRunCell['arm'],
 ): Promise<PreparedAgentCandidateKnowledge | undefined> {
   const knowledge = candidate.bundle.knowledge
   if (!knowledge) return undefined
@@ -53,6 +57,14 @@ export async function prepareAgentCandidateKnowledge(
       archive,
       destination: root,
     })
+    const expectedHash =
+      arm === 'baseline' ? knowledge.candidate.baseHash : knowledge.candidate.candidateHash
+    const actualHash = `sha256:${await hashKnowledgeBase(root)}`
+    if (actualHash !== expectedHash) {
+      throw new Error(
+        `materialized ${arm} knowledge does not match its measured content: expected ${expectedHash}, got ${actualHash}`,
+      )
+    }
     const files = await readMaterializedWorkspaceFiles(root, knowledge.snapshot.material)
     return Object.freeze({
       candidate: knowledge.candidate,
