@@ -4,9 +4,8 @@
  * The orchestrator is the one call agent apps reach for. It binds:
  *   - the AnalystRegistry + a chosen set of analyst kinds
  *   - a FindingsStore (durable JSONL ledger + cross-run diff)
- *   - an optional KnowledgeAdapter (closes the analysis → wiki side)
- *   - an optional ImprovementAdapter (closes the analysis → prompt /
- *     tool / scaffolding side)
+ *   - an optional knowledge proposal source
+ *   - an optional agent-surface proposal source
  *
  * Adapters keep agent-runtime decoupled from the specific storage
  * implementation. Consumers wire agent-knowledge once at app init.
@@ -22,23 +21,16 @@ import type {
 } from '@tangle-network/agent-eval'
 
 /** Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge. */
-export interface KnowledgeAdapter<TProposal = unknown> {
+export interface KnowledgeProposalSource<TProposal = unknown> {
   /**
    * Convert a findings batch into proposals. Returns the partitioned
-   * result so the loop can report (and optionally fail on) malformed
+   * result so the loop can report malformed
    * findings. Implementations SHOULD honour the convention "non-
    * knowledge subjects return null and are counted in `skipped`."
    */
   proposeFromFindings(
     findings: ReadonlyArray<AnalystFinding>,
   ): Promise<KnowledgeProposalBatch<TProposal>> | KnowledgeProposalBatch<TProposal>
-  /**
-   * Optional auto-apply. The loop calls this only when
-   * `autoApply.knowledge` is true AND the proposal's source-finding
-   * confidence ≥ `autoApply.knowledgeConfidenceThreshold`. Anything
-   * below the threshold is returned in the report but never written.
-   */
-  apply?(proposals: ReadonlyArray<TProposal>): Promise<{ written: string[]; warnings: string[] }>
 }
 
 export interface KnowledgeProposalBatch<TProposal = unknown> {
@@ -47,30 +39,17 @@ export interface KnowledgeProposalBatch<TProposal = unknown> {
   errors: Array<{ findingId: string; subject: string; message: string }>
 }
 
-/** Improvement-side bridge — proposes / applies prompt + tool + scaffolding edits. */
-export interface ImprovementAdapter<TEdit = unknown> {
+/** Agent-surface bridge — proposes prompt, skill, tool, and scaffolding edits. */
+export interface ImprovementProposalSource<TEdit = unknown> {
   proposeFromFindings(
     findings: ReadonlyArray<AnalystFinding>,
   ): Promise<ImprovementEditBatch<TEdit>> | ImprovementEditBatch<TEdit>
-  apply?(edits: ReadonlyArray<TEdit>): Promise<{ applied: string[]; warnings: string[] }>
 }
 
 export interface ImprovementEditBatch<TEdit = unknown> {
   edits: TEdit[]
   skipped: number
   errors: Array<{ findingId: string; subject: string; message: string }>
-}
-
-/** Tunable safety rails for auto-apply. */
-export interface AutoApplyPolicy {
-  /** When true AND `knowledgeAdapter.apply` exists, write knowledge proposals. */
-  knowledge?: boolean
-  /** Minimum source-finding confidence required to auto-apply a knowledge proposal. */
-  knowledgeConfidenceThreshold?: number
-  /** When true AND `improvementAdapter.apply` exists, apply improvement edits. */
-  improvement?: boolean
-  /** Minimum source-finding confidence required to auto-apply an improvement edit. */
-  improvementConfidenceThreshold?: number
 }
 
 export interface RunAnalystLoopOpts {
@@ -96,18 +75,16 @@ export interface RunAnalystLoopOpts {
   /** Strategy for forwarding prior findings into `ctx.priorFindings`. */
   priorFindingsStrategy?: 'per-kind' | 'wildcard' | 'none'
   /** Knowledge-side bridge — usually `agent-knowledge`'s `proposeFromFindings`. */
-  knowledgeAdapter?: KnowledgeAdapter
-  /** Improvement-side bridge — usually a consumer-specific prompt/tool diff producer. */
-  improvementAdapter?: ImprovementAdapter
-  /** Auto-apply rails. Default off; review-then-apply is the safer default. */
-  autoApply?: AutoApplyPolicy
+  knowledgeProposalSource?: KnowledgeProposalSource
+  /** Agent-surface bridge — usually a prompt, skill, or tool diff producer. */
+  improvementProposalSource?: ImprovementProposalSource
   /** Optional logger. Defaults to `console.log` for `[analyst-loop]` lines. */
   log?: (msg: string, fields?: Record<string, unknown>) => void
   /**
    * Event sink for live progress. Called for every phase of the loop:
    * baseline resolution, registry events forwarded from `runStream`,
-   * ledger persistence, diff, knowledge / improvement proposals +
-   * apply outcomes, and the terminal `loop-completed`. Awaited so
+   * ledger persistence, diff, knowledge / improvement proposals, and
+   * the terminal `loop-completed`. Awaited so
    * slow sinks (SSE write, JSONL append) apply backpressure.
    *
    * The callback MUST NOT throw — exceptions propagate and abort the
@@ -127,18 +104,14 @@ export interface RunAnalystLoopResult<TProposal = unknown, TEdit = unknown> {
 
 export interface KnowledgeReport<TProposal = unknown> {
   proposals: TProposal[]
-  applied: string[]
   skipped: number
   errors: Array<{ findingId: string; subject: string; message: string }>
-  withheld_for_review: number
 }
 
 export interface ImprovementReport<TEdit = unknown> {
   edits: TEdit[]
-  applied: string[]
   skipped: number
   errors: Array<{ findingId: string; subject: string; message: string }>
-  withheld_for_review: number
 }
 
 /**
@@ -232,23 +205,11 @@ export type AnalystLoopEvent =
       errors: number
     }
   | {
-      type: 'knowledge-applied'
-      runId: string
-      writtenCount: number
-      withheldForReview: number
-    }
-  | {
       type: 'improvement-proposed'
       runId: string
       editCount: number
       skipped: number
       errors: number
-    }
-  | {
-      type: 'improvement-applied'
-      runId: string
-      appliedCount: number
-      withheldForReview: number
     }
   | {
       type: 'loop-completed'

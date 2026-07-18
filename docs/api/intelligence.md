@@ -69,7 +69,7 @@ Defined in: [intelligence/capability.ts:248](https://github.com/tangle-network/a
 
 ### AgentCandidateExperimentCellExecutionError
 
-Defined in: [intelligence/improvement-cycle.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L123)
+Defined in: [intelligence/improvement-cycle.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L128)
 
 A failed baseline or candidate cell with its complete Runtime failure result.
 
@@ -83,7 +83,7 @@ A failed baseline or candidate cell with its complete Runtime failure result.
 
 > **new AgentCandidateExperimentCellExecutionError**(`finalization`): [`AgentCandidateExperimentCellExecutionError`](#agentcandidateexperimentcellexecutionerror)
 
-Defined in: [intelligence/improvement-cycle.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L126)
+Defined in: [intelligence/improvement-cycle.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L131)
 
 ###### Parameters
 
@@ -141,7 +141,7 @@ Independent evaluator-gateway usage, even when execution or trace capture failed
 
 > `readonly` **finalization**: `object`
 
-Defined in: [intelligence/improvement-cycle.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L124)
+Defined in: [intelligence/improvement-cycle.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L129)
 
 ###### succeeded
 
@@ -182,6 +182,184 @@ Defined in: [intelligence/improvement-cycle.ts:124](https://github.com/tangle-ne
 Independent evaluator-gateway usage, even when execution or trace capture failed.
 
 ## Interfaces
+
+### CreateAgentImprovementActivationResultOptions
+
+Defined in: [intelligence/activation.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L28)
+
+#### Properties
+
+##### completedAt
+
+> **completedAt**: `string`
+
+Defined in: [intelligence/activation.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L29)
+
+##### outcome
+
+> **outcome**: `AgentImprovementActivationOutcome`
+
+Defined in: [intelligence/activation.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L30)
+
+***
+
+### AgentImprovementActivationTargetPlan
+
+Defined in: [intelligence/activation.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L33)
+
+#### Extends
+
+- `AgentImprovementActivationTarget`
+
+#### Properties
+
+##### desiredDigest
+
+> **desiredDigest**: `` `sha256:${string}` ``
+
+Defined in: [intelligence/activation.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L34)
+
+***
+
+### AgentImprovementActivationTransitionInput
+
+Defined in: [intelligence/activation.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L37)
+
+#### Properties
+
+##### activation
+
+> **activation**: `AgentImprovementActivation`
+
+Defined in: [intelligence/activation.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L38)
+
+##### candidateBundle
+
+> **candidateBundle**: `AgentCandidateBundle`
+
+Defined in: [intelligence/activation.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L39)
+
+##### bundle
+
+> **bundle**: `AgentCandidateBundle`
+
+Defined in: [intelligence/activation.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L40)
+
+##### targets
+
+> **targets**: \[[`AgentImprovementActivationTargetPlan`](#agentimprovementactivationtargetplan), `...AgentImprovementActivationTargetPlan[]`\]
+
+Defined in: [intelligence/activation.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L41)
+
+##### attemptedAt
+
+> **attemptedAt**: `string`
+
+Defined in: [intelligence/activation.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L42)
+
+##### expired
+
+> **expired**: `boolean`
+
+Defined in: [intelligence/activation.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L43)
+
+***
+
+### AgentImprovementActivationResultStore
+
+Defined in: [intelligence/activation.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L46)
+
+#### Methods
+
+##### load()
+
+> **load**(`idempotencyKey`): `Promise`\<`unknown`\>
+
+Defined in: [intelligence/activation.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L47)
+
+###### Parameters
+
+###### idempotencyKey
+
+`` `sha256:${string}` ``
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### putIfAbsent()
+
+> **putIfAbsent**(`result`): `Promise`\<`unknown`\>
+
+Defined in: [intelligence/activation.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L48)
+
+###### Parameters
+
+###### result
+
+`AgentImprovementActivationResult`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### ExecuteAgentImprovementActivationInput
+
+Defined in: [intelligence/activation.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L73)
+
+#### Properties
+
+##### proposal
+
+> **proposal**: `AgentImprovementProposal`
+
+Defined in: [intelligence/activation.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L74)
+
+##### review
+
+> **review**: `AgentImprovementReview`
+
+Defined in: [intelligence/activation.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L75)
+
+##### activation
+
+> **activation**: `AgentImprovementActivation`
+
+Defined in: [intelligence/activation.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L76)
+
+***
+
+### ExecuteAgentImprovementActivationOptions
+
+Defined in: [intelligence/activation.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L79)
+
+#### Properties
+
+##### transition
+
+> **transition**: [`AgentImprovementActivationTransition`](#agentimprovementactivationtransition)
+
+Defined in: [intelligence/activation.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L80)
+
+##### reconcile?
+
+> `optional` **reconcile?**: [`AgentImprovementActivationReconciliation`](#agentimprovementactivationreconciliation)
+
+Defined in: [intelligence/activation.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L81)
+
+##### now?
+
+> `optional` **now?**: () => `Date`
+
+Defined in: [intelligence/activation.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L82)
+
+###### Returns
+
+`Date`
+
+***
 
 ### CredentialRef
 
@@ -1194,7 +1372,7 @@ Intelligence-class spend ceiling. `0` refuses every intelligence spawn; `null` u
 
 ### AgentCandidateExperimentCellPlacement
 
-Defined in: [intelligence/improvement-cycle.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L83)
+Defined in: [intelligence/improvement-cycle.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L88)
 
 #### Extended by
 
@@ -1206,19 +1384,19 @@ Defined in: [intelligence/improvement-cycle.ts:83](https://github.com/tangle-net
 
 > **executionId**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L84)
+Defined in: [intelligence/improvement-cycle.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L89)
 
 ##### attempt?
 
 > `optional` **attempt?**: `number`
 
-Defined in: [intelligence/improvement-cycle.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L85)
+Defined in: [intelligence/improvement-cycle.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L90)
 
 ##### executionRoots
 
 > **executionRoots**: `object`
 
-Defined in: [intelligence/improvement-cycle.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L86)
+Defined in: [intelligence/improvement-cycle.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L91)
 
 ###### taskRoot
 
@@ -1232,7 +1410,7 @@ Defined in: [intelligence/improvement-cycle.ts:86](https://github.com/tangle-net
 
 > **stagingRoots**: `object`
 
-Defined in: [intelligence/improvement-cycle.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L87)
+Defined in: [intelligence/improvement-cycle.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L92)
 
 ###### taskRoot
 
@@ -1250,25 +1428,25 @@ Defined in: [intelligence/improvement-cycle.ts:87](https://github.com/tangle-net
 
 > **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
 
-Defined in: [intelligence/improvement-cycle.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L88)
+Defined in: [intelligence/improvement-cycle.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L93)
 
 ##### preparation?
 
 > `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
 
-Defined in: [intelligence/improvement-cycle.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L89)
+Defined in: [intelligence/improvement-cycle.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L94)
 
 ##### execution
 
 > **execution**: [`ExecutePreparedAgentCandidateOptions`](index.md#executepreparedagentcandidateoptions)
 
-Defined in: [intelligence/improvement-cycle.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L90)
+Defined in: [intelligence/improvement-cycle.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L95)
 
 ***
 
 ### RunAgentCandidateExperimentOptions
 
-Defined in: [intelligence/improvement-cycle.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L93)
+Defined in: [intelligence/improvement-cycle.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L98)
 
 #### Extends
 
@@ -1280,13 +1458,13 @@ Defined in: [intelligence/improvement-cycle.ts:93](https://github.com/tangle-net
 
 > **experiment**: `AgentCandidateExperiment`
 
-Defined in: [intelligence/improvement-cycle.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L95)
+Defined in: [intelligence/improvement-cycle.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L100)
 
 ##### placeCell
 
 > **placeCell**: (`input`) => [`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement) \| `Promise`\<[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement)\>
 
-Defined in: [intelligence/improvement-cycle.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L96)
+Defined in: [intelligence/improvement-cycle.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L101)
 
 ###### Parameters
 
@@ -1302,19 +1480,19 @@ Defined in: [intelligence/improvement-cycle.ts:96](https://github.com/tangle-net
 
 > `optional` **maxConcurrency?**: `number`
 
-Defined in: [intelligence/improvement-cycle.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L99)
+Defined in: [intelligence/improvement-cycle.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L104)
 
 ##### signal?
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [intelligence/improvement-cycle.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L100)
+Defined in: [intelligence/improvement-cycle.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L105)
 
 ***
 
 ### RunAgentCandidateExperimentResult
 
-Defined in: [intelligence/improvement-cycle.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L103)
+Defined in: [intelligence/improvement-cycle.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L108)
 
 #### Properties
 
@@ -1322,25 +1500,25 @@ Defined in: [intelligence/improvement-cycle.ts:103](https://github.com/tangle-ne
 
 > **experiment**: `AgentCandidateExperiment`
 
-Defined in: [intelligence/improvement-cycle.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L104)
+Defined in: [intelligence/improvement-cycle.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L109)
 
 ##### measurements
 
 > **measurements**: `AgentCandidateExperimentMeasurement`[]
 
-Defined in: [intelligence/improvement-cycle.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L105)
+Defined in: [intelligence/improvement-cycle.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L110)
 
 ##### evaluation
 
 > **evaluation**: `AgentImprovementMeasuredComparison`
 
-Defined in: [intelligence/improvement-cycle.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L106)
+Defined in: [intelligence/improvement-cycle.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L111)
 
 ***
 
 ### ExecuteAgentCandidateExperimentCellOptions
 
-Defined in: [intelligence/improvement-cycle.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L109)
+Defined in: [intelligence/improvement-cycle.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L114)
 
 #### Extends
 
@@ -1352,7 +1530,7 @@ Defined in: [intelligence/improvement-cycle.ts:109](https://github.com/tangle-ne
 
 > **executionId**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L84)
+Defined in: [intelligence/improvement-cycle.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L89)
 
 ###### Inherited from
 
@@ -1362,7 +1540,7 @@ Defined in: [intelligence/improvement-cycle.ts:84](https://github.com/tangle-net
 
 > `optional` **attempt?**: `number`
 
-Defined in: [intelligence/improvement-cycle.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L85)
+Defined in: [intelligence/improvement-cycle.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L90)
 
 ###### Inherited from
 
@@ -1372,7 +1550,7 @@ Defined in: [intelligence/improvement-cycle.ts:85](https://github.com/tangle-net
 
 > **executionRoots**: `object`
 
-Defined in: [intelligence/improvement-cycle.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L86)
+Defined in: [intelligence/improvement-cycle.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L91)
 
 ###### taskRoot
 
@@ -1390,7 +1568,7 @@ Defined in: [intelligence/improvement-cycle.ts:86](https://github.com/tangle-net
 
 > **stagingRoots**: `object`
 
-Defined in: [intelligence/improvement-cycle.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L87)
+Defined in: [intelligence/improvement-cycle.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L92)
 
 ###### taskRoot
 
@@ -1412,7 +1590,7 @@ Defined in: [intelligence/improvement-cycle.ts:87](https://github.com/tangle-net
 
 > **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
 
-Defined in: [intelligence/improvement-cycle.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L88)
+Defined in: [intelligence/improvement-cycle.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L93)
 
 ###### Inherited from
 
@@ -1422,7 +1600,7 @@ Defined in: [intelligence/improvement-cycle.ts:88](https://github.com/tangle-net
 
 > `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
 
-Defined in: [intelligence/improvement-cycle.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L89)
+Defined in: [intelligence/improvement-cycle.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L94)
 
 ###### Inherited from
 
@@ -1432,7 +1610,7 @@ Defined in: [intelligence/improvement-cycle.ts:89](https://github.com/tangle-net
 
 > **execution**: [`ExecutePreparedAgentCandidateOptions`](index.md#executepreparedagentcandidateoptions)
 
-Defined in: [intelligence/improvement-cycle.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L90)
+Defined in: [intelligence/improvement-cycle.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L95)
 
 ###### Inherited from
 
@@ -1442,7 +1620,7 @@ Defined in: [intelligence/improvement-cycle.ts:90](https://github.com/tangle-net
 
 ### VerifyCandidateExecutionEvidenceOptions
 
-Defined in: [intelligence/improvement-cycle.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L113)
+Defined in: [intelligence/improvement-cycle.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L118)
 
 #### Properties
 
@@ -1450,43 +1628,43 @@ Defined in: [intelligence/improvement-cycle.ts:113](https://github.com/tangle-ne
 
 > **experiment**: `AgentCandidateExperiment`
 
-Defined in: [intelligence/improvement-cycle.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L114)
+Defined in: [intelligence/improvement-cycle.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L119)
 
 ##### arm
 
 > **arm**: `"candidate"` \| `"baseline"`
 
-Defined in: [intelligence/improvement-cycle.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L115)
+Defined in: [intelligence/improvement-cycle.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L120)
 
 ##### benchmarkCell
 
 > **benchmarkCell**: `AgentCandidateBenchmarkCellRef`
 
-Defined in: [intelligence/improvement-cycle.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L116)
+Defined in: [intelligence/improvement-cycle.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L121)
 
 ##### seed
 
 > **seed**: `number`
 
-Defined in: [intelligence/improvement-cycle.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L117)
+Defined in: [intelligence/improvement-cycle.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L122)
 
 ##### attempt?
 
 > `optional` **attempt?**: `number`
 
-Defined in: [intelligence/improvement-cycle.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L118)
+Defined in: [intelligence/improvement-cycle.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L123)
 
 ##### resolvedResources?
 
 > `optional` **resolvedResources?**: `ReadonlyMap`\<`` `sha256:${string}` ``, `string`\>
 
-Defined in: [intelligence/improvement-cycle.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L119)
+Defined in: [intelligence/improvement-cycle.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L124)
 
 ***
 
 ### CreateAgentImprovementProposalOptions
 
-Defined in: [intelligence/improvement-cycle.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L133)
+Defined in: [intelligence/improvement-cycle.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L138)
 
 #### Properties
 
@@ -1494,25 +1672,25 @@ Defined in: [intelligence/improvement-cycle.ts:133](https://github.com/tangle-ne
 
 > **runId**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L134)
+Defined in: [intelligence/improvement-cycle.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L139)
 
 ##### findings
 
 > **findings**: readonly `AnalystFinding`[]
 
-Defined in: [intelligence/improvement-cycle.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L135)
+Defined in: [intelligence/improvement-cycle.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L140)
 
 ##### evaluation
 
 > **evaluation**: `AgentImprovementMeasuredComparison`
 
-Defined in: [intelligence/improvement-cycle.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L136)
+Defined in: [intelligence/improvement-cycle.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L141)
 
 ##### now?
 
 > `optional` **now?**: () => `Date`
 
-Defined in: [intelligence/improvement-cycle.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L137)
+Defined in: [intelligence/improvement-cycle.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L142)
 
 ###### Returns
 
@@ -1522,7 +1700,7 @@ Defined in: [intelligence/improvement-cycle.ts:137](https://github.com/tangle-ne
 
 ### ReviewAgentImprovementInput
 
-Defined in: [intelligence/improvement-cycle.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L142)
+Defined in: [intelligence/improvement-cycle.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L147)
 
 #### Properties
 
@@ -1530,31 +1708,31 @@ Defined in: [intelligence/improvement-cycle.ts:142](https://github.com/tangle-ne
 
 > **decision**: `AgentImprovementReviewDecision`
 
-Defined in: [intelligence/improvement-cycle.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L143)
+Defined in: [intelligence/improvement-cycle.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L148)
 
 ##### reviewedBy
 
 > **reviewedBy**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L144)
+Defined in: [intelligence/improvement-cycle.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L149)
 
 ##### reason
 
 > **reason**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L145)
+Defined in: [intelligence/improvement-cycle.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L150)
 
 ##### feedback?
 
 > `optional` **feedback?**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L146)
+Defined in: [intelligence/improvement-cycle.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L151)
 
 ##### now?
 
 > `optional` **now?**: () => `Date`
 
-Defined in: [intelligence/improvement-cycle.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L147)
+Defined in: [intelligence/improvement-cycle.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L152)
 
 ###### Returns
 
@@ -1564,33 +1742,47 @@ Defined in: [intelligence/improvement-cycle.ts:147](https://github.com/tangle-ne
 
 ### CreateAgentImprovementActivationOptions
 
-Defined in: [intelligence/improvement-cycle.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L150)
+Defined in: [intelligence/improvement-cycle.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L155)
 
 #### Properties
 
+##### intent
+
+> **intent**: `AgentImprovementActivationIntent`
+
+Defined in: [intelligence/improvement-cycle.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L156)
+
 ##### targets
 
-> **targets**: \[`AgentImprovementActivationTarget`, `...AgentImprovementActivationTarget[]`\]
+> **targets**: \[[`AgentImprovementActivationTargetIdentity`](#agentimprovementactivationtargetidentity), `...AgentImprovementActivationTargetIdentity[]`\]
 
-Defined in: [intelligence/improvement-cycle.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L151)
+Defined in: [intelligence/improvement-cycle.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L158)
+
+Runtime derives each exact source digest; callers identify only the records to change.
 
 ##### fundingOwner
 
 > **fundingOwner**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L152)
+Defined in: [intelligence/improvement-cycle.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L159)
 
 ##### authorizedBy
 
 > **authorizedBy**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L153)
+Defined in: [intelligence/improvement-cycle.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L160)
+
+##### expiresAt
+
+> **expiresAt**: `string`
+
+Defined in: [intelligence/improvement-cycle.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L161)
 
 ##### now?
 
 > `optional` **now?**: () => `Date`
 
-Defined in: [intelligence/improvement-cycle.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L154)
+Defined in: [intelligence/improvement-cycle.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L162)
 
 ###### Returns
 
@@ -1600,7 +1792,7 @@ Defined in: [intelligence/improvement-cycle.ts:154](https://github.com/tangle-ne
 
 ### ProposeAgentImprovementOptions
 
-Defined in: [intelligence/improvement-cycle.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L157)
+Defined in: [intelligence/improvement-cycle.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L165)
 
 #### Type Parameters
 
@@ -1618,31 +1810,31 @@ Defined in: [intelligence/improvement-cycle.ts:157](https://github.com/tangle-ne
 
 > **runId**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L158)
+Defined in: [intelligence/improvement-cycle.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L166)
 
 ##### profile
 
 > **profile**: `AgentProfile`
 
-Defined in: [intelligence/improvement-cycle.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L159)
+Defined in: [intelligence/improvement-cycle.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L167)
 
 ##### analysis
 
-> **analysis**: `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts), `"runId"` \| `"improvementAdapter"` \| `"autoApply"`\>
+> **analysis**: `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts), `"runId"` \| `"improvementProposalSource"`\>
 
-Defined in: [intelligence/improvement-cycle.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L160)
+Defined in: [intelligence/improvement-cycle.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L168)
 
 ##### improvement
 
 > **improvement**: [`ImproveOptions`](index.md#improveoptions)\<`TScenario`, `TArtifact`\>
 
-Defined in: [intelligence/improvement-cycle.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L161)
+Defined in: [intelligence/improvement-cycle.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L169)
 
 ##### buildExperiment
 
 > **buildExperiment**: (`input`) => `AgentCandidateExperiment` \| `Promise`\<`AgentCandidateExperiment`\>
 
-Defined in: [intelligence/improvement-cycle.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L162)
+Defined in: [intelligence/improvement-cycle.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L170)
 
 ###### Parameters
 
@@ -1664,7 +1856,7 @@ Defined in: [intelligence/improvement-cycle.ts:162](https://github.com/tangle-ne
 
 > **placeCell**: (`input`) => [`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement) \| `Promise`\<[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement)\>
 
-Defined in: [intelligence/improvement-cycle.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L166)
+Defined in: [intelligence/improvement-cycle.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L174)
 
 ###### Parameters
 
@@ -1680,25 +1872,25 @@ Defined in: [intelligence/improvement-cycle.ts:166](https://github.com/tangle-ne
 
 > `optional` **maxConcurrency?**: `number`
 
-Defined in: [intelligence/improvement-cycle.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L167)
+Defined in: [intelligence/improvement-cycle.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L175)
 
 ##### signal?
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [intelligence/improvement-cycle.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L168)
+Defined in: [intelligence/improvement-cycle.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L176)
 
 ##### candidate?
 
 > `optional` **candidate?**: `object`
 
-Defined in: [intelligence/improvement-cycle.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L169)
+Defined in: [intelligence/improvement-cycle.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L177)
 
 ##### metadata?
 
 > `optional` **metadata?**: `object`
 
-Defined in: [intelligence/improvement-cycle.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L170)
+Defined in: [intelligence/improvement-cycle.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L178)
 
 ###### Index Signature
 
@@ -1708,7 +1900,7 @@ Defined in: [intelligence/improvement-cycle.ts:170](https://github.com/tangle-ne
 
 > `optional` **now?**: () => `Date`
 
-Defined in: [intelligence/improvement-cycle.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L171)
+Defined in: [intelligence/improvement-cycle.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L179)
 
 ###### Returns
 
@@ -1718,7 +1910,7 @@ Defined in: [intelligence/improvement-cycle.ts:171](https://github.com/tangle-ne
 
 ### ProposeAgentImprovementResult
 
-Defined in: [intelligence/improvement-cycle.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L174)
+Defined in: [intelligence/improvement-cycle.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L182)
 
 #### Type Parameters
 
@@ -1736,37 +1928,37 @@ Defined in: [intelligence/improvement-cycle.ts:174](https://github.com/tangle-ne
 
 > **analysis**: [`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)
 
-Defined in: [intelligence/improvement-cycle.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L175)
+Defined in: [intelligence/improvement-cycle.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L183)
 
 ##### improvement
 
 > **improvement**: [`ImproveResult`](index.md#improveresult)\<`TScenario`, `TArtifact`\>
 
-Defined in: [intelligence/improvement-cycle.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L176)
+Defined in: [intelligence/improvement-cycle.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L184)
 
 ##### experiment
 
 > **experiment**: `AgentCandidateExperiment`
 
-Defined in: [intelligence/improvement-cycle.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L177)
+Defined in: [intelligence/improvement-cycle.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L185)
 
 ##### measurements
 
 > **measurements**: `AgentCandidateExperimentMeasurement`[]
 
-Defined in: [intelligence/improvement-cycle.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L178)
+Defined in: [intelligence/improvement-cycle.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L186)
 
 ##### proposal
 
 > **proposal**: `AgentImprovementProposal`
 
-Defined in: [intelligence/improvement-cycle.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L179)
+Defined in: [intelligence/improvement-cycle.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L187)
 
 ***
 
 ### UsageSplit
 
-Defined in: [intelligence/index.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L165)
+Defined in: [intelligence/index.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L186)
 
 The per-class cost split carried by every trace and outcome. `off` ⇒
 `intelligenceUsd: 0` by construction — there is no intelligence spawn to
@@ -1778,7 +1970,7 @@ bill. This is a classification on the trace, NOT a budget-pool split.
 
 > **inferenceUsd**: `number`
 
-Defined in: [intelligence/index.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L167)
+Defined in: [intelligence/index.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L188)
 
 Base-stream (model) spend in USD.
 
@@ -1786,7 +1978,7 @@ Base-stream (model) spend in USD.
 
 > **intelligenceUsd**: `number`
 
-Defined in: [intelligence/index.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L169)
+Defined in: [intelligence/index.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L190)
 
 Intelligence-spawn spend in USD. Provably `0` at the OFF tier.
 
@@ -1794,7 +1986,7 @@ Intelligence-spawn spend in USD. Provably `0` at the OFF tier.
 
 ### RunRecord
 
-Defined in: [intelligence/index.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L179)
+Defined in: [intelligence/index.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L200)
 
 The typed record `withIntelligence` sends per call — serialized through the
 shipped OTLP builders to the plane's `/v1/otlp` ingest. `input`/`output` are
@@ -1808,43 +2000,43 @@ tree under the same `traceId`.
 
 > **runId**: `string`
 
-Defined in: [intelligence/index.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L180)
+Defined in: [intelligence/index.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L201)
 
 ##### traceId
 
 > **traceId**: `string`
 
-Defined in: [intelligence/index.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L181)
+Defined in: [intelligence/index.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L202)
 
 ##### project
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L182)
+Defined in: [intelligence/index.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L203)
 
 ##### target
 
 > **target**: `string`
 
-Defined in: [intelligence/index.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L183)
+Defined in: [intelligence/index.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L204)
 
 ##### input
 
 > **input**: `unknown`
 
-Defined in: [intelligence/index.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L184)
+Defined in: [intelligence/index.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L205)
 
 ##### output
 
 > **output**: `unknown`
 
-Defined in: [intelligence/index.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L185)
+Defined in: [intelligence/index.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L206)
 
 ##### outcome
 
 > **outcome**: `object`
 
-Defined in: [intelligence/index.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L186)
+Defined in: [intelligence/index.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L207)
 
 ###### success?
 
@@ -1862,61 +2054,61 @@ Defined in: [intelligence/index.ts:186](https://github.com/tangle-network/agent-
 
 > `optional` **model?**: `string`
 
-Defined in: [intelligence/index.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L191)
+Defined in: [intelligence/index.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L212)
 
 ##### provider?
 
 > `optional` **provider?**: `string`
 
-Defined in: [intelligence/index.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L192)
+Defined in: [intelligence/index.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L213)
 
 ##### loopEvents?
 
 > `optional` **loopEvents?**: [`LoopTraceEvent`](runtime.md#looptraceevent)[]
 
-Defined in: [intelligence/index.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L193)
+Defined in: [intelligence/index.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L214)
 
 ##### runtimeEvents?
 
 > `optional` **runtimeEvents?**: [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]
 
-Defined in: [intelligence/index.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L194)
+Defined in: [intelligence/index.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L215)
 
 ##### profile?
 
 > `optional` **profile?**: `AgentProfile`
 
-Defined in: [intelligence/index.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L195)
+Defined in: [intelligence/index.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L216)
 
 ##### sessionId?
 
 > `optional` **sessionId?**: `string`
 
-Defined in: [intelligence/index.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L196)
+Defined in: [intelligence/index.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L217)
 
 ##### harness?
 
 > `optional` **harness?**: `string`
 
-Defined in: [intelligence/index.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L197)
+Defined in: [intelligence/index.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L218)
 
 ##### repository?
 
 > `optional` **repository?**: `string`
 
-Defined in: [intelligence/index.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L198)
+Defined in: [intelligence/index.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L219)
 
 ##### commitSha?
 
 > `optional` **commitSha?**: `string`
 
-Defined in: [intelligence/index.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L199)
+Defined in: [intelligence/index.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L220)
 
 ##### timing?
 
 > `optional` **timing?**: `object`
 
-Defined in: [intelligence/index.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L200)
+Defined in: [intelligence/index.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L221)
 
 ###### startedAt
 
@@ -1934,7 +2126,7 @@ Defined in: [intelligence/index.ts:200](https://github.com/tangle-network/agent-
 
 > `optional` **tokens?**: `object`
 
-Defined in: [intelligence/index.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L201)
+Defined in: [intelligence/index.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L222)
 
 ###### input
 
@@ -1956,7 +2148,7 @@ Defined in: [intelligence/index.ts:201](https://github.com/tangle-network/agent-
 
 > `optional` **error?**: `object`
 
-Defined in: [intelligence/index.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L207)
+Defined in: [intelligence/index.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L228)
 
 ###### name
 
@@ -1974,7 +2166,7 @@ Defined in: [intelligence/index.ts:207](https://github.com/tangle-network/agent-
 
 > `optional` **candidateExecution?**: `CandidateExecutionEvidence`
 
-Defined in: [intelligence/index.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L209)
+Defined in: [intelligence/index.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L230)
 
 Exact proposal → review → execution → receipt linkage for candidate runs.
 
@@ -1982,7 +2174,7 @@ Exact proposal → review → execution → receipt linkage for candidate runs.
 
 ### RunReport
 
-Defined in: [intelligence/index.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L218)
+Defined in: [intelligence/index.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L239)
 
 What an agent reports (via `applied.record`) to enrich the [RunRecord](#runrecord)
 sent for its call. All optional — an un-recorded run still sends input/output
@@ -1995,79 +2187,79 @@ as pure inference (the base stream).
 
 > `optional` **success?**: `boolean`
 
-Defined in: [intelligence/index.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L219)
+Defined in: [intelligence/index.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L240)
 
 ##### score?
 
 > `optional` **score?**: `number`
 
-Defined in: [intelligence/index.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L220)
+Defined in: [intelligence/index.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L241)
 
 ##### usage?
 
 > `optional` **usage?**: `Partial`\<[`UsageSplit`](#usagesplit)\>
 
-Defined in: [intelligence/index.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L221)
+Defined in: [intelligence/index.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L242)
 
 ##### costUsd?
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [intelligence/index.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L222)
+Defined in: [intelligence/index.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L243)
 
 ##### model?
 
 > `optional` **model?**: `string`
 
-Defined in: [intelligence/index.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L223)
+Defined in: [intelligence/index.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L244)
 
 ##### provider?
 
 > `optional` **provider?**: `string`
 
-Defined in: [intelligence/index.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L224)
+Defined in: [intelligence/index.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L245)
 
 ##### loopEvents?
 
 > `optional` **loopEvents?**: [`LoopTraceEvent`](runtime.md#looptraceevent)[]
 
-Defined in: [intelligence/index.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L225)
+Defined in: [intelligence/index.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L246)
 
 ##### runtimeEvents?
 
 > `optional` **runtimeEvents?**: [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]
 
-Defined in: [intelligence/index.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L226)
+Defined in: [intelligence/index.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L247)
 
 ##### profile?
 
 > `optional` **profile?**: `AgentProfile`
 
-Defined in: [intelligence/index.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L227)
+Defined in: [intelligence/index.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L248)
 
 ##### sessionId?
 
 > `optional` **sessionId?**: `string`
 
-Defined in: [intelligence/index.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L228)
+Defined in: [intelligence/index.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L249)
 
 ##### harness?
 
 > `optional` **harness?**: `string`
 
-Defined in: [intelligence/index.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L229)
+Defined in: [intelligence/index.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L250)
 
 ##### commitSha?
 
 > `optional` **commitSha?**: `string`
 
-Defined in: [intelligence/index.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L230)
+Defined in: [intelligence/index.ts:251](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L251)
 
 ##### tokens?
 
 > `optional` **tokens?**: `object`
 
-Defined in: [intelligence/index.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L231)
+Defined in: [intelligence/index.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L252)
 
 ###### input
 
@@ -2089,7 +2281,7 @@ Defined in: [intelligence/index.ts:231](https://github.com/tangle-network/agent-
 
 > `optional` **error?**: `object`
 
-Defined in: [intelligence/index.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L232)
+Defined in: [intelligence/index.ts:253](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L253)
 
 ###### name
 
@@ -2107,13 +2299,13 @@ Defined in: [intelligence/index.ts:232](https://github.com/tangle-network/agent-
 
 > `optional` **candidateExecution?**: `CandidateExecutionEvidence`
 
-Defined in: [intelligence/index.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L233)
+Defined in: [intelligence/index.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L254)
 
 ***
 
 ### RepoConfig
 
-Defined in: [intelligence/index.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L239)
+Defined in: [intelligence/index.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L260)
 
 Repo coordinates a product may declare for the (later) Gated-PR mode. The
  Observe slice only records their PRESENCE for `doctor()`; it never touches
@@ -2125,25 +2317,25 @@ Repo coordinates a product may declare for the (later) Gated-PR mode. The
 
 > **owner**: `string`
 
-Defined in: [intelligence/index.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L240)
+Defined in: [intelligence/index.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L261)
 
 ##### name
 
 > **name**: `string`
 
-Defined in: [intelligence/index.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L241)
+Defined in: [intelligence/index.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L262)
 
 ##### baseBranch
 
 > **baseBranch**: `string`
 
-Defined in: [intelligence/index.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L242)
+Defined in: [intelligence/index.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L263)
 
 ***
 
 ### IntelligenceConfig
 
-Defined in: [intelligence/index.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L248)
+Defined in: [intelligence/index.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L269)
 
 Client configuration. `project` + `apiKey` are the Observe minimum; the
  rest tune effort, endpoint, redaction, and (for `doctor()` readiness)
@@ -2159,7 +2351,7 @@ Client configuration. `project` + `apiKey` are the Observe minimum; the
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L250)
+Defined in: [intelligence/index.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L271)
 
 Stable project id — the tenant dimension every trace is tagged with.
 
@@ -2167,7 +2359,7 @@ Stable project id — the tenant dimension every trace is tagged with.
 
 > `optional` **apiKey?**: `string`
 
-Defined in: [intelligence/index.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L252)
+Defined in: [intelligence/index.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L273)
 
 Bearer key for the Intelligence ingest. Reads `TANGLE_API_KEY` when omitted.
 
@@ -2175,7 +2367,7 @@ Bearer key for the Intelligence ingest. Reads `TANGLE_API_KEY` when omitted.
 
 > `optional` **effort?**: [`EffortTier`](#efforttier) \| \{ `tier`: [`EffortTier`](#efforttier); `overrides?`: `Partial`\<[`EffortSettings`](#effortsettings)\>; \}
 
-Defined in: [intelligence/index.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L254)
+Defined in: [intelligence/index.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L275)
 
 Effort tier (default `'standard'`) plus optional per-field overrides.
 
@@ -2183,7 +2375,7 @@ Effort tier (default `'standard'`) plus optional per-field overrides.
 
 > `optional` **baseUrl?**: `string`
 
-Defined in: [intelligence/index.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L262)
+Defined in: [intelligence/index.ts:283](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L283)
 
 The ONE Tangle Intelligence base URL — both the send (OTLP `/v1/otlp`) and
 receive (`/v1/profiles/:target/composed`) paths derive from it. Reads
@@ -2195,7 +2387,7 @@ key the ingest requires); absent a key, export is a no-op.
 
 > `optional` **redact?**: `false` \| [`Redactor`](#redactor)
 
-Defined in: [intelligence/index.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L268)
+Defined in: [intelligence/index.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L289)
 
 Redaction hook run over every exported input/output. A function replaces
 the default scrubber; `false` opts out entirely (raw fidelity, caller has
@@ -2205,7 +2397,7 @@ sanitized upstream); omitted ⇒ the built-in `defaultRedactor`.
 
 > `optional` **surfaces?**: `string`[]
 
-Defined in: [intelligence/index.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L270)
+Defined in: [intelligence/index.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L291)
 
 Mutable surfaces a later PR mode would edit. Recorded for `doctor()` only.
 
@@ -2213,7 +2405,7 @@ Mutable surfaces a later PR mode would edit. Recorded for `doctor()` only.
 
 > `optional` **checks?**: `string`[]
 
-Defined in: [intelligence/index.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L272)
+Defined in: [intelligence/index.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L293)
 
 Verification checks a later PR mode would gate on. Recorded for `doctor()` only.
 
@@ -2221,7 +2413,7 @@ Verification checks a later PR mode would gate on. Recorded for `doctor()` only.
 
 > `optional` **repo?**: [`RepoConfig`](#repoconfig)
 
-Defined in: [intelligence/index.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L274)
+Defined in: [intelligence/index.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L295)
 
 Repo access a later PR mode would need. Recorded for `doctor()` only.
 
@@ -2229,7 +2421,7 @@ Repo access a later PR mode would need. Recorded for `doctor()` only.
 
 > `optional` **profile?**: `AgentProfile`
 
-Defined in: [intelligence/index.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L276)
+Defined in: [intelligence/index.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L297)
 
 Full canonical profile used for this agent. Exported redacted with a stable hash.
 
@@ -2237,7 +2429,7 @@ Full canonical profile used for this agent. Exported redacted with a stable hash
 
 > `optional` **commitSha?**: `string`
 
-Defined in: [intelligence/index.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L278)
+Defined in: [intelligence/index.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L299)
 
 Commit that produced the running agent, when known.
 
@@ -2245,7 +2437,7 @@ Commit that produced the running agent, when known.
 
 > `optional` **runtimeTelemetry?**: [`RuntimeTelemetryOptions`](index.md#runtimetelemetryoptions)
 
-Defined in: [intelligence/index.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L280)
+Defined in: [intelligence/index.ts:301](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L301)
 
 Runtime-event payload policy. Tool inputs/results remain off unless explicitly enabled.
 
@@ -2253,7 +2445,7 @@ Runtime-event payload policy. Tool inputs/results remain off unless explicitly e
 
 > `optional` **payloadAttributes?**: `"metadata"` \| `"full"`
 
-Defined in: [intelligence/index.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L287)
+Defined in: [intelligence/index.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L308)
 
 Payloads are metadata-only by default: the run span carries a stable hash
 and UTF-8 byte count, but not the redacted content. Set `full` only when
@@ -2264,7 +2456,7 @@ inputs, outputs, and profiles.
 
 ### TraceMeta
 
-Defined in: [intelligence/index.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L291)
+Defined in: [intelligence/index.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L312)
 
 Metadata describing one traced run. `runId`/`traceId` default to fresh ids.
 
@@ -2274,7 +2466,7 @@ Metadata describing one traced run. `runId`/`traceId` default to fresh ids.
 
 > `optional` **input?**: `unknown`
 
-Defined in: [intelligence/index.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L293)
+Defined in: [intelligence/index.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L314)
 
 The run's input — exported through the redactor.
 
@@ -2282,7 +2474,7 @@ The run's input — exported through the redactor.
 
 > `optional` **runId?**: `string`
 
-Defined in: [intelligence/index.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L295)
+Defined in: [intelligence/index.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L316)
 
 Stable run id. Defaults to a fresh id.
 
@@ -2290,7 +2482,7 @@ Stable run id. Defaults to a fresh id.
 
 > `optional` **traceId?**: `string`
 
-Defined in: [intelligence/index.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L297)
+Defined in: [intelligence/index.ts:318](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L318)
 
 32-hex trace id. Defaults to a fresh id.
 
@@ -2298,7 +2490,7 @@ Defined in: [intelligence/index.ts:297](https://github.com/tangle-network/agent-
 
 > `optional` **model?**: `string`
 
-Defined in: [intelligence/index.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L299)
+Defined in: [intelligence/index.ts:320](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L320)
 
 Model id, when known — stamped on the span.
 
@@ -2306,7 +2498,7 @@ Model id, when known — stamped on the span.
 
 > `optional` **provider?**: `string`
 
-Defined in: [intelligence/index.ts:301](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L301)
+Defined in: [intelligence/index.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L322)
 
 Provider name, when known — stamped on the span.
 
@@ -2314,7 +2506,7 @@ Provider name, when known — stamped on the span.
 
 > `optional` **labels?**: `Record`\<`string`, `string` \| `number` \| `boolean`\>
 
-Defined in: [intelligence/index.ts:303](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L303)
+Defined in: [intelligence/index.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L324)
 
 Arbitrary extra labels (string/number/boolean) stamped on the span.
 
@@ -2322,7 +2514,7 @@ Arbitrary extra labels (string/number/boolean) stamped on the span.
 
 ### TraceHandle
 
-Defined in: [intelligence/index.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L312)
+Defined in: [intelligence/index.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L333)
 
 The trace handle a `traceRun` body records into. `recordOutput` captures the
 agent's result (redacted on export); `recordOutcome` captures the scored
@@ -2335,7 +2527,7 @@ an un-recorded run still exports a span with whatever was set.
 
 > **recordOutput**(`output`): `void`
 
-Defined in: [intelligence/index.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L314)
+Defined in: [intelligence/index.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L335)
 
 Capture the run's output. Exported through the redactor.
 
@@ -2353,7 +2545,7 @@ Capture the run's output. Exported through the redactor.
 
 > **recordOutcome**(`outcome`): `void`
 
-Defined in: [intelligence/index.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L321)
+Defined in: [intelligence/index.ts:342](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L342)
 
 Capture the run's outcome. `usage` defaults to inference-only
 (`intelligenceUsd: 0`) — the OFF baseline; an intelligence-enabled run
@@ -2388,7 +2580,7 @@ treated as pure inference.
 
 ### RecordTraceMeta
 
-Defined in: [intelligence/index.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L330)
+Defined in: [intelligence/index.ts:351](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L351)
 
 Metadata for [IntelligenceClient.recordTrace](#recordtrace).
 
@@ -2398,7 +2590,7 @@ Metadata for [IntelligenceClient.recordTrace](#recordtrace).
 
 > `optional` **traceId?**: `string`
 
-Defined in: [intelligence/index.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L332)
+Defined in: [intelligence/index.ts:353](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L353)
 
 32-hex trace id to anchor every span to. Defaults to a fresh id.
 
@@ -2406,7 +2598,7 @@ Defined in: [intelligence/index.ts:332](https://github.com/tangle-network/agent-
 
 > `optional` **rootParentSpanId?**: `string`
 
-Defined in: [intelligence/index.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L335)
+Defined in: [intelligence/index.ts:356](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L356)
 
 Span id of an enclosing span the loop root should parent under (e.g. a
  `traceRun` span). Omitted ⇒ the loop root is the trace root.
@@ -2415,7 +2607,7 @@ Span id of an enclosing span the loop root should parent under (e.g. a
 
 ### TraceOutcome
 
-Defined in: [intelligence/index.ts:340](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L340)
+Defined in: [intelligence/index.ts:361](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L361)
 
 The resolved outcome of one traced run, surfaced on the export span and
  available to the caller for downstream billing assertions.
@@ -2426,25 +2618,25 @@ The resolved outcome of one traced run, surfaced on the export span and
 
 > **runId**: `string`
 
-Defined in: [intelligence/index.ts:341](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L341)
+Defined in: [intelligence/index.ts:362](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L362)
 
 ##### traceId
 
 > **traceId**: `string`
 
-Defined in: [intelligence/index.ts:342](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L342)
+Defined in: [intelligence/index.ts:363](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L363)
 
 ##### project
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:343](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L343)
+Defined in: [intelligence/index.ts:364](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L364)
 
 ##### effort
 
 > **effort**: [`EffortSettings`](#effortsettings)
 
-Defined in: [intelligence/index.ts:345](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L345)
+Defined in: [intelligence/index.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L366)
 
 The resolved effort settings this run executed under.
 
@@ -2452,7 +2644,7 @@ The resolved effort settings this run executed under.
 
 > **intelligenceOff**: `boolean`
 
-Defined in: [intelligence/index.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L347)
+Defined in: [intelligence/index.ts:368](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L368)
 
 True when this run ran as pure passthrough (the OFF floor).
 
@@ -2460,19 +2652,19 @@ True when this run ran as pure passthrough (the OFF floor).
 
 > `optional` **success?**: `boolean`
 
-Defined in: [intelligence/index.ts:348](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L348)
+Defined in: [intelligence/index.ts:369](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L369)
 
 ##### score?
 
 > `optional` **score?**: `number`
 
-Defined in: [intelligence/index.ts:349](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L349)
+Defined in: [intelligence/index.ts:370](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L370)
 
 ##### usage
 
 > **usage**: [`UsageSplit`](#usagesplit)
 
-Defined in: [intelligence/index.ts:351](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L351)
+Defined in: [intelligence/index.ts:372](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L372)
 
 Per-class billing split. `intelligenceUsd` is `0` at the OFF tier.
 
@@ -2480,7 +2672,7 @@ Per-class billing split. `intelligenceUsd` is `0` at the OFF tier.
 
 ### IntelligenceClient
 
-Defined in: [intelligence/index.ts:355](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L355)
+Defined in: [intelligence/index.ts:376](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L376)
 
 The Observe-mode Intelligence client.
 
@@ -2490,7 +2682,7 @@ The Observe-mode Intelligence client.
 
 > `readonly` **project**: `string`
 
-Defined in: [intelligence/index.ts:357](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L357)
+Defined in: [intelligence/index.ts:378](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L378)
 
 The resolved project id.
 
@@ -2498,7 +2690,7 @@ The resolved project id.
 
 > `readonly` **effort**: [`EffortSettings`](#effortsettings)
 
-Defined in: [intelligence/index.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L359)
+Defined in: [intelligence/index.ts:380](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L380)
 
 The resolved effort settings.
 
@@ -2508,7 +2700,7 @@ The resolved effort settings.
 
 > **traceRun**\<`T`\>(`meta`, `fn`): `Promise`\<`T`\>
 
-Defined in: [intelligence/index.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L365)
+Defined in: [intelligence/index.ts:386](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L386)
 
 Run `fn` under a trace, export one span best-effort, and return whatever
 `fn` returns. Telemetry-export failures are swallowed; an error THROWN by
@@ -2538,7 +2730,7 @@ Run `fn` under a trace, export one span best-effort, and return whatever
 
 > **recordTrace**(`events`, `meta?`): `string`
 
-Defined in: [intelligence/index.ts:375](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L375)
+Defined in: [intelligence/index.ts:396](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L396)
 
 Export a run's full loop topology — the ordered `LoopTraceEvent` stream a
 `runLoop`/`Supervisor` run emits — as a nested OTLP span tree (loop → round →
@@ -2566,7 +2758,7 @@ readonly [`LoopTraceEvent`](runtime.md#looptraceevent)[]
 
 > **exportRunRecord**(`record`): `string`
 
-Defined in: [intelligence/index.ts:383](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L383)
+Defined in: [intelligence/index.ts:404](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L404)
 
 Send one typed [RunRecord](#runrecord) — the run's flat span (input/output/outcome/
 usage/model/provider, redacted) plus, when `loopEvents` are present, the
@@ -2588,7 +2780,7 @@ Best-effort: export failures are swallowed. Returns the record's `traceId`.
 
 > **freshRunId**(): `string`
 
-Defined in: [intelligence/index.ts:385](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L385)
+Defined in: [intelligence/index.ts:406](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L406)
 
 Mint a fresh run id (`run-<hex>`).
 
@@ -2600,7 +2792,7 @@ Mint a fresh run id (`run-<hex>`).
 
 > **freshTraceId**(): `string`
 
-Defined in: [intelligence/index.ts:387](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L387)
+Defined in: [intelligence/index.ts:408](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L408)
 
 Mint a fresh 32-hex trace id.
 
@@ -2612,7 +2804,7 @@ Mint a fresh 32-hex trace id.
 
 > **doctor**(): [`DoctorReport`](#doctorreport)
 
-Defined in: [intelligence/index.ts:393](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L393)
+Defined in: [intelligence/index.ts:414](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L414)
 
 Network-free readiness report: which adoption modes are reachable given
 this config. Observe is always reachable; Recommend needs outcomes; PR
@@ -2626,7 +2818,7 @@ needs checks + surfaces + repo.
 
 > **flush**(): `Promise`\<`void`\>
 
-Defined in: [intelligence/index.ts:395](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L395)
+Defined in: [intelligence/index.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L416)
 
 Flush any pending export spans. Best-effort; resolves even if export fails.
 
@@ -2638,7 +2830,7 @@ Flush any pending export spans. Best-effort; resolves even if export fails.
 
 ### ModeReadiness
 
-Defined in: [intelligence/index.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L399)
+Defined in: [intelligence/index.ts:420](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L420)
 
 One mode's readiness verdict.
 
@@ -2648,13 +2840,13 @@ One mode's readiness verdict.
 
 > **ready**: `boolean`
 
-Defined in: [intelligence/index.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L400)
+Defined in: [intelligence/index.ts:421](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L421)
 
 ##### missing
 
 > **missing**: `string`[]
 
-Defined in: [intelligence/index.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L402)
+Defined in: [intelligence/index.ts:423](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L423)
 
 Inputs this mode still needs, when not ready. Empty when ready.
 
@@ -2662,7 +2854,7 @@ Inputs this mode still needs, when not ready. Empty when ready.
 
 ### DoctorReport
 
-Defined in: [intelligence/index.ts:406](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L406)
+Defined in: [intelligence/index.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L427)
 
 The `doctor()` readiness report — Mode-readiness without any network call.
 
@@ -2672,19 +2864,19 @@ The `doctor()` readiness report — Mode-readiness without any network call.
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:407](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L407)
+Defined in: [intelligence/index.ts:428](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L428)
 
 ##### effort
 
 > **effort**: [`EffortSettings`](#effortsettings)
 
-Defined in: [intelligence/index.ts:408](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L408)
+Defined in: [intelligence/index.ts:429](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L429)
 
 ##### exportConfigured
 
 > **exportConfigured**: `boolean`
 
-Defined in: [intelligence/index.ts:410](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L410)
+Defined in: [intelligence/index.ts:431](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L431)
 
 True when an OTLP endpoint is configured (export will actually ship).
 
@@ -2692,7 +2884,7 @@ True when an OTLP endpoint is configured (export will actually ship).
 
 > **modes**: `object`
 
-Defined in: [intelligence/index.ts:411](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L411)
+Defined in: [intelligence/index.ts:432](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L432)
 
 ###### observe
 
@@ -3214,7 +3406,7 @@ Defined in: [intelligence/with-intelligence.ts:83](https://github.com/tangle-net
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L250)
+Defined in: [intelligence/index.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L271)
 
 Stable project id — the tenant dimension every trace is tagged with.
 
@@ -3226,7 +3418,7 @@ Stable project id — the tenant dimension every trace is tagged with.
 
 > `optional` **apiKey?**: `string`
 
-Defined in: [intelligence/index.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L252)
+Defined in: [intelligence/index.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L273)
 
 Bearer key for the Intelligence ingest. Reads `TANGLE_API_KEY` when omitted.
 
@@ -3238,7 +3430,7 @@ Bearer key for the Intelligence ingest. Reads `TANGLE_API_KEY` when omitted.
 
 > `optional` **effort?**: [`EffortTier`](#efforttier) \| \{ `tier`: [`EffortTier`](#efforttier); `overrides?`: `Partial`\<[`EffortSettings`](#effortsettings)\>; \}
 
-Defined in: [intelligence/index.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L254)
+Defined in: [intelligence/index.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L275)
 
 Effort tier (default `'standard'`) plus optional per-field overrides.
 
@@ -3250,7 +3442,7 @@ Effort tier (default `'standard'`) plus optional per-field overrides.
 
 > `optional` **baseUrl?**: `string`
 
-Defined in: [intelligence/index.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L262)
+Defined in: [intelligence/index.ts:283](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L283)
 
 The ONE Tangle Intelligence base URL — both the send (OTLP `/v1/otlp`) and
 receive (`/v1/profiles/:target/composed`) paths derive from it. Reads
@@ -3266,7 +3458,7 @@ key the ingest requires); absent a key, export is a no-op.
 
 > `optional` **redact?**: `false` \| [`Redactor`](#redactor)
 
-Defined in: [intelligence/index.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L268)
+Defined in: [intelligence/index.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L289)
 
 Redaction hook run over every exported input/output. A function replaces
 the default scrubber; `false` opts out entirely (raw fidelity, caller has
@@ -3280,7 +3472,7 @@ sanitized upstream); omitted ⇒ the built-in `defaultRedactor`.
 
 > `optional` **surfaces?**: `string`[]
 
-Defined in: [intelligence/index.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L270)
+Defined in: [intelligence/index.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L291)
 
 Mutable surfaces a later PR mode would edit. Recorded for `doctor()` only.
 
@@ -3292,7 +3484,7 @@ Mutable surfaces a later PR mode would edit. Recorded for `doctor()` only.
 
 > `optional` **checks?**: `string`[]
 
-Defined in: [intelligence/index.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L272)
+Defined in: [intelligence/index.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L293)
 
 Verification checks a later PR mode would gate on. Recorded for `doctor()` only.
 
@@ -3304,7 +3496,7 @@ Verification checks a later PR mode would gate on. Recorded for `doctor()` only.
 
 > `optional` **repo?**: [`RepoConfig`](#repoconfig)
 
-Defined in: [intelligence/index.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L274)
+Defined in: [intelligence/index.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L295)
 
 Repo access a later PR mode would need. Recorded for `doctor()` only.
 
@@ -3316,7 +3508,7 @@ Repo access a later PR mode would need. Recorded for `doctor()` only.
 
 > `optional` **profile?**: `AgentProfile`
 
-Defined in: [intelligence/index.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L276)
+Defined in: [intelligence/index.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L297)
 
 Full canonical profile used for this agent. Exported redacted with a stable hash.
 
@@ -3328,7 +3520,7 @@ Full canonical profile used for this agent. Exported redacted with a stable hash
 
 > `optional` **commitSha?**: `string`
 
-Defined in: [intelligence/index.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L278)
+Defined in: [intelligence/index.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L299)
 
 Commit that produced the running agent, when known.
 
@@ -3340,7 +3532,7 @@ Commit that produced the running agent, when known.
 
 > `optional` **runtimeTelemetry?**: [`RuntimeTelemetryOptions`](index.md#runtimetelemetryoptions)
 
-Defined in: [intelligence/index.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L280)
+Defined in: [intelligence/index.ts:301](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L301)
 
 Runtime-event payload policy. Tool inputs/results remain off unless explicitly enabled.
 
@@ -3352,7 +3544,7 @@ Runtime-event payload policy. Tool inputs/results remain off unless explicitly e
 
 > `optional` **payloadAttributes?**: `"metadata"` \| `"full"`
 
-Defined in: [intelligence/index.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L287)
+Defined in: [intelligence/index.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L308)
 
 Payloads are metadata-only by default: the run span carries a stable hash
 and UTF-8 byte count, but not the redacted content. Set `full` only when
@@ -3429,6 +3621,54 @@ Notified when a refresh delivers a NEW set of promoted proposals (by
 `void`
 
 ## Type Aliases
+
+### AgentImprovementActivationTransition
+
+> **AgentImprovementActivationTransition** = (`input`) => `Promise`\<`unknown`\>
+
+Defined in: [intelligence/activation.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L60)
+
+Product-owned or Runtime-composed transition.
+
+Implementations resolve a stored result for `activation.digest`, compare
+every target, and make the write durably idempotent. Co-located targets store
+the all-or-none write with its result. Other targets throw when result
+storage fails so a retry can reconcile it. Runtime never invokes this write
+function after authorization expires.
+
+#### Parameters
+
+##### input
+
+[`AgentImprovementActivationTransitionInput`](#agentimprovementactivationtransitioninput)
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
+### AgentImprovementActivationReconciliation
+
+> **AgentImprovementActivationReconciliation** = (`input`) => `Promise`\<`unknown` \| `undefined`\>
+
+Defined in: [intelligence/activation.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L69)
+
+Target-read-only check for a prior exact write.
+It may persist recovered result metadata, but must not change an activation target.
+Return undefined only when no target write can have committed.
+
+#### Parameters
+
+##### input
+
+[`AgentImprovementActivationTransitionInput`](#agentimprovementactivationtransitioninput)
+
+#### Returns
+
+`Promise`\<`unknown` \| `undefined`\>
+
+***
 
 ### JsonSchema
 
@@ -3552,11 +3792,19 @@ Per-field overrides applied on top of a tier preset. Any subset of the
 
 ***
 
+### AgentImprovementActivationTargetIdentity
+
+> **AgentImprovementActivationTargetIdentity** = `Pick`\<`AgentImprovementActivationTarget`, `"surface"` \| `"identity"`\>
+
+Defined in: [intelligence/improvement-surfaces.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-surfaces.ts#L27)
+
+***
+
 ### UsageClass
 
 > **UsageClass** = `"inference"` \| `"intelligence"`
 
-Defined in: [intelligence/index.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L158)
+Defined in: [intelligence/index.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L179)
 
 Usage class for billing. Base-stream tokens bill `'inference'`; every
  intelligence spawn (analyst, corpus, loop) bills `'intelligence'`. The
@@ -3691,9 +3939,9 @@ Declares the exact candidate surfaces the sandbox executor can run.
 
 ## Functions
 
-### parseAgentCandidateProfileActivation()
+### parseCandidateProfileMaterialization()
 
-> **parseAgentCandidateProfileActivation**(`input`, `expectedProfilePlanDigest?`): `AgentCandidateProfileActivation`
+> **parseCandidateProfileMaterialization**(`input`, `expectedProfilePlanDigest?`): `AgentCandidateProfileActivation`
 
 Defined in: [candidate-execution/profile.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L93)
 
@@ -3712,6 +3960,89 @@ Parse and check every native file hash plus both canonical document digests.
 #### Returns
 
 `AgentCandidateProfileActivation`
+
+***
+
+### createAgentImprovementActivationResult()
+
+> **createAgentImprovementActivationResult**(`transition`, `options`): `AgentImprovementActivationResult`
+
+Defined in: [intelligence/activation.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L86)
+
+Create the exact result a product stores in the same transaction as its target write.
+
+#### Parameters
+
+##### transition
+
+[`AgentImprovementActivationTransitionInput`](#agentimprovementactivationtransitioninput)
+
+##### options
+
+[`CreateAgentImprovementActivationResultOptions`](#createagentimprovementactivationresultoptions)
+
+#### Returns
+
+`AgentImprovementActivationResult`
+
+***
+
+### verifyAgentImprovementActivationResult()
+
+> **verifyAgentImprovementActivationResult**(`input`): `AgentImprovementActivationResult`
+
+Defined in: [intelligence/activation.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L117)
+
+Recompute one historical activation result against the exact measured proposal and authority.
+The result records that attempt; it is not a query of the target's current state.
+
+#### Parameters
+
+##### input
+
+###### proposal
+
+`unknown`
+
+###### review
+
+`unknown`
+
+###### activation
+
+`unknown`
+
+###### result
+
+`unknown`
+
+#### Returns
+
+`AgentImprovementActivationResult`
+
+***
+
+### executeAgentImprovementActivation()
+
+> **executeAgentImprovementActivation**(`input`, `options`): `Promise`\<`AgentImprovementActivationResult`\>
+
+Defined in: [intelligence/activation.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L135)
+
+Validate and execute one product-owned activation transition.
+
+#### Parameters
+
+##### input
+
+[`ExecuteAgentImprovementActivationInput`](#executeagentimprovementactivationinput)
+
+##### options
+
+[`ExecuteAgentImprovementActivationOptions`](#executeagentimprovementactivationoptions)
+
+#### Returns
+
+`Promise`\<`AgentImprovementActivationResult`\>
 
 ***
 
@@ -3948,7 +4279,7 @@ compile to `withAnalyst: true`, the tier's `fanout`, and `withLoops: true`.
 
 > **runAgentCandidateExperiment**(`options`): `Promise`\<[`RunAgentCandidateExperimentResult`](#runagentcandidateexperimentresult)\>
 
-Defined in: [intelligence/improvement-cycle.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L187)
+Defined in: [intelligence/improvement-cycle.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L195)
 
 Execute both arms of one immutable experiment and derive its paired result.
 
@@ -3968,7 +4299,7 @@ Execute both arms of one immutable experiment and derive its paired result.
 
 > **executeAgentCandidateExperimentCell**(`options`): `Promise`\<`CandidateExecutionEvidence`\>
 
-Defined in: [intelligence/improvement-cycle.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L218)
+Defined in: [intelligence/improvement-cycle.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L226)
 
 Execute one exact arm, task, repetition, seed, and attempt through Runtime.
 
@@ -3988,7 +4319,7 @@ Execute one exact arm, task, repetition, seed, and attempt through Runtime.
 
 > **createAgentImprovementMeasuredComparison**(`options`): `AgentImprovementMeasuredComparison`
 
-Defined in: [intelligence/improvement-cycle.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L274)
+Defined in: [intelligence/improvement-cycle.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L282)
 
 Delegate all statistics and promotion checks to agent-eval's receipt-based comparison.
 
@@ -4008,7 +4339,7 @@ Delegate all statistics and promotion checks to agent-eval's receipt-based compa
 
 > **proposeAgentImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentImprovementResult`](#proposeagentimprovementresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [intelligence/improvement-cycle.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L281)
+Defined in: [intelligence/improvement-cycle.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L289)
 
 Analyze, search, then remeasure the resulting exact candidate before proposing it.
 
@@ -4038,7 +4369,7 @@ Analyze, search, then remeasure the resulting exact candidate before proposing i
 
 > **createAgentImprovementProposal**(`options`): `AgentImprovementProposal`
 
-Defined in: [intelligence/improvement-cycle.ts:342](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L342)
+Defined in: [intelligence/improvement-cycle.ts:378](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L378)
 
 Create the reviewable record only from a complete, recomputable experiment result.
 
@@ -4058,7 +4389,7 @@ Create the reviewable record only from a complete, recomputable experiment resul
 
 > **reviewAgentImprovementProposal**(`inputProposal`, `input`): `AgentImprovementReview`
 
-Defined in: [intelligence/improvement-cycle.ts:373](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L373)
+Defined in: [intelligence/improvement-cycle.ts:409](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L409)
 
 Persist a human or tenant-policy decision bound to one exact proposal.
 
@@ -4082,7 +4413,7 @@ Persist a human or tenant-policy decision bound to one exact proposal.
 
 > **createAgentImprovementActivation**(`inputProposal`, `inputReview`, `options`): `AgentImprovementActivation`
 
-Defined in: [intelligence/improvement-cycle.ts:397](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L397)
+Defined in: [intelligence/improvement-cycle.ts:437](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L437)
 
 Authorize product-owned writes only after the exact candidate was measured and approved.
 
@@ -4110,7 +4441,7 @@ Authorize product-owned writes only after the exact candidate was measured and a
 
 > **verifyAgentImprovementProposal**(`input`): `AgentImprovementProposal`
 
-Defined in: [intelligence/improvement-cycle.ts:428](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L428)
+Defined in: [intelligence/improvement-cycle.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L479)
 
 Validate a proposal and recompute every binding to its measured experiment.
 
@@ -4130,7 +4461,7 @@ Validate a proposal and recompute every binding to its measured experiment.
 
 > **verifyAgentImprovementReview**(`input`): `AgentImprovementReview`
 
-Defined in: [intelligence/improvement-cycle.ts:452](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L452)
+Defined in: [intelligence/improvement-cycle.ts:503](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L503)
 
 Validate the canonical identity and wire shape of an improvement review.
 
@@ -4150,7 +4481,7 @@ Validate the canonical identity and wire shape of an improvement review.
 
 > **verifyAgentImprovementActivation**(`input`): `AgentImprovementActivation`
 
-Defined in: [intelligence/improvement-cycle.ts:460](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L460)
+Defined in: [intelligence/improvement-cycle.ts:511](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L511)
 
 Validate activation authority against the exact proposal, review, experiment, and base state.
 
@@ -4180,7 +4511,7 @@ Validate activation authority against the exact proposal, review, experiment, an
 
 > **verifyCandidateExecutionEvidence**(`input`, `options`): `CandidateExecutionEvidence`
 
-Defined in: [intelligence/improvement-cycle.ts:487](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L487)
+Defined in: [intelligence/improvement-cycle.ts:545](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L545)
 
 Recheck one Runtime receipt against its exact signed experiment cell.
 
@@ -4200,11 +4531,43 @@ Recheck one Runtime receipt against its exact signed experiment cell.
 
 ***
 
+### buildAgentImprovementActivationTargets()
+
+> **buildAgentImprovementActivationTargets**(`surfaces`, `experiment`, `intent`, `identities`): \[`AgentImprovementActivationTarget`, `...AgentImprovementActivationTarget[]`\]
+
+Defined in: [intelligence/improvement-surfaces.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-surfaces.ts#L75)
+
+Bind caller-owned target identities to the exact source state Runtime measured.
+
+#### Parameters
+
+##### surfaces
+
+readonly `AgentImprovementSurface`[]
+
+##### experiment
+
+`AgentCandidateExperiment`
+
+##### intent
+
+`AgentImprovementActivationIntent`
+
+##### identities
+
+readonly [`AgentImprovementActivationTargetIdentity`](#agentimprovementactivationtargetidentity)[]
+
+#### Returns
+
+\[`AgentImprovementActivationTarget`, `...AgentImprovementActivationTarget[]`\]
+
+***
+
 ### createIntelligenceClient()
 
 > **createIntelligenceClient**(`config`): [`IntelligenceClient`](#intelligenceclient)
 
-Defined in: [intelligence/index.ts:477](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L477)
+Defined in: [intelligence/index.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L498)
 
 Create an Observe-mode Intelligence client. Resolves effort, the base URL, and
 the redactor up front; the exporter is built lazily and is `undefined` when no

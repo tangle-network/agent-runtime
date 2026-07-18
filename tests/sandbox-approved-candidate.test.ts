@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { InMemoryTraceStore } from '@tangle-network/agent-eval'
@@ -11,6 +11,8 @@ import type {
   AgentCandidateBundle,
   AgentCandidateExperiment,
 } from '@tangle-network/agent-interface'
+import { sha256DigestSchema } from '@tangle-network/agent-interface'
+import { hashKnowledgeBase } from '@tangle-network/agent-knowledge'
 import type {
   CreateSandboxOptions,
   Process,
@@ -53,7 +55,7 @@ describe('sandbox candidate experiment executor', () => {
       kind: 'agent-candidate-workspace-manifest' as const,
       files: [
         {
-          path: 'runbook.md',
+          path: 'knowledge/runbook.md',
           mode: 0o644,
           sha256: embeddedCandidateArtifact(knowledgeBytes).sha256,
           byteLength: knowledgeBytes.byteLength,
@@ -62,6 +64,15 @@ describe('sandbox candidate experiment executor', () => {
     }
     const knowledgeManifest = embeddedCandidateArtifact(canonicalCandidateBytes(knowledgeMaterial))
     const retrievalConfigBytes = Buffer.from('{"topK":4}\n', 'utf8')
+    const hashRoot = fixture.task.stagingRoots.profileRoot
+    const hashPath = join(hashRoot, 'knowledge', 'runbook.md')
+    mkdirSync(dirname(hashPath), { recursive: true })
+    writeFileSync(hashPath, knowledgeBytes)
+    chmodSync(hashPath, 0o644)
+    const candidateKnowledgeHash = sha256DigestSchema.parse(
+      `sha256:${await hashKnowledgeBase(hashRoot)}`,
+    )
+    rmSync(join(hashRoot, 'knowledge'), { recursive: true })
     const candidate = redigestCandidateBundle(baseline, {
       knowledge: {
         candidate: {
@@ -70,7 +81,7 @@ describe('sandbox candidate experiment executor', () => {
           candidateId: 'knowledge-candidate-1',
           goalHash: candidateSha('1'),
           baseHash: candidateSha('2'),
-          candidateHash: candidateSha('3'),
+          candidateHash: candidateKnowledgeHash,
           evidenceHash: candidateSha('4'),
           promotionPlanHash: candidateSha('5'),
         },
@@ -89,7 +100,7 @@ describe('sandbox candidate experiment executor', () => {
     const materialize = fixture.ports.workspaces.materialize
     fixture.ports.workspaces.materialize = async (input) => {
       if (input.role !== 'knowledge') return await materialize(input)
-      const path = join(input.destination, 'runbook.md')
+      const path = join(input.destination, 'knowledge', 'runbook.md')
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, knowledgeBytes)
       chmodSync(path, 0o644)

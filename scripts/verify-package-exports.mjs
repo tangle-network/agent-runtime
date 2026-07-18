@@ -42,7 +42,6 @@ try {
     './loops',
     './environment-provider',
     './analyst-loop',
-    './lifecycle',
     './knowledge',
     './profiles',
     './platform',
@@ -148,7 +147,7 @@ try {
       import { SandboxClient } from '@tangle-network/sandbox'
       import {
         createSandboxCandidateExperimentExecutor,
-        parseAgentCandidateProfileActivation,
+        parseCandidateProfileMaterialization,
         sandboxCandidateExperimentExecutionSupport,
         verifyCandidateExecutionEvidence,
         type CreateSandboxCandidateExperimentExecutorOptions,
@@ -181,7 +180,7 @@ try {
       const execution: Promise<CandidateExecutionEvidence> = executor.execute(executionInput)
       const evidence = verifyCandidateExecutionEvidence(storedEvidence, verification)
       const activation: AgentCandidateProfileActivation =
-        parseAgentCandidateProfileActivation(
+        parseCandidateProfileMaterialization(
           evidence.materializationReceipt.profileActivation,
           evidence.materializationReceipt.profileActivation.profilePlan.digest,
         )
@@ -255,14 +254,43 @@ try {
           'manifestFromProfile',
           'CapabilityNotAdmittedError',
           'createSandboxCandidateExperimentExecutor',
+          'createAgentImprovementActivation',
+          'createAgentImprovementActivationResult',
+          'executeAgentImprovementActivation',
           'executeAgentCandidateExperimentCell',
-          'parseAgentCandidateProfileActivation',
+          'parseCandidateProfileMaterialization',
+          'proposeAgentImprovement',
+          'reviewAgentImprovementProposal',
           'runAgentCandidateExperiment',
           'sandboxCandidateExperimentExecutionSupport',
+          'verifyAgentImprovementActivation',
+          'verifyAgentImprovementActivationResult',
           'verifyCandidateExecutionEvidence',
         ]
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
+        }
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const runtime = await import('@tangle-network/agent-runtime')
+        for (const name of ['improve']) {
+          if (typeof runtime[name] !== 'function') throw new Error('missing improvement export ' + name)
+        }
+        const knowledge = await import('@tangle-network/agent-runtime/knowledge')
+        for (const name of [
+          'buildKnowledgeImprovementExperimentBundles',
+          'createKnowledgeImprovementActivationExecutor',
+          'runKnowledgeImprovementJob',
+        ]) {
+          if (typeof knowledge[name] !== 'function') throw new Error('missing knowledge export ' + name)
         }
       `,
     ],
@@ -334,18 +362,12 @@ try {
     appDir,
   )
 
-  const installedPackageDir = join(
-    appDir,
-    'node_modules',
-    '@tangle-network',
-    'agent-runtime',
-  )
   const repackDir = join(tempRoot, 'repack')
   mkdirSync(repackDir, { recursive: true })
   run(
     'npm',
     ['pack', '--ignore-scripts=false', '--pack-destination', repackDir],
-    installedPackageDir,
+    packageDir,
   )
   const repackedTarballs = run(
     'find',

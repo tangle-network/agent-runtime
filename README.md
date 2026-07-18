@@ -33,7 +33,7 @@ pnpm tsx examples/driver-loop/driver-loop.ts
 | Run a **chat turn** for a production product agent | `handleChatTurn(...)` |
 | Have one agent **supervise a team of agents** toward a goal | `supervise(profile, task, opts)` |
 | **Improve** an agent and prove the gain on fresh tasks | `improve(profile, findings, opts)` |
-| **Improve** a knowledge base with agents, checks, and safe promotion | `runKnowledgeImprovementJob(...)` |
+| Produce a measured knowledge-base candidate with agents and checks | `runKnowledgeImprovementJob(...)` |
 | Evaluate or train the same agent on **PrimeIntellect** | `createPrimeIntellectPackage(...)` |
 
 ### Run a chat turn
@@ -70,7 +70,7 @@ const result = await supervise(
 
 ### Improve an agent
 
-`improve` optimizes one part of an agent and **only ships a change if it beats the current agent on tasks it never practiced on**.
+`improve` optimizes one part of an agent and returns a detached winner plus a decision. The decision is `ship` only when the candidate beats the current agent on tasks it never practiced on.
 It accepts prompt, skill document, curated memory, tool, MCP, hook, subagent, whole-profile, and code surfaces through one call.
 Prompt, skill-document, and memory optimization have built-in generators; structured profile surfaces take an explicit generator, and code runs from isolated incumbent and candidate checkouts.
 Workflow and rollout-policy files use the code surface so the measured winner is an exact patch that can be sealed and executed; JSON parameter sweeps use agent-eval's `parameterSweepProposer` instead of a runtime-specific optimizer.
@@ -78,26 +78,74 @@ Workflow and rollout-policy files use the code surface so the measured winner is
 ```ts
 import { improve } from '@tangle-network/agent-runtime'
 
-const { profile, shipped, lift } = await improve(baseProfile, findings, {
-  surface: 'prompt',        // or skills/memory/tools/mcp/hooks/subagents/agent-profile/code
-  gate: 'holdout',          // certified on a held-back exam, never the practice set
-  scenarios, judge, agent,  // how to measure a candidate
+const { candidate, decision, lift } = await improve(baseProfile, findings, {
+  surface: 'prompt',
+  gate: 'holdout',
+  scenarios,
+  judge,
+  agent,
 })
+
+if (decision === 'ship') console.log({ candidate, lift })
 ```
 
-Curated memory is an external lesson document, not a knowledge store. Supply its current text and persist only the promoted winner:
+Skill and curated-memory candidates are exact profile changes, not free-floating text.
+Name one inline skill through `skills.resourceName`; curated memory uses `profile.resources.instructions`.
+Both require `profile.resources.failOnError: true` so an unsupported resource cannot silently disappear.
 
 ```ts
-await improve(baseProfile, findings, {
-  surface: 'memory',
-  memory: { document: currentLessons, writeBack: saveLessons },
+const skillResult = await improve(baseProfile, findings, {
+  surface: 'skills',
+  skills: { resourceName: 'incident-response' },
   scenarios, judge, agent,
 })
 ```
 
+`improve` is the search call.
+For production, `proposeAgentImprovement` adds trace analysis and reruns the exact frozen baseline and winner before creating a reviewable proposal.
+Runtime rejects a candidate bundle that differs from the search winner.
+
+```ts
+import {
+  createAgentImprovementActivation,
+  executeAgentImprovementActivation,
+  proposeAgentImprovement,
+  reviewAgentImprovementProposal,
+} from '@tangle-network/agent-runtime/intelligence'
+
+const result = await proposeAgentImprovement({
+  runId,
+  profile: liveProfile,
+  analysis,
+  improvement: { surface: 'prompt', scenarios, judge, agent },
+  buildExperiment: ({ improvement }) => freezeExperiment(liveProfile, improvement.candidate),
+  placeCell,
+})
+
+const review = reviewAgentImprovementProposal(result.proposal, {
+  decision: 'approve',
+  reviewedBy: user.id,
+  reason: 'The measured gain is worth the cost.',
+})
+const activation = createAgentImprovementActivation(result.proposal, review, {
+  intent: 'activate-candidate',
+  targets: [{ surface: 'prompt', identity: profileId }],
+  fundingOwner: tenantId,
+  authorizedBy: user.id,
+  expiresAt,
+})
+const outcome = await executeAgentImprovementActivation(
+  { proposal: result.proposal, review, activation },
+  { transition: commitProfileTransaction, reconcile: readCommittedResult },
+)
+```
+
+`freezeExperiment`, `placeCell`, and the transaction functions are application ports because storage and compute differ by product.
+Runtime owns candidate identity, measurement, review binding, expiry, retry identity, and result validation; the application owns its atomic write.
+
 ### Improve a knowledge base
 
-`runKnowledgeImprovementJob` is the runtime-owned front door for KB, wiki, memory-backed, and RAG improvement jobs. It creates a candidate copy, runs supervised agents against it, checks readiness through `@tangle-network/agent-knowledge`, measures spend and timing, and promotes only when the candidate passes. Use `improve(..., { surface: 'memory' })` for the agent's curated lesson document; use this job for source, retrieval, and knowledge-store changes.
+`runKnowledgeImprovementJob` is the runtime-owned front door for KB, wiki, memory-backed, and RAG improvement jobs. It creates a candidate copy, runs supervised agents against it, checks readiness through `@tangle-network/agent-knowledge`, and returns frozen baseline and candidate snapshots with spend and timing. It never changes the live knowledge base. Use `improve(..., { surface: 'memory' })` for the agent's curated lesson document; use this job for source, retrieval, and knowledge-store changes.
 
 ```ts
 import { runKnowledgeImprovementJob } from '@tangle-network/agent-runtime/knowledge'
@@ -110,10 +158,11 @@ const result = await runKnowledgeImprovementJob({
   backend,
 })
 
-console.log(result.promoted, result.measurement.supervisedSpent)
+console.log(result.knowledge?.reference.candidateHash, result.measurement.supervisedSpent)
 ```
 
-Use it when the product needs one knob for "make this knowledge base better" instead of wiring `improveKnowledgeBase`, a runtime supervisor, candidate workspaces, readiness checks, and promotion tracking by hand.
+Use it when the product needs one knob for "make this knowledge base better" instead of wiring `improveKnowledgeBase`, a runtime supervisor, candidate workspaces, and readiness checks by hand.
+Measure the returned bundle pair, record the review, then activate through `executeAgentImprovementActivation`; activation is the only write path.
 
 ### Run on PrimeIntellect
 
@@ -200,14 +249,14 @@ Runnable, grouped by what they show. Copy the one nearest your task:
 | Evaluate or train a runtime program on PrimeIntellect | `@tangle-network/agent-runtime/primeintellect` |
 | Study coordination vs raw compute | [`ablation-suite`](./examples/ablation-suite) |
 
-All 29 live in [`examples/`](./examples).
+All 28 live in [`examples/`](./examples).
 
 ## Where to go next
 
 - New here? [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
 - [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
 - [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
-- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/conversation` (multi-turn conversations), `/knowledge` (KB improvement), `/primeintellect` (Prime task, runtime, and trace adapter), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/lifecycle`, `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
+- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/conversation` (multi-turn conversations), `/knowledge` (KB improvement), `/primeintellect` (Prime task, runtime, and trace adapter), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
 - [`docs/architecture.md`](./docs/architecture.md), the design, end to end.
 - [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
 

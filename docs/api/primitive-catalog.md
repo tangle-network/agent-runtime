@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.95.0` and `@tangle-network/agent-eval@0.122.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.96.0` and `@tangle-network/agent-eval@0.122.7` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,17 +15,17 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 345 exports.
+Import from `@tangle-network/agent-runtime` — 349 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `agenticGenerator` | function | Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place. |
 | `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
-| `applyImprovementWinnerToProfile` | function | Apply a promoted winner surface back into the profile field for `surface`. |
 | `applyRunRecordDefaults` | function | Stamp cross-cutting defaults onto adapter-projected RunRecords without |
 | `auditLoopRunner` | function | `audit` mode — analyst loop over captured trace/run data. |
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
+| `buildKnowledgeImprovementExperimentBundles` | function | Attach both frozen knowledge inputs to one otherwise-identical bundle pair. |
 | `buildLoopOtelSpans` | function | Build a nested, real-duration OTLP span tree for ONE loop run from its full |
 | `buildLoopSpanNodes` | function | Sink-neutral core behind {@link buildLoopOtelSpans}: reconstruct the |
 | `buildRuntimeEventOtelSpans` | function | Convert normalized runtime events into lossless, redacted child spans. |
@@ -41,6 +41,7 @@ Import from `@tangle-network/agent-runtime` — 345 exports.
 | `createAgentKnowledgeReadinessCheck` | function | Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring. |
 | `createConversationBackend` | function | Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is |
 | `createIterableBackend` | function | Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`. |
+| `createKnowledgeImprovementActivationExecutor` | function | Apply or restore one local knowledge candidate through the shared activation contract. |
 | `createOpenAICompatibleBackend` | function | OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any |
 | `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
 | `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
@@ -92,7 +93,7 @@ Import from `@tangle-network/agent-runtime` — 345 exports.
 | `runConversation` | function | Conversation orchestrator. Drives N participants in turn through their own |
 | `runConversationStream` | function | Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers. |
 | `runDelegatedLoop` | function | Dispatch a configured loop by mode. Fails loud (throws `ConfigError`) when no |
-| `runKnowledgeImprovementJob` | function | Produce a frozen KB candidate, and promote it only when an exact signed review is supplied. |
+| `runKnowledgeImprovementJob` | function | Produce a frozen KB candidate while leaving live knowledge content unchanged. |
 | `runLoopRunnerCli` | function | Pure CLI core (no process / argv / IO) so it's unit-testable: validate the |
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
@@ -220,22 +221,20 @@ Import from `@tangle-network/agent-runtime` — 345 exports.
 | `VerifiedAgentCandidateTaskOutcome` | type | Branded task outcome that has survived independent evaluator verification. |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentCandidateContainerPort`, `AgentCandidateExecutionAttemptRef`, `AgentCandidateExecutionPorts`, `AgentCandidateExecutorWorkspaceFile`, `AgentCandidateExecutorWorkspaceInput`, `AgentCandidateMemoryPort`, `AgentCandidateMemoryResetResult`, `AgentCandidateModelPort`, `AgentCandidatePreparationEvidence`, `AgentCandidateProtectedModelActivation`, `AgentCandidateProtectedModelReservation`, `AgentCandidateProtectedModelSettlement`, `AgentCandidateProtectedRunCapture`, `AgentCandidateVerificationPorts`, `AgentCandidateWorkspaceArchiveLimits`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgenticGeneratorShotReceipt`, `AgentKnowledgeProvider`, `AgentKnowledgeReadinessCheckOptions`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `ApprovedKnowledgeImprovementCandidate`, `BackendCallPolicy`, `CanonicalCandidateDocument`, `CaptureAgentCandidateWorkspaceOptions`, `CapturedAgentCandidateWorkspace`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `CreateAgentCandidateWorkspacePortOptions`, `CreateProtectedAgentCandidateModelPortOptions`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `DisposePreparedAgentCandidateOptions`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `ExecutePreparedAgentCandidateOptions`, `FileAgentCandidateExecutionClaimStoreOptions`, `HaltContext`, `HaltSignal`, `ImproveCodeOptions`, `ImproveMemoryOptions`, `ImprovementDriverOptions`, `ImproveResult`, `ImproveSkillsOptions`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `ManagedImprovementDriver`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `PrepareAgentCandidateExecutionOptions`, `PreparedAgentCandidateExecution`, `PreparedAgentCandidateInstruction`, `PreparedAgentCandidateLaunch`, `PreparedAgentCandidateTrace`, `ProfileDiffProposerOptions`, `RecoverExpiredAgentCandidateOptions`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedAgentCandidateContainer`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunKnowledgeImprovementJobOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeEventOtelOptions`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToolLoopResult`, `VerifiedAgentCandidate`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentCandidateModelGrantActivateInput`, `AgentCandidateModelGrantReserveInput`, `AgentCandidateModelGrantSettleInput`, `AgentCandidateOutputPurpose`, `AgentCandidateRetryRejection`, `AgentCandidateRunFinalization`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `ImproveOptions`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `ProfileDiffProposerContext`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentCandidateContainerPort`, `AgentCandidateExecutionAttemptRef`, `AgentCandidateExecutionPorts`, `AgentCandidateExecutorWorkspaceFile`, `AgentCandidateExecutorWorkspaceInput`, `AgentCandidateMemoryPort`, `AgentCandidateMemoryResetResult`, `AgentCandidateModelPort`, `AgentCandidatePreparationEvidence`, `AgentCandidateProtectedModelActivation`, `AgentCandidateProtectedModelReservation`, `AgentCandidateProtectedModelSettlement`, `AgentCandidateProtectedRunCapture`, `AgentCandidateVerificationPorts`, `AgentCandidateWorkspaceArchiveLimits`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgenticGeneratorShotReceipt`, `AgentKnowledgeProvider`, `AgentKnowledgeReadinessCheckOptions`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `CanonicalCandidateDocument`, `CaptureAgentCandidateWorkspaceOptions`, `CapturedAgentCandidateWorkspace`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `CreateAgentCandidateWorkspacePortOptions`, `CreateKnowledgeImprovementActivationExecutorOptions`, `CreateProtectedAgentCandidateModelPortOptions`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `DisposePreparedAgentCandidateOptions`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `ExecutePreparedAgentCandidateOptions`, `FileAgentCandidateExecutionClaimStoreOptions`, `HaltContext`, `HaltSignal`, `ImproveCodeOptions`, `ImprovementCandidate`, `ImprovementDriverOptions`, `ImproveResult`, `ImproveSkillsOptions`, `KnowledgeImprovementActivationExecutor`, `KnowledgeImprovementCandidatePair`, `KnowledgeImprovementExperimentBundles`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `ManagedImprovementDriver`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `PrepareAgentCandidateExecutionOptions`, `PreparedAgentCandidateExecution`, `PreparedAgentCandidateInstruction`, `PreparedAgentCandidateLaunch`, `PreparedAgentCandidateTrace`, `ProfileDiffProposerOptions`, `RecoverExpiredAgentCandidateOptions`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedAgentCandidateContainer`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunKnowledgeImprovementJobOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeEventOtelOptions`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToolLoopResult`, `VerifiedAgentCandidate`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentCandidateModelGrantActivateInput`, `AgentCandidateModelGrantReserveInput`, `AgentCandidateModelGrantSettleInput`, `AgentCandidateOutputPurpose`, `AgentCandidateRetryRejection`, `AgentCandidateRunFinalization`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `ImproveOptions`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `ProfileDiffProposerContext`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
 
-### Vertical agent — manifest + improvement adapter
+### Vertical agent — manifest + surface proposal source
 
-Import from `@tangle-network/agent-runtime/agent` — 47 exports.
+Import from `@tangle-network/agent-runtime/agent` — 40 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `assertProfileMaterialization` | function | Throw when a candidate changes axes the selected run path cannot carry. |
 | `collectAgentRun` | function | Drain `act`'s `events` into an array AND await its `output`. Useful for |
 | `createSandboxAct` | function | Build an `AgentRuntime.act` implementation backed by a single prod-profile |
-| `createSurfaceImprovementAdapter` | function | The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR. |
-| `createSurfaceKnowledgeAdapter` | function | Wire a surface-based `KnowledgeAdapter` that writes analyst proposals to agent surface files. |
+| `createSurfaceImprovementProposer` | function | Resolve each finding to a real surface and draft a detached patch candidate. |
 | `defineAgent` | function | Construct a validated agent manifest. Throws `AgentManifestError` |
 | `defineProfileMaterializationContract` | function | Define the profile axes a concrete run path actually carries into execution. |
-| `measureOutcome` | function | Run `runAnalystLoop` and stamp an `OutcomeMeasurement` onto the |
 | `renderProfileMaterializationIssues` | function | Format profile-axis drop issues into a concise operator-facing error. |
 | `renderSurfaceIssues` | function | Format a list of surface validation issues into a human-readable error string. |
 | `resolveSubjectPath` | function | Resolve a parsed `FindingSubject` to the file path the substrate |
@@ -250,19 +249,15 @@ Import from `@tangle-network/agent-runtime/agent` — 47 exports.
 | `AgentManifest` | interface | The full agent manifest. Each agent ships ONE of these. |
 | `AgentSurfaces` | interface | Surface declarations. Every path is repo-relative (or absolute) at |
 | `AssertProfileMaterializationOptions` | interface | Input for throwing on dropped profile axes. |
-| `CreateSurfaceKnowledgeAdapterOpts` | interface | Substrate-default `KnowledgeAdapter` — wraps agent-knowledge's |
 | `DefineProfileMaterializationContractOptions` | interface | Input for declaring a run path's profile-axis support. |
-| `KnowledgeAdapterDeps` | interface | Build the adapter. We accept the agent-knowledge functions as DI so |
-| `OutcomeMeasurement` | interface | `OutcomeMeasurement` — the missing metric that turns the analyst |
 | `ProfileMaterializationContract` | interface | Declares which AgentProfile axes a concrete run path really carries. |
 | `ProfileMaterializationIssue` | interface | One changed AgentProfile axis that would be dropped by a run path. |
-| `SurfaceImprovementEdit` | interface | Substrate-default `ImprovementAdapter` — surfaces-driven, LLM-drafted |
-| `SurfaceLifecycle` | interface | One profile surface's artifact-lifecycle wiring — the declarative config a |
+| `SurfaceImprovementEdit` | interface | Surface improvement proposer — resolves analyst findings into LLM-drafted |
 | `SurfaceValidationIssue` | interface | Validate that every declared surface exists on disk under `repoRoot`. |
 | `ValidateProfileMaterializationOptions` | interface | Input for checking a candidate diff against a run path. |
 | `AgentProfileMaterializationAxis` | type | AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentRubric`, `AgentRunContext`, `AgentRunInvocation`, `AgentRuntime`, `AnalystConfig`, `CreateSandboxActOptions`, `CreateSurfaceImprovementAdapterOpts`, `DraftPatchInput`, `DraftPatchOutput`, `JudgeConfig`, `OutcomeMeasurementOpts`, `ResolvedSurface`, `RubricDimension`, `KnownAgentProfileMaterializationAxis`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentRubric`, `AgentRunContext`, `AgentRunInvocation`, `AgentRuntime`, `AnalystConfig`, `CreateSandboxActOptions`, `CreateSurfaceImprovementProposerOptions`, `DraftPatchInput`, `DraftPatchOutput`, `JudgeConfig`, `ResolvedSurface`, `RubricDimension`, `KnownAgentProfileMaterializationAxis`.
 
 ### Multi-turn conversations
 
@@ -307,15 +302,17 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 102 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 119 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `buildAgentImprovementActivationTargets` | function | Bind caller-owned target identities to the exact source state Runtime measured. |
 | `compileEffort` | function | Compile resolved `EffortSettings` into the orchestration overrides above. Pure: same |
 | `composeCertifiedProfile` | function | Compose a certified profile into a uniform `ResolvedSurface`. Additive over |
 | `composeCertifiedProfileFromWire` | function | Lower a plane `CertifiedProfile` straight into a `ResolvedSurface` via |
 | `composeCertifiedPrompt` | function | Fold the certified prompt surface (and any certified prompt-folding artifacts: |
 | `createAgentImprovementActivation` | function | Authorize product-owned writes only after the exact candidate was measured and approved. |
+| `createAgentImprovementActivationResult` | function | Create the exact result a product stores in the same transaction as its target write. |
 | `createAgentImprovementMeasuredComparison` | function | Delegate all statistics and promotion checks to agent-eval's receipt-based comparison. |
 | `createAgentImprovementProposal` | function | Create the reviewable record only from a complete, recomputable experiment result. |
 | `createCertifiedPromptSource` | function | Create the cached certified-prompt source — the ONE module-scope-cache + |
@@ -323,10 +320,11 @@ Import from `@tangle-network/agent-runtime/intelligence` — 102 exports.
 | `createSandboxCandidateExperimentExecutor` | function | Execute one signed experiment cell inside a fresh Tangle sandbox. |
 | `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
 | `executeAgentCandidateExperimentCell` | function | Execute one exact arm, task, repetition, seed, and attempt through Runtime. |
+| `executeAgentImprovementActivation` | function | Validate and execute one product-owned activation transition. |
 | `isIntelligenceOff` | function | True when these settings admit NO intelligence spawn — the passthrough |
 | `manifestFromProfile` | function | Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`. |
 | `normalizeCertifiedProfile` | function | Deserialize the composed-endpoint response into a `CertifiedProfile`. The |
-| `parseAgentCandidateProfileActivation` | function | Parse and check every native file hash plus both canonical document digests. |
+| `parseCandidateProfileMaterialization` | function | Parse and check every native file hash plus both canonical document digests. |
 | `proposeAgentImprovement` | function | Analyze, search, then remeasure the resulting exact candidate before proposing it. |
 | `pullCertified` | function | Pull the certified composed profile for a target. Fail-closed: a network |
 | `resolveEffort` | function | Compile a named tier (plus optional per-field overrides) into the flat |
@@ -335,6 +333,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 102 exports.
 | `reviewAgentImprovementProposal` | function | Persist a human or tenant-policy decision bound to one exact proposal. |
 | `runAgentCandidateExperiment` | function | Execute both arms of one immutable experiment and derive its paired result. |
 | `verifyAgentImprovementActivation` | function | Validate activation authority against the exact proposal, review, experiment, and base state. |
+| `verifyAgentImprovementActivationResult` | function | Recompute one historical activation result against the exact measured proposal and authority. |
 | `verifyAgentImprovementProposal` | function | Validate a proposal and recompute every binding to its measured experiment. |
 | `verifyAgentImprovementReview` | function | Validate the canonical identity and wire shape of an improvement review. |
 | `verifyCandidateExecutionEvidence` | function | Recheck one Runtime receipt against its exact signed experiment cell. |
@@ -343,11 +342,13 @@ Import from `@tangle-network/agent-runtime/intelligence` — 102 exports.
 | `sandboxCandidateExperimentExecutionSupport` | const | Declares the exact candidate surfaces the sandbox executor can run. |
 | `AgentCandidateExperimentCellExecutionError` | class | A failed baseline or candidate cell with its complete Runtime failure result. |
 | `CapabilityNotAdmittedError` | class | A binding kind whose resolver case is typed but not yet admitted (rag-index, |
-| `AgentCandidateProfileActivation` | interface | Exact native profile files and the canonical plan that activated them. |
+| `AgentImprovementActivation` | interface | Authority receipt permitting activation of one already-measured candidate. |
+| `AgentImprovementActivationResult` | interface | Immutable outcome of one idempotent, transaction-wide activation attempt. |
 | `AgentImprovementMeasuredComparison` | interface | Portable paired held-out comparison produced by an evaluation package. |
 | `AgentImprovementReview` | interface | Human or tenant-policy decision bound to one exact proposal. |
 | `AppliedIntelligence` | interface | What the hook hands the agent each run. Additive over the prompt-only |
 | `CandidateExecutionEvidence` | interface | Complete execution of one exact experiment attempt. |
+| `CandidateProfileMaterialization` | interface | Exact native profile files and the canonical plan that activated them. |
 | `CapabilityManifest` | interface | The strict generalization of `CertifiedProfile`. `promptSurface` is kept |
 | `CertifiedArtifact` | interface | A promoted, certified artifact (one entry in the composed profile). |
 | `CertifiedCapability` | interface | One certified unit of agent power. |
@@ -382,6 +383,8 @@ Import from `@tangle-network/agent-runtime/intelligence` — 102 exports.
 | `TraceMeta` | interface | Metadata describing one traced run. `runId`/`traceId` default to fresh ids. |
 | `TraceOutcome` | interface | The resolved outcome of one traced run, surfaced on the export span and |
 | `UsageSplit` | interface | The per-class cost split carried by every trace and outcome. `off` ⇒ |
+| `AgentImprovementActivationReconciliation` | type | Target-read-only check for a prior exact write. |
+| `AgentImprovementActivationTransition` | type | Product-owned or Runtime-composed transition. |
 | `CapabilityAuth` | type | How a binding authenticates at resolve time. Declared as a REQUIREMENT in the |
 | `CapabilityInterface` | type | What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each |
 | `CapabilitySurface` | type | Every interface surface tag — the closed set the resolver fans into slots. |
@@ -398,7 +401,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 102 exports.
 | `Redactor` | type | A redactor maps an arbitrary trace value to a safe-to-export value. Pure; |
 | `UsageClass` | type | Usage class for billing. Base-stream tokens bill `'inference'`; every |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementProposal`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementProposalOptions`, `CreateSandboxCandidateExperimentExecutorOptions`, `ExecuteAgentCandidateExperimentCellOptions`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SandboxCandidateExperimentExecution`, `SandboxCandidateExperimentExecutor`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementReviewDecision`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementActivationTransitionInput`, `AgentImprovementProposal`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateSandboxCandidateExperimentExecutorOptions`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SandboxCandidateExperimentExecution`, `SandboxCandidateExperimentExecutor`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementReviewDecision`.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
@@ -780,7 +783,7 @@ Import from `@tangle-network/agent-runtime/environment-provider` — 32 exports.
 
 ### Analyst loop — trace findings on a running loop
 
-Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
+Import from `@tangle-network/agent-runtime/analyst-loop` — 14 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -788,88 +791,30 @@ Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
 | `runAnalystLoop` | function | `runAnalystLoop` — the one call agent apps reach for to close the |
 | `AnalystRegistryLike` | interface | Narrowed shape we accept for `AnalystRegistry` so the orchestrator |
 | `AnalystRegistryStreamingLike` | interface | Narrow the `AnalystRegistryLike` further when we need streaming: the |
-| `AutoApplyPolicy` | interface | Tunable safety rails for auto-apply. |
 | `FindingsStoreLike` | interface | Narrowed shape we accept for `FindingsStore`. |
-| `ImprovementAdapter` | interface | Improvement-side bridge — proposes / applies prompt + tool + scaffolding edits. |
-| `KnowledgeAdapter` | interface | Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge. |
+| `ImprovementProposalSource` | interface | Agent-surface bridge — proposes prompt, skill, tool, and scaffolding edits. |
+| `KnowledgeProposalSource` | interface | Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge. |
 | `AnalystLoopEvent` | type | Events emitted by `runAnalystLoop` via `opts.onEvent`. UIs and |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `ImprovementEditBatch`, `ImprovementReport`, `KnowledgeProposalBatch`, `KnowledgeReport`, `RunAnalystLoopOpts`, `RunAnalystLoopResult`.
 
-### Artifact lifecycle — generate → measure → promote → compose
-
-Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
-
-| Symbol | Kind | Summary |
-|---|---|---|
-| `applyArtifact` | function | Return a new profile with `artifact` merged onto `base`. Keyed kinds |
-| `applyArtifacts` | function | Apply many artifacts left-to-right; later artifacts win on key conflicts. |
-| `buildableGenerator` | function | Build a `CandidateGenerator` for a buildable surface (`tool` / `mcp`). Each |
-| `composeProfile` | function | Return a new profile with the top-`k` active artifacts (highest measured lift |
-| `createArtifactRegistry` | function | Construct an empty `ArtifactRegistry`. |
-| `dedupeArtifacts` | function | Pairwise stack-test the `active` artifacts and retire the redundant half of |
-| `driftWatch` | function | Re-measure every `active` artifact and demote those whose held-back lift |
-| `gepaRefine` | function | Wrap `gepaProposer` as a `RefinePrompt`. The proposer reflects on the |
-| `heldOutPromotionGate` | function | The paper-grade promotion gate: delegate to agent-eval's `HeldOutGate`, which |
-| `measureMarginalLift` | function | Run the with/without ablation for `candidate` over `baseline` and return its |
-| `productionPromptGenerator` | function | Production `promptGenerator`: refine via `gepaProposer`, seed via a |
-| `promptGenerator` | function | Build a `CandidateGenerator` for the prompt surface. Each generation it pools |
-| `routerSeedAuthor` | function | A router-backed `AuthorDiverseSeeds`: one structured LLM call that authors |
-| `runLifecycle` | function | Run ONE generation of the artifact lifecycle. |
-| `skillGenerator` | function | Build a `CandidateGenerator` for the skill surface that distills new skills |
-| `thresholdPromotionGate` | function | The simplest honest gate: promote iff the candidate's marginal lift on the |
-| `worktreeBuildCandidate` | function | Build the production per-candidate seam for `buildableGenerator`. Each call to |
-| `lifecycleReasonKey` | const | The metadata key under which the registry records WHY an artifact left the |
-| `liftMetadataKey` | const | The metadata key under which the registry stores an artifact's measured held- |
-| `ArtifactRegistry` | class | A typed, in-memory registry of `ProfileArtifact`s with stable ids. |
-| `ArtifactPayloads` | interface | The payload for each `ArtifactKind`. The shapes are the SAME types the |
-| `ArtifactQuery` | interface | Filter for `list`. Omit a field to leave that dimension unconstrained. |
-| `BuiltCandidate` | interface | The result of building ONE candidate in its own worktree. A build either |
-| `CandidateGenerator` | interface | Produces fresh, UNMEASURED candidate artifacts for ONE profile surface. |
-| `CandidateOutcome` | interface | The per-candidate record of what the loop decided and why. |
-| `ComposeProfileOptions` | interface | `composeProfile` — fold the top-k active artifacts back into a profile. |
-| `DedupeOptions` | interface | `dedupeArtifacts` — retire the redundant half of a non-stacking pair. |
-| `DriftCheck` | interface | Per-artifact record of what the re-measure found and decided. |
-| `DriftWatchOptions` | interface | `driftWatch` — the scheduled re-measure that DEMOTES decayed artifacts. |
-| `EvalResult` | interface | The result of running an eval over ONE profile: a composite score and the cost |
-| `GenerateContext` | interface | The read-only context a generator sees when proposing candidates. It is the |
-| `MarginalLift` | interface | The marginal lift of one artifact: the with/without ablation. |
-| `PairStackCheck` | interface | The stacking verdict for one pair of active artifacts. |
-| `ProfileArtifact` | interface | A discrete, individually-promotable piece of an agent profile. |
-| `PromotionGate` | interface | Decides whether ONE measured candidate is promoted. The lifecycle calls this |
-| `PromotionVerdict` | interface | The verdict a gate returns for one candidate. |
-| `PromptDraft` | interface | A proposed prompt instruction line plus the WHY behind it. The `rationale` |
-| `RunLifecycleOptions` | interface | `runLifecycle` — the ONE closed-loop orchestrator: generate → measure → |
-| `SkillDraft` | interface | A distilled skill draft: a name + the `SKILL.md` body. |
-| `WorktreeBuildOptions` | interface | `worktreeBuildCandidate` — the PRODUCTION `BuildCandidate`: one fan-out leaf |
-| `ArtifactInput` | type | The input to `register` — everything on `ProfileArtifact` except the |
-| `ArtifactKind` | type | The profile levers an artifact can target. One-to-one with the §1.5 profile |
-| `ArtifactStatus` | type | The artifact lifecycle states. `active` is the load-bearing one — it is the |
-| `AuthorDiverseSeeds` | type | SEED — author N genuinely DIVERSE fresh instruction lines from the task spec, |
-| `BuildableKind` | type | The buildable surfaces — the kinds whose candidate IS code that must compile |
-| `BuildCandidate` | type | BUILD ONE candidate. Given the lifecycle context and the index in the fan-out, |
-| `DistillSkills` | type | DISTILL — create new skill drafts from the agent's history. Returns zero or |
-| `EvalRunner` | type | Scores a profile. The caller wires this to whatever eval they run — a |
-| `RefinePrompt` | type | REFINE — incumbent-grounded rewrites. Given the lifecycle context, return |
-| `RefineSkill` | type | REFINE — improve ONE distilled draft (wording, structure, examples). The |
-
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`.
-
 ### Knowledge orchestration — supervised KB updates
 
-Import from `@tangle-network/agent-runtime/knowledge` — 19 exports.
+Import from `@tangle-network/agent-runtime/knowledge` — 24 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `buildKnowledgeImprovementExperimentBundles` | function | Attach both frozen knowledge inputs to one otherwise-identical bundle pair. |
 | `createAgentKnowledgeReadinessCheck` | function | Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring. |
+| `createKnowledgeImprovementActivationExecutor` | function | Apply or restore one local knowledge candidate through the shared activation contract. |
 | `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
 | `formatSupervisedKnowledgeTask` | function | Format the supervisor task with the KB root, readiness requirements, current findings, and metadata. |
 | `knowledgeReadinessDeliverable` | function | Build the completion check a supervised KB update uses to stop only when the KB is ready. |
-| `runKnowledgeImprovementJob` | function | Produce a frozen KB candidate, and promote it only when an exact signed review is supplied. |
+| `runKnowledgeImprovementJob` | function | Produce a frozen KB candidate while leaving live knowledge content unchanged. |
 | `runSupervisedKnowledgeUpdate` | function | Run a runtime supervisor that updates one candidate knowledge base and stops on readiness. |
 | `RESEARCH_SUPERVISOR_SYSTEM_PROMPT` | const | Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKnowledgeReadinessCheckOptions`, `ApprovedKnowledgeImprovementCandidate`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `RunKnowledgeImprovementJobOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `SupervisedKnowledgeUpdater`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKnowledgeReadinessCheckOptions`, `CreateKnowledgeImprovementActivationExecutorOptions`, `KnowledgeImprovementActivationExecutor`, `KnowledgeImprovementCandidatePair`, `KnowledgeImprovementExperimentBundles`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `RunKnowledgeImprovementJobOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `SupervisedKnowledgeUpdater`.
 
 ### Built-in agent profiles
 
@@ -1253,7 +1198,7 @@ Import from `@tangle-network/agent-eval` — 51 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 392 exports.
+Import from `@tangle-network/agent-eval/campaign` — 396 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1270,6 +1215,7 @@ Import from `@tangle-network/agent-eval/campaign` — 392 exports.
 | `buildLoopProvenanceRecord` | function | Build the durable provenance record from a completed loop result. |
 | `callbackGovernor` | function | The LLM-supervisor slot: a governor whose `decide` defers to a caller-supplied |
 | `campaignBreakdown` | function | Per-candidate evidence a reflective/patch proposer grounds its next proposal |
+| `campaignLineageStore` | function | Store a lineage through CampaignStorage. Appends use its compare-and-append |
 | `campaignMeanComposite` | function | Mean composite across a campaign: per cell, the mean of its finite, |
 | `campaignMeasurementDigest` | function | Digest the exact campaign fields that can affect a measured comparison. |
 | `campaignScenarioIdentity` | function | Redacted but independently verifiable identity of one complete scenario. |
@@ -1296,7 +1242,7 @@ Import from `@tangle-network/agent-eval/campaign` — 392 exports.
 | `fapoEscalationEntry` | function | Build a `ProposerEntry` that runs the full FAPO escalation policy (prompt → parameter → structural) as a single comparable optimizer entry. |
 | `fapoProposer` | function | Build a FAPO policy proposer from level-specific candidate generators. |
 | `fsCampaignStorage` | function | Node-filesystem storage — the default. Lazily requires `node:fs` so the |
-| `fsLineageStore` | function | JSONL-file store: append-only durability, snapshot via rewrite, `load` parses |
+| `fsLineageStore` | function | Filesystem convenience over the conflict-safe CampaignStorage implementation. |
 | `gepaParetoEntry` | function | GEPA with the Pareto frontier + combine-complementary-lessons. |
 | `gepaProposer` | function | GEPA reflective proposer: each generation reflects on the weakest scenarios and dimensions to produce targeted prompt rewrites, optionally combining Pareto-frontier parents. |
 | `gepaReflectionEntry` | function | GEPA, reflection-only (single-parent, no Pareto combine). |
@@ -1374,6 +1320,7 @@ Import from `@tangle-network/agent-eval/campaign` — 392 exports.
 | `FsLabeledScenarioStore` | class | Filesystem `LabeledScenarioStore`: appends one JSONL file per source with provenance and |
 | `LabeledScenarioStoreError` | class | Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. |
 | `Lineage` | class | Deterministic improvement-candidate graph with mutation, merge, frontier, and persistence helpers. |
+| `LineageStoreConflictError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, a profile whose model |
 | `SearchLedgerConflictError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `SearchLedgerError` | class | _(no summary — add a TSDoc line at the declaration)_ |
@@ -1425,6 +1372,8 @@ Import from `@tangle-network/agent-eval/campaign` — 392 exports.
 | `PolicyEditFindingInput` | interface | Trace-derived findings must name the measured profile that produced them. |
 | `PolicyEditProposerOptions` | interface | `policyEditProposer` turns typed analyst policy edits into measured candidate |
 | `PowerPreflightOptions` | interface | Power preflight — "can this budget detect the effect you are hunting?" |
+| `PremeasuredOptimizationBaseline` | interface | `runOptimization` — the improvement loop body. Runs N generations: the |
+| `ProposalTrackContext` | interface | The lineage track that requested a proposal. |
 | `ProposeContext` | interface | Everything a proposer may read to plan the next |
 | `ProposedCandidate` | interface | A proposer output carrying the surface AND the WHY behind |
 | `ProposerEntry` | interface | What an optimizer produced: the surface it promoted + what it cost to get |

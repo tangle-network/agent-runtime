@@ -12,7 +12,7 @@ import {
 } from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SurfaceImprovementEdit } from '../src/agent/improvement-adapter'
-import type { ImprovementAdapter, ImprovementEditBatch } from '../src/analyst-loop/types'
+import type { ImprovementEditBatch, ImprovementProposalSource } from '../src/analyst-loop/types'
 import { improvementDriver, reflectiveGenerator } from '../src/improvement'
 import type { CandidateGenerator } from '../src/improvement/improvement-driver'
 
@@ -67,14 +67,14 @@ const GOOD_PATCH = '--- prompt.md\n+++ prompt.md\n@@ -1 +1 @@\n-lax rubric\n+str
 
 function stubAdapter(
   batch: ImprovementEditBatch<SurfaceImprovementEdit>,
-): ImprovementAdapter<SurfaceImprovementEdit> {
+): ImprovementProposalSource<SurfaceImprovementEdit> {
   return { proposeFromFindings: () => batch }
 }
 
 /** The reflective setting of the ONE improvement driver. */
-function reflectiveDriver(adapter: ImprovementAdapter<SurfaceImprovementEdit>) {
+function reflectiveDriver(adapter: ImprovementProposalSource<SurfaceImprovementEdit>) {
   return improvementDriver({
-    generator: reflectiveGenerator({ improvementAdapter: adapter }),
+    generator: reflectiveGenerator({ improvementProposalSource: adapter }),
     worktree: gitWorktreeAdapter({ repoRoot }),
     baseRef: 'main',
   })
@@ -132,7 +132,7 @@ describe('improvementDriver — reflective generator', () => {
 
   it('prefers the Phase-2 report findings over ctx.findings', async () => {
     const seen: AnalystFinding[][] = []
-    const adapter: ImprovementAdapter<SurfaceImprovementEdit> = {
+    const adapter: ImprovementProposalSource<SurfaceImprovementEdit> = {
       proposeFromFindings: (f) => {
         seen.push([...f])
         return { edits: [editFixture(GOOD_PATCH)], skipped: 0, errors: [] }

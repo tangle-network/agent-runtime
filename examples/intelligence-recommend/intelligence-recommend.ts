@@ -78,8 +78,9 @@ async function main(): Promise<void> {
   })
   console.log(`trace recorded: ${traceId}`)
   console.log(`findings derived: ${findings.length}`)
-  console.log(`gated candidate: shipped=${out.shipped} gate=${out.gateDecision}`)
-  console.log(`prompt after: ${out.profile.prompt?.systemPrompt}`)
+  console.log(`candidate decision: ${out.decision}`)
+  console.log(`candidate prompt: ${out.candidate.profile?.prompt?.systemPrompt}`)
+  console.log(`live prompt unchanged: ${profile.prompt?.systemPrompt}`)
 }
 
 main().catch((err) => {

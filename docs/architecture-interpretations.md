@@ -30,7 +30,7 @@ positively at small n then retracted to a TIE at power — §5.)*
   │                         │                                    │
   │              proposeFromFindings                             │
   │                 ╱               ╲                            │
-  │      knowledgeAdapter      improvementAdapter                │
+  │   knowledge proposals    surface proposals                   │
   │       (wiki pages)          (prompt / tool / rubric)         │
   │        = CORPUS              = POLICY   ◀─ the ONLY RSI path  │
   │            │                     │                           │
@@ -143,7 +143,7 @@ Breaks: the load-bearing assumption — a **calibrated** gap signal — is absen
 
 ### 3.4 Two-timescale / recursive self-improvement
 
-Inner fast loop drives an answer now; outer slow loop (GEPA / `runImprovementLoop`) rewrites the driver's own policy from accumulated traces + judge scores, gated on a held-out delta. The recursion is real *in shape* — the optimiser is an atom editing an atom's policy — but **not closed**: `improvementAdapter` rewrites the *worker's* prompt, not the *driver's* planner policy; the rewritten policy never re-enters `plan()` online; and there is **zero cross-benchmark transfer test**. RSI is the shape, not the system. The frame's value is its sharp corpus-vs-policy split: **wiki growth is an input to inference; only prompt/tool/policy rewrites are RSI.** The research-acquisition loop is RSI only if findings about *which acquisition move paid off* rewrite the driver's acquisition policy — which needs the missing wire.
+Inner fast loop drives an answer now; outer slow loop (GEPA / `runImprovementLoop`) rewrites policy from accumulated traces + judge scores, measures the exact candidate on held-back tasks, and requires an explicit activation. The recursion is real *in shape* — the optimiser is an atom editing an atom's policy — but cross-benchmark transfer remains unproven. The frame's value is its sharp corpus-vs-policy split: **wiki growth is an input to inference; only prompt/tool/policy rewrites are RSI.** The research-acquisition loop is RSI only if findings about *which acquisition move paid off* rewrite the driver's acquisition policy and the resulting profile wins on fresh tasks.
 
 ### 3.5 Skeptic / Occam (adversarial)
 

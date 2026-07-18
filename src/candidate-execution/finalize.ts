@@ -26,6 +26,7 @@ import type { PreparedCandidateState } from './prepared-state'
 import {
   assertNoProtectedBytes,
   type ProtectedRedactionReport,
+  type ProtectedTraceIdentity,
   redactProtectedReason,
   redactProtectedValue,
 } from './protected-redaction'
@@ -55,6 +56,7 @@ export async function finalizeAgentCandidateRun(
   state: PreparedCandidateState,
   capture: AgentCandidateProtectedRunCapture,
   traceStore: TraceStore,
+  traceIdentity: ProtectedTraceIdentity,
   settlement: SealedAgentCandidateModelSettlement,
   evidence: CandidateFinalizationEvidence,
   protectedValues: readonly string[],
@@ -75,12 +77,12 @@ export async function finalizeAgentCandidateRun(
       throw new Error('timeout termination does not match the frozen execution limit')
     }
 
-    const run = await traceStore.getRun(state.trace.runId)
-    if (!run) throw new Error(`protected trace run is missing: ${state.trace.runId}`)
+    const run = await traceStore.getRun(traceIdentity.runId)
+    if (!run) throw new Error(`protected trace run is missing: ${traceIdentity.runId}`)
     if (run.status === 'running' || run.endedAt === undefined) {
       throw new Error('protected trace run is not terminal')
     }
-    assertTraceBindings(run.tags, state)
+    assertTraceBindings(run.tags, traceIdentity.tags)
 
     const [spans, events, budget, artifacts] = await Promise.all([
       traceStore.spans({ runId: run.runId }),
@@ -207,9 +209,8 @@ export async function finalizeAgentCandidateRun(
 
 function assertTraceBindings(
   tags: Record<string, string> | undefined,
-  state: PreparedCandidateState,
+  expected: Readonly<Record<string, string>>,
 ): void {
-  const expected = state.trace.tags
   for (const name of Object.values(CANDIDATE_TRACE_TAGS)) {
     if (tags?.[name] !== expected[name]) {
       throw new Error(`protected trace is not bound to prepared execution tag ${name}`)

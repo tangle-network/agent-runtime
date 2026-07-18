@@ -9,7 +9,6 @@ export default defineConfig({
     loops: 'src/runtime/index.ts', // the loop kernel + recursive atom surface (the runtime/ directory)
     'environment-provider': 'src/runtime/environment-provider.ts',
     'analyst-loop': 'src/analyst-loop/index.ts',
-    lifecycle: 'src/lifecycle/index.ts',
     knowledge: 'src/knowledge/index.ts',
     profiles: 'src/profiles/index.ts',
     platform: 'src/platform/index.ts',

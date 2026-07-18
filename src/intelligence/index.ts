@@ -43,14 +43,33 @@ import {
 import { type Redactor, resolveRedactor } from './redact'
 
 export type {
-  AgentCandidateProfileActivation,
+  AgentCandidateProfileActivation as CandidateProfileMaterialization,
+  AgentImprovementActivation,
+  AgentImprovementActivationIntent,
+  AgentImprovementActivationOutcome,
+  AgentImprovementActivationResult,
   AgentImprovementMeasuredComparison,
   AgentImprovementProposal,
   AgentImprovementReview,
   AgentImprovementReviewDecision,
   CandidateExecutionEvidence,
 } from '@tangle-network/agent-interface'
-export { parseAgentCandidateProfileActivation } from '../candidate-execution/profile'
+export { parseAgentCandidateProfileActivation as parseCandidateProfileMaterialization } from '../candidate-execution/profile'
+export type {
+  AgentImprovementActivationReconciliation,
+  AgentImprovementActivationResultStore,
+  AgentImprovementActivationTargetPlan,
+  AgentImprovementActivationTransition,
+  AgentImprovementActivationTransitionInput,
+  CreateAgentImprovementActivationResultOptions,
+  ExecuteAgentImprovementActivationInput,
+  ExecuteAgentImprovementActivationOptions,
+} from './activation'
+export {
+  createAgentImprovementActivationResult,
+  executeAgentImprovementActivation,
+  verifyAgentImprovementActivationResult,
+} from './activation'
 export type {
   CapabilityAuth,
   CapabilityInterface,
@@ -128,6 +147,8 @@ export {
   verifyAgentImprovementReview,
   verifyCandidateExecutionEvidence,
 } from './improvement-cycle'
+export type { AgentImprovementActivationTargetIdentity } from './improvement-surfaces'
+export { buildAgentImprovementActivationTargets } from './improvement-surfaces'
 export type { Redactor } from './redact'
 export { defaultRedactor, resolveRedactor } from './redact'
 export type { ProvisionedHost, ResolveCtx } from './resolver'

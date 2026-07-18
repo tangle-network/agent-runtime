@@ -1,7 +1,7 @@
 /**
  * `@tangle-network/agent-runtime/analyst-loop` — the closed loop
  * orchestrator that ties agent-eval's analyst registry to consumer-
- * supplied knowledge + improvement adapters.
+ * supplied knowledge and agent-surface proposal sources.
  *
  * The runtime stays decoupled from any specific knowledge or prompt
  * store: consumers wire `agent-knowledge`'s `proposeFromFindings`
@@ -14,13 +14,12 @@ export type {
   AnalystLoopEvent,
   AnalystRegistryLike,
   AnalystRegistryStreamingLike,
-  AutoApplyPolicy,
   FindingsStoreLike,
-  ImprovementAdapter,
   ImprovementEditBatch,
+  ImprovementProposalSource,
   ImprovementReport,
-  KnowledgeAdapter,
   KnowledgeProposalBatch,
+  KnowledgeProposalSource,
   KnowledgeReport,
   RunAnalystLoopOpts,
   RunAnalystLoopResult,

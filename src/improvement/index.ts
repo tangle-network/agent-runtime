@@ -23,9 +23,8 @@ export {
 } from './agentic-generator'
 export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
-  applyImprovementWinnerToProfile,
   type ImproveCodeOptions,
-  type ImproveMemoryOptions,
+  type ImprovementCandidate,
   type ImproveOptions,
   type ImproveResult,
   type ImproveSkillsOptions,

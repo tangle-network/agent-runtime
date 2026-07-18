@@ -1,3 +1,5 @@
+import { createHmac, randomBytes } from 'node:crypto'
+
 import {
   DEFAULT_REDACTION_RULES,
   REDACTION_VERSION,
@@ -9,6 +11,77 @@ export interface ProtectedRedactionReport {
   version: string
   redactionCount: number
   byRule: Record<string, number>
+}
+
+export interface ProtectedTraceIdentity {
+  readonly runId: string
+  readonly tags: Readonly<Record<string, string>>
+}
+
+export interface ProtectedRecordRedactor {
+  record<T>(value: T): T
+  query<T>(value: T): T
+  identifier(value: string): string
+  traceIdentity(trace: ProtectedTraceIdentity): ProtectedTraceIdentity
+  report(): ProtectedRedactionReport
+}
+
+/** Create one execution-local namespace for identifiers changed by redaction. */
+export function createProtectedRecordRedactor(
+  protectedValues: readonly string[],
+): ProtectedRecordRedactor {
+  const identityKey = randomBytes(32)
+  const aggregate: ProtectedRedactionReport = {
+    version: REDACTION_VERSION,
+    redactionCount: 0,
+    byRule: {},
+  }
+
+  const mergeReport = (report: ProtectedRedactionReport): void => {
+    aggregate.version = report.version
+    aggregate.redactionCount += report.redactionCount
+    for (const [rule, count] of Object.entries(report.byRule)) {
+      aggregate.byRule[rule] = (aggregate.byRule[rule] ?? 0) + count
+    }
+  }
+
+  const redactScalar = <T>(value: T, record: boolean): T => {
+    const redacted = redactProtectedValue(value, protectedValues)
+    if (record) mergeReport(redacted.report)
+    return redacted.value
+  }
+
+  const identifier = (value: string, record: boolean): string => {
+    const redacted = redactScalar(value, record)
+    if (redacted === value) return value
+    const digest = createHmac('sha256', identityKey).update(value).digest('hex')
+    return `${redacted}:hmac-sha256:${digest}`
+  }
+
+  const transform = <T>(value: T, record: boolean): T => {
+    const transformed = transformProtectedRecord(
+      value,
+      undefined,
+      record,
+      redactScalar,
+      identifier,
+    ) as T
+    assertNoProtectedEvidence(transformed, protectedValues)
+    return transformed
+  }
+
+  return Object.freeze({
+    record: <T>(value: T): T => transform(value, true),
+    query: <T>(value: T): T => transform(value, false),
+    identifier: (value: string): string => identifier(value, false),
+    traceIdentity: (trace: ProtectedTraceIdentity): ProtectedTraceIdentity =>
+      transform(trace, false),
+    report: (): ProtectedRedactionReport => ({
+      version: aggregate.version,
+      redactionCount: aggregate.redactionCount,
+      byRule: { ...aggregate.byRule },
+    }),
+  })
 }
 
 /** Redact protected values at the first persistence boundary, including object keys and bytes. */
@@ -116,6 +189,94 @@ function redactNode(
     return Object.fromEntries(entries)
   }
   return value
+}
+
+function transformProtectedRecord(
+  value: unknown,
+  fieldName: string | undefined,
+  record: boolean,
+  redactScalar: <T>(value: T, record: boolean) => T,
+  redactIdentifier: (value: string, record: boolean) => string,
+): unknown {
+  if (value instanceof Uint8Array) return redactScalar(value, record)
+  if (typeof value === 'string') {
+    return fieldName && isIdentifierFieldName(fieldName)
+      ? redactIdentifier(value, record)
+      : redactScalar(value, record)
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      transformProtectedRecord(entry, fieldName, record, redactScalar, redactIdentifier),
+    )
+  }
+  if (!value || typeof value !== 'object') return value
+
+  if (fieldName === 'tags') {
+    return transformTagMap(value, record, redactScalar, redactIdentifier)
+  }
+  if (fieldName === 'tag') {
+    return transformTagFilter(value, record, redactScalar, redactIdentifier)
+  }
+
+  const entries: Array<[string, unknown]> = []
+  const seenKeys = new Set<string>()
+  for (const [key, entry] of Object.entries(value)) {
+    const redactedKey = redactScalar(key, record)
+    if (seenKeys.has(redactedKey)) {
+      throw new Error('protected evidence redaction produced an ambiguous object key')
+    }
+    seenKeys.add(redactedKey)
+    entries.push([
+      redactedKey,
+      transformProtectedRecord(entry, key, record, redactScalar, redactIdentifier),
+    ])
+  }
+  return Object.fromEntries(entries)
+}
+
+function transformTagMap(
+  value: object,
+  record: boolean,
+  redactScalar: <T>(value: T, record: boolean) => T,
+  redactIdentifier: (value: string, record: boolean) => string,
+): Record<string, unknown> {
+  const entries: Array<[string, unknown]> = []
+  const seenKeys = new Set<string>()
+  for (const [key, entry] of Object.entries(value)) {
+    const redactedKey = redactIdentifier(key, record)
+    if (seenKeys.has(redactedKey)) {
+      throw new Error('protected evidence redaction produced an ambiguous trace tag')
+    }
+    seenKeys.add(redactedKey)
+    entries.push([
+      redactedKey,
+      typeof entry === 'string'
+        ? redactIdentifier(entry, record)
+        : transformProtectedRecord(entry, key, record, redactScalar, redactIdentifier),
+    ])
+  }
+  return Object.fromEntries(entries)
+}
+
+function transformTagFilter(
+  value: object,
+  record: boolean,
+  redactScalar: <T>(value: T, record: boolean) => T,
+  redactIdentifier: (value: string, record: boolean) => string,
+): Record<string, unknown> {
+  const output: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    const redactedKey = redactScalar(key, record)
+    output[redactedKey] =
+      (key === 'key' || key === 'value') && typeof entry === 'string'
+        ? redactIdentifier(entry, record)
+        : transformProtectedRecord(entry, key, record, redactScalar, redactIdentifier)
+  }
+  return output
+}
+
+function isIdentifierFieldName(name: string): boolean {
+  return /ids?$/i.test(name)
 }
 
 function protectedRedactionRules(protectedValues: readonly string[]): RedactionRule[] {

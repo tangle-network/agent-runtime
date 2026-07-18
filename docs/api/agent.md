@@ -10,7 +10,7 @@
 
 ### AgentManifestError
 
-Defined in: [agent/define-agent.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L284)
+Defined in: [agent/define-agent.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L248)
 
 Thrown when `defineAgent` finds a required surface missing on disk.
 
@@ -24,7 +24,7 @@ Thrown when `defineAgent` finds a required surface missing on disk.
 
 > **new AgentManifestError**(`message`, `agentId`, `issues?`): [`AgentManifestError`](#agentmanifesterror)
 
-Defined in: [agent/define-agent.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L285)
+Defined in: [agent/define-agent.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L249)
 
 ###### Parameters
 
@@ -54,19 +54,19 @@ readonly `unknown`[] = `[]`
 
 > `readonly` **agentId**: `string`
 
-Defined in: [agent/define-agent.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L287)
+Defined in: [agent/define-agent.ts:251](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L251)
 
 ##### issues
 
 > `readonly` **issues**: readonly `unknown`[] = `[]`
 
-Defined in: [agent/define-agent.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L288)
+Defined in: [agent/define-agent.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L252)
 
 ## Interfaces
 
 ### AgentManifest
 
-Defined in: [agent/define-agent.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L38)
+Defined in: [agent/define-agent.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L35)
 
 The full agent manifest. Each agent ships ONE of these.
 
@@ -94,7 +94,7 @@ Generics:
 
 > **id**: `string`
 
-Defined in: [agent/define-agent.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L45)
+Defined in: [agent/define-agent.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L42)
 
 Stable identifier — used as `projectId` in traces, as the analyst
 loop's `runId` prefix, and as the namespace under which findings
@@ -105,7 +105,7 @@ cross-repo telemetry joinable.
 
 > **repoRoot**: `string`
 
-Defined in: [agent/define-agent.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L53)
+Defined in: [agent/define-agent.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L50)
 
 Filesystem root the substrate resolves surface paths against.
 Typically `process.cwd()` or a fixed absolute path. Use an
@@ -116,7 +116,7 @@ absolute path when the agent's tests may run from subdirectories
 
 > **surfaces**: [`AgentSurfaces`](#agentsurfaces)
 
-Defined in: [agent/define-agent.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L64)
+Defined in: [agent/define-agent.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L61)
 
 Map of mutable surfaces the self-improvement loop can edit. See
 `AgentSurfaces` — required: `systemPrompt`, `tools`, `rubric`,
@@ -130,7 +130,7 @@ paths throw with the full list of offenders.
 
 > **rubric**: [`AgentRubric`](#agentrubric)\<`TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L71)
+Defined in: [agent/define-agent.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L68)
 
 Rubric the substrate uses to score each run. Dimensions × weights
 × judges. The substrate computes the weighted composite and
@@ -140,7 +140,7 @@ stamps it into the RunRecord.
 
 > **runtime**: [`AgentRuntime`](#agentruntime)\<`TPersona`, `TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L82)
+Defined in: [agent/define-agent.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L79)
 
 Runtime adapter — how the substrate INVOKES the agent against a
 persona. The `act` function takes a persona + a context (with the
@@ -154,7 +154,7 @@ substrate is intentionally thin around it.
 
 > **personas**: () => `Promise`\<readonly `TPersona`[]\>
 
-Defined in: [agent/define-agent.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L90)
+Defined in: [agent/define-agent.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L87)
 
 Persona discovery — the substrate loads personas via this function
 at eval start. Can read from `surfaces.personas`, an API, or be
@@ -169,7 +169,7 @@ persona ordering is preserved.
 
 > **analystKinds**: readonly `TraceAnalystKindSpec`[]
 
-Defined in: [agent/define-agent.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L100)
+Defined in: [agent/define-agent.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L97)
 
 Analyst kinds the substrate runs against each persona's trace.
 Defaults to `DEFAULT_TRACE_ANALYST_KINDS` from agent-eval. Per-agent
@@ -182,80 +182,16 @@ Empty array disables the loop — useful for `pnpm eval --no-analyst`.
 
 > **analyst**: [`AnalystConfig`](#analystconfig)
 
-Defined in: [agent/define-agent.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L106)
+Defined in: [agent/define-agent.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L103)
 
 Analyst LLM configuration. The substrate uses these for all four
 kinds (override per-kind via `analystKinds` if needed).
-
-##### lifecycles?
-
-> `optional` **lifecycles?**: readonly [`SurfaceLifecycle`](#surfacelifecycle)[]
-
-Defined in: [agent/define-agent.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L122)
-
-Declarative per-surface artifact-lifecycle config the closed loop reads.
-
-Each entry names a profile surface (`skill` / `tool` / `prompt` / `mcp` /
-`hook` / `subagent`) and supplies the `CandidateGenerator` that grows it +
-the `PromotionGate` (the held-back exam) that decides promotion. `runLifecycle`
-consumes these: it pools the generators, measures each candidate's marginal
-lift on the held-back split, gates it, and stores the winners in an
-`ArtifactRegistry` — then `composeProfile` folds the top-`k` active artifacts
-back into this agent's profile.
-
-Optional — agents that don't self-improve their profile omit it. An empty or
-absent map means "no lifecycle"; the manifest is otherwise unchanged.
-
-***
-
-### SurfaceLifecycle
-
-Defined in: [agent/define-agent.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L130)
-
-One profile surface's artifact-lifecycle wiring — the declarative config a
-`defineAgent` manifest carries and `runLifecycle` reads. It is config, not
-execution: it names the generator + gate; the loop runs them.
-
-#### Properties
-
-##### surface
-
-> **surface**: [`ArtifactKind`](lifecycle.md#artifactkind)
-
-Defined in: [agent/define-agent.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L132)
-
-The profile surface this lifecycle grows.
-
-##### generator
-
-> **generator**: [`CandidateGenerator`](lifecycle.md#candidategenerator)
-
-Defined in: [agent/define-agent.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L134)
-
-Produces fresh candidate artifacts for `surface` from the agent's history.
-
-##### gate
-
-> **gate**: [`PromotionGate`](lifecycle.md#promotiongate)
-
-Defined in: [agent/define-agent.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L136)
-
-The held-back exam that decides promotion of a measured candidate.
-
-##### composeK?
-
-> `optional` **composeK?**: `number`
-
-Defined in: [agent/define-agent.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L139)
-
-Top-`k` budget for `composeProfile` when folding this surface's promoted
- artifacts back in. Omit to fold in every active artifact.
 
 ***
 
 ### AgentRubric
 
-Defined in: [agent/define-agent.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L142)
+Defined in: [agent/define-agent.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L106)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -277,7 +213,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **dimensions**: readonly [`RubricDimension`](#rubricdimension)\<`TRunOutput`\>[]
 
-Defined in: [agent/define-agent.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L144)
+Defined in: [agent/define-agent.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L108)
 
 Dimensions composing the weighted score. Weights sum to 1.0 by convention.
 
@@ -285,7 +221,7 @@ Dimensions composing the weighted score. Weights sum to 1.0 by convention.
 
 > `optional` **judges?**: readonly [`JudgeConfig`](#judgeconfig)\<`TRunOutput`\>[]
 
-Defined in: [agent/define-agent.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L150)
+Defined in: [agent/define-agent.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L114)
 
 Optional judges layered on top of deterministic dimensions. Each
 judge returns a score per dimension; the substrate averages judges
@@ -295,7 +231,7 @@ judge returns a score per dimension; the substrate averages judges
 
 ### RubricDimension
 
-Defined in: [agent/define-agent.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L153)
+Defined in: [agent/define-agent.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L117)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -317,7 +253,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **id**: `string`
 
-Defined in: [agent/define-agent.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L155)
+Defined in: [agent/define-agent.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L119)
 
 Unique identifier — appears in finding subjects (`rubric:<id>`).
 
@@ -325,7 +261,7 @@ Unique identifier — appears in finding subjects (`rubric:<id>`).
 
 > **weight**: `number`
 
-Defined in: [agent/define-agent.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L157)
+Defined in: [agent/define-agent.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L121)
 
 0..1 — weight in the composite.
 
@@ -333,7 +269,7 @@ Defined in: [agent/define-agent.ts:157](https://github.com/tangle-network/agent-
 
 > **score**: (`input`) => `number`
 
-Defined in: [agent/define-agent.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L163)
+Defined in: [agent/define-agent.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L127)
 
 Deterministic scorer: given the persona + run output, returns a
 0..1 score. The substrate sums weight × score across dimensions
@@ -359,7 +295,7 @@ for the deterministic composite; judges supplement subjective dims.
 
 > `optional` **label?**: `string`
 
-Defined in: [agent/define-agent.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L165)
+Defined in: [agent/define-agent.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L129)
 
 Optional human-readable label for reports.
 
@@ -367,7 +303,7 @@ Optional human-readable label for reports.
 
 ### JudgeConfig
 
-Defined in: [agent/define-agent.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L168)
+Defined in: [agent/define-agent.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L132)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -389,7 +325,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **id**: `string`
 
-Defined in: [agent/define-agent.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L170)
+Defined in: [agent/define-agent.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L134)
 
 Judge identifier — appears in trace spans + manifest.
 
@@ -397,7 +333,7 @@ Judge identifier — appears in trace spans + manifest.
 
 > **model**: `string`
 
-Defined in: [agent/define-agent.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L172)
+Defined in: [agent/define-agent.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L136)
 
 Model snapshot to invoke. Pin the snapshot (`claude-sonnet-4-6@2025-04-15`); the validator rejects bare aliases.
 
@@ -405,7 +341,7 @@ Model snapshot to invoke. Pin the snapshot (`claude-sonnet-4-6@2025-04-15`); the
 
 > **dimensions**: readonly `string`[]
 
-Defined in: [agent/define-agent.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L174)
+Defined in: [agent/define-agent.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L138)
 
 Dimensions this judge scores.
 
@@ -413,7 +349,7 @@ Dimensions this judge scores.
 
 > `optional` **anchors?**: readonly `object`[]
 
-Defined in: [agent/define-agent.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L180)
+Defined in: [agent/define-agent.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L144)
 
 Optional rubric anchors — text examples the judge sees as a
 few-shot prompt to calibrate. STRONGLY recommended for subjective
@@ -423,7 +359,7 @@ dimensions; required by the calibration gate (Pearson ≥0.7).
 
 ### AgentRuntime
 
-Defined in: [agent/define-agent.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L183)
+Defined in: [agent/define-agent.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L147)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -449,7 +385,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **act**: (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L208)
+Defined in: [agent/define-agent.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L172)
 
 Invoke the agent against one persona. Returns BOTH:
   - `events`: an `AsyncIterable<RuntimeStreamEvent>` the chat-centric
@@ -492,7 +428,7 @@ cancel. `ctx.signal` is the standard abort signal.
 
 ### AgentRunInvocation
 
-Defined in: [agent/define-agent.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L211)
+Defined in: [agent/define-agent.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L175)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -514,7 +450,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **events**: `AsyncIterable`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
 
-Defined in: [agent/define-agent.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L213)
+Defined in: [agent/define-agent.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L177)
 
 Live stream of typed runtime events. Consumed by chat UX directly.
 
@@ -522,7 +458,7 @@ Live stream of typed runtime events. Consumed by chat UX directly.
 
 > **output**: `Promise`\<`TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L215)
+Defined in: [agent/define-agent.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L179)
 
 Final structured output the rubric scores. Resolves after `events` drains.
 
@@ -530,7 +466,7 @@ Final structured output the rubric scores. Resolves after `events` drains.
 
 ### AgentRunContext
 
-Defined in: [agent/define-agent.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L255)
+Defined in: [agent/define-agent.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L219)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -546,7 +482,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **emitter**: `TraceEmitter`
 
-Defined in: [agent/define-agent.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L257)
+Defined in: [agent/define-agent.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L221)
 
 Substrate-managed trace emitter.
 
@@ -554,7 +490,7 @@ Substrate-managed trace emitter.
 
 > **runId**: `string`
 
-Defined in: [agent/define-agent.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L259)
+Defined in: [agent/define-agent.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L223)
 
 Stable run id for this persona × variant cell.
 
@@ -562,7 +498,7 @@ Stable run id for this persona × variant cell.
 
 > `optional` **variantId?**: `string`
 
-Defined in: [agent/define-agent.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L261)
+Defined in: [agent/define-agent.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L225)
 
 Variant the runtime is exercising (e.g. `'baseline'`, `'source-grounded'`).
 
@@ -570,7 +506,7 @@ Variant the runtime is exercising (e.g. `'baseline'`, `'source-grounded'`).
 
 > `optional` **deadlineMs?**: `number`
 
-Defined in: [agent/define-agent.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L263)
+Defined in: [agent/define-agent.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L227)
 
 Wall-clock deadline (epoch ms). The runtime SHOULD honour for graceful cancel.
 
@@ -578,7 +514,7 @@ Wall-clock deadline (epoch ms). The runtime SHOULD honour for graceful cancel.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [agent/define-agent.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L265)
+Defined in: [agent/define-agent.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L229)
 
 Optional abort signal.
 
@@ -586,7 +522,7 @@ Optional abort signal.
 
 ### AnalystConfig
 
-Defined in: [agent/define-agent.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L268)
+Defined in: [agent/define-agent.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L232)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -602,7 +538,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **model**: `string`
 
-Defined in: [agent/define-agent.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L270)
+Defined in: [agent/define-agent.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L234)
 
 Model the analyst kinds use. Override per-kind via `analystKinds[i].cost.models`.
 
@@ -610,7 +546,7 @@ Model the analyst kinds use. Override per-kind via `analystKinds[i].cost.models`
 
 > `optional` **budgetUsd?**: `number`
 
-Defined in: [agent/define-agent.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L272)
+Defined in: [agent/define-agent.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L236)
 
 Optional total budget across all kinds for one run. Substrate enforces via `BudgetGuard`.
 
@@ -618,7 +554,7 @@ Optional total budget across all kinds for one run. Substrate enforces via `Budg
 
 > `optional` **backend?**: `object`
 
-Defined in: [agent/define-agent.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L274)
+Defined in: [agent/define-agent.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L238)
 
 Backend hint for the AxAIService factory — same shape every kind uses.
 
@@ -638,7 +574,7 @@ Backend hint for the AxAIService factory — same shape every kind uses.
 
 ### SurfaceImprovementEdit
 
-Defined in: [agent/improvement-adapter.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L43)
+Defined in: [agent/improvement-adapter.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L35)
 
 #### Properties
 
@@ -646,7 +582,7 @@ Defined in: [agent/improvement-adapter.ts:43](https://github.com/tangle-network/
 
 > **id**: `string`
 
-Defined in: [agent/improvement-adapter.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L45)
+Defined in: [agent/improvement-adapter.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L37)
 
 Stable id derived from the source finding so re-proposals are idempotent.
 
@@ -654,7 +590,7 @@ Stable id derived from the source finding so re-proposals are idempotent.
 
 > **sourceFindingId**: `string`
 
-Defined in: [agent/improvement-adapter.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L47)
+Defined in: [agent/improvement-adapter.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L39)
 
 The finding that produced this edit — for revert + audit trail.
 
@@ -662,7 +598,7 @@ The finding that produced this edit — for revert + audit trail.
 
 > **subject**: `FindingSubject`
 
-Defined in: [agent/improvement-adapter.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L49)
+Defined in: [agent/improvement-adapter.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L41)
 
 Parsed subject; included so the apply step doesn't re-parse.
 
@@ -670,7 +606,7 @@ Parsed subject; included so the apply step doesn't re-parse.
 
 > **target**: [`ResolvedSurface`](#resolvedsurface)
 
-Defined in: [agent/improvement-adapter.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L51)
+Defined in: [agent/improvement-adapter.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L43)
 
 Resolved on-disk target.
 
@@ -678,7 +614,7 @@ Resolved on-disk target.
 
 > **baseSha256**: `string`
 
-Defined in: [agent/improvement-adapter.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L53)
+Defined in: [agent/improvement-adapter.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L45)
 
 SHA-256 of the current file content the patch was drafted against.
 
@@ -686,7 +622,7 @@ SHA-256 of the current file content the patch was drafted against.
 
 > **patch**: `string`
 
-Defined in: [agent/improvement-adapter.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L55)
+Defined in: [agent/improvement-adapter.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L47)
 
 Unified-diff patch the LLM drafted (relative to `target.absolutePath`).
 
@@ -694,7 +630,7 @@ Unified-diff patch the LLM drafted (relative to `target.absolutePath`).
 
 > **summary**: `string`
 
-Defined in: [agent/improvement-adapter.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L57)
+Defined in: [agent/improvement-adapter.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L49)
 
 One-line summary the operator sees in the report / PR title.
 
@@ -702,7 +638,7 @@ One-line summary the operator sees in the report / PR title.
 
 > **rationale**: `string`
 
-Defined in: [agent/improvement-adapter.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L59)
+Defined in: [agent/improvement-adapter.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L51)
 
 Multi-line rationale for the PR body — finding context + LLM reasoning.
 
@@ -710,7 +646,7 @@ Multi-line rationale for the PR body — finding context + LLM reasoning.
 
 > **confidence**: `number`
 
-Defined in: [agent/improvement-adapter.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L61)
+Defined in: [agent/improvement-adapter.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L53)
 
 Carry-forward from the finding so the apply gate can check the threshold.
 
@@ -718,15 +654,15 @@ Carry-forward from the finding so the apply gate can check the threshold.
 
 > **severity**: `AnalystSeverity`
 
-Defined in: [agent/improvement-adapter.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L63)
+Defined in: [agent/improvement-adapter.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L55)
 
 Carry-forward severity for prioritization.
 
 ***
 
-### CreateSurfaceImprovementAdapterOpts
+### CreateSurfaceImprovementProposerOptions
 
-Defined in: [agent/improvement-adapter.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L66)
+Defined in: [agent/improvement-adapter.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L58)
 
 #### Properties
 
@@ -734,19 +670,19 @@ Defined in: [agent/improvement-adapter.ts:66](https://github.com/tangle-network/
 
 > **surfaces**: [`AgentSurfaces`](#agentsurfaces)
 
-Defined in: [agent/improvement-adapter.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L67)
+Defined in: [agent/improvement-adapter.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L59)
 
 ##### repoRoot
 
 > **repoRoot**: `string`
 
-Defined in: [agent/improvement-adapter.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L68)
+Defined in: [agent/improvement-adapter.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L60)
 
 ##### draftPatch
 
 > **draftPatch**: (`input`) => `Promise`\<[`DraftPatchOutput`](#draftpatchoutput)\>
 
-Defined in: [agent/improvement-adapter.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L77)
+Defined in: [agent/improvement-adapter.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L69)
 
 LLM-draft callback. Given a finding + current file content + the
 resolved target, returns a unified-diff patch + summary + rationale.
@@ -765,42 +701,11 @@ substantive prompt rewrites, etc.) via this callback.
 
 `Promise`\<[`DraftPatchOutput`](#draftpatchoutput)\>
 
-##### mode?
-
-> `optional` **mode?**: `"none"` \| `"write"` \| `"open-pr"`
-
-Defined in: [agent/improvement-adapter.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L88)
-
-Apply mode:
-  `write` — `git apply` in-place; operator reviews via `git diff`
-  `open-pr` — branch + commit + push + `gh pr create`
-  `none` — never apply; collect proposals for the report only
-
-The `apply` method honours this even when the loop calls it; the
-effective behaviour is also gated on the per-finding confidence
-threshold via `runAnalystLoop`'s `autoApply` policy.
-
-##### baseBranch?
-
-> `optional` **baseBranch?**: `string`
-
-Defined in: [agent/improvement-adapter.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L90)
-
-When `mode === 'open-pr'`, the base branch new PRs target. Default: `main`.
-
-##### ghRepo?
-
-> `optional` **ghRepo?**: `string`
-
-Defined in: [agent/improvement-adapter.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L92)
-
-Required for `mode === 'open-pr'` — the GH owner/repo (`tangle-network/tax-agent`).
-
 ##### allowCreateForKinds?
 
-> `optional` **allowCreateForKinds?**: readonly (`"code"` \| `"mcp"` \| `"memory"` \| `"agent-profile"` \| `"skill"` \| `"hook"` \| `"subagent"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"tool-doc"` \| `"new-tool"` \| `"workflow"` \| `"rollout-policy"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
+> `optional` **allowCreateForKinds?**: readonly (`"code"` \| `"mcp"` \| `"memory"` \| `"agent-profile"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"skill"` \| `"tool-doc"` \| `"new-tool"` \| `"hook"` \| `"subagent"` \| `"workflow"` \| `"rollout-policy"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
 
-Defined in: [agent/improvement-adapter.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L100)
+Defined in: [agent/improvement-adapter.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L77)
 
 When the resolved target doesn't exist, allow the substrate to
 CREATE the file (for `knowledge.wiki`, `new-tool` subjects). Default
@@ -812,7 +717,7 @@ scaffolding opportunity).
 
 ### DraftPatchInput
 
-Defined in: [agent/improvement-adapter.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L103)
+Defined in: [agent/improvement-adapter.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L80)
 
 #### Properties
 
@@ -820,25 +725,25 @@ Defined in: [agent/improvement-adapter.ts:103](https://github.com/tangle-network
 
 > **finding**: `AnalystFinding`
 
-Defined in: [agent/improvement-adapter.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L104)
+Defined in: [agent/improvement-adapter.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L81)
 
 ##### subject
 
 > **subject**: `FindingSubject`
 
-Defined in: [agent/improvement-adapter.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L105)
+Defined in: [agent/improvement-adapter.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L82)
 
 ##### target
 
 > **target**: [`ResolvedSurface`](#resolvedsurface)
 
-Defined in: [agent/improvement-adapter.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L106)
+Defined in: [agent/improvement-adapter.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L83)
 
 ##### currentContent
 
 > **currentContent**: `string`
 
-Defined in: [agent/improvement-adapter.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L108)
+Defined in: [agent/improvement-adapter.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L85)
 
 Current file content (empty string when `intent === 'create-new'`).
 
@@ -846,7 +751,7 @@ Current file content (empty string when `intent === 'create-new'`).
 
 ### DraftPatchOutput
 
-Defined in: [agent/improvement-adapter.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L111)
+Defined in: [agent/improvement-adapter.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L88)
 
 #### Properties
 
@@ -854,7 +759,7 @@ Defined in: [agent/improvement-adapter.ts:111](https://github.com/tangle-network
 
 > **patch**: `string`
 
-Defined in: [agent/improvement-adapter.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L113)
+Defined in: [agent/improvement-adapter.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L90)
 
 Unified diff against the current file content. Empty string skips this finding.
 
@@ -862,7 +767,7 @@ Unified diff against the current file content. Empty string skips this finding.
 
 > **summary**: `string`
 
-Defined in: [agent/improvement-adapter.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L115)
+Defined in: [agent/improvement-adapter.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L92)
 
 One-line summary for the operator.
 
@@ -870,233 +775,9 @@ One-line summary for the operator.
 
 > **rationale**: `string`
 
-Defined in: [agent/improvement-adapter.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L117)
+Defined in: [agent/improvement-adapter.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L94)
 
 Multi-line rationale for the PR body.
-
-***
-
-### CreateSurfaceKnowledgeAdapterOpts
-
-Defined in: [agent/knowledge-adapter.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L21)
-
-#### Properties
-
-##### knowledgeRoot
-
-> **knowledgeRoot**: `string`
-
-Defined in: [agent/knowledge-adapter.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L23)
-
-`.agent-knowledge/` root (absolute path the substrate writes blocks against).
-
-***
-
-### KnowledgeAdapterDeps
-
-Defined in: [agent/knowledge-adapter.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L40)
-
-Build the adapter. We accept the agent-knowledge functions as DI so
-the substrate stays decoupled from a specific agent-knowledge
-version — the agent author imports them in their manifest module
-and hands them to the factory.
-
-`proposeFromFindings(findings)` returns
-  `{ proposals: KnowledgeProposal[]; skipped: number; errors: ... }`.
-
-`applyKnowledgeWriteBlocks(root, content)` returns
-  `{ written: string[]; warnings: string[] }`.
-
-`lintKnowledgeIndex(index)` (optional) returns `KnowledgeLintFinding[]`.
-
-#### Type Parameters
-
-##### TProposal
-
-`TProposal`
-
-#### Properties
-
-##### proposeFromFindings
-
-> **proposeFromFindings**: (`findings`) => `object`
-
-Defined in: [agent/knowledge-adapter.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L41)
-
-###### Parameters
-
-###### findings
-
-readonly `AnalystFinding`[]
-
-###### Returns
-
-`object`
-
-###### proposals
-
-> **proposals**: `TProposal`[]
-
-###### skipped
-
-> **skipped**: `number`
-
-###### errors
-
-> **errors**: `object`[]
-
-##### applyKnowledgeWriteBlocks
-
-> **applyKnowledgeWriteBlocks**: (`root`, `proposalText`) => `Promise`\<\{ `written`: `string`[]; `warnings`: `string`[]; \}\>
-
-Defined in: [agent/knowledge-adapter.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L46)
-
-###### Parameters
-
-###### root
-
-`string`
-
-###### proposalText
-
-`string`
-
-###### Returns
-
-`Promise`\<\{ `written`: `string`[]; `warnings`: `string`[]; \}\>
-
-##### lintAfterApply?
-
-> `optional` **lintAfterApply?**: (`root`) => `Promise`\<readonly `string`[]\>
-
-Defined in: [agent/knowledge-adapter.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L55)
-
-Optional post-apply lint hook. The substrate runs it after each
-batch of writes; failures land in `warnings` (the apply is not
-rolled back — lint signals drift to review, not block).
-
-###### Parameters
-
-###### root
-
-`string`
-
-###### Returns
-
-`Promise`\<readonly `string`[]\>
-
-***
-
-### OutcomeMeasurement
-
-Defined in: [agent/outcome.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L23)
-
-#### Properties
-
-##### baselineComposite
-
-> **baselineComposite**: `number`
-
-Defined in: [agent/outcome.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L25)
-
-Baseline composite before applies — captured from the most-recent eval run.
-
-##### afterComposite
-
-> **afterComposite**: `number`
-
-Defined in: [agent/outcome.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L27)
-
-Composite after re-running the cohort with applied edits.
-
-##### delta
-
-> **delta**: `number`
-
-Defined in: [agent/outcome.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L29)
-
-`afterComposite - baselineComposite`. Positive = the loop improved the agent.
-
-##### perPersona
-
-> **perPersona**: readonly `object`[]
-
-Defined in: [agent/outcome.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L31)
-
-Per-persona deltas for finer-grained review.
-
-##### rolledBackPaths
-
-> **rolledBackPaths**: readonly `string`[]
-
-Defined in: [agent/outcome.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L33)
-
-When the substrate rolled back applies due to regression, the paths reverted.
-
-***
-
-### OutcomeMeasurementOpts
-
-Defined in: [agent/outcome.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L36)
-
-#### Properties
-
-##### baseline
-
-> **baseline**: readonly `object`[]
-
-Defined in: [agent/outcome.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L38)
-
-Composite scores from the run that produced the findings.
-
-##### reRunCohort
-
-> **reRunCohort**: (`personaIds`) => `Promise`\<readonly `object`[]\>
-
-Defined in: [agent/outcome.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L47)
-
-Re-run callback — the substrate invokes this after applies. The
-agent author provides their `runAgentEval`-equivalent so the
-substrate can ask "score this persona slice now."
-
-The callback SHOULD reuse the same cohort + judges + variant as
-the baseline run; only the agent's mutable surfaces have changed.
-
-###### Parameters
-
-###### personaIds
-
-readonly `string`[]
-
-###### Returns
-
-`Promise`\<readonly `object`[]\>
-
-##### rollbackOnRegression?
-
-> `optional` **rollbackOnRegression?**: `boolean`
-
-Defined in: [agent/outcome.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L51)
-
-When `true`, applied edits are reverted on negative delta. Default `false`.
-
-##### revert?
-
-> `optional` **revert?**: (`paths`) => `Promise`\<`void`\>
-
-Defined in: [agent/outcome.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L53)
-
-Callback to revert a list of paths (typically `git checkout HEAD --`).
-
-###### Parameters
-
-###### paths
-
-readonly `string`[]
-
-###### Returns
-
-`Promise`\<`void`\>
 
 ***
 
@@ -1678,7 +1359,7 @@ Materialization contract for a run path that injects prompt text plus inline res
 
 > **unimplementedAgentRun**\<`TRunOutput`\>(`reason?`): [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L227)
+Defined in: [agent/define-agent.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L191)
 
 Stub for agents whose `runtime.act` is not yet wired to the substrate's
 eval path. Preserves the streaming contract (empty event stream + a
@@ -1710,7 +1391,7 @@ the eval path consumes the manifest end-to-end.
 
 > **collectAgentRun**\<`TRunOutput`\>(`invocation`): `Promise`\<\{ `events`: readonly [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]; `output`: `TRunOutput`; \}\>
 
-Defined in: [agent/define-agent.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L246)
+Defined in: [agent/define-agent.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L210)
 
 Drain `act`'s `events` into an array AND await its `output`. Useful for
 eval / outcome-measurement code paths that don't care about live
@@ -1743,7 +1424,7 @@ directly in the chat surface.
 
 > **defineAgent**\<`TPersona`, `TRunOutput`\>(`manifest`): [`AgentManifest`](#agentmanifest)\<`TPersona`, `TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L308)
+Defined in: [agent/define-agent.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L272)
 
 Construct a validated agent manifest. Throws `AgentManifestError`
 if any required surface is missing on disk.
@@ -1779,93 +1460,23 @@ the call site.
 
 ***
 
-### createSurfaceImprovementAdapter()
+### createSurfaceImprovementProposer()
 
-> **createSurfaceImprovementAdapter**(`opts`): [`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
+> **createSurfaceImprovementProposer**(`opts`): [`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
 
-Defined in: [agent/improvement-adapter.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L130)
+Defined in: [agent/improvement-adapter.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L107)
 
-The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR.
-
-#### Parameters
-
-##### opts
-
-[`CreateSurfaceImprovementAdapterOpts`](#createsurfaceimprovementadapteropts)
-
-#### Returns
-
-[`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
-
-***
-
-### createSurfaceKnowledgeAdapter()
-
-> **createSurfaceKnowledgeAdapter**\<`TProposal`\>(`opts`, `deps`): [`KnowledgeAdapter`](analyst-loop.md#knowledgeadapter)\<`TProposal`\>
-
-Defined in: [agent/knowledge-adapter.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L59)
-
-Wire a surface-based `KnowledgeAdapter` that writes analyst proposals to agent surface files.
-
-#### Type Parameters
-
-##### TProposal
-
-`TProposal`
+Resolve each finding to a real surface and draft a detached patch candidate.
 
 #### Parameters
 
 ##### opts
 
-[`CreateSurfaceKnowledgeAdapterOpts`](#createsurfaceknowledgeadapteropts)
-
-##### deps
-
-[`KnowledgeAdapterDeps`](#knowledgeadapterdeps)\<`TProposal`\>
+[`CreateSurfaceImprovementProposerOptions`](#createsurfaceimprovementproposeroptions)
 
 #### Returns
 
-[`KnowledgeAdapter`](analyst-loop.md#knowledgeadapter)\<`TProposal`\>
-
-***
-
-### measureOutcome()
-
-> **measureOutcome**\<`TProposal`, `TEdit`\>(`result`, `opts`): `Promise`\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\> & `object`\>
-
-Defined in: [agent/outcome.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L65)
-
-Run `runAnalystLoop` and stamp an `OutcomeMeasurement` onto the
-result. The substrate calls this after each canonical eval; the
-delta lands in `loop-report.json` for cross-run trend analysis.
-
-The function returns the original `RunAnalystLoopResult` enriched
-with `outcome` so callers stay backwards-compatible (the field is
-optional on the type; missing means no measurement was wired).
-
-#### Type Parameters
-
-##### TProposal
-
-`TProposal`
-
-##### TEdit
-
-`TEdit`
-
-#### Parameters
-
-##### result
-
-[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>
-
-##### opts
-
-[`OutcomeMeasurementOpts`](#outcomemeasurementopts)
-
-#### Returns
-
-`Promise`\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\> & `object`\>
+[`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
 
 ***
 

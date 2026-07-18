@@ -1,8 +1,8 @@
 # Watch an agent read its own run trace and propose a safe fix
 
 An agent finishes a run, a log of that run gets turned into concrete complaints ("the agent
-under-specifies its answer format"), and those complaints drive an automatic prompt rewrite that only
-ships if it beats the old prompt on held-back test cases. This example runs that whole chain end to
+under-specifies its answer format"), and those complaints drive a prompt candidate that must beat
+the old prompt on held-back test cases. This example runs that whole chain end to
 end on your laptop with **no API key and no network** — a scripted stand-in plays every part that
 would normally call a model, so you can see the shape of the loop before you wire real components in.
 
@@ -12,7 +12,7 @@ Most "self-improving agent" demos hand-write the feedback, which is the interest
 proves the missing link: feedback that is **derived from an actual recorded run** and carries a
 pointer back to the exact trace it came from, so every proposed change is traceable to evidence. And
 the rewrite is **gated** — it is compared against the current prompt on a set of scenarios held out
-from the ones used to generate it, so a change that only looks good on paper never ships.
+from the ones used to generate it, so a change that only looks good on paper is held.
 
 ## How it works
 
@@ -27,7 +27,8 @@ Three plain steps, all in `intelligence-recommend.ts`:
    analyst" agent writes these by reading the run; here two are hand-written so the demo needs no
    model.
 3. **Improve** — `improve(profile, findings, ...)` reads the findings and proposes a new system
-   prompt, then checks it on held-out scenarios and reports a ship/no-ship verdict. Here the proposer
+   prompt, then checks it on held-out scenarios and reports a decision. It does not change the live
+   profile. Here the proposer
    and judge are scripted and deterministic.
 
 ## See it work — no API key needed
@@ -41,8 +42,9 @@ Runs fully offline. You'll see roughly:
 ```
 trace recorded: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 findings derived: 2
-gated candidate: shipped=true gate=pass
-prompt after: <the rewritten system prompt>
+candidate decision: ship
+candidate prompt: <the rewritten system prompt>
+live prompt unchanged: BASELINE
 ```
 
 ## Files

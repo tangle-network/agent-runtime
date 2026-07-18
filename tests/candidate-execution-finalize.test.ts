@@ -130,6 +130,7 @@ async function finalizePrepared(
     state,
     capture,
     store,
+    execution.trace,
     settlement,
     {
       finalCapture,

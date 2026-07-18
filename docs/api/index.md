@@ -5930,77 +5930,23 @@ Test seam — inject the worktree-dirty check (defaults to `git status`).
 
 ### ImproveSkillsOptions
 
-Defined in: [improvement/improve.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L142)
+Defined in: [improvement/improve.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L138)
 
 #### Properties
 
-##### document
+##### resourceName
 
-> **document**: `string`
+> **resourceName**: `string`
 
-Defined in: [improvement/improve.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L144)
+Defined in: [improvement/improve.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L140)
 
-The skill document's current text — the baseline `skillOptProposer` patches.
-
-##### writeBack?
-
-> `optional` **writeBack?**: (`winnerDocument`) => `void` \| `Promise`\<`void`\>
-
-Defined in: [improvement/improve.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L148)
-
-Persist the shipped winner document (write the file the profile ref points at).
- Called only on a ship verdict. When omitted, the winner is still returned in
- `result.raw.winner.surface` for the caller to materialize.
-
-###### Parameters
-
-###### winnerDocument
-
-`string`
-
-###### Returns
-
-`void` \| `Promise`\<`void`\>
-
-***
-
-### ImproveMemoryOptions
-
-Defined in: [improvement/improve.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L151)
-
-#### Properties
-
-##### document
-
-> **document**: `string`
-
-Defined in: [improvement/improve.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L153)
-
-Current durable memory text used as the measured baseline.
-
-##### writeBack?
-
-> `optional` **writeBack?**: (`winnerDocument`) => `void` \| `Promise`\<`void`\>
-
-Defined in: [improvement/improve.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L155)
-
-Persist the promoted memory document. Never called on hold or error.
-
-###### Parameters
-
-###### winnerDocument
-
-`string`
-
-###### Returns
-
-`void` \| `Promise`\<`void`\>
+`name` of one inline entry in `profile.resources.skills`.
 
 ***
 
 ### ImproveCodeOptions
 
-Defined in: [improvement/improve.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L158)
+Defined in: [improvement/improve.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L143)
 
 #### Properties
 
@@ -6008,7 +5954,7 @@ Defined in: [improvement/improve.ts:158](https://github.com/tangle-network/agent
 
 > **repoRoot**: `string`
 
-Defined in: [improvement/improve.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L160)
+Defined in: [improvement/improve.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L145)
 
 Repo root candidate worktrees fork from.
 
@@ -6016,7 +5962,7 @@ Repo root candidate worktrees fork from.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [improvement/improve.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L162)
+Defined in: [improvement/improve.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L147)
 
 Base ref candidates fork from. Default `main`.
 
@@ -6024,7 +5970,7 @@ Base ref candidates fork from. Default `main`.
 
 > `optional` **worktreeDir?**: `string`
 
-Defined in: [improvement/improve.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L164)
+Defined in: [improvement/improve.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L149)
 
 Directory worktrees are created under. Default `<repoRoot>/.worktrees`.
 
@@ -6032,7 +5978,7 @@ Directory worktrees are created under. Default `<repoRoot>/.worktrees`.
 
 > `optional` **worktree?**: `WorktreeAdapter`
 
-Defined in: [improvement/improve.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L167)
+Defined in: [improvement/improve.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L152)
 
 Git-compatible adapter override, primarily for tests. Candidate advancement
  still requires normal Git worktree and commit semantics.
@@ -6041,7 +5987,7 @@ Git-compatible adapter override, primarily for tests. Candidate advancement
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [improvement/improve.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L169)
+Defined in: [improvement/improve.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L154)
 
 Coding harness the agentic generator runs in each worktree. Default `claude`.
 
@@ -6049,7 +5995,7 @@ Coding harness the agentic generator runs in each worktree. Default `claude`.
 
 > `optional` **verify?**: [`Verifier`](#verifier)
 
-Defined in: [improvement/improve.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L172)
+Defined in: [improvement/improve.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L157)
 
 Verify a candidate worktree before it becomes a measurable surface; failures
  feed the next shot (see `agenticGenerator.verify` / `commandVerifier`).
@@ -6058,7 +6004,7 @@ Verify a candidate worktree before it becomes a measurable surface; failures
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [improvement/improve.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L174)
+Defined in: [improvement/improve.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L159)
 
 Per-shot wall-clock timeout for the harness (ms).
 
@@ -6066,16 +6012,48 @@ Per-shot wall-clock timeout for the harness (ms).
 
 > `optional` **generator?**: [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/improve.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L177)
+Defined in: [improvement/improve.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L162)
 
 Byte-producer override — the test seam and the escape hatch for custom
  candidate production. When set, `harness`/`verify`/`timeoutMs` are unused.
 
 ***
 
+### ImprovementCandidate
+
+Defined in: [improvement/improve.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L165)
+
+#### Properties
+
+##### surface
+
+> **surface**: [`ImproveSurface`](#improvesurface)
+
+Defined in: [improvement/improve.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L167)
+
+Surface searched by this run.
+
+##### value
+
+> **value**: `MutableSurface`
+
+Defined in: [improvement/improve.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L169)
+
+Exact winning value returned by agent-eval.
+
+##### profile?
+
+> `optional` **profile?**: `AgentProfile`
+
+Defined in: [improvement/improve.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L171)
+
+Detached profile candidate when the surface maps directly to AgentProfile.
+
+***
+
 ### ImproveResult
 
-Defined in: [improvement/improve.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L180)
+Defined in: [improvement/improve.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L174)
 
 #### Type Parameters
 
@@ -6089,48 +6067,39 @@ Defined in: [improvement/improve.ts:180](https://github.com/tangle-network/agent
 
 #### Properties
 
-##### profile
+##### candidate
 
-> **profile**: `AgentProfile`
+> **candidate**: [`ImprovementCandidate`](#improvementcandidate)
 
-Defined in: [improvement/improve.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L183)
+Defined in: [improvement/improve.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L176)
 
-The profile after improvement: the winner surface applied back into the
- matching field when the gate shipped, else the input profile unchanged.
+Frozen candidate only. Live state is changed through an approved activation.
 
-##### shipped
+##### decision
 
-> **shipped**: `boolean`
+> **decision**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
 
-Defined in: [improvement/improve.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L185)
+Defined in: [improvement/improve.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L178)
 
-True when `gateDecision === 'ship'`.
+Held-out decision for this search result.
 
 ##### lift
 
 > **lift**: `number`
 
-Defined in: [improvement/improve.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L187)
+Defined in: [improvement/improve.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L180)
 
 Held-out lift (`winner − baseline` composite).
-
-##### gateDecision
-
-> **gateDecision**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
-
-Defined in: [improvement/improve.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L189)
-
-The five-valued gate verdict from `selfImprove`.
 
 ##### raw
 
 > **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
 
-Defined in: [improvement/improve.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L193)
+Defined in: [improvement/improve.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L184)
 
 Full `selfImprove` result for advanced inspection. For code runs,
  `raw.winner.surface.worktreeRef` remains live after return whether the
- candidate shipped or held; call `dispose()` after consuming it.
+ candidate passed or held; call `dispose()` after consuming it.
 
 #### Methods
 
@@ -6138,7 +6107,7 @@ Full `selfImprove` result for advanced inspection. For code runs,
 
 > **dispose**(): `Promise`\<`void`\>
 
-Defined in: [improvement/improve.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L196)
+Defined in: [improvement/improve.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L187)
 
 Release resources owned by this result. Idempotent; currently disposes
  the returned code worktree and is a no-op for profile-only surfaces.
@@ -6454,17 +6423,67 @@ Defined in: [improvement/reflective-generator.ts:21](https://github.com/tangle-n
 
 #### Properties
 
-##### improvementAdapter
+##### improvementProposalSource
 
-> **improvementAdapter**: [`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
+> **improvementProposalSource**: [`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
 
 Defined in: [improvement/reflective-generator.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/reflective-generator.ts#L22)
 
 ***
 
+### CreateKnowledgeImprovementActivationExecutorOptions
+
+Defined in: [knowledge/activation.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/activation.ts#L25)
+
+#### Extends
+
+- `Omit`\<`PromoteKnowledgeCandidateOptions`, `"root"` \| `"candidate"`\>
+
+#### Properties
+
+##### root
+
+> **root**: `string`
+
+Defined in: [knowledge/activation.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/activation.ts#L27)
+
+##### identity
+
+> **identity**: `string`
+
+Defined in: [knowledge/activation.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/activation.ts#L28)
+
+##### results
+
+> **results**: [`AgentImprovementActivationResultStore`](intelligence.md#agentimprovementactivationresultstore)
+
+Defined in: [knowledge/activation.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/activation.ts#L29)
+
+***
+
+### KnowledgeImprovementActivationExecutor
+
+Defined in: [knowledge/activation.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/activation.ts#L32)
+
+#### Properties
+
+##### transition
+
+> **transition**: [`AgentImprovementActivationTransition`](intelligence.md#agentimprovementactivationtransition)
+
+Defined in: [knowledge/activation.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/activation.ts#L33)
+
+##### reconcile
+
+> **reconcile**: [`AgentImprovementActivationReconciliation`](intelligence.md#agentimprovementactivationreconciliation)
+
+Defined in: [knowledge/activation.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/activation.ts#L34)
+
+***
+
 ### RunKnowledgeImprovementJobOptions
 
-Defined in: [knowledge/improvement-job.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L46)
+Defined in: [knowledge/improvement-job.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L40)
 
 #### Extends
 
@@ -6476,61 +6495,61 @@ Defined in: [knowledge/improvement-job.ts:46](https://github.com/tangle-network/
 
 > **budget**: [`Budget`](runtime.md#budget-12)
 
-Defined in: [knowledge/improvement-job.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L48)
+Defined in: [knowledge/improvement-job.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L42)
 
 ##### readinessCheck?
 
 > `optional` **readinessCheck?**: [`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
 
-Defined in: [knowledge/improvement-job.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L49)
+Defined in: [knowledge/improvement-job.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L43)
 
 ##### backend?
 
 > `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
 
-Defined in: [knowledge/improvement-job.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L50)
+Defined in: [knowledge/improvement-job.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L44)
 
 ##### makeWorkerAgent?
 
 > `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
-Defined in: [knowledge/improvement-job.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L51)
+Defined in: [knowledge/improvement-job.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L45)
 
 ##### harness?
 
 > `optional` **harness?**: `string`
 
-Defined in: [knowledge/improvement-job.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L52)
+Defined in: [knowledge/improvement-job.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L46)
 
 ##### supervisorModel?
 
 > `optional` **supervisorModel?**: `string`
 
-Defined in: [knowledge/improvement-job.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L53)
+Defined in: [knowledge/improvement-job.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L47)
 
 ##### supervisorSystemPrompt?
 
 > `optional` **supervisorSystemPrompt?**: `string`
 
-Defined in: [knowledge/improvement-job.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L54)
+Defined in: [knowledge/improvement-job.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L48)
 
 ##### superviseOptions?
 
 > `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"backend"` \| `"budget"` \| `"makeWorkerAgent"` \| `"deliverable"` \| `"allowedModels"`\>\>
 
-Defined in: [knowledge/improvement-job.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L55)
+Defined in: [knowledge/improvement-job.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L49)
 
 ##### allowedModels?
 
 > `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [knowledge/improvement-job.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L61)
+Defined in: [knowledge/improvement-job.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L55)
 
 ##### runSupervised?
 
 > `optional` **runSupervised?**: (`profile`, `task`, `opts`) => `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
 
-Defined in: [knowledge/improvement-job.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L62)
+Defined in: [knowledge/improvement-job.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L56)
 
 ###### Parameters
 
@@ -6554,19 +6573,13 @@ Defined in: [knowledge/improvement-job.ts:62](https://github.com/tangle-network/
 
 > `optional` **candidateArtifacts?**: [`AgentCandidateOutputArtifactPort`](#agentcandidateoutputartifactport)
 
-Defined in: [knowledge/improvement-job.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L67)
-
-##### approval?
-
-> `optional` **approval?**: [`ApprovedKnowledgeImprovementCandidate`](#approvedknowledgeimprovementcandidate)
-
-Defined in: [knowledge/improvement-job.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L68)
+Defined in: [knowledge/improvement-job.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L61)
 
 ##### onMeasurement?
 
 > `optional` **onMeasurement?**: (`measurement`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [knowledge/improvement-job.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L69)
+Defined in: [knowledge/improvement-job.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L62)
 
 ###### Parameters
 
@@ -6580,59 +6593,9 @@ Defined in: [knowledge/improvement-job.ts:69](https://github.com/tangle-network/
 
 ***
 
-### ApprovedKnowledgeImprovementCandidate
-
-Defined in: [knowledge/improvement-job.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L72)
-
-#### Properties
-
-##### proposal
-
-> **proposal**: `AgentImprovementProposal`
-
-Defined in: [knowledge/improvement-job.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L73)
-
-##### review
-
-> **review**: `AgentImprovementReview`
-
-Defined in: [knowledge/improvement-job.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L74)
-
-##### activation
-
-> **activation**: `AgentImprovementActivation`
-
-Defined in: [knowledge/improvement-job.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L75)
-
-##### authorizeActivation
-
-> **authorizeActivation**: (`activation`, `proposal`, `review`) => `boolean` \| `Promise`\<`boolean`\>
-
-Defined in: [knowledge/improvement-job.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L76)
-
-###### Parameters
-
-###### activation
-
-`AgentImprovementActivation`
-
-###### proposal
-
-`AgentImprovementProposal`
-
-###### review
-
-`AgentImprovementReview`
-
-###### Returns
-
-`boolean` \| `Promise`\<`boolean`\>
-
-***
-
 ### KnowledgeImprovementJobMeasurement
 
-Defined in: [knowledge/improvement-job.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L83)
+Defined in: [knowledge/improvement-job.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L65)
 
 #### Properties
 
@@ -6640,37 +6603,37 @@ Defined in: [knowledge/improvement-job.ts:83](https://github.com/tangle-network/
 
 > **startedAt**: `string`
 
-Defined in: [knowledge/improvement-job.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L84)
+Defined in: [knowledge/improvement-job.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L66)
 
 ##### finishedAt
 
 > **finishedAt**: `string`
 
-Defined in: [knowledge/improvement-job.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L85)
+Defined in: [knowledge/improvement-job.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L67)
 
 ##### durationMs
 
 > **durationMs**: `number`
 
-Defined in: [knowledge/improvement-job.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L86)
+Defined in: [knowledge/improvement-job.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L68)
 
 ##### updateCalls
 
 > **updateCalls**: `number`
 
-Defined in: [knowledge/improvement-job.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L87)
+Defined in: [knowledge/improvement-job.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L69)
 
 ##### updateDurationMs
 
 > **updateDurationMs**: `number`
 
-Defined in: [knowledge/improvement-job.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L88)
+Defined in: [knowledge/improvement-job.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L70)
 
 ##### supervisedSpent
 
 > **supervisedSpent**: `object`
 
-Defined in: [knowledge/improvement-job.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L89)
+Defined in: [knowledge/improvement-job.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L71)
 
 ###### iterations
 
@@ -6700,7 +6663,7 @@ Defined in: [knowledge/improvement-job.ts:89](https://github.com/tangle-network/
 
 ### KnowledgeImprovementJobResult
 
-Defined in: [knowledge/improvement-job.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L99)
+Defined in: [knowledge/improvement-job.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L81)
 
 #### Properties
 
@@ -6708,37 +6671,83 @@ Defined in: [knowledge/improvement-job.ts:99](https://github.com/tangle-network/
 
 > **improvement**: `KnowledgeImprovementResult`
 
-Defined in: [knowledge/improvement-job.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L100)
+Defined in: [knowledge/improvement-job.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L82)
 
-##### candidateKnowledge?
+##### knowledge?
 
-> `optional` **candidateKnowledge?**: `AgentCandidateKnowledge`
+> `optional` **knowledge?**: [`KnowledgeImprovementCandidatePair`](#knowledgeimprovementcandidatepair)
 
-Defined in: [knowledge/improvement-job.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L101)
+Defined in: [knowledge/improvement-job.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L83)
 
 ##### measurement
 
 > **measurement**: [`KnowledgeImprovementJobMeasurement`](#knowledgeimprovementjobmeasurement)
 
-Defined in: [knowledge/improvement-job.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L102)
-
-##### promoted
-
-> **promoted**: `boolean`
-
-Defined in: [knowledge/improvement-job.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L103)
+Defined in: [knowledge/improvement-job.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L84)
 
 ##### blocked
 
 > **blocked**: `boolean`
 
-Defined in: [knowledge/improvement-job.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L104)
+Defined in: [knowledge/improvement-job.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L85)
+
+***
+
+### KnowledgeImprovementCandidatePair
+
+Defined in: [knowledge/improvement-job.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L88)
+
+#### Properties
+
+##### reference
+
+> **reference**: `AgentCandidateKnowledgeRef`
+
+Defined in: [knowledge/improvement-job.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L89)
+
+##### evaluation
+
+> **evaluation**: `AgentCandidateCapturedArtifact`
+
+Defined in: [knowledge/improvement-job.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L90)
+
+##### baseline
+
+> **baseline**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+Defined in: [knowledge/improvement-job.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L91)
+
+##### candidate
+
+> **candidate**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+Defined in: [knowledge/improvement-job.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L92)
+
+***
+
+### KnowledgeImprovementExperimentBundles
+
+Defined in: [knowledge/improvement-job.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L95)
+
+#### Properties
+
+##### baseline
+
+> **baseline**: `AgentCandidateBundle`
+
+Defined in: [knowledge/improvement-job.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L96)
+
+##### candidate
+
+> **candidate**: `AgentCandidateBundle`
+
+Defined in: [knowledge/improvement-job.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L97)
 
 ***
 
 ### AgentKnowledgeReadinessCheckOptions
 
-Defined in: [knowledge/improvement-job.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L107)
+Defined in: [knowledge/improvement-job.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L100)
 
 #### Properties
 
@@ -6746,37 +6755,37 @@ Defined in: [knowledge/improvement-job.ts:107](https://github.com/tangle-network
 
 > **goal**: `string`
 
-Defined in: [knowledge/improvement-job.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L108)
+Defined in: [knowledge/improvement-job.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L101)
 
 ##### readinessSpecs?
 
 > `optional` **readinessSpecs?**: readonly `KnowledgeReadinessSpec`[]
 
-Defined in: [knowledge/improvement-job.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L109)
+Defined in: [knowledge/improvement-job.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L102)
 
 ##### readinessTaskId?
 
 > `optional` **readinessTaskId?**: `string`
 
-Defined in: [knowledge/improvement-job.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L110)
+Defined in: [knowledge/improvement-job.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L103)
 
 ##### readiness?
 
 > `optional` **readiness?**: `Omit`\<`BuildEvalKnowledgeBundleOptions`, `"taskId"` \| `"index"` \| `"specs"`\>
 
-Defined in: [knowledge/improvement-job.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L111)
+Defined in: [knowledge/improvement-job.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L104)
 
 ##### strict?
 
 > `optional` **strict?**: `boolean`
 
-Defined in: [knowledge/improvement-job.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L112)
+Defined in: [knowledge/improvement-job.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L105)
 
 ##### kbQuality?
 
 > `optional` **kbQuality?**: `KnowledgeBaseQualityOptions`
 
-Defined in: [knowledge/improvement-job.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L113)
+Defined in: [knowledge/improvement-job.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L106)
 
 ***
 
@@ -11160,7 +11169,7 @@ Worktree decision emitted before a completed shot is retried, accepted, or
 
 > **ImproveSurface** = `"prompt"` \| `"skills"` \| `"tools"` \| `"mcp"` \| `"hooks"` \| `"subagents"` \| `"agent-profile"` \| `"memory"` \| `"code"`
 
-Defined in: [improvement/improve.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L70)
+Defined in: [improvement/improve.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L75)
 
 The executable agent lever `improve` optimizes. Profile fields remain
  portable AgentProfile coordinates; implementation and orchestration files
@@ -11172,7 +11181,7 @@ The executable agent lever `improve` optimizes. Profile fields remain
 
 > **ImproveOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`SelfImproveOptions`\<`TScenario`, `TArtifact`\>, `"analyzeGeneration"` \| `"baselineSurface"` \| `"findings"` \| `"gate"` \| `"proposer"`\> & `object`
 
-Defined in: [improvement/improve.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L81)
+Defined in: [improvement/improve.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L86)
 
 #### Type Declaration
 
@@ -11249,20 +11258,7 @@ CODE-surface wiring: name `surface: 'code'`, point at a repo, and the
 
 > `optional` **skills?**: [`ImproveSkillsOptions`](#improveskillsoptions)
 
-SKILLS-surface wiring for real skill-DOCUMENT optimization. Without this,
- `surface: 'skills'` optimizes the profile's skills REFS array (file pointers)
- — which `skillOptProposer` (a document patcher) cannot meaningfully edit.
- Provide the document CONTENT to optimize + a `writeBack` to persist the
- shipped winner (the profile ref points at a file the caller owns). This is
- what makes skillOpt reachable through improve().
-
-##### memory?
-
-> `optional` **memory?**: [`ImproveMemoryOptions`](#improvememoryoptions)
-
-MEMORY-surface wiring for a curated durable memory document. The default
- deterministic proposer deduplicates and ranks lessons from findings, then
- replaces its managed block instead of growing memory without bound.
+Select the exact inline skill document to optimize.
 
 ##### promotionGate?
 
@@ -11866,7 +11862,7 @@ MUST map this to `RunRecord.error` rather than recording silent
 
 > `const` **CANDIDATE\_KNOWLEDGE\_ROOT\_ENV**: `"TANGLE_CANDIDATE_KNOWLEDGE_ROOT"` = `'TANGLE_CANDIDATE_KNOWLEDGE_ROOT'`
 
-Defined in: [candidate-execution/knowledge.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L14)
+Defined in: [candidate-execution/knowledge.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L17)
 
 Environment variable containing the materialized candidate knowledge root.
 
@@ -11876,7 +11872,7 @@ Environment variable containing the materialized candidate knowledge root.
 
 > `const` **CANDIDATE\_KNOWLEDGE\_RETRIEVAL\_CONFIG\_ENV**: `"TANGLE_CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG"` = `'TANGLE_CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG'`
 
-Defined in: [candidate-execution/knowledge.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L16)
+Defined in: [candidate-execution/knowledge.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L19)
 
 Environment variable containing the materialized retrieval configuration path.
 
@@ -12408,7 +12404,7 @@ Executes and finalizes one durably claimed candidate without exposing an unprove
 
 > **candidateKnowledgeExecutionPaths**(`taskRoot`, `hasRetrievalConfig`): `object`
 
-Defined in: [candidate-execution/knowledge.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L20)
+Defined in: [candidate-execution/knowledge.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/knowledge.ts#L23)
 
 Deterministic, signed locations used by every candidate executor.
 
@@ -13296,40 +13292,11 @@ Build the starting instruction for a coder agent tasked with implementing a new 
 
 ***
 
-### applyImprovementWinnerToProfile()
-
-> **applyImprovementWinnerToProfile**(`profile`, `surface`, `winner`): `AgentProfile`
-
-Defined in: [improvement/improve.ts:456](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L456)
-
-Apply a promoted winner surface back into the profile field for `surface`.
- Returns a shallow copy; never mutates the input profile.
-
-#### Parameters
-
-##### profile
-
-`AgentProfile`
-
-##### surface
-
-[`ImproveSurface`](#improvesurface)
-
-##### winner
-
-`MutableSurface`
-
-#### Returns
-
-`AgentProfile`
-
-***
-
 ### improve()
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:519](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L519)
+Defined in: [improvement/improve.ts:578](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L578)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 
@@ -13372,7 +13339,7 @@ Optimize the system prompt, default holdout gate:
     judge,
     agent: (surface, scenario, ctx) => runAgent(surface, scenario, ctx.signal),
   })
-  if (out.shipped) deploy(out.profile)
+  if (out.decision === 'ship') console.log(out.candidate)
 ```
 
 ***
@@ -13507,11 +13474,31 @@ Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edi
 
 ***
 
+### createKnowledgeImprovementActivationExecutor()
+
+> **createKnowledgeImprovementActivationExecutor**(`options`): [`KnowledgeImprovementActivationExecutor`](#knowledgeimprovementactivationexecutor)
+
+Defined in: [knowledge/activation.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/activation.ts#L38)
+
+Apply or restore one local knowledge candidate through the shared activation contract.
+
+#### Parameters
+
+##### options
+
+[`CreateKnowledgeImprovementActivationExecutorOptions`](#createknowledgeimprovementactivationexecutoroptions)
+
+#### Returns
+
+[`KnowledgeImprovementActivationExecutor`](#knowledgeimprovementactivationexecutor)
+
+***
+
 ### createAgentKnowledgeReadinessCheck()
 
 > **createAgentKnowledgeReadinessCheck**(`options`): [`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
 
-Defined in: [knowledge/improvement-job.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L117)
+Defined in: [knowledge/improvement-job.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L110)
 
 Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring.
 
@@ -13531,9 +13518,9 @@ Build the default readiness check backed by `@tangle-network/agent-knowledge` va
 
 > **runKnowledgeImprovementJob**(`options`): `Promise`\<[`KnowledgeImprovementJobResult`](#knowledgeimprovementjobresult)\>
 
-Defined in: [knowledge/improvement-job.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L148)
+Defined in: [knowledge/improvement-job.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L141)
 
-Produce a frozen KB candidate, and promote it only when an exact signed review is supplied.
+Produce a frozen KB candidate while leaving live knowledge content unchanged.
 
 #### Parameters
 
@@ -13544,6 +13531,30 @@ Produce a frozen KB candidate, and promote it only when an exact signed review i
 #### Returns
 
 `Promise`\<[`KnowledgeImprovementJobResult`](#knowledgeimprovementjobresult)\>
+
+***
+
+### buildKnowledgeImprovementExperimentBundles()
+
+> **buildKnowledgeImprovementExperimentBundles**(`bundle`, `knowledge`): [`KnowledgeImprovementExperimentBundles`](#knowledgeimprovementexperimentbundles)
+
+Defined in: [knowledge/improvement-job.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L229)
+
+Attach both frozen knowledge inputs to one otherwise-identical bundle pair.
+
+#### Parameters
+
+##### bundle
+
+`AgentCandidateBundle`
+
+##### knowledge
+
+[`KnowledgeImprovementCandidatePair`](#knowledgeimprovementcandidatepair)
+
+#### Returns
+
+[`KnowledgeImprovementExperimentBundles`](#knowledgeimprovementexperimentbundles)
 
 ***
 

@@ -7,13 +7,13 @@
  * loop by hand: WHICH `MutableSurface` of the profile is being optimized, and
  * WHICH `SurfaceProposer` mutates that surface. You name a `surface`; the
  * facade picks the matching default proposer, extracts the baseline surface from
- * the profile, runs `selfImprove`, and (on a ship verdict) writes the promoted
- * winner back into the corresponding profile field.
+ * the profile, and runs `selfImprove`. It returns a frozen candidate and never
+ * changes the input profile or caller-owned state.
  *
  *   - `surface: 'prompt'` → `gepaProposer` mutates `profile.prompt.systemPrompt`.
- *   - `surface: 'skills'` → `skillOptProposer` mutates a skills document string.
- *   - `surface: 'memory'` → `memoryCurationProposer` curates a bounded durable
- *     lesson document supplied through `opts.memory`.
+ *   - `surface: 'skills'` → `skillOptProposer` mutates one named inline skill.
+ *   - `surface: 'memory'` → `memoryCurationProposer` curates the profile's
+ *     additional instructions as bounded durable lessons.
  *   - `surface: 'agent-profile'` → caller-supplied proposer mutates the complete
  *     canonical AgentProfile JSON in one candidate.
  *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `subagents`, `agent-profile`} → no zero-config default
@@ -51,7 +51,12 @@ import {
   type SurfaceProposer,
   selfImprove,
 } from '@tangle-network/agent-eval/contract'
-import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type AgentProfileResourceRef,
+  agentProfileSchema,
+} from '@tangle-network/agent-interface'
+import { immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import type { LocalHarness } from '../mcp/local-harness'
 import { assertModelAllowed } from '../runtime/supervise/model-policy'
@@ -123,36 +128,16 @@ export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
    *  `opts.generator` is supplied. Required for every code run because a real
    *  repository and base ref are necessary to measure the incumbent. */
   code?: ImproveCodeOptions
-  /** SKILLS-surface wiring for real skill-DOCUMENT optimization. Without this,
-   *  `surface: 'skills'` optimizes the profile's skills REFS array (file pointers)
-   *  — which `skillOptProposer` (a document patcher) cannot meaningfully edit.
-   *  Provide the document CONTENT to optimize + a `writeBack` to persist the
-   *  shipped winner (the profile ref points at a file the caller owns). This is
-   *  what makes skillOpt reachable through improve(). */
+  /** Select the exact inline skill document to optimize. */
   skills?: ImproveSkillsOptions
-  /** MEMORY-surface wiring for a curated durable memory document. The default
-   *  deterministic proposer deduplicates and ranks lessons from findings, then
-   *  replaces its managed block instead of growing memory without bound. */
-  memory?: ImproveMemoryOptions
   /** Custom held-back-exam decision. The string `gate` above controls whether
    *  the exam runs; this callback controls how its evidence decides promotion. */
   promotionGate?: SelfImproveOptions<TScenario, TArtifact>['gate']
 }
 
 export interface ImproveSkillsOptions {
-  /** The skill document's current text — the baseline `skillOptProposer` patches. */
-  document: string
-  /** Persist the shipped winner document (write the file the profile ref points at).
-   *  Called only on a ship verdict. When omitted, the winner is still returned in
-   *  `result.raw.winner.surface` for the caller to materialize. */
-  writeBack?: (winnerDocument: string) => void | Promise<void>
-}
-
-export interface ImproveMemoryOptions {
-  /** Current durable memory text used as the measured baseline. */
-  document: string
-  /** Persist the promoted memory document. Never called on hold or error. */
-  writeBack?: (winnerDocument: string) => void | Promise<void>
+  /** `name` of one inline entry in `profile.resources.skills`. */
+  resourceName: string
 }
 
 export interface ImproveCodeOptions {
@@ -177,19 +162,25 @@ export interface ImproveCodeOptions {
   generator?: CandidateGenerator
 }
 
+export interface ImprovementCandidate {
+  /** Surface searched by this run. */
+  surface: ImproveSurface
+  /** Exact winning value returned by agent-eval. */
+  value: MutableSurface
+  /** Detached profile candidate when the surface maps directly to AgentProfile. */
+  profile?: AgentProfile
+}
+
 export interface ImproveResult<TScenario extends Scenario, TArtifact> {
-  /** The profile after improvement: the winner surface applied back into the
-   *  matching field when the gate shipped, else the input profile unchanged. */
-  profile: AgentProfile
-  /** True when `gateDecision === 'ship'`. */
-  shipped: boolean
+  /** Frozen candidate only. Live state is changed through an approved activation. */
+  candidate: ImprovementCandidate
+  /** Held-out decision for this search result. */
+  decision: SelfImproveResult<TScenario, TArtifact>['gateDecision']
   /** Held-out lift (`winner − baseline` composite). */
   lift: number
-  /** The five-valued gate verdict from `selfImprove`. */
-  gateDecision: SelfImproveResult<TScenario, TArtifact>['gateDecision']
   /** Full `selfImprove` result for advanced inspection. For code runs,
    *  `raw.winner.surface.worktreeRef` remains live after return whether the
-   *  candidate shipped or held; call `dispose()` after consuming it. */
+   *  candidate passed or held; call `dispose()` after consuming it. */
   raw: SelfImproveResult<TScenario, TArtifact>
   /** Release resources owned by this result. Idempotent; currently disposes
    *  the returned code worktree and is a no-op for profile-only surfaces. */
@@ -232,15 +223,12 @@ function baselineSurfaceFor(
   profile: AgentProfile,
   surface: ImproveSurface,
   skills?: ImproveSkillsOptions,
-  memory?: ImproveMemoryOptions,
 ): MutableSurface {
   switch (surface) {
     case 'prompt':
       return profile.prompt?.systemPrompt ?? ''
     case 'skills':
-      // With a document supplied, optimize its CONTENT (the real skillOpt path);
-      // otherwise fall back to the refs-array surface for back-compat.
-      return skills?.document ?? JSON.stringify(profile.resources?.skills ?? [])
+      return inlineSkill(profile, skills).content
     case 'tools':
       return JSON.stringify(profile.tools ?? {})
     case 'mcp':
@@ -252,10 +240,7 @@ function baselineSurfaceFor(
     case 'agent-profile':
       return canonicalJson(profile)
     case 'memory':
-      if (!memory) {
-        throw new ConfigError("improve(): surface 'memory' requires opts.memory.document")
-      }
-      return memory.document
+      return profileInstructions(profile)
     case 'code':
       throw new ConfigError(
         'improve(): code requires the isolated baseline created from opts.code.repoRoot',
@@ -436,44 +421,56 @@ function idempotentDispose(dispose: () => Promise<void>): () => Promise<void> {
   }
 }
 
-/** Parse a JSON winner surface (`tools`/`mcp`/`hooks`/`subagents`/`agent-profile`) with a typed,
- *  contextual error. A malformed generator output must fail loud here, not throw
- *  a raw `SyntaxError` to the caller after a ship verdict. */
+/** Parse a JSON winner surface with a typed, contextual error. */
 function parseWinnerJson<T>(winner: string, surface: ImproveSurface): T {
   try {
     return JSON.parse(winner) as T
   } catch (cause) {
     throw new ConfigError(
-      `improve(): the shipped '${surface}' winner is not valid JSON, so it cannot be applied back to the profile: ${
+      `improve(): the '${surface}' candidate is not valid JSON, so it cannot form a profile candidate: ${
         (cause as Error).message
       }`,
     )
   }
 }
 
-/** Apply a promoted winner surface back into the profile field for `surface`.
- *  Returns a shallow copy; never mutates the input profile. */
-export function applyImprovementWinnerToProfile(
+function assertCandidateSurfaceKind(
+  surface: ImproveSurface,
+  winner: MutableSurface,
+): asserts winner is MutableSurface {
+  if (surface === 'code' ? typeof winner === 'string' : typeof winner !== 'string') {
+    throw new ConfigError(
+      `improve(): the '${surface}' candidate returned an incompatible surface value`,
+    )
+  }
+}
+
+/** Materialize a detached profile candidate without changing the baseline. */
+function materializeImprovementProfileCandidate(
   profile: AgentProfile,
   surface: ImproveSurface,
   winner: MutableSurface,
-): AgentProfile {
-  // Only string surfaces map cleanly back onto a profile field. A `CodeSurface`
-  // winner (the `code` lever) is a worktree ref, not a profile value — the
-  // caller materializes it from `raw.winner.surface`; the returned profile is
-  // unchanged for that lever.
-  if (typeof winner !== 'string') return profile
+  skills?: ImproveSkillsOptions,
+): AgentProfile | undefined {
+  if (typeof winner !== 'string') return undefined
   let candidate: AgentProfile
   switch (surface) {
     case 'prompt':
       candidate = { ...profile, prompt: { ...profile.prompt, systemPrompt: winner } }
       break
-    case 'skills':
+    case 'skills': {
+      const selectedSkill = inlineSkill(profile, skills)
       candidate = {
         ...profile,
-        resources: { ...profile.resources, skills: parseWinnerJson(winner, surface) },
+        resources: {
+          ...profile.resources,
+          skills: profile.resources?.skills?.map((resource) =>
+            resource === selectedSkill ? { ...resource, content: winner } : resource,
+          ),
+        },
       }
       break
+    }
     case 'tools':
       candidate = { ...profile, tools: parseWinnerJson(winner, surface) }
       break
@@ -490,17 +487,79 @@ export function applyImprovementWinnerToProfile(
       candidate = parseWinnerJson(winner, surface)
       break
     case 'memory':
-      return profile
+      candidate = {
+        ...profile,
+        resources: {
+          ...profile.resources,
+          instructions: replaceProfileInstructions(profile, winner),
+        },
+      }
+      break
     case 'code':
-      return profile
+      return undefined
   }
   const parsed = agentProfileSchema.safeParse(candidate)
   if (!parsed.success) {
     throw new ConfigError(
-      `improve(): the shipped '${surface}' winner does not produce a valid AgentProfile: ${parsed.error.message}`,
+      `improve(): the '${surface}' candidate does not produce a valid AgentProfile: ${parsed.error.message}`,
     )
   }
-  return parsed.data
+  return immutableCandidateValue(parsed.data)
+}
+
+function inlineSkill(
+  profile: AgentProfile,
+  options: ImproveSkillsOptions | undefined,
+): Extract<AgentProfileResourceRef, { kind: 'inline' }> {
+  const resourceName = options?.resourceName.trim()
+  if (!resourceName) {
+    throw new ConfigError(
+      "improve(): surface 'skills' requires opts.skills.resourceName for one inline profile skill",
+    )
+  }
+  assertFailClosedResources(profile, 'skills')
+  const matches = (profile.resources?.skills ?? []).filter(
+    (resource) => resource.name === resourceName,
+  )
+  if (matches.length !== 1 || matches[0]?.kind !== 'inline') {
+    throw new ConfigError(
+      `improve(): skill '${resourceName}' must identify exactly one inline profile resource`,
+    )
+  }
+  return matches[0]
+}
+
+function profileInstructions(profile: AgentProfile): string {
+  assertFailClosedResources(profile, 'memory')
+  const instructions = profile.resources?.instructions
+  if (instructions === undefined) return ''
+  if (typeof instructions === 'string') return instructions
+  if (instructions.kind === 'inline') return instructions.content
+  throw new ConfigError(
+    "improve(): surface 'memory' requires inline profile instructions so candidate bytes are exact",
+  )
+}
+
+function replaceProfileInstructions(
+  profile: AgentProfile,
+  content: string,
+): string | AgentProfileResourceRef {
+  const instructions = profile.resources?.instructions
+  if (typeof instructions !== 'object') return content
+  if (instructions.kind !== 'inline') {
+    throw new ConfigError(
+      "improve(): surface 'memory' requires inline profile instructions so candidate bytes are exact",
+    )
+  }
+  return { ...instructions, content }
+}
+
+function assertFailClosedResources(profile: AgentProfile, surface: 'skills' | 'memory'): void {
+  if (profile.resources?.failOnError !== true) {
+    throw new ConfigError(
+      `improve(): surface '${surface}' requires profile.resources.failOnError: true`,
+    )
+  }
 }
 
 /**
@@ -514,7 +573,7 @@ export function applyImprovementWinnerToProfile(
  *     judge,
  *     agent: (surface, scenario, ctx) => runAgent(surface, scenario, ctx.signal),
  *   })
- *   if (out.shipped) deploy(out.profile)
+ *   if (out.decision === 'ship') console.log(out.candidate)
  */
 export async function improve<TScenario extends Scenario, TArtifact>(
   profile: AgentProfile,
@@ -529,7 +588,6 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     rawTraceContext,
     code,
     skills,
-    memory,
     promotionGate,
     analyzeGeneration,
     ...sharedOptions
@@ -540,14 +598,6 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     throw new ConfigError(
       `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
     )
-  }
-  if (surface === 'skills' && !generator && !skills) {
-    throw new ConfigError(
-      'improve(): the default skills optimizer requires opts.skills.document; pass the skill text or an explicit generator that understands resource refs',
-    )
-  }
-  if (surface === 'memory' && !memory) {
-    throw new ConfigError("improve(): surface 'memory' requires opts.memory.document")
   }
   if (surface === 'code' && generator) {
     throw new ConfigError(
@@ -584,7 +634,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     raw = await selfImprove<TScenario, TArtifact>({
       ...sharedOptions,
       baselineSurface:
-        preparedCode?.baseline ?? baselineSurfaceFor(profile, surface, skills, memory),
+        preparedCode?.baseline ?? baselineSurfaceFor(parsedProfile.data, surface, skills),
       proposer,
       budget,
       findings,
@@ -610,8 +660,8 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     )
   }
 
-  const shipped = raw.gateDecision === 'ship'
   const winnerSurface = raw.winner.surface
+  assertCandidateSurfaceKind(surface, winnerSurface)
   if (preparedCode) {
     try {
       await preparedCode.cleanup(winnerSurface)
@@ -631,29 +681,22 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     }
   }
   const dispose = idempotentDispose(async () => preparedCode?.cleanup())
-  // When a skill DOCUMENT was optimized, the winner is document text — persist it
-  // via writeBack (the profile ref points at the caller's file, unchanged) rather
-  // than parsing it as a refs array. Otherwise use the standard field write-back.
-  const externalDocument =
-    surface === 'skills' && skills ? skills : surface === 'memory' && memory ? memory : undefined
-  if (shipped && externalDocument) {
-    if (typeof winnerSurface !== 'string') {
-      throw new ConfigError(
-        `improve(): the shipped '${surface}' winner must be text before it can be persisted`,
-      )
-    }
-    await externalDocument.writeBack?.(winnerSurface)
-  }
-  const nextProfile =
-    shipped && !externalDocument
-      ? applyImprovementWinnerToProfile(profile, surface, winnerSurface)
-      : profile
+  const candidateProfile = materializeImprovementProfileCandidate(
+    parsedProfile.data,
+    surface,
+    winnerSurface,
+    skills,
+  )
+  const candidate = immutableCandidateValue<ImprovementCandidate>({
+    surface,
+    value: winnerSurface,
+    ...(candidateProfile ? { profile: candidateProfile } : {}),
+  })
 
   return {
-    profile: nextProfile,
-    shipped,
+    candidate,
+    decision: raw.gateDecision,
     lift: raw.lift,
-    gateDecision: raw.gateDecision,
     raw,
     dispose,
   }
