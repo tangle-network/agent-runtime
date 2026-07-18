@@ -496,15 +496,14 @@ describe('atomic prepared candidate execution', () => {
   })
 
   it('refuses activation when slow claim persistence consumed the execution window', async () => {
-    let now = Date.now()
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    vi.useFakeTimers({ now: Date.now() })
     const fixture = createCandidateExecutionFixture()
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
       fixture.task,
       fixture.ports,
     )
-    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
+    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => Date.now() })
     let activations = 0
     fixture.ports.models.activateGrant = async () => {
       activations++
@@ -513,7 +512,7 @@ describe('atomic prepared candidate execution', () => {
     const claimStore = {
       tryClaim: async (claim: Parameters<typeof baseStore.tryClaim>[0]) => {
         const result = await baseStore.tryClaim(claim)
-        now += fixture.task.task.limits.timeoutMs + 1
+        vi.setSystemTime(Date.now() + fixture.task.task.limits.timeoutMs + 1)
         return result
       },
       getAttempt: (attempt: Parameters<typeof baseStore.getAttempt>[0]) =>
@@ -555,8 +554,7 @@ describe('atomic prepared candidate execution', () => {
   })
 
   it('does not launch when phase persistence consumes the frozen execution window', async () => {
-    let now = 1_000_000
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    vi.useFakeTimers({ now: 1_000_000 })
     const fixture = createCandidateExecutionFixture()
     replaceCandidateFixtureTask(fixture, {
       limits: { ...fixture.task.task.limits, timeoutMs: 100 },
@@ -567,14 +565,14 @@ describe('atomic prepared candidate execution', () => {
       fixture.ports,
       { cleanupTimeoutMs: 25, resultTimeoutMs: 100 },
     )
-    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
+    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => Date.now() })
     const claimStore = {
       tryClaim: (claim: Parameters<typeof baseStore.tryClaim>[0]) => baseStore.tryClaim(claim),
       getAttempt: (attempt: Parameters<typeof baseStore.getAttempt>[0]) =>
         baseStore.getAttempt(attempt),
       markCandidateMayRun: async (lease: Parameters<typeof baseStore.markCandidateMayRun>[0]) => {
         const result = await baseStore.markCandidateMayRun(lease)
-        now += fixture.task.task.limits.timeoutMs
+        vi.setSystemTime(Date.now() + fixture.task.task.limits.timeoutMs)
         return result
       },
       stageTerminal: (
@@ -618,15 +616,15 @@ describe('atomic prepared candidate execution', () => {
   })
 
   it('publishes after every post-run phase consumes nearly its full reserved interval', async () => {
-    let now = 1_000_000
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    vi.useFakeTimers({ now: 1_000_000 })
+    const advanceClock = (durationMs: number) => vi.setSystemTime(Date.now() + durationMs)
     const cleanupTimeoutMs = 100
     const fixture = createCandidateExecutionFixture()
     replaceCandidateFixtureTask(fixture, {
       limits: { ...fixture.task.task.limits, timeoutMs: 1_000 },
     })
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
-      now += cleanupTimeoutMs - 1
+      advanceClock(cleanupTimeoutMs - 1)
       return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
     }
     const prepared = await prepareAgentCandidateExecution(
@@ -636,7 +634,7 @@ describe('atomic prepared candidate execution', () => {
       { cleanupTimeoutMs },
     )
     const traceStore = new InMemoryTraceStore()
-    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
+    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => Date.now() })
     const claimStore = {
       tryClaim: (claim: Parameters<typeof baseStore.tryClaim>[0]) => baseStore.tryClaim(claim),
       getAttempt: (attempt: Parameters<typeof baseStore.getAttempt>[0]) =>
@@ -647,14 +645,14 @@ describe('atomic prepared candidate execution', () => {
         lease: Parameters<typeof baseStore.stageTerminal>[0],
         terminal: Parameters<typeof baseStore.stageTerminal>[1],
       ) => {
-        now += 5_000
+        advanceClock(5_000)
         return await baseStore.stageTerminal(lease, terminal)
       },
       finish: async (
         lease: Parameters<typeof baseStore.finish>[0],
         terminalDigest: Parameters<typeof baseStore.finish>[1],
       ) => {
-        now += 4_999
+        advanceClock(4_999)
         return await baseStore.finish(lease, terminalDigest)
       },
       recoverExpired: (
@@ -669,7 +667,7 @@ describe('atomic prepared candidate execution', () => {
       put: async (input: Parameters<typeof outputs.outputArtifacts.put>[0]) => {
         if (input.purpose === 'model-settlement' && !advancedModelEvidence) {
           advancedModelEvidence = true
-          now += cleanupTimeoutMs - 1
+          advanceClock(cleanupTimeoutMs - 1)
         }
         return await outputs.outputArtifacts.put(input)
       },
@@ -677,12 +675,12 @@ describe('atomic prepared candidate execution', () => {
     const result = await executePreparedAgentCandidate(prepared, {
       executor: {
         execute: async (request, context) => {
-          now = context.deadlineAtMs - 1
+          vi.setSystemTime(context.deadlineAtMs - 1)
           await terminalTrace(request, traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
         stop: async () => {
-          now += cleanupTimeoutMs - 1
+          advanceClock(cleanupTimeoutMs - 1)
           return { stopped: true }
         },
         capture: async () => ({ taskOutcome: unchangedTaskOutcomeCapture(fixture) }),
@@ -690,7 +688,7 @@ describe('atomic prepared candidate execution', () => {
       grader: {
         ...outputs.grader,
         run: async (input) => {
-          now += cleanupTimeoutMs - 1
+          advanceClock(cleanupTimeoutMs - 1)
           return await outputs.grader.run(input)
         },
       },
@@ -700,10 +698,10 @@ describe('atomic prepared candidate execution', () => {
       cleanupTimeoutMs,
     })
 
-    expect(result.succeeded).toBe(true)
+    if (!result.succeeded) throw new Error(result.reason)
     const attempt = await baseStore.getAttempt({ executionId: prepared.executionId, attempt: 1 })
     expect(attempt?.terminal?.status).toBe('succeeded')
-    expect(now).toBeLessThanOrEqual(attempt?.claim.leaseExpiresAtMs ?? 0)
+    expect(Date.now()).toBeLessThanOrEqual(attempt?.claim.leaseExpiresAtMs ?? 0)
   })
 
   it('allows executable grading to exceed cleanup time inside its frozen result budget', async () => {
