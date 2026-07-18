@@ -149,43 +149,40 @@ try {
         CandidateExecutionEvidence,
         Sha256Digest,
       } from '@tangle-network/agent-interface'
-      import { SandboxClient } from '@tangle-network/sandbox'
       import { loadAgentImprovementProposalFixture } from '@tangle-network/agent-runtime/testing'
+      import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
       import {
-        createSandboxCandidateExperimentExecutor,
+        createExactProcessCandidateExperimentExecutor,
         agentImprovementProfileSurfaceDigest,
         agentImprovementProfileSurfaceInput,
         agentImprovementTargetProfileDiffs,
+        exactProcessCandidateExperimentExecutionSupport,
         isAgentImprovementProfileSurface,
         parseCandidateProfileMaterialization,
         prepareAgentImprovementProfileActivation,
-        sandboxCandidateExperimentExecutionSupport,
         verifyCandidateExecutionEvidence,
         type AgentImprovementActivationTransitionInput,
-        type CreateSandboxCandidateExperimentExecutorOptions,
-        type SandboxCandidateExperimentExecution,
+        type CreateExactProcessCandidateExperimentExecutorOptions,
+        type ExactProcessCandidateExperimentExecution,
         type VerifyCandidateExecutionEvidenceOptions,
       } from '@tangle-network/agent-runtime/intelligence'
 
-      const client = new SandboxClient({
-        apiKey: 'sk_sandbox_compile_only',
-        baseUrl: 'https://sandbox.example.com',
-        trustLocalCliAuth: false,
-      })
-      declare const ports: CreateSandboxCandidateExperimentExecutorOptions['ports']
-      declare const grader: CreateSandboxCandidateExperimentExecutorOptions['grader']
-      declare const outputArtifacts: CreateSandboxCandidateExperimentExecutorOptions['outputArtifacts']
-      declare const traceStore: CreateSandboxCandidateExperimentExecutorOptions['traceStore']
-      declare const claimStore: CreateSandboxCandidateExperimentExecutorOptions['claimStore']
-      declare const executionInput: SandboxCandidateExperimentExecution
+      declare const provider: AgentEnvironmentProvider
+      declare const ports: CreateExactProcessCandidateExperimentExecutorOptions['ports']
+      declare const grader: CreateExactProcessCandidateExperimentExecutorOptions['grader']
+      declare const outputArtifacts: CreateExactProcessCandidateExperimentExecutorOptions['outputArtifacts']
+      declare const traceStore: CreateExactProcessCandidateExperimentExecutorOptions['traceStore']
+      declare const claimStore: CreateExactProcessCandidateExperimentExecutorOptions['claimStore']
+      declare const executionInput: ExactProcessCandidateExperimentExecution
       declare const verification: VerifyCandidateExecutionEvidenceOptions
       declare const storedEvidence: unknown
       declare const transitionInput: AgentImprovementActivationTransitionInput
       declare const activeProfile: AgentProfile
       const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
 
-      const executor = createSandboxCandidateExperimentExecutor({
-        client,
+      const executor = createExactProcessCandidateExperimentExecutor({
+        provider,
+        resources: { cpu: 2, memoryMb: 2048, diskMb: 8192 },
         ports,
         grader,
         outputArtifacts,
@@ -199,7 +196,7 @@ try {
           evidence.materializationReceipt.profileActivation,
           evidence.materializationReceipt.profileActivation.profilePlan.digest,
         )
-      const outcome: 'output' = sandboxCandidateExperimentExecutionSupport.outcomes[0]
+      const outcome: 'output' = exactProcessCandidateExperimentExecutionSupport.outcomes[0]
       const desiredInput: unknown = transitionInput.targets[0].desiredInput
       const currentInput: unknown = agentImprovementProfileSurfaceInput(activeProfile, 'prompt')
       const currentDigest: Sha256Digest = agentImprovementProfileSurfaceDigest(
@@ -316,7 +313,7 @@ try {
           'composeCertifiedProfile',
           'manifestFromProfile',
           'CapabilityNotAdmittedError',
-          'createSandboxCandidateExperimentExecutor',
+          'createExactProcessCandidateExperimentExecutor',
           'agentImprovementProfileSurfaceDigest',
           'agentImprovementProfileSurfaceInput',
           'createAgentImprovementActivation',
@@ -328,7 +325,7 @@ try {
           'proposeAgentImprovement',
           'reviewAgentImprovementProposal',
           'runAgentCandidateExperiment',
-          'sandboxCandidateExperimentExecutionSupport',
+          'exactProcessCandidateExperimentExecutionSupport',
           'verifyAgentImprovementActivation',
           'verifyAgentImprovementActivationResult',
           'verifyCandidateExecutionEvidence',
@@ -401,6 +398,7 @@ try {
         const candidates = await import('@tangle-network/agent-runtime/candidate-execution')
         for (const name of [
           'buildAgentCandidateBundle',
+          'exactProcessProviderAsCandidateExecutor',
           'sealAgentCandidateBundle',
           'verifyAgentCandidateBundle',
         ]) {
