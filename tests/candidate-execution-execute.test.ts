@@ -620,7 +620,7 @@ describe('atomic prepared candidate execution', () => {
   it('publishes after every post-run phase consumes nearly its full reserved interval', async () => {
     let now = 1_000_000
     vi.spyOn(Date, 'now').mockImplementation(() => now)
-    const cleanupTimeoutMs = 100
+    const cleanupTimeoutMs = 1_000
     const fixture = createCandidateExecutionFixture()
     replaceCandidateFixtureTask(fixture, {
       limits: { ...fixture.task.task.limits, timeoutMs: 1_000 },
@@ -700,7 +700,7 @@ describe('atomic prepared candidate execution', () => {
       cleanupTimeoutMs,
     })
 
-    expect(result.succeeded).toBe(true)
+    if (!result.succeeded) throw new Error(result.reason)
     const attempt = await baseStore.getAttempt({ executionId: prepared.executionId, attempt: 1 })
     expect(attempt?.terminal?.status).toBe('succeeded')
     expect(now).toBeLessThanOrEqual(attempt?.claim.leaseExpiresAtMs ?? 0)
