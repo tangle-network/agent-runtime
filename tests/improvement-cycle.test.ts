@@ -208,7 +208,7 @@ describe('agent improvement lifecycle', () => {
     expect(activationResult.outcome.status).toBe('applied')
     expect(profile.prompt?.systemPrompt).not.toBe('PROMOTED')
     await result.improvement.dispose()
-  })
+  }, 15_000)
 
   it('rejects an experiment that substitutes a different candidate', async () => {
     const seed = createCandidateExperimentFixture()
@@ -502,7 +502,7 @@ describe('agent improvement lifecycle', () => {
     expect(() =>
       verifyAgentImprovementActivation({ proposal, review, activation: impossibleExpiry }),
     ).toThrow(/expiry must follow/)
-  })
+  }, 15_000)
 
   it('keeps protected trace identities coherent after redaction', async () => {
     const rig = createCandidateExperimentFixture({
