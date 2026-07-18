@@ -2,7 +2,7 @@
 
 ## 0.3.4
 
-- Publish the current benchmark suite against `@tangle-network/agent-runtime@0.96.2` and align its evaluation dependency with runtime and knowledge at `@tangle-network/agent-eval@0.122.8`.
+- Publish the current benchmark suite against `@tangle-network/agent-runtime@0.97.0` and align its evaluation dependency with runtime and knowledge at `@tangle-network/agent-eval@0.122.8`.
 
 ## 0.3.3
 

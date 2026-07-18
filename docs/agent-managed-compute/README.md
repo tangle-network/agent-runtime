@@ -93,7 +93,7 @@ This table tracks the existing documents that materially overlap this plan.
 | Authenticated remote coordination MCP | Not implemented | `src/runtime/supervise/coordination-mcp.ts` |
 | Concurrent coordinator failover | Not implemented | Current file stores have no compare-and-set or ownership claim. |
 | One simple multi-round public API | Not implemented | `runConversation`, `runPersonified`, `runAgentic`, and `runLoop` overlap. |
-| Acyclic runtime and knowledge packages | Implemented | `agent-knowledge` imports no runtime code; `src/knowledge/` owns the optional runtime composition; `package.json` aligns the direct release lines. |
+| Acyclic runtime and knowledge packages | Implemented | `agent-knowledge` imports no runtime code; `src/knowledge/` owns the optional runtime composition; direct release lines align, while transitive packages may retain internal copies. |
 
 ## Scope Boundaries
 
