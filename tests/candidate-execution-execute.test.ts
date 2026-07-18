@@ -618,15 +618,15 @@ describe('atomic prepared candidate execution', () => {
   })
 
   it('publishes after every post-run phase consumes nearly its full reserved interval', async () => {
-    let now = 1_000_000
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
-    const cleanupTimeoutMs = 1_000
+    vi.useFakeTimers({ now: 1_000_000 })
+    const advanceClock = (durationMs: number) => vi.setSystemTime(Date.now() + durationMs)
+    const cleanupTimeoutMs = 100
     const fixture = createCandidateExecutionFixture()
     replaceCandidateFixtureTask(fixture, {
       limits: { ...fixture.task.task.limits, timeoutMs: 1_000 },
     })
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
-      now += cleanupTimeoutMs - 1
+      advanceClock(cleanupTimeoutMs - 1)
       return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
     }
     const prepared = await prepareAgentCandidateExecution(
@@ -636,7 +636,7 @@ describe('atomic prepared candidate execution', () => {
       { cleanupTimeoutMs },
     )
     const traceStore = new InMemoryTraceStore()
-    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => now })
+    const baseStore = new InMemoryAgentCandidateExecutionClaimStore({ now: () => Date.now() })
     const claimStore = {
       tryClaim: (claim: Parameters<typeof baseStore.tryClaim>[0]) => baseStore.tryClaim(claim),
       getAttempt: (attempt: Parameters<typeof baseStore.getAttempt>[0]) =>
@@ -647,14 +647,14 @@ describe('atomic prepared candidate execution', () => {
         lease: Parameters<typeof baseStore.stageTerminal>[0],
         terminal: Parameters<typeof baseStore.stageTerminal>[1],
       ) => {
-        now += 5_000
+        advanceClock(5_000)
         return await baseStore.stageTerminal(lease, terminal)
       },
       finish: async (
         lease: Parameters<typeof baseStore.finish>[0],
         terminalDigest: Parameters<typeof baseStore.finish>[1],
       ) => {
-        now += 4_999
+        advanceClock(4_999)
         return await baseStore.finish(lease, terminalDigest)
       },
       recoverExpired: (
@@ -669,7 +669,7 @@ describe('atomic prepared candidate execution', () => {
       put: async (input: Parameters<typeof outputs.outputArtifacts.put>[0]) => {
         if (input.purpose === 'model-settlement' && !advancedModelEvidence) {
           advancedModelEvidence = true
-          now += cleanupTimeoutMs - 1
+          advanceClock(cleanupTimeoutMs - 1)
         }
         return await outputs.outputArtifacts.put(input)
       },
@@ -677,12 +677,12 @@ describe('atomic prepared candidate execution', () => {
     const result = await executePreparedAgentCandidate(prepared, {
       executor: {
         execute: async (request, context) => {
-          now = context.deadlineAtMs - 1
+          vi.setSystemTime(context.deadlineAtMs - 1)
           await terminalTrace(request, traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
         stop: async () => {
-          now += cleanupTimeoutMs - 1
+          advanceClock(cleanupTimeoutMs - 1)
           return { stopped: true }
         },
         capture: async () => ({ taskOutcome: unchangedTaskOutcomeCapture(fixture) }),
@@ -690,7 +690,7 @@ describe('atomic prepared candidate execution', () => {
       grader: {
         ...outputs.grader,
         run: async (input) => {
-          now += cleanupTimeoutMs - 1
+          advanceClock(cleanupTimeoutMs - 1)
           return await outputs.grader.run(input)
         },
       },
@@ -703,7 +703,7 @@ describe('atomic prepared candidate execution', () => {
     if (!result.succeeded) throw new Error(result.reason)
     const attempt = await baseStore.getAttempt({ executionId: prepared.executionId, attempt: 1 })
     expect(attempt?.terminal?.status).toBe('succeeded')
-    expect(now).toBeLessThanOrEqual(attempt?.claim.leaseExpiresAtMs ?? 0)
+    expect(Date.now()).toBeLessThanOrEqual(attempt?.claim.leaseExpiresAtMs ?? 0)
   })
 
   it('allows executable grading to exceed cleanup time inside its frozen result budget', async () => {
