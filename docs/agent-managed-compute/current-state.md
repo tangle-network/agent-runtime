@@ -2,9 +2,11 @@
 
 ## Tested Baseline
 
-The focused local suite passed 48 of 48 tests on 2026-07-15:
+On 2026-07-18, the release candidate passed all 148 runtime test files with 1,558 active tests and 2 skips, plus build, source and example type checks, packed-package verification, documentation checks, and all 25 agent-bench TypeScript files plus its Pier bridge.
 
-The baseline was `origin/main` at `2ccd40ce` with `agent-interface` 0.26.1, `agent-eval` 0.120.1, and `sandbox` 0.9.7 from the locked install.
+The tested package set was `agent-runtime` 0.97.0, `agent-knowledge` 4.1.0, `agent-eval` 0.122.8, `agent-interface` 0.31.0, and `sandbox` 0.11.1 from the locked install.
+
+The full suite includes these focused local coordination files:
 
 ```bash
 pnpm exec vitest run \
