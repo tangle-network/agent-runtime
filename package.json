@@ -159,7 +159,7 @@
     }
   },
   "dependencies": {
-    "@tangle-network/agent-knowledge": "^3.2.1",
+    "@tangle-network/agent-knowledge": "^4.0.0",
     "@tangle-network/agent-profile-materialize": "0.5.1",
     "tar-stream": "3.2.0"
   }
