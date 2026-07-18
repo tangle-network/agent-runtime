@@ -193,7 +193,7 @@ The provider tests prove adapter behavior with local fakes.
 
 There is no automated test that kills a coordinator, reconnects to a real remote session, rejects duplicate commands, and completes the same run.
 
-### 13. Package layering is fixed, but dependency versions are stale
+### 13. Package layering and direct release lines are aligned
 
 The current `agent-knowledge` main branch has no dependency or source import from `agent-runtime`.
 
@@ -201,13 +201,12 @@ The current `agent-knowledge` main branch has no dependency or source import fro
 
 That is the intended dependency direction and removes the former package cycle.
 
-The runtime manifest still pins `agent-knowledge` 1.12.1, `agent-eval` 0.120.1, `agent-interface` 0.26.1, and `sandbox` 0.9.7.
+The runtime manifest requires `agent-knowledge` `^4.1.0`, develops against `agent-eval` 0.122.8, and exposes matching peer ranges for `agent-eval`, `agent-interface`, and `sandbox`.
 
-The registry versions checked on 2026-07-15 were 3.0.0, 0.121.0, 0.28.0, and 0.10.5 respectively.
+Older copies may still appear inside transitive dependencies that own their contracts internally.
+The direct runtime edges share the current public contract versions.
 
-The old package lines should not be carried into the distributed state model.
-
-Upgrade them together, resolve contract changes once, and verify that the install contains one compatible version of each shared contract package.
+Future dependency changes must update the manifest, lockfile, compatibility tests, and generated API reference together.
 
 ## Decision
 
