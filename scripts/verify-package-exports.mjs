@@ -147,6 +147,8 @@ try {
       import { SandboxClient } from '@tangle-network/sandbox'
       import {
         createSandboxCandidateExperimentExecutor,
+        agentImprovementTargetProfileDiffs,
+        isAgentImprovementProfileSurface,
         parseCandidateProfileMaterialization,
         sandboxCandidateExperimentExecutionSupport,
         verifyCandidateExecutionEvidence,
@@ -188,10 +190,20 @@ try {
         )
       const outcome: 'output' = sandboxCandidateExperimentExecutionSupport.outcomes[0]
       const desiredInput: unknown = transitionInput.targets[0].desiredInput
+      const profileDiffs = isAgentImprovementProfileSurface(transitionInput.targets[0].surface)
+        ? agentImprovementTargetProfileDiffs(
+            {
+              surface: transitionInput.targets[0].surface,
+              desiredInput,
+            },
+            { id: transitionInput.activation.digest },
+          )
+        : []
       void execution
       void activation
       void outcome
       void desiredInput
+      void profileDiffs
     `,
   )
   run('pnpm', ['install', '--config.auto-install-peers=false'], appDir)
