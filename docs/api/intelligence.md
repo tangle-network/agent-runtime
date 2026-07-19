@@ -185,7 +185,7 @@ Independent evaluator-gateway usage, even when execution or trace capture failed
 
 ### CreateAgentImprovementActivationResultOptions
 
-Defined in: [intelligence/activation.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L28)
+Defined in: [intelligence/activation.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L29)
 
 #### Properties
 
@@ -193,19 +193,19 @@ Defined in: [intelligence/activation.ts:28](https://github.com/tangle-network/ag
 
 > **completedAt**: `string`
 
-Defined in: [intelligence/activation.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L29)
+Defined in: [intelligence/activation.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L30)
 
 ##### outcome
 
 > **outcome**: `AgentImprovementActivationOutcome`
 
-Defined in: [intelligence/activation.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L30)
+Defined in: [intelligence/activation.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L31)
 
 ***
 
 ### AgentImprovementActivationTargetPlan
 
-Defined in: [intelligence/activation.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L33)
+Defined in: [intelligence/activation.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L34)
 
 #### Extends
 
@@ -217,13 +217,23 @@ Defined in: [intelligence/activation.ts:33](https://github.com/tangle-network/ag
 
 > **desiredDigest**: `` `sha256:${string}` ``
 
-Defined in: [intelligence/activation.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L34)
+Defined in: [intelligence/activation.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L35)
+
+##### desiredInput
+
+> **desiredInput**: `unknown`
+
+Defined in: [intelligence/activation.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L41)
+
+Exact measured input the product must apply to reach `desiredDigest`.
+Transition surfaces such as code and knowledge are applied operations, so
+their resulting state digest is not the digest of this input document.
 
 ***
 
 ### AgentImprovementActivationTransitionInput
 
-Defined in: [intelligence/activation.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L37)
+Defined in: [intelligence/activation.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L44)
 
 #### Properties
 
@@ -231,43 +241,43 @@ Defined in: [intelligence/activation.ts:37](https://github.com/tangle-network/ag
 
 > **activation**: `AgentImprovementActivation`
 
-Defined in: [intelligence/activation.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L38)
+Defined in: [intelligence/activation.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L45)
 
 ##### candidateBundle
 
 > **candidateBundle**: `AgentCandidateBundle`
 
-Defined in: [intelligence/activation.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L39)
+Defined in: [intelligence/activation.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L46)
 
 ##### bundle
 
 > **bundle**: `AgentCandidateBundle`
 
-Defined in: [intelligence/activation.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L40)
+Defined in: [intelligence/activation.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L47)
 
 ##### targets
 
 > **targets**: \[[`AgentImprovementActivationTargetPlan`](#agentimprovementactivationtargetplan), `...AgentImprovementActivationTargetPlan[]`\]
 
-Defined in: [intelligence/activation.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L41)
+Defined in: [intelligence/activation.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L48)
 
 ##### attemptedAt
 
 > **attemptedAt**: `string`
 
-Defined in: [intelligence/activation.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L42)
+Defined in: [intelligence/activation.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L49)
 
 ##### expired
 
 > **expired**: `boolean`
 
-Defined in: [intelligence/activation.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L43)
+Defined in: [intelligence/activation.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L50)
 
 ***
 
 ### AgentImprovementActivationResultStore
 
-Defined in: [intelligence/activation.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L46)
+Defined in: [intelligence/activation.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L53)
 
 #### Methods
 
@@ -275,7 +285,7 @@ Defined in: [intelligence/activation.ts:46](https://github.com/tangle-network/ag
 
 > **load**(`idempotencyKey`): `Promise`\<`unknown`\>
 
-Defined in: [intelligence/activation.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L47)
+Defined in: [intelligence/activation.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L54)
 
 ###### Parameters
 
@@ -291,7 +301,7 @@ Defined in: [intelligence/activation.ts:47](https://github.com/tangle-network/ag
 
 > **putIfAbsent**(`result`): `Promise`\<`unknown`\>
 
-Defined in: [intelligence/activation.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L48)
+Defined in: [intelligence/activation.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L55)
 
 ###### Parameters
 
@@ -307,7 +317,7 @@ Defined in: [intelligence/activation.ts:48](https://github.com/tangle-network/ag
 
 ### ExecuteAgentImprovementActivationInput
 
-Defined in: [intelligence/activation.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L73)
+Defined in: [intelligence/activation.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L80)
 
 #### Properties
 
@@ -315,25 +325,25 @@ Defined in: [intelligence/activation.ts:73](https://github.com/tangle-network/ag
 
 > **proposal**: `AgentImprovementProposal`
 
-Defined in: [intelligence/activation.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L74)
+Defined in: [intelligence/activation.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L81)
 
 ##### review
 
 > **review**: `AgentImprovementReview`
 
-Defined in: [intelligence/activation.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L75)
+Defined in: [intelligence/activation.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L82)
 
 ##### activation
 
 > **activation**: `AgentImprovementActivation`
 
-Defined in: [intelligence/activation.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L76)
+Defined in: [intelligence/activation.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L83)
 
 ***
 
 ### ExecuteAgentImprovementActivationOptions
 
-Defined in: [intelligence/activation.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L79)
+Defined in: [intelligence/activation.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L86)
 
 #### Properties
 
@@ -341,19 +351,19 @@ Defined in: [intelligence/activation.ts:79](https://github.com/tangle-network/ag
 
 > **transition**: [`AgentImprovementActivationTransition`](#agentimprovementactivationtransition)
 
-Defined in: [intelligence/activation.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L80)
+Defined in: [intelligence/activation.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L87)
 
 ##### reconcile?
 
 > `optional` **reconcile?**: [`AgentImprovementActivationReconciliation`](#agentimprovementactivationreconciliation)
 
-Defined in: [intelligence/activation.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L81)
+Defined in: [intelligence/activation.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L88)
 
 ##### now?
 
 > `optional` **now?**: () => `Date`
 
-Defined in: [intelligence/activation.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L82)
+Defined in: [intelligence/activation.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L89)
 
 ###### Returns
 
@@ -3626,7 +3636,7 @@ Notified when a refresh delivers a NEW set of promoted proposals (by
 
 > **AgentImprovementActivationTransition** = (`input`) => `Promise`\<`unknown`\>
 
-Defined in: [intelligence/activation.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L60)
+Defined in: [intelligence/activation.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L67)
 
 Product-owned or Runtime-composed transition.
 
@@ -3652,7 +3662,7 @@ function after authorization expires.
 
 > **AgentImprovementActivationReconciliation** = (`input`) => `Promise`\<`unknown` \| `undefined`\>
 
-Defined in: [intelligence/activation.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L69)
+Defined in: [intelligence/activation.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L76)
 
 Target-read-only check for a prior exact write.
 It may persist recovered result metadata, but must not change an activation target.
@@ -3967,7 +3977,7 @@ Parse and check every native file hash plus both canonical document digests.
 
 > **createAgentImprovementActivationResult**(`transition`, `options`): `AgentImprovementActivationResult`
 
-Defined in: [intelligence/activation.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L86)
+Defined in: [intelligence/activation.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L93)
 
 Create the exact result a product stores in the same transaction as its target write.
 
@@ -3991,7 +4001,7 @@ Create the exact result a product stores in the same transaction as its target w
 
 > **verifyAgentImprovementActivationResult**(`input`): `AgentImprovementActivationResult`
 
-Defined in: [intelligence/activation.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L117)
+Defined in: [intelligence/activation.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L124)
 
 Recompute one historical activation result against the exact measured proposal and authority.
 The result records that attempt; it is not a query of the target's current state.
@@ -4026,7 +4036,7 @@ The result records that attempt; it is not a query of the target's current state
 
 > **executeAgentImprovementActivation**(`input`, `options`): `Promise`\<`AgentImprovementActivationResult`\>
 
-Defined in: [intelligence/activation.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L135)
+Defined in: [intelligence/activation.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/activation.ts#L142)
 
 Validate and execute one product-owned activation transition.
 

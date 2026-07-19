@@ -32,7 +32,11 @@ import {
   verifyAgentImprovementReview,
   verifyCandidateExecutionEvidence,
 } from '../src/intelligence/improvement-cycle'
-import { deriveChangedSurfaces } from '../src/intelligence/improvement-surfaces'
+import {
+  agentImprovementTargetDigest,
+  agentImprovementTargetInput,
+  deriveChangedSurfaces,
+} from '../src/intelligence/improvement-surfaces'
 import {
   candidateBundle,
   candidateSha,
@@ -305,6 +309,11 @@ describe('agent improvement lifecycle', () => {
     })
     expect(() => deriveChangedSurfaces(baseline, substituted)).toThrow(
       /must share one measured candidate and evaluation identity/,
+    )
+    const experiment = createCandidateExperimentFixture({ baseline, candidate }).experiment
+    expect(agentImprovementTargetInput(candidate, 'knowledge')).toEqual(candidate.knowledge)
+    expect(agentImprovementTargetDigest(experiment, 'candidate', 'knowledge')).toBe(
+      reference.candidateHash,
     )
   })
 
@@ -678,6 +687,8 @@ describe('agent improvement lifecycle', () => {
       expect(input.candidateBundle.digest).toBe(approved.rig.experiment.candidate.digest)
       expect(input.bundle.digest).toBe(approved.rig.experiment.candidate.digest)
       expect(input.targets[0].desiredDigest).toBe(promptSurfaceDigest(approved.rig, 'candidate'))
+      expect(input.targets[0].desiredInput).toEqual(promptSurfaceInput(approved.rig, 'candidate'))
+      expect(Object.isFrozen(input.targets[0].desiredInput)).toBe(true)
       if (stored) return stored
       writes += 1
       stored = createAgentImprovementActivationResult(input, {
@@ -717,6 +728,36 @@ describe('agent improvement lifecycle', () => {
     expect(writes).toBe(1)
   })
 
+  it('rejects a substituted activation input', async () => {
+    const approved = await approvedPromptImprovement('activate-candidate')
+    const result = await executeAgentImprovementActivation(approved, {
+      transition: async (input) => {
+        const substituted = {
+          ...input,
+          targets: [
+            {
+              ...input.targets[0],
+              desiredInput: { prompt: { systemPrompt: 'SUBSTITUTED' } },
+            },
+          ],
+        } as typeof input
+        expect(() =>
+          createAgentImprovementActivationResult(substituted, {
+            completedAt: '2026-07-10T01:03:01.000Z',
+            outcome: { status: 'failed', code: 'TEST_ONLY', message: 'No write attempted.' },
+          }),
+        ).toThrow(/does not match its authorization/)
+        return createAgentImprovementActivationResult(input, {
+          completedAt: '2026-07-10T01:03:01.000Z',
+          outcome: { status: 'failed', code: 'TEST_ONLY', message: 'No write attempted.' },
+        })
+      },
+      now: () => new Date('2026-07-10T01:03:00.000Z'),
+    })
+
+    expect(result.outcome.status).toBe('failed')
+  })
+
   it('records stale target state without applying the candidate', async () => {
     const approved = await approvedPromptImprovement('activate-candidate')
     const result = await executeAgentImprovementActivation(approved, {
@@ -750,6 +791,7 @@ describe('agent improvement lifecycle', () => {
         expect(input.targets[0]).toMatchObject({
           expectedBaseDigest: promptSurfaceDigest(approved.rig, 'candidate'),
           desiredDigest: promptSurfaceDigest(approved.rig, 'baseline'),
+          desiredInput: promptSurfaceInput(approved.rig, 'baseline'),
         })
         return createAgentImprovementActivationResult(input, {
           completedAt: '2026-07-10T01:03:01.000Z',
@@ -935,8 +977,13 @@ function promptSurfaceDigest(
   rig: CandidateExperimentFixture,
   arm: 'baseline' | 'candidate' = 'baseline',
 ): `sha256:${string}` {
+  return canonicalCandidateDigest(promptSurfaceInput(rig, arm))
+}
+
+function promptSurfaceInput(
+  rig: CandidateExperimentFixture,
+  arm: 'baseline' | 'candidate' = 'baseline',
+): { prompt: unknown } {
   const profile = agentCandidateProfileAsAgentProfile(rig.experiment[arm].profile)
-  return canonicalCandidateDigest({
-    prompt: profile.prompt ?? null,
-  })
+  return { prompt: profile.prompt ?? null }
 }
