@@ -4,17 +4,191 @@ import {
   defineInlineResource,
 } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-
+import {
+  canonicalCandidateDigest,
+  embeddedCandidateArtifact,
+} from '../src/candidate-execution/digest'
 import { agentCandidateProfileAsAgentProfile } from '../src/candidate-execution/profile'
 import {
   AGENT_IMPROVEMENT_PROFILE_SURFACES,
+  type AgentImprovementProfileSurface,
+  agentImprovementProfileSurfaceDigest,
+  agentImprovementProfileSurfaceInput,
   agentImprovementTargetInput,
   agentImprovementTargetProfileDiffs,
   isAgentImprovementProfileSurface,
 } from '../src/intelligence/improvement-surfaces'
-import { candidateBundle } from './helpers/candidate-execution-fixture'
+import { candidateBundle, redigestCandidateBundle } from './helpers/candidate-execution-fixture'
 
 describe('agent improvement profile delivery', () => {
+  it('matches experiment inputs and digests for all six populated profile surfaces', () => {
+    const base = candidateBundle()
+    const skill = candidateInlineResource('measured.SKILL.md', 'Measured skill')
+    const tool = candidateInlineResource('read.tool.md', 'Use Read')
+    const agent = candidateInlineResource('reviewer.md', 'Review instructions')
+    const bundle = redigestCandidateBundle(base, {
+      profile: {
+        ...base.profile,
+        prompt: { systemPrompt: 'Measured prompt', instructions: ['Return citations'] },
+        tools: { Read: true },
+        mcp: {
+          docs: {
+            transport: 'stdio',
+            command: 'node',
+            args: [{ kind: 'public', value: 'docs-server.js' }],
+          },
+        },
+        hooks: {
+          Stop: [
+            {
+              executable: 'node',
+              args: [{ kind: 'public', value: 'check.mjs' }],
+              blocking: true,
+            },
+          ],
+        },
+        subagents: { reviewer: { prompt: 'Review the result' } },
+        resources: {
+          failOnError: true,
+          skills: [skill],
+          tools: [tool],
+          agents: [agent],
+        },
+      },
+    })
+    const measured = agentCandidateProfileAsAgentProfile(bundle.profile)
+    const profileWithUnrelatedFields: AgentProfile = {
+      ...measured,
+      name: 'different-product-name',
+      description: 'Ignored by profile-deliverable target state.',
+      metadata: { tenant: 'tenant-1' },
+      resources: {
+        ...measured.resources,
+        files: [
+          {
+            path: 'context.txt',
+            resource: defineInlineResource('context.txt', 'Unrelated file'),
+          },
+        ],
+        commands: [defineInlineResource('command.md', 'Unrelated command')],
+        instructions: 'Unrelated memory instructions',
+      },
+    }
+    const expectedInputs = {
+      prompt: { prompt: measured.prompt ?? null },
+      skills: measured.resources?.skills ?? null,
+      tools: {
+        tools: measured.tools ?? null,
+        resources: measured.resources?.tools ?? null,
+      },
+      mcp: measured.mcp ?? null,
+      hooks: measured.hooks ?? null,
+      subagents: {
+        subagents: measured.subagents ?? null,
+        resources: measured.resources?.agents ?? null,
+      },
+    } satisfies Record<AgentImprovementProfileSurface, unknown>
+
+    for (const surface of AGENT_IMPROVEMENT_PROFILE_SURFACES) {
+      const expected = agentImprovementTargetInput(bundle, surface)
+      expect(expected).toEqual(expectedInputs[surface])
+      expect(agentImprovementProfileSurfaceInput(profileWithUnrelatedFields, surface)).toEqual(
+        expected,
+      )
+      expect(agentImprovementProfileSurfaceDigest(profileWithUnrelatedFields, surface)).toBe(
+        canonicalCandidateDigest(expected),
+      )
+    }
+  })
+
+  it('matches all six null experiment inputs and produces removal-only diffs', () => {
+    const base = candidateBundle()
+    const { prompt: _prompt, ...profileWithoutMeasuredSurfaces } = base.profile
+    const bundle = redigestCandidateBundle(base, { profile: profileWithoutMeasuredSurfaces })
+    const measured: AgentProfile = {
+      ...agentCandidateProfileAsAgentProfile(bundle.profile),
+      description: 'Unrelated current profile state',
+      metadata: { tenant: 'tenant-1' },
+    }
+    const expectedInputs = {
+      prompt: { prompt: null },
+      skills: null,
+      tools: { tools: null, resources: null },
+      mcp: null,
+      hooks: null,
+      subagents: { subagents: null, resources: null },
+    } satisfies Record<AgentImprovementProfileSurface, unknown>
+
+    for (const surface of AGENT_IMPROVEMENT_PROFILE_SURFACES) {
+      const expected = agentImprovementTargetInput(bundle, surface)
+      expect(expected).toEqual(expectedInputs[surface])
+      const currentInput = agentImprovementProfileSurfaceInput(measured, surface)
+      expect(currentInput).toEqual(expected)
+      expect(agentImprovementProfileSurfaceDigest(measured, surface)).toBe(
+        canonicalCandidateDigest(expected),
+      )
+      expect(
+        agentImprovementTargetProfileDiffs(
+          { surface, desiredInput: currentInput },
+          { id: 'activation' },
+        ),
+      ).toHaveLength(1)
+    }
+  })
+
+  it('handles each independently absent tool and subagent slot', () => {
+    const toolResource = defineInlineResource('read.tool.md', 'Use Read')
+    const agentResource = defineInlineResource('reviewer.md', 'Review instructions')
+    const cases: readonly {
+      surface: AgentImprovementProfileSurface
+      profile: AgentProfile
+      expected: unknown
+    }[] = [
+      {
+        surface: 'tools',
+        profile: { name: 'tools-only', tools: { Read: true } },
+        expected: { tools: { Read: true }, resources: null },
+      },
+      {
+        surface: 'tools',
+        profile: { name: 'tool-resources-only', resources: { tools: [toolResource] } },
+        expected: { tools: null, resources: [toolResource] },
+      },
+      {
+        surface: 'subagents',
+        profile: { name: 'subagents-only', subagents: { reviewer: { prompt: 'Review' } } },
+        expected: { subagents: { reviewer: { prompt: 'Review' } }, resources: null },
+      },
+      {
+        surface: 'subagents',
+        profile: { name: 'agent-resources-only', resources: { agents: [agentResource] } },
+        expected: { subagents: null, resources: [agentResource] },
+      },
+    ]
+    const active: AgentProfile = {
+      name: 'active',
+      tools: { Bash: true },
+      subagents: { old: { prompt: 'Old prompt' } },
+      resources: {
+        tools: [defineInlineResource('old.tool.md', 'Old tool')],
+        agents: [defineInlineResource('old-agent.md', 'Old agent')],
+      },
+    }
+
+    for (const entry of cases) {
+      const currentInput = agentImprovementProfileSurfaceInput(entry.profile, entry.surface)
+      expect(currentInput).toEqual(entry.expected)
+      expect(agentImprovementProfileSurfaceDigest(entry.profile, entry.surface)).toBe(
+        canonicalCandidateDigest(entry.expected),
+      )
+      const applied = agentImprovementTargetProfileDiffs(
+        { surface: entry.surface, desiredInput: currentInput },
+        { id: 'activation' },
+      ).reduce((profile, diff) => applyAgentProfileDiff(profile, diff), active)
+      expect(agentImprovementProfileSurfaceInput(applied, entry.surface)).toEqual(entry.expected)
+    }
+  })
+
   it('replaces prompt and skill arrays exactly while preserving unrelated fields', () => {
     const prompt = agentImprovementTargetProfileDiffs(
       {
@@ -234,3 +408,14 @@ describe('agent improvement profile delivery', () => {
     }
   })
 })
+
+function candidateInlineResource(name: string, content: string) {
+  const artifact = embeddedCandidateArtifact(Buffer.from(content, 'utf8'))
+  return {
+    kind: 'inline' as const,
+    name,
+    content,
+    sha256: artifact.sha256,
+    byteLength: artifact.byteLength,
+  }
+}

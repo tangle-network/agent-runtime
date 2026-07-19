@@ -138,6 +138,46 @@ export function isAgentImprovementProfileSurface(
 }
 
 /**
+ * Return the canonical current-state input for one profile-deliverable improvement target.
+ * Missing slots become `null`; tools and subagents include both their direct and resource slots.
+ * Unrelated profile fields are excluded. The result matches `agentImprovementTargetInput` for the
+ * same profile inside a candidate bundle.
+ */
+export function agentImprovementProfileSurfaceInput(
+  profile: AgentProfile,
+  surface: AgentImprovementProfileSurface,
+): unknown {
+  switch (surface) {
+    case 'prompt':
+      return { prompt: profile.prompt ?? null }
+    case 'skills':
+      return profile.resources?.skills ?? null
+    case 'tools':
+      return {
+        tools: profile.tools ?? null,
+        resources: profile.resources?.tools ?? null,
+      }
+    case 'mcp':
+      return profile.mcp ?? null
+    case 'hooks':
+      return profile.hooks ?? null
+    case 'subagents':
+      return {
+        subagents: profile.subagents ?? null,
+        resources: profile.resources?.agents ?? null,
+      }
+  }
+}
+
+/** Return the `Sha256Digest` of one profile surface using Runtime's canonical candidate digest. */
+export function agentImprovementProfileSurfaceDigest(
+  profile: AgentProfile,
+  surface: AgentImprovementProfileSurface,
+): Sha256Digest {
+  return canonicalCandidateDigest(agentImprovementProfileSurfaceInput(profile, surface))
+}
+
+/**
  * Replace one measured profile surface exactly, including array-valued resources.
  * Apply the returned diffs in order: a diff applies its set before its removal,
  * so exact replacement requires a reset record followed by a set record.
@@ -321,20 +361,12 @@ function improvementSurfaceValues(
 ): Record<AgentImprovementSurface, unknown> {
   const profile = agentCandidateProfileAsAgentProfile(bundle.profile)
   return {
-    prompt: {
-      prompt: profile.prompt ?? null,
-    },
-    skills: profile.resources?.skills ?? null,
-    tools: {
-      tools: profile.tools ?? null,
-      resources: profile.resources?.tools ?? null,
-    },
-    mcp: profile.mcp ?? null,
-    hooks: profile.hooks ?? null,
-    subagents: {
-      subagents: profile.subagents ?? null,
-      resources: profile.resources?.agents ?? null,
-    },
+    prompt: agentImprovementProfileSurfaceInput(profile, 'prompt'),
+    skills: agentImprovementProfileSurfaceInput(profile, 'skills'),
+    tools: agentImprovementProfileSurfaceInput(profile, 'tools'),
+    mcp: agentImprovementProfileSurfaceInput(profile, 'mcp'),
+    hooks: agentImprovementProfileSurfaceInput(profile, 'hooks'),
+    subagents: agentImprovementProfileSurfaceInput(profile, 'subagents'),
     'agent-profile': { profile: opaqueProfileSlice(profile), execution: bundle.execution },
     memory: {
       instructions: profile.resources?.instructions ?? null,

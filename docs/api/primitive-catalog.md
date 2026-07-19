@@ -302,10 +302,12 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 124 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 126 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `agentImprovementProfileSurfaceDigest` | function | Return the `Sha256Digest` of one profile surface using Runtime's canonical candidate digest. |
+| `agentImprovementProfileSurfaceInput` | function | Return the canonical current-state input for one profile-deliverable improvement target. |
 | `agentImprovementTargetProfileDiffs` | function | Replace one measured profile surface exactly, including array-valued resources. |
 | `buildAgentImprovementActivationTargets` | function | Bind caller-owned target identities to the exact source state Runtime measured. |
 | `compileEffort` | function | Compile resolved `EffortSettings` into the orchestration overrides above. Pure: same |
