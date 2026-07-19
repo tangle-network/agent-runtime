@@ -4641,9 +4641,11 @@ surface is "tools" \| "mcp" \| "subagents" \| "hooks" \| "prompt" \| "skills"
 
 > **agentImprovementTargetProfileDiffs**(`target`, `options`): \[`AgentProfileDiff`, `...AgentProfileDiff[]`\]
 
-Defined in: [intelligence/improvement-surfaces.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-surfaces.ts#L141)
+Defined in: [intelligence/improvement-surfaces.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-surfaces.ts#L145)
 
 Replace one measured profile surface exactly, including array-valued resources.
+Apply the returned diffs in order: a diff applies its set before its removal,
+so exact replacement requires a reset record followed by a set record.
 
 #### Parameters
 

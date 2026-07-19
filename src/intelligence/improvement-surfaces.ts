@@ -137,7 +137,11 @@ export function isAgentImprovementProfileSurface(
   return (AGENT_IMPROVEMENT_PROFILE_SURFACES as readonly string[]).includes(surface)
 }
 
-/** Replace one measured profile surface exactly, including array-valued resources. */
+/**
+ * Replace one measured profile surface exactly, including array-valued resources.
+ * Apply the returned diffs in order: a diff applies its set before its removal,
+ * so exact replacement requires a reset record followed by a set record.
+ */
 export function agentImprovementTargetProfileDiffs(
   target: {
     surface: AgentImprovementProfileSurface
