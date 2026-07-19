@@ -1,11 +1,16 @@
-import type {
-  AgentCandidateBundle,
-  AgentCandidateExperiment,
-  AgentImprovementActivationIntent,
-  AgentImprovementActivationTarget,
-  AgentImprovementSurface,
-  AgentProfile,
-  Sha256Digest,
+import {
+  type AgentCandidateBundle,
+  type AgentCandidateExperiment,
+  type AgentImprovementActivationIntent,
+  type AgentImprovementActivationTarget,
+  type AgentImprovementSurface,
+  type AgentProfile,
+  type AgentProfileDiff,
+  type AgentProfileDiffRemoval,
+  agentProfileDiffSchema,
+  agentProfileSchema,
+  defineAgentProfileDiff,
+  type Sha256Digest,
 } from '@tangle-network/agent-interface'
 
 import { canonicalCandidateDigest } from '../candidate-execution/digest'
@@ -23,6 +28,24 @@ const changedSurfaceOrder: readonly AgentImprovementSurface[] = [
   'code',
   'knowledge',
 ]
+
+/** Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements. */
+export const AGENT_IMPROVEMENT_PROFILE_SURFACES = [
+  'prompt',
+  'skills',
+  'tools',
+  'mcp',
+  'hooks',
+  'subagents',
+] as const satisfies readonly AgentImprovementSurface[]
+
+export type AgentImprovementProfileSurface = (typeof AGENT_IMPROVEMENT_PROFILE_SURFACES)[number]
+
+export interface AgentImprovementTargetProfileDiffOptions {
+  id: string
+  source?: AgentProfileDiff['source']
+  metadata?: Record<string, unknown>
+}
 
 export type AgentImprovementActivationTargetIdentity = Pick<
   AgentImprovementActivationTarget,
@@ -105,6 +128,136 @@ export function agentImprovementTargetInput(
   surface: AgentImprovementSurface,
 ): unknown {
   return improvementSurfaceValues(bundle)[surface]
+}
+
+/** Return whether a measured surface can be delivered through an agent profile. */
+export function isAgentImprovementProfileSurface(
+  surface: AgentImprovementSurface,
+): surface is AgentImprovementProfileSurface {
+  return (AGENT_IMPROVEMENT_PROFILE_SURFACES as readonly string[]).includes(surface)
+}
+
+/** Replace one measured profile surface exactly, including array-valued resources. */
+export function agentImprovementTargetProfileDiffs(
+  target: {
+    surface: AgentImprovementProfileSurface
+    desiredInput: unknown
+  },
+  options: AgentImprovementTargetProfileDiffOptions,
+): [AgentProfileDiff, ...AgentProfileDiff[]] {
+  const { remove, set } = improvementSurfaceReplacement(target)
+  const common = {
+    kind: 'agent-profile-diff' as const,
+    ...(options.source ? { source: options.source } : {}),
+    metadata: {
+      ...(options.metadata ?? {}),
+      surface: target.surface,
+    },
+  }
+  const reset = agentProfileDiffSchema.parse(
+    defineAgentProfileDiff({
+      ...common,
+      id: `${options.id}:${target.surface}:reset`,
+      title: `Replace active ${target.surface}`,
+      remove,
+    }),
+  ) as AgentProfileDiff
+  if (!set) return [reset]
+  const replacement = agentProfileDiffSchema.parse(
+    defineAgentProfileDiff({
+      ...common,
+      id: `${options.id}:${target.surface}:set`,
+      title: `Activate measured ${target.surface}`,
+      set,
+    }),
+  ) as AgentProfileDiff
+  return [reset, replacement]
+}
+
+function improvementSurfaceReplacement(target: {
+  surface: AgentImprovementProfileSurface
+  desiredInput: unknown
+}): { remove: AgentProfileDiffRemoval; set?: AgentProfile } {
+  const value = target.desiredInput
+  switch (target.surface) {
+    case 'prompt': {
+      const prompt = exactObject(value, ['prompt'], 'prompt activation input').prompt
+      assertDefined(prompt, 'prompt activation input.prompt')
+      return {
+        remove: { prompt: true },
+        ...(prompt === null ? {} : { set: parseProfileSet({ prompt }) }),
+      }
+    }
+    case 'skills':
+      assertDefined(value, 'skills activation input')
+      return {
+        remove: { resources: { skills: true } },
+        ...(value === null ? {} : { set: parseProfileSet({ resources: { skills: value } }) }),
+      }
+    case 'tools': {
+      const parsed = exactObject(value, ['tools', 'resources'], 'tools activation input')
+      assertDefined(parsed.tools, 'tools activation input.tools')
+      assertDefined(parsed.resources, 'tools activation input.resources')
+      const set = {
+        ...(parsed.tools === null ? {} : { tools: parsed.tools }),
+        ...(parsed.resources === null ? {} : { resources: { tools: parsed.resources } }),
+      }
+      return {
+        remove: { tools: true, resources: { tools: true } },
+        ...(Object.keys(set).length === 0 ? {} : { set: parseProfileSet(set) }),
+      }
+    }
+    case 'mcp':
+      assertDefined(value, 'mcp activation input')
+      return {
+        remove: { mcp: true },
+        ...(value === null ? {} : { set: parseProfileSet({ mcp: value }) }),
+      }
+    case 'hooks':
+      assertDefined(value, 'hooks activation input')
+      return {
+        remove: { hooks: true },
+        ...(value === null ? {} : { set: parseProfileSet({ hooks: value }) }),
+      }
+    case 'subagents': {
+      const parsed = exactObject(value, ['subagents', 'resources'], 'subagents activation input')
+      assertDefined(parsed.subagents, 'subagents activation input.subagents')
+      assertDefined(parsed.resources, 'subagents activation input.resources')
+      const set = {
+        ...(parsed.subagents === null ? {} : { subagents: parsed.subagents }),
+        ...(parsed.resources === null ? {} : { resources: { agents: parsed.resources } }),
+      }
+      return {
+        remove: { subagents: true, resources: { agents: true } },
+        ...(Object.keys(set).length === 0 ? {} : { set: parseProfileSet(set) }),
+      }
+    }
+  }
+}
+
+function assertDefined(value: unknown, label: string): void {
+  if (value === undefined) throw new Error(`${label} must not be undefined`)
+}
+
+function exactObject(
+  value: unknown,
+  keys: readonly string[],
+  label: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`)
+  }
+  const record = value as Record<string, unknown>
+  const actual = Object.keys(record).sort()
+  const expected = [...keys].sort()
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(`${label} must contain exactly: ${expected.join(', ')}`)
+  }
+  return record
+}
+
+function parseProfileSet(value: unknown): AgentProfile {
+  return agentProfileSchema.parse(value) as AgentProfile
 }
 
 function assertKnowledgeCandidatePair(

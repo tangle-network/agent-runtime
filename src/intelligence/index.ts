@@ -147,8 +147,17 @@ export {
   verifyAgentImprovementReview,
   verifyCandidateExecutionEvidence,
 } from './improvement-cycle'
-export type { AgentImprovementActivationTargetIdentity } from './improvement-surfaces'
-export { buildAgentImprovementActivationTargets } from './improvement-surfaces'
+export type {
+  AgentImprovementActivationTargetIdentity,
+  AgentImprovementProfileSurface,
+  AgentImprovementTargetProfileDiffOptions,
+} from './improvement-surfaces'
+export {
+  AGENT_IMPROVEMENT_PROFILE_SURFACES,
+  agentImprovementTargetProfileDiffs,
+  buildAgentImprovementActivationTargets,
+  isAgentImprovementProfileSurface,
+} from './improvement-surfaces'
 export type { Redactor } from './redact'
 export { defaultRedactor, resolveRedactor } from './redact'
 export type { ProvisionedHost, ResolveCtx } from './resolver'
