@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-bench",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "type": "module",
   "description": "The unified benchmark suite for agent-runtime agents: 31 adapters (commit0, enterpriseops-gym, ragbench, crag, nomiracl, open-rag-bench, t2-ragbench, tau3-banking, bfcl, finresearchbench, …) behind one resolveAdapter registry, each with a real judge or fail-loud unsupported scorer. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
   "repository": {
@@ -8,14 +8,26 @@
     "url": "git+https://github.com/tangle-network/agent-runtime.git",
     "directory": "bench"
   },
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./adapters": "./src/adapters.ts",
-    "./benchmarks/*": "./src/benchmarks/*.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters.d.ts",
+      "import": "./dist/adapters.js"
+    },
+    "./benchmarks/*": {
+      "types": "./dist/benchmarks/*.d.ts",
+      "import": "./dist/benchmarks/*.js"
+    }
   },
   "scripts": {
+    "prebuild": "pnpm --dir .. build",
+    "build": "tsup",
+    "prepack": "pnpm build",
     "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
     "gate-cli": "tsx src/gate-cli.mts",
     "run-benchmarks": "tsx src/run-benchmarks-cli.mts",
@@ -36,9 +48,14 @@
   "devDependencies": {
     "@types/node": "^25.9.3",
     "tsx": "^4.22.4",
+    "tsup": "^8.5.1",
     "typescript": "^5.7.0"
   },
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "files": [
+    "dist",
     "src",
     "fixtures",
     "scripts",

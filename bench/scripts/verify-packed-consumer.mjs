@@ -58,7 +58,13 @@ try {
   await mkdir(runtimePackDir)
   await mkdir(consumerDir)
 
-  await run('pnpm', ['pack', '--pack-destination', packDir], benchDir)
+  // Build explicitly so verification cannot inherit a machine-level
+  // ignore-scripts setting and accidentally pack stale or missing output.
+  await run('pnpm', ['build'], benchDir)
+  await run('pnpm', ['pack', '--pack-destination', packDir], benchDir, {
+    ...process.env,
+    npm_config_ignore_scripts: 'true',
+  })
   const packedFiles = (await readdir(packDir)).filter((name) => name.endsWith('.tgz'))
   if (packedFiles.length !== 1) {
     throw new Error(`expected one packed agent-bench tarball, found ${packedFiles.length}`)
@@ -113,6 +119,10 @@ try {
     "import { createSweBenchAdapter, executePreparedPierCandidate, FilePierCandidateTrialController, resolveAdapter, runBenchmarks, runStagedJudge, StagedJudgeError, type BenchmarkAdapter, type JudgeArtifactReceipt, type PierCandidateTrialController, type PierCandidateTrialHandle, type PierDockerConnection, type StagedPierCandidateExecution } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nconst captureAdapter: BenchmarkAdapter = createSweBenchAdapter({ captureEvaluatorArtifacts: ({ taskId, attemptSequence }) => ({ destination: `/tmp/${taskId}/${attemptSequence}` }) })\nconst receipt = undefined as JudgeArtifactReceipt | undefined\nconst staged = undefined as StagedPierCandidateExecution | undefined\nconst trial = undefined as PierCandidateTrialHandle | undefined\nconst controller = undefined as PierCandidateTrialController | undefined\nconst dockerConnection = undefined as PierDockerConnection | undefined\nvoid adapter\nvoid captureAdapter\nvoid receipt\nvoid staged\nvoid trial\nvoid controller\nvoid dockerConnection\nvoid executePreparedPierCandidate\nvoid FilePierCandidateTrialController\nvoid runBenchmarks\nvoid runStagedJudge\nvoid StagedJudgeError\n",
   )
   await writeFile(
+    path.join(consumerDir, 'index.mjs'),
+    "import { resolveAdapter, runBenchmarks } from '@tangle-network/agent-bench'\nimport { ADAPTERS } from '@tangle-network/agent-bench/adapters'\nimport { createCragAdapter } from '@tangle-network/agent-bench/benchmarks/crag'\n\nif (typeof resolveAdapter !== 'function' || typeof runBenchmarks !== 'function') throw new Error('root exports are not executable')\nif (typeof ADAPTERS !== 'object' || typeof createCragAdapter !== 'function') throw new Error('subpath exports are not executable')\nif (resolveAdapter('crag').name !== 'crag') throw new Error('compiled adapter registry returned the wrong adapter')\n",
+  )
+  await writeFile(
     path.join(consumerDir, 'tsconfig.json'),
     `${JSON.stringify(
       {
@@ -154,6 +164,7 @@ for name in sorted(expected):
     ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'],
     consumerDir,
   )
+  await run('node', ['index.mjs'], consumerDir)
   await run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], consumerDir)
   const typescript5 = await run('npm', ['exec', '--', 'tsc', '--version'], consumerDir)
   if (typescript5.stdout.trim() !== `Version ${TYPESCRIPT_5}`) {
