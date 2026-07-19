@@ -159,7 +159,8 @@ jobs:
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
             mkdir -p "$RUNNER_TEMP/agent-bench-package"
-            pnpm --dir bench pack --pack-destination "$RUNNER_TEMP/agent-bench-package"
+            pnpm --dir bench build
+            npm_config_ignore_scripts=true pnpm --dir bench pack --pack-destination "$RUNNER_TEMP/agent-bench-package"
             package="$(find "$RUNNER_TEMP/agent-bench-package" -maxdepth 1 -name '*.tgz' -print -quit)"
             test -n "$package"
             npm publish "$package" --provenance --access public

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6
+
+- Ship compiled ESM and declarations so Node can import the installed package without a TypeScript runtime.
+- Check root, registry, and benchmark subpath imports with plain Node in addition to TypeScript 5, TypeScript 6, and Python package checks.
+- Build explicitly before verification and publication so disabled lifecycle scripts cannot produce a package without compiled output.
+
 ## 0.3.5
 
 - Build the workspace runtime before source type checks so the published-package verification command works from a clean checkout; the packed consumer still installs `@tangle-network/agent-runtime@0.97.0` from npm.

@@ -2,7 +2,19 @@
 
 Published as `@tangle-network/agent-bench`, with independent CI and release checks for its TypeScript and Python surfaces.
 
-**Read [`bench/HARNESS.md`](./HARNESS.md) FIRST.** It is the one maintained map: the commands, the `rollout → corpus → selector → CI → gate` data flow, the canonical-suite table, the wired/needs-creds/scaffolded matrix, and the gate one-liners — kept verified against source.
+**Read [`bench/HARNESS.md`](./HARNESS.md) FIRST.** It is the one maintained map: the commands, the `rollout → corpus → selector → CI → gate` data flow, the canonical-suite table, the wired/needs-creds/scaffolded matrix, and the gate one-liners, kept verified against source.
+
+## Use
+
+```bash
+pnpm add -D @tangle-network/agent-bench
+```
+
+```ts
+import { resolveAdapter } from '@tangle-network/agent-bench'
+
+const crag = resolveAdapter('crag')
+```
 
 ## SWE-bench judge setup (the one block not in HARNESS.md)
 
