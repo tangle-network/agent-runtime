@@ -15,6 +15,7 @@ import {
 } from '@tangle-network/agent-interface'
 
 import {
+  canonicalCandidateDigest,
   canonicalCandidateDocument,
   immutableCandidateValue,
   verifyCanonicalCandidateDocument,
@@ -23,7 +24,7 @@ import {
   verifyAgentImprovementActivation,
   verifyAgentImprovementProposal,
 } from './improvement-cycle'
-import { agentImprovementTargetDigest } from './improvement-surfaces'
+import { agentImprovementTargetDigest, agentImprovementTargetInput } from './improvement-surfaces'
 
 export interface CreateAgentImprovementActivationResultOptions {
   completedAt: string
@@ -32,6 +33,12 @@ export interface CreateAgentImprovementActivationResultOptions {
 
 export interface AgentImprovementActivationTargetPlan extends AgentImprovementActivationTarget {
   desiredDigest: Sha256Digest
+  /**
+   * Exact measured input the product must apply to reach `desiredDigest`.
+   * Transition surfaces such as code and knowledge are applied operations, so
+   * their resulting state digest is not the digest of this input document.
+   */
+  desiredInput: unknown
 }
 
 export interface AgentImprovementActivationTransitionInput {
@@ -152,6 +159,7 @@ export async function executeAgentImprovementActivation(
     targets: activation.targets.map((target) => ({
       ...target,
       desiredDigest: agentImprovementTargetDigest(experiment, targetArm, target.surface),
+      desiredInput: agentImprovementTargetInput(experiment[targetArm], target.surface),
     })) as AgentImprovementActivationTransitionInput['targets'],
     attemptedAt,
     expired: Date.parse(attemptedAt) >= Date.parse(activation.expiresAt),
@@ -213,6 +221,11 @@ function assertTransitionInput(
 ): void {
   const authorized = targetMap(activation.targets)
   const planned = targetMap(transition.targets)
+  const desiredInputsMatch = transition.targets.every(
+    (target) =>
+      canonicalCandidateDigest(target.desiredInput) ===
+      canonicalCandidateDigest(agentImprovementTargetInput(transition.bundle, target.surface)),
+  )
   if (
     authorized.size !== planned.size ||
     [...authorized.entries()].some(
@@ -221,6 +234,7 @@ function assertTransitionInput(
     ) ||
     transition.expired !== Date.parse(transition.attemptedAt) >= Date.parse(activation.expiresAt) ||
     transition.candidateBundle.digest !== activation.candidateBundleDigest ||
+    !desiredInputsMatch ||
     (activation.intent === 'activate-candidate' &&
       transition.bundle.digest !== transition.candidateBundle.digest)
   ) {

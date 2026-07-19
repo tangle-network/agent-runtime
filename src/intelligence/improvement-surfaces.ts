@@ -100,6 +100,13 @@ export function agentImprovementTargetDigest(
   return canonicalCandidateDigest(improvementSurfaceValues(experiment[arm])[surface])
 }
 
+export function agentImprovementTargetInput(
+  bundle: AgentCandidateBundle,
+  surface: AgentImprovementSurface,
+): unknown {
+  return improvementSurfaceValues(bundle)[surface]
+}
+
 function assertKnowledgeCandidatePair(
   baselineBundle: AgentCandidateBundle,
   candidateBundle: AgentCandidateBundle,

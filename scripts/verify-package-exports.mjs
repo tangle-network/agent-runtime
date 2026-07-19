@@ -150,6 +150,7 @@ try {
         parseCandidateProfileMaterialization,
         sandboxCandidateExperimentExecutionSupport,
         verifyCandidateExecutionEvidence,
+        type AgentImprovementActivationTransitionInput,
         type CreateSandboxCandidateExperimentExecutorOptions,
         type SandboxCandidateExperimentExecution,
         type VerifyCandidateExecutionEvidenceOptions,
@@ -168,6 +169,7 @@ try {
       declare const executionInput: SandboxCandidateExperimentExecution
       declare const verification: VerifyCandidateExecutionEvidenceOptions
       declare const storedEvidence: unknown
+      declare const transitionInput: AgentImprovementActivationTransitionInput
 
       const executor = createSandboxCandidateExperimentExecutor({
         client,
@@ -185,9 +187,11 @@ try {
           evidence.materializationReceipt.profileActivation.profilePlan.digest,
         )
       const outcome: 'output' = sandboxCandidateExperimentExecutionSupport.outcomes[0]
+      const desiredInput: unknown = transitionInput.targets[0].desiredInput
       void execution
       void activation
       void outcome
+      void desiredInput
     `,
   )
   run('pnpm', ['install', '--config.auto-install-peers=false'], appDir)
