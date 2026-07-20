@@ -256,7 +256,7 @@ All 28 live in [`examples/`](./examples).
 - New here? [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
 - [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
 - [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
-- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/conversation` (multi-turn conversations), `/knowledge` (KB improvement), `/primeintellect` (Prime task, runtime, and trace adapter), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
+- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/conversation` (multi-turn conversations), `/knowledge` (KB improvement), `/primeintellect` (Prime task, runtime, and trace adapter), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/testing` (validated fixture records for consumer tests), `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
 - [`docs/architecture.md`](./docs/architecture.md), the design, end to end.
 - [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
 

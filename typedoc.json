@@ -13,6 +13,7 @@
     "src/platform/index.ts",
     "src/primeintellect/index.ts",
     "src/candidate-execution/index.ts",
+    "src/testing/index.ts",
     "src/mcp/index.ts"
   ],
   "entryPointStrategy": "resolve",
