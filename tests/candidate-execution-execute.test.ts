@@ -115,7 +115,12 @@ describe('atomic prepared candidate execution', () => {
     const fixture = createCandidateExecutionFixture()
     bindCandidateFixtureBundle(
       fixture,
-      candidateBundle({ env: { PUBLIC_MODE: { kind: 'public', value: 'fixture' } } }),
+      candidateBundle({
+        env: {
+          PATH: { kind: 'public', value: '/usr/local/bin:/usr/bin:/bin' },
+          PUBLIC_MODE: { kind: 'public', value: 'fixture' },
+        },
+      }),
     )
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
@@ -139,7 +144,7 @@ describe('atomic prepared candidate execution', () => {
           MODEL_GATEWAY_TOKEN: 'protected',
           TANGLE_CANDIDATE_EXECUTION_ID: prepared.executionId,
         })
-        expect(request.launch.env.PATH).toBeUndefined()
+        expect(request.launch.env.PATH).toBe('/usr/local/bin:/usr/bin:/bin')
         expect(request.hardLimits).toEqual({ timeoutMs: fixture.task.task.limits.timeoutMs })
         expect(request.observedLimits).toEqual({ maxSteps: fixture.task.task.limits.maxSteps })
         expect(request.executionPlan.value.material.model.access.network).toEqual({
@@ -1750,7 +1755,12 @@ describe('atomic prepared candidate execution', () => {
     const fixture = createCandidateExecutionFixture()
     bindCandidateFixtureBundle(
       fixture,
-      candidateBundle({ env: { PUBLIC_MODE: { kind: 'public', value: 'fixture' } } }),
+      candidateBundle({
+        env: {
+          PATH: { kind: 'public', value: '/usr/local/bin:/usr/bin:/bin' },
+          PUBLIC_MODE: { kind: 'public', value: 'fixture' },
+        },
+      }),
     )
     fixture.ports.models.activateGrant = async () => ({ env: { PUBLIC_MODE: 'secret-value' } })
     const prepared = await prepareAgentCandidateExecution(

@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt"],
-  "digest": "sha256:aa47ef7cce1668303f55c3454a5a762c75a78be6cf907fa3f4f10dea20fd9fc6",
+  "digest": "sha256:2c16c5e5aba87db0e0a00d6ae35d6dd180cc126d109c2acfb3586727c1e52836",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -47,12 +47,18 @@
         "code": {
           "kind": "disabled"
         },
-        "digest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+        "digest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
         "digestAlgorithm": "rfc8785-sha256",
         "execution": {
           "cwd": {
             "path": ".",
             "workspace": "task"
+          },
+          "env": {
+            "PATH": {
+              "kind": "public",
+              "value": "/usr/local/bin:/usr/bin:/bin"
+            }
           },
           "environment": {
             "kind": "evaluator-task-container"
@@ -191,12 +197,18 @@
         "code": {
           "kind": "disabled"
         },
-        "digest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+        "digest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
         "digestAlgorithm": "rfc8785-sha256",
         "execution": {
           "cwd": {
             "path": ".",
             "workspace": "task"
+          },
+          "env": {
+            "PATH": {
+              "kind": "public",
+              "value": "/usr/local/bin:/usr/bin:/bin"
+            }
           },
           "environment": {
             "kind": "evaluator-task-container"
@@ -239,7 +251,7 @@
       "candidateLineage": {
         "source": "human"
       },
-      "digest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+      "digest": "sha256:c47a0dad80e6cc4856cdb8a02a279da621ab7d9409e3127650b67f1fc1c14b2d",
       "digestAlgorithm": "rfc8785-sha256",
       "kind": "agent-candidate-experiment",
       "policy": {
@@ -257,7 +269,7 @@
     "measurements": [
       {
         "baseline": {
-          "digest": "sha256:4514f8b5f875371d69b88add160843806e84f854898a351bdce03646c3750495",
+          "digest": "sha256:6bf8492d4fb6cb795715f861ad1150ce8194aaf6075ce898e411fdbaf4e6f534",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -280,7 +292,7 @@
                 }
               }
             },
-            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
             "codeKind": "disabled",
             "container": {
               "image": "ghcr.io/example/task",
@@ -292,16 +304,16 @@
               },
               "source": "evaluator-task-container"
             },
-            "digest": "sha256:707a959a5ee03b48f523417ec3fca971565986bbe46ec0d44412e1c9873819af",
+            "digest": "sha256:50573a8655c2f83044a105990573b1a5ed84d3a8d9241e01cda565eead22b7cc",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlan": {
               "artifact": {
-                "byteLength": 1967,
-                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMCIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6OTBiMWNjMDVmMGQzODlkOTVkODU2YWQ2ZmIzZGE2ZTBmMGUzODJhMTBjZmQxZmRmNGY3NzhhNTZjNTZhMDA3OSIsImRpZ2VzdCI6InNoYTI1NjpjMTcwYTdjYjkzOGMzZTViNzU1MGEyNjRmNmI2YjA4YTEzZWEyNjJmZTgwYTJlMjRiMDIwYTQxNWMxZGFkNTk1IiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1Njo0ZTc3NjA1NDE3MjlhNGY2MTIzMmY4MDg0YjQyNDk2ZTJkN2U0MGY4NjA0YzFjOGNhNDEzZmIxMjc5OWNlMzFjIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjAsInNlZWQiOjEwMSwic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
+                "byteLength": 2030,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMCIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7IlBBVEgiOnsia2luZCI6InB1YmxpYyIsInZhbHVlIjoiL3Vzci9sb2NhbC9iaW46L3Vzci9iaW46L2JpbiJ9fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6NWMyMWVlNTNlNTEzZmM2MDRjYjA5NzU0ZTIxYzM5MmIyNGE0MjRkYTBlZjM3ZGJmOGYxZWU0YThhMGIwOGYwOSIsImRpZ2VzdCI6InNoYTI1Njo1MjQ2YmNiMjM5MjlkM2VmODRjNzhjNTE4NTM5MGFhYjVlMjMwOWYxMjY3ZDM4ZTBkMWMwZGRjMTgyMzJiNmQ0IiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1NjpjNDdhMGRhZDgwZTZjYzQ4NTZjZGI4YTAyYTI3OWRhNjIxYWI3ZDk0MDllMzEyNzY1MGI2N2YxZmMxYzE0YjJkIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjAsInNlZWQiOjEwMSwic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
                 "encoding": "base64",
-                "sha256": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5"
+                "sha256": "sha256:205204302122b2c90373cf000406d8841c6bf8cd99f621637fe7c6824e243acf"
               },
-              "digest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+              "digest": "sha256:205204302122b2c90373cf000406d8841c6bf8cd99f621637fe7c6824e243acf",
               "kind": "agent-candidate-execution-plan",
               "material": {
                 "codeKind": "disabled",
@@ -328,7 +340,12 @@
                     "path": ".",
                     "workspace": "task"
                   },
-                  "env": {},
+                  "env": {
+                    "PATH": {
+                      "kind": "public",
+                      "value": "/usr/local/bin:/usr/bin:/bin"
+                    }
+                  },
                   "executable": "codex"
                 },
                 "limits": {
@@ -377,9 +394,9 @@
                 "runCell": {
                   "arm": "baseline",
                   "attempt": 1,
-                  "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
-                  "digest": "sha256:c170a7cb938c3e5b7550a264f6b6b08a13ea262fe80a2e24b020a415c1dad595",
-                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
+                  "digest": "sha256:5246bcb23929d3ef84c78c5185390aab5e2309f1267d38e0d1c0ddc18232b6d4",
+                  "experimentDigest": "sha256:c47a0dad80e6cc4856cdb8a02a279da621ab7d9409e3127650b67f1fc1c14b2d",
                   "kind": "agent-candidate-run-cell",
                   "repetition": 0,
                   "seed": 101,
@@ -444,12 +461,12 @@
                 "byteLength": 1122,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "benchmark-result/ec815a7d6556928ba69e6f08cf38fed9ddd64c9cff4ba1ccf471f8e7a0aa63f4",
+                  "key": "benchmark-result/e9a709a18c6a51d8f81080c79f856162eb740e7664eba2906bc5888752eb27a6",
                   "kind": "s3"
                 },
-                "sha256": "sha256:ec815a7d6556928ba69e6f08cf38fed9ddd64c9cff4ba1ccf471f8e7a0aa63f4"
+                "sha256": "sha256:e9a709a18c6a51d8f81080c79f856162eb740e7664eba2906bc5888752eb27a6"
               },
-              "digest": "sha256:ec815a7d6556928ba69e6f08cf38fed9ddd64c9cff4ba1ccf471f8e7a0aa63f4",
+              "digest": "sha256:e9a709a18c6a51d8f81080c79f856162eb740e7664eba2906bc5888752eb27a6",
               "kind": "agent-candidate-benchmark-result",
               "material": {
                 "dimensions": [
@@ -467,7 +484,7 @@
                   },
                   "sha256": "sha256:628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b"
                 },
-                "executionPlanDigest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+                "executionPlanDigest": "sha256:205204302122b2c90373cf000406d8841c6bf8cd99f621637fe7c6824e243acf",
                 "grader": {
                   "artifact": {
                     "byteLength": 25,
@@ -500,24 +517,24 @@
                 "kind": "agent-candidate-benchmark-result-material",
                 "passed": false,
                 "score": 0,
-                "taskOutcomeDigest": "sha256:3fc660e792f3883048a3e04dfa9b361d5b88f0afd3141fe7858cf9b53952e914"
+                "taskOutcomeDigest": "sha256:96d90a54ff0cdc7ef2dc49e80fad20175c10a761eb6abd3bf127da35340994ed"
               }
             },
-            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
-            "digest": "sha256:6b565143b4115b64a682bbc0fe56d6ef44302947df1c1a6d562d45533b346a7e",
+            "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
+            "digest": "sha256:792a1fc3d525e029e74f9fe88940277b6d7c162959b4ecc943b25cbaffe3d86f",
             "digestAlgorithm": "rfc8785-sha256",
-            "executionPlanDigest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+            "executionPlanDigest": "sha256:205204302122b2c90373cf000406d8841c6bf8cd99f621637fe7c6824e243acf",
             "executorCapture": {
               "byteLength": 477,
               "locator": {
                 "bucket": "candidate-test-artifacts",
-                "key": "executor-capture/72d7612e1df0fbb53498c79ba7cf4464f141aa6e031b013ce87f887d8f16a07a",
+                "key": "executor-capture/64bb8b780db79c2a5bf89c46cefb755060f18271084748143c194d5716c5bedd",
                 "kind": "s3"
               },
-              "sha256": "sha256:72d7612e1df0fbb53498c79ba7cf4464f141aa6e031b013ce87f887d8f16a07a"
+              "sha256": "sha256:64bb8b780db79c2a5bf89c46cefb755060f18271084748143c194d5716c5bedd"
             },
             "kind": "agent-candidate-run",
-            "materializationReceiptDigest": "sha256:707a959a5ee03b48f523417ec3fca971565986bbe46ec0d44412e1c9873819af",
+            "materializationReceiptDigest": "sha256:50573a8655c2f83044a105990573b1a5ed84d3a8d9241e01cda565eead22b7cc",
             "memory": {
               "mode": "disabled"
             },
@@ -526,17 +543,17 @@
                 "byteLength": 615,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/e923d98a8c5620f72b41a7c4b75024149f1ebe14128c14a576a1de5a5ec688bd",
+                  "key": "model-settlement/625a1690d64a8ccee6b2d616f7ee7a9648edb1ddf9ea58711bef5a4a306cdba0",
                   "kind": "s3"
                 },
-                "sha256": "sha256:e923d98a8c5620f72b41a7c4b75024149f1ebe14128c14a576a1de5a5ec688bd"
+                "sha256": "sha256:625a1690d64a8ccee6b2d616f7ee7a9648edb1ddf9ea58711bef5a4a306cdba0"
               },
-              "digest": "sha256:e923d98a8c5620f72b41a7c4b75024149f1ebe14128c14a576a1de5a5ec688bd",
+              "digest": "sha256:625a1690d64a8ccee6b2d616f7ee7a9648edb1ddf9ea58711bef5a4a306cdba0",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
                 "closed": true,
-                "executionPlanDigest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+                "executionPlanDigest": "sha256:205204302122b2c90373cf000406d8841c6bf8cd99f621637fe7c6824e243acf",
                 "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                 "kind": "agent-candidate-model-settlement-material",
                 "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
@@ -557,21 +574,21 @@
                 }
               }
             },
-            "runCellDigest": "sha256:c170a7cb938c3e5b7550a264f6b6b08a13ea262fe80a2e24b020a415c1dad595",
+            "runCellDigest": "sha256:5246bcb23929d3ef84c78c5185390aab5e2309f1267d38e0d1c0ddc18232b6d4",
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "task-outcome/3fc660e792f3883048a3e04dfa9b361d5b88f0afd3141fe7858cf9b53952e914",
+                  "key": "task-outcome/96d90a54ff0cdc7ef2dc49e80fad20175c10a761eb6abd3bf127da35340994ed",
                   "kind": "s3"
                 },
-                "sha256": "sha256:3fc660e792f3883048a3e04dfa9b361d5b88f0afd3141fe7858cf9b53952e914"
+                "sha256": "sha256:96d90a54ff0cdc7ef2dc49e80fad20175c10a761eb6abd3bf127da35340994ed"
               },
-              "digest": "sha256:3fc660e792f3883048a3e04dfa9b361d5b88f0afd3141fe7858cf9b53952e914",
+              "digest": "sha256:96d90a54ff0cdc7ef2dc49e80fad20175c10a761eb6abd3bf127da35340994ed",
               "kind": "agent-candidate-task-outcome",
               "material": {
-                "executionPlanDigest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+                "executionPlanDigest": "sha256:205204302122b2c90373cf000406d8841c6bf8cd99f621637fe7c6824e243acf",
                 "kind": "agent-candidate-task-outcome-material",
                 "outcome": {
                   "artifact": {
@@ -605,10 +622,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/3bfe9931c331dda75f96eac7761181cdcbc1302318c1ffdebab4c53fb275fc55",
+                  "key": "trace/2fce8b3ba11deb5251d3b7b9de66d1b4788c18a2b56aafe77ddd57423db41593",
                   "kind": "s3"
                 },
-                "sha256": "sha256:3bfe9931c331dda75f96eac7761181cdcbc1302318c1ffdebab4c53fb275fc55"
+                "sha256": "sha256:2fce8b3ba11deb5251d3b7b9de66d1b4788c18a2b56aafe77ddd57423db41593"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -616,7 +633,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:2579dfae2c22ac30917c688f0ae31736e8c1cc81979e877c3139c80ca88f0064",
+          "digest": "sha256:d99b9e877621de7c5fe20850fcdcf6b88119e46b0505dc4a7bf867201b0afafe",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -639,7 +656,7 @@
                 }
               }
             },
-            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
             "codeKind": "disabled",
             "container": {
               "image": "ghcr.io/example/task",
@@ -651,16 +668,16 @@
               },
               "source": "evaluator-task-container"
             },
-            "digest": "sha256:aee4c8842fa9a4c926a63ad2ad6f1ae370096b01987947d47568811b873e952f",
+            "digest": "sha256:dc45d1b3f6fb88d4b0b709f6a2ff63164df737dddd582a8749ff7d91368662d9",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlan": {
               "artifact": {
-                "byteLength": 1969,
-                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTAiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6e30sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo0MDY4NTdlODIyNmQ0NjQ5MGExZmYwNzQ1MzQzOWRjZGI3MWJmYWVkMjZmODdlZDBlZDRlNDJiM2I1YzgzYjc5IiwiZGlnZXN0Ijoic2hhMjU2Ojk3NzRiNTc1NzQ4NWQ3YjQxNDdkNDNjYWJhNTEyNmY4ZjdhZTdmZWYxYTJkMTc2OTgyYjU5MmRiMDM0ZGI2MDUiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OjRlNzc2MDU0MTcyOWE0ZjYxMjMyZjgwODRiNDI0OTZlMmQ3ZTQwZjg2MDRjMWM4Y2E0MTNmYjEyNzk5Y2UzMWMiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6MCwic2VlZCI6MTAxLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
+                "byteLength": 2032,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTAiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6eyJQQVRIIjp7ImtpbmQiOiJwdWJsaWMiLCJ2YWx1ZSI6Ii91c3IvbG9jYWwvYmluOi91c3IvYmluOi9iaW4ifX0sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo2MGZjYmIxYzcyODE5NGJkNTFkN2QxOWNiNzMyZDFjM2YxODgxZGNlN2UwYTYyNjZiNDFjOGI5OGNmZDY1NjkzIiwiZGlnZXN0Ijoic2hhMjU2OmU4ZmFhYWQ5YjZhZTI3NzlkNTZkNGY1NmQ5OGYzMTk3ZWQzZDM3NTI5ODA4NGFjMDg0MTBjNTQ2MzJmYjhiNjEiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OmM0N2EwZGFkODBlNmNjNDg1NmNkYjhhMDJhMjc5ZGE2MjFhYjdkOTQwOWUzMTI3NjUwYjY3ZjFmYzFjMTRiMmQiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6MCwic2VlZCI6MTAxLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
                 "encoding": "base64",
-                "sha256": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715"
+                "sha256": "sha256:9ee298c2aa3a2b814f4ce41bf8698e20aab372d28922dca97a5c829516ea44f6"
               },
-              "digest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+              "digest": "sha256:9ee298c2aa3a2b814f4ce41bf8698e20aab372d28922dca97a5c829516ea44f6",
               "kind": "agent-candidate-execution-plan",
               "material": {
                 "codeKind": "disabled",
@@ -687,7 +704,12 @@
                     "path": ".",
                     "workspace": "task"
                   },
-                  "env": {},
+                  "env": {
+                    "PATH": {
+                      "kind": "public",
+                      "value": "/usr/local/bin:/usr/bin:/bin"
+                    }
+                  },
                   "executable": "codex"
                 },
                 "limits": {
@@ -736,9 +758,9 @@
                 "runCell": {
                   "arm": "candidate",
                   "attempt": 1,
-                  "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
-                  "digest": "sha256:9774b5757485d7b4147d43caba5126f8f7ae7fef1a2d176982b592db034db605",
-                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
+                  "digest": "sha256:e8faaad9b6ae2779d56d4f56d98f3197ed3d375298084ac08410c54632fb8b61",
+                  "experimentDigest": "sha256:c47a0dad80e6cc4856cdb8a02a279da621ab7d9409e3127650b67f1fc1c14b2d",
                   "kind": "agent-candidate-run-cell",
                   "repetition": 0,
                   "seed": 101,
@@ -807,12 +829,12 @@
                 "byteLength": 1121,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "benchmark-result/ca685e9d916e6eef4155c93421d4a11569106ec3115e65df20b9d73324cbeccd",
+                  "key": "benchmark-result/78dab25681b91e59579ac46cc8b3d2bfb58d9f57430eb2625e9f2cd534d2b15a",
                   "kind": "s3"
                 },
-                "sha256": "sha256:ca685e9d916e6eef4155c93421d4a11569106ec3115e65df20b9d73324cbeccd"
+                "sha256": "sha256:78dab25681b91e59579ac46cc8b3d2bfb58d9f57430eb2625e9f2cd534d2b15a"
               },
-              "digest": "sha256:ca685e9d916e6eef4155c93421d4a11569106ec3115e65df20b9d73324cbeccd",
+              "digest": "sha256:78dab25681b91e59579ac46cc8b3d2bfb58d9f57430eb2625e9f2cd534d2b15a",
               "kind": "agent-candidate-benchmark-result",
               "material": {
                 "dimensions": [
@@ -830,7 +852,7 @@
                   },
                   "sha256": "sha256:9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d"
                 },
-                "executionPlanDigest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+                "executionPlanDigest": "sha256:9ee298c2aa3a2b814f4ce41bf8698e20aab372d28922dca97a5c829516ea44f6",
                 "grader": {
                   "artifact": {
                     "byteLength": 25,
@@ -863,24 +885,24 @@
                 "kind": "agent-candidate-benchmark-result-material",
                 "passed": true,
                 "score": 1,
-                "taskOutcomeDigest": "sha256:de4d75f7614ad314a31d7e3afc730af7f012bcf59b18059f5fa40cb287a12bde"
+                "taskOutcomeDigest": "sha256:1674e3e6fc00ca4e74f44dc8247f3f6fd334c62f25b24eda25e37ca91d5fb016"
               }
             },
-            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
-            "digest": "sha256:60c4d05ae65274f073a39b00e3245a4b953fbfeca393b67a327fe4ed9f0114f3",
+            "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
+            "digest": "sha256:3e003fb6cf3bde16a59f28901d29c752595794b000b79268b4b7be853adb4551",
             "digestAlgorithm": "rfc8785-sha256",
-            "executionPlanDigest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+            "executionPlanDigest": "sha256:9ee298c2aa3a2b814f4ce41bf8698e20aab372d28922dca97a5c829516ea44f6",
             "executorCapture": {
               "byteLength": 477,
               "locator": {
                 "bucket": "candidate-test-artifacts",
-                "key": "executor-capture/d4b84f1358debca607a88fbf3879c91ee2709935101010d8cf361b86451b6c68",
+                "key": "executor-capture/7b8a015c52a055cc2befaf553c1fe14e2f4daeafd520f085be2f5e29682baff3",
                 "kind": "s3"
               },
-              "sha256": "sha256:d4b84f1358debca607a88fbf3879c91ee2709935101010d8cf361b86451b6c68"
+              "sha256": "sha256:7b8a015c52a055cc2befaf553c1fe14e2f4daeafd520f085be2f5e29682baff3"
             },
             "kind": "agent-candidate-run",
-            "materializationReceiptDigest": "sha256:aee4c8842fa9a4c926a63ad2ad6f1ae370096b01987947d47568811b873e952f",
+            "materializationReceiptDigest": "sha256:dc45d1b3f6fb88d4b0b709f6a2ff63164df737dddd582a8749ff7d91368662d9",
             "memory": {
               "mode": "disabled"
             },
@@ -889,17 +911,17 @@
                 "byteLength": 615,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/5e58f7eacab44aac8bd7ea381ef68d300f5dbed0cd25c292cb1a4d4e187b30fe",
+                  "key": "model-settlement/6436cd10c36b64083ac00b0925efc03ef8d5e873f64cc2be5bdce4533366c8c4",
                   "kind": "s3"
                 },
-                "sha256": "sha256:5e58f7eacab44aac8bd7ea381ef68d300f5dbed0cd25c292cb1a4d4e187b30fe"
+                "sha256": "sha256:6436cd10c36b64083ac00b0925efc03ef8d5e873f64cc2be5bdce4533366c8c4"
               },
-              "digest": "sha256:5e58f7eacab44aac8bd7ea381ef68d300f5dbed0cd25c292cb1a4d4e187b30fe",
+              "digest": "sha256:6436cd10c36b64083ac00b0925efc03ef8d5e873f64cc2be5bdce4533366c8c4",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
                 "closed": true,
-                "executionPlanDigest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+                "executionPlanDigest": "sha256:9ee298c2aa3a2b814f4ce41bf8698e20aab372d28922dca97a5c829516ea44f6",
                 "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                 "kind": "agent-candidate-model-settlement-material",
                 "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
@@ -920,21 +942,21 @@
                 }
               }
             },
-            "runCellDigest": "sha256:9774b5757485d7b4147d43caba5126f8f7ae7fef1a2d176982b592db034db605",
+            "runCellDigest": "sha256:e8faaad9b6ae2779d56d4f56d98f3197ed3d375298084ac08410c54632fb8b61",
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "task-outcome/de4d75f7614ad314a31d7e3afc730af7f012bcf59b18059f5fa40cb287a12bde",
+                  "key": "task-outcome/1674e3e6fc00ca4e74f44dc8247f3f6fd334c62f25b24eda25e37ca91d5fb016",
                   "kind": "s3"
                 },
-                "sha256": "sha256:de4d75f7614ad314a31d7e3afc730af7f012bcf59b18059f5fa40cb287a12bde"
+                "sha256": "sha256:1674e3e6fc00ca4e74f44dc8247f3f6fd334c62f25b24eda25e37ca91d5fb016"
               },
-              "digest": "sha256:de4d75f7614ad314a31d7e3afc730af7f012bcf59b18059f5fa40cb287a12bde",
+              "digest": "sha256:1674e3e6fc00ca4e74f44dc8247f3f6fd334c62f25b24eda25e37ca91d5fb016",
               "kind": "agent-candidate-task-outcome",
               "material": {
-                "executionPlanDigest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+                "executionPlanDigest": "sha256:9ee298c2aa3a2b814f4ce41bf8698e20aab372d28922dca97a5c829516ea44f6",
                 "kind": "agent-candidate-task-outcome-material",
                 "outcome": {
                   "artifact": {
@@ -968,10 +990,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/8b368b3a19e808c43984c75e39301b3b69591d072453286e19960f85f0f988a6",
+                  "key": "trace/f40b48a52282eaf104755ceb8dd6d713f6cc93fda296767f2656ef66ac4a55ff",
                   "kind": "s3"
                 },
-                "sha256": "sha256:8b368b3a19e808c43984c75e39301b3b69591d072453286e19960f85f0f988a6"
+                "sha256": "sha256:f40b48a52282eaf104755ceb8dd6d713f6cc93fda296767f2656ef66ac4a55ff"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -981,7 +1003,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:23630e0e9893a8bc51f3632a4ea9b8d20828dad45bb52ad8aa70057b6f4ce388",
+          "digest": "sha256:9795afbb773b45c2d794522ad8c1fde600feda44cfd978572d62b93e9afb5724",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1004,7 +1026,7 @@
                 }
               }
             },
-            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
             "codeKind": "disabled",
             "container": {
               "image": "ghcr.io/example/task",
@@ -1016,16 +1038,16 @@
               },
               "source": "evaluator-task-container"
             },
-            "digest": "sha256:8483cca8159d0fcbcc7ebe4bee689cdcf8e5872194335db4cf41301fc61be396",
+            "digest": "sha256:0406c21aababc8747dd9de4bc66e83dbc1bb48ad55048168178dcaa4016dc48f",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlan": {
               "artifact": {
-                "byteLength": 1967,
-                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMSIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6OTBiMWNjMDVmMGQzODlkOTVkODU2YWQ2ZmIzZGE2ZTBmMGUzODJhMTBjZmQxZmRmNGY3NzhhNTZjNTZhMDA3OSIsImRpZ2VzdCI6InNoYTI1NjpjZTQ0YjU4NTRjOTEzM2JhNWYyYzc4MDY5NDYyYzI5NzdmZWQ1NGEwOWViMThhMGJjYTI1MDkwMmNmMjcxOGViIiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1Njo0ZTc3NjA1NDE3MjlhNGY2MTIzMmY4MDg0YjQyNDk2ZTJkN2U0MGY4NjA0YzFjOGNhNDEzZmIxMjc5OWNlMzFjIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjEsInNlZWQiOjEwMiwic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
+                "byteLength": 2030,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMSIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7IlBBVEgiOnsia2luZCI6InB1YmxpYyIsInZhbHVlIjoiL3Vzci9sb2NhbC9iaW46L3Vzci9iaW46L2JpbiJ9fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6NWMyMWVlNTNlNTEzZmM2MDRjYjA5NzU0ZTIxYzM5MmIyNGE0MjRkYTBlZjM3ZGJmOGYxZWU0YThhMGIwOGYwOSIsImRpZ2VzdCI6InNoYTI1NjoxYzY0ZjNkMThiOWQ4YzVhMzQyMzFjNWM3YzJkMzQ5NmUyMjUwNTFjOWYyOTMwY2E5N2QwMTE3NjQ5MmU4ZTc2IiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1NjpjNDdhMGRhZDgwZTZjYzQ4NTZjZGI4YTAyYTI3OWRhNjIxYWI3ZDk0MDllMzEyNzY1MGI2N2YxZmMxYzE0YjJkIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjEsInNlZWQiOjEwMiwic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
                 "encoding": "base64",
-                "sha256": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca"
+                "sha256": "sha256:e719f546b4f6585879b1210ff9c2263859efc625b5d78cfbab46f5a180e29287"
               },
-              "digest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+              "digest": "sha256:e719f546b4f6585879b1210ff9c2263859efc625b5d78cfbab46f5a180e29287",
               "kind": "agent-candidate-execution-plan",
               "material": {
                 "codeKind": "disabled",
@@ -1052,7 +1074,12 @@
                     "path": ".",
                     "workspace": "task"
                   },
-                  "env": {},
+                  "env": {
+                    "PATH": {
+                      "kind": "public",
+                      "value": "/usr/local/bin:/usr/bin:/bin"
+                    }
+                  },
                   "executable": "codex"
                 },
                 "limits": {
@@ -1101,9 +1128,9 @@
                 "runCell": {
                   "arm": "baseline",
                   "attempt": 1,
-                  "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
-                  "digest": "sha256:ce44b5854c9133ba5f2c78069462c2977fed54a09eb18a0bca250902cf2718eb",
-                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
+                  "digest": "sha256:1c64f3d18b9d8c5a34231c5c7c2d3496e225051c9f2930ca97d01176492e8e76",
+                  "experimentDigest": "sha256:c47a0dad80e6cc4856cdb8a02a279da621ab7d9409e3127650b67f1fc1c14b2d",
                   "kind": "agent-candidate-run-cell",
                   "repetition": 1,
                   "seed": 102,
@@ -1168,12 +1195,12 @@
                 "byteLength": 1122,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "benchmark-result/73c5061dc61b9840165883f6b4950405917399949b459e1cba5933153883f94d",
+                  "key": "benchmark-result/c9891b43d8cc45bb7b1d76eccce93421af4c329983e4d2cbfd4411df4cd228da",
                   "kind": "s3"
                 },
-                "sha256": "sha256:73c5061dc61b9840165883f6b4950405917399949b459e1cba5933153883f94d"
+                "sha256": "sha256:c9891b43d8cc45bb7b1d76eccce93421af4c329983e4d2cbfd4411df4cd228da"
               },
-              "digest": "sha256:73c5061dc61b9840165883f6b4950405917399949b459e1cba5933153883f94d",
+              "digest": "sha256:c9891b43d8cc45bb7b1d76eccce93421af4c329983e4d2cbfd4411df4cd228da",
               "kind": "agent-candidate-benchmark-result",
               "material": {
                 "dimensions": [
@@ -1191,7 +1218,7 @@
                   },
                   "sha256": "sha256:628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b"
                 },
-                "executionPlanDigest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+                "executionPlanDigest": "sha256:e719f546b4f6585879b1210ff9c2263859efc625b5d78cfbab46f5a180e29287",
                 "grader": {
                   "artifact": {
                     "byteLength": 25,
@@ -1224,24 +1251,24 @@
                 "kind": "agent-candidate-benchmark-result-material",
                 "passed": false,
                 "score": 0,
-                "taskOutcomeDigest": "sha256:6531580f45e8618a7e381fe78de4e49b0d68d589702ad23f81fa27ccea872e06"
+                "taskOutcomeDigest": "sha256:24cd5d7f59ab6334118cd341ad8f8fd4d20156a561ddb2b55fe86c61c2895aa2"
               }
             },
-            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
-            "digest": "sha256:1758e0ee11654db77d6c11b02ec1e777b2b7a1610ae4e363effd1dfb51a8d643",
+            "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
+            "digest": "sha256:362e0b403b592b762ec92734f1286ecaf0c08e40970525de14b3052b335b8618",
             "digestAlgorithm": "rfc8785-sha256",
-            "executionPlanDigest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+            "executionPlanDigest": "sha256:e719f546b4f6585879b1210ff9c2263859efc625b5d78cfbab46f5a180e29287",
             "executorCapture": {
               "byteLength": 477,
               "locator": {
                 "bucket": "candidate-test-artifacts",
-                "key": "executor-capture/c7e618da9214d4e3b4ce81fc70d3c6edec1fa80e6ab06369b0a3684548cfbf1f",
+                "key": "executor-capture/da5fc6561b02133890cdfb4cdc0b3495d17059040b27c1be20b8a123d2a6524a",
                 "kind": "s3"
               },
-              "sha256": "sha256:c7e618da9214d4e3b4ce81fc70d3c6edec1fa80e6ab06369b0a3684548cfbf1f"
+              "sha256": "sha256:da5fc6561b02133890cdfb4cdc0b3495d17059040b27c1be20b8a123d2a6524a"
             },
             "kind": "agent-candidate-run",
-            "materializationReceiptDigest": "sha256:8483cca8159d0fcbcc7ebe4bee689cdcf8e5872194335db4cf41301fc61be396",
+            "materializationReceiptDigest": "sha256:0406c21aababc8747dd9de4bc66e83dbc1bb48ad55048168178dcaa4016dc48f",
             "memory": {
               "mode": "disabled"
             },
@@ -1250,17 +1277,17 @@
                 "byteLength": 615,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/ef07959f28b6123ce5d2776d81d7cae1408b48038aeee70c76b308a30e26de65",
+                  "key": "model-settlement/446db011d1af4c39f2d0fd21a7e64774b9aaa685efe56e928d8e67d8ea1b3fa3",
                   "kind": "s3"
                 },
-                "sha256": "sha256:ef07959f28b6123ce5d2776d81d7cae1408b48038aeee70c76b308a30e26de65"
+                "sha256": "sha256:446db011d1af4c39f2d0fd21a7e64774b9aaa685efe56e928d8e67d8ea1b3fa3"
               },
-              "digest": "sha256:ef07959f28b6123ce5d2776d81d7cae1408b48038aeee70c76b308a30e26de65",
+              "digest": "sha256:446db011d1af4c39f2d0fd21a7e64774b9aaa685efe56e928d8e67d8ea1b3fa3",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
                 "closed": true,
-                "executionPlanDigest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+                "executionPlanDigest": "sha256:e719f546b4f6585879b1210ff9c2263859efc625b5d78cfbab46f5a180e29287",
                 "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                 "kind": "agent-candidate-model-settlement-material",
                 "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
@@ -1281,21 +1308,21 @@
                 }
               }
             },
-            "runCellDigest": "sha256:ce44b5854c9133ba5f2c78069462c2977fed54a09eb18a0bca250902cf2718eb",
+            "runCellDigest": "sha256:1c64f3d18b9d8c5a34231c5c7c2d3496e225051c9f2930ca97d01176492e8e76",
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "task-outcome/6531580f45e8618a7e381fe78de4e49b0d68d589702ad23f81fa27ccea872e06",
+                  "key": "task-outcome/24cd5d7f59ab6334118cd341ad8f8fd4d20156a561ddb2b55fe86c61c2895aa2",
                   "kind": "s3"
                 },
-                "sha256": "sha256:6531580f45e8618a7e381fe78de4e49b0d68d589702ad23f81fa27ccea872e06"
+                "sha256": "sha256:24cd5d7f59ab6334118cd341ad8f8fd4d20156a561ddb2b55fe86c61c2895aa2"
               },
-              "digest": "sha256:6531580f45e8618a7e381fe78de4e49b0d68d589702ad23f81fa27ccea872e06",
+              "digest": "sha256:24cd5d7f59ab6334118cd341ad8f8fd4d20156a561ddb2b55fe86c61c2895aa2",
               "kind": "agent-candidate-task-outcome",
               "material": {
-                "executionPlanDigest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+                "executionPlanDigest": "sha256:e719f546b4f6585879b1210ff9c2263859efc625b5d78cfbab46f5a180e29287",
                 "kind": "agent-candidate-task-outcome-material",
                 "outcome": {
                   "artifact": {
@@ -1329,10 +1356,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/6f94838ea9d7d02576c9b692a388eba163ccab95bc9b39fd99d30f97e34db45e",
+                  "key": "trace/c03c3bd51fb421ffc65985a27619e57b16623ba3f2bc8d22b2f963cdae6e41f6",
                   "kind": "s3"
                 },
-                "sha256": "sha256:6f94838ea9d7d02576c9b692a388eba163ccab95bc9b39fd99d30f97e34db45e"
+                "sha256": "sha256:c03c3bd51fb421ffc65985a27619e57b16623ba3f2bc8d22b2f963cdae6e41f6"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -1340,7 +1367,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:7ca0ac188c3520be751d9154b5911ccb72ac9025a8abb7516027ee5c4e0aee78",
+          "digest": "sha256:90aa644ce8a4a7bd8968146189ec279b74c550ae6ff02b08adfa984008b68ce5",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1363,7 +1390,7 @@
                 }
               }
             },
-            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
             "codeKind": "disabled",
             "container": {
               "image": "ghcr.io/example/task",
@@ -1375,16 +1402,16 @@
               },
               "source": "evaluator-task-container"
             },
-            "digest": "sha256:7d002279e2baef8149e264789cffb919024e4290c4a1e3793823a8930c7a94a1",
+            "digest": "sha256:d6e837e515c14c86a79f6fb099384a0ac97d74cbfebc2e1a095a8b7660ef1fed",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlan": {
               "artifact": {
-                "byteLength": 1969,
-                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTEiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6e30sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo0MDY4NTdlODIyNmQ0NjQ5MGExZmYwNzQ1MzQzOWRjZGI3MWJmYWVkMjZmODdlZDBlZDRlNDJiM2I1YzgzYjc5IiwiZGlnZXN0Ijoic2hhMjU2OjEwMzNlMjQ1ZGQwZmJiMTJlZjE2OWY4NjE0OWZjZjkzZTkwZjJhNWE3NmIwNWMwZjA1YzI2YTE2NWZjYWExNWMiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OjRlNzc2MDU0MTcyOWE0ZjYxMjMyZjgwODRiNDI0OTZlMmQ3ZTQwZjg2MDRjMWM4Y2E0MTNmYjEyNzk5Y2UzMWMiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6MSwic2VlZCI6MTAyLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
+                "byteLength": 2032,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTEiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6eyJQQVRIIjp7ImtpbmQiOiJwdWJsaWMiLCJ2YWx1ZSI6Ii91c3IvbG9jYWwvYmluOi91c3IvYmluOi9iaW4ifX0sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo2MGZjYmIxYzcyODE5NGJkNTFkN2QxOWNiNzMyZDFjM2YxODgxZGNlN2UwYTYyNjZiNDFjOGI5OGNmZDY1NjkzIiwiZGlnZXN0Ijoic2hhMjU2OjMwNTZmMDExOWFjNDY0M2RjM2RlZmI5NWZiMzI0NTUyZTEwZjk0ZTQwNjIxMjMxZDFmNjBkMTQ4ZjU5ZDFkMzkiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OmM0N2EwZGFkODBlNmNjNDg1NmNkYjhhMDJhMjc5ZGE2MjFhYjdkOTQwOWUzMTI3NjUwYjY3ZjFmYzFjMTRiMmQiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6MSwic2VlZCI6MTAyLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
                 "encoding": "base64",
-                "sha256": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e"
+                "sha256": "sha256:8d12d5d6466c0dd8f2592be9f6d66b5b6a2139bfe8cdc5b793bde9e28ebec4c6"
               },
-              "digest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+              "digest": "sha256:8d12d5d6466c0dd8f2592be9f6d66b5b6a2139bfe8cdc5b793bde9e28ebec4c6",
               "kind": "agent-candidate-execution-plan",
               "material": {
                 "codeKind": "disabled",
@@ -1411,7 +1438,12 @@
                     "path": ".",
                     "workspace": "task"
                   },
-                  "env": {},
+                  "env": {
+                    "PATH": {
+                      "kind": "public",
+                      "value": "/usr/local/bin:/usr/bin:/bin"
+                    }
+                  },
                   "executable": "codex"
                 },
                 "limits": {
@@ -1460,9 +1492,9 @@
                 "runCell": {
                   "arm": "candidate",
                   "attempt": 1,
-                  "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
-                  "digest": "sha256:1033e245dd0fbb12ef169f86149fcf93e90f2a5a76b05c0f05c26a165fcaa15c",
-                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
+                  "digest": "sha256:3056f0119ac4643dc3defb95fb324552e10f94e40621231d1f60d148f59d1d39",
+                  "experimentDigest": "sha256:c47a0dad80e6cc4856cdb8a02a279da621ab7d9409e3127650b67f1fc1c14b2d",
                   "kind": "agent-candidate-run-cell",
                   "repetition": 1,
                   "seed": 102,
@@ -1531,12 +1563,12 @@
                 "byteLength": 1121,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "benchmark-result/de40c4387aab2c749b768a55f4569348ae55ee882485356a65b5509bf6f00620",
+                  "key": "benchmark-result/8b1ecbcec1ebdb0ec02a3785ff61796b8de31c83830d446c560029dc127a45ca",
                   "kind": "s3"
                 },
-                "sha256": "sha256:de40c4387aab2c749b768a55f4569348ae55ee882485356a65b5509bf6f00620"
+                "sha256": "sha256:8b1ecbcec1ebdb0ec02a3785ff61796b8de31c83830d446c560029dc127a45ca"
               },
-              "digest": "sha256:de40c4387aab2c749b768a55f4569348ae55ee882485356a65b5509bf6f00620",
+              "digest": "sha256:8b1ecbcec1ebdb0ec02a3785ff61796b8de31c83830d446c560029dc127a45ca",
               "kind": "agent-candidate-benchmark-result",
               "material": {
                 "dimensions": [
@@ -1554,7 +1586,7 @@
                   },
                   "sha256": "sha256:9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d"
                 },
-                "executionPlanDigest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+                "executionPlanDigest": "sha256:8d12d5d6466c0dd8f2592be9f6d66b5b6a2139bfe8cdc5b793bde9e28ebec4c6",
                 "grader": {
                   "artifact": {
                     "byteLength": 25,
@@ -1587,24 +1619,24 @@
                 "kind": "agent-candidate-benchmark-result-material",
                 "passed": true,
                 "score": 1,
-                "taskOutcomeDigest": "sha256:71e7ac55968898115c4b3e0a8e71f02eaf6c5d4b46a67806f1bde01efc96b777"
+                "taskOutcomeDigest": "sha256:f24062b48a7ba4bfe3e2566ef7e0d4e97d3c38d7a54e86bf86446adf7fa1cef4"
               }
             },
-            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
-            "digest": "sha256:1ab7c0b04a606512d0cbadc08858d7e127122d3ccc8a4c22cf450e37600663a0",
+            "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
+            "digest": "sha256:bbfcb8dfe7d34f06ce47c8a6562ab15fcaa1dc083524eb692890055e2e2ccc27",
             "digestAlgorithm": "rfc8785-sha256",
-            "executionPlanDigest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+            "executionPlanDigest": "sha256:8d12d5d6466c0dd8f2592be9f6d66b5b6a2139bfe8cdc5b793bde9e28ebec4c6",
             "executorCapture": {
               "byteLength": 477,
               "locator": {
                 "bucket": "candidate-test-artifacts",
-                "key": "executor-capture/7750feebcefe19391bdb10cc84100db9941cf738a4e26921a387ac3a2b5094a3",
+                "key": "executor-capture/5d5db54b6c1e1d5e8d3c1248b3617dcdc8cefb80aa69cf750a1abacbadf9efdb",
                 "kind": "s3"
               },
-              "sha256": "sha256:7750feebcefe19391bdb10cc84100db9941cf738a4e26921a387ac3a2b5094a3"
+              "sha256": "sha256:5d5db54b6c1e1d5e8d3c1248b3617dcdc8cefb80aa69cf750a1abacbadf9efdb"
             },
             "kind": "agent-candidate-run",
-            "materializationReceiptDigest": "sha256:7d002279e2baef8149e264789cffb919024e4290c4a1e3793823a8930c7a94a1",
+            "materializationReceiptDigest": "sha256:d6e837e515c14c86a79f6fb099384a0ac97d74cbfebc2e1a095a8b7660ef1fed",
             "memory": {
               "mode": "disabled"
             },
@@ -1613,17 +1645,17 @@
                 "byteLength": 615,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/ba3d7012d96e93d5b4f5877d53b9509562f761e5c387c94410f69b39c238cef3",
+                  "key": "model-settlement/87ad72eeccca5a0d4593d75b73d7cd4d0d3ffba748b30becc3b496e74ad5d83b",
                   "kind": "s3"
                 },
-                "sha256": "sha256:ba3d7012d96e93d5b4f5877d53b9509562f761e5c387c94410f69b39c238cef3"
+                "sha256": "sha256:87ad72eeccca5a0d4593d75b73d7cd4d0d3ffba748b30becc3b496e74ad5d83b"
               },
-              "digest": "sha256:ba3d7012d96e93d5b4f5877d53b9509562f761e5c387c94410f69b39c238cef3",
+              "digest": "sha256:87ad72eeccca5a0d4593d75b73d7cd4d0d3ffba748b30becc3b496e74ad5d83b",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
                 "closed": true,
-                "executionPlanDigest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+                "executionPlanDigest": "sha256:8d12d5d6466c0dd8f2592be9f6d66b5b6a2139bfe8cdc5b793bde9e28ebec4c6",
                 "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                 "kind": "agent-candidate-model-settlement-material",
                 "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
@@ -1644,21 +1676,21 @@
                 }
               }
             },
-            "runCellDigest": "sha256:1033e245dd0fbb12ef169f86149fcf93e90f2a5a76b05c0f05c26a165fcaa15c",
+            "runCellDigest": "sha256:3056f0119ac4643dc3defb95fb324552e10f94e40621231d1f60d148f59d1d39",
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "task-outcome/71e7ac55968898115c4b3e0a8e71f02eaf6c5d4b46a67806f1bde01efc96b777",
+                  "key": "task-outcome/f24062b48a7ba4bfe3e2566ef7e0d4e97d3c38d7a54e86bf86446adf7fa1cef4",
                   "kind": "s3"
                 },
-                "sha256": "sha256:71e7ac55968898115c4b3e0a8e71f02eaf6c5d4b46a67806f1bde01efc96b777"
+                "sha256": "sha256:f24062b48a7ba4bfe3e2566ef7e0d4e97d3c38d7a54e86bf86446adf7fa1cef4"
               },
-              "digest": "sha256:71e7ac55968898115c4b3e0a8e71f02eaf6c5d4b46a67806f1bde01efc96b777",
+              "digest": "sha256:f24062b48a7ba4bfe3e2566ef7e0d4e97d3c38d7a54e86bf86446adf7fa1cef4",
               "kind": "agent-candidate-task-outcome",
               "material": {
-                "executionPlanDigest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+                "executionPlanDigest": "sha256:8d12d5d6466c0dd8f2592be9f6d66b5b6a2139bfe8cdc5b793bde9e28ebec4c6",
                 "kind": "agent-candidate-task-outcome-material",
                 "outcome": {
                   "artifact": {
@@ -1692,10 +1724,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/7a1d1b35b1a21cf30833a83945af1aa5a74d957c91b7bdb742fb832e25c99f0e",
+                  "key": "trace/e2cdd682a809a037e0049d1b3d3280d7b4099a3e0507b3591fc05b2872641166",
                   "kind": "s3"
                 },
-                "sha256": "sha256:7a1d1b35b1a21cf30833a83945af1aa5a74d957c91b7bdb742fb832e25c99f0e"
+                "sha256": "sha256:e2cdd682a809a037e0049d1b3d3280d7b4099a3e0507b3591fc05b2872641166"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -1705,7 +1737,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:19810401295dd6a49219ea005d0b75155f688c9dd972ec6fb6dd43220014426e",
+          "digest": "sha256:7ebfc740cb6c0156ce54d450015af9e418a57473299022f926555f2a5b706454",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1728,7 +1760,7 @@
                 }
               }
             },
-            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
             "codeKind": "disabled",
             "container": {
               "image": "ghcr.io/example/task",
@@ -1740,16 +1772,16 @@
               },
               "source": "evaluator-task-container"
             },
-            "digest": "sha256:03fea1af601d95a26c9b22df9ffd8e7cc6f8341ad9eb12e18c008587cf70752e",
+            "digest": "sha256:0e3da90681970b46a99808f5d5a623329bae9529bf0f46ccebe7cac7a202ec8a",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlan": {
               "artifact": {
-                "byteLength": 1967,
-                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMiIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6OTBiMWNjMDVmMGQzODlkOTVkODU2YWQ2ZmIzZGE2ZTBmMGUzODJhMTBjZmQxZmRmNGY3NzhhNTZjNTZhMDA3OSIsImRpZ2VzdCI6InNoYTI1Njo3YWIzMzAyOGRlMzJjYTcwY2ExNjlhNDFiYzAzMmIxMmEzYTc2YmIyNmJhZWJlOGI1ODAyNjM3Yjk5Njk0MWU0IiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1Njo0ZTc3NjA1NDE3MjlhNGY2MTIzMmY4MDg0YjQyNDk2ZTJkN2U0MGY4NjA0YzFjOGNhNDEzZmIxMjc5OWNlMzFjIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjIsInNlZWQiOjEwMywic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
+                "byteLength": 2030,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMiIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7IlBBVEgiOnsia2luZCI6InB1YmxpYyIsInZhbHVlIjoiL3Vzci9sb2NhbC9iaW46L3Vzci9iaW46L2JpbiJ9fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6NWMyMWVlNTNlNTEzZmM2MDRjYjA5NzU0ZTIxYzM5MmIyNGE0MjRkYTBlZjM3ZGJmOGYxZWU0YThhMGIwOGYwOSIsImRpZ2VzdCI6InNoYTI1Njo5YzQyN2NjNjc1MDdjZGE4ZGNkYWMzMjdmMzkwYWRmYTdlMDQ1ZDA2OWU2NzdkNjI5MjE2NzhiNDZhOTZkNjZjIiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1NjpjNDdhMGRhZDgwZTZjYzQ4NTZjZGI4YTAyYTI3OWRhNjIxYWI3ZDk0MDllMzEyNzY1MGI2N2YxZmMxYzE0YjJkIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjIsInNlZWQiOjEwMywic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
                 "encoding": "base64",
-                "sha256": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236"
+                "sha256": "sha256:a8fe2f7c6d5bc4d0832a2aa3a0ec6b0c311a1f1bafe9a0fc406991802a87685e"
               },
-              "digest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+              "digest": "sha256:a8fe2f7c6d5bc4d0832a2aa3a0ec6b0c311a1f1bafe9a0fc406991802a87685e",
               "kind": "agent-candidate-execution-plan",
               "material": {
                 "codeKind": "disabled",
@@ -1776,7 +1808,12 @@
                     "path": ".",
                     "workspace": "task"
                   },
-                  "env": {},
+                  "env": {
+                    "PATH": {
+                      "kind": "public",
+                      "value": "/usr/local/bin:/usr/bin:/bin"
+                    }
+                  },
                   "executable": "codex"
                 },
                 "limits": {
@@ -1825,9 +1862,9 @@
                 "runCell": {
                   "arm": "baseline",
                   "attempt": 1,
-                  "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
-                  "digest": "sha256:7ab33028de32ca70ca169a41bc032b12a3a76bb26baebe8b5802637b996941e4",
-                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
+                  "digest": "sha256:9c427cc67507cda8dcdac327f390adfa7e045d069e677d62921678b46a96d66c",
+                  "experimentDigest": "sha256:c47a0dad80e6cc4856cdb8a02a279da621ab7d9409e3127650b67f1fc1c14b2d",
                   "kind": "agent-candidate-run-cell",
                   "repetition": 2,
                   "seed": 103,
@@ -1892,12 +1929,12 @@
                 "byteLength": 1122,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "benchmark-result/9deed92c5c6f606541d59db8a52f33334c76e9766ddb19108399942dd28dd66b",
+                  "key": "benchmark-result/df1a5884a7ed4e54dae3d023b47c21596d27264b5ca59693b51eb221dd533284",
                   "kind": "s3"
                 },
-                "sha256": "sha256:9deed92c5c6f606541d59db8a52f33334c76e9766ddb19108399942dd28dd66b"
+                "sha256": "sha256:df1a5884a7ed4e54dae3d023b47c21596d27264b5ca59693b51eb221dd533284"
               },
-              "digest": "sha256:9deed92c5c6f606541d59db8a52f33334c76e9766ddb19108399942dd28dd66b",
+              "digest": "sha256:df1a5884a7ed4e54dae3d023b47c21596d27264b5ca59693b51eb221dd533284",
               "kind": "agent-candidate-benchmark-result",
               "material": {
                 "dimensions": [
@@ -1915,7 +1952,7 @@
                   },
                   "sha256": "sha256:628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b"
                 },
-                "executionPlanDigest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+                "executionPlanDigest": "sha256:a8fe2f7c6d5bc4d0832a2aa3a0ec6b0c311a1f1bafe9a0fc406991802a87685e",
                 "grader": {
                   "artifact": {
                     "byteLength": 25,
@@ -1948,24 +1985,24 @@
                 "kind": "agent-candidate-benchmark-result-material",
                 "passed": false,
                 "score": 0,
-                "taskOutcomeDigest": "sha256:b7839b059ff6bc2b5606d53992c1e3b1001b5917ca21798e07a696c2b555faef"
+                "taskOutcomeDigest": "sha256:664358fd0e890ca17d0c31aa0157e434c3bc7f6ecaa77c581d5ef600b6a836ce"
               }
             },
-            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
-            "digest": "sha256:b94caa496f9425e76559b3d11482a9156af47aec0c4736a3f2acde6e0d7147f6",
+            "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
+            "digest": "sha256:7dfea3ef8bf6e5c0432180fefe63cad9f62833ecb8bea1ce0de7d41ca3ef3bc5",
             "digestAlgorithm": "rfc8785-sha256",
-            "executionPlanDigest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+            "executionPlanDigest": "sha256:a8fe2f7c6d5bc4d0832a2aa3a0ec6b0c311a1f1bafe9a0fc406991802a87685e",
             "executorCapture": {
               "byteLength": 477,
               "locator": {
                 "bucket": "candidate-test-artifacts",
-                "key": "executor-capture/41c380f90694c94d3638d3f6a1bc2984edabc4b841135563ec693988318a789a",
+                "key": "executor-capture/3fdb1d6105bd10c22daa6c0267015a8f6a88b13d1703e8bf2c901c0887a4b242",
                 "kind": "s3"
               },
-              "sha256": "sha256:41c380f90694c94d3638d3f6a1bc2984edabc4b841135563ec693988318a789a"
+              "sha256": "sha256:3fdb1d6105bd10c22daa6c0267015a8f6a88b13d1703e8bf2c901c0887a4b242"
             },
             "kind": "agent-candidate-run",
-            "materializationReceiptDigest": "sha256:03fea1af601d95a26c9b22df9ffd8e7cc6f8341ad9eb12e18c008587cf70752e",
+            "materializationReceiptDigest": "sha256:0e3da90681970b46a99808f5d5a623329bae9529bf0f46ccebe7cac7a202ec8a",
             "memory": {
               "mode": "disabled"
             },
@@ -1974,17 +2011,17 @@
                 "byteLength": 615,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/43f369d800ff013c35fc63eab901109849030ade35def608ad3229a97c9b5c52",
+                  "key": "model-settlement/39c54b821165bbff4a33cf310c51e20f6d1ff0ee10ff7630618010e91d5a1615",
                   "kind": "s3"
                 },
-                "sha256": "sha256:43f369d800ff013c35fc63eab901109849030ade35def608ad3229a97c9b5c52"
+                "sha256": "sha256:39c54b821165bbff4a33cf310c51e20f6d1ff0ee10ff7630618010e91d5a1615"
               },
-              "digest": "sha256:43f369d800ff013c35fc63eab901109849030ade35def608ad3229a97c9b5c52",
+              "digest": "sha256:39c54b821165bbff4a33cf310c51e20f6d1ff0ee10ff7630618010e91d5a1615",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
                 "closed": true,
-                "executionPlanDigest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+                "executionPlanDigest": "sha256:a8fe2f7c6d5bc4d0832a2aa3a0ec6b0c311a1f1bafe9a0fc406991802a87685e",
                 "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                 "kind": "agent-candidate-model-settlement-material",
                 "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
@@ -2005,21 +2042,21 @@
                 }
               }
             },
-            "runCellDigest": "sha256:7ab33028de32ca70ca169a41bc032b12a3a76bb26baebe8b5802637b996941e4",
+            "runCellDigest": "sha256:9c427cc67507cda8dcdac327f390adfa7e045d069e677d62921678b46a96d66c",
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "task-outcome/b7839b059ff6bc2b5606d53992c1e3b1001b5917ca21798e07a696c2b555faef",
+                  "key": "task-outcome/664358fd0e890ca17d0c31aa0157e434c3bc7f6ecaa77c581d5ef600b6a836ce",
                   "kind": "s3"
                 },
-                "sha256": "sha256:b7839b059ff6bc2b5606d53992c1e3b1001b5917ca21798e07a696c2b555faef"
+                "sha256": "sha256:664358fd0e890ca17d0c31aa0157e434c3bc7f6ecaa77c581d5ef600b6a836ce"
               },
-              "digest": "sha256:b7839b059ff6bc2b5606d53992c1e3b1001b5917ca21798e07a696c2b555faef",
+              "digest": "sha256:664358fd0e890ca17d0c31aa0157e434c3bc7f6ecaa77c581d5ef600b6a836ce",
               "kind": "agent-candidate-task-outcome",
               "material": {
-                "executionPlanDigest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+                "executionPlanDigest": "sha256:a8fe2f7c6d5bc4d0832a2aa3a0ec6b0c311a1f1bafe9a0fc406991802a87685e",
                 "kind": "agent-candidate-task-outcome-material",
                 "outcome": {
                   "artifact": {
@@ -2053,10 +2090,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/11de40695ad7fd6a370835f9945fa8e43348443d95a22d559992c294b2fb58b8",
+                  "key": "trace/f1867bc538dae9c3a35e73fd7c21c06150bbcba815a56835f70b26d615a6e66d",
                   "kind": "s3"
                 },
-                "sha256": "sha256:11de40695ad7fd6a370835f9945fa8e43348443d95a22d559992c294b2fb58b8"
+                "sha256": "sha256:f1867bc538dae9c3a35e73fd7c21c06150bbcba815a56835f70b26d615a6e66d"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -2064,7 +2101,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:7f299ebc9ac6801ecadc3325e7e1e474d292db2f3ad626e74daa721ea24998df",
+          "digest": "sha256:325bbde1ccafdb3786a26b48ad407fea1912f0d7b340c4a654a1ebdc622d960c",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -2087,7 +2124,7 @@
                 }
               }
             },
-            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
             "codeKind": "disabled",
             "container": {
               "image": "ghcr.io/example/task",
@@ -2099,16 +2136,16 @@
               },
               "source": "evaluator-task-container"
             },
-            "digest": "sha256:58b85d501d6559779de74275f638c76ef2a0c7decff907081b8e20d5df37d1c6",
+            "digest": "sha256:b3718d6b33e7316d37af34e81e93a6521b0e9914bdec820d56e14fd7008f3e05",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlan": {
               "artifact": {
-                "byteLength": 1969,
-                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTIiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6e30sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo0MDY4NTdlODIyNmQ0NjQ5MGExZmYwNzQ1MzQzOWRjZGI3MWJmYWVkMjZmODdlZDBlZDRlNDJiM2I1YzgzYjc5IiwiZGlnZXN0Ijoic2hhMjU2OmI3MjVjZjM2Y2YwYjViMmVjZjA5Y2Q4ZjA5ZTRhNDYzYzk4YmE5MDliNDYyMjIyMGNlNzQ3NTRjMTJhNTFhM2EiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OjRlNzc2MDU0MTcyOWE0ZjYxMjMyZjgwODRiNDI0OTZlMmQ3ZTQwZjg2MDRjMWM4Y2E0MTNmYjEyNzk5Y2UzMWMiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6Miwic2VlZCI6MTAzLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
+                "byteLength": 2032,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTIiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6eyJQQVRIIjp7ImtpbmQiOiJwdWJsaWMiLCJ2YWx1ZSI6Ii91c3IvbG9jYWwvYmluOi91c3IvYmluOi9iaW4ifX0sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo2MGZjYmIxYzcyODE5NGJkNTFkN2QxOWNiNzMyZDFjM2YxODgxZGNlN2UwYTYyNjZiNDFjOGI5OGNmZDY1NjkzIiwiZGlnZXN0Ijoic2hhMjU2OmVhNWNhYjlkZmY0OTMyNmRmZTg1NmFhYjE5NTE0ZDJiYzViYzBmYWIyYjRiNjg1YzRmZWEzNTY4MDFkYmQxYzMiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OmM0N2EwZGFkODBlNmNjNDg1NmNkYjhhMDJhMjc5ZGE2MjFhYjdkOTQwOWUzMTI3NjUwYjY3ZjFmYzFjMTRiMmQiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6Miwic2VlZCI6MTAzLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
                 "encoding": "base64",
-                "sha256": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669"
+                "sha256": "sha256:c642749f2907277b811c99017d96103dd1ab6d2564fe1c8caba27bbe8d6c151f"
               },
-              "digest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+              "digest": "sha256:c642749f2907277b811c99017d96103dd1ab6d2564fe1c8caba27bbe8d6c151f",
               "kind": "agent-candidate-execution-plan",
               "material": {
                 "codeKind": "disabled",
@@ -2135,7 +2172,12 @@
                     "path": ".",
                     "workspace": "task"
                   },
-                  "env": {},
+                  "env": {
+                    "PATH": {
+                      "kind": "public",
+                      "value": "/usr/local/bin:/usr/bin:/bin"
+                    }
+                  },
                   "executable": "codex"
                 },
                 "limits": {
@@ -2184,9 +2226,9 @@
                 "runCell": {
                   "arm": "candidate",
                   "attempt": 1,
-                  "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
-                  "digest": "sha256:b725cf36cf0b5b2ecf09cd8f09e4a463c98ba909b4622220ce74754c12a51a3a",
-                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
+                  "digest": "sha256:ea5cab9dff49326dfe856aab19514d2bc5bc0fab2b4b685c4fea356801dbd1c3",
+                  "experimentDigest": "sha256:c47a0dad80e6cc4856cdb8a02a279da621ab7d9409e3127650b67f1fc1c14b2d",
                   "kind": "agent-candidate-run-cell",
                   "repetition": 2,
                   "seed": 103,
@@ -2255,12 +2297,12 @@
                 "byteLength": 1121,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "benchmark-result/065077bb8c8d7ce16e785ddfa6fc633ea492aafcc94162b7ac171fafb3c579ad",
+                  "key": "benchmark-result/95541270205f83cd4d1fe61062e133c4f2afdb1978d1af56de0aef0410999aa4",
                   "kind": "s3"
                 },
-                "sha256": "sha256:065077bb8c8d7ce16e785ddfa6fc633ea492aafcc94162b7ac171fafb3c579ad"
+                "sha256": "sha256:95541270205f83cd4d1fe61062e133c4f2afdb1978d1af56de0aef0410999aa4"
               },
-              "digest": "sha256:065077bb8c8d7ce16e785ddfa6fc633ea492aafcc94162b7ac171fafb3c579ad",
+              "digest": "sha256:95541270205f83cd4d1fe61062e133c4f2afdb1978d1af56de0aef0410999aa4",
               "kind": "agent-candidate-benchmark-result",
               "material": {
                 "dimensions": [
@@ -2278,7 +2320,7 @@
                   },
                   "sha256": "sha256:9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d"
                 },
-                "executionPlanDigest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+                "executionPlanDigest": "sha256:c642749f2907277b811c99017d96103dd1ab6d2564fe1c8caba27bbe8d6c151f",
                 "grader": {
                   "artifact": {
                     "byteLength": 25,
@@ -2311,24 +2353,24 @@
                 "kind": "agent-candidate-benchmark-result-material",
                 "passed": true,
                 "score": 1,
-                "taskOutcomeDigest": "sha256:4dcf33ca1333772d635d34932d4348fb55d7dd4146f734f97bd1b296ad059f0f"
+                "taskOutcomeDigest": "sha256:61d53d0789c46c98b43acdc7177b1b6102f48aa2d6b3b2ff0ec5ee4b287c8d92"
               }
             },
-            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
-            "digest": "sha256:88fd469bd1018d2b4dd7c1cce8cb6f13dee64599a9054237f39f245d97e446d4",
+            "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
+            "digest": "sha256:62fb136a6376e729f10efa210b6dba6607923b2502597e555bd055d72ee307dd",
             "digestAlgorithm": "rfc8785-sha256",
-            "executionPlanDigest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+            "executionPlanDigest": "sha256:c642749f2907277b811c99017d96103dd1ab6d2564fe1c8caba27bbe8d6c151f",
             "executorCapture": {
               "byteLength": 477,
               "locator": {
                 "bucket": "candidate-test-artifacts",
-                "key": "executor-capture/9923cd0fda5e697e70ab83a99dac67d991b9b0ac9c1702bb99990f0d9a5cd1d7",
+                "key": "executor-capture/c8e3a1667966134d3f7b24b4df19a5f5286814522f7884f0a76f7cfd3d4832a2",
                 "kind": "s3"
               },
-              "sha256": "sha256:9923cd0fda5e697e70ab83a99dac67d991b9b0ac9c1702bb99990f0d9a5cd1d7"
+              "sha256": "sha256:c8e3a1667966134d3f7b24b4df19a5f5286814522f7884f0a76f7cfd3d4832a2"
             },
             "kind": "agent-candidate-run",
-            "materializationReceiptDigest": "sha256:58b85d501d6559779de74275f638c76ef2a0c7decff907081b8e20d5df37d1c6",
+            "materializationReceiptDigest": "sha256:b3718d6b33e7316d37af34e81e93a6521b0e9914bdec820d56e14fd7008f3e05",
             "memory": {
               "mode": "disabled"
             },
@@ -2337,17 +2379,17 @@
                 "byteLength": 615,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/592d4b35fa6b118a9a20eea887eed44e997bede7b155ca83607c0b11d83bad77",
+                  "key": "model-settlement/397df4f1827292bad160efdfeb9f92748df604396b285b20f527299b073a8988",
                   "kind": "s3"
                 },
-                "sha256": "sha256:592d4b35fa6b118a9a20eea887eed44e997bede7b155ca83607c0b11d83bad77"
+                "sha256": "sha256:397df4f1827292bad160efdfeb9f92748df604396b285b20f527299b073a8988"
               },
-              "digest": "sha256:592d4b35fa6b118a9a20eea887eed44e997bede7b155ca83607c0b11d83bad77",
+              "digest": "sha256:397df4f1827292bad160efdfeb9f92748df604396b285b20f527299b073a8988",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
                 "closed": true,
-                "executionPlanDigest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+                "executionPlanDigest": "sha256:c642749f2907277b811c99017d96103dd1ab6d2564fe1c8caba27bbe8d6c151f",
                 "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                 "kind": "agent-candidate-model-settlement-material",
                 "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
@@ -2368,21 +2410,21 @@
                 }
               }
             },
-            "runCellDigest": "sha256:b725cf36cf0b5b2ecf09cd8f09e4a463c98ba909b4622220ce74754c12a51a3a",
+            "runCellDigest": "sha256:ea5cab9dff49326dfe856aab19514d2bc5bc0fab2b4b685c4fea356801dbd1c3",
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "task-outcome/4dcf33ca1333772d635d34932d4348fb55d7dd4146f734f97bd1b296ad059f0f",
+                  "key": "task-outcome/61d53d0789c46c98b43acdc7177b1b6102f48aa2d6b3b2ff0ec5ee4b287c8d92",
                   "kind": "s3"
                 },
-                "sha256": "sha256:4dcf33ca1333772d635d34932d4348fb55d7dd4146f734f97bd1b296ad059f0f"
+                "sha256": "sha256:61d53d0789c46c98b43acdc7177b1b6102f48aa2d6b3b2ff0ec5ee4b287c8d92"
               },
-              "digest": "sha256:4dcf33ca1333772d635d34932d4348fb55d7dd4146f734f97bd1b296ad059f0f",
+              "digest": "sha256:61d53d0789c46c98b43acdc7177b1b6102f48aa2d6b3b2ff0ec5ee4b287c8d92",
               "kind": "agent-candidate-task-outcome",
               "material": {
-                "executionPlanDigest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+                "executionPlanDigest": "sha256:c642749f2907277b811c99017d96103dd1ab6d2564fe1c8caba27bbe8d6c151f",
                 "kind": "agent-candidate-task-outcome-material",
                 "outcome": {
                   "artifact": {
@@ -2416,10 +2458,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/3d68a2563c8e0fad81d134e751fe8a6d8a715ba73228c94c7cd0a2fb729186d4",
+                  "key": "trace/59f819d9564d5e61e59e52545f9b269083f0a0b57a92a5e8f93e566da560ef17",
                   "kind": "s3"
                 },
-                "sha256": "sha256:3d68a2563c8e0fad81d134e751fe8a6d8a715ba73228c94c7cd0a2fb729186d4"
+                "sha256": "sha256:59f819d9564d5e61e59e52545f9b269083f0a0b57a92a5e8f93e566da560ef17"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -2538,10 +2580,10 @@
       "sufficient": true
     },
     "provenance": {
-      "baselineContentHash": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
-      "candidateContentHash": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+      "baselineContentHash": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
+      "candidateContentHash": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
       "kind": "agent-eval-loop",
-      "recordDigest": "sha256:6ee245f7c24f0a28c8f169bc2fef2d85db9dec9e66eff078798993be20885bb3",
+      "recordDigest": "sha256:3d5438382423c719e5bedd6be8816f4101bd22b9cb154621fc77da841522222d",
       "runId": "agent-runtime-0.101.1-proposal-fixture",
       "schema": "agent-candidate-experiment"
     }
