@@ -64,8 +64,8 @@ importers:
         specifier: 0.122.8
         version: 0.122.8(typescript@5.9.3)
       '@tangle-network/agent-interface':
-        specifier: 0.31.0
-        version: 0.31.0
+        specifier: 0.32.0
+        version: 0.32.0
       '@tangle-network/agent-runtime':
         specifier: workspace:*
         version: link:..
