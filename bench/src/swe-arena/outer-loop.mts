@@ -53,6 +53,7 @@ import {
   type CandidateGenerator,
   type Verifier,
 } from '@tangle-network/agent-runtime'
+import { runLocalHarness } from '@tangle-network/agent-runtime/mcp'
 import { makeFinding } from '@tangle-network/agent-eval'
 import {
   surfaceHash,
@@ -877,13 +878,48 @@ export function loopsCandidateVerifier(loopsRepo: string): Verifier {
   }
 }
 
+/** Ambient auth vars that hijack the claude CLI away from its claude.ai login.
+ *  The run is launched under dotenvx, and agent-state.env injects an
+ *  ANTHROPIC_API_KEY meant for other tooling; the claude CLI prefers env-key
+ *  auth over the logged-in account and exits 1 immediately when that key's org
+ *  is over its usage cap (reproduced 2026-07-20: `claude -p` under the run env
+ *  → rc=1, "API Error: 400 You have reached your specified API usage limits";
+ *  same command with these vars unset → rc=0). The author shot must run on the
+ *  CLI's own login, so the leaked auth is stripped for the shot subprocess
+ *  only — the rest of the run keeps its env untouched. */
+const CLAUDE_AMBIENT_AUTH_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'] as const
+
+function proposerShotEnv(harness: OuterLoopConfig['proposerHarness']): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  if (harness === 'claude') {
+    for (const name of CLAUDE_AMBIENT_AUTH_VARS) delete env[name]
+  }
+  return env
+}
+
 export function constrainedLoopsGenerator(config: OuterLoopConfig): CandidateGenerator {
+  const shotDir = join(config.outDir, 'proposer-shots')
   const inner = agenticGenerator({
     harness: config.proposerHarness,
     timeoutMs: config.proposerTimeoutMs,
     buildPrompt: (args) =>
       round4BuildPrompt(args as unknown as { report: unknown; findings: Array<Record<string, unknown>> }),
     verify: loopsCandidateVerifier(config.loopsRepo),
+    runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(config.proposerHarness) }),
+    // Three runs died as "author shot exited with code 1" with the shot's
+    // stderr lost (nothing wires receipt persistence by default). Persist every
+    // attempted shot — receipt plus bounded stream tails — so the NEXT failure
+    // names its cause from disk.
+    onShotCompleted: async (receipt, execution) => {
+      const tail = (s: string | undefined): string | null =>
+        s === undefined ? null : s.length > 20_000 ? s.slice(-20_000) : s
+      await mkdir(shotDir, { recursive: true })
+      const name = `gen${receipt.generation ?? 'x'}-cand${receipt.candidateIndex ?? 'x'}-shot${receipt.shot}.json`
+      await writeFile(
+        join(shotDir, name),
+        JSON.stringify({ receipt, stdoutTail: tail(execution?.stdout), stderrTail: tail(execution?.stderr) }, null, 2),
+      )
+    },
   })
   return {
     kind: `round4-constrained:${inner.kind}`,
