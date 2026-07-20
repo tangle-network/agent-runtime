@@ -142,6 +142,7 @@ try {
     `
       import type {
         AgentCandidateProfileActivation,
+        AgentImprovementActivationOutcome,
         AgentProfile,
         CandidateExecutionEvidence,
         Sha256Digest,
@@ -154,6 +155,7 @@ try {
         agentImprovementTargetProfileDiffs,
         isAgentImprovementProfileSurface,
         parseCandidateProfileMaterialization,
+        prepareAgentImprovementProfileActivation,
         sandboxCandidateExperimentExecutionSupport,
         verifyCandidateExecutionEvidence,
         type AgentImprovementActivationTransitionInput,
@@ -209,6 +211,34 @@ try {
             { id: transitionInput.activation.digest },
           )
         : []
+      const desiredProfile: AgentProfile = {
+        ...activeProfile,
+        prompt: { systemPrompt: 'candidate prompt' },
+      }
+      const prepared = prepareAgentImprovementProfileActivation({
+        currentByIdentity: new Map([['profile-1', activeProfile]]),
+        targets: [{
+          surface: 'prompt',
+          identity: 'profile-1',
+          expectedBaseDigest: agentImprovementProfileSurfaceDigest(activeProfile, 'prompt'),
+          desiredDigest: agentImprovementProfileSurfaceDigest(desiredProfile, 'prompt'),
+          desiredInput: { prompt: desiredProfile.prompt },
+        }],
+      })
+      if (prepared.status === 'apply') {
+        const activationOutcome: AgentImprovementActivationOutcome = {
+          status: 'applied',
+          transactionId: 'compile-only',
+          targets: prepared.targets,
+        }
+        void activationOutcome
+      } else if (prepared.status === 'already-applied' || prepared.status === 'conflict') {
+        const activationOutcome: AgentImprovementActivationOutcome = {
+          status: prepared.status,
+          targets: prepared.targets,
+        }
+        void activationOutcome
+      }
       void execution
       void activation
       void outcome
@@ -289,6 +319,7 @@ try {
           'executeAgentImprovementActivation',
           'executeAgentCandidateExperimentCell',
           'parseCandidateProfileMaterialization',
+          'prepareAgentImprovementProfileActivation',
           'proposeAgentImprovement',
           'reviewAgentImprovementProposal',
           'runAgentCandidateExperiment',
