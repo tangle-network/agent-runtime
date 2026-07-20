@@ -6,15 +6,12 @@
  *   2. Run the analyst registry with priorFindings injected
  *   3. Persist the new run's findings to the ledger
  *   4. Diff the new run against the baseline
- *   5. Hand the findings to the knowledge adapter → proposals (and
- *      optionally apply them) → wiki edits
- *   6. Hand the findings to the improvement adapter → prompt / tool /
- *      scaffolding edits (review-only by default)
+ *   5. Hand the findings to the knowledge proposal source
+ *   6. Hand the findings to the agent-surface proposal source
  *   7. Return a single report the consumer renders / persists / acts on.
  *
- * Adapters are optional: the loop works as a "run + diff + report"
- * primitive when no adapters are wired; it closes end-to-end when
- * both adapters are wired.
+ * Proposal sources are optional: the loop also works as a plain
+ * "run + diff + report" primitive.
  */
 
 import type { AnalystFinding, AnalystRunResult, FindingsDiff } from '@tangle-network/agent-eval'
@@ -65,8 +62,8 @@ export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
     })),
   })
 
-  // 3. Persist the new run before any side-effecting adapter runs so
-  //    the ledger is the source of truth even if an adapter throws.
+  // 3. Persist the new run before proposal generation so the ledger remains
+  //    the source of truth if a proposal source throws.
   if (opts.findingsStore && analystResult.findings.length > 0) {
     await opts.findingsStore.append(opts.runId, analystResult.findings)
     await emit({
@@ -100,16 +97,16 @@ export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
     })
   }
 
-  // 5. Knowledge adapter — proposals + optional auto-apply.
+  // 5. Knowledge proposals. This loop never writes live knowledge.
   let knowledge: KnowledgeReport<TProposal> | null = null
-  if (opts.knowledgeAdapter) {
-    knowledge = await runKnowledgeAdapter(opts, analystResult.findings, log, emit)
+  if (opts.knowledgeProposalSource) {
+    knowledge = await runKnowledgeProposalSource(opts, analystResult.findings, log, emit)
   }
 
-  // 6. Improvement adapter — prompt / tool / scaffolding edits.
+  // 6. Agent-surface proposals. This loop never writes live agent state.
   let improvement: ImprovementReport<TEdit> | null = null
-  if (opts.improvementAdapter) {
-    improvement = await runImprovementAdapter(opts, analystResult.findings, log, emit)
+  if (opts.improvementProposalSource) {
+    improvement = await runImprovementProposalSource(opts, analystResult.findings, log, emit)
   }
 
   await emit({
@@ -184,14 +181,14 @@ function buildPriorFindingsInput(
   return stripped
 }
 
-async function runKnowledgeAdapter<TProposal>(
+async function runKnowledgeProposalSource<TProposal>(
   opts: RunAnalystLoopOpts,
   findings: ReadonlyArray<AnalystFinding>,
   log: NonNullable<RunAnalystLoopOpts['log']>,
   emit: Emitter,
 ): Promise<KnowledgeReport<TProposal>> {
-  const adapter = opts.knowledgeAdapter!
-  const batch = await adapter.proposeFromFindings(findings)
+  const source = opts.knowledgeProposalSource!
+  const batch = await source.proposeFromFindings(findings)
   log('knowledge.proposeFromFindings', {
     proposals: batch.proposals.length,
     skipped: batch.skipped,
@@ -205,69 +202,21 @@ async function runKnowledgeAdapter<TProposal>(
     errors: batch.errors.length,
   })
 
-  const auto = opts.autoApply?.knowledge ?? false
-  const threshold = opts.autoApply?.knowledgeConfidenceThreshold ?? 0.85
-
-  if (!auto || !adapter.apply) {
-    await emit({
-      type: 'knowledge-applied',
-      runId: opts.runId,
-      writtenCount: 0,
-      withheldForReview: batch.proposals.length,
-    })
-    return {
-      proposals: batch.proposals as TProposal[],
-      applied: [],
-      skipped: batch.skipped,
-      errors: batch.errors,
-      withheld_for_review: batch.proposals.length,
-    }
-  }
-
-  const findingsById = new Map(findings.map((f) => [f.finding_id, f]))
-  const safe: TProposal[] = []
-  let withheld = 0
-  for (const p of batch.proposals as Array<TProposal & { sourceFindingId?: string }>) {
-    const src = p.sourceFindingId ? findingsById.get(p.sourceFindingId) : undefined
-    if (!src) {
-      withheld += 1
-      continue
-    }
-    if (src.confidence < threshold) {
-      withheld += 1
-      continue
-    }
-    safe.push(p)
-  }
-  const result = await adapter.apply(safe)
-  log('knowledge.apply', {
-    applied: result.written.length,
-    withheld_for_review: withheld,
-    warnings: result.warnings.length,
-  })
-  await emit({
-    type: 'knowledge-applied',
-    runId: opts.runId,
-    writtenCount: result.written.length,
-    withheldForReview: withheld,
-  })
   return {
     proposals: batch.proposals as TProposal[],
-    applied: result.written,
     skipped: batch.skipped,
     errors: batch.errors,
-    withheld_for_review: withheld,
   }
 }
 
-async function runImprovementAdapter<TEdit>(
+async function runImprovementProposalSource<TEdit>(
   opts: RunAnalystLoopOpts,
   findings: ReadonlyArray<AnalystFinding>,
   log: NonNullable<RunAnalystLoopOpts['log']>,
   emit: Emitter,
 ): Promise<ImprovementReport<TEdit>> {
-  const adapter = opts.improvementAdapter!
-  const batch = await adapter.proposeFromFindings(findings)
+  const source = opts.improvementProposalSource!
+  const batch = await source.proposeFromFindings(findings)
   log('improvement.proposeFromFindings', {
     edits: batch.edits.length,
     skipped: batch.skipped,
@@ -281,54 +230,10 @@ async function runImprovementAdapter<TEdit>(
     errors: batch.errors.length,
   })
 
-  const auto = opts.autoApply?.improvement ?? false
-  const threshold = opts.autoApply?.improvementConfidenceThreshold ?? 0.9
-
-  if (!auto || !adapter.apply) {
-    await emit({
-      type: 'improvement-applied',
-      runId: opts.runId,
-      appliedCount: 0,
-      withheldForReview: batch.edits.length,
-    })
-    return {
-      edits: batch.edits as TEdit[],
-      applied: [],
-      skipped: batch.skipped,
-      errors: batch.errors,
-      withheld_for_review: batch.edits.length,
-    }
-  }
-
-  const findingsById = new Map(findings.map((f) => [f.finding_id, f]))
-  const safe: TEdit[] = []
-  let withheld = 0
-  for (const e of batch.edits as Array<TEdit & { sourceFindingId?: string }>) {
-    const src = e.sourceFindingId ? findingsById.get(e.sourceFindingId) : undefined
-    if (!src || src.confidence < threshold) {
-      withheld += 1
-      continue
-    }
-    safe.push(e)
-  }
-  const result = await adapter.apply(safe)
-  log('improvement.apply', {
-    applied: result.applied.length,
-    withheld_for_review: withheld,
-    warnings: result.warnings.length,
-  })
-  await emit({
-    type: 'improvement-applied',
-    runId: opts.runId,
-    appliedCount: result.applied.length,
-    withheldForReview: withheld,
-  })
   return {
     edits: batch.edits as TEdit[],
-    applied: result.applied,
     skipped: batch.skipped,
     errors: batch.errors,
-    withheld_for_review: withheld,
   }
 }
 

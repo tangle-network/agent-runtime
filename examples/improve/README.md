@@ -2,8 +2,8 @@
 
 `improve()` takes an agent, a list of what went wrong, and produces a *better version of that agent* —
 by rewriting one part of it (its system prompt, its tool list, its skills) and testing whether the new
-version actually beats the old one. The catch that makes it trustworthy: the improved version only
-ships if it wins on **held-out examples it wasn't tuned on**. No self-graded "trust me, it's better."
+version actually beats the old one. The catch that makes it trustworthy: the improved version is
+only reviewable if it wins on **held-out examples it wasn't tuned on**. It never changes live state.
 
 ```bash
 pnpm tsx examples/improve/improve.ts
@@ -16,8 +16,8 @@ Runs offline, no credentials.
 "Self-improving AI" usually means an agent that tweaks itself and declares victory. That's how you get
 a change that looks great on the examples it was optimizing against and falls apart everywhere else.
 `improve()` guards against exactly that: it splits your test cases, optimizes on one half, and only
-promotes the change if it still wins on the other half it never saw. So improvement is *measured*, not
-asserted — and a change that doesn't genuinely help gets rejected.
+accepts the change if it still wins on the other half it never saw. So improvement is *measured*, not
+asserted, and a change that does not genuinely help is held.
 
 ## What it does, step by step
 
@@ -27,20 +27,19 @@ asserted — and a change that doesn't genuinely help gets rejected.
 2. It proposes candidate rewrites of that surface, reflecting on the findings.
 3. It scores each candidate on your test scenarios.
 4. It runs the winner against a **held-out** slice of scenarios that weren't used to pick it.
-5. If the winner clears that gate, it writes the improved surface back into the profile and returns
-   `{ shipped: true, lift }`. If not, it ships nothing.
+5. It returns the frozen winner, decision, and lift. Approval and activation are separate operations.
 
 ## What you'll see
 
 ```
-improve() — proposed a new "prompt" surface from the analyst findings, measured it on
-held-out scenarios, and shipped only because the gate cleared …
-shipped: true  lift: 1.000  gate: ship
-prompt after: PROMOTED
+improve() proposed a detached prompt candidate and measured it on held-out scenarios …
+decision: ship  lift: 1.000
+candidate prompt: PROMOTED
+live prompt unchanged: BASELINE
 ```
 
 The starting prompt was `BASELINE`; the improved one is `PROMOTED`. `lift: 1.000` is how much better it
-scored; `gate: ship` means the held-out check approved the promotion.
+scored; `decision: ship` means the held-out check made the candidate eligible for review.
 
 ## How it stays offline
 
@@ -54,7 +53,7 @@ promotion logic are the same code that runs live.
 
 Drop the scripted proposer and pass `llm: { apiKey, baseUrl, model }` — `improve()` then uses a real
 model to reflect on the findings and propose rewrites. Keep the default held-out gate (don't set
-`gate: 'none'`) so real evidence decides what ships.
+`gate: 'none'`) so real evidence decides which candidates are eligible for review.
 
 ## Files
 

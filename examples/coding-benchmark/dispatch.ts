@@ -40,13 +40,7 @@ import {
   sumSandboxUsage,
 } from '@tangle-network/agent-runtime/loops'
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import {
-  type CheckBox,
-  gradeOnHiddenCriteria,
-  layerOutput,
-  type RunArtifact,
-  runChecks,
-} from './eval'
+import { gradeOnHiddenCriteria, layerOutput, type RunArtifact, runChecks } from './eval'
 import { harnessOf, type ToolPreset, withTools } from './profiles'
 import { type CodingScenario, checkCmds, routeCodingFields } from './scenarios'
 
@@ -96,6 +90,7 @@ export function codingDispatch(
     // Author the tool surface onto the profile (one line). The substrate
     // materializes it into the harness's real config.
     const equippedProfile = withTools(profile, toolPreset)
+    const model = equippedProfile.model?.default ?? 'unknown'
     const cmds = checkCmds(scenario)
     // Route the scenario's fields by destination (agent-visible / develop-against /
     // grading-only / judge-only). The firewall reads these tags, not field names.
@@ -136,23 +131,32 @@ export function codingDispatch(
         // visible test `develop-against`, so seeding it never trips this.
         agentContextParts.push(prompt)
         assertNoHiddenLeak(routedFields, agentContextParts.join('\n'))
-        const turn = round === 0 ? await run.start(prompt) : await run.resume(prompt)
+        const paid = await ctx.cost.runPaidCall({
+          channel: 'agent',
+          actor: 'sandbox-cell',
+          model,
+          signal: ctx.signal,
+          execute: () => (round === 0 ? run.start(prompt) : run.resume(prompt)),
+          receipt: (turn) => {
+            const usage = sumSandboxUsage(turn.events)
+            return {
+              model,
+              inputTokens: usage.input,
+              outputTokens: usage.output,
+              ...(usage.costUsd > 0 ? { actualCostUsd: usage.costUsd } : {}),
+            }
+          },
+        })
+        if (!paid.succeeded) throw paid.error
+        const turn = paid.value
         solution = turn.out.solution
         finalText = turn.events.map(eventText).filter(Boolean).join(' ').slice(0, 2000)
-
-        // Report usage so the integrity guard sees a real backend (not a stub).
-        // `extractLlmCallEvent` reads usage off EVERY backend event shape — the live
-        // sandbox's `done`/`result`/`llm_call` events all sum correctly here.
-        const usage = sumSandboxUsage(turn.events)
-        if (usage.input || usage.output)
-          ctx.cost.observeTokens({ input: usage.input, output: usage.output })
-        if (usage.costUsd) ctx.cost.observe(usage.costUsd, 'sandbox-cell')
 
         // Dev checks (visible example tests), IN THE BOX, this round. These (and only
         // these) steer the next round — the firewall keeps the held-out suite + rubric
         // out of the loop. `run.box` is a `SandboxInstance`; `CheckBox` is the minimal
         // `exec`(+optional `fs.write`) subset the checks use — a structural narrowing.
-        checks = await runChecks(run.box as CheckBox, scenario, cmds)
+        checks = await runChecks(run.box, scenario, cmds)
         if (checks.allPass) break // stop on worker-observable green only
       }
 
@@ -164,7 +168,7 @@ export function codingDispatch(
       // composite). A solution that hardcoded the visible examples fails the held-out inputs
       // it never saw — execution truth behind a substrate-enforced firewall, not a regex.
       const heldout = await gradeOnHiddenCriteria(
-        run.box as CheckBox,
+        run.box,
         scenario,
         cmds.heldout,
         { fields: routedFields, agentContext: agentContextParts.join('\n') },

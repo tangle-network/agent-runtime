@@ -1,7 +1,7 @@
 /**
  *
  * `reflectiveGenerator` — the cheap, no-sandbox `CandidateGenerator`. It drafts
- * surface edits via the existing improvement adapter (`proposeFromFindings`,
+ * surface edits via the existing improvement proposer (`proposeFromFindings`,
  * one LLM patch per finding) and applies them as ONE coherent improvement into
  * the candidate worktree. `maxShots` is ignored — reflection is single-shot by
  * construction (the patches are already drafted).
@@ -15,11 +15,11 @@
 
 import { spawnSync } from 'node:child_process'
 import type { SurfaceImprovementEdit } from '../agent/improvement-adapter'
-import type { ImprovementAdapter } from '../analyst-loop/types'
+import type { ImprovementProposalSource } from '../analyst-loop/types'
 import type { CandidateGenerator } from './improvement-driver'
 
 export interface ReflectiveGeneratorOptions {
-  improvementAdapter: ImprovementAdapter<SurfaceImprovementEdit>
+  improvementProposalSource: ImprovementProposalSource<SurfaceImprovementEdit>
 }
 
 /** Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edits via the improvement adapter and apply them as one coherent candidate. */
@@ -27,7 +27,7 @@ export function reflectiveGenerator(opts: ReflectiveGeneratorOptions): Candidate
   return {
     kind: 'reflective',
     async generate({ worktreePath, findings }) {
-      const batch = await opts.improvementAdapter.proposeFromFindings(findings)
+      const batch = await opts.improvementProposalSource.proposeFromFindings(findings)
       if (batch.edits.length === 0) return { applied: false, summary: '' }
 
       let applied = 0
@@ -45,7 +45,7 @@ export function reflectiveGenerator(opts: ReflectiveGeneratorOptions): Candidate
   }
 }
 
-/** Mirror the improvement adapter's proven apply invocation, run inside the
+/** Apply a proposed patch inside the isolated candidate worktree.
  *  candidate worktree (a fresh checkout of baseRef, so `-p0` paths match). */
 function applyPatch(patch: string, cwd: string): boolean {
   const result = spawnSync('git', ['apply', '--whitespace=fix', '-p0', '-'], {

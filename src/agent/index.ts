@@ -15,10 +15,8 @@ export type {
   AgentRunInvocation,
   AgentRuntime,
   AnalystConfig,
-  AutoApplyPolicy,
   JudgeConfig,
   RubricDimension,
-  SurfaceLifecycle,
 } from './define-agent'
 export {
   AgentManifestError,
@@ -27,19 +25,12 @@ export {
   unimplementedAgentRun,
 } from './define-agent'
 export type {
-  CreateSurfaceImprovementAdapterOpts,
+  CreateSurfaceImprovementProposerOptions,
   DraftPatchInput,
   DraftPatchOutput,
   SurfaceImprovementEdit,
 } from './improvement-adapter'
-export { createSurfaceImprovementAdapter } from './improvement-adapter'
-export type {
-  CreateSurfaceKnowledgeAdapterOpts,
-  KnowledgeAdapterDeps,
-} from './knowledge-adapter'
-export { createSurfaceKnowledgeAdapter } from './knowledge-adapter'
-export type { OutcomeMeasurement, OutcomeMeasurementOpts } from './outcome'
-export { measureOutcome } from './outcome'
+export { createSurfaceImprovementProposer } from './improvement-adapter'
 export type {
   AgentProfileMaterializationAxis,
   AssertProfileMaterializationOptions,

@@ -2,10 +2,10 @@
  * `improve()` — the one pluggable RSI verb, offline.
  *
  * `improve(profile, findings, opts)` optimizes ONE surface of an agent's profile (here the system
- * prompt) and ships the winner only if it clears the held-out gate. It is a facade over agent-eval's
+ * prompt) and returns the frozen winner only if it clears the held-out gate. It is a facade over agent-eval's
  * `selfImprove`: you name a `surface` and it picks the matching default mutator, extracts the baseline
- * from the profile, runs the loop, and — on a ship verdict — writes the promoted surface back into the
- * profile field.
+ * from the profile, and runs the loop. A ship verdict still requires a separate measured approval and
+ * product-owned activation; this function never mutates the live profile.
  *
  * The REQUIRED positional `findings` (an `AnalystFinding[]`) is what the loop reflects on: the trace
  * analysts' read of what went wrong. Here it is a single hand-written finding.
@@ -46,9 +46,21 @@ export const agent = async (
   _scenario: DemoScenario,
   ctx: DispatchContext,
 ): Promise<string> => {
-  ctx.cost.observe(0.0001, 'example')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return String(surface)
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'example',
+    model: 'deterministic-example',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => String(surface),
+    receipt: () => ({
+      model: 'deterministic-example',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 // Deterministic judge: the literal string `PROMOTED` scores 1.0, anything else 0.0 — no LLM.
@@ -96,10 +108,11 @@ async function main(): Promise<void> {
     budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
   })
   console.log(
-    'improve() — proposed a new "prompt" surface from the analyst findings, measured it on held-out scenarios, and shipped only because the gate cleared (offline: scripted proposer, deterministic judge):',
+    'improve() proposed a detached prompt candidate and measured it on held-out scenarios (offline: scripted proposer, deterministic judge):',
   )
-  console.log(`shipped: ${out.shipped}  lift: ${out.lift.toFixed(3)}  gate: ${out.gateDecision}`)
-  console.log(`prompt after: ${out.profile.prompt?.systemPrompt}`)
+  console.log(`decision: ${out.decision}  lift: ${out.lift.toFixed(3)}`)
+  console.log(`candidate prompt: ${out.candidate.profile?.prompt?.systemPrompt}`)
+  console.log(`live prompt unchanged: ${profile.prompt?.systemPrompt}`)
 }
 
 // Only run the demo when this file is executed directly — intelligence-recommend.ts imports the

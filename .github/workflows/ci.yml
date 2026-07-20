@@ -39,3 +39,25 @@ jobs:
 
       - name: Docs (regenerate API reference + freshness gate)
         run: pnpm run docs:check
+
+  agent-bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install package set
+        run: pnpm install --frozen-lockfile
+
+      - name: Build current agent-runtime
+        run: pnpm run build
+
+      - name: Verify agent-bench against current agent-runtime
+        run: pnpm run verify:bench

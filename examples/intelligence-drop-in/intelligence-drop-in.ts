@@ -17,7 +17,7 @@
 import { createServer } from 'node:http'
 import {
   createIntelligenceClient,
-  withTangleIntelligence,
+  withIntelligence,
 } from '@tangle-network/agent-runtime/intelligence'
 
 async function supportAgent(input: { question: string }): Promise<{ answer: string }> {
@@ -65,23 +65,25 @@ async function main() {
   })
   await new Promise<void>((r) => server.listen(0, r))
   const port = (server.address() as { port: number }).port
-  const endpoint = `http://127.0.0.1:${port}/v1/otlp`
+  const baseUrl = `http://127.0.0.1:${port}`
+  const apiKey = process.env.TANGLE_API_KEY ?? 'sk-tan-demo'
   const project = 'support-agent'
 
-  // 1) THE ERGONOMICS — wrap any `(input) => Promise<output>` in one line; it ships a trace best-effort
-  //    (fire-and-forget: the call returns as soon as the agent does, the span flushes in the background).
-  const wrapped = withTangleIntelligence(supportAgent, {
+  // 1) THE ERGONOMICS — wrap any agent in one line; it receives the tenant's certified profile (fail-closed)
+  //    and ships a RunRecord best-effort (the call returns as soon as the agent does, the span flushes async).
+  const wrapped = withIntelligence(async (input: { question: string }) => supportAgent(input), {
     project,
-    apiKey: process.env.TANGLE_API_KEY ?? 'sk-tan-demo',
-    endpoint,
+    apiKey,
+    baseUrl,
   })
   const out = await wrapped({ question: 'how do I reset my password?' })
   console.log(`1) wrapped an agent, got its answer: ${JSON.stringify(out.answer).slice(0, 48)}…`)
 
-  // 2) The agent still answers when the trace endpoint is dead — best-effort telemetry never breaks the app.
-  const onDead = withTangleIntelligence(supportAgent, {
+  // 2) The agent still answers when Intelligence is dead — best-effort telemetry never breaks the app.
+  const onDead = withIntelligence(async (input: { question: string }) => supportAgent(input), {
     project,
-    endpoint: 'http://127.0.0.1:1/v1/otlp', // nothing listening
+    apiKey,
+    baseUrl: 'http://127.0.0.1:1', // nothing listening
   })
   const stillWorks = await onDead({ question: 'is intelligence down?' })
   console.log(`2) survived a dead endpoint: ${stillWorks.answer.length > 0}`)
@@ -91,7 +93,7 @@ async function main() {
   //    intelligence spawn, so only the base inference stream costs anything (we record just that); the
   //    span's intelligence_usd is 0 by construction — a `standard`-tier run would fill it itself.
   received.length = 0
-  const off = createIntelligenceClient({ project, endpoint, effort: 'off' })
+  const off = createIntelligenceClient({ project, apiKey, baseUrl, effort: 'off' })
   await off.traceRun({ input: { q: 'cheap turn' } }, async (trace) => {
     trace.recordOutcome({ usage: { inferenceUsd: 0.0008 } })
     return supportAgent({ question: 'cheap turn' })

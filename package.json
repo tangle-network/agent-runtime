@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.89.0",
+  "version": "0.101.1",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -24,6 +24,11 @@
       "import": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
+    "./conversation": {
+      "types": "./dist/conversation.d.ts",
+      "import": "./dist/conversation.js",
+      "default": "./dist/conversation.js"
+    },
     "./intelligence": {
       "types": "./dist/intelligence.d.ts",
       "import": "./dist/intelligence.js",
@@ -44,11 +49,6 @@
       "import": "./dist/analyst-loop.js",
       "default": "./dist/analyst-loop.js"
     },
-    "./lifecycle": {
-      "types": "./dist/lifecycle.d.ts",
-      "import": "./dist/lifecycle.js",
-      "default": "./dist/lifecycle.js"
-    },
     "./knowledge": {
       "types": "./dist/knowledge.d.ts",
       "import": "./dist/knowledge.js",
@@ -63,6 +63,21 @@
       "types": "./dist/platform.d.ts",
       "import": "./dist/platform.js",
       "default": "./dist/platform.js"
+    },
+    "./primeintellect": {
+      "types": "./dist/primeintellect/index.d.ts",
+      "import": "./dist/primeintellect/index.js",
+      "default": "./dist/primeintellect/index.js"
+    },
+    "./candidate-execution": {
+      "types": "./dist/candidate-execution/index.d.ts",
+      "import": "./dist/candidate-execution/index.js",
+      "default": "./dist/candidate-execution/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
     },
     "./mcp": {
       "types": "./dist/mcp/index.d.ts",
@@ -86,24 +101,31 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "prepare": "(git rev-parse --git-dir > /dev/null 2>&1 && git config core.hooksPath .githooks) || true; tsup",
+    "prepublishOnly": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check src tests examples",
     "lint:fix": "biome check --write src tests examples",
     "typecheck": "tsc --noEmit && pnpm run typecheck:examples",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
-    "verify:package": "node scripts/verify-package-exports.mjs",
-    "docs:api": "typedoc && node scripts/gen-primitive-catalog.mjs",
+    "generate:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixture.ts",
+    "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixture.ts --check",
+    "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
+    "verify:bench:published": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
+    "verify:package": "pnpm run check:testing-fixture && node scripts/verify-package-exports.mjs",
+    "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect-v1.mjs",
+    "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
+    "docs:api": "pnpm run build && typedoc && node scripts/gen-primitive-catalog.mjs",
     "docs:freshness": "node scripts/check-docs-freshness.mjs",
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "^0.108.0",
-    "@tangle-network/agent-interface": "^0.19.0",
-    "@tangle-network/sandbox": "^0.9.7",
+    "@tangle-network/agent-eval": "0.122.8",
+    "@tangle-network/agent-interface": "0.31.0",
+    "@tangle-network/sandbox": "^0.11.1",
     "@types/node": "^25.9.3",
+    "@types/tar-stream": "3.1.4",
     "playwright": "^1.61.0",
     "tsup": "^8.0.0",
     "tsx": "^4.22.4",
@@ -117,6 +139,8 @@
     "minimumReleaseAgeExclude": [
       "@tangle-network/agent-eval",
       "@tangle-network/agent-interface",
+      "@tangle-network/agent-knowledge",
+      "@tangle-network/agent-profile-materialize",
       "@tangle-network/sandbox"
     ],
     "onlyBuiltDependencies": [
@@ -124,25 +148,27 @@
     ]
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.101.0 <1.0.0",
-    "@tangle-network/agent-interface": ">=0.14.0 <1.0.0",
-    "@tangle-network/sandbox": ">=0.8.0 <1.0.0",
+    "@tangle-network/agent-eval": ">=0.122.8 <0.123.0",
+    "@tangle-network/agent-interface": ">=0.31.0 <0.32.0",
+    "@tangle-network/sandbox": ">=0.11.1 <1.0.0",
     "playwright": "^1.40.0"
   },
   "peerDependenciesMeta": {
-    "@tangle-network/agent-interface": {
-      "optional": true
-    },
     "@tangle-network/sandbox": {
       "optional": true
     },
     "playwright": {
       "optional": true
     }
+  },
+  "dependencies": {
+    "@tangle-network/agent-knowledge": "^4.1.0",
+    "@tangle-network/agent-profile-materialize": "0.5.1",
+    "tar-stream": "3.2.0"
   }
 }

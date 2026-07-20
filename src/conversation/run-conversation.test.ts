@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest'
 
 import { createIterableBackend } from '../backends'
 import { ValidationError } from '../errors'
-import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
+import { InMemoryRuntimeSessionStore } from '../sessions'
+import type {
+  AgentBackendInput,
+  AgentExecutionBackend,
+  RuntimeSession,
+  RuntimeStreamEvent,
+} from '../types'
 import { createConversationBackend } from './conversation-backend'
 import { defineConversation } from './define-conversation'
+import { InMemoryConversationJournal } from './journal'
 import { runConversation, runConversationStream } from './run-conversation'
 import type { ConversationStreamEvent } from './types'
 
@@ -60,6 +67,99 @@ function alwaysThrowsBackend(name: string, message: string): AgentExecutionBacke
       throw new Error(message)
     },
   })
+}
+
+function emptyBackend(name: string): AgentExecutionBackend {
+  return createIterableBackend({
+    kind: `empty-${name}`,
+    async *stream() {},
+  })
+}
+
+function failedFinalBackend(name: string): AgentExecutionBackend {
+  return createIterableBackend({
+    kind: `failed-${name}`,
+    async *stream(_input, context) {
+      yield {
+        type: 'final',
+        task: context.task,
+        session: context.session,
+        status: 'failed',
+        reason: 'provider failed',
+        error: { kind: 'transport', message: 'provider failed', status: 503 },
+        timestamp: new Date().toISOString(),
+      } satisfies RuntimeStreamEvent
+    },
+  })
+}
+
+function backendErrorEventBackend(name: string): AgentExecutionBackend {
+  return createIterableBackend({
+    kind: `error-event-${name}`,
+    async *stream(_input, context) {
+      yield {
+        type: 'backend_error',
+        task: context.task,
+        session: context.session,
+        backend: `error-event-${name}`,
+        message: 'provider unavailable',
+        recoverable: true,
+        error: { kind: 'transport', message: 'provider unavailable', status: 503 },
+        timestamp: new Date().toISOString(),
+      } satisfies RuntimeStreamEvent
+    },
+  })
+}
+
+interface SessionCall {
+  phase: 'start' | 'resume' | 'stream'
+  input: AgentBackendInput
+  sessionId: string
+}
+
+function sessionBackend(
+  name: string,
+  replies: readonly string[],
+  calls: SessionCall[],
+): AgentExecutionBackend {
+  let replyIndex = 0
+  return createIterableBackend({
+    kind: `session-${name}`,
+    start(input, context) {
+      const session = testSession(`provider-${name}`)
+      calls.push({ phase: 'start', input, sessionId: session.id })
+      expect(context.requestedSessionId).toBeDefined()
+      return session
+    },
+    resume(session, input) {
+      calls.push({ phase: 'resume', input, sessionId: session.id })
+      return { ...session, status: 'active', updatedAt: new Date().toISOString() }
+    },
+    async *stream(input, context) {
+      calls.push({ phase: 'stream', input, sessionId: context.session.id })
+      const text = replies[replyIndex]
+      replyIndex += 1
+      if (text === undefined) throw new Error(`session backend '${name}' has no reply`)
+      yield {
+        type: 'text_delta',
+        task: context.task,
+        session: context.session,
+        text,
+        timestamp: new Date().toISOString(),
+      } satisfies RuntimeStreamEvent
+    },
+  })
+}
+
+function testSession(id: string): RuntimeSession {
+  const now = new Date().toISOString()
+  return {
+    id,
+    backend: id.replace('provider-', 'session-'),
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  }
 }
 
 describe('defineConversation', () => {
@@ -173,6 +273,207 @@ describe('runConversation — happy path', () => {
     const result = await runConversation(conv, { seed: 'go' })
     expect(result.transcript.map((t) => t.speaker)).toEqual(['a', 'b', 'c', 'a'])
   })
+
+  it('resumes one provider session per participant with only unseen turns', async () => {
+    const calls: SessionCall[] = []
+    const conv = defineConversation({
+      participants: [
+        { name: 'author', backend: sessionBackend('author', ['a-1', 'a-2'], calls) },
+        { name: 'critic', backend: sessionBackend('critic', ['c-1', 'c-2'], calls) },
+      ],
+      policy: { maxTurns: 4 },
+    })
+
+    const result = await runConversation(conv, {
+      seed: 'solve the task',
+      runId: 'persistent-actors',
+    })
+
+    expect(calls.filter((call) => call.phase === 'start')).toHaveLength(2)
+    expect(calls.filter((call) => call.phase === 'resume')).toHaveLength(2)
+    expect(result.transcript.map((turn) => turn.sessionId)).toEqual([
+      'provider-author',
+      'provider-critic',
+      'provider-author',
+      'provider-critic',
+    ])
+
+    const streams = calls.filter((call) => call.phase === 'stream')
+    expect(streams[0]?.input.message).toBe('solve the task')
+    expect(streams[1]?.input.message).toContain('[author] a-1')
+    expect(streams[1]?.input.message).toContain('solve the task')
+    expect(streams[2]?.input.message).toBe('[critic] c-1')
+    expect(streams[3]?.input.message).toBe('[author] a-2')
+  })
+
+  it('reconstructs stateless messages once without repeating the previous response', async () => {
+    const inputs: AgentBackendInput[] = []
+    const backend = (name: string, reply: string): AgentExecutionBackend =>
+      createIterableBackend({
+        kind: `stateless-${name}`,
+        async *stream(input, context) {
+          inputs.push(input)
+          yield {
+            type: 'text_delta',
+            task: context.task,
+            session: context.session,
+            text: reply,
+            timestamp: new Date().toISOString(),
+          } satisfies RuntimeStreamEvent
+        },
+      })
+    const conv = defineConversation({
+      participants: [
+        { name: 'author', backend: backend('author', 'draft') },
+        { name: 'critic', backend: backend('critic', 'review') },
+      ],
+      policy: { maxTurns: 2 },
+    })
+
+    await runConversation(conv, { seed: 'solve the task', runId: 'stateless-history' })
+
+    expect(inputs[0]?.messages).toEqual([{ role: 'user', content: 'solve the task' }])
+    expect(inputs[1]?.messages).toEqual([
+      { role: 'user', content: 'solve the task' },
+      { role: 'user', content: '[author] draft' },
+    ])
+  })
+
+  it('continues actor sessions after the conversation driver restarts', async () => {
+    const calls: SessionCall[] = []
+    const journal = new InMemoryConversationJournal()
+    const sessionStore = new InMemoryRuntimeSessionStore()
+    const conv = defineConversation({
+      participants: [
+        { name: 'author', backend: sessionBackend('author', ['a-1', 'a-2'], calls) },
+        { name: 'critic', backend: sessionBackend('critic', ['c-1', 'c-2'], calls) },
+      ],
+      policy: { maxTurns: 4 },
+    })
+    const options = {
+      seed: 'solve the task',
+      runId: 'driver-restart',
+      journal,
+      sessionStore,
+    }
+
+    let committedTurns = 0
+    for await (const event of runConversationStream(conv, options)) {
+      if (event.type === 'turn_end') committedTurns += 1
+      if (committedTurns === 2) break
+    }
+    const result = await runConversation(conv, options)
+
+    expect(result.transcript.map((turn) => turn.text)).toEqual(['a-1', 'c-1', 'a-2', 'c-2'])
+    expect(calls.filter((call) => call.phase === 'start')).toHaveLength(2)
+    expect(calls.filter((call) => call.phase === 'resume')).toHaveLength(2)
+  })
+
+  it('does not bind a participant to a session from a failed attempt', async () => {
+    let starts = 0
+    let resumes = 0
+    let streams = 0
+    const retrying = createIterableBackend({
+      kind: 'retry-session',
+      start() {
+        starts += 1
+        const now = new Date().toISOString()
+        return {
+          id: `attempt-${starts}`,
+          backend: 'retry-session',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        } satisfies RuntimeSession
+      },
+      resume(session) {
+        resumes += 1
+        return session
+      },
+      async *stream(_input, context) {
+        streams += 1
+        if (streams === 1) throw new Error('ECONNRESET')
+        yield {
+          type: 'text_delta',
+          task: context.task,
+          session: context.session,
+          text: 'recovered',
+          timestamp: new Date().toISOString(),
+        } satisfies RuntimeStreamEvent
+      },
+    })
+    const conv = defineConversation({
+      participants: [
+        { name: 'author', backend: retrying },
+        { name: 'critic', backend: fakeBackend('critic', ['unused']) },
+      ],
+      policy: {
+        maxTurns: 1,
+        defaultCallPolicy: { maxRetries: 1, retryBackoffMs: 0 },
+      },
+    })
+
+    const result = await runConversation(conv, { seed: 'solve the task' })
+
+    expect(result.transcript[0]).toMatchObject({
+      text: 'recovered',
+      sessionId: 'attempt-2',
+      attempts: 2,
+    })
+    expect({ starts, resumes, streams }).toEqual({ starts: 2, resumes: 0, streams: 2 })
+  })
+
+  it('rejects a provider session shared by two participants', async () => {
+    let sessionWrites = 0
+    const sessionStore = {
+      get: () => undefined,
+      put: () => {
+        sessionWrites += 1
+      },
+    }
+    const backend = createIterableBackend({
+      kind: 'shared-session',
+      start() {
+        const now = new Date().toISOString()
+        return {
+          id: 'provider-shared',
+          backend: 'shared-session',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        } satisfies RuntimeSession
+      },
+      resume(session) {
+        return session
+      },
+      async *stream(_input, context) {
+        yield {
+          type: 'text_delta',
+          task: context.task,
+          session: context.session,
+          text: 'response',
+          timestamp: new Date().toISOString(),
+        } satisfies RuntimeStreamEvent
+      },
+    })
+    const conv = defineConversation({
+      participants: [
+        { name: 'author', backend },
+        { name: 'critic', backend },
+      ],
+      policy: { maxTurns: 2 },
+    })
+
+    const result = await runConversation(conv, { seed: 'solve the task', sessionStore })
+
+    expect(result.transcript).toHaveLength(1)
+    expect(result.halted).toMatchObject({
+      kind: 'participant_error',
+      participant: 'critic',
+      message: expect.stringContaining("already bound to participant 'author'"),
+    })
+    expect(sessionWrites).toBe(1)
+  })
 })
 
 describe('runConversation — halting', () => {
@@ -226,6 +527,57 @@ describe('runConversation — halting', () => {
     }
     expect(result.transcript).toHaveLength(1)
     expect(result.transcript[0]?.speaker).toBe('a')
+  })
+
+  it('halts when a backend completes without text', async () => {
+    const conv = defineConversation({
+      participants: [
+        { name: 'a', backend: emptyBackend('a') },
+        { name: 'b', backend: fakeBackend('b', ['unused']) },
+      ],
+      policy: { maxTurns: 2 },
+    })
+    const result = await runConversation(conv, { seed: 'go' })
+    expect(result.halted).toEqual({
+      kind: 'participant_error',
+      participant: 'a',
+      message: "backend 'empty-a' completed without text",
+    })
+    expect(result.transcript).toHaveLength(0)
+  })
+
+  it('halts when a backend emits a failed final event', async () => {
+    const conv = defineConversation({
+      participants: [
+        { name: 'a', backend: failedFinalBackend('a') },
+        { name: 'b', backend: fakeBackend('b', ['unused']) },
+      ],
+      policy: { maxTurns: 2 },
+    })
+    const result = await runConversation(conv, { seed: 'go' })
+    expect(result.halted).toEqual({
+      kind: 'participant_error',
+      participant: 'a',
+      message: 'provider failed',
+    })
+    expect(result.transcript).toHaveLength(0)
+  })
+
+  it('halts when a backend emits a backend error event', async () => {
+    const conv = defineConversation({
+      participants: [
+        { name: 'a', backend: backendErrorEventBackend('a') },
+        { name: 'b', backend: fakeBackend('b', ['unused']) },
+      ],
+      policy: { maxTurns: 2 },
+    })
+    const result = await runConversation(conv, { seed: 'go' })
+    expect(result.halted).toEqual({
+      kind: 'participant_error',
+      participant: 'a',
+      message: 'provider unavailable',
+    })
+    expect(result.transcript).toHaveLength(0)
   })
 
   it('halts on abort signal', async () => {

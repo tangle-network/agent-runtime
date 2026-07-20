@@ -23,6 +23,9 @@ const provenance = {
 const wireProfile: CertifiedProfile = {
   target: 'support-agent',
   generatedAt: '2026-06-13T00:00:00.000Z',
+  agentProfileDiffs: [],
+  capabilities: [],
+  agentProfile: null,
   promptSurface: {
     surface: 'Confirm the invoice id before refunding.',
     surfaceHash: 'abc123',
@@ -86,6 +89,9 @@ describe('manifestFromProfile', () => {
       target: 't',
       generatedAt: 'g',
       promptSurface: null,
+      agentProfileDiffs: [],
+      capabilities: [],
+      agentProfile: null,
       artifacts: {
         tool: [
           {
@@ -113,6 +119,9 @@ describe('manifestFromProfile', () => {
       target: 't',
       generatedAt: 'g',
       promptSurface: null,
+      agentProfileDiffs: [],
+      capabilities: [],
+      agentProfile: null,
       artifacts: {
         mcp: [
           {
@@ -136,6 +145,9 @@ describe('manifestFromProfile', () => {
       target: 't',
       generatedAt: 'g',
       promptSurface: null,
+      agentProfileDiffs: [],
+      capabilities: [],
+      agentProfile: null,
       artifacts: {
         notes: [
           {
@@ -181,6 +193,9 @@ describe('composeCertifiedProfile — prompt fold regression lock', () => {
       target: 't',
       generatedAt: 'g',
       promptSurface: null,
+      agentProfileDiffs: [],
+      capabilities: [],
+      agentProfile: null,
       artifacts: {
         skill: [
           {
@@ -227,6 +242,9 @@ describe('composeCertifiedProfile — prompt fold regression lock', () => {
       target: 't',
       generatedAt: 'g',
       promptSurface: null,
+      agentProfileDiffs: [],
+      capabilities: [],
+      agentProfile: null,
       artifacts: {
         notes: [
           {

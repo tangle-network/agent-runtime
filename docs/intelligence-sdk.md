@@ -8,19 +8,20 @@ Per-symbol signatures live in the generated [api/intelligence.md](./api/intellig
 ## Quickstart
 
 ```ts
-import { withTangleIntelligence } from '@tangle-network/agent-runtime/intelligence'
+import { withIntelligence } from '@tangle-network/agent-runtime/intelligence'
 
-export const agent = withTangleIntelligence(myAgent, {
-  project: 'legal-agent',
-  apiKey: process.env.TANGLE_API_KEY,
-  repo: { owner: 'acme', name: 'legal-agent', baseBranch: 'main' },
-  checks: ['pnpm test', 'pnpm typecheck'],
-  surfaces: ['src/agent/**', 'src/tools/**', 'skills/**'],
-})
+export const agent = withIntelligence(
+  async (input, applied) => myAgent(input, { systemPrompt: applied.composePrompt(BASE) }),
+  {
+    project: 'legal-agent',
+    target: 'legal-agent',
+    apiKey: process.env.TANGLE_API_KEY,
+  },
+)
 ```
 
-`withTangleIntelligence` wraps any `(input) => Promise<output>` agent and returns the same shape: each call runs under a trace and exports one span, best-effort.
-`repo`, `checks`, and `surfaces` are recorded for `IntelligenceClient.doctor()` readiness only — the Observe slice never touches the repo.
+`withIntelligence` is the ONE hook: it SENDS a typed `RunRecord` per call and RECEIVES the tenant's certified profile — folding the certified prompt surface (`applied.composePrompt`) and surfacing the plane's promoted profile diffs as PROPOSALS (`agent.proposals()` / `onProposals`).
+It is **observe + deliver only** — it never auto-applies a received diff at runtime; a human, or the gated `improve()` loop, turns a proposal into a shipped profile (`applied.applyProfile(base)` is caller-invoked). That preserves the held-out invariant the plane enforces.
 Prove it offline: `pnpm tsx examples/intelligence-drop-in/intelligence-drop-in.ts` ($0, no credentials — it reads the exported span back and asserts the OFF tier's `intelligence_usd` is 0).
 
 ## Normative claims policy
@@ -44,8 +45,10 @@ The delivery code enforces the same framing: a `CertifiedArtifact` carries its h
 - `project` (required) — the tenant dimension every trace is tagged with.
 - `apiKey` — bearer key for the ingest; reads `TANGLE_API_KEY` when omitted.
 - `effort` — a tier name or `{ tier, overrides }`; default `standard`. See [Effort tiers](#effort-tiers-and-the-off-billing-floor).
-- `endpoint` — OTLP ingest base (the exporter appends `/v1/traces`). Reads `INTELLIGENCE_OTLP_ENDPOINT` then `OTEL_EXPORTER_OTLP_ENDPOINT` when omitted; absent all three, export is a no-op — best-effort by construction.
+- `baseUrl` — the ONE Tangle Intelligence base URL both send (`/v1/otlp`) and receive (`/v1/profiles/:target/composed`) derive from. Reads `TANGLE_INTELLIGENCE_URL` when omitted, else `https://intelligence.tangle.tools`. Send ships only when an `apiKey` is present; absent a tenant key, export is a no-op — best-effort by construction.
 - `redact` — a `Redactor` replaces the default scrubber; `false` opts out loudly; omitted ⇒ `defaultRedactor`. See [Redaction](#redaction).
+- `profile` / `commitSha` — the canonical agent configuration and code revision to attach to every run.
+- `runtimeTelemetry` — controls whether raw tool inputs/results and other sensitive runtime payloads are included; identities, status, token use, cost, and failures are always retained.
 - `surfaces` / `checks` / `repo` — declared for `IntelligenceClient.doctor()` readiness only.
 
 The client surface:
@@ -56,7 +59,7 @@ The client surface:
 - `client.flush()` — flush pending spans; resolves even if export fails.
 
 The best-effort law: telemetry-export failures are swallowed — a live agent never fails because Intelligence is down — but an error thrown by the agent itself propagates unchanged.
-Every span carries the billing split as attributes (`tangle.usage.inference_usd`, `tangle.usage.intelligence_usd`, `tangle.effort.intelligence_off`); inputs/outputs pass through the redactor and are bounded to a 4 KB preview on the span.
+Every span carries the billing split as attributes (`tangle.usage.inference_usd`, `tangle.usage.intelligence_usd`, `tangle.effort.intelligence_off`); inputs, outputs, and opted-in runtime payloads pass through the redactor and are exported without content truncation.
 
 ## Two lanes: traces UP, certified artifacts DOWN
 
@@ -67,23 +70,29 @@ GET {base}/v1/profiles/:target/composed
 Authorization: Bearer <TANGLE_API_KEY>
 ```
 
-The base URL reads `TANGLE_INTELLIGENCE_URL`, defaulting to the deployed plane at intelligence.tangle.tools. Four entrypoints, all fail-closed:
+The base URL reads `TANGLE_INTELLIGENCE_URL`, defaulting to the deployed plane at intelligence.tangle.tools. The composed response carries the certified prompt surface + artifacts AND the typed `agentProfileDiffs` (each a promoted `AgentProfileDiff` + its held-out provenance), the composed `agentProfile`, and `capabilities`. Four entrypoints, all fail-closed:
 
-- `pullCertified(opts)` — one pull, returning a typed `PullOutcome` (inspect `succeeded` before `value`); it never throws. A 404 is the normal "nothing promoted yet" signal, carried as `status: 404`; a hung plane is cut by the 10-second default timeout and surfaces as an ordinary failed pull.
+- `pullCertified(opts)` — one pull, returning a typed `PullOutcome` (inspect `succeeded` before `value`); it never throws. It deserializes the full composed response — including the typed `agentProfileDiffs` earlier receive paths dropped. A 404 is the normal "nothing promoted yet" signal, carried as `status: 404`; a hung plane is cut by the 10-second default timeout and surfaces as an ordinary failed pull.
 - `createCertifiedPromptSource(opts)` — the cached, self-refreshing source: pulls at most every 5 minutes (`refreshMs`), coalesces concurrent pulls, and keeps the last-known profile on a failed or 404 pull — a good surface is never wiped by a bad refresh.
 - `composeCertifiedPrompt(base, certified)` — folds the certified prompt surface plus the prompt-folding artifact buckets (`promptFoldTypes`: prompt-surface, skill, instructions) into the base prompt under a marked section. The fold is byte-stable — prompt surface first, then bucket order, then path order — so the same profile renders identically on every call; it returns `base` unchanged when nothing usable is promoted.
-- `withCertifiedDelivery(agent, config)` — the wrapper that rides both lanes at once:
+- `withIntelligence(agent, config)` — the ONE hook that rides both lanes at once:
 
 ```ts
-import { withCertifiedDelivery } from '@tangle-network/agent-runtime/intelligence'
+import { withIntelligence } from '@tangle-network/agent-runtime/intelligence'
 
-export const agent = withCertifiedDelivery(
-  async (input, applied) => myAgent(input, { systemPrompt: applied.composePrompt(BASE) }),
-  { project: 'support-agent', target: 'support-agent' },
+export const agent = withIntelligence(
+  async (input, applied) => {
+    const out = await myAgent(input, { systemPrompt: applied.composePrompt(BASE) })
+    applied.record({ success: true, usage: { inferenceUsd: 0.002, intelligenceUsd: 0 } })
+    return out
+  },
+  { project: 'support-agent', target: 'support-agent', onProposals: (diffs) => review(diffs) },
 )
 ```
 
-Each call refreshes the certified profile (window-respecting), hands the agent an `AppliedIntelligence` handle (`certified` + `composePrompt`), and Observes the run with the certified version stamped on the span.
+Each call refreshes the certified profile (window-respecting), hands the agent an `AppliedIntelligence` handle (`runId`, `traceId`, `certified`, `composePrompt`, `proposals`, `applyProfile`, `record`), and SENDs a typed `RunRecord` for the run.
+The run record includes timing, failures, profile/config hash, repository revision, model, tokens, costs, runtime events, and loop events when supplied; thrown agent errors are exported before being rethrown.
+The promoted profile diffs surface as `agent.proposals()` / the `onProposals` callback — the hook NEVER auto-applies them; `applied.applyProfile(base)` folds them only when the caller explicitly asks.
 When the plane promotes a new gate-certified surface, the next refresh delivers it to the running agent; when the plane is unreachable, the agent runs on its base surface.
 
 ### The capability resolver
@@ -139,7 +148,7 @@ A caller-supplied `redact` hook replaces the default entirely (the customer owns
 | Verified PRs | **designed** — the readiness check ships | 100-300 LOC | branch/PR with passing checks | surfaces, checks, repo access | fail closed |
 | Advanced Loops | **designed** — the loop substrate ships | 300+ LOC | scheduled optimization, holdout gates, matrix runs | eval adapter, budgets, gates | explicit opt-in |
 
-`IntelligenceClient.doctor()` reports exactly this ladder without a network call: Observe is always ready; Recommend needs effort above off; PR needs checks + surfaces + repo; `exportConfigured` says whether an OTLP endpoint is set.
+`IntelligenceClient.doctor()` reports exactly this ladder without a network call: Observe is always ready; Recommend needs effort above off; PR needs checks + surfaces + repo; `exportConfigured` says whether a tenant `apiKey` is set (the key the ingest requires for a send to land).
 If a product has no checks, it is not eligible for PR mode. If it has no traces, it is not eligible for credible recommendations. If it has neither, start at Observe.
 
 Recommend today, without the hosted verb: record a run's trace with `client.recordTrace(events)`, derive analyst findings from it, and feed them to `improve()` for a gated candidate.
@@ -192,8 +201,7 @@ import {
   createCertifiedPromptSource,
   createIntelligenceClient,
   pullCertified,
-  withCertifiedDelivery,
-  withTangleIntelligence,
+  withIntelligence,
 } from '@tangle-network/agent-runtime/intelligence'
 ```
 

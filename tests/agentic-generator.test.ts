@@ -1,11 +1,19 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { type AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
 import { gitWorktreeAdapter, type ProposeContext } from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { agenticGenerator, commandVerifier } from '../src/improvement/agentic-generator'
+import {
+  AGENTIC_PROFILE_RESOURCE_ROOT,
+  type AgenticGeneratorShotDisposition,
+  type AgenticGeneratorShotExecution,
+  type AgenticGeneratorShotReceipt,
+  agenticGenerator,
+  commandVerifier,
+} from '../src/improvement'
 import { improvementDriver } from '../src/improvement/improvement-driver'
 import type { LocalHarnessResult } from '../src/mcp/local-harness'
 
@@ -70,6 +78,26 @@ const HARNESS_OK: LocalHarnessResult = {
   timedOut: false,
 }
 
+const CODEX_USAGE = {
+  inputTokens: 120,
+  cachedInputTokens: 20,
+  outputTokens: 30,
+  reasoningOutputTokens: 10,
+}
+
+const CODEX_EVIDENCE = {
+  cliVersion: 'codex-cli 1.0.0',
+  executableSha256: 'a'.repeat(64),
+  requestedPromptSha256: 'b'.repeat(64),
+  effectivePromptSha256: 'b'.repeat(64),
+  nonPromptArgsSha256: 'c'.repeat(64),
+  controlledConfigSha256: 'd'.repeat(64),
+  readDeniedPaths: ['/tmp/denied'],
+  readDeniedPathsSha256: 'e'.repeat(64),
+  readDeniedPathCount: 1,
+  policy: {},
+} as NonNullable<LocalHarnessResult['evidence']>
+
 function ctx(findings: AnalystFinding[], maxShots = 1): ProposeContext<AnalystFinding> {
   return {
     currentSurface: '',
@@ -83,16 +111,618 @@ function ctx(findings: AnalystFinding[], maxShots = 1): ProposeContext<AnalystFi
 }
 
 describe('agenticGenerator — runs a harness in the worktree', () => {
-  it('returns applied when the harness changes the worktree', async () => {
-    // The harness "edits" by writing into its cwd (the worktree). We stub the
-    // subprocess (the only process boundary) but use a REAL git dirty check.
-    const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
-      expect(taskPrompt).toContain('x should be 2')
-      expect(taskPrompt).toContain('set x to 2')
+  it('pins the author profile and emits exact usage for every reproducible Codex shot', async () => {
+    const receipts: AgenticGeneratorShotReceipt[] = []
+    const costLedger = new CostLedger()
+    const resourcePath = `${AGENTIC_PROFILE_RESOURCE_ROOT}/trace-analysis.md`
+    const profile = {
+      name: 'structural-author',
+      prompt: {
+        systemPrompt: 'AUTHOR SYSTEM',
+        instructions: ['Edit only the allowed implementation.'],
+      },
+      model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' as const },
+      resources: {
+        files: [
+          {
+            path: resourcePath,
+            resource: {
+              kind: 'inline' as const,
+              name: 'trace-analysis',
+              content: 'Repeated state reads caused stale edits.\n',
+            },
+          },
+        ],
+      },
+    }
+    const runHarness = vi.fn(
+      async (options: {
+        cwd: string
+        taskPrompt: string
+        invocation?: { command?: string; args: ReadonlyArray<string> }
+        codexReproducible?: boolean
+        codexReadDeniedPaths?: ReadonlyArray<string>
+      }) => {
+        expect(options.codexReproducible).toBe(true)
+        expect(options.invocation?.command).toBe('codex')
+        expect(options.invocation?.args).toContain('gpt-5.4')
+        expect(options.invocation?.args.join('\n')).toContain('AUTHOR SYSTEM')
+        expect(options.taskPrompt).toContain(resourcePath)
+        expect(readFileSync(join(options.cwd, resourcePath), 'utf8')).toContain('stale edits')
+        expect(options.codexReadDeniedPaths).toEqual([`${options.cwd}/private-evidence`])
+        writeFileSync(join(options.cwd, 'app.ts'), 'export const x = 2\n')
+        const prompt = options.invocation?.args[1]
+        if (!prompt) throw new Error('test invocation omitted the composed prompt')
+        const promptSha256 = createHash('sha256').update(prompt).digest('hex')
+        return {
+          ...HARNESS_OK,
+          usage: CODEX_USAGE,
+          evidence: {
+            ...CODEX_EVIDENCE,
+            requestedPromptSha256: promptSha256,
+            effectivePromptSha256: 'f'.repeat(64),
+          },
+        }
+      },
+    )
+    const gen = agenticGenerator({
+      harness: 'codex',
+      profile,
+      codexReproducible: true,
+      codexReadDeniedPaths: (worktreePath) => [`${worktreePath}/private-evidence`],
+      onShotCompleted: (receipt) => receipts.push(receipt),
+      runHarness: runHarness as never,
+    })
+
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'reproducible-receipt',
+    })
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: FINDINGS,
+      maxShots: 2,
+      signal: new AbortController().signal,
+      generation: 4,
+      candidateIndex: 2,
+      costLedger,
+      costPhase: 'search.proposal',
+    })
+
+    const [costReceipt] = costLedger.list()
+    expect(out.applied).toBe(true)
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0]).toMatchObject({
+      generation: 4,
+      candidateIndex: 2,
+      shot: 1,
+      maxShots: 2,
+      harness: 'codex',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      usage: CODEX_USAGE,
+      profileWorkspacePlanDigest: expect.any(String),
+      profileWorkspaceFileCount: 1,
+      costCallId: expect.any(String),
+      costBasis: 'estimated-pricing',
+      costUsdKnown: false,
+      error: null,
+    })
+    expect(receipts[0]?.costCallId).toBe(costReceipt?.callId)
+    expect(receipts[0]?.costUsd).toBeCloseTo(0.00045)
+    expect(receipts[0]?.promptSha256).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(receipts[0]?.stdoutSha256).toBe(
+      `sha256:${createHash('sha256').update(HARNESS_OK.stdout).digest('hex')}`,
+    )
+    expect(receipts[0]?.evidence?.readDeniedPathCount).toBe(1)
+    expect(receipts[0]?.evidence?.effectivePromptSha256).not.toBe(
+      receipts[0]?.evidence?.requestedPromptSha256,
+    )
+    expect(existsSync(join(wt.path, AGENTIC_PROFILE_RESOURCE_ROOT))).toBe(false)
+    expect(git(['status', '--short'], wt.path)).toBe('M app.ts')
+    expect(costLedger.list()).toEqual([
+      expect.objectContaining({
+        channel: 'driver',
+        phase: 'search.proposal',
+        actor: 'agentic-generator:codex',
+        model: 'gpt-5.4',
+        tags: { generation: '4', candidateIndex: '2', shot: '1' },
+        inputTokens: 100,
+        cachedTokens: 20,
+        outputTokens: 30,
+        costUsd: 0.00045,
+        costUnknown: false,
+      }),
+    ])
+  })
+
+  it('exposes exact execution before a clean-tree shot is rejected', async () => {
+    const events: string[] = []
+    const executions: AgenticGeneratorShotExecution[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const exactExecution: LocalHarnessResult = {
+      exitCode: 0,
+      stdout: 'exact stdout\nwith a second line\n',
+      stderr: 'exact stderr\n',
+      killedBySignal: null,
+      durationMs: 4321,
+      timedOut: false,
+      usage: CODEX_USAGE,
+      evidence: CODEX_EVIDENCE,
+    }
+    const isDirty = vi.fn(() => {
+      events.push('dirty-check')
+      expect(events).toEqual(['callback-complete', 'dirty-check'])
+      return false
+    })
+    const gen = agenticGenerator({
+      runHarness: (async () => exactExecution) as never,
+      isDirty,
+      onShotCompleted: async (receipt, execution) => {
+        await Promise.resolve()
+        expect(execution).not.toBeNull()
+        if (!execution) throw new Error('expected a completed execution')
+        executions.push(execution)
+        expect(execution).toEqual(exactExecution)
+        expect(Object.isFrozen(execution)).toBe(true)
+        expect(Object.isFrozen(execution.usage)).toBe(true)
+        expect(Object.isFrozen(execution.evidence)).toBe(true)
+        expect(Object.isFrozen(execution.evidence?.readDeniedPaths)).toBe(true)
+        expect(Object.isFrozen(execution.evidence?.policy)).toBe(true)
+        expect(() => Object.assign(execution, { stdout: 'mutated' })).toThrow()
+        expect(receipt.stdoutBytes).toBe(Buffer.byteLength(execution.stdout))
+        expect(receipt.stderrBytes).toBe(Buffer.byteLength(execution.stderr))
+        expect(receipt.stdoutSha256).toBe(
+          `sha256:${createHash('sha256').update(execution.stdout).digest('hex')}`,
+        )
+        expect(receipt.stderrSha256).toBe(
+          `sha256:${createHash('sha256').update(execution.stderr).digest('hex')}`,
+        )
+        events.push('callback-complete')
+      },
+      onShotDisposition: async (_receipt, disposition) => {
+        await Promise.resolve()
+        expect(disposition.kind).toBe('clean')
+        expect(disposition.worktreePath).toContain('exact-clean-shot')
+        dispositions.push(disposition)
+        events.push('disposition-complete')
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'exact-clean-shot',
+    })
+
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: FINDINGS,
+      maxShots: 1,
+      signal: new AbortController().signal,
+    })
+
+    expect(out.applied).toBe(false)
+    expect(executions).toEqual([exactExecution])
+    expect(dispositions).toEqual([
+      expect.objectContaining({ kind: 'clean', worktreePath: wt.path }),
+    ])
+    expect(events).toEqual(['callback-complete', 'dirty-check', 'disposition-complete'])
+    expect(isDirty).toHaveBeenCalledTimes(1)
+  })
+
+  it('awaits shot evidence before verification can return a candidate', async () => {
+    let evidencePersisted = false
+    let dispositionPersisted = false
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
       writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
       return HARNESS_OK
     })
-    const gen = agenticGenerator({ runHarness: runHarness as never })
+    const verify = vi.fn(() => {
+      expect(evidencePersisted).toBe(true)
+      return { ok: true }
+    })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotCompleted: async () => {
+        await Promise.resolve()
+        evidencePersisted = true
+      },
+      onShotDisposition: async (_receipt, disposition) => {
+        await Promise.resolve()
+        expect(disposition).toEqual({
+          kind: 'accepted',
+          worktreePath: expect.stringContaining('evidence-before-verify'),
+          verified: true,
+        })
+        dispositionPersisted = true
+      },
+      verify,
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'evidence-before-verify',
+    })
+
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: FINDINGS,
+      maxShots: 1,
+      signal: new AbortController().signal,
+    })
+
+    expect(out.applied).toBe(true)
+    expect(dispositionPersisted).toBe(true)
+    expect(verify).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails closed when shot evidence persistence throws', async () => {
+    const isDirty = vi.fn(() => false)
+    const gen = agenticGenerator({
+      runHarness: (async () => HARNESS_OK) as never,
+      isDirty,
+      onShotCompleted: () => {
+        throw new Error('shot evidence persistence failed')
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'evidence-failure',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('shot evidence persistence failed')
+    expect(isDirty).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when worktree disposition persistence throws', async () => {
+    const gen = agenticGenerator({
+      runHarness: (async () => HARNESS_OK) as never,
+      isDirty: () => false,
+      onShotDisposition: () => {
+        throw new Error('shot disposition persistence failed')
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'disposition-failure',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('shot disposition persistence failed')
+  })
+
+  it('persists a setup-error disposition before rethrowing inspection failure', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const gen = agenticGenerator({
+      runHarness: (async () => HARNESS_OK) as never,
+      isDirty: () => {
+        throw new Error('git status unavailable')
+      },
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'inspection-error',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('git status unavailable')
+    expect(dispositions).toEqual([
+      {
+        kind: 'setup-error',
+        worktreePath: wt.path,
+        stage: 'worktree-inspection',
+        error: { name: 'Error', message: 'git status unavailable' },
+      },
+    ])
+  })
+
+  it('rejects profile files outside the dedicated ephemeral root before dispatch', () => {
+    expect(() =>
+      agenticGenerator({
+        harness: 'codex',
+        profile: {
+          name: 'author',
+          model: { default: 'gpt-5.4' },
+          resources: {
+            files: [
+              {
+                path: 'research.md',
+                resource: { kind: 'inline', name: 'research', content: 'private evidence' },
+              },
+            ],
+          },
+        },
+        codexReproducible: true,
+      }),
+    ).toThrow(new RegExp(`must be below ${AGENTIC_PROFILE_RESOURCE_ROOT}`))
+  })
+
+  it('emits a failed shot receipt before rethrowing a harness failure', async () => {
+    const receipts: unknown[] = []
+    const executions: Array<AgenticGeneratorShotExecution | null> = []
+    const gen = agenticGenerator({
+      runHarness: (async () => {
+        throw new Error('author process failed')
+      }) as never,
+      onShotCompleted: (receipt, execution) => {
+        receipts.push(receipt)
+        executions.push(execution)
+      },
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'failed' })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('author process failed')
+    expect(receipts).toHaveLength(1)
+    expect(executions).toEqual([null])
+    expect(receipts[0]).toMatchObject({
+      usage: null,
+      evidence: null,
+      error: { name: 'Error', message: 'author process failed' },
+    })
+  })
+
+  it('fails closed when reproducible Codex completes without token usage', async () => {
+    const receipts: unknown[] = []
+    const costLedger = new CostLedger()
+    const gen = agenticGenerator({
+      harness: 'codex',
+      profile: {
+        name: 'author',
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      },
+      codexReproducible: true,
+      runHarness: (async ({ cwd }: { cwd: string }) => {
+        writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
+        return { ...HARNESS_OK, evidence: CODEX_EVIDENCE }
+      }) as never,
+      onShotCompleted: (receipt) => receipts.push(receipt),
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'no-usage' })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+        costLedger,
+      }),
+    ).rejects.toThrow(/without usage or execution evidence/)
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0]).toMatchObject({
+      usage: null,
+      costCallId: expect.any(String),
+      costBasis: 'unknown',
+      costUsd: null,
+      costUsdKnown: false,
+      error: { message: expect.stringMatching(/without usage or execution evidence/) },
+    })
+    expect(costLedger.list()).toEqual([
+      expect.objectContaining({
+        callId: expect.any(String),
+        usageUnknown: true,
+        costUnknown: true,
+      }),
+    ])
+  })
+
+  it('refuses reproducible Codex before dispatch when the run-wide ledger is absent', async () => {
+    const runHarness = vi.fn()
+    const gen = agenticGenerator({
+      harness: 'codex',
+      profile: {
+        name: 'author',
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      },
+      codexReproducible: true,
+      runHarness: runHarness as never,
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'no-ledger',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/requires the run-wide CostLedger/)
+    expect(runHarness).not.toHaveBeenCalled()
+  })
+
+  it('lets a capped ledger reject an unbounded author shot before model dispatch', async () => {
+    const receipts: AgenticGeneratorShotReceipt[] = []
+    const costLedger = new CostLedger({ costCeilingUsd: 1 })
+    const runHarness = vi.fn()
+    const gen = agenticGenerator({
+      harness: 'codex',
+      profile: {
+        name: 'author',
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      },
+      codexReproducible: true,
+      runHarness: runHarness as never,
+      onShotCompleted: (receipt) => receipts.push(receipt),
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'capped-without-maximum',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+        costLedger,
+      }),
+    ).rejects.toThrow(/hard maximumCharge before execution/)
+    expect(runHarness).not.toHaveBeenCalled()
+    expect(costLedger.list()).toHaveLength(0)
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        costCallId: expect.any(String),
+        costBasis: 'unknown',
+        costUsd: null,
+        costUsdKnown: false,
+        usage: null,
+        error: expect.objectContaining({
+          message: expect.stringMatching(/hard maximumCharge before execution/),
+        }),
+      }),
+    ])
+  })
+
+  it('records terminal usage and rejects partial edits from a failed author process', async () => {
+    const receipts: AgenticGeneratorShotReceipt[] = []
+    const costLedger = new CostLedger()
+    const runHarness = vi.fn(
+      async (options: { cwd: string; invocation?: { args: ReadonlyArray<string> } }) => {
+        expect(
+          readFileSync(join(options.cwd, AGENTIC_PROFILE_RESOURCE_ROOT, 'failure.md'), 'utf8'),
+        ).toBe('failure context\n')
+        writeFileSync(join(options.cwd, 'app.ts'), 'export const partial = true\n')
+        const prompt = options.invocation?.args[1]
+        if (!prompt) throw new Error('test invocation omitted the composed prompt')
+        return {
+          ...HARNESS_OK,
+          exitCode: 2,
+          usage: CODEX_USAGE,
+          evidence: {
+            ...CODEX_EVIDENCE,
+            requestedPromptSha256: createHash('sha256').update(prompt).digest('hex'),
+          },
+        }
+      },
+    )
+    const gen = agenticGenerator({
+      harness: 'codex',
+      profile: {
+        name: 'author',
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+        resources: {
+          files: [
+            {
+              path: `${AGENTIC_PROFILE_RESOURCE_ROOT}/failure.md`,
+              resource: { kind: 'inline', name: 'failure', content: 'failure context\n' },
+            },
+          ],
+        },
+      },
+      codexReproducible: true,
+      runHarness: runHarness as never,
+      onShotCompleted: (receipt) => receipts.push(receipt),
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'failed-partial-edit',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+        generation: 1,
+        candidateIndex: 0,
+        costLedger,
+      }),
+    ).rejects.toThrow(/exited with code 2/)
+    expect(existsSync(join(wt.path, AGENTIC_PROFILE_RESOURCE_ROOT))).toBe(false)
+    expect(git(['status', '--short'], wt.path)).toBe('M app.ts')
+    expect(costLedger.list()).toEqual([
+      expect.objectContaining({
+        callId: expect.any(String),
+        inputTokens: 100,
+        cachedTokens: 20,
+        outputTokens: 30,
+        costUnknown: false,
+      }),
+    ])
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        exitCode: 2,
+        costCallId: expect.any(String),
+        costBasis: 'estimated-pricing',
+        costUsdKnown: false,
+        usage: CODEX_USAGE,
+        error: expect.objectContaining({
+          message: 'agenticGenerator: author shot exited with code 2',
+        }),
+      }),
+    ])
+  })
+
+  it('returns applied when the harness changes the worktree', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    // The harness "edits" by writing into its cwd (the worktree). We stub the
+    // subprocess (the only process boundary) but use a REAL git dirty check.
+    const runHarness = vi.fn(
+      async ({
+        cwd,
+        taskPrompt,
+        dangerouslySkipPermissions,
+      }: {
+        cwd: string
+        taskPrompt: string
+        dangerouslySkipPermissions?: boolean
+      }) => {
+        expect(taskPrompt).toContain('x should be 2')
+        expect(taskPrompt).toContain('set x to 2')
+        expect(dangerouslySkipPermissions).toBe(true)
+        writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
+        return HARNESS_OK
+      },
+    )
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cand' })
     const out = await gen.generate({
@@ -106,11 +736,18 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     expect(runHarness).toHaveBeenCalledTimes(1)
     expect(out.applied).toBe(true)
     expect(out.summary).toContain('x should be 2')
+    expect(dispositions).toEqual([{ kind: 'accepted', worktreePath: wt.path, verified: false }])
   })
 
   it('retries up to maxShots when the harness produces no change, then gives up', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
     const runHarness = vi.fn(async () => HARNESS_OK) // never edits the worktree
-    const gen = agenticGenerator({ runHarness: runHarness as never })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'noop' })
     const out = await gen.generate({
@@ -123,6 +760,11 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
     expect(runHarness).toHaveBeenCalledTimes(3)
     expect(out.applied).toBe(false)
+    expect(dispositions).toEqual([
+      { kind: 'clean', worktreePath: wt.path },
+      { kind: 'clean', worktreePath: wt.path },
+      { kind: 'clean', worktreePath: wt.path },
+    ])
   })
 
   it('stops retrying as soon as a shot produces a change', async () => {
@@ -212,6 +854,7 @@ describe('agenticGenerator — verify-in-session loop', () => {
   it('feeds the verifier failure into the next shot, then ships when it passes', async () => {
     let shot = 0
     const prompts: string[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
     const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
       prompts.push(taskPrompt)
       shot++
@@ -222,7 +865,13 @@ describe('agenticGenerator — verify-in-session loop', () => {
     const verify = vi.fn(() =>
       shot === 1 ? { ok: false, feedback: 'TS2322: x must be 2' } : { ok: true },
     )
-    const gen = agenticGenerator({ runHarness: runHarness as never, verify })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      verify,
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'vresume' })
     const out = await gen.generate({
@@ -240,6 +889,15 @@ describe('agenticGenerator — verify-in-session loop', () => {
     expect(prompts[1]).toContain('TS2322: x must be 2')
     // The first shot's prompt is the clean base — no failure note yet.
     expect(prompts[0]).not.toContain('verification FAILED')
+    expect(dispositions).toEqual([
+      {
+        kind: 'rejected',
+        worktreePath: wt.path,
+        stage: 'verification',
+        feedback: 'TS2322: x must be 2',
+      },
+      { kind: 'accepted', worktreePath: wt.path, verified: true },
+    ])
   })
 
   it('discards (applied:false) a candidate that never verifies within maxShots', async () => {
@@ -290,12 +948,18 @@ describe('agenticGenerator — raw-trace evidence discipline', () => {
 
   it('retries and discards a raw-trace candidate that edits code without citing inspected traces', async () => {
     const prompts: string[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
     const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
       prompts.push(taskPrompt)
       writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
       return HARNESS_OK
     })
-    const gen = agenticGenerator({ runHarness: runHarness as never })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotDisposition: (_receipt, disposition) => {
+        dispositions.push(disposition)
+      },
+    })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'rt-miss' })
     const out = await gen.generate({
@@ -311,6 +975,21 @@ describe('agenticGenerator — raw-trace evidence discipline', () => {
     expect(prompts[0]).toContain('Raw trace evidence requirement')
     expect(prompts[0]).toContain('.improve/raw-trace-diagnosis.md')
     expect(prompts[1]).toContain('raw-trace mode requires .improve/raw-trace-diagnosis.md')
+    expect(dispositions).toHaveLength(2)
+    expect(dispositions).toEqual([
+      expect.objectContaining({
+        kind: 'rejected',
+        worktreePath: wt.path,
+        stage: 'raw-trace-evidence',
+        feedback: expect.stringContaining('requires .improve/raw-trace-diagnosis.md'),
+      }),
+      expect.objectContaining({
+        kind: 'rejected',
+        worktreePath: wt.path,
+        stage: 'raw-trace-evidence',
+        feedback: expect.stringContaining('requires .improve/raw-trace-diagnosis.md'),
+      }),
+    ])
   })
 
   it('rejects a raw-trace candidate that only writes the diagnosis artifact', async () => {

@@ -56,7 +56,8 @@ describe('materializeLocalMcp', () => {
     const mat = await materializeLocalMcp({
       mcp: {
         greeter: { transport: 'stdio', command: 'node', args: ['-e', HELLO_SERVER], enabled: true },
-        off: { transport: 'stdio', command: 'node', args: ['-e', HELLO_SERVER], enabled: false },
+        // The disabled variant forbids launch fields by type — enabled:false is the whole entry.
+        off: { enabled: false },
       },
     })
     try {

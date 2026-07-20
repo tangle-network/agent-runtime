@@ -182,22 +182,35 @@ await journal.migrate()
 
 ## Resuming a run
 
-The runner replays the journal automatically. Two requirements:
+The runner replays the journal automatically.
+Three values control what resumes:
 
 1. Pass the same `runId` to `runConversation` (or `runConversationStream`).
-2. Pass the same `journal` instance (or a fresh one pointed at the same backing store).
+2. Pass the same `journal` instance, or a fresh instance pointed at the same backing store.
+3. Pass the same durable `RuntimeSessionStore` to continue each participant's provider session.
+
+The package includes `InMemoryRuntimeSessionStore` for one process.
+For process restarts, implement the two required `RuntimeSessionStore` methods, `get` and `put`, against the same database as your application.
+The example below assumes that implementation is named `sessionStore`.
 
 ```ts
-// Process A — runs for a while, then crashes mid-turn
-await runConversation(conv, { runId: 'conv_abc', seed: 'hello', journal })
-// ^ assume the process dies after journal recorded turns 0–2 but before turn 3
+// Process A records turns 0 through 2, then exits before turn 3 starts.
+await runConversation(conv, { runId: 'conv_abc', seed: 'hello', journal, sessionStore })
 
-// Process B — restarts, same runId, same journal
-const resumed = await runConversation(conv, { runId: 'conv_abc', seed: 'hello', journal })
-// ^ runner replays turns 0–2 from the journal, picks up at turn 3, finishes the run
+// Process B opens the same transcript and participant sessions.
+const resumed = await runConversation(conv, {
+  runId: 'conv_abc',
+  seed: 'hello',
+  journal,
+  sessionStore,
+})
 ```
 
-`onEvent` receives a `conversation_resumed` event when the runner finds a non-empty journal entry, so any UI / SSE subscriber can re-hydrate the existing transcript before live deltas resume.
+Each committed turn records the provider session used by its speaker.
+When the session exists in `sessionStore` and its backend implements `resume`, the next turn continues that provider session with only the unseen conversation turns.
+Without a shared session store, the transcript still resumes, but the actor starts a new provider session with the full transcript as context.
+
+`onEvent` receives a `conversation_resumed` event when the runner finds a non-empty journal entry, so any UI or SSE subscriber can rehydrate the existing transcript before live deltas resume.
 
 ## Operational notes
 

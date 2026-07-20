@@ -62,15 +62,18 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
 // up automatically); only the label is curated.
 const ownSurfaceLabels = {
   '.': 'Root — task lifecycle, conversation, RSI verbs, observability',
-  './agent': 'Vertical agent — manifest + improvement adapter',
+  './agent': 'Vertical agent — manifest + surface proposal source',
+  './conversation': 'Multi-turn conversations',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
   './loops': 'Recursive atom + loop kernel (alias of ./runtime)',
   './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',
   './analyst-loop': 'Analyst loop — trace findings on a running loop',
-  './lifecycle': 'Artifact lifecycle — generate → measure → promote → compose',
   './knowledge': 'Knowledge orchestration — supervised KB updates',
+  './primeintellect': 'PrimeIntellect: Verifiers v1 package and trace adapter',
   './profiles': 'Built-in agent profiles',
   './platform': 'Platform glue',
+  './candidate-execution': 'Candidate execution — immutable prepare, run, grade, and receipt',
+  './testing': 'Testing fixtures — validated Runtime wire records',
   './mcp': 'MCP servers — delegate / coordination / detached-session',
 }
 // ./loops is an intentional alias of ./runtime (same source) — list it once as ./loops,

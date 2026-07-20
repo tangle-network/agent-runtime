@@ -1,3 +1,4 @@
+import type { RagKnowledgeUpdateResult } from '@tangle-network/agent-knowledge'
 import { researcherProfile } from '../profiles/researcher'
 import type { DeliverableSpec } from '../runtime/supervise/completion-gate'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
@@ -51,7 +52,7 @@ export interface SupervisedKnowledgeUpdateResult {
   applied: boolean
   summary: string
   supervised: SupervisedResult<unknown>
-  metadata: Record<string, unknown>
+  metadata: NonNullable<RagKnowledgeUpdateResult['metadata']>
 }
 
 export interface SupervisedKnowledgeUpdateOptions {
@@ -61,6 +62,8 @@ export interface SupervisedKnowledgeUpdateOptions {
   readinessSpecs?: readonly unknown[]
   readinessTaskId?: string
   readinessOptions?: unknown
+  findings?: readonly unknown[]
+  metadata?: Record<string, unknown>
   budget: Budget
   backend?: ExecutorConfig
   makeWorkerAgent?: SuperviseOptions['makeWorkerAgent']
@@ -116,6 +119,8 @@ export function createSupervisedKnowledgeUpdater(
       ...options,
       root: input.candidateRoot ?? input.root ?? options.root,
       goal: input.goal ?? options.goal,
+      findings: input.findings ?? options.findings,
+      metadata: { ...options.metadata, ...input.metadata },
     })
 }
 
@@ -136,7 +141,8 @@ export async function runSupervisedKnowledgeUpdate(
     systemPrompt,
   }
   const run = options.runSupervised ?? supervise
-  const supervised = await run(profile, options.goal, {
+  const task = formatSupervisedKnowledgeTask(options)
+  const supervised = await run(profile, task, {
     ...options.superviseOptions,
     budget: options.budget,
     backend: options.backend,
@@ -158,4 +164,28 @@ export async function runSupervisedKnowledgeUpdate(
       result: supervised.kind,
     },
   }
+}
+
+/** Format the supervisor task with the KB root, readiness requirements, current findings, and metadata. */
+export function formatSupervisedKnowledgeTask(
+  options: Pick<
+    SupervisedKnowledgeUpdateOptions,
+    'root' | 'goal' | 'readinessSpecs' | 'readinessTaskId' | 'findings' | 'metadata'
+  >,
+): string {
+  const sections = [
+    `Goal: ${options.goal}`,
+    `Knowledge base root: ${options.root}`,
+    options.readinessTaskId ? `Readiness task id: ${options.readinessTaskId}` : undefined,
+    options.readinessSpecs?.length
+      ? `Readiness specs:\n${JSON.stringify(options.readinessSpecs, null, 2)}`
+      : undefined,
+    options.findings?.length
+      ? `Current findings:\n${JSON.stringify(options.findings, null, 2)}`
+      : undefined,
+    options.metadata && Object.keys(options.metadata).length > 0
+      ? `Metadata:\n${JSON.stringify(options.metadata, null, 2)}`
+      : undefined,
+  ].filter((section): section is string => Boolean(section))
+  return `${sections.join('\n\n')}\n\nUpdate files under the knowledge base root only. Stop when the readiness check passes.`
 }

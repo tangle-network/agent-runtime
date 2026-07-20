@@ -268,6 +268,7 @@ function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
     total.tokens.input += ev.spent.tokens.input
     total.tokens.output += ev.spent.tokens.output
     total.usd += ev.spent.usd
+    if (ev.spent.usdKnown === false) total.usdKnown = false
     total.ms += ev.spent.ms
   }
   return total
@@ -284,6 +285,7 @@ function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
     total.tokens.input += ev.spend.tokens.input
     total.tokens.output += ev.spend.tokens.output
     total.usd += ev.spend.usd
+    if (ev.spend.usdKnown === false) total.usdKnown = false
     total.ms += ev.spend.ms
   }
   return total

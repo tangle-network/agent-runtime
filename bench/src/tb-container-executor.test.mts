@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { AgentSpec, ExecutorContext } from '../../src/runtime/index'
+import type { AgentSpec, ExecutorContext } from '@tangle-network/agent-runtime/loops'
 import { buildTbDockerExecArgs, createTbContainerExecutor } from './tb-container-executor.mts'
 
 const spec: AgentSpec = { profile: { name: 'tb-test-worker' }, harness: null }

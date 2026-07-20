@@ -9,7 +9,7 @@
  * (`fromOtelSpans → analyzeRuns`). Prints the fleet `InsightReport` plus a
  * per-shape breakdown.
  *
- * Optional hosted path: set TANGLE_API_KEY (and INTELLIGENCE_BASE) to also
+ * Optional hosted path: set TANGLE_API_KEY (and TANGLE_INTELLIGENCE_URL) to also
  * POST the spans to the hosted OTLP ingest for the dashboard.
  */
 
@@ -45,7 +45,8 @@ async function main() {
   // Optional: also ship to the hosted ingest for the dashboard.
   const apiKey = process.env.TANGLE_API_KEY
   if (apiKey) {
-    const endpoint = process.env.INTELLIGENCE_BASE ?? 'https://intelligence.tangle.tools/v1/otlp'
+    const base = process.env.TANGLE_INTELLIGENCE_URL ?? 'https://intelligence.tangle.tools'
+    const endpoint = `${base.replace(/\/+$/, '')}/v1/otlp`
     await shipToTangleOtlp(allSpans, { endpoint, apiKey })
     console.log(`\nShipped ${allSpans.length} spans to ${endpoint} for the dashboard.`)
   } else {

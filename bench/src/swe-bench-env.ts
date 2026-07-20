@@ -14,16 +14,35 @@
  */
 import { execFile } from 'node:child_process'
 import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { promisify } from 'node:util'
 import type { AgenticSurface, AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
 import { runVenvPython } from './benchmarks/_harness'
-import { createSweBenchAdapter } from './benchmarks/swe-bench'
+import { createSweBenchAdapter, type SweBenchAdapterOptions } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
+import { absoluteSweTempDir } from './swe-temp'
 
 const exec = promisify(execFile)
 export const isTestPath = (p: string) => /(^|\/)(tests?)\//.test(p) || /test_.*\.py$|_test\.py$|conftest\.py$/.test(p)
+
+/** Copy a cached git checkout without rewriting repository-relative symlinks, then prove that the
+ *  copy is byte-for-byte clean from git's perspective before a worker can observe it. */
+export async function copyPristineGitCheckout(sourceDir: string, destinationDir: string): Promise<void> {
+  cpSync(sourceDir, destinationDir, { recursive: true, verbatimSymlinks: true })
+  let status: string
+  try {
+    const result = await exec('git', ['-C', destinationDir, 'status', '--porcelain'], {
+      timeout: 60_000,
+      maxBuffer: 20_000_000,
+    })
+    status = result.stdout
+  } catch (error) {
+    throw new Error(`could not verify cached checkout copy: ${(error as Error).message}`)
+  }
+  if (status.length > 0) {
+    throw new Error(`cached checkout copy is not pristine:\n${status.slice(0, 4_000)}`)
+  }
+}
 
 /**
  * The read/edit-only SWE agent system prompt — the ESTABLISHED baseline surface (glm-5.2 raw = 7/12,
@@ -69,6 +88,11 @@ const RUN_TIMEOUT_S = Number(process.env.SWE_RUN_TIMEOUT ?? 120)
 /** Combined stdout+stderr budget returned to the model: head + tail so the failure summary (which pytest
  *  prints at the tail) survives truncation. */
 const RUN_OUTPUT_LIMIT = Number(process.env.SWE_RUN_OUTPUT_LIMIT ?? 10_000)
+/** Exact run-tool settings stamped into structural-experiment receipts. */
+export const SWE_RUN_TOOL_CONFIG = Object.freeze({
+  timeoutS: RUN_TIMEOUT_S,
+  outputLimit: RUN_OUTPUT_LIMIT,
+})
 /** Monotonic suffix so concurrent `run` calls get distinct container names (for reap-on-timeout). */
 let runNameCounter = 0
 
@@ -90,14 +114,30 @@ const IMAGE_KEY_SCRIPT = `
 import json, sys
 from swebench.harness.test_spec.test_spec import make_test_spec
 row = json.loads(sys.argv[1])
-tags = []
-for ns in ("swebench", None):
+candidates = []
+for namespace in ("swebench", None):
     try:
-        tags.append(make_test_spec(row, namespace=ns).instance_image_key)
+        candidates.append({
+            "tag": make_test_spec(row, namespace=namespace).instance_image_key,
+            "namespace": "swebench" if namespace == "swebench" else "none",
+        })
     except Exception:
         pass
-print(json.dumps(tags))
+print(json.dumps(candidates))
 `
+
+const SWEBENCH_VERSION_SCRIPT = `
+import importlib.metadata
+print(importlib.metadata.version("swebench"))
+`
+
+/** Installed official scorer package stamped into experiment execution receipts. */
+export async function resolveSweBenchScorerVersion(): Promise<string> {
+  const output = await runVenvPython(SWEBENCH_VERSION_SCRIPT, [], 60_000)
+  const version = output.trim().split('\n').filter(Boolean).pop() ?? ''
+  if (!version) throw new Error('could not resolve installed swebench scorer version')
+  return version
+}
 
 /**
  * Cheap string pre-filter for an agent-supplied repo-relative path, applied before the path is
@@ -118,11 +158,61 @@ export const jailPath = (_root: string, p: string): string | null => {
  */
 export const isInsideJail = (jailRoot: string, real: string): boolean => real === jailRoot || real.startsWith(jailRoot + sep)
 
+export interface SweImageIdentity {
+  id: string
+  repoDigests: string[]
+}
+
+export interface SweImageCandidate {
+  tag: string
+  namespace: 'swebench' | 'none'
+}
+
+export type SweImageResolution =
+  | { ok: true; tag: string; namespace: SweImageCandidate['namespace']; identity: SweImageIdentity }
+  | { ok: false; reason: string }
+
+export function parseSweImageCandidates(stdout: string): SweImageCandidate[] {
+  const parsed = JSON.parse(stdout) as Array<{ tag?: unknown; namespace?: unknown }>
+  return parsed.map((candidate, index) => {
+    if (
+      typeof candidate.tag !== 'string' ||
+      (candidate.namespace !== 'swebench' && candidate.namespace !== 'none')
+    ) {
+      throw new Error(`invalid SWE image candidate at index ${index}`)
+    }
+    return { tag: candidate.tag, namespace: candidate.namespace }
+  })
+}
+
+export function firstAvailableSweImageCandidate(
+  candidates: readonly SweImageCandidate[],
+  identities: ReadonlyMap<string, SweImageIdentity>,
+): { candidate: SweImageCandidate; identity: SweImageIdentity } | null {
+  for (const candidate of candidates) {
+    const identity = identities.get(candidate.tag)
+    if (identity) return { candidate, identity }
+  }
+  return null
+}
+
+/** Parse the immutable image identity returned by `docker image inspect`. */
+export function parseSweImageIdentity(stdout: string): SweImageIdentity {
+  const rows = JSON.parse(stdout) as Array<{ Id?: unknown; RepoDigests?: unknown }>
+  const row = rows[0]
+  const id = typeof row?.Id === 'string' ? row.Id : ''
+  if (!id) throw new Error('docker image inspect returned no image ID')
+  const repoDigests = Array.isArray(row?.RepoDigests)
+    ? row.RepoDigests.filter((value): value is string => typeof value === 'string').sort()
+    : []
+  return { id, repoDigests }
+}
+
 interface Ws {
   dir: string
   task: BenchTask
   /** Memoized `run`-tool image resolution: the local Docker tag to exec in, or a fail-closed reason. */
-  image?: { ok: true; tag: string } | { ok: false; reason: string }
+  image?: SweImageResolution
 }
 
 /** Resolve the locally-present Docker image for an instance's METADATA row (no workspace needed).
@@ -132,20 +222,21 @@ interface Ws {
  *  tool uses instead of hand-building tags. */
 export async function resolveImageForMetadata(
   metadata: Record<string, unknown>,
-): Promise<{ ok: true; tag: string } | { ok: false; reason: string }> {
-  let tags: string[]
+): Promise<SweImageResolution> {
+  let candidates: SweImageCandidate[]
   try {
     const out = await runVenvPython(IMAGE_KEY_SCRIPT, [JSON.stringify(metadata)], 60_000)
     const lastLine = out.trim().split('\n').filter(Boolean).pop() ?? '[]'
-    tags = JSON.parse(lastLine) as string[]
+    candidates = parseSweImageCandidates(lastLine)
   } catch (e) {
     return { ok: false, reason: `image-key resolution failed: ${(e as Error).message.slice(0, 160)}` }
   }
-  if (!tags.length) return { ok: false, reason: 'swebench produced no image key for this instance' }
-  for (const tag of tags) {
+  if (!candidates.length) return { ok: false, reason: 'swebench produced no image key for this instance' }
+  const identities = new Map<string, SweImageIdentity>()
+  for (const { tag } of candidates) {
     try {
-      await exec('docker', ['image', 'inspect', tag], { timeout: 20_000 })
-      return { ok: true, tag }
+      const inspected = await exec('docker', ['image', 'inspect', tag], { timeout: 20_000 })
+      identities.set(tag, parseSweImageIdentity(inspected.stdout))
     } catch (e) {
       const m = (e as { stderr?: string }).stderr ?? (e as Error).message ?? ''
       if (/Cannot connect to the Docker daemon|Is the docker daemon running/i.test(m)) {
@@ -154,14 +245,35 @@ export async function resolveImageForMetadata(
       // otherwise: this tag is just not cached locally — try the next candidate
     }
   }
-  return { ok: false, reason: `no cached image (tried: ${tags.join(', ')})` }
+  const selected = firstAvailableSweImageCandidate(candidates, identities)
+  if (selected) {
+    return {
+      ok: true,
+      tag: selected.candidate.tag,
+      namespace: selected.candidate.namespace,
+      identity: selected.identity,
+    }
+  }
+  return { ok: false, reason: `no cached image (tried: ${candidates.map(({ tag }) => tag).join(', ')})` }
 }
 
 /** Per-workspace memoization of `resolveImageForMetadata` for the `run` tool (degrades to an
  *  `ERROR:` string so the agent falls back to read/edit-only instead of crashing). */
-async function resolveInstanceImage(ws: Ws): Promise<{ ok: true; tag: string } | { ok: false; reason: string }> {
-  if (ws.image) return ws.image
-  return (ws.image = await resolveImageForMetadata(ws.task.metadata ?? {}))
+async function resolveInstanceImage(ws: Ws, expected?: SweImageIdentity): Promise<SweImageResolution> {
+  if (ws.image) {
+    if (ws.image.ok && expected && ws.image.identity.id !== expected.id) {
+      return { ok: false, reason: `image identity changed (${expected.id} -> ${ws.image.identity.id})` }
+    }
+    return ws.image
+  }
+  const resolved = await resolveImageForMetadata(ws.task.metadata ?? {})
+  if (resolved.ok && expected && resolved.identity.id !== expected.id) {
+    return (ws.image = {
+      ok: false,
+      reason: `image identity changed (${expected.id} -> ${resolved.identity.id})`,
+    })
+  }
+  return (ws.image = resolved)
 }
 
 /** Build the SWE-bench Environment + a DISJOINT-slice task supplier over the Verified split. The
@@ -169,29 +281,30 @@ async function resolveInstanceImage(ws: Ws): Promise<{ ok: true; tag: string } |
  *  [trainN+off,…) never overlap. Verified is loaded once; instances carry their repo/base_commit. */
 export async function createSweBenchEnvironment(
   poolN = 80,
-  opts: { ids?: readonly string[]; enableRun?: boolean; cloneCache?: boolean } = {},
+  opts: {
+    ids?: readonly string[]
+    enableRun?: boolean
+    cloneCache?: boolean
+    expectedImageIdentities?: ReadonlyMap<string, SweImageIdentity>
+    adapterOptions?: SweBenchAdapterOptions
+  } = {},
 ): Promise<{
   environment: AgenticSurface
   tasks: (offset: number, n: number) => Promise<AgenticTask[]>
   adapter: ReturnType<typeof createSweBenchAdapter>
 }> {
-  const adapter = createSweBenchAdapter()
-  // WITH-TOOLS arm: expose the jailed `run` tool + use the run-aware seed prompt. Default OFF ⇒ the
-  // read/edit-only baseline (glm-5.2 7/12) is byte-identical to before.
+  const adapter = createSweBenchAdapter(opts.adapterOptions)
+  // WITH-TOOLS arm: expose the jailed `run` tool + use the run-aware seed prompt. Default OFF keeps
+  // the established read/edit-only baseline byte-identical.
   const enableRun = opts.enableRun ?? false
-  // Pinned ids ⇒ the pool is EXACTLY those instances (deterministic single-instance runs and the
-  // SEE-able local proof); otherwise the first `poolN` of the Verified test split.
   const pool = opts.ids?.length
     ? await adapter.loadTasks({ ids: [...opts.ids], split: 'test' })
     : await adapter.loadTasks({ limit: poolN, split: 'test' })
   const byId = new Map(pool.map((t) => [t.id, t]))
   // Each environment owns its workspace registry so concurrent environments don't share state.
   const workspaces = new Map<string, Ws>()
-  // Opt-in per-instance clone cache: `open()` clones each instance from GitHub ONCE into a pristine
-  // dir and serves every subsequent open from a local copy. For drivers that open many workspaces
-  // per instance (k-candidate sampling + repair rounds), this removes the 6×-per-instance network
-  // dependency mid-run — a clone flake at hour 6 becomes impossible instead of fatal. Default OFF:
-  // the single-open paths (baseline runs, calibrator) keep their byte-identical behavior.
+  // Opt-in per-instance clone cache: clone each instance from GitHub once, then copy the pristine
+  // checkout for later sessions. This removes a mid-run network dependency without sharing edits.
   const cloneCache = opts.cloneCache ?? false
   const pristine = new Map<string, Promise<string>>()
   const clonedAt = async (md: Record<string, string>, dir: string): Promise<void> => {
@@ -199,22 +312,22 @@ export async function createSweBenchEnvironment(
     await exec('git', ['-C', dir, 'checkout', '--quiet', md.base_commit], { timeout: 300_000 })
   }
   const pristineClone = (id: string, md: Record<string, string>): Promise<string> => {
-    let p = pristine.get(id)
-    if (!p) {
-      p = (async () => {
-        const dir = mkdtempSync(join(tmpdir(), 'swe-cache-'))
+    let pending = pristine.get(id)
+    if (!pending) {
+      pending = (async () => {
+        const dir = mkdtempSync(join(absoluteSweTempDir(), 'swe-cache-'))
         try {
           await clonedAt(md, dir)
           return dir
         } catch (error) {
           rmSync(dir, { recursive: true, force: true })
-          pristine.delete(id) // a failed clone must not poison every later open of this instance
+          pristine.delete(id)
           throw error
         }
       })()
-      pristine.set(id, p)
+      pristine.set(id, pending)
     }
-    return p
+    return pending
   }
 
   const environment: AgenticSurface = {
@@ -223,13 +336,10 @@ export async function createSweBenchEnvironment(
       const bt = byId.get(task.id)
       if (!bt) throw new Error(`swe-bench-env: unknown task ${task.id}`)
       const md = bt.metadata as Record<string, string>
-      const dir = mkdtempSync(join(tmpdir(), 'swe-'))
+      const dir = mkdtempSync(join(absoluteSweTempDir(), 'swe-'))
       try {
-        if (cloneCache) {
-          cpSync(await pristineClone(task.id, md), dir, { recursive: true })
-        } else {
-          await clonedAt(md, dir)
-        }
+        if (cloneCache) await copyPristineGitCheckout(await pristineClone(task.id, md), dir)
+        else await clonedAt(md, dir)
         const handle: ArtifactHandle = { id: dir, surface: 'swe-bench-verified' }
         workspaces.set(dir, { dir, task: bt })
         return handle
@@ -239,30 +349,28 @@ export async function createSweBenchEnvironment(
       }
     },
     async tools() {
-      const base: AgenticTool[] = [
+      const tools: AgenticTool[] = [
         { type: 'function', function: { name: 'list_files', description: 'List source files under a repo subdirectory (recursive, bounded). "" = repo root.', parameters: { type: 'object', properties: { dir: { type: 'string' } }, required: ['dir'] } } },
         { type: 'function', function: { name: 'read_file', description: 'Read a repo file by path.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
         { type: 'function', function: { name: 'edit_file', description: 'Surgical fix: replace the EXACT old_string (must occur once — copy whitespace precisely) with new_string in a SOURCE file. Minimal changes, never whole-file rewrites. Test files are rejected.', parameters: { type: 'object', properties: { path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } }, required: ['path', 'old_string', 'new_string'] } } },
       ]
       if (enableRun) {
-        base.push({
+        tools.push({
           type: 'function',
           function: {
             name: 'run',
-            // Command examples are written WITHOUT backticks on purpose — see the WAF note above.
             description:
               'Run a shell command in the repo checkout to REPRODUCE the bug and VERIFY your fix. cwd is the ' +
               'repo root (do NOT cd). Use a one-line python -c inline check for a quick offline reproduction, ' +
               'or python -m pytest on an existing test file (add -k to select a case, plus -rA and ' +
               '-p no:cacheprovider) to run tests near your change. Returns the exit code then the combined ' +
-              'stdout+stderr. NETWORK IS DISABLED and the hidden grading tests are NOT present here — ' +
-              'reproduce with local, network-free checks. A non-zero exit is a normal signal (a failing ' +
-              'repro/test), not a tool error.',
+              'stdout+stderr. NETWORK IS DISABLED and hidden grading tests are absent. A non-zero exit is a ' +
+              'normal failing-test signal, not a tool error.',
             parameters: { type: 'object', properties: { cmd: { type: 'string' } }, required: ['cmd'] },
           },
         })
       }
-      return base satisfies AgenticTool[]
+      return tools
     },
     async call(handle, name, args) {
       const ws = workspaces.get(handle.id)
@@ -355,7 +463,7 @@ export async function createSweBenchEnvironment(
       if (enableRun && name === 'run') {
         const cmd = String(args.cmd ?? '').trim()
         if (!cmd) return 'ERROR: run requires a non-empty cmd'
-        const img = await resolveInstanceImage(ws)
+        const img = await resolveInstanceImage(ws, opts.expectedImageIdentities?.get(ws.task.id))
         if (!img.ok) return `ERROR: run unavailable (${img.reason}) — continue with read_file/edit_file only`
         const T = RUN_TIMEOUT_S
         const containerName = `swe-run-${process.pid}-${Date.now()}-${runNameCounter++}`
@@ -372,7 +480,7 @@ export async function createSweBenchEnvironment(
           'run', '--rm', '--name', containerName, '--network', 'none',
           '-v', `${ws.dir}:/testbed:ro`, '-w', '/testbed',
           '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', `SWE_T=${T}`, '-e', `SWE_CMD=${cmd}`,
-          img.tag, 'bash', '-lc', script,
+          img.identity.id, 'bash', '-lc', script,
         ]
         let code = 0
         let out = ''

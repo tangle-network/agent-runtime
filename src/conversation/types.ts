@@ -12,7 +12,7 @@
  * @stable
  */
 
-import type { AgentExecutionBackend } from '../types'
+import type { AgentExecutionBackend, RuntimeSessionStore } from '../types'
 import type { BackendCallPolicy } from './call-policy'
 import type { PropagatedHeaders } from './headers'
 import type { ConversationJournal } from './journal'
@@ -143,6 +143,8 @@ export interface ConversationTurn {
    * `${runId}.t${index}.${speakerSlug}`.
    */
   turnId: string
+  /** Backend session used for this turn. Present on turns recorded by session-aware runners. */
+  sessionId?: string
   text: string
   /**
    * Aggregated backend usage for this turn alone. Populated from any
@@ -199,6 +201,13 @@ export interface RunConversationOptions {
    * driver process crash mid-run loses zero acknowledged turns.
    */
   journal?: ConversationJournal
+  /**
+   * Stores each participant's backend session. The runner keeps an in-memory
+   * store for one invocation when omitted. Reuse a durable store with the same
+   * `runId` and journal after a process restart. Backends implementing `resume`
+   * continue their provider session; other backends receive the full transcript.
+   */
+  sessionStore?: RuntimeSessionStore
   /**
    * Headers to forward verbatim to every participant backend call (gateway
    * propagation: `X-Tangle-Forwarded-Authorization`, run/turn correlation,

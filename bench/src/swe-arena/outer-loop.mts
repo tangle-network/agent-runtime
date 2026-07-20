@@ -1497,7 +1497,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
             patch: winnerPatch,
           }
         : null,
-      gateDecision: result.gateDecision,
+      gateDecision: result.decision,
       gateReasons: loop.gateResult.reasons,
       lift: result.lift,
       proposerCostUsd: result.raw.totalCostUsd,
@@ -1506,7 +1506,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     const summaryPath = join(config.roundsDir, `round${config.round}-summary-${runId}.json`)
     await writeFile(summaryPath, JSON.stringify(summary, null, 2))
     log(`round summary → ${summaryPath}`)
-    log(`gate: ${result.gateDecision} — ${loop.gateResult.reasons[0] ?? ''}`)
+    log(`gate: ${result.decision} — ${loop.gateResult.reasons[0] ?? ''}`)
   } finally {
     await result.dispose()
   }

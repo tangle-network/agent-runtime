@@ -8,7 +8,7 @@
  * improve.ts verbatim, so this file shows only the NEW seam a Recommend mode runs in production:
  *
  *   1. OBSERVE — record a run's `LoopTraceEvent` stream as one trace (best-effort export; with no
- *      OTLP endpoint configured it is a no-op, so this runs offline with no credentials).
+ *      tenant apiKey configured it is a no-op, so this runs offline with no credentials).
  *   2. ANALYZE — derive `AnalystFinding`s from that trace. In production a trace analyst reads the
  *      spans; here we hand-derive two findings that CITE the recorded trace, to keep it offline.
  *   3. IMPROVE — feed those findings to `improve()` and print the gated candidate.
@@ -24,7 +24,7 @@ import { agent, judge, profile, scenarios, scriptedWinner } from '../improve/imp
 
 // ── 1. OBSERVE — record a run's loop topology as one trace ──────────────────
 // A real run emits this `LoopTraceEvent` stream from the kernel; here a tiny two-event trace stands
-// in. With no OTLP endpoint set, export is a no-op — offline, no credentials.
+// in. With no tenant apiKey set, export is a no-op — offline, no credentials.
 const runId = 'run-001'
 const events: LoopTraceEvent[] = [
   {
@@ -78,8 +78,9 @@ async function main(): Promise<void> {
   })
   console.log(`trace recorded: ${traceId}`)
   console.log(`findings derived: ${findings.length}`)
-  console.log(`gated candidate: shipped=${out.shipped} gate=${out.gateDecision}`)
-  console.log(`prompt after: ${out.profile.prompt?.systemPrompt}`)
+  console.log(`candidate decision: ${out.decision}`)
+  console.log(`candidate prompt: ${out.candidate.profile?.prompt?.systemPrompt}`)
+  console.log(`live prompt unchanged: ${profile.prompt?.systemPrompt}`)
 }
 
 main().catch((err) => {

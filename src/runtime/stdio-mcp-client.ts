@@ -92,11 +92,6 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
   const stderr: string[] = []
   child.stderr.on('data', (d) => stderr.push(String(d)))
   const stderrTail = () => (stderr.length > 0 ? `\nstderr:\n${stderr.join('').slice(-2000)}` : '')
-  // A write to a dying stdin surfaces as an async 'error' on the stream; the
-  // child's own 'error'/'close' events already carry the failure, so this
-  // listener only prevents an unhandled-'error' crash.
-  child.stdin.on('error', () => {})
-
   let nextId = 1
   let spawnFault: McpSpawnFault | undefined
   let closed = false
@@ -122,6 +117,13 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
           )
         : new McpSpawnFault(`'${spec.command}' failed to spawn: ${err.message}`)
     failAllPending(spawnFault)
+  })
+  // Pipe failures normally arrive asynchronously, OUTSIDE send()'s try/catch —
+  // a server that closes stdin mid-handshake (EPIPE) must fail the pending
+  // request immediately with the same wording as a synchronous write failure,
+  // not wait out the handshake timeout.
+  child.stdin.on('error', (err) => {
+    failAllPending(new Error(`writing to MCP server stdin failed: ${err.message}${stderrTail()}`))
   })
   // 'close' (not 'exit'): it fires after stdio flushes, so the stderr tail in
   // the failure message is complete. After our own SIGKILL in close(), pending

@@ -29,7 +29,7 @@
 
 // agent-eval's AgentProfile (the eval-harness unit of variation, `model: string`)
 // — NOT sandbox's AgentProfile. ProfileDispatchFn is keyed on the former.
-import type { AgentProfile } from '@tangle-network/agent-eval'
+import type { AgentProfile, CostReceiptInput, MaximumCharge } from '@tangle-network/agent-eval'
 import type {
   CampaignTraceWriter,
   DispatchContext,
@@ -37,7 +37,6 @@ import type {
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
-import { reportLoopUsage } from './report-usage'
 import { type RunLoopOptions, runLoop } from './run-loop'
 import type { LoopResult, LoopTraceEmitter, SandboxClient } from './types'
 
@@ -72,6 +71,17 @@ export interface LoopDispatchOptions<
   forwardTrace?: boolean
   /** Cost-meter source label for the loop's spend. Default `'loop'`. */
   costSource?: string
+  /** Provider- or executor-enforced maximum for this whole cell dispatch.
+   * Required by agent-eval before execution when the campaign is cost-capped. */
+  maximumCharge?:
+    | MaximumCharge
+    | ((scenario: TScenario, profile: AgentProfile) => MaximumCharge | undefined)
+  /** Resolve the model actually served from the completed loop. */
+  resolveCostModel?: (
+    result: LoopResult<Task, Output, Decision>,
+    scenario: TScenario,
+    profile: AgentProfile,
+  ) => string | undefined
 }
 
 /** Bridge a campaign `DispatchContext.trace` to a `LoopTraceEmitter` so every
@@ -93,7 +103,16 @@ async function runLoopForCell<Task, Output, Decision, TScenario extends Scenario
   ctx: DispatchContext,
 ): Promise<TArtifact> {
   const loopOptions = opts.toLoopOptions(scenario, profile)
-  return runLoopWithCampaignContext(opts, loopOptions, ctx)
+  return runLoopWithCampaignContext(opts, loopOptions, ctx, {
+    model: profile.model?.default ?? modelFromLoopOptions(loopOptions),
+    maximumCharge:
+      typeof opts.maximumCharge === 'function'
+        ? opts.maximumCharge(scenario, profile)
+        : opts.maximumCharge,
+    resolveModel: opts.resolveCostModel
+      ? (result) => opts.resolveCostModel?.(result, scenario, profile)
+      : undefined,
+  })
 }
 
 async function runLoopWithCampaignContext<Task, Output, Decision, TArtifact>(
@@ -105,19 +124,62 @@ async function runLoopWithCampaignContext<Task, Output, Decision, TArtifact>(
   },
   loopOptions: LoopOptionsForDispatch<Task, Output, Decision>,
   ctx: DispatchContext,
+  cost: {
+    model: string
+    maximumCharge?: MaximumCharge
+    resolveModel?: (result: LoopResult<Task, Output, Decision>) => string | undefined
+  },
 ): Promise<TArtifact> {
-  const result = await runLoop<Task, Output, Decision>({
-    ...loopOptions,
-    ctx: {
-      sandboxClient: opts.sandboxClient,
-      signal: ctx.signal,
-      traceEmitter: opts.forwardTrace === false ? undefined : campaignTraceToLoopEmitter(ctx.trace),
-    },
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: opts.costSource ?? 'loop',
+    model: cost.model,
+    signal: ctx.signal,
+    ...(cost.maximumCharge ? { maximumCharge: cost.maximumCharge } : {}),
+    execute: (executionSignal) =>
+      runLoop<Task, Output, Decision>({
+        ...loopOptions,
+        ctx: {
+          sandboxClient: opts.sandboxClient,
+          signal: executionSignal,
+          traceEmitter:
+            opts.forwardTrace === false ? undefined : campaignTraceToLoopEmitter(ctx.trace),
+        },
+      }),
+    receipt: (result) => loopCostReceipt(result, cost.resolveModel?.(result) ?? cost.model),
   })
-  reportLoopUsage(ctx.cost, result, opts.costSource ?? 'loop')
+  if (!paid.succeeded) {
+    throw paid.error
+  }
+  const result = paid.value
   const toArtifact =
     opts.toArtifact ?? ((r: LoopResult<Task, Output, Decision>) => r.winner?.output as TArtifact)
   return toArtifact(result)
+}
+
+function loopCostReceipt<Task, Output, Decision>(
+  result: LoopResult<Task, Output, Decision>,
+  model: string,
+): CostReceiptInput {
+  return {
+    model,
+    inputTokens: result.tokenUsage.input,
+    outputTokens: result.tokenUsage.output,
+    ...(result.costUsd > 0 ? { actualCostUsd: result.costUsd } : {}),
+  }
+}
+
+function modelFromLoopOptions<Task, Output, Decision>(
+  options: LoopOptionsForDispatch<Task, Output, Decision>,
+): string {
+  const profiles = options.agentRun
+    ? [options.agentRun.profile]
+    : (options.agentRuns?.map((run) => run.profile) ?? [])
+  const models = new Set(
+    profiles.map((profile) => profile.model?.default).filter((model): model is string => !!model),
+  )
+  if (models.size === 1) return [...models][0] as string
+  return models.size > 1 ? 'mixed' : 'unknown'
 }
 
 /** Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. */
@@ -138,6 +200,13 @@ export interface LoopCampaignDispatchOptions<
   forwardTrace?: boolean
   /** Cost-meter source label for the loop's spend. Default `'loop'`. */
   costSource?: string
+  /** Provider- or executor-enforced maximum for this whole cell dispatch. */
+  maximumCharge?: MaximumCharge | ((scenario: TScenario) => MaximumCharge | undefined)
+  /** Resolve the model actually served from the completed loop. */
+  resolveCostModel?: (
+    result: LoopResult<Task, Output, Decision>,
+    scenario: TScenario,
+  ) => string | undefined
 }
 
 /**
@@ -148,7 +217,19 @@ export interface LoopCampaignDispatchOptions<
 export function loopCampaignDispatch<Task, Output, Decision, TScenario extends Scenario, TArtifact>(
   opts: LoopCampaignDispatchOptions<Task, Output, Decision, TScenario, TArtifact>,
 ): DispatchFn<TScenario, TArtifact> {
-  return (scenario, ctx) => runLoopWithCampaignContext(opts, opts.toLoopOptions(scenario), ctx)
+  return (scenario, ctx) => {
+    const loopOptions = opts.toLoopOptions(scenario)
+    return runLoopWithCampaignContext(opts, loopOptions, ctx, {
+      model: modelFromLoopOptions(loopOptions),
+      maximumCharge:
+        typeof opts.maximumCharge === 'function'
+          ? opts.maximumCharge(scenario)
+          : opts.maximumCharge,
+      resolveModel: opts.resolveCostModel
+        ? (result) => opts.resolveCostModel?.(result, scenario)
+        : undefined,
+    })
+  }
 }
 
 /**

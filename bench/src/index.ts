@@ -30,10 +30,27 @@ export {
   type RagContext,
 } from './benchmarks/rag-shared'
 export { createT2RagBenchAdapter } from './benchmarks/t2-ragbench'
+export {
+  createSweBenchAdapter,
+  scoreSweReport,
+  sweEvaluationArgv,
+  swePatchOutput,
+  type SweBenchAdapterOptions,
+  type SweBenchArtifactCaptureContext,
+  type SweBenchCacheLevel,
+} from './benchmarks/swe-bench'
+export {
+  runStagedJudge,
+  StagedJudgeError,
+  type StagedRunCaptureSpec,
+  type StagedRunSpec,
+} from './benchmarks/_harness'
 export type {
   BenchmarkAdapter,
   BenchScore,
   BenchTask,
+  JudgeArtifactFileReceipt,
+  JudgeArtifactReceipt,
   LoadOptions,
 } from './benchmarks/types'
 
@@ -53,3 +70,23 @@ export {
   type RunBenchmarksOptions,
   type RunBenchmarksReport,
 } from './run-benchmarks'
+export {
+  createPierCandidateRecoveryExecutor,
+  executePreparedPierCandidate,
+  type ExecutePreparedPierCandidateOptions,
+  type PierCandidateGraderPort,
+  type PierCandidateOfficialResult,
+  type PierCandidateTerminationAcknowledgement,
+  type PierCandidateTrialController,
+  type PierCandidateTrialHandle,
+  type PierCandidateTrialIdentity,
+  type PierCandidateTrialResult,
+  type StagedPierCandidateExecution,
+} from './pier-agent'
+export {
+  FilePierCandidateTrialController,
+  type FilePierCandidateTrialControllerOptions,
+  type PierCandidateProcessSpec,
+  type PierDockerConnection,
+} from './pier-trial-controller'
+export { createPierResultGrader } from './pier-result-grader'

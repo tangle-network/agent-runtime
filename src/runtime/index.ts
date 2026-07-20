@@ -595,6 +595,7 @@ export {
   type WorktreeCliExecutorOptions,
   type WorktreeCommandResult,
   type WorktreePatchArtifact,
+  type WorktreeProfileMaterializationReceipt,
 } from './supervise/worktree-cli-executor'
 // The generic coding combinator: a fanout of authored harness profiles, each on its own
 // worktree-CLI leaf, each gated by the injected deliverable, winner via the shared valid-only

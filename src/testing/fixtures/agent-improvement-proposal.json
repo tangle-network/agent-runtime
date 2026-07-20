@@ -1,0 +1,2572 @@
+{
+  "changedSurfaces": ["prompt"],
+  "digest": "sha256:aa47ef7cce1668303f55c3454a5a762c75a78be6cf907fa3f4f10dea20fd9fc6",
+  "evaluation": {
+    "decision": {
+      "contributingChecks": [
+        {
+          "name": "paired-significance",
+          "passed": true
+        },
+        {
+          "name": "statistical-power",
+          "passed": true
+        },
+        {
+          "name": "all-runs-completed",
+          "passed": true
+        },
+        {
+          "name": "candidate-task-pass",
+          "passed": true
+        },
+        {
+          "name": "critical-dimensions",
+          "passed": true
+        },
+        {
+          "name": "budget",
+          "passed": true
+        }
+      ],
+      "outcome": "ship",
+      "reasons": ["all measured checks passed"]
+    },
+    "diff": "--- baseline/profile (sha256:e53e1c8f9632bcb5db9033e32f33a90b9bd99abecef0bb52ff9069f07509e2f9)\n+++ candidate/profile (sha256:8b1e2f0f7b832958381c29baebe4a961b151af97a0ce9d611a15ad0741aeaa75)\n{\n  \"baseline\": {\n    \"name\": \"candidate\",\n    \"prompt\": {\n      \"instructions\": [\n        \"Inspect the repository, implement the fix, and run tests.\"\n      ]\n    },\n    \"model\": {\n      \"default\": \"provider/model\",\n      \"reasoningEffort\": \"high\"\n    },\n    \"harness\": \"codex\",\n    \"resources\": {\n      \"failOnError\": true\n    }\n  },\n  \"candidate\": {\n    \"name\": \"candidate\",\n    \"prompt\": {\n      \"systemPrompt\": \"Return the exact measured answer.\",\n      \"instructions\": [\n        \"Inspect the repository, implement the fix, and run tests.\"\n      ]\n    },\n    \"model\": {\n      \"default\": \"provider/model\",\n      \"reasoningEffort\": \"high\"\n    },\n    \"harness\": \"codex\",\n    \"resources\": {\n      \"failOnError\": true\n    }\n  }\n}",
+    "evaluation": {
+      "durationMs": 300,
+      "executionCostUsd": 0,
+      "executionDurationMs": 300,
+      "generationsExplored": 0,
+      "searchCostUsd": 0,
+      "searchDurationMs": 0,
+      "totalCostUsd": 0
+    },
+    "experiment": {
+      "baseline": {
+        "code": {
+          "kind": "disabled"
+        },
+        "digest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+        "digestAlgorithm": "rfc8785-sha256",
+        "execution": {
+          "cwd": {
+            "path": ".",
+            "workspace": "task"
+          },
+          "environment": {
+            "kind": "evaluator-task-container"
+          },
+          "harness": "codex",
+          "harnessVersion": "1.2.3",
+          "instructionDelivery": {
+            "kind": "stdin-utf8"
+          },
+          "isolation": {
+            "candidateSecrets": "disabled",
+            "network": "disabled",
+            "remoteIntegrations": "disabled"
+          },
+          "launch": {
+            "executable": "codex",
+            "kind": "container-command"
+          }
+        },
+        "kind": "agent-candidate-bundle",
+        "memory": {
+          "mode": "disabled"
+        },
+        "profile": {
+          "harness": "codex",
+          "model": {
+            "default": "provider/model",
+            "reasoningEffort": "high"
+          },
+          "name": "candidate",
+          "prompt": {
+            "instructions": ["Inspect the repository, implement the fix, and run tests."]
+          },
+          "resources": {
+            "failOnError": true
+          }
+        }
+      },
+      "benchmark": {
+        "suite": {
+          "digest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+          "digestAlgorithm": "rfc8785-sha256",
+          "kind": "agent-candidate-benchmark-suite",
+          "reps": 3,
+          "seeds": [101, 102, 103],
+          "taskDigests": ["sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277"]
+        },
+        "tasks": [
+          {
+            "attempt": {
+              "maxAttempts": 1,
+              "retryPolicy": "none"
+            },
+            "benchmark": {
+              "name": "repository-disjoint-smoke",
+              "splitDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "version": "1"
+            },
+            "digest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+            "digestAlgorithm": "rfc8785-sha256",
+            "evaluatorTaskContainer": {
+              "image": "ghcr.io/example/task",
+              "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+              },
+              "source": "evaluator-task-container"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 25,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "grader/9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad"
+              },
+              "format": "tangle-grader",
+              "name": "fixture-executable-grader",
+              "version": "1.0.0"
+            },
+            "instruction": "Fix the failing behavior without changing the public API.",
+            "kind": "agent-candidate-benchmark-task",
+            "limits": {
+              "maxCostUsd": 5,
+              "maxInputTokens": 100000,
+              "maxModelCalls": 50,
+              "maxOutputTokens": 50000,
+              "maxSteps": 100,
+              "timeoutMs": 60000
+            },
+            "model": {
+              "model": "model-snapshot",
+              "provider": "provider",
+              "reasoningEffort": "high",
+              "requested": "provider/model",
+              "snapshot": "model-snapshot-2026-07-01"
+            },
+            "outcome": {
+              "kind": "output",
+              "maxBytes": 1024,
+              "mediaType": "text/plain"
+            },
+            "scenario": {
+              "id": "owner-repo-1",
+              "kind": "coding",
+              "scenarioDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+            },
+            "workspace": {
+              "archive": {
+                "byteLength": 17,
+                "content": "ZW1wdHk6b3V0cHV0LXRhc2s=",
+                "encoding": "base64",
+                "sha256": "sha256:332dd9c74beab8a177396a4510dab46a50ca2074b203b10694e4eaa3071e2ef0"
+              },
+              "digest": "sha256:3e9fdad46f14ce5b7c78a93e4fee0960483ae9d1cda21f0c390cdbad40bdac02",
+              "kind": "agent-candidate-workspace-snapshot",
+              "manifest": {
+                "byteLength": 56,
+                "content": "eyJmaWxlcyI6W10sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtd29ya3NwYWNlLW1hbmlmZXN0In0=",
+                "encoding": "base64",
+                "sha256": "sha256:3e9fdad46f14ce5b7c78a93e4fee0960483ae9d1cda21f0c390cdbad40bdac02"
+              },
+              "material": {
+                "files": [],
+                "kind": "agent-candidate-workspace-manifest"
+              }
+            }
+          }
+        ]
+      },
+      "candidate": {
+        "code": {
+          "kind": "disabled"
+        },
+        "digest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+        "digestAlgorithm": "rfc8785-sha256",
+        "execution": {
+          "cwd": {
+            "path": ".",
+            "workspace": "task"
+          },
+          "environment": {
+            "kind": "evaluator-task-container"
+          },
+          "harness": "codex",
+          "harnessVersion": "1.2.3",
+          "instructionDelivery": {
+            "kind": "stdin-utf8"
+          },
+          "isolation": {
+            "candidateSecrets": "disabled",
+            "network": "disabled",
+            "remoteIntegrations": "disabled"
+          },
+          "launch": {
+            "executable": "codex",
+            "kind": "container-command"
+          }
+        },
+        "kind": "agent-candidate-bundle",
+        "memory": {
+          "mode": "disabled"
+        },
+        "profile": {
+          "harness": "codex",
+          "model": {
+            "default": "provider/model",
+            "reasoningEffort": "high"
+          },
+          "name": "candidate",
+          "prompt": {
+            "instructions": ["Inspect the repository, implement the fix, and run tests."],
+            "systemPrompt": "Return the exact measured answer."
+          },
+          "resources": {
+            "failOnError": true
+          }
+        }
+      },
+      "candidateLineage": {
+        "source": "human"
+      },
+      "digest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+      "digestAlgorithm": "rfc8785-sha256",
+      "kind": "agent-candidate-experiment",
+      "policy": {
+        "bootstrapSeed": 1337,
+        "budgetUsd": 1,
+        "confidenceLevel": 0.95,
+        "criticalDimensions": ["quality"],
+        "deltaThreshold": 0,
+        "minProductiveRuns": 3,
+        "regressionTolerance": 0.05,
+        "resamples": 500
+      }
+    },
+    "kind": "agent-improvement-measured-comparison",
+    "measurements": [
+      {
+        "baseline": {
+          "digest": "sha256:4514f8b5f875371d69b88add160843806e84f854898a351bdce03646c3750495",
+          "kind": "agent-candidate-execution-evidence",
+          "materializationReceipt": {
+            "benchmark": {
+              "suite": {
+                "digest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                "material": {
+                  "byteLength": 198,
+                  "content": "eyJkaWdlc3RBbGdvcml0aG0iOiJyZmM4Nzg1LXNoYTI1NiIsImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtYmVuY2htYXJrLXN1aXRlIiwicmVwcyI6Mywic2VlZHMiOlsxMDEsMTAyLDEwM10sInRhc2tEaWdlc3RzIjpbInNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3Il19",
+                  "encoding": "base64",
+                  "sha256": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5"
+                }
+              },
+              "task": {
+                "digest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                "material": {
+                  "byteLength": 2096,
+                  "content": "eyJhdHRlbXB0Ijp7Im1heEF0dGVtcHRzIjoxLCJyZXRyeVBvbGljeSI6Im5vbmUifSwiYmVuY2htYXJrIjp7Im5hbWUiOiJyZXBvc2l0b3J5LWRpc2pvaW50LXNtb2tlIiwic3BsaXREaWdlc3QiOiJzaGEyNTY6ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCIsInZlcnNpb24iOiIxIn0sImRpZ2VzdEFsZ29yaXRobSI6InJmYzg3ODUtc2hhMjU2IiwiZXZhbHVhdG9yVGFza0NvbnRhaW5lciI6eyJpbWFnZSI6ImdoY3IuaW8vZXhhbXBsZS90YXNrIiwiaW5kZXhEaWdlc3QiOiJzaGEyNTY6YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsIm1hbmlmZXN0RGlnZXN0Ijoic2hhMjU2OmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIiLCJwbGF0Zm9ybSI6eyJhcmNoaXRlY3R1cmUiOiJhbWQ2NCIsIm9zIjoibGludXgifSwic291cmNlIjoiZXZhbHVhdG9yLXRhc2stY29udGFpbmVyIn0sImdyYWRlciI6eyJhcnRpZmFjdCI6eyJieXRlTGVuZ3RoIjoyNSwibG9jYXRvciI6eyJidWNrZXQiOiJjYW5kaWRhdGUtdGVzdC1hcnRpZmFjdHMiLCJrZXkiOiJncmFkZXIvOWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCIsImtpbmQiOiJzMyJ9LCJzaGEyNTYiOiJzaGEyNTY6OWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCJ9LCJmb3JtYXQiOiJ0YW5nbGUtZ3JhZGVyIiwibmFtZSI6ImZpeHR1cmUtZXhlY3V0YWJsZS1ncmFkZXIiLCJ2ZXJzaW9uIjoiMS4wLjAifSwiaW5zdHJ1Y3Rpb24iOiJGaXggdGhlIGZhaWxpbmcgYmVoYXZpb3Igd2l0aG91dCBjaGFuZ2luZyB0aGUgcHVibGljIEFQSS4iLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWJlbmNobWFyay10YXNrIiwibGltaXRzIjp7Im1heENvc3RVc2QiOjUsIm1heElucHV0VG9rZW5zIjoxMDAwMDAsIm1heE1vZGVsQ2FsbHMiOjUwLCJtYXhPdXRwdXRUb2tlbnMiOjUwMDAwLCJtYXhTdGVwcyI6MTAwLCJ0aW1lb3V0TXMiOjYwMDAwfSwibW9kZWwiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwib3V0Y29tZSI6eyJraW5kIjoib3V0cHV0IiwibWF4Qnl0ZXMiOjEwMjQsIm1lZGlhVHlwZSI6InRleHQvcGxhaW4ifSwic2NlbmFyaW8iOnsiaWQiOiJvd25lci1yZXBvLTEiLCJraW5kIjoiY29kaW5nIiwic2NlbmFyaW9EaWdlc3QiOiJzaGEyNTY6ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OCJ9LCJ3b3Jrc3BhY2UiOnsiYXJjaGl2ZSI6eyJieXRlTGVuZ3RoIjoxNywiY29udGVudCI6IlpXMXdkSGs2YjNWMGNIVjBMWFJoYzJzPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjMzMmRkOWM3NGJlYWI4YTE3NzM5NmE0NTEwZGFiNDZhNTBjYTIwNzRiMjAzYjEwNjk0ZTRlYWEzMDcxZTJlZjAifSwiZGlnZXN0Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1zbmFwc2hvdCIsIm1hbmlmZXN0Ijp7ImJ5dGVMZW5ndGgiOjU2LCJjb250ZW50IjoiZXlKbWFXeGxjeUk2VzEwc0ltdHBibVFpT2lKaFoyVnVkQzFqWVc1a2FXUmhkR1V0ZDI5eWEzTndZV05sTFcxaGJtbG1aWE4wSW4wPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIifSwibWF0ZXJpYWwiOnsiZmlsZXMiOltdLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1tYW5pZmVzdCJ9fX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277"
+                }
+              }
+            },
+            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "codeKind": "disabled",
+            "container": {
+              "image": "ghcr.io/example/task",
+              "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+              },
+              "source": "evaluator-task-container"
+            },
+            "digest": "sha256:707a959a5ee03b48f523417ec3fca971565986bbe46ec0d44412e1c9873819af",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlan": {
+              "artifact": {
+                "byteLength": 1967,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMCIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6OTBiMWNjMDVmMGQzODlkOTVkODU2YWQ2ZmIzZGE2ZTBmMGUzODJhMTBjZmQxZmRmNGY3NzhhNTZjNTZhMDA3OSIsImRpZ2VzdCI6InNoYTI1NjpjMTcwYTdjYjkzOGMzZTViNzU1MGEyNjRmNmI2YjA4YTEzZWEyNjJmZTgwYTJlMjRiMDIwYTQxNWMxZGFkNTk1IiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1Njo0ZTc3NjA1NDE3MjlhNGY2MTIzMmY4MDg0YjQyNDk2ZTJkN2U0MGY4NjA0YzFjOGNhNDEzZmIxMjc5OWNlMzFjIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjAsInNlZWQiOjEwMSwic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
+                "encoding": "base64",
+                "sha256": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5"
+              },
+              "digest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+              "kind": "agent-candidate-execution-plan",
+              "material": {
+                "codeKind": "disabled",
+                "container": {
+                  "image": "ghcr.io/example/task",
+                  "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "platform": {
+                    "architecture": "amd64",
+                    "os": "linux"
+                  },
+                  "source": "evaluator-task-container"
+                },
+                "executionId": "experiment-baseline-0-0",
+                "harness": "codex",
+                "harnessVersion": "1.2.3",
+                "instructionDelivery": {
+                  "kind": "stdin-utf8"
+                },
+                "kind": "agent-candidate-execution-plan-material",
+                "launch": {
+                  "args": [],
+                  "cwd": {
+                    "path": ".",
+                    "workspace": "task"
+                  },
+                  "env": {},
+                  "executable": "codex"
+                },
+                "limits": {
+                  "maxCostUsd": 5,
+                  "maxInputTokens": 100000,
+                  "maxModelCalls": 50,
+                  "maxOutputTokens": 50000,
+                  "maxSteps": 100,
+                  "timeoutMs": 60000
+                },
+                "memory": {
+                  "mode": "disabled"
+                },
+                "model": {
+                  "access": {
+                    "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "kind": "evaluator-mediated",
+                    "network": {
+                      "domains": ["router.tangle.tools"],
+                      "mode": "gateway-only"
+                    }
+                  },
+                  "policy": "single",
+                  "resolved": {
+                    "model": "model-snapshot",
+                    "provider": "provider",
+                    "reasoningEffort": "high",
+                    "requested": "provider/model",
+                    "snapshot": "model-snapshot-2026-07-01"
+                  },
+                  "routes": [
+                    {
+                      "kind": "primary",
+                      "requested": "provider/model"
+                    }
+                  ]
+                },
+                "network": {
+                  "mode": "disabled"
+                },
+                "profile": {
+                  "mountPaths": ["AGENTS.md"],
+                  "planDigest": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5",
+                  "targetWorkspace": "task"
+                },
+                "runCell": {
+                  "arm": "baseline",
+                  "attempt": 1,
+                  "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+                  "digest": "sha256:c170a7cb938c3e5b7550a264f6b6b08a13ea262fe80a2e24b020a415c1dad595",
+                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "kind": "agent-candidate-run-cell",
+                  "repetition": 0,
+                  "seed": 101,
+                  "suiteDigest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                  "taskDigest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                  "taskIndex": 0
+                },
+                "workspaces": {
+                  "taskRoot": "/workspace/task"
+                }
+              }
+            },
+            "harness": "codex",
+            "harnessVersion": "1.2.3",
+            "kind": "agent-candidate-materialization",
+            "profileActivation": {
+              "digest": "sha256:273b700e4080e7e6cc4bd58a755466d18ce323eaaa195bb4202fea456422bb66",
+              "files": [
+                {
+                  "content": "Inspect the repository, implement the fix, and run tests.\n",
+                  "mode": 420,
+                  "path": "AGENTS.md"
+                }
+              ],
+              "kind": "agent-candidate-profile-activation",
+              "profilePlan": {
+                "artifact": {
+                  "byteLength": 287,
+                  "content": "eyJlbnYiOnt9LCJmaWxlcyI6W3siY29udGVudFNoYTI1NiI6InNoYTI1NjozOWFkYmI5YjdmNTcxZjBmZDU4NmU3Nzk1MDIzZDI1OTA5YWRiZTk1ODZiYjIxZWUxMzRkM2Q3MjQ4YmYxNTk5IiwibW9kZSI6NDIwLCJyZWxQYXRoIjoiQUdFTlRTLm1kIn1dLCJmbGFncyI6W10sImhhcm5lc3MiOiJjb2RleCIsInNvdXJjZVByb2ZpbGVEaWdlc3QiOiJzaGEyNTY6ZTUzZTFjOGY5NjMyYmNiNWRiOTAzM2UzMmYzM2E5MGI5YmQ5OWFiZWNlZjBiYjUyZmY5MDY5ZjA3NTA5ZTJmOSIsInVuc3VwcG9ydGVkIjpbXX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5"
+                },
+                "digest": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5",
+                "kind": "agent-profile-workspace-plan",
+                "material": {
+                  "env": {},
+                  "files": [
+                    {
+                      "contentSha256": "sha256:39adbb9b7f571f0fd586e7795023d25909adbe9586bb21ee134d3d7248bf1599",
+                      "mode": 420,
+                      "relPath": "AGENTS.md"
+                    }
+                  ],
+                  "flags": [],
+                  "harness": "codex",
+                  "sourceProfileDigest": "sha256:e53e1c8f9632bcb5db9033e32f33a90b9bd99abecef0bb52ff9069f07509e2f9",
+                  "unsupported": []
+                }
+              }
+            },
+            "resolvedModel": {
+              "model": "model-snapshot",
+              "provider": "provider",
+              "reasoningEffort": "high",
+              "requested": "provider/model",
+              "snapshot": "model-snapshot-2026-07-01"
+            }
+          },
+          "receipt": {
+            "benchmarkResult": {
+              "artifact": {
+                "byteLength": 1122,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "benchmark-result/ec815a7d6556928ba69e6f08cf38fed9ddd64c9cff4ba1ccf471f8e7a0aa63f4",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:ec815a7d6556928ba69e6f08cf38fed9ddd64c9cff4ba1ccf471f8e7a0aa63f4"
+              },
+              "digest": "sha256:ec815a7d6556928ba69e6f08cf38fed9ddd64c9cff4ba1ccf471f8e7a0aa63f4",
+              "kind": "agent-candidate-benchmark-result",
+              "material": {
+                "dimensions": [
+                  {
+                    "name": "quality",
+                    "score": 0
+                  }
+                ],
+                "evidence": {
+                  "byteLength": 11,
+                  "locator": {
+                    "bucket": "candidate-test-artifacts",
+                    "key": "grader-evidence/628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b",
+                    "kind": "s3"
+                  },
+                  "sha256": "sha256:628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b"
+                },
+                "executionPlanDigest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+                "grader": {
+                  "artifact": {
+                    "byteLength": 25,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "grader/9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad"
+                  },
+                  "format": "tangle-grader",
+                  "name": "fixture-executable-grader",
+                  "version": "1.0.0"
+                },
+                "grading": {
+                  "timing": {
+                    "durationMs": 0,
+                    "endedAtMs": 1783641600000,
+                    "startedAtMs": 1783641600000
+                  },
+                  "usage": {
+                    "cachedInputTokens": 0,
+                    "costUsdNanos": 0,
+                    "inputTokens": 0,
+                    "modelCalls": 0,
+                    "outputTokens": 0,
+                    "reasoningTokens": 0
+                  }
+                },
+                "kind": "agent-candidate-benchmark-result-material",
+                "passed": false,
+                "score": 0,
+                "taskOutcomeDigest": "sha256:3fc660e792f3883048a3e04dfa9b361d5b88f0afd3141fe7858cf9b53952e914"
+              }
+            },
+            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "digest": "sha256:6b565143b4115b64a682bbc0fe56d6ef44302947df1c1a6d562d45533b346a7e",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlanDigest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+            "executorCapture": {
+              "byteLength": 477,
+              "locator": {
+                "bucket": "candidate-test-artifacts",
+                "key": "executor-capture/72d7612e1df0fbb53498c79ba7cf4464f141aa6e031b013ce87f887d8f16a07a",
+                "kind": "s3"
+              },
+              "sha256": "sha256:72d7612e1df0fbb53498c79ba7cf4464f141aa6e031b013ce87f887d8f16a07a"
+            },
+            "kind": "agent-candidate-run",
+            "materializationReceiptDigest": "sha256:707a959a5ee03b48f523417ec3fca971565986bbe46ec0d44412e1c9873819af",
+            "memory": {
+              "mode": "disabled"
+            },
+            "modelSettlement": {
+              "artifact": {
+                "byteLength": 615,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "model-settlement/e923d98a8c5620f72b41a7c4b75024149f1ebe14128c14a576a1de5a5ec688bd",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:e923d98a8c5620f72b41a7c4b75024149f1ebe14128c14a576a1de5a5ec688bd"
+              },
+              "digest": "sha256:e923d98a8c5620f72b41a7c4b75024149f1ebe14128c14a576a1de5a5ec688bd",
+              "kind": "agent-candidate-model-settlement",
+              "material": {
+                "calls": [],
+                "closed": true,
+                "executionPlanDigest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+                "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "kind": "agent-candidate-model-settlement-material",
+                "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
+                "resolved": {
+                  "model": "model-snapshot",
+                  "provider": "provider",
+                  "reasoningEffort": "high",
+                  "requested": "provider/model",
+                  "snapshot": "model-snapshot-2026-07-01"
+                },
+                "usage": {
+                  "cachedInputTokens": 0,
+                  "costUsdNanos": 0,
+                  "inputTokens": 0,
+                  "modelCalls": 0,
+                  "outputTokens": 0,
+                  "reasoningTokens": 0
+                }
+              }
+            },
+            "runCellDigest": "sha256:c170a7cb938c3e5b7550a264f6b6b08a13ea262fe80a2e24b020a415c1dad595",
+            "taskOutcome": {
+              "artifact": {
+                "byteLength": 478,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "task-outcome/3fc660e792f3883048a3e04dfa9b361d5b88f0afd3141fe7858cf9b53952e914",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:3fc660e792f3883048a3e04dfa9b361d5b88f0afd3141fe7858cf9b53952e914"
+              },
+              "digest": "sha256:3fc660e792f3883048a3e04dfa9b361d5b88f0afd3141fe7858cf9b53952e914",
+              "kind": "agent-candidate-task-outcome",
+              "material": {
+                "executionPlanDigest": "sha256:827ecfb1615809335ef3221364d051c427c8942fe871cd743617dd05ee705ad5",
+                "kind": "agent-candidate-task-outcome-material",
+                "outcome": {
+                  "artifact": {
+                    "byteLength": 4,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "task-output/481ba4019c9d2710c3386537382592c093ef02bf5b056c30237b3d92b0e19a1d",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:481ba4019c9d2710c3386537382592c093ef02bf5b056c30237b3d92b0e19a1d"
+                  },
+                  "kind": "output",
+                  "spec": {
+                    "maxBytes": 1024,
+                    "mediaType": "text/plain"
+                  }
+                }
+              }
+            },
+            "termination": {
+              "exitCode": 0,
+              "kind": "exit"
+            },
+            "timing": {
+              "durationMs": 50,
+              "endedAtMs": 1050,
+              "startedAtMs": 1000
+            },
+            "trace": {
+              "artifact": {
+                "byteLength": 748,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "trace/3bfe9931c331dda75f96eac7761181cdcbc1302318c1ffdebab4c53fb275fc55",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:3bfe9931c331dda75f96eac7761181cdcbc1302318c1ffdebab4c53fb275fc55"
+              },
+              "eventCount": 1,
+              "modelCallCount": 0
+            }
+          }
+        },
+        "candidate": {
+          "digest": "sha256:2579dfae2c22ac30917c688f0ae31736e8c1cc81979e877c3139c80ca88f0064",
+          "kind": "agent-candidate-execution-evidence",
+          "materializationReceipt": {
+            "benchmark": {
+              "suite": {
+                "digest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                "material": {
+                  "byteLength": 198,
+                  "content": "eyJkaWdlc3RBbGdvcml0aG0iOiJyZmM4Nzg1LXNoYTI1NiIsImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtYmVuY2htYXJrLXN1aXRlIiwicmVwcyI6Mywic2VlZHMiOlsxMDEsMTAyLDEwM10sInRhc2tEaWdlc3RzIjpbInNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3Il19",
+                  "encoding": "base64",
+                  "sha256": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5"
+                }
+              },
+              "task": {
+                "digest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                "material": {
+                  "byteLength": 2096,
+                  "content": "eyJhdHRlbXB0Ijp7Im1heEF0dGVtcHRzIjoxLCJyZXRyeVBvbGljeSI6Im5vbmUifSwiYmVuY2htYXJrIjp7Im5hbWUiOiJyZXBvc2l0b3J5LWRpc2pvaW50LXNtb2tlIiwic3BsaXREaWdlc3QiOiJzaGEyNTY6ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCIsInZlcnNpb24iOiIxIn0sImRpZ2VzdEFsZ29yaXRobSI6InJmYzg3ODUtc2hhMjU2IiwiZXZhbHVhdG9yVGFza0NvbnRhaW5lciI6eyJpbWFnZSI6ImdoY3IuaW8vZXhhbXBsZS90YXNrIiwiaW5kZXhEaWdlc3QiOiJzaGEyNTY6YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsIm1hbmlmZXN0RGlnZXN0Ijoic2hhMjU2OmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIiLCJwbGF0Zm9ybSI6eyJhcmNoaXRlY3R1cmUiOiJhbWQ2NCIsIm9zIjoibGludXgifSwic291cmNlIjoiZXZhbHVhdG9yLXRhc2stY29udGFpbmVyIn0sImdyYWRlciI6eyJhcnRpZmFjdCI6eyJieXRlTGVuZ3RoIjoyNSwibG9jYXRvciI6eyJidWNrZXQiOiJjYW5kaWRhdGUtdGVzdC1hcnRpZmFjdHMiLCJrZXkiOiJncmFkZXIvOWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCIsImtpbmQiOiJzMyJ9LCJzaGEyNTYiOiJzaGEyNTY6OWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCJ9LCJmb3JtYXQiOiJ0YW5nbGUtZ3JhZGVyIiwibmFtZSI6ImZpeHR1cmUtZXhlY3V0YWJsZS1ncmFkZXIiLCJ2ZXJzaW9uIjoiMS4wLjAifSwiaW5zdHJ1Y3Rpb24iOiJGaXggdGhlIGZhaWxpbmcgYmVoYXZpb3Igd2l0aG91dCBjaGFuZ2luZyB0aGUgcHVibGljIEFQSS4iLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWJlbmNobWFyay10YXNrIiwibGltaXRzIjp7Im1heENvc3RVc2QiOjUsIm1heElucHV0VG9rZW5zIjoxMDAwMDAsIm1heE1vZGVsQ2FsbHMiOjUwLCJtYXhPdXRwdXRUb2tlbnMiOjUwMDAwLCJtYXhTdGVwcyI6MTAwLCJ0aW1lb3V0TXMiOjYwMDAwfSwibW9kZWwiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwib3V0Y29tZSI6eyJraW5kIjoib3V0cHV0IiwibWF4Qnl0ZXMiOjEwMjQsIm1lZGlhVHlwZSI6InRleHQvcGxhaW4ifSwic2NlbmFyaW8iOnsiaWQiOiJvd25lci1yZXBvLTEiLCJraW5kIjoiY29kaW5nIiwic2NlbmFyaW9EaWdlc3QiOiJzaGEyNTY6ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OCJ9LCJ3b3Jrc3BhY2UiOnsiYXJjaGl2ZSI6eyJieXRlTGVuZ3RoIjoxNywiY29udGVudCI6IlpXMXdkSGs2YjNWMGNIVjBMWFJoYzJzPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjMzMmRkOWM3NGJlYWI4YTE3NzM5NmE0NTEwZGFiNDZhNTBjYTIwNzRiMjAzYjEwNjk0ZTRlYWEzMDcxZTJlZjAifSwiZGlnZXN0Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1zbmFwc2hvdCIsIm1hbmlmZXN0Ijp7ImJ5dGVMZW5ndGgiOjU2LCJjb250ZW50IjoiZXlKbWFXeGxjeUk2VzEwc0ltdHBibVFpT2lKaFoyVnVkQzFqWVc1a2FXUmhkR1V0ZDI5eWEzTndZV05sTFcxaGJtbG1aWE4wSW4wPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIifSwibWF0ZXJpYWwiOnsiZmlsZXMiOltdLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1tYW5pZmVzdCJ9fX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277"
+                }
+              }
+            },
+            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "codeKind": "disabled",
+            "container": {
+              "image": "ghcr.io/example/task",
+              "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+              },
+              "source": "evaluator-task-container"
+            },
+            "digest": "sha256:aee4c8842fa9a4c926a63ad2ad6f1ae370096b01987947d47568811b873e952f",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlan": {
+              "artifact": {
+                "byteLength": 1969,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTAiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6e30sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo0MDY4NTdlODIyNmQ0NjQ5MGExZmYwNzQ1MzQzOWRjZGI3MWJmYWVkMjZmODdlZDBlZDRlNDJiM2I1YzgzYjc5IiwiZGlnZXN0Ijoic2hhMjU2Ojk3NzRiNTc1NzQ4NWQ3YjQxNDdkNDNjYWJhNTEyNmY4ZjdhZTdmZWYxYTJkMTc2OTgyYjU5MmRiMDM0ZGI2MDUiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OjRlNzc2MDU0MTcyOWE0ZjYxMjMyZjgwODRiNDI0OTZlMmQ3ZTQwZjg2MDRjMWM4Y2E0MTNmYjEyNzk5Y2UzMWMiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6MCwic2VlZCI6MTAxLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
+                "encoding": "base64",
+                "sha256": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715"
+              },
+              "digest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+              "kind": "agent-candidate-execution-plan",
+              "material": {
+                "codeKind": "disabled",
+                "container": {
+                  "image": "ghcr.io/example/task",
+                  "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "platform": {
+                    "architecture": "amd64",
+                    "os": "linux"
+                  },
+                  "source": "evaluator-task-container"
+                },
+                "executionId": "experiment-candidate-0-0",
+                "harness": "codex",
+                "harnessVersion": "1.2.3",
+                "instructionDelivery": {
+                  "kind": "stdin-utf8"
+                },
+                "kind": "agent-candidate-execution-plan-material",
+                "launch": {
+                  "args": [],
+                  "cwd": {
+                    "path": ".",
+                    "workspace": "task"
+                  },
+                  "env": {},
+                  "executable": "codex"
+                },
+                "limits": {
+                  "maxCostUsd": 5,
+                  "maxInputTokens": 100000,
+                  "maxModelCalls": 50,
+                  "maxOutputTokens": 50000,
+                  "maxSteps": 100,
+                  "timeoutMs": 60000
+                },
+                "memory": {
+                  "mode": "disabled"
+                },
+                "model": {
+                  "access": {
+                    "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "kind": "evaluator-mediated",
+                    "network": {
+                      "domains": ["router.tangle.tools"],
+                      "mode": "gateway-only"
+                    }
+                  },
+                  "policy": "single",
+                  "resolved": {
+                    "model": "model-snapshot",
+                    "provider": "provider",
+                    "reasoningEffort": "high",
+                    "requested": "provider/model",
+                    "snapshot": "model-snapshot-2026-07-01"
+                  },
+                  "routes": [
+                    {
+                      "kind": "primary",
+                      "requested": "provider/model"
+                    }
+                  ]
+                },
+                "network": {
+                  "mode": "disabled"
+                },
+                "profile": {
+                  "mountPaths": ["AGENTS.md"],
+                  "planDigest": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b",
+                  "targetWorkspace": "task"
+                },
+                "runCell": {
+                  "arm": "candidate",
+                  "attempt": 1,
+                  "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+                  "digest": "sha256:9774b5757485d7b4147d43caba5126f8f7ae7fef1a2d176982b592db034db605",
+                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "kind": "agent-candidate-run-cell",
+                  "repetition": 0,
+                  "seed": 101,
+                  "suiteDigest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                  "taskDigest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                  "taskIndex": 0
+                },
+                "workspaces": {
+                  "taskRoot": "/workspace/task"
+                }
+              }
+            },
+            "harness": "codex",
+            "harnessVersion": "1.2.3",
+            "kind": "agent-candidate-materialization",
+            "profileActivation": {
+              "digest": "sha256:3103f8282be70a843eada63410c41d9eb5ac7b824c758eed6c2f8610de169f45",
+              "files": [
+                {
+                  "content": "Inspect the repository, implement the fix, and run tests.\n",
+                  "mode": 420,
+                  "path": "AGENTS.md"
+                }
+              ],
+              "kind": "agent-candidate-profile-activation",
+              "profilePlan": {
+                "artifact": {
+                  "byteLength": 364,
+                  "content": "eyJlbnYiOnt9LCJmaWxlcyI6W3siY29udGVudFNoYTI1NiI6InNoYTI1NjozOWFkYmI5YjdmNTcxZjBmZDU4NmU3Nzk1MDIzZDI1OTA5YWRiZTk1ODZiYjIxZWUxMzRkM2Q3MjQ4YmYxNTk5IiwibW9kZSI6NDIwLCJyZWxQYXRoIjoiQUdFTlRTLm1kIn1dLCJmbGFncyI6W10sImhhcm5lc3MiOiJjb2RleCIsInNvdXJjZVByb2ZpbGVEaWdlc3QiOiJzaGEyNTY6OGIxZTJmMGY3YjgzMjk1ODM4MWMyOWJhZWJlNGE5NjFiMTUxYWY5N2EwY2U5ZDYxMWExNWFkMDc0MWFlYWE3NSIsInN5c3RlbVByb21wdCI6eyJraW5kIjoicHVibGljIiwidmFsdWUiOiJSZXR1cm4gdGhlIGV4YWN0IG1lYXN1cmVkIGFuc3dlci4ifSwidW5zdXBwb3J0ZWQiOltdfQ==",
+                  "encoding": "base64",
+                  "sha256": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b"
+                },
+                "digest": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b",
+                "kind": "agent-profile-workspace-plan",
+                "material": {
+                  "env": {},
+                  "files": [
+                    {
+                      "contentSha256": "sha256:39adbb9b7f571f0fd586e7795023d25909adbe9586bb21ee134d3d7248bf1599",
+                      "mode": 420,
+                      "relPath": "AGENTS.md"
+                    }
+                  ],
+                  "flags": [],
+                  "harness": "codex",
+                  "sourceProfileDigest": "sha256:8b1e2f0f7b832958381c29baebe4a961b151af97a0ce9d611a15ad0741aeaa75",
+                  "systemPrompt": {
+                    "kind": "public",
+                    "value": "Return the exact measured answer."
+                  },
+                  "unsupported": []
+                }
+              }
+            },
+            "resolvedModel": {
+              "model": "model-snapshot",
+              "provider": "provider",
+              "reasoningEffort": "high",
+              "requested": "provider/model",
+              "snapshot": "model-snapshot-2026-07-01"
+            }
+          },
+          "receipt": {
+            "benchmarkResult": {
+              "artifact": {
+                "byteLength": 1121,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "benchmark-result/ca685e9d916e6eef4155c93421d4a11569106ec3115e65df20b9d73324cbeccd",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:ca685e9d916e6eef4155c93421d4a11569106ec3115e65df20b9d73324cbeccd"
+              },
+              "digest": "sha256:ca685e9d916e6eef4155c93421d4a11569106ec3115e65df20b9d73324cbeccd",
+              "kind": "agent-candidate-benchmark-result",
+              "material": {
+                "dimensions": [
+                  {
+                    "name": "quality",
+                    "score": 1
+                  }
+                ],
+                "evidence": {
+                  "byteLength": 11,
+                  "locator": {
+                    "bucket": "candidate-test-artifacts",
+                    "key": "grader-evidence/9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d",
+                    "kind": "s3"
+                  },
+                  "sha256": "sha256:9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d"
+                },
+                "executionPlanDigest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+                "grader": {
+                  "artifact": {
+                    "byteLength": 25,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "grader/9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad"
+                  },
+                  "format": "tangle-grader",
+                  "name": "fixture-executable-grader",
+                  "version": "1.0.0"
+                },
+                "grading": {
+                  "timing": {
+                    "durationMs": 0,
+                    "endedAtMs": 1783641600000,
+                    "startedAtMs": 1783641600000
+                  },
+                  "usage": {
+                    "cachedInputTokens": 0,
+                    "costUsdNanos": 0,
+                    "inputTokens": 0,
+                    "modelCalls": 0,
+                    "outputTokens": 0,
+                    "reasoningTokens": 0
+                  }
+                },
+                "kind": "agent-candidate-benchmark-result-material",
+                "passed": true,
+                "score": 1,
+                "taskOutcomeDigest": "sha256:de4d75f7614ad314a31d7e3afc730af7f012bcf59b18059f5fa40cb287a12bde"
+              }
+            },
+            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "digest": "sha256:60c4d05ae65274f073a39b00e3245a4b953fbfeca393b67a327fe4ed9f0114f3",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlanDigest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+            "executorCapture": {
+              "byteLength": 477,
+              "locator": {
+                "bucket": "candidate-test-artifacts",
+                "key": "executor-capture/d4b84f1358debca607a88fbf3879c91ee2709935101010d8cf361b86451b6c68",
+                "kind": "s3"
+              },
+              "sha256": "sha256:d4b84f1358debca607a88fbf3879c91ee2709935101010d8cf361b86451b6c68"
+            },
+            "kind": "agent-candidate-run",
+            "materializationReceiptDigest": "sha256:aee4c8842fa9a4c926a63ad2ad6f1ae370096b01987947d47568811b873e952f",
+            "memory": {
+              "mode": "disabled"
+            },
+            "modelSettlement": {
+              "artifact": {
+                "byteLength": 615,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "model-settlement/5e58f7eacab44aac8bd7ea381ef68d300f5dbed0cd25c292cb1a4d4e187b30fe",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:5e58f7eacab44aac8bd7ea381ef68d300f5dbed0cd25c292cb1a4d4e187b30fe"
+              },
+              "digest": "sha256:5e58f7eacab44aac8bd7ea381ef68d300f5dbed0cd25c292cb1a4d4e187b30fe",
+              "kind": "agent-candidate-model-settlement",
+              "material": {
+                "calls": [],
+                "closed": true,
+                "executionPlanDigest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+                "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "kind": "agent-candidate-model-settlement-material",
+                "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
+                "resolved": {
+                  "model": "model-snapshot",
+                  "provider": "provider",
+                  "reasoningEffort": "high",
+                  "requested": "provider/model",
+                  "snapshot": "model-snapshot-2026-07-01"
+                },
+                "usage": {
+                  "cachedInputTokens": 0,
+                  "costUsdNanos": 0,
+                  "inputTokens": 0,
+                  "modelCalls": 0,
+                  "outputTokens": 0,
+                  "reasoningTokens": 0
+                }
+              }
+            },
+            "runCellDigest": "sha256:9774b5757485d7b4147d43caba5126f8f7ae7fef1a2d176982b592db034db605",
+            "taskOutcome": {
+              "artifact": {
+                "byteLength": 478,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "task-outcome/de4d75f7614ad314a31d7e3afc730af7f012bcf59b18059f5fa40cb287a12bde",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:de4d75f7614ad314a31d7e3afc730af7f012bcf59b18059f5fa40cb287a12bde"
+              },
+              "digest": "sha256:de4d75f7614ad314a31d7e3afc730af7f012bcf59b18059f5fa40cb287a12bde",
+              "kind": "agent-candidate-task-outcome",
+              "material": {
+                "executionPlanDigest": "sha256:ce44a1f51191d8d14b0eaaffce4797f43f7100d7590d334daaf896acb9a6c715",
+                "kind": "agent-candidate-task-outcome-material",
+                "outcome": {
+                  "artifact": {
+                    "byteLength": 6,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "task-output/eda15ce4834ac303532bc6973df5ff8a5deb75d7dfceb9fc2cdf1bb450a01cf5",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:eda15ce4834ac303532bc6973df5ff8a5deb75d7dfceb9fc2cdf1bb450a01cf5"
+                  },
+                  "kind": "output",
+                  "spec": {
+                    "maxBytes": 1024,
+                    "mediaType": "text/plain"
+                  }
+                }
+              }
+            },
+            "termination": {
+              "exitCode": 0,
+              "kind": "exit"
+            },
+            "timing": {
+              "durationMs": 50,
+              "endedAtMs": 1050,
+              "startedAtMs": 1000
+            },
+            "trace": {
+              "artifact": {
+                "byteLength": 750,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "trace/8b368b3a19e808c43984c75e39301b3b69591d072453286e19960f85f0f988a6",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:8b368b3a19e808c43984c75e39301b3b69591d072453286e19960f85f0f988a6"
+              },
+              "eventCount": 1,
+              "modelCallCount": 0
+            }
+          }
+        }
+      },
+      {
+        "baseline": {
+          "digest": "sha256:23630e0e9893a8bc51f3632a4ea9b8d20828dad45bb52ad8aa70057b6f4ce388",
+          "kind": "agent-candidate-execution-evidence",
+          "materializationReceipt": {
+            "benchmark": {
+              "suite": {
+                "digest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                "material": {
+                  "byteLength": 198,
+                  "content": "eyJkaWdlc3RBbGdvcml0aG0iOiJyZmM4Nzg1LXNoYTI1NiIsImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtYmVuY2htYXJrLXN1aXRlIiwicmVwcyI6Mywic2VlZHMiOlsxMDEsMTAyLDEwM10sInRhc2tEaWdlc3RzIjpbInNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3Il19",
+                  "encoding": "base64",
+                  "sha256": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5"
+                }
+              },
+              "task": {
+                "digest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                "material": {
+                  "byteLength": 2096,
+                  "content": "eyJhdHRlbXB0Ijp7Im1heEF0dGVtcHRzIjoxLCJyZXRyeVBvbGljeSI6Im5vbmUifSwiYmVuY2htYXJrIjp7Im5hbWUiOiJyZXBvc2l0b3J5LWRpc2pvaW50LXNtb2tlIiwic3BsaXREaWdlc3QiOiJzaGEyNTY6ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCIsInZlcnNpb24iOiIxIn0sImRpZ2VzdEFsZ29yaXRobSI6InJmYzg3ODUtc2hhMjU2IiwiZXZhbHVhdG9yVGFza0NvbnRhaW5lciI6eyJpbWFnZSI6ImdoY3IuaW8vZXhhbXBsZS90YXNrIiwiaW5kZXhEaWdlc3QiOiJzaGEyNTY6YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsIm1hbmlmZXN0RGlnZXN0Ijoic2hhMjU2OmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIiLCJwbGF0Zm9ybSI6eyJhcmNoaXRlY3R1cmUiOiJhbWQ2NCIsIm9zIjoibGludXgifSwic291cmNlIjoiZXZhbHVhdG9yLXRhc2stY29udGFpbmVyIn0sImdyYWRlciI6eyJhcnRpZmFjdCI6eyJieXRlTGVuZ3RoIjoyNSwibG9jYXRvciI6eyJidWNrZXQiOiJjYW5kaWRhdGUtdGVzdC1hcnRpZmFjdHMiLCJrZXkiOiJncmFkZXIvOWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCIsImtpbmQiOiJzMyJ9LCJzaGEyNTYiOiJzaGEyNTY6OWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCJ9LCJmb3JtYXQiOiJ0YW5nbGUtZ3JhZGVyIiwibmFtZSI6ImZpeHR1cmUtZXhlY3V0YWJsZS1ncmFkZXIiLCJ2ZXJzaW9uIjoiMS4wLjAifSwiaW5zdHJ1Y3Rpb24iOiJGaXggdGhlIGZhaWxpbmcgYmVoYXZpb3Igd2l0aG91dCBjaGFuZ2luZyB0aGUgcHVibGljIEFQSS4iLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWJlbmNobWFyay10YXNrIiwibGltaXRzIjp7Im1heENvc3RVc2QiOjUsIm1heElucHV0VG9rZW5zIjoxMDAwMDAsIm1heE1vZGVsQ2FsbHMiOjUwLCJtYXhPdXRwdXRUb2tlbnMiOjUwMDAwLCJtYXhTdGVwcyI6MTAwLCJ0aW1lb3V0TXMiOjYwMDAwfSwibW9kZWwiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwib3V0Y29tZSI6eyJraW5kIjoib3V0cHV0IiwibWF4Qnl0ZXMiOjEwMjQsIm1lZGlhVHlwZSI6InRleHQvcGxhaW4ifSwic2NlbmFyaW8iOnsiaWQiOiJvd25lci1yZXBvLTEiLCJraW5kIjoiY29kaW5nIiwic2NlbmFyaW9EaWdlc3QiOiJzaGEyNTY6ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OCJ9LCJ3b3Jrc3BhY2UiOnsiYXJjaGl2ZSI6eyJieXRlTGVuZ3RoIjoxNywiY29udGVudCI6IlpXMXdkSGs2YjNWMGNIVjBMWFJoYzJzPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjMzMmRkOWM3NGJlYWI4YTE3NzM5NmE0NTEwZGFiNDZhNTBjYTIwNzRiMjAzYjEwNjk0ZTRlYWEzMDcxZTJlZjAifSwiZGlnZXN0Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1zbmFwc2hvdCIsIm1hbmlmZXN0Ijp7ImJ5dGVMZW5ndGgiOjU2LCJjb250ZW50IjoiZXlKbWFXeGxjeUk2VzEwc0ltdHBibVFpT2lKaFoyVnVkQzFqWVc1a2FXUmhkR1V0ZDI5eWEzTndZV05sTFcxaGJtbG1aWE4wSW4wPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIifSwibWF0ZXJpYWwiOnsiZmlsZXMiOltdLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1tYW5pZmVzdCJ9fX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277"
+                }
+              }
+            },
+            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "codeKind": "disabled",
+            "container": {
+              "image": "ghcr.io/example/task",
+              "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+              },
+              "source": "evaluator-task-container"
+            },
+            "digest": "sha256:8483cca8159d0fcbcc7ebe4bee689cdcf8e5872194335db4cf41301fc61be396",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlan": {
+              "artifact": {
+                "byteLength": 1967,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMSIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6OTBiMWNjMDVmMGQzODlkOTVkODU2YWQ2ZmIzZGE2ZTBmMGUzODJhMTBjZmQxZmRmNGY3NzhhNTZjNTZhMDA3OSIsImRpZ2VzdCI6InNoYTI1NjpjZTQ0YjU4NTRjOTEzM2JhNWYyYzc4MDY5NDYyYzI5NzdmZWQ1NGEwOWViMThhMGJjYTI1MDkwMmNmMjcxOGViIiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1Njo0ZTc3NjA1NDE3MjlhNGY2MTIzMmY4MDg0YjQyNDk2ZTJkN2U0MGY4NjA0YzFjOGNhNDEzZmIxMjc5OWNlMzFjIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjEsInNlZWQiOjEwMiwic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
+                "encoding": "base64",
+                "sha256": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca"
+              },
+              "digest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+              "kind": "agent-candidate-execution-plan",
+              "material": {
+                "codeKind": "disabled",
+                "container": {
+                  "image": "ghcr.io/example/task",
+                  "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "platform": {
+                    "architecture": "amd64",
+                    "os": "linux"
+                  },
+                  "source": "evaluator-task-container"
+                },
+                "executionId": "experiment-baseline-0-1",
+                "harness": "codex",
+                "harnessVersion": "1.2.3",
+                "instructionDelivery": {
+                  "kind": "stdin-utf8"
+                },
+                "kind": "agent-candidate-execution-plan-material",
+                "launch": {
+                  "args": [],
+                  "cwd": {
+                    "path": ".",
+                    "workspace": "task"
+                  },
+                  "env": {},
+                  "executable": "codex"
+                },
+                "limits": {
+                  "maxCostUsd": 5,
+                  "maxInputTokens": 100000,
+                  "maxModelCalls": 50,
+                  "maxOutputTokens": 50000,
+                  "maxSteps": 100,
+                  "timeoutMs": 60000
+                },
+                "memory": {
+                  "mode": "disabled"
+                },
+                "model": {
+                  "access": {
+                    "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "kind": "evaluator-mediated",
+                    "network": {
+                      "domains": ["router.tangle.tools"],
+                      "mode": "gateway-only"
+                    }
+                  },
+                  "policy": "single",
+                  "resolved": {
+                    "model": "model-snapshot",
+                    "provider": "provider",
+                    "reasoningEffort": "high",
+                    "requested": "provider/model",
+                    "snapshot": "model-snapshot-2026-07-01"
+                  },
+                  "routes": [
+                    {
+                      "kind": "primary",
+                      "requested": "provider/model"
+                    }
+                  ]
+                },
+                "network": {
+                  "mode": "disabled"
+                },
+                "profile": {
+                  "mountPaths": ["AGENTS.md"],
+                  "planDigest": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5",
+                  "targetWorkspace": "task"
+                },
+                "runCell": {
+                  "arm": "baseline",
+                  "attempt": 1,
+                  "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+                  "digest": "sha256:ce44b5854c9133ba5f2c78069462c2977fed54a09eb18a0bca250902cf2718eb",
+                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "kind": "agent-candidate-run-cell",
+                  "repetition": 1,
+                  "seed": 102,
+                  "suiteDigest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                  "taskDigest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                  "taskIndex": 0
+                },
+                "workspaces": {
+                  "taskRoot": "/workspace/task"
+                }
+              }
+            },
+            "harness": "codex",
+            "harnessVersion": "1.2.3",
+            "kind": "agent-candidate-materialization",
+            "profileActivation": {
+              "digest": "sha256:273b700e4080e7e6cc4bd58a755466d18ce323eaaa195bb4202fea456422bb66",
+              "files": [
+                {
+                  "content": "Inspect the repository, implement the fix, and run tests.\n",
+                  "mode": 420,
+                  "path": "AGENTS.md"
+                }
+              ],
+              "kind": "agent-candidate-profile-activation",
+              "profilePlan": {
+                "artifact": {
+                  "byteLength": 287,
+                  "content": "eyJlbnYiOnt9LCJmaWxlcyI6W3siY29udGVudFNoYTI1NiI6InNoYTI1NjozOWFkYmI5YjdmNTcxZjBmZDU4NmU3Nzk1MDIzZDI1OTA5YWRiZTk1ODZiYjIxZWUxMzRkM2Q3MjQ4YmYxNTk5IiwibW9kZSI6NDIwLCJyZWxQYXRoIjoiQUdFTlRTLm1kIn1dLCJmbGFncyI6W10sImhhcm5lc3MiOiJjb2RleCIsInNvdXJjZVByb2ZpbGVEaWdlc3QiOiJzaGEyNTY6ZTUzZTFjOGY5NjMyYmNiNWRiOTAzM2UzMmYzM2E5MGI5YmQ5OWFiZWNlZjBiYjUyZmY5MDY5ZjA3NTA5ZTJmOSIsInVuc3VwcG9ydGVkIjpbXX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5"
+                },
+                "digest": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5",
+                "kind": "agent-profile-workspace-plan",
+                "material": {
+                  "env": {},
+                  "files": [
+                    {
+                      "contentSha256": "sha256:39adbb9b7f571f0fd586e7795023d25909adbe9586bb21ee134d3d7248bf1599",
+                      "mode": 420,
+                      "relPath": "AGENTS.md"
+                    }
+                  ],
+                  "flags": [],
+                  "harness": "codex",
+                  "sourceProfileDigest": "sha256:e53e1c8f9632bcb5db9033e32f33a90b9bd99abecef0bb52ff9069f07509e2f9",
+                  "unsupported": []
+                }
+              }
+            },
+            "resolvedModel": {
+              "model": "model-snapshot",
+              "provider": "provider",
+              "reasoningEffort": "high",
+              "requested": "provider/model",
+              "snapshot": "model-snapshot-2026-07-01"
+            }
+          },
+          "receipt": {
+            "benchmarkResult": {
+              "artifact": {
+                "byteLength": 1122,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "benchmark-result/73c5061dc61b9840165883f6b4950405917399949b459e1cba5933153883f94d",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:73c5061dc61b9840165883f6b4950405917399949b459e1cba5933153883f94d"
+              },
+              "digest": "sha256:73c5061dc61b9840165883f6b4950405917399949b459e1cba5933153883f94d",
+              "kind": "agent-candidate-benchmark-result",
+              "material": {
+                "dimensions": [
+                  {
+                    "name": "quality",
+                    "score": 0
+                  }
+                ],
+                "evidence": {
+                  "byteLength": 11,
+                  "locator": {
+                    "bucket": "candidate-test-artifacts",
+                    "key": "grader-evidence/628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b",
+                    "kind": "s3"
+                  },
+                  "sha256": "sha256:628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b"
+                },
+                "executionPlanDigest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+                "grader": {
+                  "artifact": {
+                    "byteLength": 25,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "grader/9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad"
+                  },
+                  "format": "tangle-grader",
+                  "name": "fixture-executable-grader",
+                  "version": "1.0.0"
+                },
+                "grading": {
+                  "timing": {
+                    "durationMs": 0,
+                    "endedAtMs": 1783641600000,
+                    "startedAtMs": 1783641600000
+                  },
+                  "usage": {
+                    "cachedInputTokens": 0,
+                    "costUsdNanos": 0,
+                    "inputTokens": 0,
+                    "modelCalls": 0,
+                    "outputTokens": 0,
+                    "reasoningTokens": 0
+                  }
+                },
+                "kind": "agent-candidate-benchmark-result-material",
+                "passed": false,
+                "score": 0,
+                "taskOutcomeDigest": "sha256:6531580f45e8618a7e381fe78de4e49b0d68d589702ad23f81fa27ccea872e06"
+              }
+            },
+            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "digest": "sha256:1758e0ee11654db77d6c11b02ec1e777b2b7a1610ae4e363effd1dfb51a8d643",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlanDigest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+            "executorCapture": {
+              "byteLength": 477,
+              "locator": {
+                "bucket": "candidate-test-artifacts",
+                "key": "executor-capture/c7e618da9214d4e3b4ce81fc70d3c6edec1fa80e6ab06369b0a3684548cfbf1f",
+                "kind": "s3"
+              },
+              "sha256": "sha256:c7e618da9214d4e3b4ce81fc70d3c6edec1fa80e6ab06369b0a3684548cfbf1f"
+            },
+            "kind": "agent-candidate-run",
+            "materializationReceiptDigest": "sha256:8483cca8159d0fcbcc7ebe4bee689cdcf8e5872194335db4cf41301fc61be396",
+            "memory": {
+              "mode": "disabled"
+            },
+            "modelSettlement": {
+              "artifact": {
+                "byteLength": 615,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "model-settlement/ef07959f28b6123ce5d2776d81d7cae1408b48038aeee70c76b308a30e26de65",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:ef07959f28b6123ce5d2776d81d7cae1408b48038aeee70c76b308a30e26de65"
+              },
+              "digest": "sha256:ef07959f28b6123ce5d2776d81d7cae1408b48038aeee70c76b308a30e26de65",
+              "kind": "agent-candidate-model-settlement",
+              "material": {
+                "calls": [],
+                "closed": true,
+                "executionPlanDigest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+                "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "kind": "agent-candidate-model-settlement-material",
+                "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
+                "resolved": {
+                  "model": "model-snapshot",
+                  "provider": "provider",
+                  "reasoningEffort": "high",
+                  "requested": "provider/model",
+                  "snapshot": "model-snapshot-2026-07-01"
+                },
+                "usage": {
+                  "cachedInputTokens": 0,
+                  "costUsdNanos": 0,
+                  "inputTokens": 0,
+                  "modelCalls": 0,
+                  "outputTokens": 0,
+                  "reasoningTokens": 0
+                }
+              }
+            },
+            "runCellDigest": "sha256:ce44b5854c9133ba5f2c78069462c2977fed54a09eb18a0bca250902cf2718eb",
+            "taskOutcome": {
+              "artifact": {
+                "byteLength": 478,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "task-outcome/6531580f45e8618a7e381fe78de4e49b0d68d589702ad23f81fa27ccea872e06",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:6531580f45e8618a7e381fe78de4e49b0d68d589702ad23f81fa27ccea872e06"
+              },
+              "digest": "sha256:6531580f45e8618a7e381fe78de4e49b0d68d589702ad23f81fa27ccea872e06",
+              "kind": "agent-candidate-task-outcome",
+              "material": {
+                "executionPlanDigest": "sha256:fa90746592bb3ec6f664872f3898144ece40775bef865981877039b955f6d8ca",
+                "kind": "agent-candidate-task-outcome-material",
+                "outcome": {
+                  "artifact": {
+                    "byteLength": 4,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "task-output/481ba4019c9d2710c3386537382592c093ef02bf5b056c30237b3d92b0e19a1d",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:481ba4019c9d2710c3386537382592c093ef02bf5b056c30237b3d92b0e19a1d"
+                  },
+                  "kind": "output",
+                  "spec": {
+                    "maxBytes": 1024,
+                    "mediaType": "text/plain"
+                  }
+                }
+              }
+            },
+            "termination": {
+              "exitCode": 0,
+              "kind": "exit"
+            },
+            "timing": {
+              "durationMs": 50,
+              "endedAtMs": 1150,
+              "startedAtMs": 1100
+            },
+            "trace": {
+              "artifact": {
+                "byteLength": 748,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "trace/6f94838ea9d7d02576c9b692a388eba163ccab95bc9b39fd99d30f97e34db45e",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:6f94838ea9d7d02576c9b692a388eba163ccab95bc9b39fd99d30f97e34db45e"
+              },
+              "eventCount": 1,
+              "modelCallCount": 0
+            }
+          }
+        },
+        "candidate": {
+          "digest": "sha256:7ca0ac188c3520be751d9154b5911ccb72ac9025a8abb7516027ee5c4e0aee78",
+          "kind": "agent-candidate-execution-evidence",
+          "materializationReceipt": {
+            "benchmark": {
+              "suite": {
+                "digest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                "material": {
+                  "byteLength": 198,
+                  "content": "eyJkaWdlc3RBbGdvcml0aG0iOiJyZmM4Nzg1LXNoYTI1NiIsImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtYmVuY2htYXJrLXN1aXRlIiwicmVwcyI6Mywic2VlZHMiOlsxMDEsMTAyLDEwM10sInRhc2tEaWdlc3RzIjpbInNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3Il19",
+                  "encoding": "base64",
+                  "sha256": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5"
+                }
+              },
+              "task": {
+                "digest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                "material": {
+                  "byteLength": 2096,
+                  "content": "eyJhdHRlbXB0Ijp7Im1heEF0dGVtcHRzIjoxLCJyZXRyeVBvbGljeSI6Im5vbmUifSwiYmVuY2htYXJrIjp7Im5hbWUiOiJyZXBvc2l0b3J5LWRpc2pvaW50LXNtb2tlIiwic3BsaXREaWdlc3QiOiJzaGEyNTY6ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCIsInZlcnNpb24iOiIxIn0sImRpZ2VzdEFsZ29yaXRobSI6InJmYzg3ODUtc2hhMjU2IiwiZXZhbHVhdG9yVGFza0NvbnRhaW5lciI6eyJpbWFnZSI6ImdoY3IuaW8vZXhhbXBsZS90YXNrIiwiaW5kZXhEaWdlc3QiOiJzaGEyNTY6YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsIm1hbmlmZXN0RGlnZXN0Ijoic2hhMjU2OmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIiLCJwbGF0Zm9ybSI6eyJhcmNoaXRlY3R1cmUiOiJhbWQ2NCIsIm9zIjoibGludXgifSwic291cmNlIjoiZXZhbHVhdG9yLXRhc2stY29udGFpbmVyIn0sImdyYWRlciI6eyJhcnRpZmFjdCI6eyJieXRlTGVuZ3RoIjoyNSwibG9jYXRvciI6eyJidWNrZXQiOiJjYW5kaWRhdGUtdGVzdC1hcnRpZmFjdHMiLCJrZXkiOiJncmFkZXIvOWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCIsImtpbmQiOiJzMyJ9LCJzaGEyNTYiOiJzaGEyNTY6OWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCJ9LCJmb3JtYXQiOiJ0YW5nbGUtZ3JhZGVyIiwibmFtZSI6ImZpeHR1cmUtZXhlY3V0YWJsZS1ncmFkZXIiLCJ2ZXJzaW9uIjoiMS4wLjAifSwiaW5zdHJ1Y3Rpb24iOiJGaXggdGhlIGZhaWxpbmcgYmVoYXZpb3Igd2l0aG91dCBjaGFuZ2luZyB0aGUgcHVibGljIEFQSS4iLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWJlbmNobWFyay10YXNrIiwibGltaXRzIjp7Im1heENvc3RVc2QiOjUsIm1heElucHV0VG9rZW5zIjoxMDAwMDAsIm1heE1vZGVsQ2FsbHMiOjUwLCJtYXhPdXRwdXRUb2tlbnMiOjUwMDAwLCJtYXhTdGVwcyI6MTAwLCJ0aW1lb3V0TXMiOjYwMDAwfSwibW9kZWwiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwib3V0Y29tZSI6eyJraW5kIjoib3V0cHV0IiwibWF4Qnl0ZXMiOjEwMjQsIm1lZGlhVHlwZSI6InRleHQvcGxhaW4ifSwic2NlbmFyaW8iOnsiaWQiOiJvd25lci1yZXBvLTEiLCJraW5kIjoiY29kaW5nIiwic2NlbmFyaW9EaWdlc3QiOiJzaGEyNTY6ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OCJ9LCJ3b3Jrc3BhY2UiOnsiYXJjaGl2ZSI6eyJieXRlTGVuZ3RoIjoxNywiY29udGVudCI6IlpXMXdkSGs2YjNWMGNIVjBMWFJoYzJzPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjMzMmRkOWM3NGJlYWI4YTE3NzM5NmE0NTEwZGFiNDZhNTBjYTIwNzRiMjAzYjEwNjk0ZTRlYWEzMDcxZTJlZjAifSwiZGlnZXN0Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1zbmFwc2hvdCIsIm1hbmlmZXN0Ijp7ImJ5dGVMZW5ndGgiOjU2LCJjb250ZW50IjoiZXlKbWFXeGxjeUk2VzEwc0ltdHBibVFpT2lKaFoyVnVkQzFqWVc1a2FXUmhkR1V0ZDI5eWEzTndZV05sTFcxaGJtbG1aWE4wSW4wPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIifSwibWF0ZXJpYWwiOnsiZmlsZXMiOltdLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1tYW5pZmVzdCJ9fX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277"
+                }
+              }
+            },
+            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "codeKind": "disabled",
+            "container": {
+              "image": "ghcr.io/example/task",
+              "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+              },
+              "source": "evaluator-task-container"
+            },
+            "digest": "sha256:7d002279e2baef8149e264789cffb919024e4290c4a1e3793823a8930c7a94a1",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlan": {
+              "artifact": {
+                "byteLength": 1969,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTEiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6e30sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo0MDY4NTdlODIyNmQ0NjQ5MGExZmYwNzQ1MzQzOWRjZGI3MWJmYWVkMjZmODdlZDBlZDRlNDJiM2I1YzgzYjc5IiwiZGlnZXN0Ijoic2hhMjU2OjEwMzNlMjQ1ZGQwZmJiMTJlZjE2OWY4NjE0OWZjZjkzZTkwZjJhNWE3NmIwNWMwZjA1YzI2YTE2NWZjYWExNWMiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OjRlNzc2MDU0MTcyOWE0ZjYxMjMyZjgwODRiNDI0OTZlMmQ3ZTQwZjg2MDRjMWM4Y2E0MTNmYjEyNzk5Y2UzMWMiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6MSwic2VlZCI6MTAyLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
+                "encoding": "base64",
+                "sha256": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e"
+              },
+              "digest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+              "kind": "agent-candidate-execution-plan",
+              "material": {
+                "codeKind": "disabled",
+                "container": {
+                  "image": "ghcr.io/example/task",
+                  "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "platform": {
+                    "architecture": "amd64",
+                    "os": "linux"
+                  },
+                  "source": "evaluator-task-container"
+                },
+                "executionId": "experiment-candidate-0-1",
+                "harness": "codex",
+                "harnessVersion": "1.2.3",
+                "instructionDelivery": {
+                  "kind": "stdin-utf8"
+                },
+                "kind": "agent-candidate-execution-plan-material",
+                "launch": {
+                  "args": [],
+                  "cwd": {
+                    "path": ".",
+                    "workspace": "task"
+                  },
+                  "env": {},
+                  "executable": "codex"
+                },
+                "limits": {
+                  "maxCostUsd": 5,
+                  "maxInputTokens": 100000,
+                  "maxModelCalls": 50,
+                  "maxOutputTokens": 50000,
+                  "maxSteps": 100,
+                  "timeoutMs": 60000
+                },
+                "memory": {
+                  "mode": "disabled"
+                },
+                "model": {
+                  "access": {
+                    "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "kind": "evaluator-mediated",
+                    "network": {
+                      "domains": ["router.tangle.tools"],
+                      "mode": "gateway-only"
+                    }
+                  },
+                  "policy": "single",
+                  "resolved": {
+                    "model": "model-snapshot",
+                    "provider": "provider",
+                    "reasoningEffort": "high",
+                    "requested": "provider/model",
+                    "snapshot": "model-snapshot-2026-07-01"
+                  },
+                  "routes": [
+                    {
+                      "kind": "primary",
+                      "requested": "provider/model"
+                    }
+                  ]
+                },
+                "network": {
+                  "mode": "disabled"
+                },
+                "profile": {
+                  "mountPaths": ["AGENTS.md"],
+                  "planDigest": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b",
+                  "targetWorkspace": "task"
+                },
+                "runCell": {
+                  "arm": "candidate",
+                  "attempt": 1,
+                  "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+                  "digest": "sha256:1033e245dd0fbb12ef169f86149fcf93e90f2a5a76b05c0f05c26a165fcaa15c",
+                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "kind": "agent-candidate-run-cell",
+                  "repetition": 1,
+                  "seed": 102,
+                  "suiteDigest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                  "taskDigest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                  "taskIndex": 0
+                },
+                "workspaces": {
+                  "taskRoot": "/workspace/task"
+                }
+              }
+            },
+            "harness": "codex",
+            "harnessVersion": "1.2.3",
+            "kind": "agent-candidate-materialization",
+            "profileActivation": {
+              "digest": "sha256:3103f8282be70a843eada63410c41d9eb5ac7b824c758eed6c2f8610de169f45",
+              "files": [
+                {
+                  "content": "Inspect the repository, implement the fix, and run tests.\n",
+                  "mode": 420,
+                  "path": "AGENTS.md"
+                }
+              ],
+              "kind": "agent-candidate-profile-activation",
+              "profilePlan": {
+                "artifact": {
+                  "byteLength": 364,
+                  "content": "eyJlbnYiOnt9LCJmaWxlcyI6W3siY29udGVudFNoYTI1NiI6InNoYTI1NjozOWFkYmI5YjdmNTcxZjBmZDU4NmU3Nzk1MDIzZDI1OTA5YWRiZTk1ODZiYjIxZWUxMzRkM2Q3MjQ4YmYxNTk5IiwibW9kZSI6NDIwLCJyZWxQYXRoIjoiQUdFTlRTLm1kIn1dLCJmbGFncyI6W10sImhhcm5lc3MiOiJjb2RleCIsInNvdXJjZVByb2ZpbGVEaWdlc3QiOiJzaGEyNTY6OGIxZTJmMGY3YjgzMjk1ODM4MWMyOWJhZWJlNGE5NjFiMTUxYWY5N2EwY2U5ZDYxMWExNWFkMDc0MWFlYWE3NSIsInN5c3RlbVByb21wdCI6eyJraW5kIjoicHVibGljIiwidmFsdWUiOiJSZXR1cm4gdGhlIGV4YWN0IG1lYXN1cmVkIGFuc3dlci4ifSwidW5zdXBwb3J0ZWQiOltdfQ==",
+                  "encoding": "base64",
+                  "sha256": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b"
+                },
+                "digest": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b",
+                "kind": "agent-profile-workspace-plan",
+                "material": {
+                  "env": {},
+                  "files": [
+                    {
+                      "contentSha256": "sha256:39adbb9b7f571f0fd586e7795023d25909adbe9586bb21ee134d3d7248bf1599",
+                      "mode": 420,
+                      "relPath": "AGENTS.md"
+                    }
+                  ],
+                  "flags": [],
+                  "harness": "codex",
+                  "sourceProfileDigest": "sha256:8b1e2f0f7b832958381c29baebe4a961b151af97a0ce9d611a15ad0741aeaa75",
+                  "systemPrompt": {
+                    "kind": "public",
+                    "value": "Return the exact measured answer."
+                  },
+                  "unsupported": []
+                }
+              }
+            },
+            "resolvedModel": {
+              "model": "model-snapshot",
+              "provider": "provider",
+              "reasoningEffort": "high",
+              "requested": "provider/model",
+              "snapshot": "model-snapshot-2026-07-01"
+            }
+          },
+          "receipt": {
+            "benchmarkResult": {
+              "artifact": {
+                "byteLength": 1121,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "benchmark-result/de40c4387aab2c749b768a55f4569348ae55ee882485356a65b5509bf6f00620",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:de40c4387aab2c749b768a55f4569348ae55ee882485356a65b5509bf6f00620"
+              },
+              "digest": "sha256:de40c4387aab2c749b768a55f4569348ae55ee882485356a65b5509bf6f00620",
+              "kind": "agent-candidate-benchmark-result",
+              "material": {
+                "dimensions": [
+                  {
+                    "name": "quality",
+                    "score": 1
+                  }
+                ],
+                "evidence": {
+                  "byteLength": 11,
+                  "locator": {
+                    "bucket": "candidate-test-artifacts",
+                    "key": "grader-evidence/9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d",
+                    "kind": "s3"
+                  },
+                  "sha256": "sha256:9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d"
+                },
+                "executionPlanDigest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+                "grader": {
+                  "artifact": {
+                    "byteLength": 25,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "grader/9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad"
+                  },
+                  "format": "tangle-grader",
+                  "name": "fixture-executable-grader",
+                  "version": "1.0.0"
+                },
+                "grading": {
+                  "timing": {
+                    "durationMs": 0,
+                    "endedAtMs": 1783641600000,
+                    "startedAtMs": 1783641600000
+                  },
+                  "usage": {
+                    "cachedInputTokens": 0,
+                    "costUsdNanos": 0,
+                    "inputTokens": 0,
+                    "modelCalls": 0,
+                    "outputTokens": 0,
+                    "reasoningTokens": 0
+                  }
+                },
+                "kind": "agent-candidate-benchmark-result-material",
+                "passed": true,
+                "score": 1,
+                "taskOutcomeDigest": "sha256:71e7ac55968898115c4b3e0a8e71f02eaf6c5d4b46a67806f1bde01efc96b777"
+              }
+            },
+            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "digest": "sha256:1ab7c0b04a606512d0cbadc08858d7e127122d3ccc8a4c22cf450e37600663a0",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlanDigest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+            "executorCapture": {
+              "byteLength": 477,
+              "locator": {
+                "bucket": "candidate-test-artifacts",
+                "key": "executor-capture/7750feebcefe19391bdb10cc84100db9941cf738a4e26921a387ac3a2b5094a3",
+                "kind": "s3"
+              },
+              "sha256": "sha256:7750feebcefe19391bdb10cc84100db9941cf738a4e26921a387ac3a2b5094a3"
+            },
+            "kind": "agent-candidate-run",
+            "materializationReceiptDigest": "sha256:7d002279e2baef8149e264789cffb919024e4290c4a1e3793823a8930c7a94a1",
+            "memory": {
+              "mode": "disabled"
+            },
+            "modelSettlement": {
+              "artifact": {
+                "byteLength": 615,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "model-settlement/ba3d7012d96e93d5b4f5877d53b9509562f761e5c387c94410f69b39c238cef3",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:ba3d7012d96e93d5b4f5877d53b9509562f761e5c387c94410f69b39c238cef3"
+              },
+              "digest": "sha256:ba3d7012d96e93d5b4f5877d53b9509562f761e5c387c94410f69b39c238cef3",
+              "kind": "agent-candidate-model-settlement",
+              "material": {
+                "calls": [],
+                "closed": true,
+                "executionPlanDigest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+                "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "kind": "agent-candidate-model-settlement-material",
+                "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
+                "resolved": {
+                  "model": "model-snapshot",
+                  "provider": "provider",
+                  "reasoningEffort": "high",
+                  "requested": "provider/model",
+                  "snapshot": "model-snapshot-2026-07-01"
+                },
+                "usage": {
+                  "cachedInputTokens": 0,
+                  "costUsdNanos": 0,
+                  "inputTokens": 0,
+                  "modelCalls": 0,
+                  "outputTokens": 0,
+                  "reasoningTokens": 0
+                }
+              }
+            },
+            "runCellDigest": "sha256:1033e245dd0fbb12ef169f86149fcf93e90f2a5a76b05c0f05c26a165fcaa15c",
+            "taskOutcome": {
+              "artifact": {
+                "byteLength": 478,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "task-outcome/71e7ac55968898115c4b3e0a8e71f02eaf6c5d4b46a67806f1bde01efc96b777",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:71e7ac55968898115c4b3e0a8e71f02eaf6c5d4b46a67806f1bde01efc96b777"
+              },
+              "digest": "sha256:71e7ac55968898115c4b3e0a8e71f02eaf6c5d4b46a67806f1bde01efc96b777",
+              "kind": "agent-candidate-task-outcome",
+              "material": {
+                "executionPlanDigest": "sha256:98bc3b015093b6e1476ee3e56713ea10206f893ef2197370e3fa4427356a4f0e",
+                "kind": "agent-candidate-task-outcome-material",
+                "outcome": {
+                  "artifact": {
+                    "byteLength": 6,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "task-output/eda15ce4834ac303532bc6973df5ff8a5deb75d7dfceb9fc2cdf1bb450a01cf5",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:eda15ce4834ac303532bc6973df5ff8a5deb75d7dfceb9fc2cdf1bb450a01cf5"
+                  },
+                  "kind": "output",
+                  "spec": {
+                    "maxBytes": 1024,
+                    "mediaType": "text/plain"
+                  }
+                }
+              }
+            },
+            "termination": {
+              "exitCode": 0,
+              "kind": "exit"
+            },
+            "timing": {
+              "durationMs": 50,
+              "endedAtMs": 1150,
+              "startedAtMs": 1100
+            },
+            "trace": {
+              "artifact": {
+                "byteLength": 750,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "trace/7a1d1b35b1a21cf30833a83945af1aa5a74d957c91b7bdb742fb832e25c99f0e",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:7a1d1b35b1a21cf30833a83945af1aa5a74d957c91b7bdb742fb832e25c99f0e"
+              },
+              "eventCount": 1,
+              "modelCallCount": 0
+            }
+          }
+        }
+      },
+      {
+        "baseline": {
+          "digest": "sha256:19810401295dd6a49219ea005d0b75155f688c9dd972ec6fb6dd43220014426e",
+          "kind": "agent-candidate-execution-evidence",
+          "materializationReceipt": {
+            "benchmark": {
+              "suite": {
+                "digest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                "material": {
+                  "byteLength": 198,
+                  "content": "eyJkaWdlc3RBbGdvcml0aG0iOiJyZmM4Nzg1LXNoYTI1NiIsImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtYmVuY2htYXJrLXN1aXRlIiwicmVwcyI6Mywic2VlZHMiOlsxMDEsMTAyLDEwM10sInRhc2tEaWdlc3RzIjpbInNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3Il19",
+                  "encoding": "base64",
+                  "sha256": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5"
+                }
+              },
+              "task": {
+                "digest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                "material": {
+                  "byteLength": 2096,
+                  "content": "eyJhdHRlbXB0Ijp7Im1heEF0dGVtcHRzIjoxLCJyZXRyeVBvbGljeSI6Im5vbmUifSwiYmVuY2htYXJrIjp7Im5hbWUiOiJyZXBvc2l0b3J5LWRpc2pvaW50LXNtb2tlIiwic3BsaXREaWdlc3QiOiJzaGEyNTY6ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCIsInZlcnNpb24iOiIxIn0sImRpZ2VzdEFsZ29yaXRobSI6InJmYzg3ODUtc2hhMjU2IiwiZXZhbHVhdG9yVGFza0NvbnRhaW5lciI6eyJpbWFnZSI6ImdoY3IuaW8vZXhhbXBsZS90YXNrIiwiaW5kZXhEaWdlc3QiOiJzaGEyNTY6YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsIm1hbmlmZXN0RGlnZXN0Ijoic2hhMjU2OmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIiLCJwbGF0Zm9ybSI6eyJhcmNoaXRlY3R1cmUiOiJhbWQ2NCIsIm9zIjoibGludXgifSwic291cmNlIjoiZXZhbHVhdG9yLXRhc2stY29udGFpbmVyIn0sImdyYWRlciI6eyJhcnRpZmFjdCI6eyJieXRlTGVuZ3RoIjoyNSwibG9jYXRvciI6eyJidWNrZXQiOiJjYW5kaWRhdGUtdGVzdC1hcnRpZmFjdHMiLCJrZXkiOiJncmFkZXIvOWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCIsImtpbmQiOiJzMyJ9LCJzaGEyNTYiOiJzaGEyNTY6OWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCJ9LCJmb3JtYXQiOiJ0YW5nbGUtZ3JhZGVyIiwibmFtZSI6ImZpeHR1cmUtZXhlY3V0YWJsZS1ncmFkZXIiLCJ2ZXJzaW9uIjoiMS4wLjAifSwiaW5zdHJ1Y3Rpb24iOiJGaXggdGhlIGZhaWxpbmcgYmVoYXZpb3Igd2l0aG91dCBjaGFuZ2luZyB0aGUgcHVibGljIEFQSS4iLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWJlbmNobWFyay10YXNrIiwibGltaXRzIjp7Im1heENvc3RVc2QiOjUsIm1heElucHV0VG9rZW5zIjoxMDAwMDAsIm1heE1vZGVsQ2FsbHMiOjUwLCJtYXhPdXRwdXRUb2tlbnMiOjUwMDAwLCJtYXhTdGVwcyI6MTAwLCJ0aW1lb3V0TXMiOjYwMDAwfSwibW9kZWwiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwib3V0Y29tZSI6eyJraW5kIjoib3V0cHV0IiwibWF4Qnl0ZXMiOjEwMjQsIm1lZGlhVHlwZSI6InRleHQvcGxhaW4ifSwic2NlbmFyaW8iOnsiaWQiOiJvd25lci1yZXBvLTEiLCJraW5kIjoiY29kaW5nIiwic2NlbmFyaW9EaWdlc3QiOiJzaGEyNTY6ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OCJ9LCJ3b3Jrc3BhY2UiOnsiYXJjaGl2ZSI6eyJieXRlTGVuZ3RoIjoxNywiY29udGVudCI6IlpXMXdkSGs2YjNWMGNIVjBMWFJoYzJzPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjMzMmRkOWM3NGJlYWI4YTE3NzM5NmE0NTEwZGFiNDZhNTBjYTIwNzRiMjAzYjEwNjk0ZTRlYWEzMDcxZTJlZjAifSwiZGlnZXN0Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1zbmFwc2hvdCIsIm1hbmlmZXN0Ijp7ImJ5dGVMZW5ndGgiOjU2LCJjb250ZW50IjoiZXlKbWFXeGxjeUk2VzEwc0ltdHBibVFpT2lKaFoyVnVkQzFqWVc1a2FXUmhkR1V0ZDI5eWEzTndZV05sTFcxaGJtbG1aWE4wSW4wPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIifSwibWF0ZXJpYWwiOnsiZmlsZXMiOltdLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1tYW5pZmVzdCJ9fX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277"
+                }
+              }
+            },
+            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "codeKind": "disabled",
+            "container": {
+              "image": "ghcr.io/example/task",
+              "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+              },
+              "source": "evaluator-task-container"
+            },
+            "digest": "sha256:03fea1af601d95a26c9b22df9ffd8e7cc6f8341ad9eb12e18c008587cf70752e",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlan": {
+              "artifact": {
+                "byteLength": 1967,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWJhc2VsaW5lLTAtMiIsImhhcm5lc3MiOiJjb2RleCIsImhhcm5lc3NWZXJzaW9uIjoiMS4yLjMiLCJpbnN0cnVjdGlvbkRlbGl2ZXJ5Ijp7ImtpbmQiOiJzdGRpbi11dGY4In0sImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtZXhlY3V0aW9uLXBsYW4tbWF0ZXJpYWwiLCJsYXVuY2giOnsiYXJncyI6W10sImN3ZCI6eyJwYXRoIjoiLiIsIndvcmtzcGFjZSI6InRhc2sifSwiZW52Ijp7fSwiZXhlY3V0YWJsZSI6ImNvZGV4In0sImxpbWl0cyI6eyJtYXhDb3N0VXNkIjo1LCJtYXhJbnB1dFRva2VucyI6MTAwMDAwLCJtYXhNb2RlbENhbGxzIjo1MCwibWF4T3V0cHV0VG9rZW5zIjo1MDAwMCwibWF4U3RlcHMiOjEwMCwidGltZW91dE1zIjo2MDAwMH0sIm1lbW9yeSI6eyJtb2RlIjoiZGlzYWJsZWQifSwibW9kZWwiOnsiYWNjZXNzIjp7ImdyYW50RGlnZXN0Ijoic2hhMjU2OmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2MiLCJraW5kIjoiZXZhbHVhdG9yLW1lZGlhdGVkIiwibmV0d29yayI6eyJkb21haW5zIjpbInJvdXRlci50YW5nbGUudG9vbHMiXSwibW9kZSI6ImdhdGV3YXktb25seSJ9fSwicG9saWN5Ijoic2luZ2xlIiwicmVzb2x2ZWQiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwicm91dGVzIjpbeyJraW5kIjoicHJpbWFyeSIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIn1dfSwibmV0d29yayI6eyJtb2RlIjoiZGlzYWJsZWQifSwicHJvZmlsZSI6eyJtb3VudFBhdGhzIjpbIkFHRU5UUy5tZCJdLCJwbGFuRGlnZXN0Ijoic2hhMjU2OmFmNjViZDY3Y2Y1MzU2MWNkN2JmYWM0ZThjOTEzZWYxOGUzNmMwYzJmZTIwYTBiY2ExZGY1NWU1OWIyMWZhYjUiLCJ0YXJnZXRXb3Jrc3BhY2UiOiJ0YXNrIn0sInJ1bkNlbGwiOnsiYXJtIjoiYmFzZWxpbmUiLCJhdHRlbXB0IjoxLCJidW5kbGVEaWdlc3QiOiJzaGEyNTY6OTBiMWNjMDVmMGQzODlkOTVkODU2YWQ2ZmIzZGE2ZTBmMGUzODJhMTBjZmQxZmRmNGY3NzhhNTZjNTZhMDA3OSIsImRpZ2VzdCI6InNoYTI1Njo3YWIzMzAyOGRlMzJjYTcwY2ExNjlhNDFiYzAzMmIxMmEzYTc2YmIyNmJhZWJlOGI1ODAyNjM3Yjk5Njk0MWU0IiwiZXhwZXJpbWVudERpZ2VzdCI6InNoYTI1Njo0ZTc3NjA1NDE3MjlhNGY2MTIzMmY4MDg0YjQyNDk2ZTJkN2U0MGY4NjA0YzFjOGNhNDEzZmIxMjc5OWNlMzFjIiwia2luZCI6ImFnZW50LWNhbmRpZGF0ZS1ydW4tY2VsbCIsInJlcGV0aXRpb24iOjIsInNlZWQiOjEwMywic3VpdGVEaWdlc3QiOiJzaGEyNTY6OTYzZDZhZDdhYmUzNTljOTYzZjMxYzIxMDM2YWM2MTc2ZmU3ZDVmMDk3YjIyMDBhYjQ0MzBjMGQxYmYxYmNkNSIsInRhc2tEaWdlc3QiOiJzaGEyNTY6NmFhNzE4MzMxYjZkYTMxMGRjYWI2ZGYyZTMzOTdjYjc3MDg0MGU1NTVhODJlMDY4OTU3NzE1N2I4OWI0ZTI3NyIsInRhc2tJbmRleCI6MH0sIndvcmtzcGFjZXMiOnsidGFza1Jvb3QiOiIvd29ya3NwYWNlL3Rhc2sifX0=",
+                "encoding": "base64",
+                "sha256": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236"
+              },
+              "digest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+              "kind": "agent-candidate-execution-plan",
+              "material": {
+                "codeKind": "disabled",
+                "container": {
+                  "image": "ghcr.io/example/task",
+                  "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "platform": {
+                    "architecture": "amd64",
+                    "os": "linux"
+                  },
+                  "source": "evaluator-task-container"
+                },
+                "executionId": "experiment-baseline-0-2",
+                "harness": "codex",
+                "harnessVersion": "1.2.3",
+                "instructionDelivery": {
+                  "kind": "stdin-utf8"
+                },
+                "kind": "agent-candidate-execution-plan-material",
+                "launch": {
+                  "args": [],
+                  "cwd": {
+                    "path": ".",
+                    "workspace": "task"
+                  },
+                  "env": {},
+                  "executable": "codex"
+                },
+                "limits": {
+                  "maxCostUsd": 5,
+                  "maxInputTokens": 100000,
+                  "maxModelCalls": 50,
+                  "maxOutputTokens": 50000,
+                  "maxSteps": 100,
+                  "timeoutMs": 60000
+                },
+                "memory": {
+                  "mode": "disabled"
+                },
+                "model": {
+                  "access": {
+                    "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "kind": "evaluator-mediated",
+                    "network": {
+                      "domains": ["router.tangle.tools"],
+                      "mode": "gateway-only"
+                    }
+                  },
+                  "policy": "single",
+                  "resolved": {
+                    "model": "model-snapshot",
+                    "provider": "provider",
+                    "reasoningEffort": "high",
+                    "requested": "provider/model",
+                    "snapshot": "model-snapshot-2026-07-01"
+                  },
+                  "routes": [
+                    {
+                      "kind": "primary",
+                      "requested": "provider/model"
+                    }
+                  ]
+                },
+                "network": {
+                  "mode": "disabled"
+                },
+                "profile": {
+                  "mountPaths": ["AGENTS.md"],
+                  "planDigest": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5",
+                  "targetWorkspace": "task"
+                },
+                "runCell": {
+                  "arm": "baseline",
+                  "attempt": 1,
+                  "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+                  "digest": "sha256:7ab33028de32ca70ca169a41bc032b12a3a76bb26baebe8b5802637b996941e4",
+                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "kind": "agent-candidate-run-cell",
+                  "repetition": 2,
+                  "seed": 103,
+                  "suiteDigest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                  "taskDigest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                  "taskIndex": 0
+                },
+                "workspaces": {
+                  "taskRoot": "/workspace/task"
+                }
+              }
+            },
+            "harness": "codex",
+            "harnessVersion": "1.2.3",
+            "kind": "agent-candidate-materialization",
+            "profileActivation": {
+              "digest": "sha256:273b700e4080e7e6cc4bd58a755466d18ce323eaaa195bb4202fea456422bb66",
+              "files": [
+                {
+                  "content": "Inspect the repository, implement the fix, and run tests.\n",
+                  "mode": 420,
+                  "path": "AGENTS.md"
+                }
+              ],
+              "kind": "agent-candidate-profile-activation",
+              "profilePlan": {
+                "artifact": {
+                  "byteLength": 287,
+                  "content": "eyJlbnYiOnt9LCJmaWxlcyI6W3siY29udGVudFNoYTI1NiI6InNoYTI1NjozOWFkYmI5YjdmNTcxZjBmZDU4NmU3Nzk1MDIzZDI1OTA5YWRiZTk1ODZiYjIxZWUxMzRkM2Q3MjQ4YmYxNTk5IiwibW9kZSI6NDIwLCJyZWxQYXRoIjoiQUdFTlRTLm1kIn1dLCJmbGFncyI6W10sImhhcm5lc3MiOiJjb2RleCIsInNvdXJjZVByb2ZpbGVEaWdlc3QiOiJzaGEyNTY6ZTUzZTFjOGY5NjMyYmNiNWRiOTAzM2UzMmYzM2E5MGI5YmQ5OWFiZWNlZjBiYjUyZmY5MDY5ZjA3NTA5ZTJmOSIsInVuc3VwcG9ydGVkIjpbXX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5"
+                },
+                "digest": "sha256:af65bd67cf53561cd7bfac4e8c913ef18e36c0c2fe20a0bca1df55e59b21fab5",
+                "kind": "agent-profile-workspace-plan",
+                "material": {
+                  "env": {},
+                  "files": [
+                    {
+                      "contentSha256": "sha256:39adbb9b7f571f0fd586e7795023d25909adbe9586bb21ee134d3d7248bf1599",
+                      "mode": 420,
+                      "relPath": "AGENTS.md"
+                    }
+                  ],
+                  "flags": [],
+                  "harness": "codex",
+                  "sourceProfileDigest": "sha256:e53e1c8f9632bcb5db9033e32f33a90b9bd99abecef0bb52ff9069f07509e2f9",
+                  "unsupported": []
+                }
+              }
+            },
+            "resolvedModel": {
+              "model": "model-snapshot",
+              "provider": "provider",
+              "reasoningEffort": "high",
+              "requested": "provider/model",
+              "snapshot": "model-snapshot-2026-07-01"
+            }
+          },
+          "receipt": {
+            "benchmarkResult": {
+              "artifact": {
+                "byteLength": 1122,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "benchmark-result/9deed92c5c6f606541d59db8a52f33334c76e9766ddb19108399942dd28dd66b",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:9deed92c5c6f606541d59db8a52f33334c76e9766ddb19108399942dd28dd66b"
+              },
+              "digest": "sha256:9deed92c5c6f606541d59db8a52f33334c76e9766ddb19108399942dd28dd66b",
+              "kind": "agent-candidate-benchmark-result",
+              "material": {
+                "dimensions": [
+                  {
+                    "name": "quality",
+                    "score": 0
+                  }
+                ],
+                "evidence": {
+                  "byteLength": 11,
+                  "locator": {
+                    "bucket": "candidate-test-artifacts",
+                    "key": "grader-evidence/628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b",
+                    "kind": "s3"
+                  },
+                  "sha256": "sha256:628cb4ead38e34e34a34f78fa4481f2a0ccf8e9139acfae69d79dc997e90e36b"
+                },
+                "executionPlanDigest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+                "grader": {
+                  "artifact": {
+                    "byteLength": 25,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "grader/9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad"
+                  },
+                  "format": "tangle-grader",
+                  "name": "fixture-executable-grader",
+                  "version": "1.0.0"
+                },
+                "grading": {
+                  "timing": {
+                    "durationMs": 0,
+                    "endedAtMs": 1783641600000,
+                    "startedAtMs": 1783641600000
+                  },
+                  "usage": {
+                    "cachedInputTokens": 0,
+                    "costUsdNanos": 0,
+                    "inputTokens": 0,
+                    "modelCalls": 0,
+                    "outputTokens": 0,
+                    "reasoningTokens": 0
+                  }
+                },
+                "kind": "agent-candidate-benchmark-result-material",
+                "passed": false,
+                "score": 0,
+                "taskOutcomeDigest": "sha256:b7839b059ff6bc2b5606d53992c1e3b1001b5917ca21798e07a696c2b555faef"
+              }
+            },
+            "bundleDigest": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+            "digest": "sha256:b94caa496f9425e76559b3d11482a9156af47aec0c4736a3f2acde6e0d7147f6",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlanDigest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+            "executorCapture": {
+              "byteLength": 477,
+              "locator": {
+                "bucket": "candidate-test-artifacts",
+                "key": "executor-capture/41c380f90694c94d3638d3f6a1bc2984edabc4b841135563ec693988318a789a",
+                "kind": "s3"
+              },
+              "sha256": "sha256:41c380f90694c94d3638d3f6a1bc2984edabc4b841135563ec693988318a789a"
+            },
+            "kind": "agent-candidate-run",
+            "materializationReceiptDigest": "sha256:03fea1af601d95a26c9b22df9ffd8e7cc6f8341ad9eb12e18c008587cf70752e",
+            "memory": {
+              "mode": "disabled"
+            },
+            "modelSettlement": {
+              "artifact": {
+                "byteLength": 615,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "model-settlement/43f369d800ff013c35fc63eab901109849030ade35def608ad3229a97c9b5c52",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:43f369d800ff013c35fc63eab901109849030ade35def608ad3229a97c9b5c52"
+              },
+              "digest": "sha256:43f369d800ff013c35fc63eab901109849030ade35def608ad3229a97c9b5c52",
+              "kind": "agent-candidate-model-settlement",
+              "material": {
+                "calls": [],
+                "closed": true,
+                "executionPlanDigest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+                "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "kind": "agent-candidate-model-settlement-material",
+                "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
+                "resolved": {
+                  "model": "model-snapshot",
+                  "provider": "provider",
+                  "reasoningEffort": "high",
+                  "requested": "provider/model",
+                  "snapshot": "model-snapshot-2026-07-01"
+                },
+                "usage": {
+                  "cachedInputTokens": 0,
+                  "costUsdNanos": 0,
+                  "inputTokens": 0,
+                  "modelCalls": 0,
+                  "outputTokens": 0,
+                  "reasoningTokens": 0
+                }
+              }
+            },
+            "runCellDigest": "sha256:7ab33028de32ca70ca169a41bc032b12a3a76bb26baebe8b5802637b996941e4",
+            "taskOutcome": {
+              "artifact": {
+                "byteLength": 478,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "task-outcome/b7839b059ff6bc2b5606d53992c1e3b1001b5917ca21798e07a696c2b555faef",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:b7839b059ff6bc2b5606d53992c1e3b1001b5917ca21798e07a696c2b555faef"
+              },
+              "digest": "sha256:b7839b059ff6bc2b5606d53992c1e3b1001b5917ca21798e07a696c2b555faef",
+              "kind": "agent-candidate-task-outcome",
+              "material": {
+                "executionPlanDigest": "sha256:f5dcd0596f8c63a2d42cd817d0a9a2b0eab0afec46d1ae6f50e7b1e8449d1236",
+                "kind": "agent-candidate-task-outcome-material",
+                "outcome": {
+                  "artifact": {
+                    "byteLength": 4,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "task-output/481ba4019c9d2710c3386537382592c093ef02bf5b056c30237b3d92b0e19a1d",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:481ba4019c9d2710c3386537382592c093ef02bf5b056c30237b3d92b0e19a1d"
+                  },
+                  "kind": "output",
+                  "spec": {
+                    "maxBytes": 1024,
+                    "mediaType": "text/plain"
+                  }
+                }
+              }
+            },
+            "termination": {
+              "exitCode": 0,
+              "kind": "exit"
+            },
+            "timing": {
+              "durationMs": 50,
+              "endedAtMs": 1250,
+              "startedAtMs": 1200
+            },
+            "trace": {
+              "artifact": {
+                "byteLength": 748,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "trace/11de40695ad7fd6a370835f9945fa8e43348443d95a22d559992c294b2fb58b8",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:11de40695ad7fd6a370835f9945fa8e43348443d95a22d559992c294b2fb58b8"
+              },
+              "eventCount": 1,
+              "modelCallCount": 0
+            }
+          }
+        },
+        "candidate": {
+          "digest": "sha256:7f299ebc9ac6801ecadc3325e7e1e474d292db2f3ad626e74daa721ea24998df",
+          "kind": "agent-candidate-execution-evidence",
+          "materializationReceipt": {
+            "benchmark": {
+              "suite": {
+                "digest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                "material": {
+                  "byteLength": 198,
+                  "content": "eyJkaWdlc3RBbGdvcml0aG0iOiJyZmM4Nzg1LXNoYTI1NiIsImtpbmQiOiJhZ2VudC1jYW5kaWRhdGUtYmVuY2htYXJrLXN1aXRlIiwicmVwcyI6Mywic2VlZHMiOlsxMDEsMTAyLDEwM10sInRhc2tEaWdlc3RzIjpbInNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3Il19",
+                  "encoding": "base64",
+                  "sha256": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5"
+                }
+              },
+              "task": {
+                "digest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                "material": {
+                  "byteLength": 2096,
+                  "content": "eyJhdHRlbXB0Ijp7Im1heEF0dGVtcHRzIjoxLCJyZXRyeVBvbGljeSI6Im5vbmUifSwiYmVuY2htYXJrIjp7Im5hbWUiOiJyZXBvc2l0b3J5LWRpc2pvaW50LXNtb2tlIiwic3BsaXREaWdlc3QiOiJzaGEyNTY6ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRkZCIsInZlcnNpb24iOiIxIn0sImRpZ2VzdEFsZ29yaXRobSI6InJmYzg3ODUtc2hhMjU2IiwiZXZhbHVhdG9yVGFza0NvbnRhaW5lciI6eyJpbWFnZSI6ImdoY3IuaW8vZXhhbXBsZS90YXNrIiwiaW5kZXhEaWdlc3QiOiJzaGEyNTY6YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsIm1hbmlmZXN0RGlnZXN0Ijoic2hhMjU2OmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIiLCJwbGF0Zm9ybSI6eyJhcmNoaXRlY3R1cmUiOiJhbWQ2NCIsIm9zIjoibGludXgifSwic291cmNlIjoiZXZhbHVhdG9yLXRhc2stY29udGFpbmVyIn0sImdyYWRlciI6eyJhcnRpZmFjdCI6eyJieXRlTGVuZ3RoIjoyNSwibG9jYXRvciI6eyJidWNrZXQiOiJjYW5kaWRhdGUtdGVzdC1hcnRpZmFjdHMiLCJrZXkiOiJncmFkZXIvOWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCIsImtpbmQiOiJzMyJ9LCJzaGEyNTYiOiJzaGEyNTY6OWEzNTQ0OTUxODU1ODdiMjVlOGM5ODEwNDA2MDA2ODg3MWE0NGM3MTllNGY1N2QzNDVhOTA1ZmMyZDcyYTZhZCJ9LCJmb3JtYXQiOiJ0YW5nbGUtZ3JhZGVyIiwibmFtZSI6ImZpeHR1cmUtZXhlY3V0YWJsZS1ncmFkZXIiLCJ2ZXJzaW9uIjoiMS4wLjAifSwiaW5zdHJ1Y3Rpb24iOiJGaXggdGhlIGZhaWxpbmcgYmVoYXZpb3Igd2l0aG91dCBjaGFuZ2luZyB0aGUgcHVibGljIEFQSS4iLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWJlbmNobWFyay10YXNrIiwibGltaXRzIjp7Im1heENvc3RVc2QiOjUsIm1heElucHV0VG9rZW5zIjoxMDAwMDAsIm1heE1vZGVsQ2FsbHMiOjUwLCJtYXhPdXRwdXRUb2tlbnMiOjUwMDAwLCJtYXhTdGVwcyI6MTAwLCJ0aW1lb3V0TXMiOjYwMDAwfSwibW9kZWwiOnsibW9kZWwiOiJtb2RlbC1zbmFwc2hvdCIsInByb3ZpZGVyIjoicHJvdmlkZXIiLCJyZWFzb25pbmdFZmZvcnQiOiJoaWdoIiwicmVxdWVzdGVkIjoicHJvdmlkZXIvbW9kZWwiLCJzbmFwc2hvdCI6Im1vZGVsLXNuYXBzaG90LTIwMjYtMDctMDEifSwib3V0Y29tZSI6eyJraW5kIjoib3V0cHV0IiwibWF4Qnl0ZXMiOjEwMjQsIm1lZGlhVHlwZSI6InRleHQvcGxhaW4ifSwic2NlbmFyaW8iOnsiaWQiOiJvd25lci1yZXBvLTEiLCJraW5kIjoiY29kaW5nIiwic2NlbmFyaW9EaWdlc3QiOiJzaGEyNTY6ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4OCJ9LCJ3b3Jrc3BhY2UiOnsiYXJjaGl2ZSI6eyJieXRlTGVuZ3RoIjoxNywiY29udGVudCI6IlpXMXdkSGs2YjNWMGNIVjBMWFJoYzJzPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjMzMmRkOWM3NGJlYWI4YTE3NzM5NmE0NTEwZGFiNDZhNTBjYTIwNzRiMjAzYjEwNjk0ZTRlYWEzMDcxZTJlZjAifSwiZGlnZXN0Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1zbmFwc2hvdCIsIm1hbmlmZXN0Ijp7ImJ5dGVMZW5ndGgiOjU2LCJjb250ZW50IjoiZXlKbWFXeGxjeUk2VzEwc0ltdHBibVFpT2lKaFoyVnVkQzFqWVc1a2FXUmhkR1V0ZDI5eWEzTndZV05sTFcxaGJtbG1aWE4wSW4wPSIsImVuY29kaW5nIjoiYmFzZTY0Iiwic2hhMjU2Ijoic2hhMjU2OjNlOWZkYWQ0NmYxNGNlNWI3Yzc4YTkzZTRmZWUwOTYwNDgzYWU5ZDFjZGEyMWYwYzM5MGNkYmFkNDBiZGFjMDIifSwibWF0ZXJpYWwiOnsiZmlsZXMiOltdLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXdvcmtzcGFjZS1tYW5pZmVzdCJ9fX0=",
+                  "encoding": "base64",
+                  "sha256": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277"
+                }
+              }
+            },
+            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "codeKind": "disabled",
+            "container": {
+              "image": "ghcr.io/example/task",
+              "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+              },
+              "source": "evaluator-task-container"
+            },
+            "digest": "sha256:58b85d501d6559779de74275f638c76ef2a0c7decff907081b8e20d5df37d1c6",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlan": {
+              "artifact": {
+                "byteLength": 1969,
+                "content": "eyJjb2RlS2luZCI6ImRpc2FibGVkIiwiY29udGFpbmVyIjp7ImltYWdlIjoiZ2hjci5pby9leGFtcGxlL3Rhc2siLCJpbmRleERpZ2VzdCI6InNoYTI1NjphYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwibWFuaWZlc3REaWdlc3QiOiJzaGEyNTY6YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFtZDY0Iiwib3MiOiJsaW51eCJ9LCJzb3VyY2UiOiJldmFsdWF0b3ItdGFzay1jb250YWluZXIifSwiZXhlY3V0aW9uSWQiOiJleHBlcmltZW50LWNhbmRpZGF0ZS0wLTIiLCJoYXJuZXNzIjoiY29kZXgiLCJoYXJuZXNzVmVyc2lvbiI6IjEuMi4zIiwiaW5zdHJ1Y3Rpb25EZWxpdmVyeSI6eyJraW5kIjoic3RkaW4tdXRmOCJ9LCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLWV4ZWN1dGlvbi1wbGFuLW1hdGVyaWFsIiwibGF1bmNoIjp7ImFyZ3MiOltdLCJjd2QiOnsicGF0aCI6Ii4iLCJ3b3Jrc3BhY2UiOiJ0YXNrIn0sImVudiI6e30sImV4ZWN1dGFibGUiOiJjb2RleCJ9LCJsaW1pdHMiOnsibWF4Q29zdFVzZCI6NSwibWF4SW5wdXRUb2tlbnMiOjEwMDAwMCwibWF4TW9kZWxDYWxscyI6NTAsIm1heE91dHB1dFRva2VucyI6NTAwMDAsIm1heFN0ZXBzIjoxMDAsInRpbWVvdXRNcyI6NjAwMDB9LCJtZW1vcnkiOnsibW9kZSI6ImRpc2FibGVkIn0sIm1vZGVsIjp7ImFjY2VzcyI6eyJncmFudERpZ2VzdCI6InNoYTI1NjpjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjIiwia2luZCI6ImV2YWx1YXRvci1tZWRpYXRlZCIsIm5ldHdvcmsiOnsiZG9tYWlucyI6WyJyb3V0ZXIudGFuZ2xlLnRvb2xzIl0sIm1vZGUiOiJnYXRld2F5LW9ubHkifX0sInBvbGljeSI6InNpbmdsZSIsInJlc29sdmVkIjp7Im1vZGVsIjoibW9kZWwtc25hcHNob3QiLCJwcm92aWRlciI6InByb3ZpZGVyIiwicmVhc29uaW5nRWZmb3J0IjoiaGlnaCIsInJlcXVlc3RlZCI6InByb3ZpZGVyL21vZGVsIiwic25hcHNob3QiOiJtb2RlbC1zbmFwc2hvdC0yMDI2LTA3LTAxIn0sInJvdXRlcyI6W3sia2luZCI6InByaW1hcnkiLCJyZXF1ZXN0ZWQiOiJwcm92aWRlci9tb2RlbCJ9XX0sIm5ldHdvcmsiOnsibW9kZSI6ImRpc2FibGVkIn0sInByb2ZpbGUiOnsibW91bnRQYXRocyI6WyJBR0VOVFMubWQiXSwicGxhbkRpZ2VzdCI6InNoYTI1Njo0YjQyMTRkMWJhZTkxMWRmNmRkYTNhNWQ4NTg1YzY1ZGYyZjBiMjM4MDEyNmViNDBjMGNiZDQ2YTRhMmZiYTViIiwidGFyZ2V0V29ya3NwYWNlIjoidGFzayJ9LCJydW5DZWxsIjp7ImFybSI6ImNhbmRpZGF0ZSIsImF0dGVtcHQiOjEsImJ1bmRsZURpZ2VzdCI6InNoYTI1Njo0MDY4NTdlODIyNmQ0NjQ5MGExZmYwNzQ1MzQzOWRjZGI3MWJmYWVkMjZmODdlZDBlZDRlNDJiM2I1YzgzYjc5IiwiZGlnZXN0Ijoic2hhMjU2OmI3MjVjZjM2Y2YwYjViMmVjZjA5Y2Q4ZjA5ZTRhNDYzYzk4YmE5MDliNDYyMjIyMGNlNzQ3NTRjMTJhNTFhM2EiLCJleHBlcmltZW50RGlnZXN0Ijoic2hhMjU2OjRlNzc2MDU0MTcyOWE0ZjYxMjMyZjgwODRiNDI0OTZlMmQ3ZTQwZjg2MDRjMWM4Y2E0MTNmYjEyNzk5Y2UzMWMiLCJraW5kIjoiYWdlbnQtY2FuZGlkYXRlLXJ1bi1jZWxsIiwicmVwZXRpdGlvbiI6Miwic2VlZCI6MTAzLCJzdWl0ZURpZ2VzdCI6InNoYTI1Njo5NjNkNmFkN2FiZTM1OWM5NjNmMzFjMjEwMzZhYzYxNzZmZTdkNWYwOTdiMjIwMGFiNDQzMGMwZDFiZjFiY2Q1IiwidGFza0RpZ2VzdCI6InNoYTI1Njo2YWE3MTgzMzFiNmRhMzEwZGNhYjZkZjJlMzM5N2NiNzcwODQwZTU1NWE4MmUwNjg5NTc3MTU3Yjg5YjRlMjc3IiwidGFza0luZGV4IjowfSwid29ya3NwYWNlcyI6eyJ0YXNrUm9vdCI6Ii93b3Jrc3BhY2UvdGFzayJ9fQ==",
+                "encoding": "base64",
+                "sha256": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669"
+              },
+              "digest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+              "kind": "agent-candidate-execution-plan",
+              "material": {
+                "codeKind": "disabled",
+                "container": {
+                  "image": "ghcr.io/example/task",
+                  "indexDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "manifestDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "platform": {
+                    "architecture": "amd64",
+                    "os": "linux"
+                  },
+                  "source": "evaluator-task-container"
+                },
+                "executionId": "experiment-candidate-0-2",
+                "harness": "codex",
+                "harnessVersion": "1.2.3",
+                "instructionDelivery": {
+                  "kind": "stdin-utf8"
+                },
+                "kind": "agent-candidate-execution-plan-material",
+                "launch": {
+                  "args": [],
+                  "cwd": {
+                    "path": ".",
+                    "workspace": "task"
+                  },
+                  "env": {},
+                  "executable": "codex"
+                },
+                "limits": {
+                  "maxCostUsd": 5,
+                  "maxInputTokens": 100000,
+                  "maxModelCalls": 50,
+                  "maxOutputTokens": 50000,
+                  "maxSteps": 100,
+                  "timeoutMs": 60000
+                },
+                "memory": {
+                  "mode": "disabled"
+                },
+                "model": {
+                  "access": {
+                    "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "kind": "evaluator-mediated",
+                    "network": {
+                      "domains": ["router.tangle.tools"],
+                      "mode": "gateway-only"
+                    }
+                  },
+                  "policy": "single",
+                  "resolved": {
+                    "model": "model-snapshot",
+                    "provider": "provider",
+                    "reasoningEffort": "high",
+                    "requested": "provider/model",
+                    "snapshot": "model-snapshot-2026-07-01"
+                  },
+                  "routes": [
+                    {
+                      "kind": "primary",
+                      "requested": "provider/model"
+                    }
+                  ]
+                },
+                "network": {
+                  "mode": "disabled"
+                },
+                "profile": {
+                  "mountPaths": ["AGENTS.md"],
+                  "planDigest": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b",
+                  "targetWorkspace": "task"
+                },
+                "runCell": {
+                  "arm": "candidate",
+                  "attempt": 1,
+                  "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+                  "digest": "sha256:b725cf36cf0b5b2ecf09cd8f09e4a463c98ba909b4622220ce74754c12a51a3a",
+                  "experimentDigest": "sha256:4e7760541729a4f61232f8084b42496e2d7e40f8604c1c8ca413fb12799ce31c",
+                  "kind": "agent-candidate-run-cell",
+                  "repetition": 2,
+                  "seed": 103,
+                  "suiteDigest": "sha256:963d6ad7abe359c963f31c21036ac6176fe7d5f097b2200ab4430c0d1bf1bcd5",
+                  "taskDigest": "sha256:6aa718331b6da310dcab6df2e3397cb770840e555a82e0689577157b89b4e277",
+                  "taskIndex": 0
+                },
+                "workspaces": {
+                  "taskRoot": "/workspace/task"
+                }
+              }
+            },
+            "harness": "codex",
+            "harnessVersion": "1.2.3",
+            "kind": "agent-candidate-materialization",
+            "profileActivation": {
+              "digest": "sha256:3103f8282be70a843eada63410c41d9eb5ac7b824c758eed6c2f8610de169f45",
+              "files": [
+                {
+                  "content": "Inspect the repository, implement the fix, and run tests.\n",
+                  "mode": 420,
+                  "path": "AGENTS.md"
+                }
+              ],
+              "kind": "agent-candidate-profile-activation",
+              "profilePlan": {
+                "artifact": {
+                  "byteLength": 364,
+                  "content": "eyJlbnYiOnt9LCJmaWxlcyI6W3siY29udGVudFNoYTI1NiI6InNoYTI1NjozOWFkYmI5YjdmNTcxZjBmZDU4NmU3Nzk1MDIzZDI1OTA5YWRiZTk1ODZiYjIxZWUxMzRkM2Q3MjQ4YmYxNTk5IiwibW9kZSI6NDIwLCJyZWxQYXRoIjoiQUdFTlRTLm1kIn1dLCJmbGFncyI6W10sImhhcm5lc3MiOiJjb2RleCIsInNvdXJjZVByb2ZpbGVEaWdlc3QiOiJzaGEyNTY6OGIxZTJmMGY3YjgzMjk1ODM4MWMyOWJhZWJlNGE5NjFiMTUxYWY5N2EwY2U5ZDYxMWExNWFkMDc0MWFlYWE3NSIsInN5c3RlbVByb21wdCI6eyJraW5kIjoicHVibGljIiwidmFsdWUiOiJSZXR1cm4gdGhlIGV4YWN0IG1lYXN1cmVkIGFuc3dlci4ifSwidW5zdXBwb3J0ZWQiOltdfQ==",
+                  "encoding": "base64",
+                  "sha256": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b"
+                },
+                "digest": "sha256:4b4214d1bae911df6dda3a5d8585c65df2f0b2380126eb40c0cbd46a4a2fba5b",
+                "kind": "agent-profile-workspace-plan",
+                "material": {
+                  "env": {},
+                  "files": [
+                    {
+                      "contentSha256": "sha256:39adbb9b7f571f0fd586e7795023d25909adbe9586bb21ee134d3d7248bf1599",
+                      "mode": 420,
+                      "relPath": "AGENTS.md"
+                    }
+                  ],
+                  "flags": [],
+                  "harness": "codex",
+                  "sourceProfileDigest": "sha256:8b1e2f0f7b832958381c29baebe4a961b151af97a0ce9d611a15ad0741aeaa75",
+                  "systemPrompt": {
+                    "kind": "public",
+                    "value": "Return the exact measured answer."
+                  },
+                  "unsupported": []
+                }
+              }
+            },
+            "resolvedModel": {
+              "model": "model-snapshot",
+              "provider": "provider",
+              "reasoningEffort": "high",
+              "requested": "provider/model",
+              "snapshot": "model-snapshot-2026-07-01"
+            }
+          },
+          "receipt": {
+            "benchmarkResult": {
+              "artifact": {
+                "byteLength": 1121,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "benchmark-result/065077bb8c8d7ce16e785ddfa6fc633ea492aafcc94162b7ac171fafb3c579ad",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:065077bb8c8d7ce16e785ddfa6fc633ea492aafcc94162b7ac171fafb3c579ad"
+              },
+              "digest": "sha256:065077bb8c8d7ce16e785ddfa6fc633ea492aafcc94162b7ac171fafb3c579ad",
+              "kind": "agent-candidate-benchmark-result",
+              "material": {
+                "dimensions": [
+                  {
+                    "name": "quality",
+                    "score": 1
+                  }
+                ],
+                "evidence": {
+                  "byteLength": 11,
+                  "locator": {
+                    "bucket": "candidate-test-artifacts",
+                    "key": "grader-evidence/9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d",
+                    "kind": "s3"
+                  },
+                  "sha256": "sha256:9b9b3a1471309177261cfe65ea9c298e0dd372e4b5d087f8d35d7b732485373d"
+                },
+                "executionPlanDigest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+                "grader": {
+                  "artifact": {
+                    "byteLength": 25,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "grader/9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:9a354495185587b25e8c98104060068871a44c719e4f57d345a905fc2d72a6ad"
+                  },
+                  "format": "tangle-grader",
+                  "name": "fixture-executable-grader",
+                  "version": "1.0.0"
+                },
+                "grading": {
+                  "timing": {
+                    "durationMs": 0,
+                    "endedAtMs": 1783641600000,
+                    "startedAtMs": 1783641600000
+                  },
+                  "usage": {
+                    "cachedInputTokens": 0,
+                    "costUsdNanos": 0,
+                    "inputTokens": 0,
+                    "modelCalls": 0,
+                    "outputTokens": 0,
+                    "reasoningTokens": 0
+                  }
+                },
+                "kind": "agent-candidate-benchmark-result-material",
+                "passed": true,
+                "score": 1,
+                "taskOutcomeDigest": "sha256:4dcf33ca1333772d635d34932d4348fb55d7dd4146f734f97bd1b296ad059f0f"
+              }
+            },
+            "bundleDigest": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+            "digest": "sha256:88fd469bd1018d2b4dd7c1cce8cb6f13dee64599a9054237f39f245d97e446d4",
+            "digestAlgorithm": "rfc8785-sha256",
+            "executionPlanDigest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+            "executorCapture": {
+              "byteLength": 477,
+              "locator": {
+                "bucket": "candidate-test-artifacts",
+                "key": "executor-capture/9923cd0fda5e697e70ab83a99dac67d991b9b0ac9c1702bb99990f0d9a5cd1d7",
+                "kind": "s3"
+              },
+              "sha256": "sha256:9923cd0fda5e697e70ab83a99dac67d991b9b0ac9c1702bb99990f0d9a5cd1d7"
+            },
+            "kind": "agent-candidate-run",
+            "materializationReceiptDigest": "sha256:58b85d501d6559779de74275f638c76ef2a0c7decff907081b8e20d5df37d1c6",
+            "memory": {
+              "mode": "disabled"
+            },
+            "modelSettlement": {
+              "artifact": {
+                "byteLength": 615,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "model-settlement/592d4b35fa6b118a9a20eea887eed44e997bede7b155ca83607c0b11d83bad77",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:592d4b35fa6b118a9a20eea887eed44e997bede7b155ca83607c0b11d83bad77"
+              },
+              "digest": "sha256:592d4b35fa6b118a9a20eea887eed44e997bede7b155ca83607c0b11d83bad77",
+              "kind": "agent-candidate-model-settlement",
+              "material": {
+                "calls": [],
+                "closed": true,
+                "executionPlanDigest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+                "grantDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "kind": "agent-candidate-model-settlement-material",
+                "preparationId": "candidate-preparation.nBqsDbKYlsiY4Tto5XaxkR3RCTop9PA9_kX-kOSzR8U",
+                "resolved": {
+                  "model": "model-snapshot",
+                  "provider": "provider",
+                  "reasoningEffort": "high",
+                  "requested": "provider/model",
+                  "snapshot": "model-snapshot-2026-07-01"
+                },
+                "usage": {
+                  "cachedInputTokens": 0,
+                  "costUsdNanos": 0,
+                  "inputTokens": 0,
+                  "modelCalls": 0,
+                  "outputTokens": 0,
+                  "reasoningTokens": 0
+                }
+              }
+            },
+            "runCellDigest": "sha256:b725cf36cf0b5b2ecf09cd8f09e4a463c98ba909b4622220ce74754c12a51a3a",
+            "taskOutcome": {
+              "artifact": {
+                "byteLength": 478,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "task-outcome/4dcf33ca1333772d635d34932d4348fb55d7dd4146f734f97bd1b296ad059f0f",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:4dcf33ca1333772d635d34932d4348fb55d7dd4146f734f97bd1b296ad059f0f"
+              },
+              "digest": "sha256:4dcf33ca1333772d635d34932d4348fb55d7dd4146f734f97bd1b296ad059f0f",
+              "kind": "agent-candidate-task-outcome",
+              "material": {
+                "executionPlanDigest": "sha256:e28d078113fb86520834d5b51c506b7472398bff1dc3072bd2a44096e6b1c669",
+                "kind": "agent-candidate-task-outcome-material",
+                "outcome": {
+                  "artifact": {
+                    "byteLength": 6,
+                    "locator": {
+                      "bucket": "candidate-test-artifacts",
+                      "key": "task-output/eda15ce4834ac303532bc6973df5ff8a5deb75d7dfceb9fc2cdf1bb450a01cf5",
+                      "kind": "s3"
+                    },
+                    "sha256": "sha256:eda15ce4834ac303532bc6973df5ff8a5deb75d7dfceb9fc2cdf1bb450a01cf5"
+                  },
+                  "kind": "output",
+                  "spec": {
+                    "maxBytes": 1024,
+                    "mediaType": "text/plain"
+                  }
+                }
+              }
+            },
+            "termination": {
+              "exitCode": 0,
+              "kind": "exit"
+            },
+            "timing": {
+              "durationMs": 50,
+              "endedAtMs": 1250,
+              "startedAtMs": 1200
+            },
+            "trace": {
+              "artifact": {
+                "byteLength": 750,
+                "locator": {
+                  "bucket": "candidate-test-artifacts",
+                  "key": "trace/3d68a2563c8e0fad81d134e751fe8a6d8a715ba73228c94c7cd0a2fb729186d4",
+                  "kind": "s3"
+                },
+                "sha256": "sha256:3d68a2563c8e0fad81d134e751fe8a6d8a715ba73228c94c7cd0a2fb729186d4"
+              },
+              "eventCount": 1,
+              "modelCallCount": 0
+            }
+          }
+        }
+      }
+    ],
+    "metadata": {
+      "fixture": "agent-improvement-proposal",
+      "runtimeVersion": "0.101.1"
+    },
+    "objectives": [
+      {
+        "availability": "measured",
+        "baseline": 0,
+        "candidate": 1,
+        "confidenceInterval": {
+          "level": 0.95,
+          "lower": 1,
+          "method": "paired-bootstrap",
+          "resamples": 500,
+          "statistic": "mean",
+          "upper": 1
+        },
+        "delta": 1,
+        "direction": "higher-is-better",
+        "kind": "objective",
+        "n": 3,
+        "name": "benchmark-score",
+        "unit": "score"
+      },
+      {
+        "availability": "measured",
+        "baseline": 0,
+        "candidate": 1,
+        "confidenceInterval": {
+          "level": 0.95,
+          "lower": 1,
+          "method": "paired-bootstrap",
+          "resamples": 500,
+          "statistic": "mean",
+          "upper": 1
+        },
+        "delta": 1,
+        "direction": "higher-is-better",
+        "kind": "dimension",
+        "n": 3,
+        "name": "quality",
+        "objective": "benchmark-score",
+        "unit": "score"
+      },
+      {
+        "availability": "measured",
+        "baseline": 0,
+        "candidate": 0,
+        "confidenceInterval": {
+          "level": 0.95,
+          "lower": 0,
+          "method": "paired-bootstrap",
+          "resamples": 500,
+          "statistic": "mean",
+          "upper": 0
+        },
+        "delta": 0,
+        "direction": "lower-is-better",
+        "kind": "cost",
+        "n": 3,
+        "name": "cost",
+        "unit": "usd"
+      },
+      {
+        "availability": "measured",
+        "baseline": 50,
+        "candidate": 50,
+        "confidenceInterval": {
+          "level": 0.95,
+          "lower": 0,
+          "method": "paired-bootstrap",
+          "resamples": 500,
+          "statistic": "mean",
+          "upper": 0
+        },
+        "delta": 0,
+        "direction": "lower-is-better",
+        "kind": "latency",
+        "n": 3,
+        "name": "latency",
+        "unit": "milliseconds"
+      }
+    ],
+    "overall": {
+      "baseline": 0,
+      "candidate": 1,
+      "confidenceInterval": {
+        "level": 0.95,
+        "lower": 1,
+        "method": "paired-bootstrap",
+        "resamples": 500,
+        "statistic": "mean",
+        "upper": 1
+      },
+      "delta": 1,
+      "direction": "higher-is-better",
+      "n": 3,
+      "name": "composite",
+      "unit": "score"
+    },
+    "power": {
+      "confidenceLevel": 0.95,
+      "minimumDetectableDelta": 0,
+      "n": 3,
+      "reason": "Minimum detectable lift at n=3: 0.000 (baseline sd 0.000). Effects smaller than this cannot clear the gate; budget the search for effects you believe exceed it. Holdout and gate share one scoring channel: raising n/reps reduces only idiosyncratic noise — systematic judge bias remains and this MDE is a lower bound. Full debiasing needs an independent second scoring channel (different judge/benchmark family).",
+      "scaleAssumed": true,
+      "sharedScorerChannel": true,
+      "sufficient": true
+    },
+    "provenance": {
+      "baselineContentHash": "sha256:90b1cc05f0d389d95d856ad6fb3da6e0f0e382a10cfd1fdf4f778a56c56a0079",
+      "candidateContentHash": "sha256:406857e8226d46490a1ff07453439dcdb71bfaed26f87ed0ed4e42b3b5c83b79",
+      "kind": "agent-eval-loop",
+      "recordDigest": "sha256:6ee245f7c24f0a28c8f169bc2fef2d85db9dec9e66eff078798993be20885bb3",
+      "runId": "agent-runtime-0.101.1-proposal-fixture",
+      "schema": "agent-candidate-experiment"
+    }
+  },
+  "findings": [
+    {
+      "analyst_id": "runtime-testing-fixture",
+      "area": "prompt",
+      "claim": "The baseline omits the exact measured answer.",
+      "confidence": 0.9,
+      "evidence_refs": [
+        {
+          "id": "runtime-testing-fixture-span",
+          "kind": "span"
+        }
+      ],
+      "finding_id": "runtime-testing-fixture-finding",
+      "produced_at": "2026-07-10T00:30:00.000Z",
+      "recommended_action": "Return the exact measured answer.",
+      "schema_version": "1.0.0",
+      "severity": "high",
+      "subject": "agent-profile:prompt.systemPrompt"
+    }
+  ],
+  "kind": "agent-improvement-proposal",
+  "proposedAt": "2026-07-10T01:00:00.000Z",
+  "runId": "agent-runtime-0.101.1-proposal-fixture"
+}

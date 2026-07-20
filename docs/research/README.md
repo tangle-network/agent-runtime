@@ -8,21 +8,23 @@ is NOT canonical** — on any architecture conflict `../architecture.md` wins, a
 science state (every measured result, the current goal) is `.evolve/current.json`, not here.
 Promotions into the spine happen explicitly, with `file:line` anchors, once a design ships.
 
-**Start here:** [`rsi-atom-masterplan.md`](./rsi-atom-masterplan.md) is the single source of
-truth for the decided architecture + the build tracker; `.evolve/current.json` is the live
-evidence ledger.
+**Start here:** [`../agent-managed-compute/README.md`](../agent-managed-compute/README.md) is
+the active audit and implementation plan for distributed execution, recovery, provider-backed
+workers, and run-API convergence.
+`.evolve/current.json` remains the live evidence ledger for experiments.
+The research files below are source history and focused design inputs, not competing build plans.
 
 ## Live docs
 
 | Doc | What it holds |
 |-----|---------------|
-| [rsi-atom-masterplan.md](./rsi-atom-masterplan.md) | **SSOT.** The decided self-designing-atom architecture + the checklist to a clean, deduplicated, properly-layered build; every item names its file + the gate that proves it. |
+| [rsi-atom-masterplan.md](./rsi-atom-masterplan.md) | Historical self-designing-atom plan. Distributed execution work is superseded by `agent-managed-compute/`. |
 | [optimization-space.md](./optimization-space.md) | The 6-axis optimization taxonomy + canon-compatibility audit (the portfolio map the canonical spine references). Per-layer evidence now lives in `.evolve/current.json`. |
 | [leapfrog-program.md](./leapfrog-program.md) | The research program's honest formal core (v2 — breakthrough framing retracted; what survived). |
 | [belief-state-learner-spec.md](./belief-state-learner-spec.md) | **Gated (BUILD-ON-GREEN).** The belief-state / program-synthesis learner spec — its design, not a build order; waits on a positive deployable-selector gate. |
 | [belief-agent-research-agenda.md](./belief-agent-research-agenda.md) | **Gated.** Research agenda for the recursive/belief-state agent (7 lenses → ranked agenda), grounded against the gate result. |
 | [harness-compat.md](./harness-compat.md) | Harness × capability matrix — what a driver can actually steer per harness. |
-| [long-horizon-agent-map.md](./long-horizon-agent-map.md) | The long-horizon steered-agent product — map + decisions. |
+| [long-horizon-agent-map.md](./long-horizon-agent-map.md) | Historical long-horizon product map and design input. |
 | [atom-compression-plan.md](./atom-compression-plan.md) | The self-designing atom's cut-list + build-list (feeds the deep-clean). |
 | [loop-facade-postmortem.md](./loop-facade-postmortem.md) | **Active guardrail.** Failure record for the deleted `defineLoop` facade + the prevention rule. |
 | [environment-provider-adapter-spec.md](./environment-provider-adapter-spec.md) | Generic environment provider adapter spec: what to lift from sandbox SDK, cli-bridge, runtime routing, and profile execution so third-party compute/sandbox providers can plug in. |
