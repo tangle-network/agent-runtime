@@ -61,6 +61,8 @@ export type AgentImprovementProfileActivationPreparation =
  * Compare product-owned profiles with an exact measured transition and prepare
  * the all-or-none replacements. The caller owns locking, persistence, and the
  * durable activation receipt; this function owns profile semantics only.
+ * Profiles stay in product-owned stores, so this returns replacements instead
+ * of owning the transition callbacks used by Runtime-owned knowledge stores.
  */
 export function prepareAgentImprovementProfileActivation(input: {
   currentByIdentity: ReadonlyMap<string, AgentProfile>

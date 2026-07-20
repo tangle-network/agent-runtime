@@ -2938,7 +2938,7 @@ Defined in: [intelligence/index.ts:451](https://github.com/tangle-network/agent-
 
 ### AgentImprovementProfileReplacement
 
-Defined in: intelligence/profile-activation.ts:37
+Defined in: [intelligence/profile-activation.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/profile-activation.ts#L37)
 
 #### Properties
 
@@ -2946,13 +2946,13 @@ Defined in: intelligence/profile-activation.ts:37
 
 > **identity**: `string`
 
-Defined in: intelligence/profile-activation.ts:38
+Defined in: [intelligence/profile-activation.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/profile-activation.ts#L38)
 
 ##### profile
 
 > **profile**: `AgentProfile`
 
-Defined in: intelligence/profile-activation.ts:39
+Defined in: [intelligence/profile-activation.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/profile-activation.ts#L39)
 
 ***
 
@@ -3880,7 +3880,7 @@ Usage class for billing. Base-stream tokens bill `'inference'`; every
 
 > **AgentImprovementProfileActivationTarget** = `Omit`\<[`AgentImprovementActivationTargetPlan`](#agentimprovementactivationtargetplan), `"surface"`\> & `object`
 
-Defined in: intelligence/profile-activation.ts:20
+Defined in: [intelligence/profile-activation.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/profile-activation.ts#L20)
 
 #### Type Declaration
 
@@ -3894,7 +3894,7 @@ Defined in: intelligence/profile-activation.ts:20
 
 > **AgentImprovementProfileTargetState** = `Omit`\<`AgentImprovementActivationTargetState`, `"surface"`\> & `object`
 
-Defined in: intelligence/profile-activation.ts:27
+Defined in: [intelligence/profile-activation.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/profile-activation.ts#L27)
 
 #### Type Declaration
 
@@ -3908,7 +3908,7 @@ Defined in: intelligence/profile-activation.ts:27
 
 > **AgentImprovementProfileTargetTransition** = `Omit`\<`AgentImprovementActivationTargetTransition`, `"surface"`\> & `object`
 
-Defined in: intelligence/profile-activation.ts:32
+Defined in: [intelligence/profile-activation.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/profile-activation.ts#L32)
 
 #### Type Declaration
 
@@ -3922,7 +3922,7 @@ Defined in: intelligence/profile-activation.ts:32
 
 > **AgentImprovementProfileActivationPreparation** = \{ `status`: `"missing"`; `identities`: readonly `string`[]; \} \| \{ `status`: `"already-applied"` \| `"conflict"`; `targets`: \[[`AgentImprovementProfileTargetState`](#agentimprovementprofiletargetstate), `...AgentImprovementProfileTargetState[]`\]; \} \| \{ `status`: `"apply"`; `replacements`: \[[`AgentImprovementProfileReplacement`](#agentimprovementprofilereplacement), `...AgentImprovementProfileReplacement[]`\]; `targets`: \[[`AgentImprovementProfileTargetTransition`](#agentimprovementprofiletargettransition), `...AgentImprovementProfileTargetTransition[]`\]; \}
 
-Defined in: intelligence/profile-activation.ts:42
+Defined in: [intelligence/profile-activation.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/profile-activation.ts#L42)
 
 ***
 
@@ -4817,11 +4817,13 @@ and best-effort export must never spam an unauthenticated plane).
 
 > **prepareAgentImprovementProfileActivation**(`input`): [`AgentImprovementProfileActivationPreparation`](#agentimprovementprofileactivationpreparation)
 
-Defined in: intelligence/profile-activation.ts:65
+Defined in: [intelligence/profile-activation.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/profile-activation.ts#L67)
 
 Compare product-owned profiles with an exact measured transition and prepare
 the all-or-none replacements. The caller owns locking, persistence, and the
 durable activation receipt; this function owns profile semantics only.
+Profiles stay in product-owned stores, so this returns replacements instead
+of owning the transition callbacks used by Runtime-owned knowledge stores.
 
 #### Parameters
 
