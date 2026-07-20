@@ -142,11 +142,15 @@ try {
     `
       import type {
         AgentCandidateProfileActivation,
+        AgentProfile,
         CandidateExecutionEvidence,
+        Sha256Digest,
       } from '@tangle-network/agent-interface'
       import { SandboxClient } from '@tangle-network/sandbox'
       import {
         createSandboxCandidateExperimentExecutor,
+        agentImprovementProfileSurfaceDigest,
+        agentImprovementProfileSurfaceInput,
         agentImprovementTargetProfileDiffs,
         isAgentImprovementProfileSurface,
         parseCandidateProfileMaterialization,
@@ -172,6 +176,7 @@ try {
       declare const verification: VerifyCandidateExecutionEvidenceOptions
       declare const storedEvidence: unknown
       declare const transitionInput: AgentImprovementActivationTransitionInput
+      declare const activeProfile: AgentProfile
 
       const executor = createSandboxCandidateExperimentExecutor({
         client,
@@ -190,6 +195,11 @@ try {
         )
       const outcome: 'output' = sandboxCandidateExperimentExecutionSupport.outcomes[0]
       const desiredInput: unknown = transitionInput.targets[0].desiredInput
+      const currentInput: unknown = agentImprovementProfileSurfaceInput(activeProfile, 'prompt')
+      const currentDigest: Sha256Digest = agentImprovementProfileSurfaceDigest(
+        activeProfile,
+        'prompt',
+      )
       const profileDiffs = isAgentImprovementProfileSurface(transitionInput.targets[0].surface)
         ? agentImprovementTargetProfileDiffs(
             {
@@ -203,6 +213,8 @@ try {
       void activation
       void outcome
       void desiredInput
+      void currentInput
+      void currentDigest
       void profileDiffs
     `,
   )
@@ -270,6 +282,8 @@ try {
           'manifestFromProfile',
           'CapabilityNotAdmittedError',
           'createSandboxCandidateExperimentExecutor',
+          'agentImprovementProfileSurfaceDigest',
+          'agentImprovementProfileSurfaceInput',
           'createAgentImprovementActivation',
           'createAgentImprovementActivationResult',
           'executeAgentImprovementActivation',

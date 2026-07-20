@@ -154,6 +154,8 @@ export type {
 } from './improvement-surfaces'
 export {
   AGENT_IMPROVEMENT_PROFILE_SURFACES,
+  agentImprovementProfileSurfaceDigest,
+  agentImprovementProfileSurfaceInput,
   agentImprovementTargetProfileDiffs,
   buildAgentImprovementActivationTargets,
   isAgentImprovementProfileSurface,

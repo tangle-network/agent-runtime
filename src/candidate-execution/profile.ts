@@ -310,7 +310,7 @@ export function agentCandidateProfileAsAgentProfile(
   return output as AgentProfile
 }
 
-function omitUndefinedObjectFields(value: unknown, path: string): unknown {
+export function omitUndefinedObjectFields(value: unknown, path: string): unknown {
   if (Array.isArray(value)) {
     return value.map((entry, index) => {
       if (entry === undefined) {
