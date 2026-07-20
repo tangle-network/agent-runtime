@@ -160,6 +160,14 @@ export {
   buildAgentImprovementActivationTargets,
   isAgentImprovementProfileSurface,
 } from './improvement-surfaces'
+export type {
+  AgentImprovementProfileActivationPreparation,
+  AgentImprovementProfileActivationTarget,
+  AgentImprovementProfileReplacement,
+  AgentImprovementProfileTargetState,
+  AgentImprovementProfileTargetTransition,
+} from './profile-activation'
+export { prepareAgentImprovementProfileActivation } from './profile-activation'
 export type { Redactor } from './redact'
 export { defaultRedactor, resolveRedactor } from './redact'
 export type { ProvisionedHost, ResolveCtx } from './resolver'
