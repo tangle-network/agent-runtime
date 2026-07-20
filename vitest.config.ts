@@ -12,6 +12,10 @@ export default defineConfig({
         find: /^@tangle-network\/agent-runtime\/loops$/,
         replacement: resolve(__dirname, 'src/runtime/index.ts'),
       },
+      {
+        find: /^@tangle-network\/agent-runtime\/testing$/,
+        replacement: resolve(__dirname, 'src/testing/index.ts'),
+      },
     ],
   },
   test: {

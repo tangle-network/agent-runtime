@@ -19,3 +19,4 @@
 - [profiles](profiles.md)
 - [runtime/environment-provider](runtime/environment-provider.md)
 - [runtime](runtime.md)
+- [testing](testing.md)

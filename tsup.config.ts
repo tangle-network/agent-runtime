@@ -14,6 +14,7 @@ export default defineConfig({
     platform: 'src/platform/index.ts',
     'primeintellect/index': 'src/primeintellect/index.ts',
     'candidate-execution/index': 'src/candidate-execution/index.ts',
+    testing: 'src/testing/index.ts',
     'mcp/index': 'src/mcp/index.ts',
     'mcp/bin': 'src/mcp/bin.ts',
     'loop-runner-bin': 'src/loop-runner-bin.ts',

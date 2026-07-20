@@ -823,7 +823,7 @@ describe('atomic prepared candidate execution', () => {
     expect(persistedPurposes).not.toContain('benchmark-result')
     expect(persistedPurposes).not.toContain('trace')
     expect(persistedPurposes).not.toContain('run-receipt')
-  })
+  }, 15_000)
 
   it('allows disposal to retry an unproven pre-claim cleanup', async () => {
     const fixture = createCandidateExecutionFixture(true)

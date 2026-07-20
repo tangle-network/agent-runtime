@@ -47,6 +47,7 @@ try {
     './platform',
     './primeintellect',
     './candidate-execution',
+    './testing',
     './mcp',
   ]
   for (const subpath of requiredSubpaths) {
@@ -143,11 +144,13 @@ try {
       import type {
         AgentCandidateProfileActivation,
         AgentImprovementActivationOutcome,
+        AgentImprovementProposal,
         AgentProfile,
         CandidateExecutionEvidence,
         Sha256Digest,
       } from '@tangle-network/agent-interface'
       import { SandboxClient } from '@tangle-network/sandbox'
+      import { loadAgentImprovementProposalFixture } from '@tangle-network/agent-runtime/testing'
       import {
         createSandboxCandidateExperimentExecutor,
         agentImprovementProfileSurfaceDigest,
@@ -179,6 +182,7 @@ try {
       declare const storedEvidence: unknown
       declare const transitionInput: AgentImprovementActivationTransitionInput
       declare const activeProfile: AgentProfile
+      const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
 
       const executor = createSandboxCandidateExperimentExecutor({
         client,
@@ -246,6 +250,7 @@ try {
       void currentInput
       void currentDigest
       void profileDiffs
+      void proposalFixture
     `,
   )
   run('pnpm', ['install', '--config.auto-install-peers=false'], appDir)
@@ -331,6 +336,9 @@ try {
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
         }
+        if ('loadAgentImprovementProposalFixture' in intelligence) {
+          throw new Error('testing fixture leaked into the intelligence entrypoint')
+        }
       `,
     ],
     appDir,
@@ -345,6 +353,9 @@ try {
         for (const name of ['improve']) {
           if (typeof runtime[name] !== 'function') throw new Error('missing improvement export ' + name)
         }
+        if ('loadAgentImprovementProposalFixture' in runtime) {
+          throw new Error('testing fixture leaked into the production root entrypoint')
+        }
         const knowledge = await import('@tangle-network/agent-runtime/knowledge')
         for (const name of [
           'buildKnowledgeImprovementExperimentBundles',
@@ -352,6 +363,30 @@ try {
           'runKnowledgeImprovementJob',
         ]) {
           if (typeof knowledge[name] !== 'function') throw new Error('missing knowledge export ' + name)
+        }
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const testing = await import('@tangle-network/agent-runtime/testing')
+        const names = Object.keys(testing)
+        if (
+          names.length !== 1 ||
+          names[0] !== 'loadAgentImprovementProposalFixture' ||
+          typeof testing.loadAgentImprovementProposalFixture !== 'function'
+        ) {
+          throw new Error('testing entrypoint must export only the proposal fixture loader')
+        }
+        const first = testing.loadAgentImprovementProposalFixture()
+        const second = testing.loadAgentImprovementProposalFixture()
+        if (first === second || first.evaluation === second.evaluation) {
+          throw new Error('testing fixture loader did not return an isolated clone')
         }
       `,
     ],
