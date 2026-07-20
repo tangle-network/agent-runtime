@@ -1,0 +1,42 @@
+{
+ "astropy__astropy-13033": {
+  "worker_sessions": 3,
+  "worker_tok": 180000
+ },
+ "django__django-11532": {
+  "worker_sessions": 4,
+  "worker_tok": 287038
+ },
+ "matplotlib__matplotlib-20826": {
+  "worker_sessions": 3,
+  "worker_tok": 242121
+ },
+ "pallets__flask-5014": {
+  "worker_sessions": 1,
+  "worker_tok": 46737
+ },
+ "psf__requests-1766": {
+  "worker_sessions": 2,
+  "worker_tok": 67541
+ },
+ "psf__requests-2317": {
+  "worker_sessions": 1,
+  "worker_tok": 57555
+ },
+ "psf__requests-2931": {
+  "worker_sessions": 2,
+  "worker_tok": 124545
+ },
+ "pydata__xarray-4687": {
+  "worker_sessions": 1,
+  "worker_tok": 64243
+ },
+ "sympy__sympy-14976": {
+  "worker_sessions": 1,
+  "worker_tok": 55937
+ },
+ "sympy__sympy-23534": {
+  "worker_sessions": 1,
+  "worker_tok": 36119
+ }
+}

@@ -20,9 +20,9 @@
     "find-lift": "tsx src/find-lift-swe.mts"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.106.3",
+    "@tangle-network/agent-eval": "file:/home/drew/code/agent-eval",
     "@tangle-network/agent-knowledge": "^1.11.1",
-    "@tangle-network/agent-runtime": "^0.89.0",
+    "@tangle-network/agent-runtime": "file:/home/drew/code/agent-runtime",
     "@tangle-network/sandbox": "^0.9.7"
   },
   "devDependencies": {

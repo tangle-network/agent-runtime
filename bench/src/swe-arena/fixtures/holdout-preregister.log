@@ -1,0 +1,12 @@
+2026-07-15T15:12:05Z PREREGISTER holdout candidate=astropy__astropy-14182 loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb status=selected-before-any-arm-run
+2026-07-15T15:12:05Z PREREGISTER holdout candidate=django__django-12774 loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb status=selected-before-any-arm-run
+2026-07-15T15:12:05Z PREREGISTER holdout candidate=django__django-14140 loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb status=selected-before-any-arm-run
+2026-07-15T15:12:05Z PREREGISTER holdout candidate=scikit-learn__scikit-learn-14894 loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb status=selected-before-any-arm-run
+2026-07-15T15:12:05Z PREREGISTER holdout candidate=sympy__sympy-20438 loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb status=selected-before-any-arm-run
+2026-07-15T15:12:05Z PREREGISTER holdout candidate=pytest-dev__pytest-7236 loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb status=selected-before-any-arm-run
+2026-07-15T15:20:29Z REGISTERED holdout iid=astropy__astropy-14182 gold_official_resolved=true verify_calibrated=true loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb
+2026-07-15T15:20:29Z REGISTERED holdout iid=django__django-12774 gold_official_resolved=true verify_calibrated=true loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb
+2026-07-15T15:20:29Z REGISTERED holdout iid=django__django-14140 gold_official_resolved=true verify_calibrated=true loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb
+2026-07-15T15:20:29Z REGISTERED holdout iid=scikit-learn__scikit-learn-14894 gold_official_resolved=true verify_calibrated=true loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb
+2026-07-15T15:20:29Z REGISTERED holdout iid=sympy__sympy-20438 gold_official_resolved=true verify_calibrated=true loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb
+2026-07-15T15:20:29Z REGISTERED holdout iid=pytest-dev__pytest-7236 gold_official_resolved=true verify_calibrated=true loops_head=4a06fc54bd180789d1402c843a63ed245df9f8eb
