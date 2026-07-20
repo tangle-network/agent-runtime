@@ -13,8 +13,11 @@ import {
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 
-import { canonicalCandidateDigest } from '../candidate-execution/digest'
-import { agentCandidateProfileAsAgentProfile } from '../candidate-execution/profile'
+import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
+import {
+  agentCandidateProfileAsAgentProfile,
+  parseExactAgentProfile,
+} from '../candidate-execution/profile'
 
 const changedSurfaceOrder: readonly AgentImprovementSurface[] = [
   'prompt',
@@ -144,6 +147,31 @@ export function isAgentImprovementProfileSurface(
  * same profile inside a candidate bundle.
  */
 export function agentImprovementProfileSurfaceInput(
+  profile: AgentProfile,
+  surface: AgentImprovementProfileSurface,
+): unknown {
+  const parsed = parseExactAgentProfile(omitOptionalUndefined(profile), 'agent improvement profile')
+  return immutableCandidateValue(profileSurfaceInput(parsed, surface))
+}
+
+function omitOptionalUndefined(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => {
+      if (entry === undefined) {
+        throw new Error('agent improvement profile contains an undefined array entry')
+      }
+      return omitOptionalUndefined(entry)
+    })
+  }
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [key, omitOptionalUndefined(entry)]),
+  )
+}
+
+function profileSurfaceInput(
   profile: AgentProfile,
   surface: AgentImprovementProfileSurface,
 ): unknown {

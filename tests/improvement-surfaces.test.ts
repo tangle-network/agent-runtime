@@ -1,5 +1,6 @@
 import {
   type AgentProfile,
+  agentProfileSchema,
   applyAgentProfileDiff,
   defineInlineResource,
 } from '@tangle-network/agent-interface'
@@ -136,6 +137,42 @@ describe('agent improvement profile delivery', () => {
     }
   })
 
+  it('returns a detached, deeply frozen surface value', () => {
+    const profile: AgentProfile = {
+      name: 'support-agent',
+      prompt: {
+        systemPrompt: 'Original prompt',
+        instructions: ['Original instruction'],
+      },
+    }
+    const input = agentImprovementProfileSurfaceInput(profile, 'prompt') as {
+      prompt: { systemPrompt: string; instructions: string[] }
+    }
+
+    expect(Object.isFrozen(input)).toBe(true)
+    expect(Object.isFrozen(input.prompt)).toBe(true)
+    expect(Object.isFrozen(input.prompt.instructions)).toBe(true)
+    expect(() => {
+      input.prompt.instructions.push('Mutation')
+    }).toThrow()
+    expect(profile.prompt?.instructions).toEqual(['Original instruction'])
+  })
+
+  it('rejects malformed or non-canonical profiles before extraction or hashing', () => {
+    const profile = {
+      name: 'support-agent',
+      prompt: { systemPrompt: 'Measured prompt' },
+      unsupported: true,
+    } as unknown as AgentProfile
+
+    expect(() => agentImprovementProfileSurfaceInput(profile, 'prompt')).toThrow(
+      /unsupported or non-canonical fields/,
+    )
+    expect(() => agentImprovementProfileSurfaceDigest(profile, 'prompt')).toThrow(
+      /unsupported or non-canonical fields/,
+    )
+  })
+
   it('handles each independently absent tool and subagent slot', () => {
     const toolResource = defineInlineResource('read.tool.md', 'Use Read')
     const agentResource = defineInlineResource('reviewer.md', 'Review instructions')
@@ -181,10 +218,12 @@ describe('agent improvement profile delivery', () => {
       expect(agentImprovementProfileSurfaceDigest(entry.profile, entry.surface)).toBe(
         canonicalCandidateDigest(entry.expected),
       )
-      const applied = agentImprovementTargetProfileDiffs(
-        { surface: entry.surface, desiredInput: currentInput },
-        { id: 'activation' },
-      ).reduce((profile, diff) => applyAgentProfileDiff(profile, diff), active)
+      const applied = agentProfileSchema.parse(
+        agentImprovementTargetProfileDiffs(
+          { surface: entry.surface, desiredInput: currentInput },
+          { id: 'activation' },
+        ).reduce((profile, diff) => applyAgentProfileDiff(profile, diff), active),
+      ) as AgentProfile
       expect(agentImprovementProfileSurfaceInput(applied, entry.surface)).toEqual(entry.expected)
     }
   })
