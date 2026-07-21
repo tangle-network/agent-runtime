@@ -30,7 +30,6 @@ import {
   changeSpaceViolations,
   decideVerdict,
   defaultRound4Config,
-  instanceRunKey,
   isPidAlive,
   normalizeRepoPath,
   parseStaircaseRow,
@@ -181,6 +180,7 @@ describe('staircase row schema', () => {
         spentTokens: 54623,
         recoveredTokens: 61000,
         judgeAttempts: 1,
+        costUsd: 0.12,
       },
     ],
     resolvedCount: 2,
@@ -328,10 +328,6 @@ describe('replicate semantics (repsPerInstance)', () => {
     expect(replicateCoverageComplete(full.slice(1), iids, 2)).toBe(false)
     const inconclusive = [...full.slice(0, 5), run('c', null)]
     expect(replicateCoverageComplete(inconclusive, iids, 2)).toBe(false)
-  })
-
-  it('instanceRunKey separates replicate cells of the same instance', () => {
-    expect(instanceRunKey('django__django-11532', 0)).not.toBe(instanceRunKey('django__django-11532', 1))
   })
 })
 

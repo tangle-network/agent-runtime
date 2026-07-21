@@ -237,14 +237,14 @@ describe('arms: cost recovery (true_sup_spend.py + opencode sqlite join)', () =>
     db.close()
 
     const spend = await recoverSupSpend(supRunDir, { opencodeDb: dbPath })
-    expect(spend.brainIn).toBe(1500)
-    expect(spend.brainOut).toBe(300)
-    expect(spend.brainTotal).toBe(1800)
-    expect(spend.brainUsd).toBe(0.015)
-    expect(spend.brainEvents).toBe(2)
+    // Brain/driver spend is NOT re-parsed from journal metered events anymore:
+    // the supervise runtime's spend tree reaches state.json on both result
+    // arms (parseSupervisorArtifacts carries it). Worker recovery only here.
     expect(spend.workerTokJournal).toBe(42)
     expect(spend.workerCwds).toEqual(['/tmp/loops-w-0-TESTAA'])
     expect(spend.workerSessions).toBe(1)
+    expect(spend.workerTokIn).toBe(40000)
+    expect(spend.workerTokOut).toBe(6737)
     expect(spend.workerTokSqlite).toBe(46737) // flask-5014's real worker number, by construction
   })
 
