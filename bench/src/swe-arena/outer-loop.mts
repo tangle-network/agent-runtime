@@ -27,11 +27,29 @@
  *      extension path at it (armProvenance records the commit), runs the
  *      3-instance improvement set through arms.ts + the serialized official
  *      judge. Score = resolved count; cost guard = wall ratio vs baseline.
- *  (d) ACCEPT/REJECT — keep-if-better per protocol_v2. The promotion gate
- *      NEVER ships: the pre-registered 6-instance holdout costs real money and
- *      runs only with explicit operator approval, so a would-be KEEP is
- *      reported as `hold` + instructions. Every candidate + verdict persists
- *      as staircase rows in `<roundsDir>/gen-<N>.jsonl`.
+ *  (d) ACCEPT/REJECT — keep-if-better per protocol_v2. The loop NEVER ships:
+ *      `budget.holdout: 'deferred'` makes the lib dispatch zero holdout
+ *      cells, force `hold`, and omit `lift` — the pre-registered 6-instance
+ *      holdout costs real money and runs only in a separate, operator-
+ *      approved run. The would-be-KEEP operator brief is computed post-run
+ *      from campaign cells; every candidate + verdict persists as staircase
+ *      rows in `<roundsDir>/gen-<N>.jsonl`.
+ *
+ * BASELINE: the gate's only denominator is the stored premeasured baseline
+ * artifact ({surfaceHash, campaign}) that the lib validates (surface hash,
+ * seed, reps, split digest, coverage) before skipping the baseline campaign.
+ * A missing artifact = the bootstrap run: the baseline is measured
+ * (cache-resumable) and the artifact written for every later run.
+ * capabilities.mts fails loud on a stale substrate install that would
+ * silently drop the passthrough.
+ *
+ * SCORING SOURCE: operator-brief evidence + staircase rows derive from the
+ * LIB's campaign cells (`improve()` result campaigns in memory; the per-cell
+ * `cached-result.json` caches on disk survive resume) — see cell-evidence.mts.
+ * The in-process RoundRecorder is dispatch-time only: fail-closed
+ * change-space enforcement + candidate diff writing. It is NOT a scoring
+ * source — that recorder role mislabeled a resumed run's baseline
+ * (r4-mroh3rkt) because cached cells replay without dispatching.
  *
  * Immutable per protocol_v2 (enforced, not advisory): judge + verify scripts,
  * task prompts, model ids, budgets. `assertFrozenArm` pins the arm to the
@@ -56,17 +74,35 @@ import {
 import { runLocalHarness } from '@tangle-network/agent-runtime/mcp'
 import { makeFinding } from '@tangle-network/agent-eval'
 import {
+  FsLabeledScenarioStore,
   surfaceHash,
+  type CampaignResult,
   type CodeSurface,
   type DispatchContext,
-  type Gate,
-  type GateResult,
   type JudgeConfig,
   type MutableSurface,
+  type PremeasuredOptimizationBaseline,
   type Scenario,
 } from '@tangle-network/agent-eval/campaign'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CostLedgerHandle } from '@tangle-network/agent-eval'
 import { createSweBenchAdapter } from '../benchmarks/swe-bench.ts'
+import {
+  baselineDriftWarnings,
+  cellsFromCampaign,
+  gateEvidenceFromCells,
+  instanceVerdictsFromCells,
+  loadCampaignCells,
+  perInstanceFromCells,
+  replicateCoverageComplete,
+  replicateRunsFromCells,
+  resolvedInstanceCount,
+  sumWallSFromCells,
+  decideVerdict,
+  type R4Artifact,
+  type StaircasePerInstance,
+  type StaircaseVerdict,
+} from './cell-evidence.mts'
+import { assertSubstratePassthroughs } from './capabilities.mts'
 import {
   loadExcludes,
   runSupervisorArm,
@@ -222,86 +258,30 @@ export async function runWithPostGateClock<T>(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Replicate semantics — repsPerInstance. Single-rep scoring provably flips
-// instance outcomes run-to-run (judge flake + capacity noise both observed),
-// so an instance counts RESOLVED only when EVERY replicate cell resolved (AND
-// — fail-closed for keep-if-better), and coverage requires every replicate of
-// every instance to hold a real boolean verdict.
+// Scoring primitives — replicate semantics, the pinned baseline, and the
+// protocol_v2 verdict — live in cell-evidence.mts (pure over lib campaign
+// cells). Re-exported here so existing consumers/tests keep one import home.
 // ---------------------------------------------------------------------------
 
-export interface ReplicateRun {
-  iid: string
-  resolved: boolean | null
-}
-
-/** Instances where ALL `reps` replicates resolved (missing replicates never count). */
-export function resolvedInstanceCount(runs: ReplicateRun[], iids: string[], reps: number): number {
-  let count = 0
-  for (const iid of iids) {
-    const mine = runs.filter((r) => r.iid === iid)
-    if (mine.length === reps && mine.every((r) => r.resolved === true)) count += 1
-  }
-  return count
-}
-
-/** Every instance has exactly `reps` replicates, each with a conclusive verdict. */
-export function replicateCoverageComplete(runs: ReplicateRun[], iids: string[], reps: number): boolean {
-  return iids.every((iid) => {
-    const mine = runs.filter((r) => r.iid === iid)
-    return mine.length === reps && mine.every((r) => r.resolved !== null)
-  })
-}
-
-// ---------------------------------------------------------------------------
-// Pinned baseline. The accept/reject gate compares candidates against a
-// MEASURED, reps-confirmed baseline pinned in config — never a per-run
-// recomputation. Root cause (r4-mroh3rkt): improve() resumes its campaign from
-// runDir, replaying cached baseline cells WITHOUT dispatching them, so the
-// in-process recorder saw a candidate first, mislabeled it as the baseline,
-// and graded "winner 0/3 vs baseline 0/3" while the measured baseline was 1/3.
-// The pin makes the gate's denominator immune to that whole failure class.
-// ---------------------------------------------------------------------------
-
-/** Fail-loud pinned resolved-count: every improvement-set instance must carry a
- *  pinned boolean, and every pinned iid must be in the improvement set. */
-export function pinnedBaselineResolvedCount(pin: Record<string, boolean>, iids: string[]): number {
-  const missing = iids.filter((iid) => typeof pin[iid] !== 'boolean')
-  if (missing.length > 0) {
-    throw new Error(`pinnedBaseline: missing boolean verdict for ${missing.join(', ')}`)
-  }
-  const unknown = Object.keys(pin).filter((iid) => !iids.includes(iid))
-  if (unknown.length > 0) {
-    throw new Error(`pinnedBaseline: unknown instance(s) not in the improvement set: ${unknown.join(', ')}`)
-  }
-  return iids.filter((iid) => pin[iid] === true).length
-}
-
-/** Per-instance contradictions between the pin and a run's OWN baseline cells.
- *  Only instances with full-reps, conclusive coverage in the run are compared —
- *  a partial baseline record has no AND-verdict to contradict the pin with.
- *  The caller logs these loud and STILL uses the pin. */
-export function baselineDriftWarnings(
-  pin: Record<string, boolean>,
-  runs: ReplicateRun[],
-  iids: string[],
-  reps: number,
-): string[] {
-  const warnings: string[] = []
-  for (const iid of iids) {
-    const pinned = pin[iid]
-    if (typeof pinned !== 'boolean') continue
-    const mine = runs.filter((r) => r.iid === iid)
-    if (mine.length !== reps || mine.some((r) => r.resolved === null)) continue
-    const measured = mine.every((r) => r.resolved === true)
-    if (measured !== pinned) {
-      warnings.push(
-        `${iid}: pinned=${pinned} but this run's baseline cells measured ${measured} ` +
-          `(reps: ${mine.map((r) => String(r.resolved)).join('/')}) — gate uses the PIN`,
-      )
-    }
-  }
-  return warnings
-}
+export {
+  baselineDriftWarnings,
+  cellsFromCampaign,
+  decideVerdict,
+  gateEvidenceFromCells,
+  instanceVerdictsFromCells,
+  loadCampaignCells,
+  loadCandidateCellGroups,
+  perInstanceFromCells,
+  replicateCoverageComplete,
+  replicateRunsFromCells,
+  resolvedInstanceCount,
+  sumWallSFromCells,
+  type EvidenceCell,
+  type R4Artifact,
+  type ReplicateRun,
+  type StaircasePerInstance,
+  type StaircaseVerdict,
+} from './cell-evidence.mts'
 
 // ---------------------------------------------------------------------------
 // Launch guards. (a) The arms + judge + proposer all die confusingly hours in
@@ -378,27 +358,6 @@ export async function acquireInstanceLock(outDir: string, pid: number = process.
 
 export const STAIRCASE_SCHEMA = 'swe-arena.staircase.v1'
 
-export type StaircaseVerdict =
-  | 'accepted'
-  | 'rejected-no-gain'
-  | 'rejected-cost'
-  | 'rejected-out-of-space'
-  | 'rejected-incomplete'
-
-export interface StaircasePerInstance {
-  iid: string
-  /** Replicate index (0-based) — repsPerInstance cells per instance. */
-  rep: number
-  resolved: boolean | null
-  verify_pass: boolean | null
-  patch_lines: number | null
-  wall_s: number | null
-  spentTokens: number | null
-  recoveredTokens: number | null
-  judgeAttempts: number | null
-  error?: string
-}
-
 export interface StaircaseRow {
   schema: typeof STAIRCASE_SCHEMA
   round: number
@@ -432,23 +391,6 @@ export interface StaircaseRow {
   armProvenance: { repo: string; commit: string } | null
   diffPath: string | null
   diffSha256: string | null
-}
-
-/** protocol_v2 keep-if-better: improvement-set resolved-count must RISE and
- *  cost must stay within the guard. Fail-closed on unprovable cost. */
-export function decideVerdict(input: {
-  violations: string[]
-  coverageComplete: boolean
-  resolvedCount: number
-  parentResolvedCount: number
-  costRatio: number | null
-  costGuardRatio: number
-}): StaircaseVerdict {
-  if (input.violations.length > 0) return 'rejected-out-of-space'
-  if (!input.coverageComplete) return 'rejected-incomplete'
-  if (input.resolvedCount <= input.parentResolvedCount) return 'rejected-no-gain'
-  if (input.costRatio === null || input.costRatio > input.costGuardRatio) return 'rejected-cost'
-  return 'accepted'
 }
 
 const STAIRCASE_VERDICTS: ReadonlySet<string> = new Set([
@@ -548,14 +490,17 @@ export interface OuterLoopConfig {
    *  resolved only when ALL replicates resolve (see resolvedInstanceCount) —
    *  single-rep scoring flips instance outcomes run-to-run. */
   repsPerInstance?: number
-  /** MEASURED baseline verdicts (iid → reps-confirmed resolved bool) the
-   *  accept/reject gate compares candidates against — never a per-run
-   *  recomputation (see pinnedBaselineResolvedCount). When a run's own
-   *  baseline cells contradict the pin, a loud BASELINE-DRIFT warning is
-   *  logged with both values and the pin still wins. */
-  pinnedBaseline?: Record<string, boolean>
-  /** DEPTH for the agentic generator (selfImprove does not thread
-   *  maxImprovementShots, so the constrained generator applies this itself). */
+  /** Stored `PremeasuredOptimizationBaseline` JSON ({surfaceHash, campaign})
+   *  from a prior run's baseline campaign — REQUIRED, the gate's only
+   *  denominator. The LIB validates the artifact (surface hash, seed, reps,
+   *  split digest, coverage) before skipping the baseline campaign, so a
+   *  wrong artifact fails loud at t≈0. BOOTSTRAP: when the file does not
+   *  exist yet, this run MEASURES the baseline (cache-resumable) and WRITES
+   *  the artifact here for every later run to consume. */
+  premeasuredBaselinePath: string
+  /** DEPTH for the agentic generator — forwarded as
+   *  budget.maxImprovementShots; the LIB owns the dial (capabilities.mts
+   *  fails loud on a substrate that would drop it). */
   maxShots: number
   proposerHarness: 'claude' | 'codex' | 'opencode'
   proposerTimeoutMs: number
@@ -616,13 +561,10 @@ export function defaultRound4Config(
     generations: 1,
     populationSize: 2,
     repsPerInstance: 2,
-    // Reps-confirmed gen-1 baseline (arm 1deb554c45, run r4-mrnts1n4):
-    // astropy F/F, django T/F → F fail-closed, matplotlib T/T. 1/3.
-    pinnedBaseline: {
-      'astropy__astropy-13033': false,
-      'django__django-11532': false,
-      'matplotlib__matplotlib-20826': true,
-    },
+    // The reps-confirmed baseline artifact (gen-1 measured: astropy F/F,
+    // django T/F → F fail-closed, matplotlib T/T = 1/3) lives here once the
+    // bootstrap run writes it; the lib validates it on every consumption.
+    premeasuredBaselinePath: join(hh, 'r4', 'premeasured-baseline.json'),
     maxShots: 3,
     proposerHarness: 'claude',
     // Per author SHOT (agenticGenerator timeoutMs). 20 min timed out 3× under
@@ -642,24 +584,14 @@ export function defaultRound4Config(
 }
 
 // ---------------------------------------------------------------------------
-// Round recorder — per-candidate ground truth the gate + staircase read.
+// Round recorder — dispatch-time change-space fail-closed + diff writing ONLY.
+// NOT a scoring source: scoring reads the lib's campaign cells
+// (cell-evidence.mts). The prior recorder role — accumulating per-instance
+// results keyed by dispatch order — mislabeled a resumed run's baseline
+// (r4-mroh3rkt: cached cells replay without dispatching, so "first dispatched
+// surface" was a CANDIDATE and the summary published its cells as
+// "baseline 0/3" while the measured baseline was 1/3).
 // ---------------------------------------------------------------------------
-
-interface InstanceRun {
-  iid: string
-  /** Replicate index (0-based, from the campaign's ctx.rep). */
-  rep: number
-  runDir: string
-  resolved: boolean | null
-  verify_pass: boolean | null
-  patch_lines: number | null
-  wall_s: number | null
-  spentTokens: number | null
-  recoveredTokens: number | null
-  judgeAttempts: number | null
-  patchPath?: string
-  error?: string
-}
 
 interface CandidateRecord {
   surfaceKey: string
@@ -670,17 +602,14 @@ interface CandidateRecord {
   violations: string[]
   diffPath: string | null
   diffSha256: string | null
-  /** Keyed `${iid}#r${rep}` — one entry per replicate cell. */
-  instances: Map<string, InstanceRun>
+  /** Dispatch-time forensics: which loops checkout ran the arm. Null for a
+   *  candidate whose cells were all replayed from cache (never dispatched
+   *  in this process). */
   armProvenance: { repo: string; commit: string } | null
 }
 
-/** Replicate-cell key inside a CandidateRecord. */
-export const instanceRunKey = (iid: string, rep: number): string => `${iid}#r${rep}`
-
 class RoundRecorder {
   readonly byKey = new Map<string, CandidateRecord>()
-  baselineKey: string | undefined
   constructor(
     private readonly loopsRepo: string,
     private readonly candidatesDir: string,
@@ -691,6 +620,10 @@ class RoundRecorder {
     return undefined
   }
 
+  /** Describe a candidate surface: changed files, change-space violations, and
+   *  the written diff. Idempotent and callable POST-RUN too (candidate commits
+   *  survive in the loops object store after worktree cleanup), so resumed
+   *  candidates that never dispatched here still get full staircase rows. */
   async ensure(surface: CodeSurface): Promise<CandidateRecord> {
     const key = surfaceHash(surface)
     const existing = this.byKey.get(key)
@@ -718,24 +651,12 @@ class RoundRecorder {
       violations,
       diffPath,
       diffSha256: surface.patch.sha256,
-      instances: new Map(),
       armProvenance: null,
     }
     this.byKey.set(key, rec)
-    // The baseline incumbent is the surface with NO diff (candidateCommit ==
-    // baseCommit — worktree.finalize of an untouched baseRef checkout).
-    // Identifying it positionally ("first dispatched") mislabeled a CANDIDATE
-    // as the baseline when a resumed campaign replayed the cached baseline
-    // cells without dispatching them (measured: r4-mroh3rkt's round summary
-    // published candidate b08d31c910's cells as "baseline 0/3" while the
-    // measured baseline was 1/3).
-    if (surface.candidateCommit === surface.baseCommit) this.baselineKey ??= key
     return rec
   }
 }
-
-const sumWall = (rec: CandidateRecord): number =>
-  [...rec.instances.values()].reduce((s, r) => s + (r.wall_s ?? 0), 0)
 
 // ---------------------------------------------------------------------------
 // Eval worktrees — a candidate commit gets its own loops checkout so the
@@ -899,6 +820,11 @@ function proposerShotEnv(harness: OuterLoopConfig['proposerHarness']): NodeJS.Pr
 
 export function constrainedLoopsGenerator(config: OuterLoopConfig): CandidateGenerator {
   const shotDir = join(config.outDir, 'proposer-shots')
+  // The run-wide CostLedger the current generate() call rides — captured so
+  // onShotCompleted can settle each shot's spend into it. maxConcurrency is 1
+  // and shots run inside generate(), so a single slot cannot interleave.
+  let activeLedger: CostLedgerHandle | undefined
+  let activePhase: string | undefined
   const inner = agenticGenerator({
     harness: config.proposerHarness,
     timeoutMs: config.proposerTimeoutMs,
@@ -919,44 +845,57 @@ export function constrainedLoopsGenerator(config: OuterLoopConfig): CandidateGen
         join(shotDir, name),
         JSON.stringify({ receipt, stdoutTail: tail(execution?.stdout), stderrTail: tail(execution?.stderr) }, null, 2),
       )
+      // Proposer-shot spend → the lib's run ledger. The generator only settles
+      // its own receipts on the codexReproducible path (costCallId non-null);
+      // the claude/opencode author path otherwise leaves every shot as $0 in
+      // the run's spend summary. Import the shot receipt's measured usage.
+      if (activeLedger && receipt.costCallId === null && (receipt.usage || receipt.costUsdKnown)) {
+        const usage = receipt.usage
+        const paid = await activeLedger.runPaidCall({
+          channel: 'driver',
+          phase: activePhase ?? 'search.proposal',
+          actor: `proposer-shot:${config.proposerHarness}`,
+          model: receipt.model ?? `${config.proposerHarness}-cli`,
+          tags: {
+            generation: String(receipt.generation ?? -1),
+            candidateIndex: String(receipt.candidateIndex ?? -1),
+            shot: String(receipt.shot),
+          },
+          execute: async () => receipt,
+          receipt: () => ({
+            model: receipt.model ?? `${config.proposerHarness}-cli`,
+            inputTokens: usage?.inputTokens ?? 0,
+            outputTokens: usage ? usage.outputTokens + usage.reasoningOutputTokens : 0,
+            ...(usage ? { cachedTokens: usage.cachedInputTokens } : { usageUnknown: true }),
+            ...(receipt.costUsdKnown && receipt.costUsd !== null
+              ? { actualCostUsd: receipt.costUsd }
+              : {}),
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+      }
     },
   })
   return {
     kind: `round4-constrained:${inner.kind}`,
     proposesWithoutFindings: true,
-    // selfImprove never sets maxImprovementShots, so ctx.maxShots arrives as 1;
-    // the DEPTH dial is applied here from config.
-    generate: (args) => inner.generate({ ...args, maxShots: Math.max(args.maxShots, config.maxShots) }),
+    generate: (args) => {
+      activeLedger = args.costLedger
+      activePhase = args.costPhase
+      // args.maxShots is the LIB's dial (budget.maxImprovementShots → the
+      // improvement driver); capabilities.mts guarantees it is threaded.
+      return inner.generate(args)
+    },
   }
 }
 
 // ---------------------------------------------------------------------------
-// The evaluated artifact + runRound.
+// runRound. (The evaluated R4Artifact type lives in cell-evidence.mts with
+// the scoring that consumes it.)
 // ---------------------------------------------------------------------------
 
-export type R4Artifact =
-  | {
-      kind: 'swe-arm'
-      iid: string
-      commit: string
-      resolved: boolean
-      verifyPass: boolean
-      patchLines: number
-      wallS: number
-      spentTokens: number | null
-      recoveredTokens: number | null
-      judgeAttempts: number | null
-      runDir: string
-      patchPath: string
-    }
-  | {
-      kind: 'static-gate'
-      commit: string
-      changedFiles: string[]
-      violations: string[]
-      typecheckOk: boolean
-      feedback?: string
-    }
+/** Ledger model id for the dockerized official judge's $0 receipts. */
+export const OFFICIAL_JUDGE_MODEL = 'swe-bench-official-judge'
 
 function asCodeSurface(surface: MutableSurface): CodeSurface {
   if (typeof surface !== 'object' || surface === null || surface.kind !== 'code') {
@@ -978,14 +917,34 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   if (!Number.isInteger(reps) || reps < 1) {
     throw new Error(`outer-loop: repsPerInstance must be a positive integer, got ${JSON.stringify(config.repsPerInstance)}`)
   }
-  // Validated up front so a malformed pin fails at t=0, not at gate time.
-  const pinnedCount: number | null = config.pinnedBaseline
-    ? pinnedBaselineResolvedCount(config.pinnedBaseline, config.instances)
-    : null
-  const resolvedCount = (rec: CandidateRecord): number =>
-    resolvedInstanceCount([...rec.instances.values()], config.instances, reps)
-  const coverageOf = (rec: CandidateRecord): boolean =>
-    replicateCoverageComplete([...rec.instances.values()], config.instances, reps)
+  // Stale-install guard: the resolved substrate must thread the passthroughs
+  // this run depends on. Fails loud — a silent drop would re-spend the
+  // premeasured baseline and pin the depth dial (see capabilities.mts).
+  assertSubstratePassthroughs(log)
+
+  // The gate's only denominator: a stored prior baseline campaign the LIB
+  // validates (surface hash, seed, reps, split digest, coverage) before
+  // skipping the baseline campaign. A missing artifact = the BOOTSTRAP run —
+  // the baseline is measured (cache-resumable) and the artifact written at
+  // the end of this run.
+  if (typeof config.premeasuredBaselinePath !== 'string' || config.premeasuredBaselinePath.length === 0) {
+    throw new Error('outer-loop: config.premeasuredBaselinePath is required (the bootstrap run writes the artifact there)')
+  }
+  let premeasured: PremeasuredOptimizationBaseline<R4Artifact, Scenario> | undefined
+  if (existsSync(config.premeasuredBaselinePath)) {
+    premeasured = JSON.parse(
+      await readFile(config.premeasuredBaselinePath, 'utf8'),
+    ) as PremeasuredOptimizationBaseline<R4Artifact, Scenario>
+    if (!premeasured || typeof premeasured.surfaceHash !== 'string' || !premeasured.campaign) {
+      throw new Error(`premeasuredBaselinePath: ${config.premeasuredBaselinePath} is not a {surfaceHash, campaign} record`)
+    }
+    log(`premeasured baseline: ${config.premeasuredBaselinePath} (surface ${premeasured.surfaceHash})`)
+  } else {
+    log(
+      `premeasured baseline artifact missing at ${config.premeasuredBaselinePath} — BOOTSTRAP run: ` +
+        'the baseline campaign will be measured (cache-resumable) and the artifact written there for later runs',
+    )
+  }
 
   const secrets: SecretsEnv = { secretsDir: config.secretsDir, envFiles: config.envFiles }
   const excludes = await loadExcludes()
@@ -1014,48 +973,18 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   const analysts: AnalystSpec[] = config.analystModels.map((model, i) => ({ id: `${model}#${i + 1}`, model }))
 
   const sweScenarios: Scenario[] = config.instances.map((iid) => ({ id: iid, kind: 'swe-instance' }))
-  const staticScenario: Scenario = { id: 'static:loops-gates', kind: 'static-gate' }
 
   // ── dispatch: one (surface × scenario) cell ──────────────────────────
   const agent = async (surface: MutableSurface, scenario: Scenario, ctx: DispatchContext): Promise<R4Artifact> => {
     const cs = asCodeSurface(surface)
     const rec = await recorder.ensure(cs)
 
-    if (scenario.kind === 'static-gate') {
-      const dest = join(config.outDir, 'eval-wt', `static-${rec.tag}-r${ctx.rep}`)
-      let typecheckOk = false
-      let feedback: string | undefined
-      await addEvalWorktree(config.loopsRepo, cs.candidateCommit, dest)
-      try {
-        const tsc = join(config.loopsRepo, 'node_modules', '.bin', 'tsc')
-        const res = await run(tsc, ['--noEmit'], { cwd: dest, timeoutMs: 300_000 })
-        typecheckOk = res.code === 0
-        if (!typecheckOk) feedback = (res.stdout + res.stderr).slice(0, 4000)
-      } finally {
-        await removeEvalWorktree(config.loopsRepo, dest)
-      }
-      const artifact: R4Artifact = {
-        kind: 'static-gate',
-        commit: cs.candidateCommit,
-        changedFiles: rec.changedFiles,
-        violations: rec.violations,
-        typecheckOk,
-        ...(feedback ? { feedback } : {}),
-      }
-      await ctx.artifacts.writeJson('static-gate.json', artifact)
-      return artifact
-    }
-
     const iid = scenario.id
     // FAIL-CLOSED change-space enforcement: an out-of-space candidate must
-    // never reach a model token or a docker container.
+    // never reach a model token or a docker container. The thrown cell is the
+    // record (the lib stores it with `error` set — no side bookkeeping).
     if (rec.violations.length > 0) {
-      const err = `change-space violation (${rec.violations.length} path(s)): ${rec.violations.join(', ')}`
-      rec.instances.set(instanceRunKey(iid, ctx.rep), {
-        iid, rep: ctx.rep, runDir: '', resolved: null, verify_pass: null, patch_lines: null,
-        wall_s: null, spentTokens: null, recoveredTokens: null, judgeAttempts: null, error: err,
-      })
-      throw new Error(err)
+      throw new Error(`change-space violation (${rec.violations.length} path(s)): ${rec.violations.join(', ')}`)
     }
 
     // Capacity gates on BOTH paths the supervisor arm rides (worker + router).
@@ -1106,31 +1035,46 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
         const { ws: _ws, ...armSummary } = armRes
         await writeFile(join(runDir, 'result.json'), JSON.stringify(armSummary, null, 1))
 
-        const verdict = await judge.judge(iid, armRes.patchPath, `${config.armName}-${rec.tag}`)
-        await writeFile(join(runDir, 'judge.json'), JSON.stringify(verdict, null, 1))
+        // The official judge is a docker test-suite run — real wall time, zero
+        // LLM spend. Its OWN paid call (channel 'judge', $0 actual) keeps the
+        // run's spend tree attributing judge work per cell without inventing a
+        // token cost; the wall lands on the artifact + judge.json.
+        const judgeT0 = Date.now()
+        const judgePaid = await ctx.cost.runPaidCall({
+          channel: 'judge',
+          actor: `official-judge:${iid}#r${ctx.rep}`,
+          model: OFFICIAL_JUDGE_MODEL,
+          execute: () => judge.judge(iid, armRes.patchPath, `${config.armName}-${rec.tag}`),
+          receipt: () => ({ model: OFFICIAL_JUDGE_MODEL, inputTokens: 0, outputTokens: 0, actualCostUsd: 0 }),
+        })
+        if (!judgePaid.succeeded) throw judgePaid.error
+        const verdict = judgePaid.value
+        const judgeWallS = Math.round((Date.now() - judgeT0) / 1000)
+        await writeFile(join(runDir, 'judge.json'), JSON.stringify({ ...verdict, wallS: judgeWallS }, null, 1))
         log(`${config.armName} ${rec.tag} ${iid} judged: resolved=${verdict.resolved} (attempts=${verdict.attempts})`)
 
-        const recovered = armRes.recoveredSpend
-          ? armRes.recoveredSpend.brainTotal + (armRes.recoveredSpend.workerTokSqlite ?? 0)
-          : null
-        const instanceRun: InstanceRun = {
-          iid,
-          rep: ctx.rep,
-          runDir,
-          resolved: verdict.resolved,
-          verify_pass: armRes.verify_pass,
-          patch_lines: armRes.patch_lines,
-          wall_s: armRes.wall_s,
-          spentTokens: armRes.spentTokens,
-          recoveredTokens: recovered,
-          judgeAttempts: verdict.attempts ?? null,
-          patchPath: armRes.patchPath,
-        }
-        rec.instances.set(instanceRunKey(iid, ctx.rep), instanceRun)
+        const spend = armRes.recoveredSpend
+        const recovered =
+          armRes.spentTokens === null && (spend?.workerTokSqlite ?? null) === null
+            ? null
+            : (armRes.spentTokens ?? 0) + (spend?.workerTokSqlite ?? 0)
         rec.armProvenance = { repo: armRes.provenance.repo, commit: armRes.provenance.commit }
         await appendFile(
           join(config.outDir, 'progress.jsonl'),
-          JSON.stringify({ at: new Date().toISOString(), runId, candidate: rec.tag, ...instanceRun }) + '\n',
+          JSON.stringify({
+            at: new Date().toISOString(),
+            runId,
+            candidate: rec.tag,
+            iid,
+            rep: ctx.rep,
+            runDir,
+            resolved: verdict.resolved,
+            verify_pass: armRes.verify_pass,
+            wall_s: armRes.wall_s,
+            spentTokens: armRes.spentTokens,
+            spentUsd: armRes.spentUsd,
+            recoveredTokens: recovered,
+          }) + '\n',
         )
         await ctx.artifacts.writeJson('arm-summary.json', { runDir, patchPath: armRes.patchPath, verdict })
 
@@ -1148,8 +1092,12 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           patchLines: armRes.patch_lines,
           wallS: armRes.wall_s,
           spentTokens: armRes.spentTokens,
+          spentUsd: armRes.spentUsd,
           recoveredTokens: recovered,
+          workerTokIn: spend?.workerTokIn ?? null,
+          workerTokOut: spend?.workerTokOut ?? null,
           judgeAttempts: verdict.attempts ?? null,
+          judgeWallS,
           runDir,
           patchPath: armRes.patchPath,
         }
@@ -1158,35 +1106,51 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       }
     }
 
-    return runWithPostGateClock({
-      awaitGates,
-      work: runCell,
-      timeoutMs: config.dispatchTimeoutMs,
-      label: `${config.armName} ${rec.tag} ${iid} r${ctx.rep}`,
+    // The arm's real spend reaches the LIB's CostLedger here: one agent-channel
+    // paid call per cell whose receipt carries the recovered worker-session
+    // token split (opencode sqlite join) and the runtime spend-tree dollars
+    // (state.json spentUsd). run-campaign commits it into cell.costUsd /
+    // cell.tokenUsage + durable cost-ledger.jsonl receipts — the stub/$0
+    // rounds this replaces.
+    const paid = await ctx.cost.runPaidCall<R4Artifact>({
+      actor: `${config.armName}:${rec.tag}:${iid}#r${ctx.rep}`,
+      model: config.arm.workerModel,
+      execute: () =>
+        runWithPostGateClock({
+          awaitGates,
+          work: runCell,
+          timeoutMs: config.dispatchTimeoutMs,
+          label: `${config.armName} ${rec.tag} ${iid} r${ctx.rep}`,
+        }),
+      receipt: (artifact) => {
+        if (artifact.kind !== 'swe-arm') throw new Error('swe cell produced a non-arm artifact')
+        const usageKnown = artifact.workerTokIn !== null || artifact.workerTokOut !== null
+        return {
+          model: config.arm.workerModel,
+          inputTokens: artifact.workerTokIn ?? 0,
+          outputTokens: artifact.workerTokOut ?? 0,
+          ...(usageKnown ? {} : { usageUnknown: true }),
+          // The runtime spend-tree usd is the measured bill; without it the
+          // receipt stays honestly unpriced (costUnknown) rather than $0.
+          ...(artifact.spentUsd !== null ? { actualCostUsd: artifact.spentUsd } : {}),
+        }
+      },
     })
+    if (!paid.succeeded) throw paid.error
+    return paid.value
   }
 
   // ── judge config: a deterministic READ of the official verdict the dispatch
   // already obtained under the serialized-judge lock. ───────────────────
   const judgeConfig: JudgeConfig<R4Artifact, Scenario> = {
     name: 'swe-arena-official-judge',
-    dimensions: [
-      { key: 'resolved', description: 'official SWE-bench judge verdict (swe cells); change-space + tsc gates (static cell)' },
-    ],
+    dimensions: [{ key: 'resolved', description: 'official SWE-bench judge verdict' }],
     score: ({ artifact }) => {
-      if (artifact.kind === 'swe-arm') {
-        const v = artifact.resolved ? 1 : 0
-        return {
-          composite: v,
-          dimensions: { resolved: v },
-          notes: `official judge: ${artifact.iid} resolved=${artifact.resolved} (verify_pass=${artifact.verifyPass}, patch_lines=${artifact.patchLines}, wall_s=${artifact.wallS})`,
-        }
-      }
-      const ok = artifact.violations.length === 0 && artifact.typecheckOk
+      const v = artifact.resolved ? 1 : 0
       return {
-        composite: ok ? 1 : 0,
-        dimensions: { resolved: ok ? 1 : 0 },
-        notes: `static gates: change-space violations=${artifact.violations.length}, tsc ok=${artifact.typecheckOk}`,
+        composite: v,
+        dimensions: { resolved: v },
+        notes: `official judge: ${artifact.iid} resolved=${artifact.resolved} (verify_pass=${artifact.verifyPass}, patch_lines=${artifact.patchLines}, wall_s=${artifact.wallS})`,
       }
     },
   }
@@ -1228,18 +1192,21 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
         })
       }
     }
+    // Candidate failure artifacts come from the LIB's campaign cells (the
+    // artifacts name their own runDir/patch) — resume-replayed cells included,
+    // which the old recorder-based lookup silently dropped.
     const worstFirst = [...input.candidates].sort((a, b) => a.composite - b.composite).slice(0, 4)
     for (const cand of worstFirst) {
-      const rec = recorder.byKey.get(cand.surfaceHash)
-      if (!rec) continue
-      for (const ir of rec.instances.values()) {
-        if (!ir.runDir) continue
+      const cells = cellsFromCampaign(cand.campaign as CampaignResult<R4Artifact, Scenario>)
+      for (const cell of cells) {
+        const a = cell.artifact
+        if (a === null || a.kind !== 'swe-arm' || !a.runDir) continue
         runs.push({
-          iid: ir.iid,
+          iid: a.iid,
           arm: config.armName,
-          dir: ir.runDir,
-          ...(ir.patchPath ? { patchPath: ir.patchPath } : {}),
-          judge: { resolved: ir.resolved },
+          dir: a.runDir,
+          ...(a.patchPath ? { patchPath: a.patchPath } : {}),
+          judge: { resolved: cell.error ? null : a.resolved },
         })
       }
     }
@@ -1266,77 +1233,22 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     return [steeringFinding, ...ensembleFindings, ...rawFindings]
   }
 
-  // ── protocol_v2 gate: NEVER ships from inside the loop — the pre-registered
-  // holdout run needs operator approval; a would-be KEEP is reported as hold +
-  // instructions. ──────────────────────────────────────────────────────
+  // ── protocol_v2: NEVER ships from inside the loop. `budget.holdout:
+  // 'deferred'` makes the LIB dispatch zero holdout cells, force `hold`, omit
+  // `lift`, and record `holdout: 'deferred'` in the provenance record; the
+  // pre-registered holdout run happens later, with operator approval. The
+  // would-be-KEEP operator brief is computed post-run from campaign cells
+  // (see the summary below). ───────────────────────────────────────────
   const holdoutInstruction =
     `holdout (${config.holdoutInstances.length} pre-registered instances: ${config.holdoutInstances.join(', ')}) ` +
     'was NOT run — operator approval required. To grade a would-be KEEP: apply the winner patch to a loops ' +
     'checkout and run the holdout instances through run-experiment.mts with the same frozen arm.'
-  const promotionGate: Gate<R4Artifact, Scenario> = {
-    name: 'protocol-v2-operator-gate',
-    decide: async (ctx): Promise<GateResult> => {
-      const staticArt = [...ctx.candidateArtifacts.values()].find(
-        (a): a is Extract<R4Artifact, { kind: 'static-gate' }> => a.kind === 'static-gate',
-      )
-      const reasons: string[] = []
-      let delta = 0
-      let wouldKeep = false
-      if (staticArt) {
-        const rec = recorder.byCommit(staticArt.commit)
-        const baseRec = recorder.baselineKey ? recorder.byKey.get(recorder.baselineKey) : undefined
-        if (rec && (baseRec || pinnedCount !== null)) {
-          const cand = resolvedCount(rec)
-          // The PIN is the gate's denominator; a per-run baseline record is
-          // only a drift detector + the cost-ratio denominator.
-          const base = pinnedCount ?? resolvedCount(baseRec!)
-          if (pinnedCount !== null && baseRec) {
-            for (const w of baselineDriftWarnings(
-              config.pinnedBaseline!,
-              [...baseRec.instances.values()],
-              config.instances,
-              reps,
-            )) {
-              log(`BASELINE-DRIFT: ${w}`)
-            }
-          }
-          const candWall = sumWall(rec)
-          const baseWall = baseRec ? sumWall(baseRec) : 0
-          const ratio = baseWall > 0 ? candWall / baseWall : null
-          delta = (cand - base) / Math.max(1, config.instances.length)
-          const verdict = decideVerdict({
-            violations: rec.violations,
-            coverageComplete: coverageOf(rec),
-            resolvedCount: cand,
-            parentResolvedCount: base,
-            costRatio: ratio,
-            costGuardRatio: config.costGuardRatio,
-          })
-          wouldKeep = verdict === 'accepted' && staticArt.violations.length === 0 && staticArt.typecheckOk
-          reasons.push(
-            `improvement set: winner ${cand}/${config.instances.length} vs baseline ${base}/${config.instances.length}` +
-              `${pinnedCount !== null ? ' (pinned)' : ''}; ` +
-              `wall ${candWall}s vs ${baseWall}s (ratio ${ratio === null ? 'n/a' : ratio.toFixed(2)}, guard ${config.costGuardRatio}); ` +
-              `protocol verdict: ${verdict}${wouldKeep ? ' (WOULD-BE KEEP)' : ''}`,
-          )
-        } else {
-          reasons.push('winner has no recorded improvement-set evidence — refusing to grade')
-        }
-      } else {
-        reasons.push('no static-gate artifact on the holdout cell — refusing to grade')
-      }
-      reasons.push(holdoutInstruction)
-      return {
-        decision: 'hold',
-        reasons,
-        contributingGates: [{ name: 'operator-holdout-approval', passed: false, detail: { wouldKeep } }],
-        delta,
-      }
-    },
-  }
+  const improveRunDir = join(config.outDir, 'improve-run')
 
   // ── the improve() call: the optimizer seat ───────────────────────────
-  const profile: AgentProfile = { name: 'loops-pi-supervisor' } as AgentProfile
+  // Typed from improve()'s own parameter: the monorepo hoists two
+  // agent-interface majors, so a nominal import can resolve to the wrong one.
+  const profile = { name: 'loops-pi-supervisor' } as Parameters<typeof improve>[0]
   log(`round ${config.round} runId=${runId}: improve(surface:'code') over ${config.loopsRepo}@${config.loopsBaseRef}`)
   const result = await improve<Scenario, R4Artifact>(profile, [], {
     surface: 'code',
@@ -1358,71 +1270,96 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       populationSize: config.populationSize,
       maxConcurrency: 1,
       reps,
-      holdoutScenarios: [staticScenario],
+      maxImprovementShots: config.maxShots,
+      // Deferred with no reserved set: ALL improvement-set scenarios train;
+      // the held-out comparison lives in the separate operator-approved run.
+      holdout: 'deferred',
     },
-    promotionGate,
-    // Spend happens in child processes (opencode / loops driver / docker
-    // judge), invisible to the campaign cost meter — the guard would misfire.
-    expectUsage: 'off',
+    // TRAINING RECORDER: every scored (artifact, judge score) lands in the
+    // lib's labeled-scenario store as a JSONL corpus under outDir (growth is
+    // outDir-scoped; a handful of cells per round). Records carry the default
+    // 'unverified' trust — corpus-grade, NOT gold-eligible, which is right
+    // until an operator-confirmed holdout verdict upgrades them.
+    labeledStore: new FsLabeledScenarioStore({ root: join(config.outDir, 'labeled-store') }),
+    captureSource: 'eval-run',
+    // Arm/judge/proposer spend reaches the campaign meter through real paid
+    // calls (worker receipt per swe cell, $0 judge receipts, imported
+    // proposer-shot receipts). 'warn' not 'assert': the official judge's $0
+    // receipts are correct-by-design and must not kill the round as "stubs".
+    expectUsage: 'warn',
     // Widened: covers worst-case capacity-gate holds; the REAL per-cell work
     // clock (config.dispatchTimeoutMs) starts post-gate inside the dispatch.
     dispatchTimeoutMs: campaignDispatchCeilingMs(config),
-    runDir: join(config.outDir, 'improve-run'),
+    runDir: improveRunDir,
+    ...(premeasured ? { premeasuredBaseline: premeasured } : {}),
   })
 
-  // ── staircase rows + round summary ───────────────────────────────────
+  // ── staircase rows + round summary — scored from the LIB's campaign cells
+  // (baselineCampaign + per-generation candidate campaigns), which replay
+  // correctly attributed on resume. The recorder only contributes the
+  // dispatch-time diff/change-space description (recomputed post-run via
+  // ensure() for candidates that were replayed, never dispatched here). ────
   try {
     const loop = result.raw.raw
-    const n = config.instances.length
-    const baseRec = recorder.baselineKey ? recorder.byKey.get(recorder.baselineKey) : undefined
-    const baselineWallS = baseRec ? sumWall(baseRec) : 0
+    const baselineCells = cellsFromCampaign(loop.baselineCampaign)
+    const baselineWallS = sumWallSFromCells(baselineCells)
+    const measuredBaselineCount = resolvedInstanceCount(
+      replicateRunsFromCells(baselineCells),
+      config.instances,
+      reps,
+    )
+    const campaignBySurface = new Map<string, CampaignResult<R4Artifact, Scenario>>()
+    for (const gen of loop.generations) {
+      for (const s of gen.surfaces) campaignBySurface.set(s.surfaceHash, s.campaign)
+    }
+    const resolvedCountOf = (campaign: CampaignResult<R4Artifact, Scenario>): number =>
+      resolvedInstanceCount(replicateRunsFromCells(cellsFromCampaign(campaign)), config.instances, reps)
+
+    // BASELINE-DRIFT: a resumed runDir can still hold baseline cells cached by
+    // an OLDER (pre-artifact) run. When they contradict the lib-validated
+    // premeasured artifact, log loud — the artifact rules, never silently.
+    if (premeasured) {
+      const cachedBaseline = await loadCampaignCells(join(improveRunDir, 'baseline'))
+      if (cachedBaseline.length > 0) {
+        const expected = instanceVerdictsFromCells(baselineCells, config.instances, reps)
+        for (const w of baselineDriftWarnings(
+          expected,
+          replicateRunsFromCells(cachedBaseline),
+          config.instances,
+          reps,
+        )) {
+          log(`BASELINE-DRIFT: ${w}`)
+        }
+      }
+    }
+
     for (let g = 0; g < loop.generations.length; g++) {
       const gen = loop.generations[g]!
       const rows: StaircaseRow[] = []
-      for (let i = 0; i < gen.record.candidates.length; i++) {
-        const cand = gen.record.candidates[i]!
-        const surface = gen.surfaces[i]?.surface
+      for (const cand of gen.record.candidates) {
+        const surface = gen.surfaces.find((s) => s.surfaceHash === cand.surfaceHash)?.surface
         const cs = surface && typeof surface === 'object' && surface.kind === 'code' ? surface : null
-        const rec = recorder.byKey.get(cand.surfaceHash)
-        const perInstance: StaircasePerInstance[] = rec
-          ? [...rec.instances.values()].map((r) => ({
-              iid: r.iid,
-              rep: r.rep,
-              resolved: r.resolved,
-              verify_pass: r.verify_pass,
-              patch_lines: r.patch_lines,
-              wall_s: r.wall_s,
-              spentTokens: r.spentTokens,
-              recoveredTokens: r.recoveredTokens,
-              judgeAttempts: r.judgeAttempts,
-              ...(r.error ? { error: r.error } : {}),
-            }))
-          : []
-        const candResolved = rec ? resolvedCount(rec) : 0
-        const wallS = rec ? sumWall(rec) : 0
+        const desc = cs ? await recorder.ensure(cs) : undefined
+        const campaign = campaignBySurface.get(cand.surfaceHash)
+        const cells = campaign ? cellsFromCampaign(campaign) : []
+        const runs = replicateRunsFromCells(cells)
+        const perInstance = perInstanceFromCells(cells)
+        const candResolved = resolvedInstanceCount(runs, config.instances, reps)
+        const wallS = sumWallSFromCells(cells)
         const coverageComplete =
-          cand.eligibleForPromotion === true && rec !== undefined && coverageOf(rec)
+          cand.eligibleForPromotion === true && replicateCoverageComplete(runs, config.instances, reps)
         const costRatio = baselineWallS > 0 ? wallS / baselineWallS : null
-        // Parent's AND-resolved count. When the parent is the baseline
-        // incumbent (or was never dispatched in this process — the campaign
-        // resume replay), the PIN wins; a non-baseline parent uses its own
-        // record; the composite-mean fallback (fractional under reps) only
-        // fires with no pin and no record.
-        const parentRec = cand.parentSurfaceHash
-          ? recorder.byKey.get(cand.parentSurfaceHash)
-          : recorder.baselineKey
-            ? recorder.byKey.get(recorder.baselineKey)
-            : undefined
-        const parentIsBaseline =
-          parentRec === undefined ||
-          (recorder.baselineKey !== undefined && parentRec.surfaceKey === recorder.baselineKey)
+        // Parent's AND-resolved count. A parent hash with no candidate
+        // campaign IS the baseline incumbent — its count comes from the
+        // baseline campaign (the lib-validated premeasured artifact, or the
+        // bootstrap run's measurement; both survive resume, no dispatch-order
+        // guess).
+        const parentCampaign = cand.parentSurfaceHash
+          ? campaignBySurface.get(cand.parentSurfaceHash)
+          : undefined
         const parentResolvedCount =
-          pinnedCount !== null && parentIsBaseline
-            ? pinnedCount
-            : parentRec
-              ? resolvedCount(parentRec)
-              : Math.round((cand.parentComposite ?? 0) * n)
-        const violations = rec?.violations ?? []
+          parentCampaign !== undefined ? resolvedCountOf(parentCampaign) : measuredBaselineCount
+        const violations = desc?.violations ?? []
         rows.push({
           schema: STAIRCASE_SCHEMA,
           round: config.round,
@@ -1431,11 +1368,11 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           at: new Date().toISOString(),
           candidate: cand.surfaceHash,
           candidateCommit: cs?.candidateCommit ?? null,
-          parent: cand.parentSurfaceHash ?? recorder.baselineKey ?? 'unknown',
+          parent: cand.parentSurfaceHash ?? 'baseline',
           parentResolvedCount,
           ...(cand.label ? { label: cand.label } : {}),
           ...(cand.rationale ? { rationale: cand.rationale } : {}),
-          changedFiles: rec?.changedFiles ?? [],
+          changedFiles: desc?.changedFiles ?? [],
           changeSpaceViolations: violations,
           perInstance,
           resolvedCount: candResolved,
@@ -1454,9 +1391,9 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
             costGuardRatio: config.costGuardRatio,
           }),
           holdout: 'operator-approval-required',
-          armProvenance: rec?.armProvenance ?? null,
-          diffPath: rec?.diffPath ?? null,
-          diffSha256: rec?.diffSha256 ?? null,
+          armProvenance: desc?.armProvenance ?? null,
+          diffPath: desc?.diffPath ?? null,
+          diffSha256: desc?.diffSha256 ?? null,
         })
       }
       const genFile = join(config.roundsDir, `gen-${g}.jsonl`)
@@ -1469,39 +1406,112 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       typeof winnerSurface === 'object' && winnerSurface !== null && winnerSurface.kind === 'code'
         ? winnerSurface
         : null
-    const winnerRec = winnerCs ? recorder.byCommit(winnerCs.candidateCommit) : undefined
+    const winnerRec = winnerCs ? await recorder.ensure(winnerCs) : undefined
     let winnerPatch: string | null = null
     if (winnerRec?.diffPath) {
       winnerPatch = join(config.outDir, 'winner.patch')
       await writeFile(winnerPatch, await readFile(winnerRec.diffPath, 'utf8'))
     }
+
+    // BOOTSTRAP: persist this run's measured baseline campaign as the
+    // premeasured artifact every later run consumes (and the lib re-validates
+    // by surface hash / seed / reps / split digest). The baseline surface
+    // hash comes from the Pareto frontier's generation −1 entry — the lib's
+    // own record of the baseline measurement.
+    if (!premeasured) {
+      const baselineHash = loop.paretoFrontier.find((p) => p.generation === -1)?.surfaceHash
+      if (baselineHash === undefined) {
+        log('bootstrap: no generation −1 Pareto entry — premeasured baseline artifact NOT written')
+      } else {
+        const artifact: PremeasuredOptimizationBaseline<R4Artifact, Scenario> = {
+          surfaceHash: baselineHash,
+          campaign: loop.baselineCampaign,
+        }
+        await writeFile(config.premeasuredBaselinePath, JSON.stringify(artifact, null, 1))
+        log(`bootstrap: premeasured baseline artifact → ${config.premeasuredBaselinePath} (surface ${baselineHash})`)
+      }
+    }
+
+    // The would-be-KEEP operator brief: winner vs baseline on the improvement
+    // set, from campaign cells. The lib's deferred-holdout gate always holds;
+    // this evidence tells the operator whether the pre-registered holdout run
+    // is worth approving.
+    const winnerHash = winnerCs ? surfaceHash(winnerCs) : null
+    const winnerCampaign = winnerHash !== null ? campaignBySurface.get(winnerHash) : undefined
+    const improvementSet =
+      winnerCampaign !== undefined && winnerRec !== undefined
+        ? gateEvidenceFromCells({
+            winnerCells: cellsFromCampaign(winnerCampaign),
+            baselineCells,
+            violations: winnerRec.violations,
+            iids: config.instances,
+            reps,
+            costGuardRatio: config.costGuardRatio,
+          })
+        : null
+    const wouldKeep = improvementSet !== null && improvementSet.verdict === 'accepted'
+    if (improvementSet) {
+      log(
+        `improvement set: winner ${improvementSet.candResolved}/${config.instances.length} vs baseline ` +
+          `${improvementSet.baseResolved}/${config.instances.length}; wall ${improvementSet.candWallS}s vs ` +
+          `${improvementSet.baseWallS}s (ratio ${improvementSet.costRatio === null ? 'n/a' : improvementSet.costRatio.toFixed(2)}, ` +
+          `guard ${config.costGuardRatio}); protocol verdict: ${improvementSet.verdict}${wouldKeep ? ' (WOULD-BE KEEP)' : ''}`,
+      )
+    } else {
+      log('improvement set: winner == baseline (no candidate campaign) — nothing to promote')
+    }
+
     const summary = {
-      schema: 'swe-arena.round-summary.v1',
+      schema: 'swe-arena.round-summary.v2',
       round: config.round,
       runId,
       at: new Date().toISOString(),
       loops: { repo: config.loopsRepo, baseRef: config.loopsBaseRef },
-      // The gate's denominator (pin when present); `baseline` below is this
-      // run's MEASURED baseline record, kept for drift/cost forensics.
-      pinnedBaseline: config.pinnedBaseline ?? null,
-      pinnedBaselineResolvedCount: pinnedCount,
-      baseline: baseRec
-        ? { resolvedCount: resolvedCount(baseRec), wallS: sumWall(baseRec), perInstance: [...baseRec.instances.values()] }
-        : null,
+      // The gate's denominator: the lib-validated premeasured artifact, or
+      // this bootstrap run's freshly measured (and persisted) campaign.
+      baseline: {
+        resolvedCount: measuredBaselineCount,
+        wallS: baselineWallS,
+        perInstance: perInstanceFromCells(baselineCells),
+        premeasured: premeasured !== undefined,
+        artifactPath: config.premeasuredBaselinePath,
+        ...(premeasured ? { surfaceHash: premeasured.surfaceHash } : {}),
+      },
       winner: winnerCs
         ? {
-            surfaceHash: surfaceHash(winnerCs),
+            surfaceHash: winnerHash,
             commit: winnerCs.candidateCommit,
             label: result.raw.winner.label ?? null,
             rationale: result.raw.winner.rationale ?? null,
             patch: winnerPatch,
           }
         : null,
+      // The lib's verdict + reasons: deferred holdout forces `hold` with zero
+      // holdout cells dispatched and no fabricated lift.
       gateDecision: result.decision,
       gateReasons: loop.gateResult.reasons,
-      lift: result.lift,
-      proposerCostUsd: result.raw.totalCostUsd,
-      holdout: { instances: config.holdoutInstances, status: 'operator-approval-required' },
+      // Improvement-set (search-split) evidence — NOT a held-out measurement.
+      improvementSet: improvementSet === null ? null : { ...improvementSet, wouldKeep },
+      // Honest run-wide spend from the lib's CostLedger: per-channel rollups
+      // (agent = arm cells, judge = official-judge calls, driver = proposer
+      // shots), token totals, and accounting-completeness flags.
+      cost: {
+        totalCostUsd: result.raw.totalCostUsd,
+        inputTokens: result.raw.cost.inputTokens,
+        outputTokens: result.raw.cost.outputTokens,
+        byChannel: result.raw.cost.byChannel,
+        fullyPriced: result.raw.cost.fullyPriced,
+        usageComplete: result.raw.cost.usageComplete,
+        accountingComplete: result.raw.cost.accountingComplete,
+        incompleteReasons: result.raw.cost.incompleteReasons,
+        receipts: result.raw.receipts.length,
+      },
+      holdout: {
+        instances: config.holdoutInstances,
+        mode: 'deferred',
+        status: 'operator-approval-required',
+        instruction: holdoutInstruction,
+      },
     }
     const summaryPath = join(config.roundsDir, `round${config.round}-summary-${runId}.json`)
     await writeFile(summaryPath, JSON.stringify(summary, null, 2))

@@ -489,12 +489,6 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
 // ---------------------------------------------------------------------------
 
 export interface SupSpend {
-  /** Supervisor-brain spend from journal `metered` events. */
-  brainIn: number
-  brainOut: number
-  brainUsd: number
-  brainEvents: number
-  brainTotal: number
   /** Worker tokens the journal itself captured (`settled` spend) — often 0. */
   workerTokJournal: number
   /** Worker clone cwds found in workers/*.ndjson `started` events. */
@@ -503,46 +497,33 @@ export interface SupSpend {
    * Worker-session spend recovered from the opencode sqlite store by joining
    * ndjson cwd → session.directory (the provenance of worker-tokens.json).
    * `null` = the store was unavailable — a telemetry gap, never a zero.
+   * `workerTokIn`/`workerTokOut` split the same sessions so the campaign
+   * CostLedger receipt carries a real input/output usage, not a lump.
    */
   workerSessions: number | null
   workerTokSqlite: number | null
+  workerTokIn: number | null
+  workerTokOut: number | null
 }
 
 export const DEFAULT_OPENCODE_DB = join(homedir(), '.local', 'share', 'opencode', 'opencode.db')
 
 /**
- * Recover the true SUP-arm spend from a supervisor run dir
- * (<ws>/.loops/supervisor/<id>). Brain = journal metered events; workers =
- * ndjson settled spend where captured, plus the opencode sqlite session totals
- * for each worker clone cwd. The runtime's own `spentTokens` zeroes on
- * no-winner runs (4/12 in the head-to-head), which is why this exists.
+ * Recover the WORKER-side SUP-arm spend from a supervisor run dir
+ * (<ws>/.loops/supervisor/<id>): ndjson settled spend where captured, plus the
+ * opencode sqlite session totals for each worker clone cwd. CLI-backend worker
+ * sessions never meter into the journal, so the sqlite join is genuinely
+ * custom recovery. Brain/driver spend is NO LONGER re-parsed from journal
+ * `metered` events: the supervise runtime's spend tree now reaches state.json
+ * on BOTH result arms (loops extensions/pi/loops.ts writes
+ * `result.spentTokens`/`spentUsd` from `SupervisedResult.spentTotal`, winner
+ * AND no-winner), so `parseSupervisorArtifacts` already carries it — the old
+ * no-winner zeroing this parsing compensated for is fixed upstream.
  */
 export async function recoverSupSpend(
   supRunDir: string,
   opts: { opencodeDb?: string } = {},
 ): Promise<SupSpend> {
-  let brainIn = 0
-  let brainOut = 0
-  let brainUsd = 0
-  let brainEvents = 0
-  const journal = await readFile(join(supRunDir, 'journal.jsonl'), 'utf8').catch(() => '')
-  for (const line of journal.split('\n')) {
-    if (!line.trim()) continue
-    let o: Record<string, unknown>
-    try {
-      o = JSON.parse(line) as Record<string, unknown>
-    } catch {
-      continue
-    }
-    if (o.kind !== 'metered') continue
-    const spend = (o.spend ?? {}) as Record<string, unknown>
-    const tokens = (spend.tokens ?? {}) as Record<string, unknown>
-    brainIn += typeof tokens.input === 'number' ? tokens.input : 0
-    brainOut += typeof tokens.output === 'number' ? tokens.output : 0
-    brainUsd += typeof spend.usd === 'number' ? spend.usd : 0
-    brainEvents += 1
-  }
-
   let workerTokJournal = 0
   const workerCwds: string[] = []
   const workersDir = join(supRunDir, 'workers')
@@ -570,6 +551,8 @@ export async function recoverSupSpend(
 
   let workerSessions: number | null = null
   let workerTokSqlite: number | null = null
+  let workerTokIn: number | null = null
+  let workerTokOut: number | null = null
   if (workerCwds.length > 0) {
     try {
       // Deferred import: node:sqlite is only needed on the cost-recovery path.
@@ -579,12 +562,16 @@ export async function recoverSupSpend(
         const placeholders = workerCwds.map(() => '?').join(',')
         const row = db
           .prepare(
-            `SELECT COUNT(*) AS n, COALESCE(SUM(tokens_input + tokens_output + tokens_reasoning), 0) AS tok
+            `SELECT COUNT(*) AS n,
+                    COALESCE(SUM(tokens_input), 0) AS tin,
+                    COALESCE(SUM(tokens_output + tokens_reasoning), 0) AS tout
              FROM session WHERE directory IN (${placeholders})`,
           )
-          .get(...workerCwds) as { n: number | bigint; tok: number | bigint }
+          .get(...workerCwds) as { n: number | bigint; tin: number | bigint; tout: number | bigint }
         workerSessions = Number(row.n)
-        workerTokSqlite = Number(row.tok)
+        workerTokIn = Number(row.tin)
+        workerTokOut = Number(row.tout)
+        workerTokSqlite = workerTokIn + workerTokOut
       } finally {
         db.close()
       }
@@ -592,21 +579,22 @@ export async function recoverSupSpend(
       // Store unavailable/corrupt → telemetry gap (null), never a silent 0.
       workerSessions = null
       workerTokSqlite = null
+      workerTokIn = null
+      workerTokOut = null
     }
   } else {
     workerSessions = 0
     workerTokSqlite = 0
+    workerTokIn = 0
+    workerTokOut = 0
   }
 
   return {
-    brainIn,
-    brainOut,
-    brainUsd: Number(brainUsd.toFixed(5)),
-    brainEvents,
-    brainTotal: brainIn + brainOut,
     workerTokJournal,
     workerCwds,
     workerSessions,
     workerTokSqlite,
+    workerTokIn,
+    workerTokOut,
   }
 }
