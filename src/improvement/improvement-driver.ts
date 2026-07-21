@@ -26,6 +26,7 @@ import {
   type CodeSurface,
   type LabeledScenarioStore,
   type ProposeContext,
+  type ProposedCandidate,
   type SurfaceProposer,
   verifyCodeSurface,
   type Worktree,
@@ -71,7 +72,17 @@ export interface CandidateGenerator {
     costLedger?: CostLedgerHandle
     /** Receipt attribution phase supplied alongside `costLedger`. */
     costPhase?: string
-  }): Promise<{ applied: boolean; summary: string }>
+  }): Promise<{
+    applied: boolean
+    summary: string
+    /** Short slug for the candidate. When present (with `rationale`), the
+     *  driver returns a `ProposedCandidate` wrapper so the label survives to
+     *  `GenerationRecord` and the emitted provenance. */
+    label?: string
+    /** Why this change was proposed — bounded, derived from the findings the
+     *  shot addressed. Paired with `label`. */
+    rationale?: string
+  }>
 }
 
 export interface ImprovementDriverOptions {
@@ -111,7 +122,7 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
         return []
       }
 
-      const surfaces: CodeSurface[] = []
+      const surfaces: Array<CodeSurface | ProposedCandidate> = []
       const incumbent = verifiedCodeIncumbent(ctx.currentSurface)
       const proposalBaseRef = incumbent?.baseCommit ?? baseRef
       for (let i = 0; i < ctx.populationSize; i++) {
@@ -126,7 +137,7 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
         // leak the worktree + branch — discard best-effort, then rethrow loud.
         try {
           if (incumbent) advanceToIncumbent(wt, incumbent)
-          const { applied, summary } = await opts.generator.generate({
+          const { applied, summary, label, rationale } = await opts.generator.generate({
             worktreePath: wt.path,
             report: ctx.report,
             findings,
@@ -144,7 +155,15 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
             continue
           }
           const surface = await opts.worktree.finalize(wt, summary)
-          surfaces.push(surface)
+          // A generator that attributes its change gets a `ProposedCandidate`
+          // wrapper — the loop normalizes both forms and threads {label,
+          // rationale} into `GenerationRecord` + the provenance record. A bare
+          // surface stays bare (blind generators remain unattributed).
+          surfaces.push(
+            label || rationale
+              ? { surface, label: label ?? '', rationale: rationale ?? '' }
+              : surface,
+          )
           owned.delete(wt.path)
           owned.set(surface.worktreeRef, wt)
         } catch (err) {

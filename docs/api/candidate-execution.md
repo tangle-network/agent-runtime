@@ -188,6 +188,18 @@ Re-exports [disposePreparedAgentCandidateExecution](index.md#disposepreparedagen
 
 ***
 
+### ExactProcessCandidateExecutorOptions
+
+Re-exports [ExactProcessCandidateExecutorOptions](index.md#exactprocesscandidateexecutoroptions)
+
+***
+
+### exactProcessProviderAsCandidateExecutor
+
+Re-exports [exactProcessProviderAsCandidateExecutor](index.md#exactprocessproviderascandidateexecutor)
+
+***
+
 ### ExecutePreparedAgentCandidateOptions
 
 Re-exports [ExecutePreparedAgentCandidateOptions](index.md#executepreparedagentcandidateoptions)

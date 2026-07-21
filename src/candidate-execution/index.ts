@@ -39,6 +39,10 @@ export {
   disposePreparedAgentCandidateExecution,
 } from './dispose'
 export {
+  type ExactProcessCandidateExecutorOptions,
+  exactProcessProviderAsCandidateExecutor,
+} from './exact-process-executor'
+export {
   type ExecutePreparedAgentCandidateOptions,
   executePreparedAgentCandidate,
 } from './execute'

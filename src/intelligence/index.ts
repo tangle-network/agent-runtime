@@ -122,6 +122,15 @@ export {
   resolveEffort,
 } from './effort'
 export type {
+  CreateExactProcessCandidateExperimentExecutorOptions,
+  ExactProcessCandidateExperimentExecution,
+  ExactProcessCandidateExperimentExecutor,
+} from './exact-process-candidate'
+export {
+  createExactProcessCandidateExperimentExecutor,
+  exactProcessCandidateExperimentExecutionSupport,
+} from './exact-process-candidate'
+export type {
   AgentCandidateExperimentCellPlacement,
   CreateAgentImprovementActivationOptions,
   CreateAgentImprovementProposalOptions,
@@ -175,15 +184,6 @@ export {
   composeCertifiedProfile,
   composeCertifiedProfileFromWire,
 } from './resolver'
-export type {
-  CreateSandboxCandidateExperimentExecutorOptions,
-  SandboxCandidateExperimentExecution,
-  SandboxCandidateExperimentExecutor,
-} from './sandbox-approved-candidate'
-export {
-  createSandboxCandidateExperimentExecutor,
-  sandboxCandidateExperimentExecutionSupport,
-} from './sandbox-approved-candidate'
 export type {
   AppliedIntelligence,
   IntelligenceAgent,
