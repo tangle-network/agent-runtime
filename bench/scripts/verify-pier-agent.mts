@@ -370,6 +370,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
       },
       instructionDelivery: { kind: 'argv-append' as const },
       cwd: { workspace: 'task' as const, path: '.' },
+      env: { PATH: { kind: 'public' as const, value: '/usr/local/bin:/usr/bin:/bin' } },
       environment: { kind: 'evaluator-task-container' as const },
       workspace: candidateWorkspace,
       isolation: {

@@ -1832,6 +1832,44 @@ Defined in: [candidate-execution/dispose.ts:11](https://github.com/tangle-networ
 
 ***
 
+### ExactProcessCandidateExecutorOptions
+
+Defined in: [candidate-execution/exact-process-executor.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/exact-process-executor.ts#L52)
+
+#### Properties
+
+##### provider
+
+> **provider**: `AgentEnvironmentProvider`
+
+Defined in: [candidate-execution/exact-process-executor.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/exact-process-executor.ts#L53)
+
+##### resources
+
+> **resources**: `AgentExactProcessResources`
+
+Defined in: [candidate-execution/exact-process-executor.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/exact-process-executor.ts#L54)
+
+##### provisionTimeoutMs?
+
+> `optional` **provisionTimeoutMs?**: `number`
+
+Defined in: [candidate-execution/exact-process-executor.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/exact-process-executor.ts#L55)
+
+##### recoveryRetentionMs?
+
+> `optional` **recoveryRetentionMs?**: `number`
+
+Defined in: [candidate-execution/exact-process-executor.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/exact-process-executor.ts#L56)
+
+##### providerOptions?
+
+> `optional` **providerOptions?**: `Record`\<`string`, `unknown`\>
+
+Defined in: [candidate-execution/exact-process-executor.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/exact-process-executor.ts#L57)
+
+***
+
 ### ExecutePreparedAgentCandidateOptions
 
 Defined in: [candidate-execution/execute.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/execute.ts#L66)
@@ -12373,6 +12411,26 @@ Revoke reservations held by a prepared candidate that will not be executed.
 #### Returns
 
 `Promise`\<\{ `disposed`: `true`; \}\>
+
+***
+
+### exactProcessProviderAsCandidateExecutor()
+
+> **exactProcessProviderAsCandidateExecutor**(`options`): [`AgentCandidateExecutorPort`](#agentcandidateexecutorport)
+
+Defined in: [candidate-execution/exact-process-executor.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/exact-process-executor.ts#L61)
+
+Adapt one neutral exact-process provider to Runtime's trusted candidate boundary.
+
+#### Parameters
+
+##### options
+
+[`ExactProcessCandidateExecutorOptions`](#exactprocesscandidateexecutoroptions)
+
+#### Returns
+
+[`AgentCandidateExecutorPort`](#agentcandidateexecutorport)
 
 ***
 

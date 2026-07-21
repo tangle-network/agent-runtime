@@ -138,6 +138,7 @@ export function candidateBundle(
         : { kind: 'container-command' as const, executable: 'codex' },
       instructionDelivery: { kind: 'stdin-utf8' as const },
       cwd: { workspace: 'task' as const, path: '.' },
+      env: { PATH: { kind: 'public' as const, value: '/usr/local/bin:/usr/bin:/bin' } },
       environment: { kind: 'evaluator-task-container' as const },
       ...(active ? { workspace: active.workspace } : {}),
       isolation: {

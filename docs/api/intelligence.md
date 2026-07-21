@@ -1380,6 +1380,188 @@ Intelligence-class spend ceiling. `0` refuses every intelligence spawn; `null` u
 
 ***
 
+### CreateExactProcessCandidateExperimentExecutorOptions
+
+Defined in: [intelligence/exact-process-candidate.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L41)
+
+#### Properties
+
+##### provider
+
+> **provider**: [`AgentEnvironmentProviderRef`](runtime/environment-provider.md#agentenvironmentproviderref)
+
+Defined in: [intelligence/exact-process-candidate.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L42)
+
+##### providerRegistry?
+
+> `optional` **providerRegistry?**: [`AgentEnvironmentProviderRegistry`](runtime/environment-provider.md#agentenvironmentproviderregistry)
+
+Defined in: [intelligence/exact-process-candidate.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L43)
+
+##### resources
+
+> **resources**: `AgentExactProcessResources`
+
+Defined in: [intelligence/exact-process-candidate.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L44)
+
+##### providerOptions?
+
+> `optional` **providerOptions?**: `Record`\<`string`, `unknown`\>
+
+Defined in: [intelligence/exact-process-candidate.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L45)
+
+##### provisionTimeoutMs?
+
+> `optional` **provisionTimeoutMs?**: `number`
+
+Defined in: [intelligence/exact-process-candidate.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L46)
+
+##### recoveryRetentionMs?
+
+> `optional` **recoveryRetentionMs?**: `number`
+
+Defined in: [intelligence/exact-process-candidate.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L47)
+
+##### ports
+
+> **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
+
+Defined in: [intelligence/exact-process-candidate.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L48)
+
+##### grader
+
+> **grader**: [`AgentCandidateBenchmarkGraderPort`](index.md#agentcandidatebenchmarkgraderport)
+
+Defined in: [intelligence/exact-process-candidate.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L49)
+
+##### outputArtifacts
+
+> **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](index.md#agentcandidateoutputartifactport)
+
+Defined in: [intelligence/exact-process-candidate.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L50)
+
+##### traceStore
+
+> **traceStore**: `TraceStore`
+
+Defined in: [intelligence/exact-process-candidate.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L51)
+
+##### claimStore
+
+> **claimStore**: [`AgentCandidateExecutionClaimStore`](index.md#agentcandidateexecutionclaimstore)
+
+Defined in: [intelligence/exact-process-candidate.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L52)
+
+##### cleanupTimeoutMs?
+
+> `optional` **cleanupTimeoutMs?**: `number`
+
+Defined in: [intelligence/exact-process-candidate.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L53)
+
+##### resultTimeoutMs?
+
+> `optional` **resultTimeoutMs?**: `number`
+
+Defined in: [intelligence/exact-process-candidate.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L54)
+
+***
+
+### ExactProcessCandidateExperimentExecution
+
+Defined in: [intelligence/exact-process-candidate.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L57)
+
+#### Extends
+
+- `CandidateExperimentExecutionInput`
+
+#### Properties
+
+##### executionId
+
+> **executionId**: `string`
+
+Defined in: [intelligence/exact-process-candidate.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L59)
+
+##### attempt?
+
+> `optional` **attempt?**: `number`
+
+Defined in: [intelligence/exact-process-candidate.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L60)
+
+##### executionRoots
+
+> **executionRoots**: `object`
+
+Defined in: [intelligence/exact-process-candidate.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L61)
+
+###### taskRoot
+
+> **taskRoot**: `string`
+
+###### candidateRoot?
+
+> `optional` **candidateRoot?**: `string`
+
+##### stagingRoots
+
+> **stagingRoots**: `object`
+
+Defined in: [intelligence/exact-process-candidate.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L62)
+
+###### taskRoot
+
+> **taskRoot**: `string`
+
+###### candidateRoot?
+
+> `optional` **candidateRoot?**: `string`
+
+###### profileRoot
+
+> **profileRoot**: `string`
+
+##### preparation?
+
+> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
+
+Defined in: [intelligence/exact-process-candidate.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L63)
+
+***
+
+### ExactProcessCandidateExperimentExecutor
+
+Defined in: [intelligence/exact-process-candidate.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L66)
+
+#### Properties
+
+##### executor
+
+> `readonly` **executor**: [`AgentCandidateExecutorPort`](index.md#agentcandidateexecutorport)
+
+Defined in: [intelligence/exact-process-candidate.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L68)
+
+Runtime's expired-attempt path reuses this port only to stop and dispose.
+
+#### Methods
+
+##### execute()
+
+> **execute**(`input`): `Promise`\<`CandidateExecutionEvidence`\>
+
+Defined in: [intelligence/exact-process-candidate.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L69)
+
+###### Parameters
+
+###### input
+
+[`ExactProcessCandidateExperimentExecution`](#exactprocesscandidateexperimentexecution)
+
+###### Returns
+
+`Promise`\<`CandidateExecutionEvidence`\>
+
+***
+
 ### AgentCandidateExperimentCellPlacement
 
 Defined in: [intelligence/improvement-cycle.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L88)
@@ -1544,7 +1726,7 @@ Defined in: [intelligence/improvement-cycle.ts:89](https://github.com/tangle-net
 
 ###### Inherited from
 
-[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`executionId`](#executionid)
+[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`executionId`](#executionid-1)
 
 ##### attempt?
 
@@ -1554,7 +1736,7 @@ Defined in: [intelligence/improvement-cycle.ts:90](https://github.com/tangle-net
 
 ###### Inherited from
 
-[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`attempt`](#attempt)
+[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`attempt`](#attempt-1)
 
 ##### executionRoots
 
@@ -1572,7 +1754,7 @@ Defined in: [intelligence/improvement-cycle.ts:91](https://github.com/tangle-net
 
 ###### Inherited from
 
-[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`executionRoots`](#executionroots)
+[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`executionRoots`](#executionroots-1)
 
 ##### stagingRoots
 
@@ -1594,7 +1776,7 @@ Defined in: [intelligence/improvement-cycle.ts:92](https://github.com/tangle-net
 
 ###### Inherited from
 
-[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`stagingRoots`](#stagingroots)
+[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`stagingRoots`](#stagingroots-1)
 
 ##### ports
 
@@ -1604,7 +1786,7 @@ Defined in: [intelligence/improvement-cycle.ts:93](https://github.com/tangle-net
 
 ###### Inherited from
 
-[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`ports`](#ports-1)
+[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`ports`](#ports-2)
 
 ##### preparation?
 
@@ -1614,7 +1796,7 @@ Defined in: [intelligence/improvement-cycle.ts:94](https://github.com/tangle-net
 
 ###### Inherited from
 
-[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`preparation`](#preparation)
+[`AgentCandidateExperimentCellPlacement`](#agentcandidateexperimentcellplacement).[`preparation`](#preparation-1)
 
 ##### execution
 
@@ -3164,180 +3346,6 @@ carrying an un-admitted binding kind is a hard error, not a soft drop).
 
 ***
 
-### CreateSandboxCandidateExperimentExecutorOptions
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L77)
-
-#### Properties
-
-##### client
-
-> **client**: `SandboxClientPort`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L78)
-
-##### ports
-
-> **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L79)
-
-##### grader
-
-> **grader**: [`AgentCandidateBenchmarkGraderPort`](index.md#agentcandidatebenchmarkgraderport)
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L80)
-
-##### outputArtifacts
-
-> **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](index.md#agentcandidateoutputartifactport)
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L81)
-
-##### traceStore
-
-> **traceStore**: `TraceStore`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L82)
-
-##### claimStore
-
-> **claimStore**: [`AgentCandidateExecutionClaimStore`](index.md#agentcandidateexecutionclaimstore)
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L83)
-
-##### sandbox?
-
-> `optional` **sandbox?**: `object`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L84)
-
-###### teamId?
-
-> `optional` **teamId?**: `string`
-
-###### resources?
-
-> `optional` **resources?**: `SandboxResources`
-
-###### createTimeoutMs?
-
-> `optional` **createTimeoutMs?**: `number`
-
-###### evidenceRetentionSeconds?
-
-> `optional` **evidenceRetentionSeconds?**: `number`
-
-##### cleanupTimeoutMs?
-
-> `optional` **cleanupTimeoutMs?**: `number`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L90)
-
-##### resultTimeoutMs?
-
-> `optional` **resultTimeoutMs?**: `number`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L91)
-
-***
-
-### SandboxCandidateExperimentExecution
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L94)
-
-#### Extends
-
-- `CandidateExperimentExecutionInput`
-
-#### Properties
-
-##### executionId
-
-> **executionId**: `string`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L95)
-
-##### attempt?
-
-> `optional` **attempt?**: `number`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L96)
-
-##### executionRoots
-
-> **executionRoots**: `object`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L97)
-
-###### taskRoot
-
-> **taskRoot**: `string`
-
-###### candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
-
-##### stagingRoots
-
-> **stagingRoots**: `object`
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L98)
-
-###### taskRoot
-
-> **taskRoot**: `string`
-
-###### candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
-
-###### profileRoot
-
-> **profileRoot**: `string`
-
-##### preparation?
-
-> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L99)
-
-***
-
-### SandboxCandidateExperimentExecutor
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L102)
-
-#### Properties
-
-##### executor
-
-> `readonly` **executor**: [`AgentCandidateExecutorPort`](index.md#agentcandidateexecutorport)
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L104)
-
-The same port is usable by Runtime's expired-claim recovery path.
-
-#### Methods
-
-##### execute()
-
-> **execute**(`input`): `Promise`\<`CandidateExecutionEvidence`\>
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L105)
-
-###### Parameters
-
-###### input
-
-[`SandboxCandidateExperimentExecution`](#sandboxcandidateexperimentexecution)
-
-###### Returns
-
-`Promise`\<`CandidateExecutionEvidence`\>
-
-***
-
 ### AppliedIntelligence
 
 Defined in: [intelligence/with-intelligence.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/with-intelligence.ts#L53)
@@ -4043,6 +4051,16 @@ The default tier when a client declares no effort. `'standard'` turns
 
 ***
 
+### exactProcessCandidateExperimentExecutionSupport
+
+> `const` **exactProcessCandidateExperimentExecutionSupport**: `Readonly`\<\{ `outcomes`: readonly \[`"output"`\]; `outputMediaTypes`: readonly \[`"text/*"`, `"application/json"`, `"*+json"`\]; `code`: readonly \[`"disabled"`\]; `memory`: readonly \[`"disabled"`\]; `knowledge`: `true`; `profile`: `Readonly`\<\{ `mcpTransports`: readonly \[`"stdio"`\]; `remoteMcp`: `false`; `tools`: `false`; `permissions`: `false`; `modes`: `false`; `confidential`: `false`; \}\>; `isolation`: `Readonly`\<\{ `freshEnvironment`: `true`; `exactProcess`: `true`; `egress`: readonly \[`"blocked"`, `"strict"`\]; \}\>; \}\>
+
+Defined in: [intelligence/exact-process-candidate.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L27)
+
+Candidate surfaces implemented by the neutral exact-process executor.
+
+***
+
 ### AGENT\_IMPROVEMENT\_PROFILE\_SURFACES
 
 > `const` **AGENT\_IMPROVEMENT\_PROFILE\_SURFACES**: readonly \[`"prompt"`, `"skills"`, `"tools"`, `"mcp"`, `"hooks"`, `"subagents"`\]
@@ -4050,16 +4068,6 @@ The default tier when a client declares no effort. `'standard'` turns
 Defined in: [intelligence/improvement-surfaces.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-surfaces.ts#L37)
 
 Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements.
-
-***
-
-### sandboxCandidateExperimentExecutionSupport
-
-> `const` **sandboxCandidateExperimentExecutionSupport**: `Readonly`\<\{ `outcomes`: readonly \[`"output"`\]; `outputMediaTypes`: readonly \[`"text/*"`, `"application/json"`, `"*+json"`\]; `code`: readonly \[`"disabled"`\]; `memory`: readonly \[`"disabled"`\]; `knowledge`: `true`; `profile`: `Readonly`\<\{ `mcpTransports`: readonly \[`"stdio"`\]; `remoteMcp`: `false`; `tools`: `false`; `permissions`: `false`; `modes`: `false`; `confidential`: `false`; \}\>; `isolation`: `Readonly`\<\{ `freshSandbox`: `true`; `exactProcess`: `true`; `egress`: readonly \[`"blocked"`, `"strict"`\]; \}\>; \}\>
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L63)
-
-Declares the exact candidate surfaces the sandbox executor can run.
 
 ## Functions
 
@@ -4396,6 +4404,26 @@ compile to `withAnalyst: true`, the tier's `fanout`, and `withLoops: true`.
 #### Returns
 
 [`EffortOverridesCompiled`](#effortoverridescompiled)
+
+***
+
+### createExactProcessCandidateExperimentExecutor()
+
+> **createExactProcessCandidateExperimentExecutor**(`options`): [`ExactProcessCandidateExperimentExecutor`](#exactprocesscandidateexperimentexecutor)
+
+Defined in: [intelligence/exact-process-candidate.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/exact-process-candidate.ts#L73)
+
+Execute one signed experiment cell through any declared exact-process provider.
+
+#### Parameters
+
+##### options
+
+[`CreateExactProcessCandidateExperimentExecutorOptions`](#createexactprocesscandidateexperimentexecutoroptions)
+
+#### Returns
+
+[`ExactProcessCandidateExperimentExecutor`](#exactprocesscandidateexperimentexecutor)
 
 ***
 
@@ -4955,26 +4983,6 @@ Lower a plane `CertifiedProfile` straight into a `ResolvedSurface` via
 #### Returns
 
 `Promise`\<[`ResolvedSurface`](#resolvedsurface)\>
-
-***
-
-### createSandboxCandidateExperimentExecutor()
-
-> **createSandboxCandidateExperimentExecutor**(`options`): [`SandboxCandidateExperimentExecutor`](#sandboxcandidateexperimentexecutor)
-
-Defined in: [intelligence/sandbox-approved-candidate.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/sandbox-approved-candidate.ts#L109)
-
-Execute one signed experiment cell inside a fresh Tangle sandbox.
-
-#### Parameters
-
-##### options
-
-[`CreateSandboxCandidateExperimentExecutorOptions`](#createsandboxcandidateexperimentexecutoroptions)
-
-#### Returns
-
-[`SandboxCandidateExperimentExecutor`](#sandboxcandidateexperimentexecutor)
 
 ***
 

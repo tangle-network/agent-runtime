@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.7
+
+- Declare the public executable search path for Pier candidate entrypoints so the exact process contract can replay them against `@tangle-network/agent-runtime@0.102.0`.
+- Align the portable agent contract with `@tangle-network/agent-interface@0.32.0`.
+
 ## 0.3.6
 
 - Ship compiled ESM and declarations so Node can import the installed package without a TypeScript runtime.
