@@ -140,14 +140,23 @@ describe('improvementDriver — reflective generator', () => {
     }
     const driver = reflectiveDriver(adapter)
 
-    const reportFindings = [
+    // A CONFORMING envelope passes through `toAnalystFindings` by reference
+    // (a partial look-alike would be lifted and re-id'd — the P4 accessor's
+    // fail-closed contract), so the stable id proves the report arm won.
+    const reportFindings: AnalystFinding[] = [
       {
+        schema_version: '1.0.0',
         finding_id: 'from-report',
-        subject: 'system-prompt:rubric',
+        analyst_id: 'phase2-report',
+        produced_at: new Date().toISOString(),
         severity: 'high',
+        area: 'report',
+        claim: 'the rubric is too lax',
+        subject: 'system-prompt:rubric',
         confidence: 0.9,
+        evidence_refs: [],
       },
-    ] as unknown as AnalystFinding[]
+    ]
     await driver.propose(ctxWith(FINDINGS, { findings: reportFindings, diff: {} }))
 
     expect(seen).toHaveLength(1)
@@ -207,6 +216,45 @@ describe('improvementDriver — reflective generator', () => {
         'edited from raw traces\n',
       )
     }
+  })
+
+  it('wraps labeled generator results into ProposedCandidate so the loop keeps attribution', async () => {
+    // Gen-3 proposer fan-out contract: a generator that names its proposer
+    // (label + rationale) must reach the optimization loop as a
+    // `ProposedCandidate`, not a bare surface — otherwise the label is lost
+    // and the candidate becomes unattributable in staircase/provenance rows.
+    const driver = improvementDriver({
+      generator: {
+        kind: 'labeled-stub',
+        proposesWithoutFindings: true,
+        async generate({ worktreePath, candidateIndex }) {
+          writeFileSync(join(worktreePath, 'prompt.md'), `edit ${candidateIndex}\n`)
+          return {
+            applied: true,
+            summary: 'labeled edit',
+            label: `proposer-${candidateIndex}`,
+            rationale: 'targets the placement failure',
+          }
+        },
+      },
+      worktree: gitWorktreeAdapter({ repoRoot }),
+      baseRef: 'main',
+    })
+
+    const proposals = await driver.propose({ ...ctxWith([]), populationSize: 2 })
+
+    expect(proposals).toHaveLength(2)
+    proposals.forEach((proposal, i) => {
+      if (typeof proposal === 'string' || !('label' in proposal)) {
+        throw new Error('expected a ProposedCandidate wrapper')
+      }
+      expect(proposal.label).toBe(`proposer-${i}`)
+      expect(proposal.rationale).toBe('targets the placement failure')
+      const surface = proposal.surface
+      if (typeof surface === 'string') throw new Error('expected CodeSurface payload')
+      expect(surface.kind).toBe('code')
+      verifyCodeSurface(surface)
+    })
   })
 
   it('forks isolated generation-two candidates from the promoted generation-one surface', async () => {

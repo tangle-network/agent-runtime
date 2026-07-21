@@ -29,7 +29,8 @@ import { execFile, execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { extractCode } from './benchmarks/humaneval'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 
@@ -107,7 +108,7 @@ export function loadMbpp(limit: number, offset = 0): { tasks: MbppTask[]; droppe
 const solveInstruction =
   'Write a Python function for the following task. Output the COMPLETE function definition (plus any imports it needs) inside a single ```python code block. Do not write tests or example calls.'
 
-function basePrompt(task: MbppTask): string {
+export function basePrompt(task: MbppTask): string {
   return `${solveInstruction}\n\nTask: ${task.description}\nYour function must satisfy this example test:\n\`\`\`python\n${task.shownAssert}\n\`\`\``
 }
 
@@ -655,8 +656,12 @@ async function main(): Promise<void> {
   console.log(`\n  VERDICT: ${verdict('full harness', rep)}; ${verdict('selection alone', sel)}`)
 }
 
-main().catch((e) => {
-  reapContainers()
-  console.error(`mbpp-structural: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
-  process.exit(1)
-})
+// Entrypoint guard (corpus-replay.mts precedent): campaign scripts import this module
+// for loadMbpp/basePrompt; the benchmark itself only runs when executed directly.
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  main().catch((e) => {
+    reapContainers()
+    console.error(`mbpp-structural: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
+    process.exit(1)
+  })
+}

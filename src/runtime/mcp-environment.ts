@@ -77,8 +77,10 @@ async function rpc(
   )
 }
 
-/** Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema. */
-function sanitizeSchema(s: unknown): Record<string, unknown> {
+/** Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema.
+ *  Shared with the same-host stdio client (`materializeLocalMcp`) — one coercion
+ *  rule for every MCP tool a worker sees, regardless of transport. */
+export function sanitizeMcpToolSchema(s: unknown): Record<string, unknown> {
   const o = s && typeof s === 'object' ? (s as Record<string, unknown>) : {}
   const banned = o.oneOf || o.anyOf || o.allOf || o.not || o.enum
   if (o.type === 'object' && !banned && o.properties && typeof o.properties === 'object') {
@@ -128,7 +130,7 @@ export function createMcpEnvironment(opts: McpEnvironmentOptions): Environment {
           function: {
             name: t.name,
             description: (t.description ?? '').slice(0, 1000),
-            parameters: sanitizeSchema(t.inputSchema),
+            parameters: sanitizeMcpToolSchema(t.inputSchema),
           },
         }),
       )

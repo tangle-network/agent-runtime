@@ -9,9 +9,9 @@
  */
 import { execFile } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { absoluteSweTempDir } from './swe-temp'
 
 const exec = promisify(execFile)
 
@@ -143,7 +143,7 @@ export async function runPyInJail(
   applyPatch?: string,
   opts: { timeoutS?: number } = {},
 ): Promise<JailRun> {
-  const scriptDir = mkdtempSync(join(absoluteSweTempDir(), 'swe-repro-'))
+  const scriptDir = mkdtempSync(join(tmpdir(), 'swe-repro-'))
   writeFileSync(join(scriptDir, 'repro.py'), pyScript)
   if (applyPatch) writeFileSync(join(scriptDir, 'ride.patch'), applyPatch.endsWith('\n') ? applyPatch : `${applyPatch}\n`)
   const T = opts.timeoutS ?? 120

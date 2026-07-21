@@ -153,6 +153,19 @@ export {
 } from './in-process-sandbox-client'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
 export { inlineSandboxClient } from './inline-sandbox-client'
+// API-key provisioning for adopted external MCP servers: secrets ride the
+// profile by NAME only; a KeyProvider resolves values at materialize time.
+export {
+  envKeyProvider,
+  type KeyProvider,
+  mcpSecretEnvMetadataKey,
+  resolveSecretEnv,
+  secretEnvOfMcpServer,
+} from './key-provider'
+// The same-host pseudo-box: a router-brain tool loop with the profile's stdio
+// MCP servers spawned as LOCAL children — the one client that can reach an MCP
+// server built into a host worktree.
+export { type LocalSandboxClientOptions, localSandboxClient } from './local-sandbox-client'
 export {
   type LoopCampaignDispatchOptions,
   type LoopDispatchOptions,
@@ -164,6 +177,7 @@ export {
   createMcpEnvironment,
   type McpEndpoint,
   type McpEnvironmentOptions,
+  sanitizeMcpToolSchema,
 } from './mcp-environment'
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).
@@ -331,6 +345,18 @@ export {
   SandboxRunAbortError,
   type TurnResult,
 } from './sandbox-run'
+// Same-host stdio MCP: the ONE spawn+handshake connection (shared by the serve
+// verifier and the live consumers) + the profile.mcp materializer.
+export {
+  connectStdioMcp,
+  type LocalMcpMaterialization,
+  type MaterializeLocalMcpOptions,
+  McpSpawnFault,
+  type McpToolDescriptor,
+  materializeLocalMcp,
+  type StdioMcpConnection,
+  type StdioMcpServerSpec,
+} from './stdio-mcp-client'
 export {
   type ApplyContinuation,
   type DumbDriverOptions,

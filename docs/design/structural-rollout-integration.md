@@ -33,7 +33,7 @@ New module `src/runtime/structural-rollout.ts`:
 - `CheckSource<Task>` — `generate(task, ctx) → VisibleCheck[]` from agent-visible/develop-against fields only. Default impl lifted from the proven `bench/src/hev-structural.mts generateTests` (:282) with the MBPP lesson baked in: **official shown examples outrank model-authored guesses in scoring** (guesses are 17–70% wrong depending on model × spec richness; unweighted they can flip selection negative).
 - `CheckRunner` — `run(candidate, checks, ctx) → { passed, total, failureOutput }`, backend = sandbox exec / agent-eval `testJudge`, result shaped to `SurfaceScore`.
 - `structuralRollout({ policy, checkSource, checkRunner }) → Strategy` — a fourth member of the sample/refine family via `defineStrategy`; argmax by weighted visible score, ≤`repairRounds` repair shots steered by `failureOutput`, keep-best-by-score. Emits `SelectionReceipt`s.
-- `StructuralRolloutPolicy { k, repairRounds, testgen, diverse?, temperature? }` — promoted from the rig env vars; optimize its owning config/code file with the code surface and agent-eval's `parameterSweepProposer` so the winner remains executable.
+- `StructuralRolloutPolicy { k, repairRounds, testgen, diverse?, temperature? }` — promoted from the rig env vars; later an optimizable surface for `improve()`.
 
 Placement rule: this is an INFERENCE-TIME capability (wraps the model call). It does not go into `improve()`/`selfImprove` (training-time); `improve()` may later tune the policy knobs.
 

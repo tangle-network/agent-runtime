@@ -17,15 +17,20 @@
  *                            through the resumable `bridgeExecutor`.
  *   - `backend: 'router'`  → OFF-BOX: a router chat-completion as the leaf executor,
  *                            presented as a `SandboxClient` (no sandbox dependency).
+ *   - `backend: 'local'`   → SAME-HOST: a router-brain tool loop with the
+ *                            profile's stdio MCP servers spawned as LOCAL child
+ *                            processes — the only backend that can reach an MCP
+ *                            server built into a host worktree.
  */
 
 import { inlineSandboxClient } from './inline-sandbox-client'
+import { type LocalSandboxClientOptions, localSandboxClient } from './local-sandbox-client'
 import { createExecutor } from './supervise/runtime'
 import type { SandboxClient } from './types'
 
 export interface ResolveSandboxClientOptions {
   /** The execution transport for the driven loop. */
-  backend: 'sandbox' | 'bridge' | 'router'
+  backend: 'sandbox' | 'bridge' | 'router' | 'local'
   /** `sandbox` backend: the caller's real Sandbox-backed client. Required for that backend. */
   sandboxClient?: SandboxClient
   /** `bridge` backend: local cli-bridge transport. `bearer` + `model` required. */
@@ -44,6 +49,9 @@ export interface ResolveSandboxClientOptions {
     key: string
     model: string
   }
+  /** `local` backend: same-host pseudo-box — the router brain drives a tool loop
+   *  with the profile's stdio MCP servers spawned as local children. */
+  local?: LocalSandboxClientOptions
 }
 
 /**
@@ -91,6 +99,15 @@ export function resolveSandboxClient(opts: ResolveSandboxClientOptions): Sandbox
           model: router.model,
         }),
       )
+    }
+    case 'local': {
+      const local = opts.local
+      if (!local?.router?.baseUrl || !local.router.key || !local.router.model) {
+        throw new Error(
+          "resolveSandboxClient: backend 'local' requires local.router.baseUrl, local.router.key and local.router.model",
+        )
+      }
+      return localSandboxClient(local)
     }
   }
 }

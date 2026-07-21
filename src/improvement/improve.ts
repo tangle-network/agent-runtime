@@ -14,6 +14,11 @@
  *   - `surface: 'skills'` → `skillOptProposer` mutates one named inline skill.
  *   - `surface: 'memory'` → `memoryCurationProposer` curates the profile's
  *     additional instructions as bounded durable lessons.
+ *   - `surface: 'rollout-policy'` → `rolloutPolicyProposer` mutates the
+ *     inference-time `StructuralRolloutPolicy` dials ({ k, repairRounds, testgen })
+ *     persisted in `profile.extensions['structural-rollout']` — deterministic
+ *     bounded neighbor enumeration; the held-out gate does the deciding. No-op
+ *     (nothing proposed, nothing shipped) when the profile has no such extension.
  *   - `surface: 'agent-profile'` → caller-supplied proposer mutates the complete
  *     canonical AgentProfile JSON in one candidate.
  *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `subagents`, `agent-profile`} → no zero-config default
@@ -31,7 +36,7 @@
  * @experimental
  */
 
-import { canonicalJson } from '@tangle-network/agent-eval'
+import { canonicalJson, makeFinding } from '@tangle-network/agent-eval'
 import {
   gepaProposer,
   gitWorktreeAdapter,
@@ -68,10 +73,19 @@ import {
   type ManagedImprovementDriver,
 } from './improvement-driver'
 import { rawTraceDistiller } from './raw-trace-distiller'
+import {
+  applyRolloutPolicyToProfile,
+  normalizeRolloutPolicy,
+  rolloutPolicyProposer,
+  serializeRolloutPolicy,
+  structuralRolloutPolicyFromProfile,
+} from './rollout-policy'
 
 /** The executable agent lever `improve` optimizes. Profile fields remain
  *  portable AgentProfile coordinates; implementation and orchestration files
- *  use the code surface so a winner can be sealed into an exact candidate. */
+ *  use the code surface so a winner can be sealed into an exact candidate.
+ *  `rollout-policy` is the inference-time structuralRollout dials
+ *  (`profile.extensions['structural-rollout']`). */
 export type ImproveSurface =
   | 'prompt'
   | 'skills'
@@ -82,6 +96,7 @@ export type ImproveSurface =
   | 'agent-profile'
   | 'memory'
   | 'code'
+  | 'rollout-policy'
 
 export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
   SelfImproveOptions<TScenario, TArtifact>,
@@ -103,22 +118,26 @@ export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
    *  a `ConfigError` before the generator is built. Unset = unrestricted. */
   allowedModels?: readonly string[]
   /** Per-generation findings producer passthrough (see selfImprove.analyzeGeneration).
-   *  DEFAULT: the built-in failure distiller — after each generation it turns the
-   *  worst-scoring/errored cells into structured findings ({ scenario, composite,
-   *  notes, error }) for the NEXT proposal round, so the proposer reasons over what
-   *  actually failed instead of a static seed. Pass your own producer (e.g. a
-   *  trace-analyst over the runDir's traces) to replace it; pass `null` to disable
-   *  and keep the static `findings` all the way through. */
+   *  DEFAULT: with a real (non-`mem://`) `runDir`, the raw-trace distiller
+   *  (`rawTraceDistiller`) — typed `AnalystFinding`s pointing the proposer at the
+   *  prior generation's actual on-disk traces; for in-memory runs (no traces on
+   *  disk to point at), the built-in failure distiller — the worst-scoring/errored
+   *  cells distilled into typed `AnalystFinding`s for the NEXT proposal round.
+   *  Pass your own producer to replace either; pass `null` to disable and keep the
+   *  static `findings` all the way through. */
   analyzeGeneration?: SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration'] | null
-  /** META-HARNESS mode: instead of the ~1500-char distilled findings, feed the
-   *  proposer RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
+  /** META-HARNESS mode: instead of the distilled findings, feed the proposer
+   *  RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
    *  real run traces under `runDir` (per-cell `spans.jsonl` event logs +
    *  `cached-result.json` scores + artifacts) plus a `grep`/`cat`-to-diagnose
    *  instruction — so the coding agent reads the actual failures itself rather than
-   *  a pre-summary. Requires a REAL `runDir` (that is where the traces live).
-   *  Ignored when `analyzeGeneration` is set explicitly (that wins) or is `null`
-   *  (disabled). Equivalent to `analyzeGeneration: rawTraceDistiller()`; this flag
-   *  is the one-line enable. Default `false` (the distiller stays the default). */
+   *  a pre-summary. Unset (default): raw-trace findings whenever the run is durable
+   *  (a real `runDir` — that is where the traces live), the distilled failure digest
+   *  otherwise; the `memory` surface always defaults to its curation distiller.
+   *  `true` forces `rawTraceDistiller()` even for an in-memory run (it emits a loud
+   *  warning finding instead of paths); `false` forces the digest distiller even
+   *  with a real `runDir`. Ignored when `analyzeGeneration` is set explicitly
+   *  (that wins) or is `null` (disabled). */
   rawTraceContext?: boolean
   /** CODE-surface wiring: name `surface: 'code'`, point at a repo, and the
    *  facade assembles the whole candidate pipeline — an isolated incumbent plus git worktrees
@@ -176,9 +195,9 @@ export interface ImproveResult<TScenario extends Scenario, TArtifact> {
   candidate: ImprovementCandidate
   /** Held-out decision for this search result. */
   decision: SelfImproveResult<TScenario, TArtifact>['gateDecision']
-  /** Held-out lift (`winner − baseline` composite). Undefined when the loop
-   *  ran with `budget.holdout: 'deferred'` (agent-eval 0.123+), which
-   *  dispatches zero holdout cells and defers the comparison to a later run. */
+  /** Held-out lift (`winner − baseline` composite). Absent iff
+   *  `budget.holdout === 'deferred'` — no held-out measurement ran, so there
+   *  is no lift to report (never a fabricated 0). */
   lift?: number
   /** Full `selfImprove` result for advanced inspection. For code runs,
    *  `raw.winner.surface.worktreeRef` remains live after return whether the
@@ -213,6 +232,9 @@ function defaultGeneratorFor(
       return skillOptProposer({ llm: llmClientOptions(llm), model, target: 'agent skill document' })
     case 'memory':
       return memoryCurationProposer()
+    case 'rollout-policy':
+      // Deterministic bounded enumeration — no LLM, so `llm` is unused here.
+      return rolloutPolicyProposer()
     default:
       return undefined
   }
@@ -243,6 +265,13 @@ function baselineSurfaceFor(
       return canonicalJson(profile)
     case 'memory':
       return profileInstructions(profile)
+    case 'rollout-policy': {
+      // Empty surface when the profile never opted into structural rollout: the
+      // proposer reads it as "propose nothing", so the loop runs baseline-only and
+      // holds — tuning dials nothing consumes would ship dead config.
+      const policy = structuralRolloutPolicyFromProfile(profile)
+      return policy ? serializeRolloutPolicy(policy) : ''
+    }
     case 'code':
       throw new ConfigError(
         'improve(): code requires the isolated baseline created from opts.code.repoRoot',
@@ -260,12 +289,14 @@ const DISTILLED_NOTES_MAX_CHARS = 1500
  *  error-derived `claim` fallback. */
 const DISTILLED_ERROR_MAX_CHARS = 500
 
-/** The default `analyzeGeneration`: distill each generation's failing cells into
- *  findings for the next proposal round. Deliberately dependency-free — judge notes
- *  and errors are already the domain's own diagnosis (executable gates put their
- *  reasons there); a trace-analyst can replace this wholesale via
- *  `opts.analyzeGeneration`. Falls back to the static seed findings when the
- *  generation had no failures, so a clean round never wipes the seed context. */
+/** The in-memory-run `analyzeGeneration`: distill each generation's failing cells
+ *  into TYPED `AnalystFinding`s for the next proposal round — the same envelope
+ *  `rawTraceDistiller` and the analyst registry emit, so consumers never branch on
+ *  a second ad-hoc digest shape. Judge notes and errors are already the domain's
+ *  own diagnosis (executable gates put their reasons there); a trace-analyst can
+ *  replace this wholesale via `opts.analyzeGeneration`. Falls back to the static
+ *  seed findings when the generation had no failures, so a clean round never wipes
+ *  the seed context. */
 function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
   staticFindings: unknown[],
 ): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
@@ -313,7 +344,25 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
     }
     if (failures.length === 0) return staticFindings
     failures.sort((a, b) => a.composite - b.composite)
-    return failures.slice(0, CAP)
+    return failures.slice(0, CAP).map((f) =>
+      makeFinding({
+        analyst_id: 'generation-failure-distiller',
+        severity: f.error !== undefined || f.composite < 0.5 ? 'high' : 'medium',
+        area: 'generation-failure',
+        confidence: 1,
+        subject: f.scenario,
+        claim: `Scenario ${f.scenario} scored composite ${f.composite}${
+          f.notes ? `: ${f.notes}` : ''
+        }${f.error ? ` (error: ${f.error})` : ''}`,
+        evidence_refs: [],
+        metadata: {
+          scenario: f.scenario,
+          composite: f.composite,
+          ...(f.notes ? { notes: f.notes } : {}),
+          ...(f.error !== undefined ? { error: f.error } : {}),
+        },
+      }),
+    )
   }
 }
 
@@ -328,6 +377,24 @@ function memoryGenerationDistiller<TScenario extends Scenario, TArtifact>(
     const fresh = await distillFailures(input)
     return fresh === staticFindings ? staticFindings : [...staticFindings, ...fresh]
   }
+}
+
+/** The default `analyzeGeneration` when the caller passed none: raw-trace context
+ *  whenever the run is durable (a real `runDir` is where the traces live — see
+ *  `rawTraceDistiller`), the failure digest for in-memory runs, with
+ *  `rawTraceContext` as the explicit override in either direction. The `memory`
+ *  surface keeps its curation distiller (its proposer consumes `claim` findings,
+ *  not trace paths) unless `rawTraceContext: true` is explicit. */
+function defaultDistillerFor<TScenario extends Scenario, TArtifact>(
+  opts: ImproveOptions<TScenario, TArtifact>,
+  findings: unknown[],
+): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
+  const surface = opts.surface ?? 'prompt'
+  const durableRun = opts.runDir !== undefined && !opts.runDir.startsWith('mem://')
+  const useRawTraces = opts.rawTraceContext ?? (surface === 'memory' ? false : durableRun)
+  if (useRawTraces) return rawTraceDistiller<TScenario, TArtifact>({ fallbackFindings: findings })
+  if (surface === 'memory') return memoryGenerationDistiller<TScenario, TArtifact>(findings)
+  return generationFailureDistiller<TScenario, TArtifact>(findings)
 }
 
 interface PreparedCodeRun {
@@ -497,6 +564,22 @@ function materializeImprovementProfileCandidate(
         },
       }
       break
+    case 'rollout-policy': {
+      // An empty winner is the never-opted-in baseline (see baselineSurfaceFor):
+      // nothing to apply, so no profile candidate — never a parse error.
+      if (winner === '') return undefined
+      // Parse + re-validate the winner against the policy's own invariants — a
+      // custom generator's malformed dial must fail loud, not persist silently.
+      const policy = normalizeRolloutPolicy(parseWinnerJson(winner, surface))
+      if (!policy) {
+        throw new ConfigError(
+          `improve(): the shipped 'rollout-policy' winner is not a valid StructuralRolloutPolicy ` +
+            `(integer k >= 1, repairRounds >= 0, testgen >= 0), so it cannot be applied: ${winner}`,
+        )
+      }
+      candidate = applyRolloutPolicyToProfile(profile, policy)
+      break
+    }
     case 'code':
       return undefined
   }
@@ -645,12 +728,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
         ? {}
         : {
             analyzeGeneration:
-              analyzeGeneration ??
-              (rawTraceContext
-                ? rawTraceDistiller<TScenario, TArtifact>({ fallbackFindings: findings })
-                : surface === 'memory'
-                  ? memoryGenerationDistiller<TScenario, TArtifact>(findings)
-                  : generationFailureDistiller<TScenario, TArtifact>(findings)),
+              analyzeGeneration ?? defaultDistillerFor<TScenario, TArtifact>(opts, findings),
           }),
     })
   } catch (cause) {
@@ -698,7 +776,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   return {
     candidate,
     decision: raw.gateDecision,
-    lift: raw.lift,
+    ...(raw.lift !== undefined ? { lift: raw.lift } : {}),
     raw,
     dispose,
   }

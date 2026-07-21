@@ -10,7 +10,7 @@
 
 ### InMemoryResultBlobStore
 
-Defined in: [durable/spawn-journal.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L70)
+Defined in: [src/durable/spawn-journal.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L70)
 
 In-memory `ResultBlobStore`. Content-addressed: `put` verifies the supplied
 `outRef` matches the artifact's hash so a stale/forged ref fails loud rather than
@@ -36,7 +36,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 > **put**(`outRef`, `artifact`): `Promise`\<`void`\>
 
-Defined in: [durable/spawn-journal.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L73)
+Defined in: [src/durable/spawn-journal.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L73)
 
 ###### Parameters
 
@@ -60,7 +60,7 @@ Defined in: [durable/spawn-journal.ts:73](https://github.com/tangle-network/agen
 
 > **get**(`outRef`): `Promise`\<`unknown`\>
 
-Defined in: [durable/spawn-journal.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L78)
+Defined in: [src/durable/spawn-journal.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L78)
 
 ###### Parameters
 
@@ -74,13 +74,13 @@ Defined in: [durable/spawn-journal.ts:78](https://github.com/tangle-network/agen
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-1)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-2)
 
 ***
 
 ### InMemorySpawnJournal
 
-Defined in: [durable/spawn-journal.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L140)
+Defined in: [src/durable/spawn-journal.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L140)
 
 In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces
 the corruption guards a durable replay rests on:
@@ -108,7 +108,7 @@ the corruption guards a durable replay rests on:
 
 > **loadTree**(`root`): `Promise`\<`SpawnEvent`[] \| `undefined`\>
 
-Defined in: [durable/spawn-journal.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L143)
+Defined in: [src/durable/spawn-journal.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L143)
 
 ###### Parameters
 
@@ -128,7 +128,7 @@ Defined in: [durable/spawn-journal.ts:143](https://github.com/tangle-network/age
 
 > **beginTree**(`root`, `at`): `Promise`\<`void`\>
 
-Defined in: [durable/spawn-journal.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L149)
+Defined in: [src/durable/spawn-journal.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L149)
 
 ###### Parameters
 
@@ -152,7 +152,7 @@ Defined in: [durable/spawn-journal.ts:149](https://github.com/tangle-network/age
 
 > **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
 
-Defined in: [durable/spawn-journal.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L162)
+Defined in: [src/durable/spawn-journal.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L162)
 
 ###### Parameters
 
@@ -176,7 +176,7 @@ Defined in: [durable/spawn-journal.ts:162](https://github.com/tangle-network/age
 
 ### InMemoryCorpus
 
-Defined in: [runtime/personify/corpus.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L162)
+Defined in: [src/runtime/personify/corpus.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L162)
 
 In-memory `Corpus`. Keyed by record `id`; `append` validates the record, is idempotent on an
 identical re-append, and returns a typed `{ succeeded: false }` on a conflicting re-append under
@@ -202,7 +202,7 @@ the same `id` (never overwrites). `query` routes through the single-sourced `app
 
 > **append**(`record`): `Promise`\<\{ `succeeded`: `true`; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
 
-Defined in: [runtime/personify/corpus.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L165)
+Defined in: [src/runtime/personify/corpus.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L165)
 
 Append one accreted fact. Idempotent on an identical record; returns a typed outcome —
  inspect `succeeded` before treating it as durable (no silent write-through on conflict).
@@ -225,7 +225,7 @@ Append one accreted fact. Idempotent on an identical record; returns a typed out
 
 > **query**(`filter`): `Promise`\<readonly [`CorpusRecord`](#corpusrecord)[]\>
 
-Defined in: [runtime/personify/corpus.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L187)
+Defined in: [src/runtime/personify/corpus.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L187)
 
 Query accreted facts by filter — most-confident first. Returns the matching records (an
  empty array when none match is a valid result, NOT an error).
@@ -248,7 +248,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ### FileCorpus
 
-Defined in: [runtime/personify/corpus.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L203)
+Defined in: [src/runtime/personify/corpus.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L203)
 
 JSONL on disk — one validated `CorpusRecord` per line, append-only. `query` replays the whole
 file, validating every line (a malformed line fails loud — a corrupted corpus must never read
@@ -268,7 +268,7 @@ journal, but the interface stays separate (a learned fact is not a replay record
 
 > **new FileCorpus**(`path`): [`FileCorpus`](#filecorpus)
 
-Defined in: [runtime/personify/corpus.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L204)
+Defined in: [src/runtime/personify/corpus.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L204)
 
 ###### Parameters
 
@@ -286,7 +286,7 @@ Defined in: [runtime/personify/corpus.ts:204](https://github.com/tangle-network/
 
 > **append**(`record`): `Promise`\<\{ `succeeded`: `true`; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
 
-Defined in: [runtime/personify/corpus.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L206)
+Defined in: [src/runtime/personify/corpus.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L206)
 
 Append one accreted fact. Idempotent on an identical record; returns a typed outcome —
  inspect `succeeded` before treating it as durable (no silent write-through on conflict).
@@ -309,7 +309,7 @@ Append one accreted fact. Idempotent on an identical record; returns a typed out
 
 > **query**(`filter`): `Promise`\<readonly [`CorpusRecord`](#corpusrecord)[]\>
 
-Defined in: [runtime/personify/corpus.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L234)
+Defined in: [src/runtime/personify/corpus.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L234)
 
 Query accreted facts by filter — most-confident first. Returns the matching records (an
  empty array when none match is a valid result, NOT an error).
@@ -332,7 +332,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ### SandboxRunAbortError
 
-Defined in: [runtime/sandbox-run.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L79)
+Defined in: [src/runtime/sandbox-run.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L79)
 
 **`Experimental`**
 
@@ -354,7 +354,7 @@ loop kernel, scope, supervise runtime) keep matching it unchanged.
 
 > **new SandboxRunAbortError**(`events`, `readError?`): [`SandboxRunAbortError`](#sandboxrunaborterror)
 
-Defined in: [runtime/sandbox-run.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L85)
+Defined in: [src/runtime/sandbox-run.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L85)
 
 **`Experimental`**
 
@@ -382,7 +382,7 @@ Defined in: [runtime/sandbox-run.ts:85](https://github.com/tangle-network/agent-
 
 > `readonly` **name**: `"AbortError"` = `'AbortError'`
 
-Defined in: [runtime/sandbox-run.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L80)
+Defined in: [src/runtime/sandbox-run.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L80)
 
 **`Experimental`**
 
@@ -394,7 +394,7 @@ Defined in: [runtime/sandbox-run.ts:80](https://github.com/tangle-network/agent-
 
 > `readonly` **events**: `SandboxEvent`[]
 
-Defined in: [runtime/sandbox-run.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L82)
+Defined in: [src/runtime/sandbox-run.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L82)
 
 **`Experimental`**
 
@@ -404,17 +404,76 @@ Events drained from the stream before the abort interrupted the turn.
 
 > `readonly` `optional` **readError?**: `string`
 
-Defined in: [runtime/sandbox-run.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L84)
+Defined in: [src/runtime/sandbox-run.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L84)
 
 **`Experimental`**
 
 The last artifact read error, if the abort fired during the retry loop.
 
+***
+
+### McpSpawnFault
+
+Defined in: [src/runtime/stdio-mcp-client.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L90)
+
+A missing start binary / spawn fault: a SETUP bug, never a failed candidate.
+ Graders (the serve verifier) must rethrow this instead of scoring it.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new McpSpawnFault**(`message?`): [`McpSpawnFault`](#mcpspawnfault)
+
+Defined in: node\_modules/.pnpm/typescript@5.9.3/node\_modules/typescript/lib/lib.es5.d.ts:1082
+
+###### Parameters
+
+###### message?
+
+`string`
+
+###### Returns
+
+[`McpSpawnFault`](#mcpspawnfault)
+
+###### Inherited from
+
+`Error.constructor`
+
+##### Constructor
+
+> **new McpSpawnFault**(`message?`, `options?`): [`McpSpawnFault`](#mcpspawnfault)
+
+Defined in: node\_modules/.pnpm/typescript@5.9.3/node\_modules/typescript/lib/lib.es5.d.ts:1082
+
+###### Parameters
+
+###### message?
+
+`string`
+
+###### options?
+
+`ErrorOptions`
+
+###### Returns
+
+[`McpSpawnFault`](#mcpspawnfault)
+
+###### Inherited from
+
+`Error.constructor`
+
 ## Interfaces
 
 ### AnalystRegistry
 
-Defined in: [mcp/tools/coordination.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L63)
+Defined in: [src/mcp/tools/coordination.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L63)
 
 #### Properties
 
@@ -422,13 +481,13 @@ Defined in: [mcp/tools/coordination.ts:63](https://github.com/tangle-network/age
 
 > `readonly` **kinds**: readonly `object`[]
 
-Defined in: [mcp/tools/coordination.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L64)
+Defined in: [src/mcp/tools/coordination.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L64)
 
 ##### run
 
 > `readonly` **run**: (`kindId`, `trace`) => `Promise`\<`unknown`\>
 
-Defined in: [mcp/tools/coordination.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L65)
+Defined in: [src/mcp/tools/coordination.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L65)
 
 ###### Parameters
 
@@ -448,7 +507,7 @@ Defined in: [mcp/tools/coordination.ts:65](https://github.com/tangle-network/age
 
 ### WorktreeCommandResult
 
-Defined in: [mcp/worktree-harness.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L48)
+Defined in: [src/mcp/worktree-harness.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L48)
 
 Outcome of one verification command run in the worktree (test or typecheck).
 
@@ -458,7 +517,7 @@ Outcome of one verification command run in the worktree (test or typecheck).
 
 > **command**: `string`
 
-Defined in: [mcp/worktree-harness.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L50)
+Defined in: [src/mcp/worktree-harness.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L50)
 
 The shell command line that was run.
 
@@ -466,7 +525,7 @@ The shell command line that was run.
 
 > **passed**: `boolean`
 
-Defined in: [mcp/worktree-harness.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L52)
+Defined in: [src/mcp/worktree-harness.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L52)
 
 Did the command exit 0? The PASS signal a deliverable gate / coder output reads.
 
@@ -474,7 +533,7 @@ Did the command exit 0? The PASS signal a deliverable gate / coder output reads.
 
 > **exitCode**: `number` \| `null`
 
-Defined in: [mcp/worktree-harness.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L54)
+Defined in: [src/mcp/worktree-harness.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L54)
 
 OS exit code, or `null` when killed before exit.
 
@@ -482,7 +541,7 @@ OS exit code, or `null` when killed before exit.
 
 > **output**: `string`
 
-Defined in: [mcp/worktree-harness.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L56)
+Defined in: [src/mcp/worktree-harness.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L56)
 
 Combined stdout+stderr (capped) — surfaced in traces for diagnosis.
 
@@ -490,7 +549,7 @@ Combined stdout+stderr (capped) — surfaced in traces for diagnosis.
 
 ### WorktreeProfileMaterializationReceipt
 
-Defined in: [mcp/worktree-harness.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L60)
+Defined in: [src/mcp/worktree-harness.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L60)
 
 Proof of the profile inputs delivered before the worker process started.
 
@@ -500,7 +559,7 @@ Proof of the profile inputs delivered before the worker process started.
 
 > **workspacePlanDigest**: `string`
 
-Defined in: [mcp/worktree-harness.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L62)
+Defined in: [src/mcp/worktree-harness.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L62)
 
 Digest of the exact materializer plan: files, modes, environment, flags, and unsupported rows.
 
@@ -508,7 +567,7 @@ Digest of the exact materializer plan: files, modes, environment, flags, and uns
 
 > **writtenPaths**: `string`[]
 
-Defined in: [mcp/worktree-harness.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L64)
+Defined in: [src/mcp/worktree-harness.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L64)
 
 Repository-relative profile input files written into the worker worktree.
 
@@ -516,7 +575,7 @@ Repository-relative profile input files written into the worker worktree.
 
 > **unsupported**: `Unsupported`[]
 
-Defined in: [mcp/worktree-harness.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L66)
+Defined in: [src/mcp/worktree-harness.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L66)
 
 Must be empty on a successful run because this path fails closed.
 
@@ -524,7 +583,7 @@ Must be empty on a successful run because this path fails closed.
 
 > **environmentNames**: `string`[]
 
-Defined in: [mcp/worktree-harness.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L68)
+Defined in: [src/mcp/worktree-harness.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L68)
 
 Environment variable names added to the worker process. Values remain out of telemetry.
 
@@ -532,7 +591,7 @@ Environment variable names added to the worker process. Values remain out of tel
 
 > **flags**: `string`[]
 
-Defined in: [mcp/worktree-harness.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L70)
+Defined in: [src/mcp/worktree-harness.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L70)
 
 Exact additional CLI arguments emitted by the materializer.
 
@@ -540,7 +599,7 @@ Exact additional CLI arguments emitted by the materializer.
 
 > **resourceInstructions**: `object`
 
-Defined in: [mcp/worktree-harness.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L72)
+Defined in: [src/mcp/worktree-harness.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L72)
 
 `resources.instructions` bypasses native project files so reproducible Codex cannot drop it.
 
@@ -560,7 +619,7 @@ Defined in: [mcp/worktree-harness.ts:72](https://github.com/tangle-network/agent
 
 ### AnytimeTaskCurve
 
-Defined in: [runtime/anytime.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L25)
+Defined in: [src/runtime/anytime.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L25)
 
 #### Properties
 
@@ -568,19 +627,19 @@ Defined in: [runtime/anytime.ts:25](https://github.com/tangle-network/agent-runt
 
 > **taskId**: `string`
 
-Defined in: [runtime/anytime.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L26)
+Defined in: [src/runtime/anytime.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L26)
 
 ##### strategy
 
 > **strategy**: `string`
 
-Defined in: [runtime/anytime.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L27)
+Defined in: [src/runtime/anytime.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L27)
 
 ##### points
 
 > **points**: `object`[]
 
-Defined in: [runtime/anytime.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L30)
+Defined in: [src/runtime/anytime.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L30)
 
 Best-so-far after each settled shot: elapsed ms from the task's first spawn,
  cumulative usd, and the running max score.
@@ -601,7 +660,7 @@ Best-so-far after each settled shot: elapsed ms from the task's first spawn,
 
 > **hits**: `Record`\<`string`, \{ `ms`: `number`; `shots`: `number`; `usd`: `number`; \} \| `null`\>
 
-Defined in: [runtime/anytime.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L33)
+Defined in: [src/runtime/anytime.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L33)
 
 Per satisficing target (keyed by the target value as a string): the first point
  where best ≥ target, or null when never reached within budget.
@@ -610,7 +669,7 @@ Per satisficing target (keyed by the target value as a string): the first point
 
 ### AnytimeStrategySummary
 
-Defined in: [runtime/anytime.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L36)
+Defined in: [src/runtime/anytime.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L36)
 
 #### Properties
 
@@ -618,13 +677,13 @@ Defined in: [runtime/anytime.ts:36](https://github.com/tangle-network/agent-runt
 
 > **strategy**: `string`
 
-Defined in: [runtime/anytime.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L37)
+Defined in: [src/runtime/anytime.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L37)
 
 ##### target
 
 > **target**: `number`
 
-Defined in: [runtime/anytime.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L39)
+Defined in: [src/runtime/anytime.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L39)
 
 The satisficing target this row summarizes.
 
@@ -632,19 +691,19 @@ The satisficing target this row summarizes.
 
 > **tasks**: `number`
 
-Defined in: [runtime/anytime.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L40)
+Defined in: [src/runtime/anytime.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L40)
 
 ##### reachedTarget
 
 > **reachedTarget**: `number`
 
-Defined in: [runtime/anytime.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L41)
+Defined in: [src/runtime/anytime.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L41)
 
 ##### medianTttMs
 
 > **medianTttMs**: `number` \| `null`
 
-Defined in: [runtime/anytime.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L43)
+Defined in: [src/runtime/anytime.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L43)
 
 Median time-to-target over the tasks that reached it (null when none did).
 
@@ -652,13 +711,13 @@ Median time-to-target over the tasks that reached it (null when none did).
 
 > **medianShotsToTarget**: `number` \| `null`
 
-Defined in: [runtime/anytime.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L44)
+Defined in: [src/runtime/anytime.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L44)
 
 ##### ertMs
 
 > **ertMs**: `number` \| `null`
 
-Defined in: [runtime/anytime.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L46)
+Defined in: [src/runtime/anytime.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L46)
 
 COCO ERT: Σ all task wall-time (incl. failures) / #successes. Null when 0 succeed.
 
@@ -666,7 +725,7 @@ COCO ERT: Σ all task wall-time (incl. failures) / #successes. Null when 0 succe
 
 > **erUsd**: `number` \| `null`
 
-Defined in: [runtime/anytime.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L48)
+Defined in: [src/runtime/anytime.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L48)
 
 Same construction over dollars: Σ all spend / #successes.
 
@@ -674,7 +733,7 @@ Same construction over dollars: Σ all spend / #successes.
 
 > **curveByShot**: `number`[]
 
-Defined in: [runtime/anytime.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L50)
+Defined in: [src/runtime/anytime.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L50)
 
 Mean best-so-far score by shot index (the anytime curve, averaged over tasks).
 
@@ -682,7 +741,7 @@ Mean best-so-far score by shot index (the anytime curve, averaged over tasks).
 
 > **auc**: `number`
 
-Defined in: [runtime/anytime.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L52)
+Defined in: [src/runtime/anytime.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L52)
 
 Area under the per-shot anytime curve, normalized to [0,1].
 
@@ -690,7 +749,7 @@ Area under the per-shot anytime curve, normalized to [0,1].
 
 ### AnytimeReport
 
-Defined in: [runtime/anytime.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L55)
+Defined in: [src/runtime/anytime.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L55)
 
 #### Properties
 
@@ -698,19 +757,19 @@ Defined in: [runtime/anytime.ts:55](https://github.com/tangle-network/agent-runt
 
 > **targets**: `number`[]
 
-Defined in: [runtime/anytime.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L56)
+Defined in: [src/runtime/anytime.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L56)
 
 ##### perTask
 
 > **perTask**: [`AnytimeTaskCurve`](#anytimetaskcurve)[]
 
-Defined in: [runtime/anytime.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L57)
+Defined in: [src/runtime/anytime.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L57)
 
 ##### perStrategy
 
 > **perStrategy**: [`AnytimeStrategySummary`](#anytimestrategysummary)[]
 
-Defined in: [runtime/anytime.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L59)
+Defined in: [src/runtime/anytime.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L59)
 
 One summary per (strategy, target) pair — the COCO-style multi-target view.
 
@@ -718,7 +777,7 @@ One summary per (strategy, target) pair — the COCO-style multi-target view.
 
 ### AuditIntentInput
 
-Defined in: [runtime/audit-intent.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L29)
+Defined in: [src/runtime/audit-intent.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L29)
 
 #### Properties
 
@@ -726,7 +785,7 @@ Defined in: [runtime/audit-intent.ts:29](https://github.com/tangle-network/agent
 
 > **declaredIntent**: `string`
 
-Defined in: [runtime/audit-intent.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L31)
+Defined in: [src/runtime/audit-intent.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L31)
 
 The declared intent: the task text / acceptance criteria the agent was given.
 
@@ -734,7 +793,7 @@ The declared intent: the task text / acceptance criteria the agent was given.
 
 > **trace**: readonly `unknown`[]
 
-Defined in: [runtime/audit-intent.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L33)
+Defined in: [src/runtime/audit-intent.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L33)
 
 The trajectory so far — tool calls + results + assistant turns (any event shapes).
 
@@ -742,7 +801,7 @@ The trajectory so far — tool calls + results + assistant turns (any event shap
 
 > `optional` **userIntent?**: `string`
 
-Defined in: [runtime/audit-intent.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L35)
+Defined in: [src/runtime/audit-intent.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L35)
 
 The principal's actual intent when it differs from the literal task (the contract).
 
@@ -750,7 +809,7 @@ The principal's actual intent when it differs from the literal task (the contrac
 
 > `optional` **metaIntent?**: `string`
 
-Defined in: [runtime/audit-intent.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L38)
+Defined in: [src/runtime/audit-intent.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L38)
 
 The loop-level purpose (meta-intent): what the WHOLE run is for — lets the auditor
  flag locally-sensible work that serves the wrong larger objective.
@@ -759,13 +818,13 @@ The loop-level purpose (meta-intent): what the WHOLE run is for — lets the aud
 
 > `optional` **runId?**: `string`
 
-Defined in: [runtime/audit-intent.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L39)
+Defined in: [src/runtime/audit-intent.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L39)
 
 ***
 
 ### AuditIntentOptions
 
-Defined in: [runtime/audit-intent.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L42)
+Defined in: [src/runtime/audit-intent.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L42)
 
 #### Properties
 
@@ -773,19 +832,19 @@ Defined in: [runtime/audit-intent.ts:42](https://github.com/tangle-network/agent
 
 > **chat**: `ChatClient`
 
-Defined in: [runtime/audit-intent.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L43)
+Defined in: [src/runtime/audit-intent.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L43)
 
 ##### model?
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/audit-intent.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L44)
+Defined in: [src/runtime/audit-intent.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L44)
 
 ##### auditorInstruction?
 
 > `optional` **auditorInstruction?**: `string`
 
-Defined in: [runtime/audit-intent.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L46)
+Defined in: [src/runtime/audit-intent.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L46)
 
 Override the auditor instruction (optimizable like any analyst prompt).
 
@@ -793,7 +852,7 @@ Override the auditor instruction (optimizable like any analyst prompt).
 
 > `optional` **maxTraceLines?**: `number`
 
-Defined in: [runtime/audit-intent.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L48)
+Defined in: [src/runtime/audit-intent.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L48)
 
 Cap trace lines fed to the auditor. Default 80.
 
@@ -801,13 +860,13 @@ Cap trace lines fed to the auditor. Default 80.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/audit-intent.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L49)
+Defined in: [src/runtime/audit-intent.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L49)
 
 ***
 
 ### IntentAudit
 
-Defined in: [runtime/audit-intent.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L52)
+Defined in: [src/runtime/audit-intent.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L52)
 
 #### Properties
 
@@ -815,7 +874,7 @@ Defined in: [runtime/audit-intent.ts:52](https://github.com/tangle-network/agent
 
 > **revealedIntent**: `string`
 
-Defined in: [runtime/audit-intent.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L54)
+Defined in: [src/runtime/audit-intent.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L54)
 
 What the agent's actions reveal it is actually optimizing — one sentence.
 
@@ -823,13 +882,13 @@ What the agent's actions reveal it is actually optimizing — one sentence.
 
 > **verdict**: `"aligned"` \| `"drifting"` \| `"diverged"`
 
-Defined in: [runtime/audit-intent.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L55)
+Defined in: [src/runtime/audit-intent.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L55)
 
 ##### evidence
 
 > **evidence**: `string`
 
-Defined in: [runtime/audit-intent.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L57)
+Defined in: [src/runtime/audit-intent.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L57)
 
 Trajectory-grounded evidence for the verdict (specific calls/patterns).
 
@@ -837,7 +896,7 @@ Trajectory-grounded evidence for the verdict (specific calls/patterns).
 
 > **recommendation**: `"abort"` \| `"continue"` \| `"steer"`
 
-Defined in: [runtime/audit-intent.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L59)
+Defined in: [src/runtime/audit-intent.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L59)
 
 The single recommended intervention.
 
@@ -845,7 +904,7 @@ The single recommended intervention.
 
 > `optional` **steer?**: `string`
 
-Defined in: [runtime/audit-intent.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L61)
+Defined in: [src/runtime/audit-intent.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L61)
 
 When recommendation is 'steer': the corrective instruction to inject.
 
@@ -853,13 +912,13 @@ When recommendation is 'steer': the corrective instruction to inject.
 
 > **confidence**: `number`
 
-Defined in: [runtime/audit-intent.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L62)
+Defined in: [src/runtime/audit-intent.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L62)
 
 ***
 
 ### LeaderboardOptions
 
-Defined in: [runtime/benchmark-report.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L38)
+Defined in: [src/runtime/benchmark-report.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L38)
 
 #### Properties
 
@@ -867,37 +926,37 @@ Defined in: [runtime/benchmark-report.ts:38](https://github.com/tangle-network/a
 
 > `readonly` `optional` **title?**: `string`
 
-Defined in: [runtime/benchmark-report.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L39)
+Defined in: [src/runtime/benchmark-report.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L39)
 
 ##### scoreOf?
 
 > `readonly` `optional` **scoreOf?**: `ScoreOf`
 
-Defined in: [runtime/benchmark-report.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L40)
+Defined in: [src/runtime/benchmark-report.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L40)
 
 ##### profileKeyOf?
 
 > `readonly` `optional` **profileKeyOf?**: `ProfileKeyOf`
 
-Defined in: [runtime/benchmark-report.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L41)
+Defined in: [src/runtime/benchmark-report.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L41)
 
 ##### groupOf?
 
 > `readonly` `optional` **groupOf?**: `GroupOf`
 
-Defined in: [runtime/benchmark-report.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L42)
+Defined in: [src/runtime/benchmark-report.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L42)
 
 ##### axisScoresOf?
 
 > `readonly` `optional` **axisScoresOf?**: `AxisScoresOf`
 
-Defined in: [runtime/benchmark-report.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L43)
+Defined in: [src/runtime/benchmark-report.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L43)
 
 ##### labelOf?
 
 > `readonly` `optional` **labelOf?**: (`profileKey`) => `string`
 
-Defined in: [runtime/benchmark-report.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L45)
+Defined in: [src/runtime/benchmark-report.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L45)
 
 Display label for a profile key (default: the key itself).
 
@@ -915,7 +974,7 @@ Display label for a profile key (default: the key itself).
 
 > `readonly` `optional` **meta?**: `Record`\<`string`, `string`\>
 
-Defined in: [runtime/benchmark-report.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L47)
+Defined in: [src/runtime/benchmark-report.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L47)
 
 Commit SHA / dataset / dates surfaced in the provenance block.
 
@@ -923,7 +982,7 @@ Commit SHA / dataset / dates surfaced in the provenance block.
 
 > `readonly` `optional` **stats?**: `boolean`
 
-Defined in: [runtime/benchmark-report.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L50)
+Defined in: [src/runtime/benchmark-report.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L50)
 
 Compute per-row confidence intervals (bootstrap on score, Wilson on pass rate). Needs a
  `scenarioId` on every record (reps are collapsed per scenario for the honest n). Default off.
@@ -932,7 +991,7 @@ Compute per-row confidence intervals (bootstrap on score, Wilson on pass rate). 
 
 > `readonly` `optional` **passThreshold?**: `number`
 
-Defined in: [runtime/benchmark-report.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L53)
+Defined in: [src/runtime/benchmark-report.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L53)
 
 A score ≥ this counts as a "pass" for the pass-rate proportion + its Wilson CI. Default 0.999
  (fully solved). Lower it (e.g. 0.6) for a partial-credit domain.
@@ -941,7 +1000,7 @@ A score ≥ this counts as a "pass" for the pass-rate proportion + its Wilson CI
 
 ### Interval
 
-Defined in: [runtime/benchmark-report.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L57)
+Defined in: [src/runtime/benchmark-report.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L57)
 
 A 95%-by-default confidence interval.
 
@@ -951,19 +1010,19 @@ A 95%-by-default confidence interval.
 
 > `readonly` **lower**: `number`
 
-Defined in: [runtime/benchmark-report.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L58)
+Defined in: [src/runtime/benchmark-report.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L58)
 
 ##### upper
 
 > `readonly` **upper**: `number`
 
-Defined in: [runtime/benchmark-report.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L59)
+Defined in: [src/runtime/benchmark-report.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L59)
 
 ***
 
 ### LeaderboardRow
 
-Defined in: [runtime/benchmark-report.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L63)
+Defined in: [src/runtime/benchmark-report.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L63)
 
 One leaderboard row — a harness×model profile, every measured column.
 
@@ -973,37 +1032,37 @@ One leaderboard row — a harness×model profile, every measured column.
 
 > `readonly` **profileKey**: `string`
 
-Defined in: [runtime/benchmark-report.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L64)
+Defined in: [src/runtime/benchmark-report.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L64)
 
 ##### label
 
 > `readonly` **label**: `string`
 
-Defined in: [runtime/benchmark-report.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L65)
+Defined in: [src/runtime/benchmark-report.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L65)
 
 ##### model
 
 > `readonly` **model**: `string`
 
-Defined in: [runtime/benchmark-report.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L66)
+Defined in: [src/runtime/benchmark-report.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L66)
 
 ##### n
 
 > `readonly` **n**: `number`
 
-Defined in: [runtime/benchmark-report.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L67)
+Defined in: [src/runtime/benchmark-report.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L67)
 
 ##### meanScore
 
 > `readonly` **meanScore**: `number`
 
-Defined in: [runtime/benchmark-report.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L68)
+Defined in: [src/runtime/benchmark-report.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L68)
 
 ##### solveRate
 
 > `readonly` **solveRate**: `number`
 
-Defined in: [runtime/benchmark-report.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L70)
+Defined in: [src/runtime/benchmark-report.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L70)
 
 Fraction of records scoring ≥ `passThreshold` (default 0.999) — the binary pass rate.
 
@@ -1011,7 +1070,7 @@ Fraction of records scoring ≥ `passThreshold` (default 0.999) — the binary p
 
 > `readonly` **perAxis**: `Record`\<`string`, `number`\>
 
-Defined in: [runtime/benchmark-report.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L72)
+Defined in: [src/runtime/benchmark-report.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L72)
 
 axis → mean score for this profile (blank in render when the profile never ran that axis).
 
@@ -1019,37 +1078,37 @@ axis → mean score for this profile (blank in render when the profile never ran
 
 > `readonly` **costUsd**: `number`
 
-Defined in: [runtime/benchmark-report.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L73)
+Defined in: [src/runtime/benchmark-report.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L73)
 
 ##### tokensIn
 
 > `readonly` **tokensIn**: `number`
 
-Defined in: [runtime/benchmark-report.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L74)
+Defined in: [src/runtime/benchmark-report.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L74)
 
 ##### tokensOut
 
 > `readonly` **tokensOut**: `number`
 
-Defined in: [runtime/benchmark-report.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L75)
+Defined in: [src/runtime/benchmark-report.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L75)
 
 ##### latencyP50Ms
 
 > `readonly` **latencyP50Ms**: `number`
 
-Defined in: [runtime/benchmark-report.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L76)
+Defined in: [src/runtime/benchmark-report.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L76)
 
 ##### latencyP90Ms
 
 > `readonly` **latencyP90Ms**: `number`
 
-Defined in: [runtime/benchmark-report.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L77)
+Defined in: [src/runtime/benchmark-report.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L77)
 
 ##### scoreCi?
 
 > `readonly` `optional` **scoreCi?**: [`Interval`](#interval)
 
-Defined in: [runtime/benchmark-report.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L80)
+Defined in: [src/runtime/benchmark-report.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L80)
 
 Bootstrap CI on the mean score — present only when `opts.stats` is set. Computed over
  per-scenario means (reps collapsed first), so identical reps can't fake a narrow interval.
@@ -1058,7 +1117,7 @@ Bootstrap CI on the mean score — present only when `opts.stats` is set. Comput
 
 > `readonly` `optional` **passCi?**: [`Interval`](#interval)
 
-Defined in: [runtime/benchmark-report.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L82)
+Defined in: [src/runtime/benchmark-report.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L82)
 
 Wilson CI on the pass rate — present only when `opts.stats` is set.
 
@@ -1066,7 +1125,7 @@ Wilson CI on the pass rate — present only when `opts.stats` is set.
 
 ### Leaderboard
 
-Defined in: [runtime/benchmark-report.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L85)
+Defined in: [src/runtime/benchmark-report.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L85)
 
 #### Properties
 
@@ -1074,13 +1133,13 @@ Defined in: [runtime/benchmark-report.ts:85](https://github.com/tangle-network/a
 
 > `readonly` **title**: `string`
 
-Defined in: [runtime/benchmark-report.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L86)
+Defined in: [src/runtime/benchmark-report.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L86)
 
 ##### axes
 
 > `readonly` **axes**: readonly `string`[]
 
-Defined in: [runtime/benchmark-report.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L88)
+Defined in: [src/runtime/benchmark-report.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L88)
 
 Column order — scenario groups (default) or dimension keys (`axisScoresOf`).
 
@@ -1088,7 +1147,7 @@ Column order — scenario groups (default) or dimension keys (`axisScoresOf`).
 
 > `readonly` **profiles**: readonly [`LeaderboardRow`](#leaderboardrow)[]
 
-Defined in: [runtime/benchmark-report.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L90)
+Defined in: [src/runtime/benchmark-report.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L90)
 
 Rows ranked by `meanScore` desc (ties → lower cost, then label).
 
@@ -1096,13 +1155,13 @@ Rows ranked by `meanScore` desc (ties → lower cost, then label).
 
 > `readonly` **meta**: `Record`\<`string`, `string`\>
 
-Defined in: [runtime/benchmark-report.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L91)
+Defined in: [src/runtime/benchmark-report.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L91)
 
 ##### provenance
 
 > `readonly` **provenance**: `object`
 
-Defined in: [runtime/benchmark-report.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L93)
+Defined in: [src/runtime/benchmark-report.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L93)
 
 Provenance counts — the denominators every honest report leads with.
 
@@ -1130,7 +1189,7 @@ Provenance counts — the denominators every honest report leads with.
 
 ### PairwiseVerdict
 
-Defined in: [runtime/benchmark-report.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L264)
+Defined in: [src/runtime/benchmark-report.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L264)
 
 One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict.
 
@@ -1140,19 +1199,19 @@ One profile pair compared on the scenarios they BOTH ran — the "who actually b
 
 > `readonly` **a**: `string`
 
-Defined in: [runtime/benchmark-report.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L265)
+Defined in: [src/runtime/benchmark-report.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L265)
 
 ##### b
 
 > `readonly` **b**: `string`
 
-Defined in: [runtime/benchmark-report.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L266)
+Defined in: [src/runtime/benchmark-report.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L266)
 
 ##### pairs
 
 > `readonly` **pairs**: `number`
 
-Defined in: [runtime/benchmark-report.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L268)
+Defined in: [src/runtime/benchmark-report.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L268)
 
 Paired unit count (shared scenarios). The significance is suppressed below `minPairs`.
 
@@ -1160,7 +1219,7 @@ Paired unit count (shared scenarios). The significance is suppressed below `minP
 
 > `readonly` **delta**: `number`
 
-Defined in: [runtime/benchmark-report.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L270)
+Defined in: [src/runtime/benchmark-report.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L270)
 
 Median paired delta (b − a) and its bootstrap CI.
 
@@ -1168,19 +1227,19 @@ Median paired delta (b − a) and its bootstrap CI.
 
 > `readonly` **ciLow**: `number`
 
-Defined in: [runtime/benchmark-report.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L271)
+Defined in: [src/runtime/benchmark-report.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L271)
 
 ##### ciHigh
 
 > `readonly` **ciHigh**: `number`
 
-Defined in: [runtime/benchmark-report.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L272)
+Defined in: [src/runtime/benchmark-report.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L272)
 
 ##### p
 
 > `readonly` **p**: `number`
 
-Defined in: [runtime/benchmark-report.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L274)
+Defined in: [src/runtime/benchmark-report.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L274)
 
 Paired-test p-value (before correction).
 
@@ -1188,7 +1247,7 @@ Paired-test p-value (before correction).
 
 > `readonly` **significant**: `boolean`
 
-Defined in: [runtime/benchmark-report.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L276)
+Defined in: [src/runtime/benchmark-report.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L276)
 
 BH-significant across ALL pairs AND above the `minPairs` power floor.
 
@@ -1196,7 +1255,7 @@ BH-significant across ALL pairs AND above the `minPairs` power floor.
 
 ### PairwiseOptions
 
-Defined in: [runtime/benchmark-report.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L279)
+Defined in: [src/runtime/benchmark-report.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L279)
 
 #### Properties
 
@@ -1204,19 +1263,19 @@ Defined in: [runtime/benchmark-report.ts:279](https://github.com/tangle-network/
 
 > `readonly` `optional` **scoreOf?**: `ScoreOf`
 
-Defined in: [runtime/benchmark-report.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L280)
+Defined in: [src/runtime/benchmark-report.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L280)
 
 ##### profileKeyOf?
 
 > `readonly` `optional` **profileKeyOf?**: `ProfileKeyOf`
 
-Defined in: [runtime/benchmark-report.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L281)
+Defined in: [src/runtime/benchmark-report.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L281)
 
 ##### labelOf?
 
 > `readonly` `optional` **labelOf?**: (`profileKey`) => `string`
 
-Defined in: [runtime/benchmark-report.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L282)
+Defined in: [src/runtime/benchmark-report.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L282)
 
 ###### Parameters
 
@@ -1232,7 +1291,7 @@ Defined in: [runtime/benchmark-report.ts:282](https://github.com/tangle-network/
 
 > `readonly` `optional` **fdr?**: `number`
 
-Defined in: [runtime/benchmark-report.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L284)
+Defined in: [src/runtime/benchmark-report.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L284)
 
 False-discovery rate for the Benjamini–Hochberg correction. Default 0.05.
 
@@ -1240,7 +1299,7 @@ False-discovery rate for the Benjamini–Hochberg correction. Default 0.05.
 
 > `readonly` `optional` **minPairs?**: `number`
 
-Defined in: [runtime/benchmark-report.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L287)
+Defined in: [src/runtime/benchmark-report.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L287)
 
 Below this many shared scenarios a paired test can't defensibly separate two profiles, so the
  `significant` tag is suppressed regardless of p (small-n mirage protection). Default 12.
@@ -1249,7 +1308,7 @@ Below this many shared scenarios a paired test can't defensibly separate two pro
 
 ### CompletionEvidence
 
-Defined in: [runtime/completion.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L30)
+Defined in: [src/runtime/completion.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L30)
 
 Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric,
  never the judge's own verdict. Mirrors the steer-firewall's provenance discipline.
@@ -1260,19 +1319,19 @@ Trace-derived evidence for a completion claim — an artifact (output) or a veri
 
 > **kind**: `"artifact"` \| `"metric"`
 
-Defined in: [runtime/completion.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L31)
+Defined in: [src/runtime/completion.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L31)
 
 ##### uri
 
 > **uri**: `string`
 
-Defined in: [runtime/completion.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L32)
+Defined in: [src/runtime/completion.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L32)
 
 ***
 
 ### CompletionVerdict
 
-Defined in: [runtime/completion.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L36)
+Defined in: [src/runtime/completion.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L36)
 
 The "is it done?" verdict an analyst returns to the parent.
 
@@ -1282,13 +1341,13 @@ The "is it done?" verdict an analyst returns to the parent.
 
 > **done**: `boolean`
 
-Defined in: [runtime/completion.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L37)
+Defined in: [src/runtime/completion.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L37)
 
 ##### determinism
 
 > **determinism**: `"deterministic"` \| `"probabilistic"`
 
-Defined in: [runtime/completion.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L39)
+Defined in: [src/runtime/completion.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L39)
 
 How verifiable the claim is — sets whether the driver trusts it or validates it.
 
@@ -1296,7 +1355,7 @@ How verifiable the claim is — sets whether the driver trusts it or validates i
 
 > `optional` **reasons?**: `string`
 
-Defined in: [runtime/completion.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L41)
+Defined in: [src/runtime/completion.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L41)
 
 Why the analyst believes it is (or isn't) done — what the driver validates.
 
@@ -1304,7 +1363,7 @@ Why the analyst believes it is (or isn't) done — what the driver validates.
 
 > `optional` **confidence?**: `number`
 
-Defined in: [runtime/completion.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L43)
+Defined in: [src/runtime/completion.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L43)
 
 0..1, for probabilistic verdicts; the driver's validation threshold reads this.
 
@@ -1312,13 +1371,13 @@ Defined in: [runtime/completion.ts:43](https://github.com/tangle-network/agent-r
 
 > `optional` **evidence?**: readonly [`CompletionEvidence`](#completionevidence)[]
 
-Defined in: [runtime/completion.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L44)
+Defined in: [src/runtime/completion.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L44)
 
 ***
 
 ### CompletionAnalyst
 
-Defined in: [runtime/completion.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L49)
+Defined in: [src/runtime/completion.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L49)
 
 Reads a node's trace → a completion verdict. Same input shape as the `analyze` hook, so
  ONE analyst node can back both channels (findings for steer, a verdict for stop).
@@ -1339,7 +1398,7 @@ Reads a node's trace → a completion verdict. Same input shape as the `analyze`
 
 > **assess**(`input`): [`CompletionVerdict`](#completionverdict) \| `Promise`\<[`CompletionVerdict`](#completionverdict)\>
 
-Defined in: [runtime/completion.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L50)
+Defined in: [src/runtime/completion.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L50)
 
 ###### Parameters
 
@@ -1361,7 +1420,7 @@ readonly [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
 ### CompletionPolicy
 
-Defined in: [runtime/completion.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L58)
+Defined in: [src/runtime/completion.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L58)
 
 When a verdict authorizes the driver to END. Deterministic → trust (ground truth);
  probabilistic → validate by confidence threshold (the driver's check).
@@ -1372,7 +1431,7 @@ When a verdict authorizes the driver to END. Deterministic → trust (ground tru
 
 > `optional` **minConfidence?**: `number`
 
-Defined in: [runtime/completion.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L60)
+Defined in: [src/runtime/completion.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L60)
 
 Minimum confidence a PROBABILISTIC verdict must clear to end. Default 0.8.
 
@@ -1380,7 +1439,7 @@ Minimum confidence a PROBABILISTIC verdict must clear to end. Default 0.8.
 
 ### LeaderboardScore
 
-Defined in: [runtime/define-leaderboard.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L62)
+Defined in: [src/runtime/define-leaderboard.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L62)
 
 Structured per-case verdict a `score` function may return (a bare number is
  shorthand for `{ composite }`). `composite` is the [0,1] leaderboard score;
@@ -1392,25 +1451,25 @@ Structured per-case verdict a `score` function may return (a bare number is
 
 > **composite**: `number`
 
-Defined in: [runtime/define-leaderboard.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L63)
+Defined in: [src/runtime/define-leaderboard.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L63)
 
 ##### dimensions?
 
 > `optional` **dimensions?**: `Record`\<`string`, `number`\>
 
-Defined in: [runtime/define-leaderboard.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L64)
+Defined in: [src/runtime/define-leaderboard.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L64)
 
 ##### notes?
 
 > `optional` **notes?**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L65)
+Defined in: [src/runtime/define-leaderboard.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L65)
 
 ***
 
 ### LeaderboardScenario
 
-Defined in: [runtime/define-leaderboard.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L70)
+Defined in: [src/runtime/define-leaderboard.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L70)
 
 The campaign scenario a case is wrapped into: the case rides along so
  judges and hooks can reach the full domain payload, not just its id.
@@ -1431,13 +1490,13 @@ The campaign scenario a case is wrapped into: the case rides along so
 
 > **case**: `TCase`
 
-Defined in: [runtime/define-leaderboard.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L71)
+Defined in: [src/runtime/define-leaderboard.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L71)
 
 ***
 
 ### LeaderboardFlagSpec
 
-Defined in: [runtime/define-leaderboard.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L76)
+Defined in: [src/runtime/define-leaderboard.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L76)
 
 One extra CLI flag a spec declares. Parsed by `run()` as `--<name> <value>`
  and surfaced to every hook via `ctx.args`.
@@ -1448,19 +1507,19 @@ One extra CLI flag a spec declares. Parsed by `run()` as `--<name> <value>`
 
 > `optional` **default?**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L77)
+Defined in: [src/runtime/define-leaderboard.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L77)
 
 ##### description
 
 > **description**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L78)
+Defined in: [src/runtime/define-leaderboard.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L78)
 
 ***
 
 ### LeaderboardRunContext
 
-Defined in: [runtime/define-leaderboard.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L82)
+Defined in: [src/runtime/define-leaderboard.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L82)
 
 Resolved run configuration handed to `setup` / `teardown` / `export`.
 
@@ -1470,13 +1529,13 @@ Resolved run configuration handed to `setup` / `teardown` / `export`.
 
 > **name**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L83)
+Defined in: [src/runtime/define-leaderboard.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L83)
 
 ##### backend
 
 > **backend**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L85)
+Defined in: [src/runtime/define-leaderboard.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L85)
 
 Execution backend name (`--backend`), a key of `backends`.
 
@@ -1484,19 +1543,19 @@ Execution backend name (`--backend`), a key of `backends`.
 
 > **runDir**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L86)
+Defined in: [src/runtime/define-leaderboard.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L86)
 
 ##### exportDir
 
 > **exportDir**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L87)
+Defined in: [src/runtime/define-leaderboard.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L87)
 
 ##### args
 
 > **args**: `Record`\<`string`, `string` \| `undefined`\>
 
-Defined in: [runtime/define-leaderboard.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L89)
+Defined in: [src/runtime/define-leaderboard.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L89)
 
 Every parsed flag (standard + `spec.flags`), by name without `--`.
 
@@ -1504,13 +1563,13 @@ Every parsed flag (standard + `spec.flags`), by name without `--`.
 
 > **harnesses**: readonly `HarnessType`[]
 
-Defined in: [runtime/define-leaderboard.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L90)
+Defined in: [src/runtime/define-leaderboard.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L90)
 
 ##### models
 
 > **models**: readonly `string`[]
 
-Defined in: [runtime/define-leaderboard.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L92)
+Defined in: [src/runtime/define-leaderboard.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L92)
 
 Snapshot-stamped model ids (`name@snapshot`) — the eval identity models.
 
@@ -1518,25 +1577,25 @@ Snapshot-stamped model ids (`name@snapshot`) — the eval identity models.
 
 > **caseIds**: readonly `string`[]
 
-Defined in: [runtime/define-leaderboard.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L93)
+Defined in: [src/runtime/define-leaderboard.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L93)
 
 ##### shots
 
 > **shots**: `number`
 
-Defined in: [runtime/define-leaderboard.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L94)
+Defined in: [src/runtime/define-leaderboard.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L94)
 
 ##### reps
 
 > **reps**: `number`
 
-Defined in: [runtime/define-leaderboard.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L95)
+Defined in: [src/runtime/define-leaderboard.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L95)
 
 ***
 
 ### LeaderboardBenchTask
 
-Defined in: [runtime/define-leaderboard.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L100)
+Defined in: [src/runtime/define-leaderboard.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L100)
 
 Structurally `BenchTask` (bench registry shape) — declared locally so this
  module adds no dependency on a benchmark package.
@@ -1547,31 +1606,31 @@ Structurally `BenchTask` (bench registry shape) — declared locally so this
 
 > **id**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L101)
+Defined in: [src/runtime/define-leaderboard.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L101)
 
 ##### prompt
 
 > **prompt**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L102)
+Defined in: [src/runtime/define-leaderboard.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L102)
 
 ##### split?
 
 > `optional` **split?**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L103)
+Defined in: [src/runtime/define-leaderboard.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L103)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [runtime/define-leaderboard.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L104)
+Defined in: [src/runtime/define-leaderboard.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L104)
 
 ***
 
 ### LeaderboardBenchScore
 
-Defined in: [runtime/define-leaderboard.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L108)
+Defined in: [src/runtime/define-leaderboard.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L108)
 
 Structurally `BenchScore` (bench registry shape).
 
@@ -1581,25 +1640,25 @@ Structurally `BenchScore` (bench registry shape).
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/define-leaderboard.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L109)
+Defined in: [src/runtime/define-leaderboard.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L109)
 
 ##### score
 
 > **score**: `number`
 
-Defined in: [runtime/define-leaderboard.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L110)
+Defined in: [src/runtime/define-leaderboard.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L110)
 
 ##### detail?
 
 > `optional` **detail?**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L111)
+Defined in: [src/runtime/define-leaderboard.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L111)
 
 ***
 
 ### LeaderboardBenchmarkAdapter
 
-Defined in: [runtime/define-leaderboard.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L118)
+Defined in: [src/runtime/define-leaderboard.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L118)
 
 Structurally `BenchmarkAdapter` (bench registry shape): `name`,
  `preflight()`, `loadTasks()`, deterministic `judge()`, `goldArtifact()`.
@@ -1618,7 +1677,7 @@ Structurally `BenchmarkAdapter` (bench registry shape): `name`,
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L119)
+Defined in: [src/runtime/define-leaderboard.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L119)
 
 #### Methods
 
@@ -1626,7 +1685,7 @@ Defined in: [runtime/define-leaderboard.ts:119](https://github.com/tangle-networ
 
 > **preflight**(): `Promise`\<`void`\>
 
-Defined in: [runtime/define-leaderboard.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L120)
+Defined in: [src/runtime/define-leaderboard.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L120)
 
 ###### Returns
 
@@ -1636,7 +1695,7 @@ Defined in: [runtime/define-leaderboard.ts:120](https://github.com/tangle-networ
 
 > **loadTasks**(`opts?`): `Promise`\<[`LeaderboardBenchTask`](#leaderboardbenchtask)[]\>
 
-Defined in: [runtime/define-leaderboard.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L121)
+Defined in: [src/runtime/define-leaderboard.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L121)
 
 ###### Parameters
 
@@ -1662,7 +1721,7 @@ Defined in: [runtime/define-leaderboard.ts:121](https://github.com/tangle-networ
 
 > **judge**(`task`, `artifact`): `Promise`\<[`LeaderboardBenchScore`](#leaderboardbenchscore)\>
 
-Defined in: [runtime/define-leaderboard.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L126)
+Defined in: [src/runtime/define-leaderboard.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L126)
 
 ###### Parameters
 
@@ -1682,7 +1741,7 @@ Defined in: [runtime/define-leaderboard.ts:126](https://github.com/tangle-networ
 
 > **goldArtifact**(`task`): `Promise`\<`string` \| `undefined`\>
 
-Defined in: [runtime/define-leaderboard.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L127)
+Defined in: [src/runtime/define-leaderboard.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L127)
 
 ###### Parameters
 
@@ -1698,7 +1757,7 @@ Defined in: [runtime/define-leaderboard.ts:127](https://github.com/tangle-networ
 
 ### LeaderboardIterationInfo
 
-Defined in: [runtime/define-leaderboard.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L133)
+Defined in: [src/runtime/define-leaderboard.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L133)
 
 Per-shot outcome context passed as `onCellEvents`'s third argument — how a
  thrown shot (which never reaches `parseOutput`) stays visible through the
@@ -1710,7 +1769,7 @@ Per-shot outcome context passed as `onCellEvents`'s third argument — how a
 
 > **index**: `number`
 
-Defined in: [runtime/define-leaderboard.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L135)
+Defined in: [src/runtime/define-leaderboard.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L135)
 
 0-based shot index within the cell.
 
@@ -1718,7 +1777,7 @@ Defined in: [runtime/define-leaderboard.ts:135](https://github.com/tangle-networ
 
 > `optional` **error?**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L137)
+Defined in: [src/runtime/define-leaderboard.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L137)
 
 The shot's thrown error message, when the shot failed before scoring.
 
@@ -1726,7 +1785,7 @@ The shot's thrown error message, when the shot failed before scoring.
 
 > `optional` **verdict?**: `object`
 
-Defined in: [runtime/define-leaderboard.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L139)
+Defined in: [src/runtime/define-leaderboard.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L139)
 
 The shot's validator verdict, when the shot reached scoring.
 
@@ -1738,7 +1797,7 @@ The shot's validator verdict, when the shot reached scoring.
 
 ### LeaderboardSpec
 
-Defined in: [runtime/define-leaderboard.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L148)
+Defined in: [src/runtime/define-leaderboard.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L148)
 
 The declarative leaderboard spec. `TArtifact` is the artifact channel the
 dispatch produces and the judges score — `string` (the default) is the plain
@@ -1761,7 +1820,7 @@ spec supplies `parseOutput` (or a LEVEL-2 `dispatch`) producing it.
 
 > **name**: `string`
 
-Defined in: [runtime/define-leaderboard.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L150)
+Defined in: [src/runtime/define-leaderboard.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L150)
 
 Leaderboard name — the scenario `kind`, default profile name, and report title.
 
@@ -1769,7 +1828,7 @@ Leaderboard name — the scenario `kind`, default profile name, and report title
 
 > **cases**: `TCase`[]
 
-Defined in: [runtime/define-leaderboard.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L152)
+Defined in: [src/runtime/define-leaderboard.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L152)
 
 The case corpus. Every case needs a stable string id (see `caseId`).
 
@@ -1777,7 +1836,7 @@ The case corpus. Every case needs a stable string id (see `caseId`).
 
 > `optional` **caseId?**: (`c`) => `string`
 
-Defined in: [runtime/define-leaderboard.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L155)
+Defined in: [src/runtime/define-leaderboard.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L155)
 
 Stable id extractor. Default: the case's own `id` property (fail-loud
  when absent or not a string).
@@ -1796,7 +1855,7 @@ Stable id extractor. Default: the case's own `id` property (fail-loud
 
 > **prompt**: (`c`) => `string` \| `Promise`\<`string`\>
 
-Defined in: [runtime/define-leaderboard.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L158)
+Defined in: [src/runtime/define-leaderboard.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L158)
 
 The per-case task prompt. May be async (e.g. built by shelling out to a
  reference implementation); resolved ONCE per case before dispatch.
@@ -1815,7 +1874,7 @@ The per-case task prompt. May be async (e.g. built by shelling out to a
 
 > **score**: (`output`, `c`) => `number` \| [`LeaderboardScore`](#leaderboardscore)
 
-Defined in: [runtime/define-leaderboard.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L162)
+Defined in: [src/runtime/define-leaderboard.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L162)
 
 The domain grader: agent output artifact → score. Used BOTH as the
  per-shot validator (a shot with `composite > 0` stops the naive retry
@@ -1839,7 +1898,7 @@ The domain grader: agent output artifact → score. Used BOTH as the
 
 > `optional` **axis?**: `object`
 
-Defined in: [runtime/define-leaderboard.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L166)
+Defined in: [src/runtime/define-leaderboard.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L166)
 
 Harness × model axes for `expandProfileAxes`. Defaults: the canonical
  `CODING_HARNESSES` × the base profile's `model.default`. `--harnesses` /
@@ -1857,7 +1916,7 @@ Harness × model axes for `expandProfileAxes`. Defaults: the canonical
 
 > `optional` **baseProfile?**: `AgentProfile`
 
-Defined in: [runtime/define-leaderboard.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L169)
+Defined in: [src/runtime/define-leaderboard.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L169)
 
 Base profile the axes expand over (prompt/tools/skills held fixed).
  Default: a minimal `{ name, model: { default: <first model> } }`.
@@ -1866,7 +1925,7 @@ Base profile the axes expand over (prompt/tools/skills held fixed).
 
 > `optional` **backends?**: `Record`\<`string`, (() => [`SandboxClient`](#sandboxclient-3)) \| `undefined`\>
 
-Defined in: [runtime/define-leaderboard.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L179)
+Defined in: [src/runtime/define-leaderboard.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L179)
 
 Execution-backend registry: `--backend <name>` picks the factory that
 yields the `SandboxClient` every cell runs on. Merged over the defaults:
@@ -1880,7 +1939,7 @@ yields the `SandboxClient` every cell runs on. Merged over the defaults:
 
 > `optional` **flags?**: `Record`\<`string`, [`LeaderboardFlagSpec`](#leaderboardflagspec)\>
 
-Defined in: [runtime/define-leaderboard.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L181)
+Defined in: [src/runtime/define-leaderboard.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L181)
 
 Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`.
 
@@ -1888,7 +1947,7 @@ Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`.
 
 > `optional` **modelBackend?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [runtime/define-leaderboard.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L185)
+Defined in: [src/runtime/define-leaderboard.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L185)
 
 Extra fields merged into each cell's `backend.model` create override —
  e.g. `{ provider: 'openai-compat', apiKey, baseUrl }` for a router-backed
@@ -1898,7 +1957,7 @@ Extra fields merged into each cell's `backend.model` create override —
 
 > `optional` **setup?**: (`ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/define-leaderboard.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L187)
+Defined in: [src/runtime/define-leaderboard.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L187)
 
 Runs once before the matrix (fetch fixtures, warm caches).
 
@@ -1916,7 +1975,7 @@ Runs once before the matrix (fetch fixtures, warm caches).
 
 > `optional` **teardown?**: (`ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/define-leaderboard.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L189)
+Defined in: [src/runtime/define-leaderboard.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L189)
 
 Runs once after the matrix, even on failure (reap boxes, close handles).
 
@@ -1934,7 +1993,7 @@ Runs once after the matrix, even on failure (reap boxes, close handles).
 
 > `optional` **onCellEvents?**: (`events`, `c`, `iteration?`) => `void`
 
-Defined in: [runtime/define-leaderboard.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L195)
+Defined in: [src/runtime/define-leaderboard.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L195)
 
 Per-cell event tap: the raw sandbox events of EVERY shot, with the case —
  the seam for domain metric capture (search counts, citations) without a
@@ -1964,7 +2023,7 @@ readonly `SandboxEvent`[]
 
 > `optional` **parseOutput?**: (`events`, `c`) => `TArtifact`
 
-Defined in: [runtime/define-leaderboard.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L205)
+Defined in: [src/runtime/define-leaderboard.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L205)
 
 Output decode override: raw events → the scored artifact. Default: the
  sandbox SDK's `collectAgentResponseText` (final answer text; empty string
@@ -1990,7 +2049,7 @@ readonly `SandboxEvent`[]
 
 > `optional` **resolveModel?**: (`events`) => `string` \| `undefined`
 
-Defined in: [runtime/define-leaderboard.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L215)
+Defined in: [src/runtime/define-leaderboard.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L215)
 
 Resolve the model the backend ACTUALLY served off a shot's raw events.
 Required for HARNESS_NATIVE_MODEL-snapped cells (a vendor-locked harness ×
@@ -2014,7 +2073,7 @@ readonly `SandboxEvent`[]
 
 > `optional` **export?**: (`result`, `ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/define-leaderboard.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L218)
+Defined in: [src/runtime/define-leaderboard.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L218)
 
 Result export. Default: write `matrix-result.json` under the run dir and
  print (+ write) the ranked leaderboard markdown under the export dir.
@@ -2037,7 +2096,7 @@ Result export. Default: write `matrix-result.json` under the run dir and
 
 > `optional` **dispatch?**: `ProfileDispatchFn`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `TArtifact`\>
 
-Defined in: [runtime/define-leaderboard.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L224)
+Defined in: [src/runtime/define-leaderboard.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L224)
 
 LEVEL 2 — full dispatch replacement (in-process products bring their own).
  The default is `loopDispatch` + `naiveDriver` over the resolved backend.
@@ -2046,7 +2105,7 @@ LEVEL 2 — full dispatch replacement (in-process products bring their own).
 
 > `optional` **judges?**: `JudgeConfig`\<`TArtifact`, [`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>\>[]
 
-Defined in: [runtime/define-leaderboard.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L226)
+Defined in: [src/runtime/define-leaderboard.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L226)
 
 LEVEL 2 — full judge replacement. Default: `score` wrapped as one judge.
 
@@ -2054,7 +2113,7 @@ LEVEL 2 — full judge replacement. Default: `score` wrapped as one judge.
 
 > `optional` **shots?**: `number`
 
-Defined in: [runtime/define-leaderboard.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L228)
+Defined in: [src/runtime/define-leaderboard.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L228)
 
 Naive-retry shot cap per cell (`--shots`). Default 1.
 
@@ -2062,7 +2121,7 @@ Naive-retry shot cap per cell (`--shots`). Default 1.
 
 > `optional` **reps?**: `number`
 
-Defined in: [runtime/define-leaderboard.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L230)
+Defined in: [src/runtime/define-leaderboard.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L230)
 
 Replicates per cell (`--reps`). Default 1.
 
@@ -2070,7 +2129,7 @@ Replicates per cell (`--reps`). Default 1.
 
 > `optional` **maximumCharge?**: `MaximumCharge` \| ((`profile`, `scenario`) => MaximumCharge \| undefined)
 
-Defined in: [runtime/define-leaderboard.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L233)
+Defined in: [src/runtime/define-leaderboard.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L233)
 
 Provider- or executor-enforced maximum for one cell dispatch. Required
 before execution when `matrix.costCeiling` is configured.
@@ -2079,7 +2138,7 @@ before execution when `matrix.costCeiling` is configured.
 
 > `optional` **matrix?**: `Partial`\<`RunProfileMatrixOptions`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `TArtifact`\>\>
 
-Defined in: [runtime/define-leaderboard.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L239)
+Defined in: [src/runtime/define-leaderboard.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L239)
 
 Passthrough overrides spread onto the final `runProfileMatrix` call
  (e.g. `maxConcurrency`, `costCeiling`, `integrity`, `storage`) — spread
@@ -2089,7 +2148,7 @@ Passthrough overrides spread onto the final `runProfileMatrix` call
 
 ### DefinedLeaderboard
 
-Defined in: [runtime/define-leaderboard.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L242)
+Defined in: [src/runtime/define-leaderboard.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L242)
 
 #### Type Parameters
 
@@ -2107,7 +2166,7 @@ Defined in: [runtime/define-leaderboard.ts:242](https://github.com/tangle-networ
 
 > **run**(`argv?`): `Promise`\<`RunProfileMatrixResult`\<`TArtifact`, [`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>\>\>
 
-Defined in: [runtime/define-leaderboard.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L256)
+Defined in: [src/runtime/define-leaderboard.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L256)
 
 Parse flags, run the matrix, export, and return the raw result.
 
@@ -2135,7 +2194,7 @@ only an explicit `--run-dir` opts into that resume behavior.
 
 > **toBenchmarkAdapter**(): [`LeaderboardBenchmarkAdapter`](#leaderboardbenchmarkadapter)\<`TArtifact`\>
 
-Defined in: [runtime/define-leaderboard.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L258)
+Defined in: [src/runtime/define-leaderboard.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L258)
 
 The same domain surface in the structural `BenchmarkAdapter` shape.
 
@@ -2147,7 +2206,7 @@ The same domain surface in the structural `BenchmarkAdapter` shape.
 
 ### HarvestCorpusOptions
 
-Defined in: [runtime/harvest-corpus.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L28)
+Defined in: [src/runtime/harvest-corpus.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L28)
 
 #### Properties
 
@@ -2155,7 +2214,7 @@ Defined in: [runtime/harvest-corpus.ts:28](https://github.com/tangle-network/age
 
 > **runs**: `AsyncIterable`\<[`ObserveInput`](#observeinput), `any`, `any`\> \| `Iterable`\<[`ObserveInput`](#observeinput), `any`, `any`\>
 
-Defined in: [runtime/harvest-corpus.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L30)
+Defined in: [src/runtime/harvest-corpus.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L30)
 
 The completed runs to analyze — map your store's rows to `ObserveInput`.
 
@@ -2163,7 +2222,7 @@ The completed runs to analyze — map your store's rows to `ObserveInput`.
 
 > **chat**: `ChatClient`
 
-Defined in: [runtime/harvest-corpus.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L32)
+Defined in: [src/runtime/harvest-corpus.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L32)
 
 The model-call seam (agent-eval `createChatClient`).
 
@@ -2171,13 +2230,13 @@ The model-call seam (agent-eval `createChatClient`).
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/harvest-corpus.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L33)
+Defined in: [src/runtime/harvest-corpus.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L33)
 
 ##### corpus
 
 > **corpus**: [`Corpus`](#corpus-2)
 
-Defined in: [runtime/harvest-corpus.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L35)
+Defined in: [src/runtime/harvest-corpus.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L35)
 
 The durable corpus the facts accrete into.
 
@@ -2185,7 +2244,7 @@ The durable corpus the facts accrete into.
 
 > `optional` **tags?**: readonly `string`[]
 
-Defined in: [runtime/harvest-corpus.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L37)
+Defined in: [src/runtime/harvest-corpus.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L37)
 
 Tags written onto learned facts (the product/domain key the read side queries by).
 
@@ -2193,7 +2252,7 @@ Tags written onto learned facts (the product/domain key the read side queries by
 
 > `optional` **analystInstruction?**: `string`
 
-Defined in: [runtime/harvest-corpus.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L39)
+Defined in: [src/runtime/harvest-corpus.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L39)
 
 Override the analyst instruction (the GEPA-tunable knob).
 
@@ -2201,7 +2260,7 @@ Override the analyst instruction (the GEPA-tunable knob).
 
 > `optional` **concurrency?**: `number`
 
-Defined in: [runtime/harvest-corpus.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L41)
+Defined in: [src/runtime/harvest-corpus.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L41)
 
 Runs analyzed in parallel. Default 4.
 
@@ -2209,7 +2268,7 @@ Runs analyzed in parallel. Default 4.
 
 > `optional` **maxRuns?**: `number`
 
-Defined in: [runtime/harvest-corpus.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L43)
+Defined in: [src/runtime/harvest-corpus.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L43)
 
 Hard cap on runs consumed from the stream (a cost guard for unbounded stores).
 
@@ -2217,13 +2276,13 @@ Hard cap on runs consumed from the stream (a cost guard for unbounded stores).
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/harvest-corpus.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L44)
+Defined in: [src/runtime/harvest-corpus.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L44)
 
 ***
 
 ### HarvestFailure
 
-Defined in: [runtime/harvest-corpus.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L47)
+Defined in: [src/runtime/harvest-corpus.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L47)
 
 #### Properties
 
@@ -2231,19 +2290,19 @@ Defined in: [runtime/harvest-corpus.ts:47](https://github.com/tangle-network/age
 
 > **runId**: `string`
 
-Defined in: [runtime/harvest-corpus.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L48)
+Defined in: [src/runtime/harvest-corpus.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L48)
 
 ##### error
 
 > **error**: `string`
 
-Defined in: [runtime/harvest-corpus.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L49)
+Defined in: [src/runtime/harvest-corpus.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L49)
 
 ***
 
 ### HarvestReport
 
-Defined in: [runtime/harvest-corpus.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L52)
+Defined in: [src/runtime/harvest-corpus.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L52)
 
 #### Properties
 
@@ -2251,13 +2310,13 @@ Defined in: [runtime/harvest-corpus.ts:52](https://github.com/tangle-network/age
 
 > **runsObserved**: `number`
 
-Defined in: [runtime/harvest-corpus.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L53)
+Defined in: [src/runtime/harvest-corpus.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L53)
 
 ##### findings
 
 > **findings**: `number`
 
-Defined in: [runtime/harvest-corpus.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L55)
+Defined in: [src/runtime/harvest-corpus.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L55)
 
 Total findings the analyst produced (including ones already known).
 
@@ -2265,7 +2324,7 @@ Total findings the analyst produced (including ones already known).
 
 > **learned**: `number`
 
-Defined in: [runtime/harvest-corpus.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L57)
+Defined in: [src/runtime/harvest-corpus.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L57)
 
 NEW facts actually appended (idempotent dedup excludes re-learned ones).
 
@@ -2273,7 +2332,7 @@ NEW facts actually appended (idempotent dedup excludes re-learned ones).
 
 > **failures**: [`HarvestFailure`](#harvestfailure)[]
 
-Defined in: [runtime/harvest-corpus.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L59)
+Defined in: [src/runtime/harvest-corpus.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L59)
 
 Per-run analysis failures — reported, never silently dropped.
 
@@ -2281,7 +2340,7 @@ Per-run analysis failures — reported, never silently dropped.
 
 ### InProcessPromptCtx
 
-Defined in: [runtime/in-process-sandbox-client.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L44)
+Defined in: [src/runtime/in-process-sandbox-client.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L44)
 
 Context handed to each `onPrompt` / `onTask` call.
 
@@ -2291,7 +2350,7 @@ Context handed to each `onPrompt` / `onTask` call.
 
 > **round**: `number`
 
-Defined in: [runtime/in-process-sandbox-client.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L48)
+Defined in: [src/runtime/in-process-sandbox-client.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L48)
 
 0-based round index — increments per `streamPrompt`/`streamTask` on the
  SAME box (so a refine driver's round N can differ from round N-1). Fresh
@@ -2301,7 +2360,7 @@ Defined in: [runtime/in-process-sandbox-client.ts:48](https://github.com/tangle-
 
 > `optional` **workdir?**: `string`
 
-Defined in: [runtime/in-process-sandbox-client.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L52)
+Defined in: [src/runtime/in-process-sandbox-client.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L52)
 
 Absolute path of this box's workspace, when a `workdir` was configured.
  Write the deliverable / fixtures here; `fs.read`/`fs.write`/`exec` operate
@@ -2311,7 +2370,7 @@ Absolute path of this box's workspace, when a `workdir` was configured.
 
 > **signal**: `AbortSignal`
 
-Defined in: [runtime/in-process-sandbox-client.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L54)
+Defined in: [src/runtime/in-process-sandbox-client.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L54)
 
 Cooperative cancellation channel for this turn.
 
@@ -2319,7 +2378,7 @@ Cooperative cancellation channel for this turn.
 
 > **mode**: `"task"` \| `"prompt"`
 
-Defined in: [runtime/in-process-sandbox-client.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L57)
+Defined in: [src/runtime/in-process-sandbox-client.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L57)
 
 Which box verb produced this call: `prompt` = `streamPrompt`,
  `task` = `streamTask`.
@@ -2328,7 +2387,7 @@ Which box verb produced this call: `prompt` = `streamPrompt`,
 
 > `optional` **options?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [runtime/in-process-sandbox-client.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L61)
+Defined in: [src/runtime/in-process-sandbox-client.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L61)
 
 The verbatim per-call options the caller passed to the box verb (minus
  `signal`, surfaced above) — lets an offline test assert an options
@@ -2338,7 +2397,7 @@ The verbatim per-call options the caller passed to the box verb (minus
 
 ### InProcessSandboxClientOptions
 
-Defined in: [runtime/in-process-sandbox-client.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L76)
+Defined in: [src/runtime/in-process-sandbox-client.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L76)
 
 **`Experimental`**
 
@@ -2348,7 +2407,7 @@ Defined in: [runtime/in-process-sandbox-client.ts:76](https://github.com/tangle-
 
 > **onPrompt**: [`InProcessOnPrompt`](#inprocessonprompt)
 
-Defined in: [runtime/in-process-sandbox-client.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L78)
+Defined in: [src/runtime/in-process-sandbox-client.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L78)
 
 **`Experimental`**
 
@@ -2358,7 +2417,7 @@ The per-turn behavior — see [InProcessOnPrompt](#inprocessonprompt).
 
 > `optional` **onTask?**: [`InProcessOnPrompt`](#inprocessonprompt)
 
-Defined in: [runtime/in-process-sandbox-client.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L86)
+Defined in: [src/runtime/in-process-sandbox-client.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L86)
 
 **`Experimental`**
 
@@ -2372,7 +2431,7 @@ discriminate the verbs or script different task-mode behavior.
 
 > `optional` **workdir?**: `string`
 
-Defined in: [runtime/in-process-sandbox-client.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L94)
+Defined in: [src/runtime/in-process-sandbox-client.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L94)
 
 **`Experimental`**
 
@@ -2386,7 +2445,7 @@ or fanout loop needs.
 
 > `optional` **id?**: `string` \| ((`seq`) => `string`)
 
-Defined in: [runtime/in-process-sandbox-client.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L101)
+Defined in: [src/runtime/in-process-sandbox-client.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L101)
 
 **`Experimental`**
 
@@ -2397,9 +2456,107 @@ tags, so set it when a demo's output reads on a meaningful sandbox id.
 
 ***
 
+### KeyProvider
+
+Defined in: [src/runtime/key-provider.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/key-provider.ts#L36)
+
+Resolve named secrets. The ONE seam every secret store adapts to.
+
+#### Methods
+
+##### get()
+
+> **get**(`name`): `Promise`\<`string` \| `undefined`\>
+
+Defined in: [src/runtime/key-provider.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/key-provider.ts#L38)
+
+The value for `name`, or `undefined` when this provider does not hold it.
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### Returns
+
+`Promise`\<`string` \| `undefined`\>
+
+***
+
+### LocalSandboxClientOptions
+
+Defined in: [src/runtime/local-sandbox-client.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L33)
+
+#### Properties
+
+##### router
+
+> **router**: `object`
+
+Defined in: [src/runtime/local-sandbox-client.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L35)
+
+The worker brain: router chat-completions with tool-calling. All three required.
+
+###### baseUrl
+
+> **baseUrl**: `string`
+
+###### key
+
+> **key**: `string`
+
+###### model
+
+> **model**: `string`
+
+##### maxTurns?
+
+> `optional` **maxTurns?**: `number`
+
+Defined in: [src/runtime/local-sandbox-client.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L37)
+
+Tool-loop turns per prompt. Default 8.
+
+##### temperature?
+
+> `optional` **temperature?**: `number`
+
+Defined in: [src/runtime/local-sandbox-client.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L39)
+
+Brain sampling temperature. Default: `routerBrain`'s (0.4).
+
+##### profile?
+
+> `optional` **profile?**: `AgentProfile`
+
+Defined in: [src/runtime/local-sandbox-client.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L41)
+
+Fallback profile when `create(options)` carries none on `backend.profile`.
+
+##### keys?
+
+> `optional` **keys?**: [`KeyProvider`](#keyprovider)
+
+Defined in: [src/runtime/local-sandbox-client.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L43)
+
+Resolves profile-declared MCP secret names at child-process spawn time.
+
+##### profileSecurityPolicy?
+
+> `optional` **profileSecurityPolicy?**: `AgentProfileSecurityPolicy`
+
+Defined in: [src/runtime/local-sandbox-client.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L47)
+
+Explicit trust decision for the exact `profile` bytes supplied here.
+Omit to refuse local processes. A permissive policy never transfers to a
+different per-create profile and provides no host isolation.
+
+***
+
 ### LoopDispatchOptions
 
-Defined in: [runtime/loop-dispatch.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L49)
+Defined in: [src/runtime/loop-dispatch.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L49)
 
 #### Type Parameters
 
@@ -2429,7 +2586,7 @@ Defined in: [runtime/loop-dispatch.ts:49](https://github.com/tangle-network/agen
 
 > **sandboxClient**: [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [runtime/loop-dispatch.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L57)
+Defined in: [src/runtime/loop-dispatch.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L57)
 
 Sandbox client used for every cell's `runLoop`. Supplied once.
 
@@ -2437,7 +2594,7 @@ Sandbox client used for every cell's `runLoop`. Supplied once.
 
 > **toLoopOptions**: (`scenario`, `profile`) => [`LoopOptionsForDispatch`](#loopoptionsfordispatch)\<`Task`, `Output`, `Decision`\>
 
-Defined in: [runtime/loop-dispatch.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L60)
+Defined in: [src/runtime/loop-dispatch.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L60)
 
 Build the per-cell runLoop options from the scenario (+ profile, when
  used with `runProfileMatrix`).
@@ -2460,7 +2617,7 @@ Build the per-cell runLoop options from the scenario (+ profile, when
 
 > `optional` **toArtifact?**: (`result`) => `TArtifact`
 
-Defined in: [runtime/loop-dispatch.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L68)
+Defined in: [src/runtime/loop-dispatch.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L68)
 
 Map the finished loop to the artifact the judges score. Default:
  `result.winner?.output`. A loop with no winner yields `undefined` (judges
@@ -2481,7 +2638,7 @@ Map the finished loop to the artifact the judges score. Default:
 
 > `optional` **forwardTrace?**: `boolean`
 
-Defined in: [runtime/loop-dispatch.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L71)
+Defined in: [src/runtime/loop-dispatch.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L71)
 
 Forward `loop.*` trace events into the campaign's scoped trace so loop
  spans correlate with the cell. Default true.
@@ -2490,7 +2647,7 @@ Forward `loop.*` trace events into the campaign's scoped trace so loop
 
 > `optional` **costSource?**: `string`
 
-Defined in: [runtime/loop-dispatch.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L73)
+Defined in: [src/runtime/loop-dispatch.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L73)
 
 Cost-meter source label for the loop's spend. Default `'loop'`.
 
@@ -2498,7 +2655,7 @@ Cost-meter source label for the loop's spend. Default `'loop'`.
 
 > `optional` **maximumCharge?**: `MaximumCharge` \| ((`scenario`, `profile`) => MaximumCharge \| undefined)
 
-Defined in: [runtime/loop-dispatch.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L76)
+Defined in: [src/runtime/loop-dispatch.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L76)
 
 Provider- or executor-enforced maximum for this whole cell dispatch.
 Required by agent-eval before execution when the campaign is cost-capped.
@@ -2507,7 +2664,7 @@ Required by agent-eval before execution when the campaign is cost-capped.
 
 > `optional` **resolveCostModel?**: (`result`, `scenario`, `profile`) => `string` \| `undefined`
 
-Defined in: [runtime/loop-dispatch.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L80)
+Defined in: [src/runtime/loop-dispatch.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L80)
 
 Resolve the model actually served from the completed loop.
 
@@ -2533,7 +2690,7 @@ Resolve the model actually served from the completed loop.
 
 ### LoopCampaignDispatchOptions
 
-Defined in: [runtime/loop-dispatch.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L186)
+Defined in: [src/runtime/loop-dispatch.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L186)
 
 Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells.
 
@@ -2565,7 +2722,7 @@ Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` 
 
 > **sandboxClient**: [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [runtime/loop-dispatch.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L194)
+Defined in: [src/runtime/loop-dispatch.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L194)
 
 Sandbox client used for every campaign cell's `runLoop`.
 
@@ -2573,7 +2730,7 @@ Sandbox client used for every campaign cell's `runLoop`.
 
 > **toLoopOptions**: (`scenario`) => [`LoopOptionsForDispatch`](#loopoptionsfordispatch)\<`Task`, `Output`, `Decision`\>
 
-Defined in: [runtime/loop-dispatch.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L196)
+Defined in: [src/runtime/loop-dispatch.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L196)
 
 Build the per-cell runLoop options from the campaign scenario.
 
@@ -2591,7 +2748,7 @@ Build the per-cell runLoop options from the campaign scenario.
 
 > `optional` **toArtifact?**: (`result`) => `TArtifact`
 
-Defined in: [runtime/loop-dispatch.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L198)
+Defined in: [src/runtime/loop-dispatch.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L198)
 
 Map the finished loop to the artifact the campaign judges score.
 
@@ -2609,7 +2766,7 @@ Map the finished loop to the artifact the campaign judges score.
 
 > `optional` **forwardTrace?**: `boolean`
 
-Defined in: [runtime/loop-dispatch.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L200)
+Defined in: [src/runtime/loop-dispatch.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L200)
 
 Forward `loop.*` trace events into the campaign's scoped trace. Default true.
 
@@ -2617,7 +2774,7 @@ Forward `loop.*` trace events into the campaign's scoped trace. Default true.
 
 > `optional` **costSource?**: `string`
 
-Defined in: [runtime/loop-dispatch.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L202)
+Defined in: [src/runtime/loop-dispatch.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L202)
 
 Cost-meter source label for the loop's spend. Default `'loop'`.
 
@@ -2625,7 +2782,7 @@ Cost-meter source label for the loop's spend. Default `'loop'`.
 
 > `optional` **maximumCharge?**: `MaximumCharge` \| ((`scenario`) => MaximumCharge \| undefined)
 
-Defined in: [runtime/loop-dispatch.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L204)
+Defined in: [src/runtime/loop-dispatch.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L204)
 
 Provider- or executor-enforced maximum for this whole cell dispatch.
 
@@ -2633,7 +2790,7 @@ Provider- or executor-enforced maximum for this whole cell dispatch.
 
 > `optional` **resolveCostModel?**: (`result`, `scenario`) => `string` \| `undefined`
 
-Defined in: [runtime/loop-dispatch.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L206)
+Defined in: [src/runtime/loop-dispatch.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L206)
 
 Resolve the model actually served from the completed loop.
 
@@ -2655,7 +2812,7 @@ Resolve the model actually served from the completed loop.
 
 ### McpEndpoint
 
-Defined in: [runtime/mcp-environment.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L25)
+Defined in: [src/runtime/mcp-environment.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L25)
 
 Where a handle's MCP server lives; headers carry per-artifact scoping.
 
@@ -2665,19 +2822,19 @@ Where a handle's MCP server lives; headers carry per-artifact scoping.
 
 > **url**: `string`
 
-Defined in: [runtime/mcp-environment.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L26)
+Defined in: [src/runtime/mcp-environment.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L26)
 
 ##### headers?
 
 > `optional` **headers?**: `Record`\<`string`, `string`\>
 
-Defined in: [runtime/mcp-environment.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L27)
+Defined in: [src/runtime/mcp-environment.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L27)
 
 ***
 
 ### McpEnvironmentOptions
 
-Defined in: [runtime/mcp-environment.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L30)
+Defined in: [src/runtime/mcp-environment.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L30)
 
 #### Properties
 
@@ -2685,13 +2842,13 @@ Defined in: [runtime/mcp-environment.ts:30](https://github.com/tangle-network/ag
 
 > **name**: `string`
 
-Defined in: [runtime/mcp-environment.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L31)
+Defined in: [src/runtime/mcp-environment.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L31)
 
 ##### maxResultChars?
 
 > `optional` **maxResultChars?**: `number`
 
-Defined in: [runtime/mcp-environment.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L41)
+Defined in: [src/runtime/mcp-environment.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L41)
 
 Cap on a tool result's text fed back to the worker. Default 1500 chars.
 
@@ -2701,7 +2858,7 @@ Cap on a tool result's text fed back to the worker. Default 1500 chars.
 
 > **open**(`task`): `Promise`\<\{ `handle`: [`ArtifactHandle`](#artifacthandle); `endpoint`: [`McpEndpoint`](#mcpendpoint); \}\>
 
-Defined in: [runtime/mcp-environment.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L33)
+Defined in: [src/runtime/mcp-environment.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L33)
 
 Create/seed the per-task artifact; return its handle + the MCP endpoint scoped to it.
 
@@ -2719,7 +2876,7 @@ Create/seed the per-task artifact; return its handle + the MCP endpoint scoped t
 
 > **score**(`task`, `handle`): `Promise`\<[`SurfaceScore`](#surfacescore)\>
 
-Defined in: [runtime/mcp-environment.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L35)
+Defined in: [src/runtime/mcp-environment.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L35)
 
 The deployable check over the artifact's current state.
 
@@ -2741,7 +2898,7 @@ The deployable check over the artifact's current state.
 
 > `optional` **close**(`handle`): `Promise`\<`void`\>
 
-Defined in: [runtime/mcp-environment.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L37)
+Defined in: [src/runtime/mcp-environment.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L37)
 
 Teardown (delete the seeded artifact). Optional — omit for stateless servers.
 
@@ -2759,7 +2916,7 @@ Teardown (delete the seeded artifact). Optional — omit for stateless servers.
 
 > `optional` **selectTools**(`task`, `all`): [`AgenticTool`](#agentictool)[]
 
-Defined in: [runtime/mcp-environment.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L39)
+Defined in: [src/runtime/mcp-environment.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L39)
 
 Restrict/order the server's tools per task (e.g. the task's selected_tools). Default: all.
 
@@ -2781,7 +2938,7 @@ Restrict/order the server's tools per task (e.g. the task's selected_tools). Def
 
 ### ObserveInput
 
-Defined in: [runtime/observe.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L23)
+Defined in: [src/runtime/observe.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L23)
 
 #### Properties
 
@@ -2789,7 +2946,7 @@ Defined in: [runtime/observe.ts:23](https://github.com/tangle-network/agent-runt
 
 > **task**: `string`
 
-Defined in: [runtime/observe.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L25)
+Defined in: [src/runtime/observe.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L25)
 
 What the worker was asked to do.
 
@@ -2797,7 +2954,7 @@ What the worker was asked to do.
 
 > **output**: `string`
 
-Defined in: [runtime/observe.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L27)
+Defined in: [src/runtime/observe.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L27)
 
 What it produced (its final answer / artifact summary).
 
@@ -2805,7 +2962,7 @@ What it produced (its final answer / artifact summary).
 
 > **trace**: readonly `unknown`[]
 
-Defined in: [runtime/observe.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L29)
+Defined in: [src/runtime/observe.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L29)
 
 The worker's trace — any event array (sandbox events, tool-call records).
 
@@ -2813,7 +2970,7 @@ The worker's trace — any event array (sandbox events, tool-call records).
 
 > `optional` **outcome?**: `"failed"` \| `"unknown"` \| `"passed"`
 
-Defined in: [runtime/observe.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L32)
+Defined in: [src/runtime/observe.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L32)
 
 Terminal status only (passed/failed/unknown) — NOT a judge score; the
  observer never reads the verdict, it reads behavior.
@@ -2822,7 +2979,7 @@ Terminal status only (passed/failed/unknown) — NOT a judge score; the
 
 > `optional` **runId?**: `string`
 
-Defined in: [runtime/observe.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L34)
+Defined in: [src/runtime/observe.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L34)
 
 Provenance back to the run.
 
@@ -2830,7 +2987,7 @@ Provenance back to the run.
 
 ### ObserveOptions
 
-Defined in: [runtime/observe.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L37)
+Defined in: [src/runtime/observe.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L37)
 
 #### Properties
 
@@ -2838,7 +2995,7 @@ Defined in: [runtime/observe.ts:37](https://github.com/tangle-network/agent-runt
 
 > **chat**: `ChatClient`
 
-Defined in: [runtime/observe.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L39)
+Defined in: [src/runtime/observe.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L39)
 
 The model-call seam (agent-eval `createChatClient`: router / cli-bridge / …).
 
@@ -2846,13 +3003,13 @@ The model-call seam (agent-eval `createChatClient`: router / cli-bridge / …).
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/observe.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L40)
+Defined in: [src/runtime/observe.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L40)
 
 ##### corpus?
 
 > `optional` **corpus?**: [`Corpus`](#corpus-2)
 
-Defined in: [runtime/observe.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L42)
+Defined in: [src/runtime/observe.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L42)
 
 When set, learned facts are appended (idempotent) for the next run to read.
 
@@ -2860,7 +3017,7 @@ When set, learned facts are appended (idempotent) for the next run to read.
 
 > `optional` **tags?**: readonly `string`[]
 
-Defined in: [runtime/observe.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L44)
+Defined in: [src/runtime/observe.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L44)
 
 Tags written onto learned facts + used by the next run's corpus query.
 
@@ -2868,13 +3025,13 @@ Tags written onto learned facts + used by the next run's corpus query.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/observe.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L45)
+Defined in: [src/runtime/observe.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L45)
 
 ##### maxTraceLines?
 
 > `optional` **maxTraceLines?**: `number`
 
-Defined in: [runtime/observe.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L47)
+Defined in: [src/runtime/observe.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L47)
 
 Cap the trace lines fed to the observer (keeps the call cheap). Default 80.
 
@@ -2882,7 +3039,7 @@ Cap the trace lines fed to the observer (keeps the call cheap). Default 80.
 
 > `optional` **analystInstruction?**: `string`
 
-Defined in: [runtime/observe.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L53)
+Defined in: [src/runtime/observe.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L53)
 
 Override the analyst's system instruction — the prompt that turns a trace into
  findings + recommended_actions. The analyst IS the steerer, so this is the knob a
@@ -2894,7 +3051,7 @@ Override the analyst's system instruction — the prompt that turns a trace into
 
 ### Observation
 
-Defined in: [runtime/observe.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L64)
+Defined in: [src/runtime/observe.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L64)
 
 #### Properties
 
@@ -2902,13 +3059,13 @@ Defined in: [runtime/observe.ts:64](https://github.com/tangle-network/agent-runt
 
 > **findings**: `AnalystFinding`[]
 
-Defined in: [runtime/observe.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L65)
+Defined in: [src/runtime/observe.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L65)
 
 ##### learned
 
 > **learned**: [`CorpusRecord`](#corpusrecord)[]
 
-Defined in: [runtime/observe.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L67)
+Defined in: [src/runtime/observe.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L67)
 
 Facts persisted to the corpus (empty when no corpus was supplied).
 
@@ -2916,7 +3073,7 @@ Facts persisted to the corpus (empty when no corpus was supplied).
 
 > **report**: `string`
 
-Defined in: [runtime/observe.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L69)
+Defined in: [src/runtime/observe.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L69)
 
 Operator-facing markdown: what the observer noticed + what to change.
 
@@ -2924,7 +3081,7 @@ Operator-facing markdown: what the observer noticed + what to change.
 
 ### CreateScopeAnalystOptions
 
-Defined in: [runtime/personify/analyst.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L69)
+Defined in: [src/runtime/personify/analyst.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L69)
 
 The analyst run an `Agent<unknown, AnalystFinding[]>` performs over the children settled so far.
 The combinator supplies the analyst's task projection (how to frame the drained settlements as
@@ -2943,7 +3100,7 @@ firewall is enforced afterwards by `createScopeAnalyst`, not by the analyst itse
 
 > `readonly` **analyst**: [`Agent`](#agent)\<`unknown`, readonly `AnalystFinding`[]\>
 
-Defined in: [runtime/personify/analyst.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L73)
+Defined in: [src/runtime/personify/analyst.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L73)
 
 The analyst agent the combinator spawns over the trace. `harness` is the persona's choice
  (`null` for an inline router analyst, a `BackendType` for a sandboxed one). Its `act` returns
@@ -2953,7 +3110,7 @@ The analyst agent the combinator spawns over the trace. `harness` is the persona
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [runtime/personify/analyst.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L79)
+Defined in: [src/runtime/personify/analyst.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L79)
 
 The conserved budget reserved for one analyst spawn. The pool reserves against it and fails
  closed; an analyst that cannot be admitted is a fail-loud abort, never silent empty findings.
@@ -2962,7 +3119,7 @@ The conserved budget reserved for one analyst spawn. The pool reserves against i
 
 > `readonly` `optional` **label?**: `string`
 
-Defined in: [runtime/personify/analyst.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L81)
+Defined in: [src/runtime/personify/analyst.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L81)
 
 Trace/journal label for the spawned analyst child. Default `'analyst'`.
 
@@ -2972,7 +3129,7 @@ Trace/journal label for the spawned analyst child. Default `'analyst'`.
 
 > **buildTask**(`input`): `unknown`
 
-Defined in: [runtime/personify/analyst.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L76)
+Defined in: [src/runtime/personify/analyst.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L76)
 
 Build the analyst agent's task from the analyze input (the root-task framing + the children
  drained so far). Pure projection — the analyst interprets it, this never reads it.
@@ -2991,7 +3148,7 @@ Build the analyst agent's task from the analyze input (the root-task framing + t
 
 ### RegistryAnalyzeProjection
 
-Defined in: [runtime/personify/analyst.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L184)
+Defined in: [src/runtime/personify/analyst.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L184)
 
 Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a
 `runId` + `AnalystRunInputs` (a trace store / run record / artifact dir), NOT in-memory scope
@@ -3005,19 +3162,19 @@ bridge; it only runs the projected inputs and firewalls the merged findings.
 
 > `readonly` **runId**: `string`
 
-Defined in: [runtime/personify/analyst.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L185)
+Defined in: [src/runtime/personify/analyst.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L185)
 
 ##### inputs
 
 > `readonly` **inputs**: `AnalystRunInputs`
 
-Defined in: [runtime/personify/analyst.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L186)
+Defined in: [src/runtime/personify/analyst.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L186)
 
 ##### opts?
 
 > `readonly` `optional` **opts?**: `object`
 
-Defined in: [runtime/personify/analyst.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L188)
+Defined in: [src/runtime/personify/analyst.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L188)
 
 Optional `run` opts (e.g. `priorFindings`) forwarded verbatim to the registry.
 
@@ -3033,7 +3190,7 @@ Optional `run` opts (e.g. `priorFindings`) forwarded verbatim to the registry.
 
 ### Persona
 
-Defined in: [runtime/personify/types.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L71)
+Defined in: [src/runtime/personify/types.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L71)
 
 The "act like X" record. A thin composition over the keystone's `AgentSpec`: it pairs the
 root spec (the executor mapping for the root agent the shape builds) with the CONTENT a
@@ -3058,7 +3215,7 @@ persona string is ever hardcoded in a shape or the engine.
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/personify/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L73)
+Defined in: [src/runtime/personify/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L73)
 
 Stable persona name — used as the trace/journal label root, never as content.
 
@@ -3066,7 +3223,7 @@ Stable persona name — used as the trace/journal label root, never as content.
 
 > `readonly` **root**: [`AgentSpec`](#agentspec)
 
-Defined in: [runtime/personify/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L79)
+Defined in: [src/runtime/personify/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L79)
 
 The root agent's executor mapping (profile + harness + optional BYO executor). The
 shape's root `Agent` carries THIS as its `executorSpec`; child specs the shape spawns
@@ -3076,7 +3233,7 @@ are derived from / resolved against the same persona registry (see `ShapeContext
 
 > `readonly` **directive**: `string`
 
-Defined in: [runtime/personify/types.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L81)
+Defined in: [src/runtime/personify/types.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L81)
 
 The goal framing handed to the shape — the "what to achieve", not "how".
 
@@ -3084,7 +3241,7 @@ The goal framing handed to the shape — the "what to achieve", not "how".
 
 > `readonly` **context**: [`PersonaContext`](#personacontext-1)
 
-Defined in: [runtime/personify/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L84)
+Defined in: [src/runtime/personify/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L84)
 
 Who the loop is acting as — the opaque persona context blob the shape may inject into
  child tasks. Opaque to the framework; only the persona's profiles/prompts interpret it.
@@ -3093,7 +3250,7 @@ Who the loop is acting as — the opaque persona context blob the shape may inje
 
 > `readonly` **executors**: [`PersonaExecutors`](#personaexecutors-1)
 
-Defined in: [runtime/personify/types.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L92)
+Defined in: [src/runtime/personify/types.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L92)
 
 The executor seams (router endpoint+key, sandbox client, cli bin) the built-in runtimes
 read off `ExecutorContext.seams`, OR a fully pre-configured registry. The supervisor
@@ -3105,7 +3262,7 @@ on each `AgentSpec`). Carried here so `runPersonified` can build `SupervisorOpts
 
 > `readonly` `optional` **extensions?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
-Defined in: [runtime/personify/types.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L97)
+Defined in: [src/runtime/personify/types.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L97)
 
 Forward-compatible extension bag — a later world-model / memory / tool-budget field is an
 additive key here, never a breaking change to the `Persona` shape. Opaque to the engine.
@@ -3114,7 +3271,7 @@ additive key here, never a breaking change to the `Persona` shape. Opaque to the
 
 > `readonly` `optional` **\_\_deliverable?**: `D`
 
-Defined in: [runtime/personify/types.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L100)
+Defined in: [src/runtime/personify/types.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L100)
 
 Phantom: binds the persona to its deliverable type so `runPersonified` infers `D` from
  the persona and the chosen shape must agree. Type-only — never present at runtime.
@@ -3123,7 +3280,7 @@ Phantom: binds the persona to its deliverable type so `runPersonified` infers `D
 
 ### PersonaContext
 
-Defined in: [runtime/personify/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L105)
+Defined in: [src/runtime/personify/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L105)
 
 The persona context blob — who the loop is acting as. Open by intent: a persona names its
  own role/audience/constraints; the framework treats it as opaque content.
@@ -3140,7 +3297,7 @@ Open content bag — persona-specific fields a shape's child tasks may carry.
 
 > `readonly` **role**: `string`
 
-Defined in: [runtime/personify/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L107)
+Defined in: [src/runtime/personify/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L107)
 
 The role the loop embodies ("senior staff engineer", "equity research analyst", …).
 
@@ -3148,7 +3305,7 @@ The role the loop embodies ("senior staff engineer", "equity research analyst", 
 
 > `readonly` `optional` **notes?**: `string`
 
-Defined in: [runtime/personify/types.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L109)
+Defined in: [src/runtime/personify/types.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L109)
 
 Optional freeform framing the persona's prompts/profiles consume.
 
@@ -3156,7 +3313,7 @@ Optional freeform framing the persona's prompts/profiles consume.
 
 ### PersonaExecutors
 
-Defined in: [runtime/personify/types.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L119)
+Defined in: [src/runtime/personify/types.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L119)
 
 How a persona supplies executor resolution. Either a pre-built registry (factories already
 closed over their seams) OR the raw seam bag the engine uses to construct a registry +
@@ -3168,7 +3325,7 @@ thread the seams onto each spawn. Exactly one is required — fail loud if neith
 
 > `readonly` `optional` **registry?**: [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [runtime/personify/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L121)
+Defined in: [src/runtime/personify/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L121)
 
 A registry whose factories already capture their seams. Highest precedence.
 
@@ -3176,7 +3333,7 @@ A registry whose factories already capture their seams. Highest precedence.
 
 > `readonly` `optional` **seams?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
-Defined in: [runtime/personify/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L123)
+Defined in: [src/runtime/personify/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L123)
 
 Raw seams to thread onto built-in runtimes (`router`/`sandbox`/`cli` keys).
 
@@ -3184,7 +3341,7 @@ Raw seams to thread onto built-in runtimes (`router`/`sandbox`/`cli` keys).
 
 ### DefinePersonaInput
 
-Defined in: [runtime/personify/types.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L130)
+Defined in: [src/runtime/personify/types.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L130)
 
 The minimal input to build a `Persona`. Mirrors `Persona` but lets the builder default
  the executors-supplied invariant check and freeze the record.
@@ -3201,43 +3358,43 @@ The minimal input to build a `Persona`. Mirrors `Persona` but lets the builder d
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/personify/types.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L131)
+Defined in: [src/runtime/personify/types.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L131)
 
 ##### root
 
 > `readonly` **root**: [`AgentSpec`](#agentspec)
 
-Defined in: [runtime/personify/types.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L132)
+Defined in: [src/runtime/personify/types.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L132)
 
 ##### directive
 
 > `readonly` **directive**: `string`
 
-Defined in: [runtime/personify/types.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L133)
+Defined in: [src/runtime/personify/types.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L133)
 
 ##### context
 
 > `readonly` **context**: [`PersonaContext`](#personacontext-1)
 
-Defined in: [runtime/personify/types.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L134)
+Defined in: [src/runtime/personify/types.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L134)
 
 ##### executors
 
 > `readonly` **executors**: [`PersonaExecutors`](#personaexecutors-1)
 
-Defined in: [runtime/personify/types.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L135)
+Defined in: [src/runtime/personify/types.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L135)
 
 ##### extensions?
 
 > `readonly` `optional` **extensions?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
-Defined in: [runtime/personify/types.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L136)
+Defined in: [src/runtime/personify/types.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L136)
 
 ##### \_\_deliverable?
 
 > `readonly` `optional` **\_\_deliverable?**: `D`
 
-Defined in: [runtime/personify/types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L139)
+Defined in: [src/runtime/personify/types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L139)
 
 Phantom: pins the input's deliverable type so `definePersona<D>` returns a `Persona<D>`
  the caller's shape must agree with. Type-only — never supplied at a call site.
@@ -3246,7 +3403,7 @@ Phantom: pins the input's deliverable type so `definePersona<D>` returns a `Pers
 
 ### ShapeBudget
 
-Defined in: [runtime/personify/types.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L154)
+Defined in: [src/runtime/personify/types.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L154)
 
 Budget knobs a shape reads to size its fanout/children WITHOUT owning the conserved pool.
 The root budget lives on `SupervisorOpts.budget`; the shape only needs the per-child
@@ -3259,7 +3416,7 @@ against them and fails closed, so an over-eager shape can never overspend.
 
 > `readonly` **perChild**: [`Budget`](#budget-12)
 
-Defined in: [runtime/personify/types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L156)
+Defined in: [src/runtime/personify/types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L156)
 
 Per-child spawn budget the shape reserves for each leaf/sub-loop it opens.
 
@@ -3267,7 +3424,7 @@ Per-child spawn budget the shape reserves for each leaf/sub-loop it opens.
 
 > `readonly` **fanout**: `number`
 
-Defined in: [runtime/personify/types.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L158)
+Defined in: [src/runtime/personify/types.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L158)
 
 Max children a fanout step may open in one round (the shape's structural width).
 
@@ -3275,7 +3432,7 @@ Max children a fanout step may open in one round (the shape's structural width).
 
 ### ShapeContext
 
-Defined in: [runtime/personify/types.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L168)
+Defined in: [src/runtime/personify/types.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L168)
 
 The construction context a `LoopShape` factory receives. Carries the persona's resolved
 executor seams + the budget knobs, plus the ONE helper a shape needs to spawn a child
@@ -3295,19 +3452,19 @@ registry directly — it asks the context, keeping resolution single-sourced.
 
 > `readonly` **persona**: [`Persona`](#persona)\<`D`\>
 
-Defined in: [runtime/personify/types.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L169)
+Defined in: [src/runtime/personify/types.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L169)
 
 ##### budget
 
 > `readonly` **budget**: [`ShapeBudget`](#shapebudget)
 
-Defined in: [runtime/personify/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L170)
+Defined in: [src/runtime/personify/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L170)
 
 ##### analyst?
 
 > `readonly` `optional` **analyst?**: [`ScopeAnalyst`](#scopeanalyst)\<`D`\>
 
-Defined in: [runtime/personify/types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L183)
+Defined in: [src/runtime/personify/types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L183)
 
 The scope analyst (selector≠judge firewall) the combinator steers from. Absent ⇒ the
  dormant default (empty findings → gates read deliverables/state only).
@@ -3318,7 +3475,7 @@ The scope analyst (selector≠judge firewall) the combinator steers from. Absent
 
 > **spawnChild**(`name`, `spec`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`D`\>\>
 
-Defined in: [runtime/personify/types.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L177)
+Defined in: [src/runtime/personify/types.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L177)
 
 Wrap an `AgentSpec` into a leaf `Agent` carrying it as `executorSpec`, so the shape can
 `scope.spawn(spawnChild(spec), task, opts)`. `name` labels the child for traces. The
@@ -3343,7 +3500,7 @@ spec drives the resolved `Executor`; `act` exists only to satisfy the `Agent` sh
 
 > **childSpec**(`profile`, `harness?`): [`AgentSpec`](#agentspec)
 
-Defined in: [runtime/personify/types.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L180)
+Defined in: [src/runtime/personify/types.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L180)
 
 Derive a child `AgentSpec` from the persona's root spec with an overridden profile —
  the seam a shape uses to give a worker a narrower role/prompt than the root persona.
@@ -3366,7 +3523,7 @@ Derive a child `AgentSpec` from the persona's root spec with an overridden profi
 
 ### ShapeRegistry
 
-Defined in: [runtime/personify/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L202)
+Defined in: [src/runtime/personify/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L202)
 
 The open shape registry — the extension point that makes a new loop-shape ONE file + one
 `registerShape` call with zero edits elsewhere. `resolve` returns a typed outcome (inspect
@@ -3378,7 +3535,7 @@ The open shape registry — the extension point that makes a new loop-shape ONE 
 
 > **register**\<`Task`, `D`\>(`name`, `factory`): `void`
 
-Defined in: [runtime/personify/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L203)
+Defined in: [src/runtime/personify/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L203)
 
 ###### Type Parameters
 
@@ -3408,7 +3565,7 @@ Defined in: [runtime/personify/types.ts:203](https://github.com/tangle-network/a
 
 > **resolve**\<`Task`, `D`\>(`name`): \{ `succeeded`: `true`; `value`: [`LoopShape`](#loopshape)\<`Task`, `D`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
 
-Defined in: [runtime/personify/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L204)
+Defined in: [src/runtime/personify/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L204)
 
 ###### Type Parameters
 
@@ -3434,7 +3591,7 @@ Defined in: [runtime/personify/types.ts:204](https://github.com/tangle-network/a
 
 > **names**(): `string`[]
 
-Defined in: [runtime/personify/types.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L208)
+Defined in: [src/runtime/personify/types.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L208)
 
 The registered shape names — for diagnostics + a fail-loud "unknown shape" message.
 
@@ -3446,7 +3603,7 @@ The registered shape names — for diagnostics + a fail-loud "unknown shape" mes
 
 ### RunPersonifiedOptions
 
-Defined in: [runtime/personify/types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L223)
+Defined in: [src/runtime/personify/types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L223)
 
 The end-to-end entrypoint. Builds the persona's root `Agent` from the chosen shape, then
 runs it through a fresh `createSupervisor` over the persona's executors + the supplied
@@ -3473,13 +3630,13 @@ default registry). The journal/blobs default to in-memory impls in the engine wh
 
 > `readonly` **persona**: [`Persona`](#persona)\<`D`\>
 
-Defined in: [runtime/personify/types.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L224)
+Defined in: [src/runtime/personify/types.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L224)
 
 ##### shape
 
 > `readonly` **shape**: `string` \| [`LoopShape`](#loopshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L226)
+Defined in: [src/runtime/personify/types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L226)
 
 A resolved shape factory OR a registered shape name.
 
@@ -3487,19 +3644,19 @@ A resolved shape factory OR a registered shape name.
 
 > `readonly` **task**: `Task`
 
-Defined in: [runtime/personify/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L227)
+Defined in: [src/runtime/personify/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L227)
 
 ##### budget
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [runtime/personify/types.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L228)
+Defined in: [src/runtime/personify/types.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L228)
 
 ##### shapeBudget?
 
 > `readonly` `optional` **shapeBudget?**: `Partial`\<[`ShapeBudget`](#shapebudget)\>
 
-Defined in: [runtime/personify/types.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L230)
+Defined in: [src/runtime/personify/types.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L230)
 
 Per-child sizing + fanout width handed to the shape. Defaults derive from `budget`.
 
@@ -3507,7 +3664,7 @@ Per-child sizing + fanout width handed to the shape. Defaults derive from `budge
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [runtime/personify/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L232)
+Defined in: [src/runtime/personify/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L232)
 
 Trace/journal root key. Defaults to the persona name + a run discriminator in the engine.
 
@@ -3515,19 +3672,19 @@ Trace/journal root key. Defaults to the persona name + a run discriminator in th
 
 > `readonly` `optional` **journal?**: `SpawnJournal`
 
-Defined in: [runtime/personify/types.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L233)
+Defined in: [src/runtime/personify/types.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L233)
 
 ##### blobs?
 
 > `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/personify/types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L234)
+Defined in: [src/runtime/personify/types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L234)
 
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [runtime/personify/types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L236)
+Defined in: [src/runtime/personify/types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L236)
 
 Runtime recursion-depth ceiling, paired with the conserved pool.
 
@@ -3535,7 +3692,7 @@ Runtime recursion-depth ceiling, paired with the conserved pool.
 
 > `readonly` `optional` **maxRestarts?**: `number`
 
-Defined in: [runtime/personify/types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L238)
+Defined in: [src/runtime/personify/types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L238)
 
 OTP intensity breaker bounds, forwarded to the supervisor verbatim.
 
@@ -3543,13 +3700,13 @@ OTP intensity breaker bounds, forwarded to the supervisor verbatim.
 
 > `readonly` `optional` **withinMs?**: `number`
 
-Defined in: [runtime/personify/types.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L239)
+Defined in: [src/runtime/personify/types.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L239)
 
 ##### handle?
 
 > `readonly` `optional` **handle?**: `RootHandle`\<[`Outcome`](#outcome-1)\<`D`\>\>
 
-Defined in: [runtime/personify/types.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L241)
+Defined in: [src/runtime/personify/types.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L241)
 
 A live root handle to attach (view/signal/abort) before the run starts.
 
@@ -3557,7 +3714,7 @@ A live root handle to attach (view/signal/abort) before the run starts.
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/personify/types.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L242)
+Defined in: [src/runtime/personify/types.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L242)
 
 ###### Returns
 
@@ -3567,13 +3724,13 @@ Defined in: [runtime/personify/types.ts:242](https://github.com/tangle-network/a
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/personify/types.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L243)
+Defined in: [src/runtime/personify/types.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L243)
 
 ##### analyst?
 
 > `readonly` `optional` **analyst?**: [`ScopeAnalyst`](#scopeanalyst)\<`D`\>
 
-Defined in: [runtime/personify/types.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L246)
+Defined in: [src/runtime/personify/types.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L246)
 
 Optional scope analyst threaded into the shape's ShapeContext so loopUntil/widen steer
  on trace-derived findings instead of the dormant empty default.
@@ -3582,7 +3739,7 @@ Optional scope analyst threaded into the shape's ShapeContext so loopUntil/widen
 
 > `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/personify/types.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L252)
+Defined in: [src/runtime/personify/types.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L252)
 
 Lifecycle stream sink, forwarded to `SupervisorOpts.hooks` so the root `Scope`'s
 `agent.spawn`/`agent.child` events flow to an observer (e.g. the Intelligence SDK's
@@ -3592,7 +3749,7 @@ trace export). Absent ⇒ no stream (the run is silent, as today).
 
 ### PipelineStage
 
-Defined in: [runtime/personify/wave-types.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L77)
+Defined in: [src/runtime/personify/wave-types.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L77)
 
 `pipeline(stages)` — sequential composition: each stage's `Outcome.deliverable` feeds the next
 stage's task (via `feed`). The first `blocked` stage short-circuits the whole pipeline (its
@@ -3623,7 +3780,7 @@ not a named shape. A stage names only its label + how to derive its task from th
 
 > `readonly` **label**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L79)
+Defined in: [src/runtime/personify/wave-types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L79)
 
 Trace/journal label for this stage's spawned child.
 
@@ -3633,7 +3790,7 @@ Trace/journal label for this stage's spawned child.
 
 > **feed**(`prior`, `ctx`, `rootTask`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L82)
+Defined in: [src/runtime/personify/wave-types.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L82)
 
 Derive this stage's task from the prior stage's deliverable (or the root task for stage 0).
  Pure projection — the framework never interprets the result; the resolved leaf does.
@@ -3660,7 +3817,7 @@ Derive this stage's task from the prior stage's deliverable (or the root task fo
 
 > **collect**(`settled`): [`Outcome`](#outcome-1)\<`StepOut`\>
 
-Defined in: [runtime/personify/wave-types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L85)
+Defined in: [src/runtime/personify/wave-types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L85)
 
 Read this stage's settled child output into the typed `StepOut` the next stage feeds on.
  Fail loud (return a `blocked`) when the child produced nothing usable for the next stage.
@@ -3679,7 +3836,7 @@ Read this stage's settled child output into the typed `StepOut` the next stage f
 
 ### FanoutOptions
 
-Defined in: [runtime/personify/wave-types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L106)
+Defined in: [src/runtime/personify/wave-types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L106)
 
 `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by
 the conserved pool's fail-closed admission), drained via `scope.next()`, then optionally a
@@ -3708,7 +3865,7 @@ persona's.
 
 > `optional` **synthesize?**: [`FanoutSynthesis`](#fanoutsynthesis)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L125)
+Defined in: [src/runtime/personify/wave-types.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L125)
 
 Optional synthesis over the gathered child results: when present, the combinator spawns ONE
 synthesis child whose task is built from the drained settlements, and its `done` output is
@@ -3719,7 +3876,7 @@ The synthesis child is a SEPARATE keystone agent (not a re-rank behind the drive
 
 > `optional` **selectWinner?**: [`FanoutWinnerSelector`](#fanoutwinnerselector)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L134)
+Defined in: [src/runtime/personify/wave-types.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L134)
 
 Winner-selection strategy among the gathered `done` children when there is no `synthesize`.
 Receives the SAME `Iteration[]` the default selector reads (each child's output is its
@@ -3734,7 +3891,7 @@ synthesis child IS the selection); supplying both is a config error.
 
 > **itemTask**(`item`, `index`, `ctx`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L109)
+Defined in: [src/runtime/personify/wave-types.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L109)
 
 One child task per item: `item` + the index discriminator. The persona's directive/context
  is threaded in by the combinator; this only supplies the per-item discriminator.
@@ -3761,7 +3918,7 @@ One child task per item: `item` + the index discriminator. The persona's directi
 
 > `optional` **label**(`item`, `index`): `string`
 
-Defined in: [runtime/personify/wave-types.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L111)
+Defined in: [src/runtime/personify/wave-types.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L111)
 
 Per-item child label (defaults to `item:<index>` in the impl).
 
@@ -3783,7 +3940,7 @@ Per-item child label (defaults to `item:<index>` in the impl).
 
 > `optional` **itemSpec**(`item`, `index`, `ctx`): [`AgentSpec`](#agentspec)
 
-Defined in: [runtime/personify/wave-types.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L118)
+Defined in: [src/runtime/personify/wave-types.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L118)
 
 Optional per-item `AgentSpec` override. When set, each item's child is spawned against the
 returned spec instead of `persona.root` — the seam a heterogeneous fanout uses to give each
@@ -3812,7 +3969,7 @@ leaf). Absent ⇒ every item runs against the persona's root spec (the homogeneo
 
 ### FanoutSynthesis
 
-Defined in: [runtime/personify/wave-types.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L150)
+Defined in: [src/runtime/personify/wave-types.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L150)
 
 How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child
  settlements into the synthesis child's task; `collect` reads its settled output into the
@@ -3830,7 +3987,7 @@ How a fanout's synthesis child is built + read. `synthesisTask` projects the dra
 
 > **synthesisTask**(`gathered`, `ctx`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L151)
+Defined in: [src/runtime/personify/wave-types.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L151)
 
 ###### Parameters
 
@@ -3850,7 +4007,7 @@ readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 > **collect**(`settled`): [`Outcome`](#outcome-1)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L152)
+Defined in: [src/runtime/personify/wave-types.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L152)
 
 ###### Parameters
 
@@ -3866,7 +4023,7 @@ Defined in: [runtime/personify/wave-types.ts:152](https://github.com/tangle-netw
 
 ### LoopUntilSpec
 
-Defined in: [runtime/personify/wave-types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L171)
+Defined in: [src/runtime/personify/wave-types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L171)
 
 `loopUntil({ until, step })` — iterative deepening inside the conserved pool: spawn one `step`
 child per round, ask `until` whether the accumulated state satisfies the goal, and stop when it
@@ -3897,7 +4054,7 @@ and an `until` that reads the test-finding; the combinator owns only the round/s
 
 > **step**(`rootTask`, `state`, `ctx`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L173)
+Defined in: [src/runtime/personify/wave-types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L173)
 
 Build the next step child's task from the root task + the state accumulated so far.
 
@@ -3923,7 +4080,7 @@ Build the next step child's task from the root task + the state accumulated so f
 
 > **fold**(`prior`, `settled`): [`LoopUntilState`](#loopuntilstate-2)\<`State`\>
 
-Defined in: [runtime/personify/wave-types.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L175)
+Defined in: [src/runtime/personify/wave-types.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L175)
 
 Fold one settled step into the accumulated state (the loop's running deliverable candidate).
 
@@ -3945,7 +4102,7 @@ Fold one settled step into the accumulated state (the loop's running deliverable
 
 > **until**(`state`, `findings`): [`Outcome`](#outcome-1)\<`D`\> \| `null`
 
-Defined in: [runtime/personify/wave-types.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L181)
+Defined in: [src/runtime/personify/wave-types.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L181)
 
 The satisfiability gate: given the accumulated state + the round's trace findings, has the
 goal been reached? Returns the terminal deliverable when satisfied, or `null` to keep going.
@@ -3969,7 +4126,7 @@ readonly `AnalystFinding`[]
 
 > `optional` **label**(`round`): `string`
 
-Defined in: [runtime/personify/wave-types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L183)
+Defined in: [src/runtime/personify/wave-types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L183)
 
 Per-round step label (defaults to `step:<round>` in the impl).
 
@@ -3987,7 +4144,7 @@ Per-round step label (defaults to `step:<round>` in the impl).
 
 ### LoopUntilState
 
-Defined in: [runtime/personify/wave-types.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L188)
+Defined in: [src/runtime/personify/wave-types.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L188)
 
 The accumulated state `loopUntil` threads across rounds — the running candidate + the round
  index, so `step`/`fold`/`until` are pure functions of it (replay-safe, no wall-clock).
@@ -4004,19 +4161,19 @@ The accumulated state `loopUntil` threads across rounds — the running candidat
 
 > `readonly` **round**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L189)
+Defined in: [src/runtime/personify/wave-types.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L189)
 
 ##### value
 
 > `readonly` **value**: `State`
 
-Defined in: [runtime/personify/wave-types.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L190)
+Defined in: [src/runtime/personify/wave-types.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L190)
 
 ***
 
 ### PanelSpec
 
-Defined in: [runtime/personify/wave-types.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L209)
+Defined in: [src/runtime/personify/wave-types.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L209)
 
 `panel(judges)` — M judges over ONE artifact, merged WRITE-ONLY (selector≠judge taken to its
 limit). The combinator spawns the M judge children over the same input artifact, drains their
@@ -4043,7 +4200,7 @@ different personas; the rubric lives in each judge persona's profile, not the co
 
 > `readonly` **judges**: readonly [`PanelJudge`](#paneljudge)[]
 
-Defined in: [runtime/personify/wave-types.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L213)
+Defined in: [src/runtime/personify/wave-types.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L213)
 
 The M judge child specs: each is a persona-derived child (a narrower judge profile). The
  combinator spawns one child per entry over the SAME `artifact` and never lets one judge's
@@ -4055,7 +4212,7 @@ The M judge child specs: each is a persona-derived child (a narrower judge profi
 
 > **judgeTask**(`artifact`, `judge`, `ctx`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L215)
+Defined in: [src/runtime/personify/wave-types.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L215)
 
 Build one judge child's task from the shared artifact under review + the judge descriptor.
 
@@ -4081,7 +4238,7 @@ Build one judge child's task from the shared artifact under review + the judge d
 
 > **merge**(`verdicts`, `artifact`): [`Outcome`](#outcome-1)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L221)
+Defined in: [src/runtime/personify/wave-types.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L221)
 
 Write-only merge: fold the M settled judge verdicts into the panel's terminal `Outcome<D>`.
 Pure over the drained settlements — it MUST NOT spawn, re-judge, or feed one verdict into
@@ -4105,7 +4262,7 @@ readonly [`PanelVerdict`](#panelverdict)[]
 
 ### PanelJudge
 
-Defined in: [runtime/personify/wave-types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L226)
+Defined in: [src/runtime/personify/wave-types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L226)
 
 One judge in a panel — a labeled persona-derived judge child. Content (the rubric) lives in
  the judge's profile; this carries only the label + the optional weight the merge may read.
@@ -4116,13 +4273,13 @@ One judge in a panel — a labeled persona-derived judge child. Content (the rub
 
 > `readonly` **label**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L227)
+Defined in: [src/runtime/personify/wave-types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L227)
 
 ##### weight?
 
 > `readonly` `optional` **weight?**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L229)
+Defined in: [src/runtime/personify/wave-types.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L229)
 
 Optional merge weight (a write-only hint the `merge` fold may use; default-equal in the impl).
 
@@ -4130,7 +4287,7 @@ Optional merge weight (a write-only hint the `merge` fold may use; default-equal
 
 ### PanelVerdict
 
-Defined in: [runtime/personify/wave-types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L234)
+Defined in: [src/runtime/personify/wave-types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L234)
 
 One judge child's settled verdict, surfaced to the write-only `merge`. `down` judges carry no
  verdict (excluded from the merge `n`, like an infra-errored cell).
@@ -4141,19 +4298,19 @@ One judge child's settled verdict, surfaced to the write-only `merge`. `down` ju
 
 > `readonly` **judge**: [`PanelJudge`](#paneljudge)
 
-Defined in: [runtime/personify/wave-types.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L235)
+Defined in: [src/runtime/personify/wave-types.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L235)
 
 ##### verdict?
 
 > `readonly` `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/personify/wave-types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L236)
+Defined in: [src/runtime/personify/wave-types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L236)
 
 ##### output?
 
 > `readonly` `optional` **output?**: `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L238)
+Defined in: [src/runtime/personify/wave-types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L238)
 
 The judge child's raw output — what it was asked to assess, for a merge that quotes it.
 
@@ -4161,7 +4318,7 @@ The judge child's raw output — what it was asked to assess, for a merge that q
 
 > `readonly` **down**: `boolean`
 
-Defined in: [runtime/personify/wave-types.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L240)
+Defined in: [src/runtime/personify/wave-types.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L240)
 
 True when the judge child went `down` (no usable verdict — kept out of the merge denominator).
 
@@ -4169,7 +4326,7 @@ True when the judge child went `down` (no usable verdict — kept out of the mer
 
 ### VerifySpec
 
-Defined in: [runtime/personify/wave-types.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L257)
+Defined in: [src/runtime/personify/wave-types.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L257)
 
 `verify({ implement, verifier })` — the 2-node sequential gate: an IMPLEMENT child produces a
 candidate, then a SEPARATE VERIFIER child's verdict GATES shippability. A `valid` verifier
@@ -4201,7 +4358,7 @@ shape under different personas; the gate rubric is the verifier persona's, not t
 
 > `readonly` `optional` **implementLabel?**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L265)
+Defined in: [src/runtime/personify/wave-types.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L265)
 
 Implement / verifier child labels (default `implement` / `verify` in the impl).
 
@@ -4209,7 +4366,7 @@ Implement / verifier child labels (default `implement` / `verify` in the impl).
 
 > `readonly` `optional` **verifierLabel?**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L266)
+Defined in: [src/runtime/personify/wave-types.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L266)
 
 #### Methods
 
@@ -4217,7 +4374,7 @@ Defined in: [runtime/personify/wave-types.ts:266](https://github.com/tangle-netw
 
 > **implement**(`rootTask`, `ctx`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L259)
+Defined in: [src/runtime/personify/wave-types.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L259)
 
 Build the implement child's task from the root task.
 
@@ -4239,7 +4396,7 @@ Build the implement child's task from the root task.
 
 > **verifier**(`candidate`, `ctx`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L261)
+Defined in: [src/runtime/personify/wave-types.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L261)
 
 Build the verifier child's task from the implement child's settled candidate.
 
@@ -4261,7 +4418,7 @@ Build the verifier child's task from the implement child's settled candidate.
 
 > **collect**(`candidate`, `verdict`): [`Outcome`](#outcome-1)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L263)
+Defined in: [src/runtime/personify/wave-types.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L263)
 
 Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
@@ -4283,7 +4440,7 @@ Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
 ### WidenSpec
 
-Defined in: [runtime/personify/wave-types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L287)
+Defined in: [src/runtime/personify/wave-types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L287)
 
 `widen({ gate })` (G5) — the STREAMING spawn-on-completion driver. Unlike the static-fanout
 combinators above, the widener REACTS to each `scope.next()`: as each child settles it consults
@@ -4313,7 +4470,7 @@ mechanism ahead of the gate).
 
 > `readonly` **seeds**: readonly `Seed`[]
 
-Defined in: [runtime/personify/wave-types.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L290)
+Defined in: [src/runtime/personify/wave-types.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L290)
 
 The initial children to spawn before any widening — the seed lineages the gate widens from.
  One child task per seed; bounded by the conserved pool's fail-closed admission.
@@ -4322,7 +4479,7 @@ The initial children to spawn before any widening — the seed lineages the gate
 
 > `readonly` **gate**: [`ScopeWidenGate`](#scopewidengate)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L297)
+Defined in: [src/runtime/personify/wave-types.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L297)
 
 The progressive-widening gate. Consulted on EVERY settled child with the round's
 trace-derived `findings`; returns a widen decision (spawn one more toward a lineage) or a
@@ -4334,7 +4491,7 @@ stop. DEFAULTS to flat via `flatWidenGate` — never widens, so the firewall sta
 
 > **seedTask**(`seed`, `index`, `ctx`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L291)
+Defined in: [src/runtime/personify/wave-types.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L291)
 
 ###### Parameters
 
@@ -4358,7 +4515,7 @@ Defined in: [runtime/personify/wave-types.ts:291](https://github.com/tangle-netw
 
 > **widenTask**(`toward`, `ctx`): `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L299)
+Defined in: [src/runtime/personify/wave-types.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L299)
 
 Build the widened child's task from the lineage the gate chose to extend.
 
@@ -4380,7 +4537,7 @@ Build the widened child's task from the lineage the gate chose to extend.
 
 > **synthesize**(`gathered`, `ctx`): [`Outcome`](#outcome-1)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L302)
+Defined in: [src/runtime/personify/wave-types.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L302)
 
 Synthesize the terminal deliverable from every settled lineage (selector≠judge: the
  single-sourced selector over the gathered children, never a re-judge).
@@ -4403,7 +4560,7 @@ readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 ### ScopeWidenGate
 
-Defined in: [runtime/personify/wave-types.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L311)
+Defined in: [src/runtime/personify/wave-types.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L311)
 
 The runtime widening gate (the reactive analogue of the keystone's `WidenGate`, lifted to read
 trace FINDINGS instead of a raw verdict). `decide` is consulted per settled child; it MUST
@@ -4422,7 +4579,7 @@ explicitly argued (the documented off-by-default escape hatch). Flat default nev
 
 > `readonly` `optional` **judgeExempt?**: `boolean`
 
-Defined in: [runtime/personify/wave-types.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L319)
+Defined in: [src/runtime/personify/wave-types.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L319)
 
 When true, `decide` may read `settled.verdict` directly — collides with the steer firewall,
  so it must be argued per cell, never defaulted on (mirrors the keystone `WidenGate`).
@@ -4433,7 +4590,7 @@ When true, `decide` may read `settled.verdict` directly — collides with the st
 
 > **decide**(`settled`, `findings`, `budget`): [`WidenDecision`](#widendecision)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L312)
+Defined in: [src/runtime/personify/wave-types.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L312)
 
 ###### Parameters
 
@@ -4457,7 +4614,7 @@ readonly `AnalystFinding`[]
 
 ### WidenLineage
 
-Defined in: [runtime/personify/wave-types.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L330)
+Defined in: [src/runtime/personify/wave-types.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L330)
 
 A lineage the gate may widen toward — the settled child that looked promising + the findings
  that justified it (the trace-derived provenance the firewall requires).
@@ -4474,7 +4631,7 @@ A lineage the gate may widen toward — the settled child that looked promising 
 
 > `readonly` **settled**: `object`
 
-Defined in: [runtime/personify/wave-types.ts:331](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L331)
+Defined in: [src/runtime/personify/wave-types.ts:331](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L331)
 
 ###### kind
 
@@ -4508,13 +4665,13 @@ Defined in: [runtime/personify/wave-types.ts:331](https://github.com/tangle-netw
 
 > `readonly` **findings**: readonly `AnalystFinding`[]
 
-Defined in: [runtime/personify/wave-types.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L332)
+Defined in: [src/runtime/personify/wave-types.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L332)
 
 ***
 
 ### ScopeAnalyst
 
-Defined in: [runtime/personify/wave-types.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L359)
+Defined in: [src/runtime/personify/wave-types.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L359)
 
 The reactive analyst seam — the PORT of the round-synchronous driver's `analyze` hook
 (dynamic.ts) onto the reactive `Scope`. The old driver wired the analyst at round
@@ -4539,7 +4696,7 @@ raw `verdict`. Fail loud — a throwing or non-array analyst aborts (no silent e
 
 > **analyze**(`input`): `Promise`\<readonly `AnalystFinding`[]\>
 
-Defined in: [runtime/personify/wave-types.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L366)
+Defined in: [src/runtime/personify/wave-types.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L366)
 
 Turn the children settled so far into trace-derived findings. `settledSoFar` is the cursor-
 ordered settlement list a combinator has drained (the reactive analogue of the old driver's
@@ -4560,7 +4717,7 @@ returning — a judge-derived finding is rejected, not filtered.
 
 ### ScopeAnalyzeInput
 
-Defined in: [runtime/personify/wave-types.ts:370](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L370)
+Defined in: [src/runtime/personify/wave-types.ts:370](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L370)
 
 Input to a `ScopeAnalyst.analyze` — the root task framing + the children settled so far.
 
@@ -4576,7 +4733,7 @@ Input to a `ScopeAnalyst.analyze` — the root task framing + the children settl
 
 > `readonly` **task**: `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:372](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L372)
+Defined in: [src/runtime/personify/wave-types.ts:372](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L372)
 
 Opaque root-task framing (whatever the combinator was invoked with).
 
@@ -4584,7 +4741,7 @@ Opaque root-task framing (whatever the combinator was invoked with).
 
 > `readonly` **settledSoFar**: readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
-Defined in: [runtime/personify/wave-types.ts:374](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L374)
+Defined in: [src/runtime/personify/wave-types.ts:374](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L374)
 
 The children this combinator has drained off `scope.next()`, in cursor order.
 
@@ -4592,7 +4749,7 @@ The children this combinator has drained off `scope.next()`, in cursor order.
 
 > `readonly` **nodeId**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:376](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L376)
+Defined in: [src/runtime/personify/wave-types.ts:376](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L376)
 
 This combinator's scope id (the trace-correlation root for the analyst).
 
@@ -4600,7 +4757,7 @@ This combinator's scope id (the trace-correlation root for the analyst).
 
 ### SteerContext
 
-Defined in: [runtime/personify/wave-types.ts:387](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L387)
+Defined in: [src/runtime/personify/wave-types.ts:387](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L387)
 
 How a combinator's `act` consumes findings to steer — the SINGLE firewalled steer surface a
 reactive combinator reads. `loopUntil.until`, `widen` gate, and any future steer all funnel
@@ -4621,19 +4778,19 @@ explicitly NOT for steering — reading it to steer is the coupling the architec
 
 > `readonly` **findings**: readonly `AnalystFinding`[]
 
-Defined in: [runtime/personify/wave-types.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L388)
+Defined in: [src/runtime/personify/wave-types.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L388)
 
 ##### settledSoFar
 
 > `readonly` **settledSoFar**: readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
-Defined in: [runtime/personify/wave-types.ts:389](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L389)
+Defined in: [src/runtime/personify/wave-types.ts:389](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L389)
 
 ##### lastValidScore?
 
 > `readonly` `optional` **lastValidScore?**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:392](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L392)
+Defined in: [src/runtime/personify/wave-types.ts:392](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L392)
 
 Observability-only: the best valid score seen so far. Rendering/trace use ONLY — steering
  off this re-introduces selector=judge. Marked so a reviewer catches a misuse.
@@ -4642,7 +4799,7 @@ Observability-only: the best valid score seen so far. Rendering/trace use ONLY �
 
 ### CorpusRecord
 
-Defined in: [runtime/personify/wave-types.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L415)
+Defined in: [src/runtime/personify/wave-types.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L415)
 
 One accreted fact in the cross-run corpus — the learning-flywheel's durable unit. DISTINCT from
 a `SpawnEvent` (a per-run decision record): a `CorpusRecord` is a fact a run LEARNED that a
@@ -4656,13 +4813,13 @@ relevant, high-confidence subset.
 
 > `readonly` **schemaVersion**: `"1.0.0"`
 
-Defined in: [runtime/personify/wave-types.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L416)
+Defined in: [src/runtime/personify/wave-types.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L416)
 
 ##### id
 
 > `readonly` **id**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:418](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L418)
+Defined in: [src/runtime/personify/wave-types.ts:418](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L418)
 
 Stable id over identity-defining fields (claim + tags) so a re-learned fact dedups.
 
@@ -4670,7 +4827,7 @@ Stable id over identity-defining fields (claim + tags) so a re-learned fact dedu
 
 > `readonly` **runId**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:420](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L420)
+Defined in: [src/runtime/personify/wave-types.ts:420](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L420)
 
 The run that produced this fact (the journal `runId`/`root`) — provenance back to the trace.
 
@@ -4678,13 +4835,13 @@ The run that produced this fact (the journal `runId`/`root`) — provenance back
 
 > `readonly` **producedAt**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:421](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L421)
+Defined in: [src/runtime/personify/wave-types.ts:421](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L421)
 
 ##### area
 
 > `readonly` **area**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:423](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L423)
+Defined in: [src/runtime/personify/wave-types.ts:423](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L423)
 
 Coarse classification the query/render filters on (free-form, mirrors `AnalystFinding.area`).
 
@@ -4692,7 +4849,7 @@ Coarse classification the query/render filters on (free-form, mirrors `AnalystFi
 
 > `readonly` **claim**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:425](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L425)
+Defined in: [src/runtime/personify/wave-types.ts:425](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L425)
 
 The accreted fact — the instruction-shaped statement the next run reads back.
 
@@ -4700,7 +4857,7 @@ The accreted fact — the instruction-shaped statement the next run reads back.
 
 > `readonly` `optional` **rationale?**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L427)
+Defined in: [src/runtime/personify/wave-types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L427)
 
 Optional supporting detail the renderer may include under the claim.
 
@@ -4708,7 +4865,7 @@ Optional supporting detail the renderer may include under the claim.
 
 > `readonly` **tags**: readonly `string`[]
 
-Defined in: [runtime/personify/wave-types.ts:429](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L429)
+Defined in: [src/runtime/personify/wave-types.ts:429](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L429)
 
 Free-form tags for `query` filtering (domain, persona, surface).
 
@@ -4716,7 +4873,7 @@ Free-form tags for `query` filtering (domain, persona, surface).
 
 > `readonly` **confidence**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:431](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L431)
+Defined in: [src/runtime/personify/wave-types.ts:431](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L431)
 
 0..1 — the producing run's confidence in this fact (the render threshold reads it).
 
@@ -4724,7 +4881,7 @@ Defined in: [runtime/personify/wave-types.ts:431](https://github.com/tangle-netw
 
 > `readonly` `optional` **evidence?**: readonly `object`[]
 
-Defined in: [runtime/personify/wave-types.ts:433](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L433)
+Defined in: [src/runtime/personify/wave-types.ts:433](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L433)
 
 Optional provenance back into the run that learned it (a finding id / outRef / span).
 
@@ -4732,7 +4889,7 @@ Optional provenance back into the run that learned it (a finding id / outRef / s
 
 ### CorpusFilter
 
-Defined in: [runtime/personify/wave-types.ts:437](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L437)
+Defined in: [src/runtime/personify/wave-types.ts:437](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L437)
 
 A corpus query filter — every field is an AND-narrowing; an omitted field does not constrain.
 
@@ -4742,13 +4899,13 @@ A corpus query filter — every field is an AND-narrowing; an omitted field does
 
 > `readonly` `optional` **area?**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L438)
+Defined in: [src/runtime/personify/wave-types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L438)
 
 ##### tags?
 
 > `readonly` `optional` **tags?**: readonly `string`[]
 
-Defined in: [runtime/personify/wave-types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L440)
+Defined in: [src/runtime/personify/wave-types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L440)
 
 Match records carrying ALL of these tags.
 
@@ -4756,7 +4913,7 @@ Match records carrying ALL of these tags.
 
 > `readonly` `optional` **minConfidence?**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L442)
+Defined in: [src/runtime/personify/wave-types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L442)
 
 Minimum confidence a record must clear to be returned (the render gate).
 
@@ -4764,7 +4921,7 @@ Minimum confidence a record must clear to be returned (the render gate).
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L444)
+Defined in: [src/runtime/personify/wave-types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L444)
 
 Only records from this run (rare — usually a cross-run read).
 
@@ -4772,7 +4929,7 @@ Only records from this run (rare — usually a cross-run read).
 
 > `readonly` `optional` **limit?**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:446](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L446)
+Defined in: [src/runtime/personify/wave-types.ts:446](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L446)
 
 Cap the result count (most-confident first in the impl).
 
@@ -4780,7 +4937,7 @@ Cap the result count (most-confident first in the impl).
 
 ### Corpus
 
-Defined in: [runtime/personify/wave-types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L459)
+Defined in: [src/runtime/personify/wave-types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L459)
 
 The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal`
 (per-run decisions, replay) and `ResultBlobStore` (per-run payloads): `Corpus` holds accreted
@@ -4797,7 +4954,7 @@ Fail-loud, typed-outcome boundary: `append` is idempotent on an identical record
 
 > **append**(`record`): `Promise`\<\{ `succeeded`: `true`; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
 
-Defined in: [runtime/personify/wave-types.ts:462](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L462)
+Defined in: [src/runtime/personify/wave-types.ts:462](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L462)
 
 Append one accreted fact. Idempotent on an identical record; returns a typed outcome —
  inspect `succeeded` before treating it as durable (no silent write-through on conflict).
@@ -4816,7 +4973,7 @@ Append one accreted fact. Idempotent on an identical record; returns a typed out
 
 > **query**(`filter`): `Promise`\<readonly [`CorpusRecord`](#corpusrecord)[]\>
 
-Defined in: [runtime/personify/wave-types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L465)
+Defined in: [src/runtime/personify/wave-types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L465)
 
 Query accreted facts by filter — most-confident first. Returns the matching records (an
  empty array when none match is a valid result, NOT an error).
@@ -4835,7 +4992,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ### RenderCorpusToInstructionsOptions
 
-Defined in: [runtime/personify/wave-types.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L479)
+Defined in: [src/runtime/personify/wave-types.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L479)
 
 Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel
 READ side. Reads the corpus through `filter`, renders the matching facts into instruction lines,
@@ -4853,19 +5010,19 @@ wants the single-blob `resources.instructions` form passes `target: 'resources'`
 
 > `readonly` **corpus**: [`Corpus`](#corpus-2)
 
-Defined in: [runtime/personify/wave-types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L480)
+Defined in: [src/runtime/personify/wave-types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L480)
 
 ##### filter
 
 > `readonly` **filter**: [`CorpusFilter`](#corpusfilter)
 
-Defined in: [runtime/personify/wave-types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L481)
+Defined in: [src/runtime/personify/wave-types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L481)
 
 ##### profile
 
 > `readonly` **profile**: `AgentProfile`
 
-Defined in: [runtime/personify/wave-types.ts:483](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L483)
+Defined in: [src/runtime/personify/wave-types.ts:483](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L483)
 
 The profile to project the facts into. The result is a fresh profile — the input is unchanged.
 
@@ -4873,7 +5030,7 @@ The profile to project the facts into. The result is a fresh profile — the inp
 
 > `readonly` `optional` **target?**: `"resources"` \| `"prompt"`
 
-Defined in: [runtime/personify/wave-types.ts:486](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L486)
+Defined in: [src/runtime/personify/wave-types.ts:486](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L486)
 
 Where the rendered facts land: appended to `prompt.instructions[]` (default) or folded into
  the single-blob `resources.instructions` string.
@@ -4882,7 +5039,7 @@ Where the rendered facts land: appended to `prompt.instructions[]` (default) or 
 
 > `readonly` `optional` **maxLines?**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:488](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L488)
+Defined in: [src/runtime/personify/wave-types.ts:488](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L488)
 
 Optional cap on rendered lines (most-confident first), independent of the query `limit`.
 
@@ -4890,7 +5047,7 @@ Optional cap on rendered lines (most-confident first), independent of the query 
 
 ### TrajectoryNode
 
-Defined in: [runtime/personify/wave-types.ts:507](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L507)
+Defined in: [src/runtime/personify/wave-types.ts:507](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L507)
 
 One node in the reconstructed trajectory tree — a driver OR a leaf, with its OWN spend and the
 spend ROLLED UP over its subtree. Reconstructed from the `SpawnJournal` (structure + per-node
@@ -4903,37 +5060,37 @@ shape: `parent`/`children` are the actual spawn edges the run took, not a planne
 
 > `readonly` **id**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:508](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L508)
+Defined in: [src/runtime/personify/wave-types.ts:508](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L508)
 
 ##### parent?
 
 > `readonly` `optional` **parent?**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:509](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L509)
+Defined in: [src/runtime/personify/wave-types.ts:509](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L509)
 
 ##### children
 
 > `readonly` **children**: readonly `string`[]
 
-Defined in: [runtime/personify/wave-types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L510)
+Defined in: [src/runtime/personify/wave-types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L510)
 
 ##### label
 
 > `readonly` **label**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:511](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L511)
+Defined in: [src/runtime/personify/wave-types.ts:511](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L511)
 
 ##### runtime
 
 > `readonly` **runtime**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L512)
+Defined in: [src/runtime/personify/wave-types.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L512)
 
 ##### status
 
 > `readonly` **status**: `"failed"` \| `"cancelled"` \| `"pending"` \| `"done"`
 
-Defined in: [runtime/personify/wave-types.ts:514](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L514)
+Defined in: [src/runtime/personify/wave-types.ts:514](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L514)
 
 Terminal status the journal recorded for this node.
 
@@ -4941,7 +5098,7 @@ Terminal status the journal recorded for this node.
 
 > `readonly` **ownSpend**: [`Spend`](#spend)
 
-Defined in: [runtime/personify/wave-types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L516)
+Defined in: [src/runtime/personify/wave-types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L516)
 
 This node's OWN conserved spend (from its `settled` event).
 
@@ -4949,7 +5106,7 @@ This node's OWN conserved spend (from its `settled` event).
 
 > `readonly` **rolledUpSpend**: [`Spend`](#spend)
 
-Defined in: [runtime/personify/wave-types.ts:519](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L519)
+Defined in: [src/runtime/personify/wave-types.ts:519](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L519)
 
 This node's spend PLUS every descendant's — the rolled-up subtree cost. The cost a parent
  "really" consumed inclusive of its children's fanout (the equal-k-on-cost basis).
@@ -4958,7 +5115,7 @@ This node's spend PLUS every descendant's — the rolled-up subtree cost. The co
 
 > `readonly` `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/personify/wave-types.ts:521](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L521)
+Defined in: [src/runtime/personify/wave-types.ts:521](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L521)
 
 The node's verdict, when its settlement carried one (observability — NOT a steer input).
 
@@ -4966,7 +5123,7 @@ The node's verdict, when its settlement carried one (observability — NOT a ste
 
 > `readonly` `optional` **output?**: `unknown`
 
-Defined in: [runtime/personify/wave-types.ts:523](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L523)
+Defined in: [src/runtime/personify/wave-types.ts:523](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L523)
 
 The rehydrated output artifact, when `withOutputs` was requested + the blob resolved.
 
@@ -4974,13 +5131,13 @@ The rehydrated output artifact, when `withOutputs` was requested + the blob reso
 
 > `readonly` `optional` **outRef?**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L524)
+Defined in: [src/runtime/personify/wave-types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L524)
 
 ***
 
 ### TrajectoryReport
 
-Defined in: [runtime/personify/wave-types.ts:529](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L529)
+Defined in: [src/runtime/personify/wave-types.ts:529](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L529)
 
 The whole reconstructed trajectory — the realized tree + its root-rolled-up total. The
  per-node + rolled-up `Spend` is the evidence both the trace viewer and `equalKOnCost` read.
@@ -4991,13 +5148,13 @@ The whole reconstructed trajectory — the realized tree + its root-rolled-up to
 
 > `readonly` **root**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:530](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L530)
+Defined in: [src/runtime/personify/wave-types.ts:530](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L530)
 
 ##### nodes
 
 > `readonly` **nodes**: readonly [`TrajectoryNode`](#trajectorynode)[]
 
-Defined in: [runtime/personify/wave-types.ts:532](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L532)
+Defined in: [src/runtime/personify/wave-types.ts:532](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L532)
 
 Every node, in cursor/spawn order — the realized tree (`parent`/`children` are the real edges).
 
@@ -5005,7 +5162,7 @@ Every node, in cursor/spawn order — the realized tree (`parent`/`children` are
 
 > `readonly` **total**: [`Spend`](#spend)
 
-Defined in: [runtime/personify/wave-types.ts:534](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L534)
+Defined in: [src/runtime/personify/wave-types.ts:534](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L534)
 
 The root's rolled-up spend — the whole run's conserved total (tokens + usd + iterations + ms).
 
@@ -5013,7 +5170,7 @@ The root's rolled-up spend — the whole run's conserved total (tokens + usd + i
 
 > `readonly` **statusCounts**: `Readonly`\<`Record`\<[`TrajectoryNode`](#trajectorynode)\[`"status"`\], `number`\>\>
 
-Defined in: [runtime/personify/wave-types.ts:536](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L536)
+Defined in: [src/runtime/personify/wave-types.ts:536](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L536)
 
 Count of nodes by terminal status — a quick "how did the tree end" readout.
 
@@ -5021,7 +5178,7 @@ Count of nodes by terminal status — a quick "how did the tree end" readout.
 
 ### TrajectoryReportOptions
 
-Defined in: [runtime/personify/wave-types.ts:546](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L546)
+Defined in: [src/runtime/personify/wave-types.ts:546](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L546)
 
 `trajectoryReport(journal, blobs, root, { withOutputs? })` — reconstruct the whole tree with
 per-node + rolled-up `Spend`. Reads the journal for structure + spend and (when `withOutputs`)
@@ -5035,7 +5192,7 @@ impl lives in `trajectory.ts`.
 
 > `readonly` `optional` **withOutputs?**: `boolean`
 
-Defined in: [runtime/personify/wave-types.ts:548](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L548)
+Defined in: [src/runtime/personify/wave-types.ts:548](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L548)
 
 Rehydrate each `done` node's `output` from the blob store. Off by default (cost-only report).
 
@@ -5043,7 +5200,7 @@ Rehydrate each `done` node's `output` from the blob store. Off by default (cost-
 
 ### EqualKArm
 
-Defined in: [runtime/personify/wave-types.ts:567](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L567)
+Defined in: [src/runtime/personify/wave-types.ts:567](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L567)
 
 One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole
 run). The arm's conserved COST is `report.total` (tokens + usd), which the sandbox executor
@@ -5058,19 +5215,19 @@ iteration count.
 
 > `readonly` **label**: `string`
 
-Defined in: [runtime/personify/wave-types.ts:568](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L568)
+Defined in: [src/runtime/personify/wave-types.ts:568](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L568)
 
 ##### report
 
 > `readonly` **report**: [`TrajectoryReport`](#trajectoryreport-3)
 
-Defined in: [runtime/personify/wave-types.ts:569](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L569)
+Defined in: [src/runtime/personify/wave-types.ts:569](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L569)
 
 ***
 
 ### EqualKVerdict
 
-Defined in: [runtime/personify/wave-types.ts:578](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L578)
+Defined in: [src/runtime/personify/wave-types.ts:578](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L578)
 
 The equal-k-on-cost verdict: whether every arm spent within `tolerance` of the others on the
 CONSERVED cost channels (tokens + usd), so a downstream metric comparison is "at equal k". Per-
@@ -5083,13 +5240,13 @@ NOT comparable at equal compute — a confound to report, not a result to publis
 
 > `readonly` **withinTolerance**: `boolean`
 
-Defined in: [runtime/personify/wave-types.ts:579](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L579)
+Defined in: [src/runtime/personify/wave-types.ts:579](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L579)
 
 ##### arms
 
 > `readonly` **arms**: readonly `object`[]
 
-Defined in: [runtime/personify/wave-types.ts:581](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L581)
+Defined in: [src/runtime/personify/wave-types.ts:581](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L581)
 
 Per-arm conserved cost (the basis: tokens total + usd).
 
@@ -5097,7 +5254,7 @@ Per-arm conserved cost (the basis: tokens total + usd).
 
 > `readonly` **spread**: `object`
 
-Defined in: [runtime/personify/wave-types.ts:588](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L588)
+Defined in: [src/runtime/personify/wave-types.ts:588](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L588)
 
 The realized spread on each channel (max − min across arms), for the report.
 
@@ -5113,7 +5270,7 @@ The realized spread on each channel (max − min across arms), for the report.
 
 > `readonly` **tolerance**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:590](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L590)
+Defined in: [src/runtime/personify/wave-types.ts:590](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L590)
 
 The fractional tolerance the check used (spread / median ≤ tolerance per channel).
 
@@ -5121,7 +5278,7 @@ The fractional tolerance the check used (spread / median ≤ tolerance per chann
 
 ### EqualKOnCostOptions
 
-Defined in: [runtime/personify/wave-types.ts:600](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L600)
+Defined in: [src/runtime/personify/wave-types.ts:600](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L600)
 
 `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST
 (tokens + usd), NOT raw iteration count. The conserved-pool guarantees `Σk` equal by
@@ -5135,7 +5292,7 @@ impl lives in `trajectory.ts`. Pure over the reports — no I/O.
 
 > `readonly` `optional` **tolerance?**: `number`
 
-Defined in: [runtime/personify/wave-types.ts:603](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L603)
+Defined in: [src/runtime/personify/wave-types.ts:603](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L603)
 
 Max fractional spread (spread/median) per channel for arms to count as equal-k. Default in
  the impl (e.g. 0.05). A tighter tolerance = a stricter equal-compute claim.
@@ -5144,7 +5301,7 @@ Max fractional spread (spread/median) per channel for arms to count as equal-k. 
 
 ### PromotionGateOptions
 
-Defined in: [runtime/promotion-gate.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L13)
+Defined in: [src/runtime/promotion-gate.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L13)
 
 #### Properties
 
@@ -5152,7 +5309,7 @@ Defined in: [runtime/promotion-gate.ts:13](https://github.com/tangle-network/age
 
 > **report**: [`BenchmarkReport`](#benchmarkreport)
 
-Defined in: [runtime/promotion-gate.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L15)
+Defined in: [src/runtime/promotion-gate.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L15)
 
 The HOLDOUT report — must carry per-task cells for both strategy names.
 
@@ -5160,7 +5317,7 @@ The HOLDOUT report — must carry per-task cells for both strategy names.
 
 > **incumbent**: `string`
 
-Defined in: [runtime/promotion-gate.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L17)
+Defined in: [src/runtime/promotion-gate.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L17)
 
 The incumbent champion's strategy name.
 
@@ -5168,7 +5325,7 @@ The incumbent champion's strategy name.
 
 > **candidate**: `string`
 
-Defined in: [runtime/promotion-gate.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L19)
+Defined in: [src/runtime/promotion-gate.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L19)
 
 The challenger's strategy name.
 
@@ -5176,7 +5333,7 @@ The challenger's strategy name.
 
 > `optional` **mode?**: `"superiority"` \| `"non-inferiority"`
 
-Defined in: [runtime/promotion-gate.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L24)
+Defined in: [src/runtime/promotion-gate.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L24)
 
 'superiority' (default): the candidate must score significantly BETTER.
  'non-inferiority': the candidate must prove its score is not worse than the
@@ -5187,7 +5344,7 @@ Defined in: [runtime/promotion-gate.ts:24](https://github.com/tangle-network/age
 
 > `optional` **scoreTolerance?**: `number`
 
-Defined in: [runtime/promotion-gate.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L26)
+Defined in: [src/runtime/promotion-gate.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L26)
 
 non-inferiority: the score CI lower bound must clear −scoreTolerance. Default 0.05.
 
@@ -5195,7 +5352,7 @@ non-inferiority: the score CI lower bound must clear −scoreTolerance. Default 
 
 > `optional` **deltaThreshold?**: `number`
 
-Defined in: [runtime/promotion-gate.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L28)
+Defined in: [src/runtime/promotion-gate.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L28)
 
 The CI lower bound on the paired lift must EXCEED this (score scale). Default 0.
 
@@ -5203,7 +5360,7 @@ The CI lower bound on the paired lift must EXCEED this (score scale). Default 0.
 
 > `optional` **minPairedTasks?**: `number`
 
-Defined in: [runtime/promotion-gate.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L31)
+Defined in: [src/runtime/promotion-gate.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L31)
 
 Minimum paired tasks before significance can be claimed. Default 6 — below that
  the bootstrap CI is too wide to separate a real lift from the per-task noise.
@@ -5212,7 +5369,7 @@ Minimum paired tasks before significance can be claimed. Default 6 — below tha
 
 > `optional` **statistic?**: `"mean"` \| `"median"`
 
-Defined in: [runtime/promotion-gate.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L33)
+Defined in: [src/runtime/promotion-gate.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L33)
 
 Bootstrap statistic over the paired deltas. Default 'mean'.
 
@@ -5220,7 +5377,7 @@ Bootstrap statistic over the paired deltas. Default 'mean'.
 
 > `optional` **seed?**: `number`
 
-Defined in: [runtime/promotion-gate.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L35)
+Defined in: [src/runtime/promotion-gate.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L35)
 
 Fixed by the substrate by default — the same report always yields the same verdict.
 
@@ -5228,13 +5385,13 @@ Fixed by the substrate by default — the same report always yields the same ver
 
 > `optional` **resamples?**: `number`
 
-Defined in: [runtime/promotion-gate.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L36)
+Defined in: [src/runtime/promotion-gate.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L36)
 
 ***
 
 ### PromotionVerdict
 
-Defined in: [runtime/promotion-gate.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L39)
+Defined in: [src/runtime/promotion-gate.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L39)
 
 #### Properties
 
@@ -5242,25 +5399,25 @@ Defined in: [runtime/promotion-gate.ts:39](https://github.com/tangle-network/age
 
 > **promoted**: `boolean`
 
-Defined in: [runtime/promotion-gate.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L40)
+Defined in: [src/runtime/promotion-gate.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L40)
 
 ##### reason
 
 > **reason**: `"identical-champion"` \| `"few-tasks"` \| `"no-margin"` \| `"significant"` \| `"non-inferior-and-cheaper"` \| `"non-inferiority-unproven"` \| `"not-cheaper"`
 
-Defined in: [runtime/promotion-gate.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L41)
+Defined in: [src/runtime/promotion-gate.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L41)
 
 ##### mode
 
 > **mode**: `"superiority"` \| `"non-inferiority"`
 
-Defined in: [runtime/promotion-gate.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L49)
+Defined in: [src/runtime/promotion-gate.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L49)
 
 ##### n
 
 > **n**: `number`
 
-Defined in: [runtime/promotion-gate.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L51)
+Defined in: [src/runtime/promotion-gate.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L51)
 
 Paired tasks that carried both strategies' cells.
 
@@ -5268,7 +5425,7 @@ Paired tasks that carried both strategies' cells.
 
 > **lift**: `object`
 
-Defined in: [runtime/promotion-gate.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L53)
+Defined in: [src/runtime/promotion-gate.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L53)
 
 Paired (candidate − incumbent) lift across the holdout tasks.
 
@@ -5292,7 +5449,7 @@ Paired (candidate − incumbent) lift across the holdout tasks.
 
 > `optional` **costSavings?**: `object`
 
-Defined in: [runtime/promotion-gate.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L56)
+Defined in: [src/runtime/promotion-gate.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L56)
 
 non-inferiority mode: paired (incumbent − candidate) cost SAVINGS per task (usd) —
  positive means the candidate is cheaper; significant iff the CI low clears zero.
@@ -5317,7 +5474,7 @@ non-inferiority mode: paired (incumbent − candidate) cost SAVINGS per task (us
 
 > `optional` **latency?**: `object`
 
-Defined in: [runtime/promotion-gate.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L60)
+Defined in: [src/runtime/promotion-gate.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L60)
 
 Paired (candidate − incumbent) wall-clock per task (ms) — negative = the candidate
  is FASTER. Informational in every mode (never gates); the latency answer to "what
@@ -5343,7 +5500,7 @@ Paired (candidate − incumbent) wall-clock per task (ms) — negative = the can
 
 ### UsageSink
 
-Defined in: [runtime/report-usage.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/report-usage.ts#L24)
+Defined in: [src/runtime/report-usage.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/report-usage.ts#L24)
 
 The slice of an agent-eval campaign `DispatchContext.cost` this needs.
 
@@ -5353,7 +5510,7 @@ The slice of an agent-eval campaign `DispatchContext.cost` this needs.
 
 > **observe**(`amountUsd`, `source`): `void`
 
-Defined in: [runtime/report-usage.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/report-usage.ts#L25)
+Defined in: [src/runtime/report-usage.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/report-usage.ts#L25)
 
 ###### Parameters
 
@@ -5373,7 +5530,7 @@ Defined in: [runtime/report-usage.ts:25](https://github.com/tangle-network/agent
 
 > **observeTokens**(`usage`): `void`
 
-Defined in: [runtime/report-usage.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/report-usage.ts#L26)
+Defined in: [src/runtime/report-usage.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/report-usage.ts#L26)
 
 ###### Parameters
 
@@ -5389,15 +5546,15 @@ Defined in: [runtime/report-usage.ts:26](https://github.com/tangle-network/agent
 
 ### ResolveSandboxClientOptions
 
-Defined in: [runtime/resolve-sandbox-client.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L26)
+Defined in: [src/runtime/resolve-sandbox-client.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L31)
 
 #### Properties
 
 ##### backend
 
-> **backend**: `"router"` \| `"sandbox"` \| `"bridge"`
+> **backend**: `"router"` \| `"sandbox"` \| `"bridge"` \| `"local"`
 
-Defined in: [runtime/resolve-sandbox-client.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L28)
+Defined in: [src/runtime/resolve-sandbox-client.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L33)
 
 The execution transport for the driven loop.
 
@@ -5405,7 +5562,7 @@ The execution transport for the driven loop.
 
 > `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [runtime/resolve-sandbox-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L30)
+Defined in: [src/runtime/resolve-sandbox-client.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L35)
 
 `sandbox` backend: the caller's real Sandbox-backed client. Required for that backend.
 
@@ -5413,7 +5570,7 @@ Defined in: [runtime/resolve-sandbox-client.ts:30](https://github.com/tangle-net
 
 > `optional` **bridge?**: `object`
 
-Defined in: [runtime/resolve-sandbox-client.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L32)
+Defined in: [src/runtime/resolve-sandbox-client.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L37)
 
 `bridge` backend: local cli-bridge transport. `bearer` + `model` required.
 
@@ -5443,7 +5600,7 @@ Per-turn deadline (ms).
 
 > `optional` **router?**: `object`
 
-Defined in: [runtime/resolve-sandbox-client.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L42)
+Defined in: [src/runtime/resolve-sandbox-client.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L47)
 
 `router` backend: router chat-completion transport. All three fields required.
 
@@ -5459,11 +5616,20 @@ Defined in: [runtime/resolve-sandbox-client.ts:42](https://github.com/tangle-net
 
 > **model**: `string`
 
+##### local?
+
+> `optional` **local?**: [`LocalSandboxClientOptions`](#localsandboxclientoptions)
+
+Defined in: [src/runtime/resolve-sandbox-client.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L54)
+
+`local` backend: same-host pseudo-box — the router brain drives a tool loop
+ with the profile's stdio MCP servers spawned as local children.
+
 ***
 
 ### RouterConfig
 
-Defined in: [runtime/router-client.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L16)
+Defined in: [src/runtime/router-client.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L16)
 
 #### Properties
 
@@ -5471,25 +5637,25 @@ Defined in: [runtime/router-client.ts:16](https://github.com/tangle-network/agen
 
 > **routerBaseUrl**: `string`
 
-Defined in: [runtime/router-client.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L17)
+Defined in: [src/runtime/router-client.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L17)
 
 ##### routerKey
 
 > **routerKey**: `string`
 
-Defined in: [runtime/router-client.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L18)
+Defined in: [src/runtime/router-client.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L18)
 
 ##### model
 
 > **model**: `string`
 
-Defined in: [runtime/router-client.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L19)
+Defined in: [src/runtime/router-client.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L19)
 
 ##### complete?
 
 > `optional` **complete?**: (`body`) => `Promise`\<`unknown`\>
 
-Defined in: [runtime/router-client.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L27)
+Defined in: [src/runtime/router-client.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L27)
 
 Optional completion transport. When set, `routerChatWithUsage` / `routerChatWithTools` call it
 with the OpenAI-shape request body and use the parsed `/chat/completions` JSON it returns,
@@ -5511,7 +5677,7 @@ drive the worker with no network: a deterministic in-process responder satisfies
 
 ### RouterChatResult
 
-Defined in: [runtime/router-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L30)
+Defined in: [src/runtime/router-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L30)
 
 #### Properties
 
@@ -5519,7 +5685,7 @@ Defined in: [runtime/router-client.ts:30](https://github.com/tangle-network/agen
 
 > **content**: `string`
 
-Defined in: [runtime/router-client.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L32)
+Defined in: [src/runtime/router-client.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L32)
 
 The final answer, with any inline `<think>...</think>` block stripped into `reasoning`.
 
@@ -5527,7 +5693,7 @@ The final answer, with any inline `<think>...</think>` block stripped into `reas
 
 > `optional` **reasoning?**: `string`
 
-Defined in: [runtime/router-client.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L41)
+Defined in: [src/runtime/router-client.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L41)
 
 Thinking-model reasoning, when the provider surfaced it — either as a separate
 `reasoning`/`reasoning_content` message field (OpenRouter style) or inlined into
@@ -5540,7 +5706,7 @@ broken on one provider and fine on another.
 
 > `optional` **usage?**: `object`
 
-Defined in: [runtime/router-client.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L43)
+Defined in: [src/runtime/router-client.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L43)
 
 REAL usage, or undefined when the provider reported none.
 
@@ -5556,7 +5722,7 @@ REAL usage, or undefined when the provider reported none.
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [runtime/router-client.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L45)
+Defined in: [src/runtime/router-client.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L45)
 
 Derived from usage via `estimateCost` when the model is priced; else undefined.
 
@@ -5564,7 +5730,7 @@ Derived from usage via `estimateCost` when the model is priced; else undefined.
 
 ### RouterToolCall
 
-Defined in: [runtime/router-client.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L167)
+Defined in: [src/runtime/router-client.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L167)
 
 A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallRequest).
 
@@ -5574,19 +5740,19 @@ A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallR
 
 > **id**: `string`
 
-Defined in: [runtime/router-client.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L168)
+Defined in: [src/runtime/router-client.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L168)
 
 ##### name
 
 > **name**: `string`
 
-Defined in: [runtime/router-client.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L169)
+Defined in: [src/runtime/router-client.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L169)
 
 ##### arguments
 
 > **arguments**: `string`
 
-Defined in: [runtime/router-client.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L171)
+Defined in: [src/runtime/router-client.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L171)
 
 Raw JSON arguments string as emitted by the model.
 
@@ -5594,7 +5760,7 @@ Raw JSON arguments string as emitted by the model.
 
 ### RouterChatToolsResult
 
-Defined in: [runtime/router-client.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L174)
+Defined in: [src/runtime/router-client.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L174)
 
 #### Properties
 
@@ -5602,19 +5768,19 @@ Defined in: [runtime/router-client.ts:174](https://github.com/tangle-network/age
 
 > **content**: `string` \| `null`
 
-Defined in: [runtime/router-client.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L175)
+Defined in: [src/runtime/router-client.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L175)
 
 ##### toolCalls
 
 > **toolCalls**: [`RouterToolCall`](#routertoolcall)[]
 
-Defined in: [runtime/router-client.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L176)
+Defined in: [src/runtime/router-client.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L176)
 
 ##### usage?
 
 > `optional` **usage?**: `object`
 
-Defined in: [runtime/router-client.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L177)
+Defined in: [src/runtime/router-client.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L177)
 
 ###### input
 
@@ -5628,13 +5794,13 @@ Defined in: [runtime/router-client.ts:177](https://github.com/tangle-network/age
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [runtime/router-client.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L178)
+Defined in: [src/runtime/router-client.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L178)
 
 ***
 
 ### ToolSpec
 
-Defined in: [runtime/router-client.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L254)
+Defined in: [src/runtime/router-client.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L254)
 
 #### Properties
 
@@ -5642,13 +5808,13 @@ Defined in: [runtime/router-client.ts:254](https://github.com/tangle-network/age
 
 > **type**: `"function"`
 
-Defined in: [runtime/router-client.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L255)
+Defined in: [src/runtime/router-client.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L255)
 
 ##### function
 
 > **function**: `object`
 
-Defined in: [runtime/router-client.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L256)
+Defined in: [src/runtime/router-client.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L256)
 
 ###### name
 
@@ -5666,7 +5832,7 @@ Defined in: [runtime/router-client.ts:256](https://github.com/tangle-network/age
 
 ### RouterToolLoopResult
 
-Defined in: [runtime/router-client.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L259)
+Defined in: [src/runtime/router-client.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L259)
 
 #### Properties
 
@@ -5674,7 +5840,7 @@ Defined in: [runtime/router-client.ts:259](https://github.com/tangle-network/age
 
 > **final**: `string`
 
-Defined in: [runtime/router-client.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L261)
+Defined in: [src/runtime/router-client.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L261)
 
 The model's final assistant text (the turn where it stopped calling tools, or the budget turn).
 
@@ -5682,7 +5848,7 @@ The model's final assistant text (the turn where it stopped calling tools, or th
 
 > **turns**: `number`
 
-Defined in: [runtime/router-client.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L263)
+Defined in: [src/runtime/router-client.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L263)
 
 Inference turns spent (≤ maxTurns) — the equal-budget unit vs random@k.
 
@@ -5690,13 +5856,13 @@ Inference turns spent (≤ maxTurns) — the equal-budget unit vs random@k.
 
 > **toolCalls**: `number`
 
-Defined in: [runtime/router-client.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L264)
+Defined in: [src/runtime/router-client.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L264)
 
 ##### toolTrace
 
 > **toolTrace**: `object`[]
 
-Defined in: [runtime/router-client.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L267)
+Defined in: [src/runtime/router-client.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L267)
 
 The behavior trace: each tool call + its result, in order. What a trace-analyst
  steerer reads (behavior, never the verdict) to diagnose + redirect the next shot.
@@ -5717,7 +5883,7 @@ The behavior trace: each tool call + its result, in order. What a trace-analyst
 
 > **usage**: `object`
 
-Defined in: [runtime/router-client.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L268)
+Defined in: [src/runtime/router-client.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L268)
 
 ###### input
 
@@ -5731,7 +5897,7 @@ Defined in: [runtime/router-client.ts:268](https://github.com/tangle-network/age
 
 > **messages**: `Record`\<`string`, `unknown`\>[]
 
-Defined in: [runtime/router-client.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L271)
+Defined in: [src/runtime/router-client.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L271)
 
 The full conversation after the loop (seed + every assistant/tool turn). Lets a caller
  CARRY the messages into the next shot (depth continuation) and read the trajectory.
@@ -5740,7 +5906,7 @@ The full conversation after the loop (seed + every assistant/tool turn). Lets a 
 
 ### BenchmarkConfig
 
-Defined in: [runtime/run-benchmark.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L32)
+Defined in: [src/runtime/run-benchmark.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L32)
 
 #### Properties
 
@@ -5748,7 +5914,7 @@ Defined in: [runtime/run-benchmark.ts:32](https://github.com/tangle-network/agen
 
 > **environment**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/run-benchmark.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L34)
+Defined in: [src/runtime/run-benchmark.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L34)
 
 The task domain (5 hooks).
 
@@ -5756,7 +5922,7 @@ The task domain (5 hooks).
 
 > **tasks**: [`AgenticTask`](#agentictask)[]
 
-Defined in: [runtime/run-benchmark.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L36)
+Defined in: [src/runtime/run-benchmark.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L36)
 
 The tasks to score across.
 
@@ -5764,7 +5930,7 @@ The tasks to score across.
 
 > **worker**: [`AgenticOptions`](#agenticoptions)
 
-Defined in: [runtime/run-benchmark.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L38)
+Defined in: [src/runtime/run-benchmark.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L38)
 
 The worker: model + router + (optional) the critic's instruction (the steerer knob).
 
@@ -5772,7 +5938,7 @@ The worker: model + router + (optional) the critic's instruction (the steerer kn
 
 > `optional` **strategies?**: [`Strategy`](#strategy-3)[]
 
-Defined in: [runtime/run-benchmark.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L41)
+Defined in: [src/runtime/run-benchmark.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L41)
 
 Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own.
  Default: [sample, refine].
@@ -5781,7 +5947,7 @@ Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own
 
 > `optional` **budget?**: `number`
 
-Defined in: [runtime/run-benchmark.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L43)
+Defined in: [src/runtime/run-benchmark.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L43)
 
 Shots (refine) / width (sample) — the equal compute budget per strategy. Default 3.
 
@@ -5789,7 +5955,7 @@ Shots (refine) / width (sample) — the equal compute budget per strategy. Defau
 
 > `optional` **concurrency?**: `number`
 
-Defined in: [runtime/run-benchmark.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L45)
+Defined in: [src/runtime/run-benchmark.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L45)
 
 Tasks scored in parallel. Default 3.
 
@@ -5797,7 +5963,7 @@ Tasks scored in parallel. Default 3.
 
 > `optional` **onTask?**: (`row`, `done`, `total`) => `void`
 
-Defined in: [runtime/run-benchmark.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L48)
+Defined in: [src/runtime/run-benchmark.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L48)
 
 Progress hook — fires as each task settles (the live-monitoring seam: append to a
  progress file, render a tree, stream to a dashboard). `done` counts settled tasks.
@@ -5824,7 +5990,7 @@ Progress hook — fires as each task settles (the live-monitoring seam: append t
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/run-benchmark.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L51)
+Defined in: [src/runtime/run-benchmark.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L51)
 
 Lifecycle observability — every spawn/settle of every cell's shots/analysts streams
  here live (the watchdog/route-auditor seam, passed through to `runAgentic`).
@@ -5833,7 +5999,7 @@ Lifecycle observability — every spawn/settle of every cell's shots/analysts st
 
 ### BenchmarkLift
 
-Defined in: [runtime/run-benchmark.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L54)
+Defined in: [src/runtime/run-benchmark.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L54)
 
 #### Properties
 
@@ -5841,7 +6007,7 @@ Defined in: [runtime/run-benchmark.ts:54](https://github.com/tangle-network/agen
 
 > **mean**: `number`
 
-Defined in: [runtime/run-benchmark.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L56)
+Defined in: [src/runtime/run-benchmark.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L56)
 
 Mean of paired deltas (refine − sample).
 
@@ -5849,25 +6015,25 @@ Mean of paired deltas (refine − sample).
 
 > **low**: `number`
 
-Defined in: [runtime/run-benchmark.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L57)
+Defined in: [src/runtime/run-benchmark.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L57)
 
 ##### high
 
 > **high**: `number`
 
-Defined in: [runtime/run-benchmark.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L58)
+Defined in: [src/runtime/run-benchmark.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L58)
 
 ##### n
 
 > **n**: `number`
 
-Defined in: [runtime/run-benchmark.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L59)
+Defined in: [src/runtime/run-benchmark.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L59)
 
 ***
 
 ### BenchmarkCell
 
-Defined in: [runtime/run-benchmark.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L63)
+Defined in: [src/runtime/run-benchmark.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L63)
 
 One strategy's outcome on one task — the per-task cell an optimizer consumes.
 
@@ -5877,19 +6043,19 @@ One strategy's outcome on one task — the per-task cell an optimizer consumes.
 
 > **score**: `number`
 
-Defined in: [runtime/run-benchmark.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L64)
+Defined in: [src/runtime/run-benchmark.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L64)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/run-benchmark.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L65)
+Defined in: [src/runtime/run-benchmark.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L65)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [runtime/run-benchmark.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L67)
+Defined in: [src/runtime/run-benchmark.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L67)
 
 The progress curve (refine: score per shot; sample: best-so-far per rollout).
 
@@ -5897,19 +6063,19 @@ The progress curve (refine: score per shot; sample: best-so-far per rollout).
 
 > **usd**: `number`
 
-Defined in: [runtime/run-benchmark.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L68)
+Defined in: [src/runtime/run-benchmark.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L68)
 
 ##### ms
 
 > **ms**: `number`
 
-Defined in: [runtime/run-benchmark.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L69)
+Defined in: [src/runtime/run-benchmark.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L69)
 
 ##### tokens
 
 > **tokens**: `object`
 
-Defined in: [runtime/run-benchmark.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L70)
+Defined in: [src/runtime/run-benchmark.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L70)
 
 ###### input
 
@@ -5923,7 +6089,7 @@ Defined in: [runtime/run-benchmark.ts:70](https://github.com/tangle-network/agen
 
 ### BenchmarkTaskRow
 
-Defined in: [runtime/run-benchmark.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L73)
+Defined in: [src/runtime/run-benchmark.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L73)
 
 #### Properties
 
@@ -5931,13 +6097,13 @@ Defined in: [runtime/run-benchmark.ts:73](https://github.com/tangle-network/agen
 
 > **taskId**: `string`
 
-Defined in: [runtime/run-benchmark.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L74)
+Defined in: [src/runtime/run-benchmark.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L74)
 
 ##### cells?
 
 > `optional` **cells?**: `Record`\<`string`, [`BenchmarkCell`](#benchmarkcell)\>
 
-Defined in: [runtime/run-benchmark.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L76)
+Defined in: [src/runtime/run-benchmark.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L76)
 
 Per-strategy cells; absent when the task errored before completing all strategies.
 
@@ -5945,7 +6111,7 @@ Per-strategy cells; absent when the task errored before completing all strategie
 
 > `optional` **errors?**: `Record`\<`string`, `string`\>
 
-Defined in: [runtime/run-benchmark.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L80)
+Defined in: [src/runtime/run-benchmark.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L80)
 
 Per-strategy failures on this task: the strategy competed, threw, and scored an
  honest zero — it loses, it does not poison the row. The message is kept so a later
@@ -5955,7 +6121,7 @@ Per-strategy failures on this task: the strategy competed, threw, and scored an
 
 > `optional` **error?**: `string`
 
-Defined in: [runtime/run-benchmark.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L82)
+Defined in: [src/runtime/run-benchmark.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L82)
 
 Why the task was excluded (infra/setup failure) — never silently dropped.
 
@@ -5963,7 +6129,7 @@ Why the task was excluded (infra/setup failure) — never silently dropped.
 
 ### BenchmarkStrategySummary
 
-Defined in: [runtime/run-benchmark.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L85)
+Defined in: [src/runtime/run-benchmark.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L85)
 
 #### Properties
 
@@ -5971,7 +6137,7 @@ Defined in: [runtime/run-benchmark.ts:85](https://github.com/tangle-network/agen
 
 > **score**: `number`
 
-Defined in: [runtime/run-benchmark.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L87)
+Defined in: [src/runtime/run-benchmark.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L87)
 
 Mean verifier score (0..1).
 
@@ -5979,7 +6145,7 @@ Mean verifier score (0..1).
 
 > **resolved**: `number`
 
-Defined in: [runtime/run-benchmark.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L89)
+Defined in: [src/runtime/run-benchmark.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L89)
 
 Fraction of tasks fully resolved.
 
@@ -5987,7 +6153,7 @@ Fraction of tasks fully resolved.
 
 > **usd**: `number`
 
-Defined in: [runtime/run-benchmark.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L91)
+Defined in: [src/runtime/run-benchmark.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L91)
 
 Mean cost vector per task.
 
@@ -5995,13 +6161,13 @@ Mean cost vector per task.
 
 > **ms**: `number`
 
-Defined in: [runtime/run-benchmark.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L92)
+Defined in: [src/runtime/run-benchmark.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L92)
 
 ***
 
 ### BenchmarkReport
 
-Defined in: [runtime/run-benchmark.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L96)
+Defined in: [src/runtime/run-benchmark.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L96)
 
 Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines.
 
@@ -6011,19 +6177,19 @@ Benchmark output: per-strategy means plus the full per-task × per-strategy loss
 
 > **n**: `number`
 
-Defined in: [runtime/run-benchmark.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L97)
+Defined in: [src/runtime/run-benchmark.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L97)
 
 ##### excluded
 
 > **excluded**: `number`
 
-Defined in: [runtime/run-benchmark.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L98)
+Defined in: [src/runtime/run-benchmark.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L98)
 
 ##### perStrategy
 
 > **perStrategy**: `Record`\<`string`, [`BenchmarkStrategySummary`](#benchmarkstrategysummary)\>
 
-Defined in: [runtime/run-benchmark.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L100)
+Defined in: [src/runtime/run-benchmark.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L100)
 
 Per-strategy means (keyed by strategy.name).
 
@@ -6031,7 +6197,7 @@ Per-strategy means (keyed by strategy.name).
 
 > **perTask**: [`BenchmarkTaskRow`](#benchmarktaskrow)[]
 
-Defined in: [runtime/run-benchmark.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L103)
+Defined in: [src/runtime/run-benchmark.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L103)
 
 The full per-task × per-strategy table — the LOSSES an optimizer (GEPA, a
  strategy-author, an operator) consumes. Includes errored tasks with the reason.
@@ -6040,7 +6206,7 @@ The full per-task × per-strategy table — the LOSSES an optimizer (GEPA, a
 
 > **pareto**: `string`[]
 
-Defined in: [runtime/run-benchmark.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L106)
+Defined in: [src/runtime/run-benchmark.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L106)
 
 The non-dominated strategies on (score ↑, $/task ↓) — collapse-last, per the canon:
  a strategy that ties on score at half the cost WINS and a scalar would hide it.
@@ -6049,7 +6215,7 @@ The non-dominated strategies on (score ↑, $/task ↓) — collapse-last, per t
 
 > `optional` **refineVsSample?**: [`BenchmarkLift`](#benchmarklift)
 
-Defined in: [runtime/run-benchmark.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L108)
+Defined in: [src/runtime/run-benchmark.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L108)
 
 The headline when both `refine` and `sample` ran: paired-bootstrap lift of refine over sample.
 
@@ -6057,7 +6223,7 @@ The headline when both `refine` and `sample` ran: paired-bootstrap lift of refin
 
 ### SandboxCapabilities
 
-Defined in: [runtime/sandbox-capabilities.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L27)
+Defined in: [src/runtime/sandbox-capabilities.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L27)
 
 **`Experimental`**
 
@@ -6072,7 +6238,7 @@ universal SDK feature that needs no probe.
 
 > **canFork**: `boolean`
 
-Defined in: [runtime/sandbox-capabilities.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L33)
+Defined in: [src/runtime/sandbox-capabilities.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L33)
 
 **`Experimental`**
 
@@ -6084,7 +6250,7 @@ result, no shared context prefix.
 
 ### CriuCapableClient
 
-Defined in: [runtime/sandbox-capabilities.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L74)
+Defined in: [src/runtime/sandbox-capabilities.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L74)
 
 **`Experimental`**
 
@@ -6098,7 +6264,7 @@ read without importing sandbox-backend specifics.
 
 > `optional` **criuStatus?**: () => `Promise`\<\{ `available`: `boolean`; `criuVersion?`: `string`; `reason?`: `string`; \}\>
 
-Defined in: [runtime/sandbox-capabilities.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L75)
+Defined in: [src/runtime/sandbox-capabilities.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L75)
 
 **`Experimental`**
 
@@ -6110,7 +6276,7 @@ Defined in: [runtime/sandbox-capabilities.ts:75](https://github.com/tangle-netwo
 
 ### SandboxToolPartState
 
-Defined in: [runtime/sandbox-events.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L147)
+Defined in: [src/runtime/sandbox-events.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L147)
 
 **`Experimental`**
 
@@ -6127,7 +6293,7 @@ state per turn via [createSandboxToolPartState](#createsandboxtoolpartstate).
 
 > **statusByCall**: `Map`\<`string`, `string`\>
 
-Defined in: [runtime/sandbox-events.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L150)
+Defined in: [src/runtime/sandbox-events.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L150)
 
 **`Experimental`**
 
@@ -6138,7 +6304,7 @@ Last seen status per tool call id. A terminal status is sticky — later
 
 > **seq**: `number`
 
-Defined in: [runtime/sandbox-events.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L152)
+Defined in: [src/runtime/sandbox-events.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L152)
 
 **`Experimental`**
 
@@ -6148,7 +6314,7 @@ Sequence for synthesized call ids when an event carries none.
 
 ### SandboxLineageHandle
 
-Defined in: [runtime/sandbox-lineage.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L125)
+Defined in: [src/runtime/sandbox-lineage.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L125)
 
 **`Experimental`**
 
@@ -6162,7 +6328,7 @@ the kernel beyond `box` (for placement/teardown) and `sessionId` (trace).
 
 > **box**: `SandboxInstance`
 
-Defined in: [runtime/sandbox-lineage.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L127)
+Defined in: [src/runtime/sandbox-lineage.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L127)
 
 **`Experimental`**
 
@@ -6172,7 +6338,7 @@ The owned, running sandbox this handle drives.
 
 > **sessionId**: `string`
 
-Defined in: [runtime/sandbox-lineage.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L134)
+Defined in: [src/runtime/sandbox-lineage.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L134)
 
 **`Experimental`**
 
@@ -6185,7 +6351,7 @@ the shared context comes from the checkpoint, not a shared session id.
 
 ### SandboxLineage
 
-Defined in: [runtime/sandbox-lineage.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L143)
+Defined in: [src/runtime/sandbox-lineage.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L143)
 
 **`Experimental`**
 
@@ -6198,7 +6364,7 @@ capability-gated lifecycle moves. Construct via `createSandboxLineage`.
 
 > **start**(`spec`, `prompt`, `signal`, `promptOptions?`): `Promise`\<\{ `handle`: [`SandboxLineageHandle`](#sandboxlineagehandle); `events`: `AsyncIterable`\<`SandboxEvent`\>; \}\>
 
-Defined in: [runtime/sandbox-lineage.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L148)
+Defined in: [src/runtime/sandbox-lineage.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L148)
 
 **`Experimental`**
 
@@ -6231,7 +6397,7 @@ the live `streamPrompt` iterable for the first turn (caller drains it).
 
 > **continue**(`handle`, `prompt`, `signal`, `promptOptions?`): `Promise`\<`AsyncIterable`\<`SandboxEvent`, `any`, `any`\>\>
 
-Defined in: [runtime/sandbox-lineage.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L161)
+Defined in: [src/runtime/sandbox-lineage.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L161)
 
 **`Experimental`**
 
@@ -6267,7 +6433,7 @@ of a contextless turn the caller mistakes for a real continuation.
 
 > **fork**(`parent`, `prompts`, `specs`, `signal`): `Promise`\<`object`[]\>
 
-Defined in: [runtime/sandbox-lineage.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L178)
+Defined in: [src/runtime/sandbox-lineage.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L178)
 
 **`Experimental`**
 
@@ -6307,7 +6473,7 @@ streams `prompts[i]`. Child-box creation is bounded by `maxConcurrency`.
 
 > **prune**(`keep`): `Promise`\<`void`\>
 
-Defined in: [runtime/sandbox-lineage.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L191)
+Defined in: [src/runtime/sandbox-lineage.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L191)
 
 **`Experimental`**
 
@@ -6331,7 +6497,7 @@ Best-effort, bounded, parallel — a failed delete never throws.
 
 > **teardown**(): `Promise`\<`void`\>
 
-Defined in: [runtime/sandbox-lineage.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L193)
+Defined in: [src/runtime/sandbox-lineage.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L193)
 
 **`Experimental`**
 
@@ -6345,7 +6511,7 @@ Destroy every box this lineage owns. Best-effort, bounded, parallel.
 
 ### CheckpointCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:397](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L397)
+Defined in: [src/runtime/sandbox-lineage.ts:397](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L397)
 
 **`Experimental`**
 
@@ -6360,7 +6526,7 @@ without importing sandbox-backend specifics.
 
 > `optional` **checkpoint?**: (`options?`) => `Promise`\<\{ `checkpointId`: `string`; \}\>
 
-Defined in: [runtime/sandbox-lineage.ts:398](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L398)
+Defined in: [src/runtime/sandbox-lineage.ts:398](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L398)
 
 **`Experimental`**
 
@@ -6384,7 +6550,7 @@ Defined in: [runtime/sandbox-lineage.ts:398](https://github.com/tangle-network/a
 
 ### ForkCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:404](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L404)
+Defined in: [src/runtime/sandbox-lineage.ts:404](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L404)
 
 **`Experimental`**
 
@@ -6396,7 +6562,7 @@ Loop-side widening of the box's optional fork method.
 
 > `optional` **fork?**: (`checkpointId`, `options?`) => `Promise`\<`SandboxInstance`\>
 
-Defined in: [runtime/sandbox-lineage.ts:405](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L405)
+Defined in: [src/runtime/sandbox-lineage.ts:405](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L405)
 
 **`Experimental`**
 
@@ -6420,7 +6586,7 @@ Defined in: [runtime/sandbox-lineage.ts:405](https://github.com/tangle-network/a
 
 ### SessionCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L415)
+Defined in: [src/runtime/sandbox-lineage.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L415)
 
 **`Experimental`**
 
@@ -6435,7 +6601,7 @@ fakes. `status()` resolves `null` when the id is unknown to the sandbox.
 
 > `optional` **session?**: (`id`) => `object`
 
-Defined in: [runtime/sandbox-lineage.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L416)
+Defined in: [src/runtime/sandbox-lineage.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L416)
 
 **`Experimental`**
 
@@ -6461,7 +6627,7 @@ Defined in: [runtime/sandbox-lineage.ts:416](https://github.com/tangle-network/a
 
 ### TurnResult
 
-Defined in: [runtime/sandbox-run.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L62)
+Defined in: [src/runtime/sandbox-run.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L62)
 
 **`Experimental`**
 
@@ -6481,7 +6647,7 @@ nothing" from a transport/FS fault.
 
 > **out**: `Out`
 
-Defined in: [runtime/sandbox-run.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L63)
+Defined in: [src/runtime/sandbox-run.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L63)
 
 **`Experimental`**
 
@@ -6489,7 +6655,7 @@ Defined in: [runtime/sandbox-run.ts:63](https://github.com/tangle-network/agent-
 
 > **events**: `SandboxEvent`[]
 
-Defined in: [runtime/sandbox-run.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L64)
+Defined in: [src/runtime/sandbox-run.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L64)
 
 **`Experimental`**
 
@@ -6497,7 +6663,7 @@ Defined in: [runtime/sandbox-run.ts:64](https://github.com/tangle-network/agent-
 
 > `optional` **readError?**: `string`
 
-Defined in: [runtime/sandbox-run.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L65)
+Defined in: [src/runtime/sandbox-run.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L65)
 
 **`Experimental`**
 
@@ -6505,7 +6671,7 @@ Defined in: [runtime/sandbox-run.ts:65](https://github.com/tangle-network/agent-
 
 ### SandboxRun
 
-Defined in: [runtime/sandbox-run.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L94)
+Defined in: [src/runtime/sandbox-run.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L94)
 
 **`Experimental`**
 
@@ -6524,7 +6690,7 @@ A live run over ONE persistent artifact (box + session). Close it
 
 > `readonly` **box**: `SandboxInstance`
 
-Defined in: [runtime/sandbox-run.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L95)
+Defined in: [src/runtime/sandbox-run.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L95)
 
 **`Experimental`**
 
@@ -6532,7 +6698,7 @@ Defined in: [runtime/sandbox-run.ts:95](https://github.com/tangle-network/agent-
 
 > `readonly` **sessionId**: `string`
 
-Defined in: [runtime/sandbox-run.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L96)
+Defined in: [src/runtime/sandbox-run.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L96)
 
 **`Experimental`**
 
@@ -6542,7 +6708,7 @@ Defined in: [runtime/sandbox-run.ts:96](https://github.com/tangle-network/agent-
 
 > **start**(`prompt`): `Promise`\<[`TurnResult`](#turnresult)\<`Out`\>\>
 
-Defined in: [runtime/sandbox-run.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L98)
+Defined in: [src/runtime/sandbox-run.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L98)
 
 **`Experimental`**
 
@@ -6562,7 +6728,7 @@ First turn over the fresh box (mints the session). Throws if already started.
 
 > **resume**(`prompt`): `Promise`\<[`TurnResult`](#turnresult)\<`Out`\>\>
 
-Defined in: [runtime/sandbox-run.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L100)
+Defined in: [src/runtime/sandbox-run.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L100)
 
 **`Experimental`**
 
@@ -6582,7 +6748,7 @@ Continue THE SAME session over THE SAME artifact — a resumed turn/rollout.
 
 > **close**(): `Promise`\<`void`\>
 
-Defined in: [runtime/sandbox-run.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L101)
+Defined in: [src/runtime/sandbox-run.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L101)
 
 **`Experimental`**
 
@@ -6594,7 +6760,7 @@ Defined in: [runtime/sandbox-run.ts:101](https://github.com/tangle-network/agent
 
 ### OpenSandboxRunBeforeStartContext
 
-Defined in: [runtime/sandbox-run.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L116)
+Defined in: [src/runtime/sandbox-run.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L116)
 
 Context available after the box/session exists and before the first prompt is
 drained. Intended for benchmark-owned workspace setup such as cloning a repo
@@ -6606,25 +6772,25 @@ into a fixed path.
 
 > `readonly` **box**: `SandboxInstance`
 
-Defined in: [runtime/sandbox-run.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L117)
+Defined in: [src/runtime/sandbox-run.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L117)
 
 ##### sessionId
 
 > `readonly` **sessionId**: `string`
 
-Defined in: [runtime/sandbox-run.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L118)
+Defined in: [src/runtime/sandbox-run.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L118)
 
 ##### signal
 
 > `readonly` **signal**: `AbortSignal`
 
-Defined in: [runtime/sandbox-run.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L119)
+Defined in: [src/runtime/sandbox-run.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L119)
 
 ***
 
 ### OpenSandboxRunOptions
 
-Defined in: [runtime/sandbox-run.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L123)
+Defined in: [src/runtime/sandbox-run.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L123)
 
 **`Experimental`**
 
@@ -6634,7 +6800,7 @@ Defined in: [runtime/sandbox-run.ts:123](https://github.com/tangle-network/agent
 
 > **agentRun**: [`AgentRunSpec`](#agentrunspec)\<`string`\>
 
-Defined in: [runtime/sandbox-run.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L125)
+Defined in: [src/runtime/sandbox-run.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L125)
 
 **`Experimental`**
 
@@ -6644,7 +6810,7 @@ Profile + sandbox env/overrides. `sandboxOverrides.backend.type` is the harness.
 
 > **signal**: `AbortSignal`
 
-Defined in: [runtime/sandbox-run.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L126)
+Defined in: [src/runtime/sandbox-run.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L126)
 
 **`Experimental`**
 
@@ -6652,7 +6818,7 @@ Defined in: [runtime/sandbox-run.ts:126](https://github.com/tangle-network/agent
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/sandbox-run.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L128)
+Defined in: [src/runtime/sandbox-run.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L128)
 
 **`Experimental`**
 
@@ -6662,7 +6828,7 @@ Optional execution-scoped observers. Hook failures never fail the run.
 
 > `optional` **runId?**: `string`
 
-Defined in: [runtime/sandbox-run.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L130)
+Defined in: [src/runtime/sandbox-run.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L130)
 
 **`Experimental`**
 
@@ -6672,7 +6838,7 @@ Stable run id for trace joins. Defaults to a short runtime-minted id.
 
 > `optional` **scenarioId?**: `string`
 
-Defined in: [runtime/sandbox-run.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L132)
+Defined in: [src/runtime/sandbox-run.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L132)
 
 **`Experimental`**
 
@@ -6682,7 +6848,7 @@ Optional benchmark/scenario id carried into emitted hook events.
 
 > `optional` **promptOptions?**: [`OpenSandboxRunPromptOptions`](#opensandboxrunpromptoptions)
 
-Defined in: [runtime/sandbox-run.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L135)
+Defined in: [src/runtime/sandbox-run.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L135)
 
 **`Experimental`**
 
@@ -6693,7 +6859,7 @@ Per-prompt sandbox SDK options forwarded to both `start()` and `resume()`.
 
 > `optional` **beforeStart?**: (`ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/sandbox-run.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L139)
+Defined in: [src/runtime/sandbox-run.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L139)
 
 **`Experimental`**
 
@@ -6715,7 +6881,7 @@ fails the turn before the agent spends tokens.
 
 > `optional` **now?**: () => `number`
 
-Defined in: [runtime/sandbox-run.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L141)
+Defined in: [src/runtime/sandbox-run.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L141)
 
 **`Experimental`**
 
@@ -6729,7 +6895,7 @@ Test seam for deterministic hook timestamps. Defaults to `Date.now`.
 
 > `optional` **maxConcurrency?**: `number`
 
-Defined in: [runtime/sandbox-run.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L143)
+Defined in: [src/runtime/sandbox-run.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L143)
 
 **`Experimental`**
 
@@ -6739,7 +6905,7 @@ Bounds box-creation bursts inside lineage fanout. Default from lineage.
 
 > `optional` **readRetryDelayMs?**: `number`
 
-Defined in: [runtime/sandbox-run.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L146)
+Defined in: [src/runtime/sandbox-run.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L146)
 
 **`Experimental`**
 
@@ -6748,9 +6914,264 @@ Base backoff (ms) for retrying a transient artifact `fs.read` failure; the i-th
 
 ***
 
+### StdioMcpServerSpec
+
+Defined in: [src/runtime/stdio-mcp-client.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L72)
+
+#### Properties
+
+##### command
+
+> **command**: `string`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L74)
+
+Command that starts the MCP server (stdio transport).
+
+##### args?
+
+> `optional` **args?**: `string`[]
+
+Defined in: [src/runtime/stdio-mcp-client.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L75)
+
+##### cwd?
+
+> `optional` **cwd?**: `string`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L77)
+
+Working directory the server starts in (a built candidate's worktree, typically).
+
+##### env?
+
+> `optional` **env?**: `Record`\<`string`, `string`\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L80)
+
+Declared public env for the server process. Only a minimal non-sensitive
+subset of the parent env is inherited.
+
+##### protectedEnv?
+
+> `optional` **protectedEnv?**: `Record`\<`string`, `string`\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L83)
+
+Sensitive env for the server process. These values override `env` and are
+redacted from child-supplied errors, tool metadata, and tool results.
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L85)
+
+Handshake AND per-request timeout (ms). Default 30s.
+
+***
+
+### McpToolDescriptor
+
+Defined in: [src/runtime/stdio-mcp-client.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L92)
+
+#### Properties
+
+##### name
+
+> **name**: `string`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L93)
+
+##### description?
+
+> `optional` **description?**: `string`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L94)
+
+##### inputSchema?
+
+> `optional` **inputSchema?**: `unknown`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L95)
+
+***
+
+### StdioMcpConnection
+
+Defined in: [src/runtime/stdio-mcp-client.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L98)
+
+#### Properties
+
+##### tools
+
+> `readonly` **tools**: readonly [`McpToolDescriptor`](#mcptooldescriptor)[]
+
+Defined in: [src/runtime/stdio-mcp-client.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L100)
+
+The tools the server exposed at connect time (`tools/list`).
+
+#### Methods
+
+##### callTool()
+
+> **callTool**(`name`, `args`): `Promise`\<`string`\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L104)
+
+`tools/call` → the result's text content. A JSON-RPC error / `isError`
+ result becomes an `ERROR: …` string (the agent's outcome); a dead
+ transport or timeout throws (an infra fault).
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### args
+
+`Record`\<`string`, `unknown`\>
+
+###### Returns
+
+`Promise`\<`string`\>
+
+##### close()
+
+> **close**(): `Promise`\<`void`\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L106)
+
+Kill the server child. Idempotent.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### MaterializeLocalMcpOptions
+
+Defined in: [src/runtime/stdio-mcp-client.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L293)
+
+#### Properties
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L295)
+
+Handshake / per-request timeout per server (ms). Default 30s.
+
+##### maxResultChars?
+
+> `optional` **maxResultChars?**: `number`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L297)
+
+Cap on a tool result's text fed back to the worker. Default 2000 chars.
+
+##### keys?
+
+> `optional` **keys?**: [`KeyProvider`](#keyprovider)
+
+Defined in: [src/runtime/stdio-mcp-client.ts:303](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L303)
+
+Resolves a server's DECLARED secrets (`metadata.secretEnv`: env var name →
+ provider key name) at spawn time. The resolved values reach ONLY the child
+ process env — never the profile, the logs, or an error message. Fail-closed:
+ a server declaring secrets without a provider (or with a missing key)
+ throws instead of booting keyless.
+
+##### profileSecurityPolicy?
+
+> `optional` **profileSecurityPolicy?**: `AgentProfileSecurityPolicy`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L308)
+
+Required trust decision for profiles that declare local MCP processes.
+Omit to refuse all profile-controlled host execution. Passing
+`allowLocalMcp: true` is only safe for an author-controlled profile: the
+process receives this Runtime's filesystem and network privileges.
+
+***
+
+### LocalMcpMaterialization
+
+Defined in: [src/runtime/stdio-mcp-client.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L312)
+
+The live same-host materialization of a profile's `mcp` surface.
+
+#### Properties
+
+##### tools
+
+> **tools**: [`AgenticTool`](#agentictool)[]
+
+Defined in: [src/runtime/stdio-mcp-client.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L314)
+
+Worker-facing tool specs: namespaced `<server>__<tool>`, provider-safe schemas.
+
+#### Methods
+
+##### owns()
+
+> **owns**(`name`): `boolean`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L316)
+
+Whether `name` is one of this materialization's namespaced tools.
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### Returns
+
+`boolean`
+
+##### call()
+
+> **call**(`name`, `args`): `Promise`\<`string`\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:318](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L318)
+
+Route a namespaced call to its server's live stdio child.
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### args
+
+`Record`\<`string`, `unknown`\>
+
+###### Returns
+
+`Promise`\<`string`\>
+
+##### close()
+
+> **close**(): `Promise`\<`void`\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:320](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L320)
+
+Kill every spawned server. Idempotent.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### NaiveDriverOptions
 
-Defined in: [runtime/steering-drivers.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L82)
+Defined in: [src/runtime/steering-drivers.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L82)
 
 Options for [naiveDriver](#naivedriver).
 
@@ -6766,7 +7187,7 @@ Options for [naiveDriver](#naivedriver).
 
 > **continuation**: `string`
 
-Defined in: [runtime/steering-drivers.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L89)
+Defined in: [src/runtime/steering-drivers.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L89)
 
 The fixed continuation issued every round after shot 0. The same string is
 sent whether the prior shot passed inspection or not — the naive driver
@@ -6777,7 +7198,7 @@ supplies none.
 
 > **applyContinuation**: [`ApplyContinuation`](#applycontinuation)\<`Task`\>
 
-Defined in: [runtime/steering-drivers.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L91)
+Defined in: [src/runtime/steering-drivers.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L91)
 
 Folds `continuation` into the caller's Task shape for the next shot.
 
@@ -6785,7 +7206,7 @@ Folds `continuation` into the caller's Task shape for the next shot.
 
 > **maxIterations**: `number`
 
-Defined in: [runtime/steering-drivers.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L93)
+Defined in: [src/runtime/steering-drivers.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L93)
 
 Hard shot cap. The loop stops refining once history reaches this length.
 
@@ -6793,7 +7214,7 @@ Hard shot cap. The loop stops refining once history reaches this length.
 
 > `optional` **name?**: `string`
 
-Defined in: [runtime/steering-drivers.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L95)
+Defined in: [src/runtime/steering-drivers.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L95)
 
 Trace-event identifier. Default `'naive'`.
 
@@ -6801,7 +7222,7 @@ Trace-event identifier. Default `'naive'`.
 
 ### DumbDriverOptions
 
-Defined in: [runtime/steering-drivers.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L136)
+Defined in: [src/runtime/steering-drivers.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L136)
 
 Options for [dumbDriver](#dumbdriver).
 
@@ -6817,7 +7238,7 @@ Options for [dumbDriver](#dumbdriver).
 
 > **onPass**: `string`
 
-Defined in: [runtime/steering-drivers.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L143)
+Defined in: [src/runtime/steering-drivers.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L143)
 
 Continuation issued when the prior shot's verdict is valid. In a
 stop-on-pass loop this is rarely reached (a valid shot ends the loop), but
@@ -6828,7 +7249,7 @@ confirmation/keep-going string.
 
 > **onFail**: `string`
 
-Defined in: [runtime/steering-drivers.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L145)
+Defined in: [src/runtime/steering-drivers.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L145)
 
 Continuation issued when the prior shot's verdict is NOT valid.
 
@@ -6836,7 +7257,7 @@ Continuation issued when the prior shot's verdict is NOT valid.
 
 > **applyContinuation**: [`ApplyContinuation`](#applycontinuation)\<`Task`\>
 
-Defined in: [runtime/steering-drivers.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L147)
+Defined in: [src/runtime/steering-drivers.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L147)
 
 Folds the chosen continuation into the caller's Task shape.
 
@@ -6844,7 +7265,7 @@ Folds the chosen continuation into the caller's Task shape.
 
 > **maxIterations**: `number`
 
-Defined in: [runtime/steering-drivers.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L149)
+Defined in: [src/runtime/steering-drivers.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L149)
 
 Hard shot cap. The loop stops refining once history reaches this length.
 
@@ -6852,7 +7273,7 @@ Hard shot cap. The loop stops refining once history reaches this length.
 
 > `optional` **name?**: `string`
 
-Defined in: [runtime/steering-drivers.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L151)
+Defined in: [src/runtime/steering-drivers.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L151)
 
 Trace-event identifier. Default `'dumb'`.
 
@@ -6860,7 +7281,7 @@ Trace-event identifier. Default `'dumb'`.
 
 ### AuthorStrategyOptions
 
-Defined in: [runtime/strategy-author.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L77)
+Defined in: [src/runtime/strategy-author.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L78)
 
 #### Properties
 
@@ -6868,7 +7289,7 @@ Defined in: [runtime/strategy-author.ts:77](https://github.com/tangle-network/ag
 
 > **chat**: `ChatClient`
 
-Defined in: [runtime/strategy-author.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L79)
+Defined in: [src/runtime/strategy-author.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L80)
 
 The model-call seam (agent-eval `createChatClient`).
 
@@ -6876,13 +7297,13 @@ The model-call seam (agent-eval `createChatClient`).
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/strategy-author.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L80)
+Defined in: [src/runtime/strategy-author.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L81)
 
 ##### fallbackModel?
 
 > `optional` **fallbackModel?**: `string`
 
-Defined in: [runtime/strategy-author.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L85)
+Defined in: [src/runtime/strategy-author.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L86)
 
 A NAMED fallback author tried once when the primary call fails or returns no code
  block (thinking models time out at the edge on long authoring prompts, or return
@@ -6893,7 +7314,7 @@ A NAMED fallback author tried once when the primary call fails or returns no cod
 
 > `optional` **contract?**: `string`
 
-Defined in: [runtime/strategy-author.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L89)
+Defined in: [src/runtime/strategy-author.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L90)
 
 The contract text shown to the author. Default `strategyAuthorContract`. The
  meta-optimization coordinate: a GEPA/skill loop can evolve this text and gate each
@@ -6903,7 +7324,7 @@ The contract text shown to the author. Default `strategyAuthorContract`. The
 
 > **environmentName**: `string`
 
-Defined in: [runtime/strategy-author.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L91)
+Defined in: [src/runtime/strategy-author.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L92)
 
 The environment the losses came from (orientation only — never the verifiers).
 
@@ -6911,7 +7332,7 @@ The environment the losses came from (orientation only — never the verifiers).
 
 > **lossesJson**: `string`
 
-Defined in: [runtime/strategy-author.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L93)
+Defined in: [src/runtime/strategy-author.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L94)
 
 The per-task losses table (e.g. JSON.stringify(report.perTask)) — the gradient.
 
@@ -6919,7 +7340,7 @@ The per-task losses table (e.g. JSON.stringify(report.perTask)) — the gradient
 
 > **budget**: `number`
 
-Defined in: [runtime/strategy-author.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L95)
+Defined in: [src/runtime/strategy-author.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L96)
 
 The budget the strategy must respect (shots/width).
 
@@ -6927,7 +7348,7 @@ The budget the strategy must respect (shots/width).
 
 > **outDir**: `string`
 
-Defined in: [runtime/strategy-author.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L97)
+Defined in: [src/runtime/strategy-author.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L98)
 
 Where the authored module file is written (created if missing).
 
@@ -6935,13 +7356,13 @@ Where the authored module file is written (created if missing).
 
 > `optional` **temperature?**: `number`
 
-Defined in: [runtime/strategy-author.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L98)
+Defined in: [src/runtime/strategy-author.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L99)
 
 ##### maxTokens?
 
 > `optional` **maxTokens?**: `number`
 
-Defined in: [runtime/strategy-author.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L100)
+Defined in: [src/runtime/strategy-author.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L101)
 
 Completion cap — required by thinking-model authors that stream reasoning first.
 
@@ -6949,13 +7370,13 @@ Completion cap — required by thinking-model authors that stream reasoning firs
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/strategy-author.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L101)
+Defined in: [src/runtime/strategy-author.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L102)
 
 ***
 
 ### AuthoredStrategy
 
-Defined in: [runtime/strategy-author.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L137)
+Defined in: [src/runtime/strategy-author.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L138)
 
 #### Properties
 
@@ -6963,25 +7384,25 @@ Defined in: [runtime/strategy-author.ts:137](https://github.com/tangle-network/a
 
 > **strategy**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy-author.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L138)
+Defined in: [src/runtime/strategy-author.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L139)
 
 ##### file
 
 > **file**: `string`
 
-Defined in: [runtime/strategy-author.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L139)
+Defined in: [src/runtime/strategy-author.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L140)
 
 ##### code
 
 > **code**: `string`
 
-Defined in: [runtime/strategy-author.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L140)
+Defined in: [src/runtime/strategy-author.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L141)
 
 ***
 
 ### EvolutionAuthor
 
-Defined in: [runtime/strategy-evolution.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L46)
+Defined in: [src/runtime/strategy-evolution.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L46)
 
 #### Properties
 
@@ -6989,7 +7410,7 @@ Defined in: [runtime/strategy-evolution.ts:46](https://github.com/tangle-network
 
 > **chat**: `ChatClient`
 
-Defined in: [runtime/strategy-evolution.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L48)
+Defined in: [src/runtime/strategy-evolution.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L48)
 
 The model-call seam (agent-eval `createChatClient`).
 
@@ -6997,31 +7418,31 @@ The model-call seam (agent-eval `createChatClient`).
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L49)
+Defined in: [src/runtime/strategy-evolution.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L49)
 
 ##### fallbackModel?
 
 > `optional` **fallbackModel?**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L50)
+Defined in: [src/runtime/strategy-evolution.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L50)
 
 ##### temperature?
 
 > `optional` **temperature?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L51)
+Defined in: [src/runtime/strategy-evolution.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L51)
 
 ##### maxTokens?
 
 > `optional` **maxTokens?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L52)
+Defined in: [src/runtime/strategy-evolution.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L52)
 
 ***
 
 ### StrategyEvolutionConfig
 
-Defined in: [runtime/strategy-evolution.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L57)
+Defined in: [src/runtime/strategy-evolution.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L57)
 
 #### Properties
 
@@ -7029,13 +7450,13 @@ Defined in: [runtime/strategy-evolution.ts:57](https://github.com/tangle-network
 
 > **environment**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/strategy-evolution.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L58)
+Defined in: [src/runtime/strategy-evolution.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L58)
 
 ##### tasks
 
 > **tasks**: (`offset`, `n`) => `Promise`\<[`AgenticTask`](#agentictask)[]\>
 
-Defined in: [runtime/strategy-evolution.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L62)
+Defined in: [src/runtime/strategy-evolution.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L62)
 
 Task supply by DISJOINT slice: `(offset, n)` must return n tasks unique to that
  offset range. Train draws [0, trainN); the holdout draws [trainN + holdoutOffset,
@@ -7059,19 +7480,19 @@ Task supply by DISJOINT slice: `(offset, n)` must return n tasks unique to that
 
 > **trainN**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L63)
+Defined in: [src/runtime/strategy-evolution.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L63)
 
 ##### holdoutN
 
 > **holdoutN**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L64)
+Defined in: [src/runtime/strategy-evolution.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L64)
 
 ##### holdoutOffset?
 
 > `optional` **holdoutOffset?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L66)
+Defined in: [src/runtime/strategy-evolution.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L66)
 
 Extra offset past the train slice for the holdout draw (rotate across runs).
 
@@ -7079,19 +7500,19 @@ Extra offset past the train slice for the holdout draw (rotate across runs).
 
 > **worker**: [`AgenticOptions`](#agenticoptions)
 
-Defined in: [runtime/strategy-evolution.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L67)
+Defined in: [src/runtime/strategy-evolution.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L67)
 
 ##### author
 
 > **author**: [`EvolutionAuthor`](#evolutionauthor)
 
-Defined in: [runtime/strategy-evolution.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L68)
+Defined in: [src/runtime/strategy-evolution.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L68)
 
 ##### budget?
 
 > `optional` **budget?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L70)
+Defined in: [src/runtime/strategy-evolution.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L70)
 
 Rollouts (sample) / shots (refine) per strategy per task. Default 3.
 
@@ -7099,13 +7520,13 @@ Rollouts (sample) / shots (refine) per strategy per task. Default 3.
 
 > `optional` **concurrency?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L71)
+Defined in: [src/runtime/strategy-evolution.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L71)
 
 ##### generations?
 
 > `optional` **generations?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L73)
+Defined in: [src/runtime/strategy-evolution.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L73)
 
 Author→tournament rounds after gen0. Default 2.
 
@@ -7113,7 +7534,7 @@ Author→tournament rounds after gen0. Default 2.
 
 > `optional` **populationSize?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L75)
+Defined in: [src/runtime/strategy-evolution.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L75)
 
 Authored candidates per generation. Default 2.
 
@@ -7121,7 +7542,7 @@ Authored candidates per generation. Default 2.
 
 > `optional` **baselines?**: [`Strategy`](#strategy-3)[]
 
-Defined in: [runtime/strategy-evolution.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L77)
+Defined in: [src/runtime/strategy-evolution.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L77)
 
 The gen0 field. Default [sample, refine, sampleThenRefine].
 
@@ -7129,7 +7550,7 @@ The gen0 field. Default [sample, refine, sampleThenRefine].
 
 > `optional` **objective?**: `"score"` \| `"cost"`
 
-Defined in: [runtime/strategy-evolution.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L83)
+Defined in: [src/runtime/strategy-evolution.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L83)
 
 What "better" means for PROMOTION. 'score' (default): the candidate must beat the
  incumbent's score (superiority gate). 'cost': the candidate must prove score
@@ -7141,7 +7562,7 @@ What "better" means for PROMOTION. 'score' (default): the candidate must beat th
 
 > `optional` **scoreTolerance?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L85)
+Defined in: [src/runtime/strategy-evolution.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L85)
 
 Cost objective: the score CI lower bound must clear −scoreTolerance. Default 0.05.
 
@@ -7149,7 +7570,7 @@ Cost objective: the score CI lower bound must clear −scoreTolerance. Default 0
 
 > `optional` **champion?**: [`ChampionPolicy`](#championpolicy)
 
-Defined in: [runtime/strategy-evolution.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L87)
+Defined in: [src/runtime/strategy-evolution.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L87)
 
 Search-side champion selection. Default 'costAware'.
 
@@ -7157,7 +7578,7 @@ Search-side champion selection. Default 'costAware'.
 
 > `optional` **championEpsilon?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L89)
+Defined in: [src/runtime/strategy-evolution.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L89)
 
 Score band treated as a tie under 'costAware'. Default 0.01.
 
@@ -7165,7 +7586,7 @@ Score band treated as a tie under 'costAware'. Default 0.01.
 
 > **outDir**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L91)
+Defined in: [src/runtime/strategy-evolution.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L91)
 
 Where authored modules are written.
 
@@ -7173,7 +7594,7 @@ Where authored modules are written.
 
 > `optional` **minPairedTasks?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L93)
+Defined in: [src/runtime/strategy-evolution.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L93)
 
 Promotion-gate evidence floor (paired holdout tasks).
 
@@ -7181,7 +7602,7 @@ Promotion-gate evidence floor (paired holdout tasks).
 
 > `optional` **band?**: `object`
 
-Defined in: [runtime/strategy-evolution.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L102)
+Defined in: [src/runtime/strategy-evolution.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L102)
 
 BAND-AWARE scoring — concentrate the measurement where lift is possible.
  Holdout: draw `holdoutPoolN` candidate tasks and run `baselines[0]` once at the run
@@ -7207,7 +7628,7 @@ Keep holdout tasks where the reference scores ≤ this. Default 0.99 — drop on
 
 > `optional` **lossesDetail?**: `"exact"` \| `"binary"`
 
-Defined in: [runtime/strategy-evolution.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L111)
+Defined in: [src/runtime/strategy-evolution.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L111)
 
 What the author learns from a tournament. 'exact' (default) = scores + progressions
  per task; 'binary' = pass/fail only — the leakage-bounded channel (one bit per cell
@@ -7217,7 +7638,7 @@ What the author learns from a tournament. 'exact' (default) = scores + progressi
 
 > `optional` **reproducerCheck?**: `object`
 
-Defined in: [runtime/strategy-evolution.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L118)
+Defined in: [src/runtime/strategy-evolution.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L118)
 
 Reproducer certification (arXiv:2606.11045): when the final champion is AUTHORED,
  compress it to a short natural-language summary, have a fresh author re-implement
@@ -7243,7 +7664,7 @@ Reproduction counts as faithful when reproducedScore ≥ championScore − toler
 
 > `optional` **checkpoint?**: `object`
 
-Defined in: [runtime/strategy-evolution.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L128)
+Defined in: [src/runtime/strategy-evolution.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L128)
 
 Endurance: write the run state after every completed phase; with `resume`, a
  restart skips completed phases (authored modules re-imported from their files).
@@ -7261,7 +7682,7 @@ Endurance: write the run state after every completed phase; with `resume`, a
 
 > `optional` **onPhase?**: (`phase`) => `Promise`\<`void`\>
 
-Defined in: [runtime/strategy-evolution.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L135)
+Defined in: [src/runtime/strategy-evolution.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L135)
 
 Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reproduce).
  The seam for environment recycling — no artifacts span phases, so a runner may
@@ -7281,7 +7702,7 @@ Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reprodu
 
 > `optional` **onTask?**: (`phase`, `row`, `done`, `total`) => `void`
 
-Defined in: [runtime/strategy-evolution.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L136)
+Defined in: [src/runtime/strategy-evolution.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L136)
 
 ###### Parameters
 
@@ -7309,13 +7730,13 @@ Defined in: [runtime/strategy-evolution.ts:136](https://github.com/tangle-networ
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/strategy-evolution.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L137)
+Defined in: [src/runtime/strategy-evolution.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L137)
 
 ***
 
 ### ChampionPick
 
-Defined in: [runtime/strategy-evolution.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L152)
+Defined in: [src/runtime/strategy-evolution.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L152)
 
 #### Properties
 
@@ -7323,25 +7744,25 @@ Defined in: [runtime/strategy-evolution.ts:152](https://github.com/tangle-networ
 
 > **name**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L153)
+Defined in: [src/runtime/strategy-evolution.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L153)
 
 ##### score
 
 > **score**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L154)
+Defined in: [src/runtime/strategy-evolution.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L154)
 
 ##### usd
 
 > **usd**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L155)
+Defined in: [src/runtime/strategy-evolution.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L155)
 
 ***
 
 ### EvolutionCandidate
 
-Defined in: [runtime/strategy-evolution.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L158)
+Defined in: [src/runtime/strategy-evolution.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L158)
 
 #### Properties
 
@@ -7349,31 +7770,31 @@ Defined in: [runtime/strategy-evolution.ts:158](https://github.com/tangle-networ
 
 > **name**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L159)
+Defined in: [src/runtime/strategy-evolution.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L159)
 
 ##### file?
 
 > `optional` **file?**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L160)
+Defined in: [src/runtime/strategy-evolution.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L160)
 
 ##### gzipBits?
 
 > `optional` **gzipBits?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L161)
+Defined in: [src/runtime/strategy-evolution.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L161)
 
 ##### codeChars?
 
 > `optional` **codeChars?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L162)
+Defined in: [src/runtime/strategy-evolution.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L162)
 
 ##### error?
 
 > `optional` **error?**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L164)
+Defined in: [src/runtime/strategy-evolution.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L164)
 
 Present when this author attempt failed (recorded, never silent).
 
@@ -7381,7 +7802,7 @@ Present when this author attempt failed (recorded, never silent).
 
 ### EvolutionGeneration
 
-Defined in: [runtime/strategy-evolution.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L167)
+Defined in: [src/runtime/strategy-evolution.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L167)
 
 #### Properties
 
@@ -7389,31 +7810,31 @@ Defined in: [runtime/strategy-evolution.ts:167](https://github.com/tangle-networ
 
 > **generation**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L168)
+Defined in: [src/runtime/strategy-evolution.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L168)
 
 ##### candidates
 
 > **candidates**: [`EvolutionCandidate`](#evolutioncandidate)[]
 
-Defined in: [runtime/strategy-evolution.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L169)
+Defined in: [src/runtime/strategy-evolution.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L169)
 
 ##### report
 
 > **report**: [`BenchmarkReport`](#benchmarkreport)
 
-Defined in: [runtime/strategy-evolution.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L170)
+Defined in: [src/runtime/strategy-evolution.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L170)
 
 ##### champion
 
 > **champion**: [`ChampionPick`](#championpick)
 
-Defined in: [runtime/strategy-evolution.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L171)
+Defined in: [src/runtime/strategy-evolution.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L171)
 
 ***
 
 ### EvolutionArchiveNode
 
-Defined in: [runtime/strategy-evolution.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L174)
+Defined in: [src/runtime/strategy-evolution.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L174)
 
 #### Properties
 
@@ -7421,25 +7842,25 @@ Defined in: [runtime/strategy-evolution.ts:174](https://github.com/tangle-networ
 
 > **name**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L175)
+Defined in: [src/runtime/strategy-evolution.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L175)
 
 ##### source
 
 > **source**: `"baseline"` \| `"authored"`
 
-Defined in: [runtime/strategy-evolution.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L176)
+Defined in: [src/runtime/strategy-evolution.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L176)
 
 ##### generation
 
 > **generation**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L177)
+Defined in: [src/runtime/strategy-evolution.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L177)
 
 ##### parent?
 
 > `optional` **parent?**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L179)
+Defined in: [src/runtime/strategy-evolution.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L179)
 
 The champion whose tournament losses this candidate was authored from.
 
@@ -7447,19 +7868,19 @@ The champion whose tournament losses this candidate was authored from.
 
 > `optional` **gzipBits?**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L180)
+Defined in: [src/runtime/strategy-evolution.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L180)
 
 ##### file?
 
 > `optional` **file?**: `string`
 
-Defined in: [runtime/strategy-evolution.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L181)
+Defined in: [src/runtime/strategy-evolution.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L181)
 
 ##### score
 
 > **score**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L184)
+Defined in: [src/runtime/strategy-evolution.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L184)
 
 Latest measured tournament result — 0 until the node's first tournament settles
  (an authored node is created before its generation's benchmark runs).
@@ -7468,13 +7889,13 @@ Latest measured tournament result — 0 until the node's first tournament settle
 
 > **usd**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L185)
+Defined in: [src/runtime/strategy-evolution.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L185)
 
 ***
 
 ### EvolutionBandInfo
 
-Defined in: [runtime/strategy-evolution.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L204)
+Defined in: [src/runtime/strategy-evolution.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L204)
 
 #### Properties
 
@@ -7482,7 +7903,7 @@ Defined in: [runtime/strategy-evolution.ts:204](https://github.com/tangle-networ
 
 > **screened**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L206)
+Defined in: [src/runtime/strategy-evolution.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L206)
 
 Tasks screened by the reference on the holdout pool.
 
@@ -7490,7 +7911,7 @@ Tasks screened by the reference on the holdout pool.
 
 > **inBand**: `number`
 
-Defined in: [runtime/strategy-evolution.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L208)
+Defined in: [src/runtime/strategy-evolution.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L208)
 
 Tasks kept (reference score ≤ maxRefScore) before truncating to holdoutN.
 
@@ -7498,7 +7919,7 @@ Tasks kept (reference score ≤ maxRefScore) before truncating to holdoutN.
 
 > **refScores**: `object`[]
 
-Defined in: [runtime/strategy-evolution.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L210)
+Defined in: [src/runtime/strategy-evolution.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L210)
 
 Reference scores per screened task (the screening record).
 
@@ -7514,7 +7935,7 @@ Reference scores per screened task (the screening record).
 
 ### EvolutionReport
 
-Defined in: [runtime/strategy-evolution.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L213)
+Defined in: [src/runtime/strategy-evolution.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L213)
 
 #### Properties
 
@@ -7522,49 +7943,49 @@ Defined in: [runtime/strategy-evolution.ts:213](https://github.com/tangle-networ
 
 > **gen0**: [`BenchmarkReport`](#benchmarkreport)
 
-Defined in: [runtime/strategy-evolution.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L214)
+Defined in: [src/runtime/strategy-evolution.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L214)
 
 ##### gen0Champion
 
 > **gen0Champion**: [`ChampionPick`](#championpick)
 
-Defined in: [runtime/strategy-evolution.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L215)
+Defined in: [src/runtime/strategy-evolution.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L215)
 
 ##### generations
 
 > **generations**: [`EvolutionGeneration`](#evolutiongeneration)[]
 
-Defined in: [runtime/strategy-evolution.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L216)
+Defined in: [src/runtime/strategy-evolution.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L216)
 
 ##### archive
 
 > **archive**: [`EvolutionArchiveNode`](#evolutionarchivenode)[]
 
-Defined in: [runtime/strategy-evolution.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L217)
+Defined in: [src/runtime/strategy-evolution.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L217)
 
 ##### finalChampion
 
 > **finalChampion**: [`ChampionPick`](#championpick)
 
-Defined in: [runtime/strategy-evolution.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L218)
+Defined in: [src/runtime/strategy-evolution.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L218)
 
 ##### holdout
 
 > **holdout**: [`BenchmarkReport`](#benchmarkreport)
 
-Defined in: [runtime/strategy-evolution.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L219)
+Defined in: [src/runtime/strategy-evolution.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L219)
 
 ##### verdict
 
 > **verdict**: [`PromotionVerdict`](#promotionverdict)
 
-Defined in: [runtime/strategy-evolution.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L220)
+Defined in: [src/runtime/strategy-evolution.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L220)
 
 ##### band?
 
 > `optional` **band?**: [`EvolutionBandInfo`](#evolutionbandinfo)
 
-Defined in: [runtime/strategy-evolution.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L223)
+Defined in: [src/runtime/strategy-evolution.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L223)
 
 Present when band screening ran — the verdict's estimand is then "paired lift on
  headroom tasks" (band membership fixed by the reference screen, pre-registered).
@@ -7573,7 +7994,7 @@ Present when band screening ran — the verdict's estimand is then "paired lift 
 
 > `optional` **reproduction?**: `ReproductionCheck`
 
-Defined in: [runtime/strategy-evolution.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L225)
+Defined in: [src/runtime/strategy-evolution.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L225)
 
 Present when reproducerCheck ran (final champion was authored).
 
@@ -7581,7 +8002,7 @@ Present when reproducerCheck ran (final champion was authored).
 
 > **trajectory**: `object`[]
 
-Defined in: [runtime/strategy-evolution.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L230)
+Defined in: [src/runtime/strategy-evolution.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L230)
 
 SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
  re-measurement, so cross-generation deltas mix true drift with run-to-run variance
@@ -7608,7 +8029,7 @@ SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
 
 ### AgenticTask
 
-Defined in: [runtime/strategy.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L48)
+Defined in: [src/runtime/strategy.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L48)
 
 #### Properties
 
@@ -7616,25 +8037,25 @@ Defined in: [runtime/strategy.ts:48](https://github.com/tangle-network/agent-run
 
 > `readonly` **id**: `string`
 
-Defined in: [runtime/strategy.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L49)
+Defined in: [src/runtime/strategy.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L49)
 
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string`
 
-Defined in: [runtime/strategy.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L50)
+Defined in: [src/runtime/strategy.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L50)
 
 ##### userPrompt
 
 > `readonly` **userPrompt**: `string`
 
-Defined in: [runtime/strategy.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L51)
+Defined in: [src/runtime/strategy.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L51)
 
 ##### meta?
 
 > `readonly` `optional` **meta?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [runtime/strategy.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L53)
+Defined in: [src/runtime/strategy.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L53)
 
 Opaque domain payload the surface reads (EOPS: servers/verifiers/tools). Drivers never read it.
 
@@ -7642,7 +8063,7 @@ Opaque domain payload the surface reads (EOPS: servers/verifiers/tools). Drivers
 
 ### ArtifactHandle
 
-Defined in: [runtime/strategy.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L56)
+Defined in: [src/runtime/strategy.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L56)
 
 #### Properties
 
@@ -7650,19 +8071,19 @@ Defined in: [runtime/strategy.ts:56](https://github.com/tangle-network/agent-run
 
 > `readonly` **id**: `string`
 
-Defined in: [runtime/strategy.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L57)
+Defined in: [src/runtime/strategy.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L57)
 
 ##### surface
 
 > `readonly` **surface**: `string`
 
-Defined in: [runtime/strategy.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L58)
+Defined in: [src/runtime/strategy.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L58)
 
 ##### ctx?
 
 > `readonly` `optional` **ctx?**: `unknown`
 
-Defined in: [runtime/strategy.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L60)
+Defined in: [src/runtime/strategy.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L60)
 
 Opaque per-artifact context the surface stashes (EOPS: the seeded gym server + db id).
 
@@ -7670,7 +8091,7 @@ Opaque per-artifact context the surface stashes (EOPS: the seeded gym server + d
 
 ### AgenticTool
 
-Defined in: [runtime/strategy.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L63)
+Defined in: [src/runtime/strategy.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L63)
 
 #### Properties
 
@@ -7678,13 +8099,13 @@ Defined in: [runtime/strategy.ts:63](https://github.com/tangle-network/agent-run
 
 > `readonly` **type**: `"function"`
 
-Defined in: [runtime/strategy.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L64)
+Defined in: [src/runtime/strategy.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L64)
 
 ##### function
 
 > `readonly` **function**: `object`
 
-Defined in: [runtime/strategy.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L65)
+Defined in: [src/runtime/strategy.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L65)
 
 ###### name
 
@@ -7702,7 +8123,7 @@ Defined in: [runtime/strategy.ts:65](https://github.com/tangle-network/agent-run
 
 ### SurfaceScore
 
-Defined in: [runtime/strategy.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L68)
+Defined in: [src/runtime/strategy.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L68)
 
 #### Properties
 
@@ -7710,19 +8131,19 @@ Defined in: [runtime/strategy.ts:68](https://github.com/tangle-network/agent-run
 
 > **passes**: `number`
 
-Defined in: [runtime/strategy.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L69)
+Defined in: [src/runtime/strategy.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L69)
 
 ##### total
 
 > **total**: `number`
 
-Defined in: [runtime/strategy.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L70)
+Defined in: [src/runtime/strategy.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L70)
 
 ##### errored
 
 > **errored**: `number`
 
-Defined in: [runtime/strategy.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L72)
+Defined in: [src/runtime/strategy.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L72)
 
 Checks excluded as malformed (data defect, not the agent). `total === 0` ⇒ unscoreable.
 
@@ -7730,7 +8151,7 @@ Checks excluded as malformed (data defect, not the agent). `total === 0` ⇒ uns
 
 ### AgenticSurface
 
-Defined in: [runtime/strategy.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L76)
+Defined in: [src/runtime/strategy.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L76)
 
 A stateful, checkable environment an agent operates over with tools. Open behind one interface.
 
@@ -7740,7 +8161,7 @@ A stateful, checkable environment an agent operates over with tools. Open behind
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/strategy.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L77)
+Defined in: [src/runtime/strategy.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L77)
 
 #### Methods
 
@@ -7748,7 +8169,7 @@ Defined in: [runtime/strategy.ts:77](https://github.com/tangle-network/agent-run
 
 > **open**(`task`): `Promise`\<[`ArtifactHandle`](#artifacthandle)\>
 
-Defined in: [runtime/strategy.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L78)
+Defined in: [src/runtime/strategy.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L78)
 
 ###### Parameters
 
@@ -7764,7 +8185,7 @@ Defined in: [runtime/strategy.ts:78](https://github.com/tangle-network/agent-run
 
 > **tools**(`task`, `handle`): `Promise`\<[`AgenticTool`](#agentictool)[]\>
 
-Defined in: [runtime/strategy.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L79)
+Defined in: [src/runtime/strategy.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L79)
 
 ###### Parameters
 
@@ -7784,7 +8205,7 @@ Defined in: [runtime/strategy.ts:79](https://github.com/tangle-network/agent-run
 
 > **call**(`handle`, `name`, `args`): `Promise`\<`string`\>
 
-Defined in: [runtime/strategy.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L80)
+Defined in: [src/runtime/strategy.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L80)
 
 ###### Parameters
 
@@ -7808,7 +8229,7 @@ Defined in: [runtime/strategy.ts:80](https://github.com/tangle-network/agent-run
 
 > **score**(`task`, `handle`): `Promise`\<[`SurfaceScore`](#surfacescore)\>
 
-Defined in: [runtime/strategy.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L81)
+Defined in: [src/runtime/strategy.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L81)
 
 ###### Parameters
 
@@ -7828,7 +8249,7 @@ Defined in: [runtime/strategy.ts:81](https://github.com/tangle-network/agent-run
 
 > **close**(`handle`): `Promise`\<`void`\>
 
-Defined in: [runtime/strategy.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L82)
+Defined in: [src/runtime/strategy.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L82)
 
 ###### Parameters
 
@@ -7844,7 +8265,7 @@ Defined in: [runtime/strategy.ts:82](https://github.com/tangle-network/agent-run
 
 ### AgenticOptions
 
-Defined in: [runtime/strategy.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L85)
+Defined in: [src/runtime/strategy.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L85)
 
 #### Extended by
 
@@ -7856,25 +8277,25 @@ Defined in: [runtime/strategy.ts:85](https://github.com/tangle-network/agent-run
 
 > **routerBaseUrl**: `string`
 
-Defined in: [runtime/strategy.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L86)
+Defined in: [src/runtime/strategy.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L86)
 
 ##### routerKey
 
 > **routerKey**: `string`
 
-Defined in: [runtime/strategy.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L87)
+Defined in: [src/runtime/strategy.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L87)
 
 ##### model
 
 > **model**: `string`
 
-Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L88)
+Defined in: [src/runtime/strategy.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L88)
 
 ##### complete?
 
 > `optional` **complete?**: (`body`) => `Promise`\<`unknown`\>
 
-Defined in: [runtime/strategy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L94)
+Defined in: [src/runtime/strategy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L94)
 
 Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs of an
  offline run use it instead of `fetch`-ing the router — the worker's tool loop (threaded into
@@ -7896,13 +8317,13 @@ Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs
 
 > `optional` **temperature?**: `number`
 
-Defined in: [runtime/strategy.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L95)
+Defined in: [src/runtime/strategy.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L95)
 
 ##### maxTokens?
 
 > `optional` **maxTokens?**: `number`
 
-Defined in: [runtime/strategy.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L98)
+Defined in: [src/runtime/strategy.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L98)
 
 Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
  budgets on reasoning and return empty content without it). Omitted ⇒ provider default.
@@ -7911,7 +8332,7 @@ Completion cap per worker turn — REQUIRED for thinking models (they burn unbou
 
 > `optional` **innerTurns?**: `number`
 
-Defined in: [runtime/strategy.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L100)
+Defined in: [src/runtime/strategy.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L100)
 
 Turns the agent may take within ONE shot before the driver intervenes.
 
@@ -7919,7 +8340,7 @@ Turns the agent may take within ONE shot before the driver intervenes.
 
 > `optional` **analystInstruction?**: `string`
 
-Defined in: [runtime/strategy.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L103)
+Defined in: [src/runtime/strategy.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L103)
 
 The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
  prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default.
@@ -7928,7 +8349,7 @@ The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
 
 > `optional` **analystModel?**: `string`
 
-Defined in: [runtime/strategy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L106)
+Defined in: [src/runtime/strategy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L106)
 
 The critic's model — lets the analyst be a stronger (or cheaper) model than the
  worker. Omitted ⇒ the worker's `model`.
@@ -7937,7 +8358,7 @@ The critic's model — lets the analyst be a stronger (or cheaper) model than th
 
 > `optional` **corpus?**: [`Corpus`](#corpus-2)
 
-Defined in: [runtime/strategy.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L110)
+Defined in: [src/runtime/strategy.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L110)
 
 Across-run learning: when set, the analyst's observe() pass appends trace-derived
  facts here (the flywheel write side). Read-back is opt-in via `corpusReadback`
@@ -7947,7 +8368,7 @@ Across-run learning: when set, the analyst's observe() pass appends trace-derive
 
 > `optional` **corpusTags?**: `string`[]
 
-Defined in: [runtime/strategy.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L112)
+Defined in: [src/runtime/strategy.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L112)
 
 Tags written onto learned facts (and used by the caller's priming query).
 
@@ -7955,7 +8376,7 @@ Tags written onto learned facts (and used by the caller's priming query).
 
 > `optional` **corpusReadback?**: [`CorpusReadbackOptions`](#corpusreadbackoptions)
 
-Defined in: [runtime/strategy.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L115)
+Defined in: [src/runtime/strategy.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L115)
 
 In-context learning: when set, query `corpus` before each depth shot and inject
  the top trace-derived facts as guidance for the active run. No corpus means no read-back.
@@ -7964,7 +8385,7 @@ In-context learning: when set, query `corpus` before each depth shot and inject
 
 ### CorpusReadbackOptions
 
-Defined in: [runtime/strategy.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L118)
+Defined in: [src/runtime/strategy.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L118)
 
 #### Properties
 
@@ -7972,7 +8393,7 @@ Defined in: [runtime/strategy.ts:118](https://github.com/tangle-network/agent-ru
 
 > `optional` **minConfidence?**: `number`
 
-Defined in: [runtime/strategy.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L120)
+Defined in: [src/runtime/strategy.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L120)
 
 Minimum confidence for a fact to be injected. Default 0.7.
 
@@ -7980,7 +8401,7 @@ Minimum confidence for a fact to be injected. Default 0.7.
 
 > `optional` **tags?**: readonly `string`[]
 
-Defined in: [runtime/strategy.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L122)
+Defined in: [src/runtime/strategy.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L122)
 
 Extra tags a fact must carry, in addition to `corpusTags`.
 
@@ -7988,7 +8409,7 @@ Extra tags a fact must carry, in addition to `corpusTags`.
 
 > `optional` **maxFacts?**: `number`
 
-Defined in: [runtime/strategy.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L124)
+Defined in: [src/runtime/strategy.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L124)
 
 Max facts injected per shot. Default 3.
 
@@ -7996,7 +8417,7 @@ Max facts injected per shot. Default 3.
 
 > `optional` **includeOperatorFacts?**: `boolean`
 
-Defined in: [runtime/strategy.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L126)
+Defined in: [src/runtime/strategy.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L126)
 
 Default false: only facts tagged `audience:agent` are injected into the worker.
 
@@ -8004,7 +8425,7 @@ Default false: only facts tagged `audience:agent` are injected into the worker.
 
 ### AgenticRunResult
 
-Defined in: [runtime/strategy.ts:608](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L608)
+Defined in: [src/runtime/strategy.ts:608](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L608)
 
 #### Properties
 
@@ -8012,7 +8433,7 @@ Defined in: [runtime/strategy.ts:608](https://github.com/tangle-network/agent-ru
 
 > **mode**: `string`
 
-Defined in: [runtime/strategy.ts:610](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L610)
+Defined in: [src/runtime/strategy.ts:610](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L610)
 
 The strategy name (built-in 'depth'/'breadth' or a custom strategy's name).
 
@@ -8020,25 +8441,25 @@ The strategy name (built-in 'depth'/'breadth' or a custom strategy's name).
 
 > **score**: `number`
 
-Defined in: [runtime/strategy.ts:611](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L611)
+Defined in: [src/runtime/strategy.ts:611](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L611)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/strategy.ts:612](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L612)
+Defined in: [src/runtime/strategy.ts:612](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L612)
 
 ##### completions
 
 > **completions**: `number`
 
-Defined in: [runtime/strategy.ts:613](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L613)
+Defined in: [src/runtime/strategy.ts:613](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L613)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [runtime/strategy.ts:615](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L615)
+Defined in: [src/runtime/strategy.ts:615](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L615)
 
 DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-so-far per rollout.
 
@@ -8046,13 +8467,13 @@ DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-s
 
 > **shots**: `number`
 
-Defined in: [runtime/strategy.ts:616](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L616)
+Defined in: [src/runtime/strategy.ts:616](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L616)
 
 ##### usd
 
 > **usd**: `number`
 
-Defined in: [runtime/strategy.ts:619](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L619)
+Defined in: [src/runtime/strategy.ts:619](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L619)
 
 The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: real
  router tokens, priced usd (0 when the model is unpriced — never fabricated), wall ms.
@@ -8061,13 +8482,13 @@ The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: r
 
 > **ms**: `number`
 
-Defined in: [runtime/strategy.ts:620](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L620)
+Defined in: [src/runtime/strategy.ts:620](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L620)
 
 ##### tokens
 
 > **tokens**: `object`
 
-Defined in: [runtime/strategy.ts:621](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L621)
+Defined in: [src/runtime/strategy.ts:621](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L621)
 
 ###### input
 
@@ -8081,7 +8502,7 @@ Defined in: [runtime/strategy.ts:621](https://github.com/tangle-network/agent-ru
 
 ### Strategy
 
-Defined in: [runtime/strategy.ts:758](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L758)
+Defined in: [src/runtime/strategy.ts:758](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L758)
 
 A Strategy is HOW you spend the compute budget to beat the Environment's check — it
 builds the driver `Agent` the Supervisor runs. This is the OPEN extension point: a dev
@@ -8098,7 +8519,7 @@ the reference implementations to copy:
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/strategy.ts:759](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L759)
+Defined in: [src/runtime/strategy.ts:759](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L759)
 
 #### Methods
 
@@ -8106,7 +8527,7 @@ Defined in: [runtime/strategy.ts:759](https://github.com/tangle-network/agent-ru
 
 > **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:760](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L760)
+Defined in: [src/runtime/strategy.ts:760](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L760)
 
 ###### Parameters
 
@@ -8134,7 +8555,7 @@ Defined in: [runtime/strategy.ts:760](https://github.com/tangle-network/agent-ru
 
 ### ShotPersona
 
-Defined in: [runtime/strategy.ts:790](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L790)
+Defined in: [src/runtime/strategy.ts:790](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L790)
 
 A role for one shot — multi-agent loops (researcher + engineer, a panel of k
  researchers) give each shot its own system prompt and optionally its own model.
@@ -8145,7 +8566,7 @@ A role for one shot — multi-agent loops (researcher + engineer, a panel of k
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: [runtime/strategy.ts:793](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L793)
+Defined in: [src/runtime/strategy.ts:793](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L793)
 
 Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it is
  injected as a hand-off message (the transcript's earlier roles stay intact).
@@ -8154,7 +8575,7 @@ Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it 
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/strategy.ts:795](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L795)
+Defined in: [src/runtime/strategy.ts:795](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L795)
 
 Per-shot model override (e.g. a stronger model for the engineer shot).
 
@@ -8162,7 +8583,7 @@ Per-shot model override (e.g. a stronger model for the engineer shot).
 
 ### ShotSpec
 
-Defined in: [runtime/strategy.ts:798](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L798)
+Defined in: [src/runtime/strategy.ts:798](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L798)
 
 #### Properties
 
@@ -8170,7 +8591,7 @@ Defined in: [runtime/strategy.ts:798](https://github.com/tangle-network/agent-ru
 
 > `optional` **handle?**: [`ArtifactHandle`](#artifacthandle)
 
-Defined in: [runtime/strategy.ts:800](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L800)
+Defined in: [src/runtime/strategy.ts:800](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L800)
 
 present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh one (sample/restart).
 
@@ -8178,25 +8599,25 @@ present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh on
 
 > `optional` **messages?**: `Msg`[]
 
-Defined in: [runtime/strategy.ts:801](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L801)
+Defined in: [src/runtime/strategy.ts:801](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L801)
 
 ##### steer?
 
 > `optional` **steer?**: `string`
 
-Defined in: [runtime/strategy.ts:802](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L802)
+Defined in: [src/runtime/strategy.ts:802](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L802)
 
 ##### persona?
 
 > `optional` **persona?**: [`ShotPersona`](#shotpersona)
 
-Defined in: [runtime/strategy.ts:803](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L803)
+Defined in: [src/runtime/strategy.ts:803](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L803)
 
 ##### tools?
 
 > `optional` **tools?**: `string`[]
 
-Defined in: [runtime/strategy.ts:806](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L806)
+Defined in: [src/runtime/strategy.ts:806](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L806)
 
 Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot on
  the relevant capabilities. Restriction-only; unknown names throw. Omitted ⇒ all.
@@ -8205,7 +8626,7 @@ Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot 
 
 ### StrategyResult
 
-Defined in: [runtime/strategy.ts:808](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L808)
+Defined in: [src/runtime/strategy.ts:808](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L808)
 
 #### Extended by
 
@@ -8217,37 +8638,37 @@ Defined in: [runtime/strategy.ts:808](https://github.com/tangle-network/agent-ru
 
 > **score**: `number`
 
-Defined in: [runtime/strategy.ts:809](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L809)
+Defined in: [src/runtime/strategy.ts:809](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L809)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/strategy.ts:810](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L810)
+Defined in: [src/runtime/strategy.ts:810](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L810)
 
 ##### completions
 
 > **completions**: `number`
 
-Defined in: [runtime/strategy.ts:811](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L811)
+Defined in: [src/runtime/strategy.ts:811](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L811)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [runtime/strategy.ts:812](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L812)
+Defined in: [src/runtime/strategy.ts:812](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L812)
 
 ##### shots
 
 > **shots**: `number`
 
-Defined in: [runtime/strategy.ts:813](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L813)
+Defined in: [src/runtime/strategy.ts:813](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L813)
 
 ***
 
 ### StrategyCtx
 
-Defined in: [runtime/strategy.ts:825](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L825)
+Defined in: [src/runtime/strategy.ts:825](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L825)
 
 What a strategy body composes with: the artifact lifecycle, the budget, and the two steps.
 
@@ -8257,7 +8678,7 @@ What a strategy body composes with: the artifact lifecycle, the budget, and the 
 
 > `readonly` **surface**: `StrategyArtifacts`
 
-Defined in: [runtime/strategy.ts:827](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L827)
+Defined in: [src/runtime/strategy.ts:827](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L827)
 
 Open/close artifacts the body manages itself (e.g. one persistent handle for depth).
 
@@ -8265,25 +8686,25 @@ Open/close artifacts the body manages itself (e.g. one persistent handle for dep
 
 > `readonly` **task**: [`AgenticTask`](#agentictask)
 
-Defined in: [runtime/strategy.ts:828](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L828)
+Defined in: [src/runtime/strategy.ts:828](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L828)
 
 ##### opts
 
 > `readonly` **opts**: [`AgenticOptions`](#agenticoptions)
 
-Defined in: [runtime/strategy.ts:829](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L829)
+Defined in: [src/runtime/strategy.ts:829](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L829)
 
 ##### budget
 
 > `readonly` **budget**: `number`
 
-Defined in: [runtime/strategy.ts:830](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L830)
+Defined in: [src/runtime/strategy.ts:830](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L830)
 
 ##### scope
 
 > `readonly` **scope**: [`Scope`](#scope-1)\<[`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:831](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L831)
+Defined in: [src/runtime/strategy.ts:831](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L831)
 
 #### Methods
 
@@ -8291,7 +8712,7 @@ Defined in: [runtime/strategy.ts:831](https://github.com/tangle-network/agent-ru
 
 > **shot**(`spec?`): `Promise`\<`ShotResult` \| `null`\>
 
-Defined in: [runtime/strategy.ts:833](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L833)
+Defined in: [src/runtime/strategy.ts:833](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L833)
 
 Run ONE worker shot; its harness-scored result, or null if it went down.
 
@@ -8309,7 +8730,7 @@ Run ONE worker shot; its harness-scored result, or null if it went down.
 
 > **critique**(`messages`): `Promise`\<`string` \| `null`\>
 
-Defined in: [runtime/strategy.ts:835](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L835)
+Defined in: [src/runtime/strategy.ts:835](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L835)
 
 The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down.
 
@@ -8327,7 +8748,7 @@ The firewalled critic reads the trajectory → a steer string, or null on COMPLE
 
 > **consult**(`messages`, `instruction`): `Promise`\<`string` \| `null`\>
 
-Defined in: [runtime/strategy.ts:840](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L840)
+Defined in: [src/runtime/strategy.ts:840](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L840)
 
 The RAW analyst channel: the firewalled critic answers `instruction` over the
  trajectory verbatim — no findings extraction, so verdict-shaped formats
@@ -8352,7 +8773,7 @@ The RAW analyst channel: the firewalled critic answers `instruction` over the
 
 > **listTools**(`handle`): `Promise`\<`object`[]\>
 
-Defined in: [runtime/strategy.ts:844](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L844)
+Defined in: [src/runtime/strategy.ts:844](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L844)
 
 The tools THIS artifact's task actually offers (names + descriptions only — never
  the implementations). Tool sets vary per task on heterogeneous domains; a strategy
@@ -8372,7 +8793,7 @@ The tools THIS artifact's task actually offers (names + descriptions only — ne
 
 ### RunAgenticOptions
 
-Defined in: [runtime/strategy.ts:1073](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1073)
+Defined in: [src/runtime/strategy.ts:1073](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1073)
 
 #### Extends
 
@@ -8384,7 +8805,7 @@ Defined in: [runtime/strategy.ts:1073](https://github.com/tangle-network/agent-r
 
 > **routerBaseUrl**: `string`
 
-Defined in: [runtime/strategy.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L86)
+Defined in: [src/runtime/strategy.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L86)
 
 ###### Inherited from
 
@@ -8394,7 +8815,7 @@ Defined in: [runtime/strategy.ts:86](https://github.com/tangle-network/agent-run
 
 > **routerKey**: `string`
 
-Defined in: [runtime/strategy.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L87)
+Defined in: [src/runtime/strategy.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L87)
 
 ###### Inherited from
 
@@ -8404,7 +8825,7 @@ Defined in: [runtime/strategy.ts:87](https://github.com/tangle-network/agent-run
 
 > **model**: `string`
 
-Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L88)
+Defined in: [src/runtime/strategy.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L88)
 
 ###### Inherited from
 
@@ -8414,7 +8835,7 @@ Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-run
 
 > `optional` **complete?**: (`body`) => `Promise`\<`unknown`\>
 
-Defined in: [runtime/strategy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L94)
+Defined in: [src/runtime/strategy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L94)
 
 Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs of an
  offline run use it instead of `fetch`-ing the router — the worker's tool loop (threaded into
@@ -8440,17 +8861,17 @@ Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs
 
 > `optional` **temperature?**: `number`
 
-Defined in: [runtime/strategy.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L95)
+Defined in: [src/runtime/strategy.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L95)
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`temperature`](#temperature-2)
+[`AgenticOptions`](#agenticoptions).[`temperature`](#temperature-3)
 
 ##### maxTokens?
 
 > `optional` **maxTokens?**: `number`
 
-Defined in: [runtime/strategy.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L98)
+Defined in: [src/runtime/strategy.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L98)
 
 Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
  budgets on reasoning and return empty content without it). Omitted ⇒ provider default.
@@ -8463,7 +8884,7 @@ Completion cap per worker turn — REQUIRED for thinking models (they burn unbou
 
 > `optional` **innerTurns?**: `number`
 
-Defined in: [runtime/strategy.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L100)
+Defined in: [src/runtime/strategy.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L100)
 
 Turns the agent may take within ONE shot before the driver intervenes.
 
@@ -8475,7 +8896,7 @@ Turns the agent may take within ONE shot before the driver intervenes.
 
 > `optional` **analystInstruction?**: `string`
 
-Defined in: [runtime/strategy.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L103)
+Defined in: [src/runtime/strategy.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L103)
 
 The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
  prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default.
@@ -8488,7 +8909,7 @@ The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
 
 > `optional` **analystModel?**: `string`
 
-Defined in: [runtime/strategy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L106)
+Defined in: [src/runtime/strategy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L106)
 
 The critic's model — lets the analyst be a stronger (or cheaper) model than the
  worker. Omitted ⇒ the worker's `model`.
@@ -8501,7 +8922,7 @@ The critic's model — lets the analyst be a stronger (or cheaper) model than th
 
 > `optional` **corpus?**: [`Corpus`](#corpus-2)
 
-Defined in: [runtime/strategy.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L110)
+Defined in: [src/runtime/strategy.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L110)
 
 Across-run learning: when set, the analyst's observe() pass appends trace-derived
  facts here (the flywheel write side). Read-back is opt-in via `corpusReadback`
@@ -8515,7 +8936,7 @@ Across-run learning: when set, the analyst's observe() pass appends trace-derive
 
 > `optional` **corpusTags?**: `string`[]
 
-Defined in: [runtime/strategy.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L112)
+Defined in: [src/runtime/strategy.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L112)
 
 Tags written onto learned facts (and used by the caller's priming query).
 
@@ -8527,7 +8948,7 @@ Tags written onto learned facts (and used by the caller's priming query).
 
 > `optional` **corpusReadback?**: [`CorpusReadbackOptions`](#corpusreadbackoptions)
 
-Defined in: [runtime/strategy.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L115)
+Defined in: [src/runtime/strategy.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L115)
 
 In-context learning: when set, query `corpus` before each depth shot and inject
  the top trace-derived facts as guidance for the active run. No corpus means no read-back.
@@ -8540,19 +8961,19 @@ In-context learning: when set, query `corpus` before each depth shot and inject
 
 > **surface**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/strategy.ts:1074](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1074)
+Defined in: [src/runtime/strategy.ts:1074](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1074)
 
 ##### task
 
 > **task**: [`AgenticTask`](#agentictask)
 
-Defined in: [runtime/strategy.ts:1075](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1075)
+Defined in: [src/runtime/strategy.ts:1075](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1075)
 
 ##### hooks?
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/strategy.ts:1078](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1078)
+Defined in: [src/runtime/strategy.ts:1078](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1078)
 
 Lifecycle observability — every spawn/settle (shots, analysts) streams here live.
  The seam online watchdogs/route-auditors subscribe to.
@@ -8561,7 +8982,7 @@ Lifecycle observability — every spawn/settle (shots, analysts) streams here li
 
 > `optional` **strategy?**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:1080](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1080)
+Defined in: [src/runtime/strategy.ts:1080](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1080)
 
 A Strategy (the open way) — author/pass your own. Overrides `mode` when present.
 
@@ -8569,7 +8990,7 @@ A Strategy (the open way) — author/pass your own. Overrides `mode` when presen
 
 > `optional` **mode?**: `"depth"` \| `"breadth"`
 
-Defined in: [runtime/strategy.ts:1082](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1082)
+Defined in: [src/runtime/strategy.ts:1082](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1082)
 
 Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'.
 
@@ -8577,7 +8998,7 @@ Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'.
 
 > **budget**: `number`
 
-Defined in: [runtime/strategy.ts:1084](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1084)
+Defined in: [src/runtime/strategy.ts:1084](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1084)
 
 budget: refine→max shots; sample→rollout width.
 
@@ -8585,13 +9006,13 @@ budget: refine→max shots; sample→rollout width.
 
 > `optional` **rootBudget?**: [`Budget`](#budget-12)
 
-Defined in: [runtime/strategy.ts:1085](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1085)
+Defined in: [src/runtime/strategy.ts:1085](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1085)
 
 ***
 
 ### StreamAgentTurnOptions
 
-Defined in: [runtime/stream-agent-turn.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L141)
+Defined in: [src/runtime/stream-agent-turn.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L141)
 
 **`Experimental`**
 
@@ -8601,7 +9022,7 @@ Defined in: [runtime/stream-agent-turn.ts:141](https://github.com/tangle-network
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/stream-agent-turn.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L143)
+Defined in: [src/runtime/stream-agent-turn.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L143)
 
 **`Experimental`**
 
@@ -8611,7 +9032,7 @@ Caller-initiated cancellation. Terminates the stream with `final.status: 'aborte
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [runtime/stream-agent-turn.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L149)
+Defined in: [src/runtime/stream-agent-turn.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L149)
 
 **`Experimental`**
 
@@ -8623,7 +9044,7 @@ the backend and terminates the stream with `final.status: 'failed'`
 
 > `optional` **preserveToolParts?**: `boolean`
 
-Defined in: [runtime/stream-agent-turn.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L159)
+Defined in: [src/runtime/stream-agent-turn.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L159)
 
 **`Experimental`**
 
@@ -8639,7 +9060,7 @@ tool events included when the backend produces them).
 
 > `optional` **onRawEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/stream-agent-turn.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L168)
+Defined in: [src/runtime/stream-agent-turn.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L168)
 
 **`Experimental`**
 
@@ -8664,7 +9085,7 @@ has no sandbox events.
 
 ### AgentTurnUsage
 
-Defined in: [runtime/stream-agent-turn.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L179)
+Defined in: [src/runtime/stream-agent-turn.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L179)
 
 **`Experimental`**
 
@@ -8679,7 +9100,7 @@ present only when the backend actually reported them.
 
 > **input**: `number`
 
-Defined in: [runtime/stream-agent-turn.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L180)
+Defined in: [src/runtime/stream-agent-turn.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L180)
 
 **`Experimental`**
 
@@ -8687,7 +9108,7 @@ Defined in: [runtime/stream-agent-turn.ts:180](https://github.com/tangle-network
 
 > **output**: `number`
 
-Defined in: [runtime/stream-agent-turn.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L181)
+Defined in: [src/runtime/stream-agent-turn.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L181)
 
 **`Experimental`**
 
@@ -8695,7 +9116,7 @@ Defined in: [runtime/stream-agent-turn.ts:181](https://github.com/tangle-network
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [runtime/stream-agent-turn.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L182)
+Defined in: [src/runtime/stream-agent-turn.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L182)
 
 **`Experimental`**
 
@@ -8703,7 +9124,7 @@ Defined in: [runtime/stream-agent-turn.ts:182](https://github.com/tangle-network
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/stream-agent-turn.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L183)
+Defined in: [src/runtime/stream-agent-turn.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L183)
 
 **`Experimental`**
 
@@ -8711,7 +9132,7 @@ Defined in: [runtime/stream-agent-turn.ts:183](https://github.com/tangle-network
 
 ### CollectedAgentTurn
 
-Defined in: [runtime/stream-agent-turn.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L193)
+Defined in: [src/runtime/stream-agent-turn.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L193)
 
 **`Experimental`**
 
@@ -8725,7 +9146,7 @@ turn stays inspectable without re-scanning `events`.
 
 > **finalText**: `string`
 
-Defined in: [runtime/stream-agent-turn.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L194)
+Defined in: [src/runtime/stream-agent-turn.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L194)
 
 **`Experimental`**
 
@@ -8733,7 +9154,7 @@ Defined in: [runtime/stream-agent-turn.ts:194](https://github.com/tangle-network
 
 > **usage**: [`AgentTurnUsage`](#agentturnusage)
 
-Defined in: [runtime/stream-agent-turn.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L195)
+Defined in: [src/runtime/stream-agent-turn.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L195)
 
 **`Experimental`**
 
@@ -8741,7 +9162,7 @@ Defined in: [runtime/stream-agent-turn.ts:195](https://github.com/tangle-network
 
 > **events**: [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]
 
-Defined in: [runtime/stream-agent-turn.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L196)
+Defined in: [src/runtime/stream-agent-turn.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L196)
 
 **`Experimental`**
 
@@ -8749,7 +9170,7 @@ Defined in: [runtime/stream-agent-turn.ts:196](https://github.com/tangle-network
 
 > **status**: [`AgentTaskStatus`](index.md#agenttaskstatus)
 
-Defined in: [runtime/stream-agent-turn.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L197)
+Defined in: [src/runtime/stream-agent-turn.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L197)
 
 **`Experimental`**
 
@@ -8757,7 +9178,7 @@ Defined in: [runtime/stream-agent-turn.ts:197](https://github.com/tangle-network
 
 > `optional` **error?**: [`BackendErrorDetail`](index.md#backenderrordetail)
 
-Defined in: [runtime/stream-agent-turn.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L198)
+Defined in: [src/runtime/stream-agent-turn.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L198)
 
 **`Experimental`**
 
@@ -8765,7 +9186,7 @@ Defined in: [runtime/stream-agent-turn.ts:198](https://github.com/tangle-network
 
 ### StructuralRolloutPolicy
 
-Defined in: [runtime/structural-rollout.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L45)
+Defined in: [src/runtime/structural-rollout.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L45)
 
 The rollout's compute recipe — promoted from the proven rigs' env vars (K/REPAIRS/
  TESTGEN/DIVERSE/TEMPERATURE). Defaults are the measured sweet spot: repair value
@@ -8778,7 +9199,7 @@ The rollout's compute recipe — promoted from the proven rigs' env vars (K/REPA
 
 > **k**: `number`
 
-Defined in: [runtime/structural-rollout.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L47)
+Defined in: [src/runtime/structural-rollout.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L47)
 
 Independent samples per task (selection breadth).
 
@@ -8786,7 +9207,7 @@ Independent samples per task (selection breadth).
 
 > **repairRounds**: `number`
 
-Defined in: [runtime/structural-rollout.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L49)
+Defined in: [src/runtime/structural-rollout.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L49)
 
 Repair shots after selection, each steered by the checks' failure output.
 
@@ -8794,7 +9215,7 @@ Repair shots after selection, each steered by the checks' failure output.
 
 > **testgen**: `number`
 
-Defined in: [runtime/structural-rollout.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L51)
+Defined in: [src/runtime/structural-rollout.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L51)
 
 Model-authored visible checks requested per task; 0 disables authoring.
 
@@ -8802,7 +9223,7 @@ Model-authored visible checks requested per task; 0 disables authoring.
 
 > `optional` **diverse?**: `boolean`
 
-Defined in: [runtime/structural-rollout.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L54)
+Defined in: [src/runtime/structural-rollout.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L54)
 
 Per-slot strategy-lens prefixes on the k samples (attacks the all-k-fail bucket).
  Measured as a paired null (+0.6pp) — kept as an optional knob, off by default.
@@ -8811,7 +9232,7 @@ Per-slot strategy-lens prefixes on the k samples (attacks the all-k-fail bucket)
 
 > `optional` **temperature?**: `number`
 
-Defined in: [runtime/structural-rollout.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L56)
+Defined in: [src/runtime/structural-rollout.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L56)
 
 Sampling temperature for every shot of this strategy; omitted ⇒ the worker default.
 
@@ -8819,7 +9240,7 @@ Sampling temperature for every shot of this strategy; omitted ⇒ the worker def
 
 ### VisibleCheck
 
-Defined in: [runtime/structural-rollout.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L87)
+Defined in: [src/runtime/structural-rollout.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L87)
 
 One task-visible executable check (e.g. a single-line Python assert).
 
@@ -8829,13 +9250,13 @@ One task-visible executable check (e.g. a single-line Python assert).
 
 > **code**: `string`
 
-Defined in: [runtime/structural-rollout.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L88)
+Defined in: [src/runtime/structural-rollout.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L88)
 
 ##### kind
 
 > **kind**: `"authored"` \| `"official"`
 
-Defined in: [runtime/structural-rollout.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L91)
+Defined in: [src/runtime/structural-rollout.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L91)
 
 'official' = shown in the task itself (docstring example, shown assert);
  'authored' = the model's own guess. Official outranks authored in selection.
@@ -8844,7 +9265,7 @@ Defined in: [runtime/structural-rollout.ts:91](https://github.com/tangle-network
 
 ### CheckSourceCtx
 
-Defined in: [runtime/structural-rollout.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L97)
+Defined in: [src/runtime/structural-rollout.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L97)
 
 What a CheckSource composes with. `consult` is the strategy family's raw analyst
  channel (metered by the conserved pool, offline-injectable via `opts.complete`) —
@@ -8856,7 +9277,7 @@ What a CheckSource composes with. `consult` is the strategy family's raw analyst
 
 > **count**: `number`
 
-Defined in: [runtime/structural-rollout.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L99)
+Defined in: [src/runtime/structural-rollout.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L99)
 
 Authored-check budget for this task (`policy.testgen`).
 
@@ -8864,7 +9285,7 @@ Authored-check budget for this task (`policy.testgen`).
 
 > `optional` **entrySymbol?**: `string`
 
-Defined in: [runtime/structural-rollout.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L102)
+Defined in: [src/runtime/structural-rollout.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L102)
 
 The symbol authored checks must reference; undefined ⇒ authoring is skipped
  (no guesses beats guesses pinned to nothing).
@@ -8875,7 +9296,7 @@ The symbol authored checks must reference; undefined ⇒ authoring is skipped
 
 > **consult**(`instruction`): `Promise`\<`string` \| `null`\>
 
-Defined in: [runtime/structural-rollout.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L105)
+Defined in: [src/runtime/structural-rollout.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L105)
 
 One metered LLM call: instruction in, reply text out, null when the channel went
  down. The task's visible prompt is included by the channel itself.
@@ -8894,7 +9315,7 @@ One metered LLM call: instruction in, reply text out, null when the channel went
 
 ### CheckSource
 
-Defined in: [runtime/structural-rollout.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L111)
+Defined in: [src/runtime/structural-rollout.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L111)
 
 Produces the task's visible checks. MUST derive them from agent-visible information
  only, before any candidate exists — the strategy freezes the returned set for every
@@ -8906,7 +9327,7 @@ Produces the task's visible checks. MUST derive them from agent-visible informat
 
 > **generate**(`task`, `ctx`): `Promise`\<[`VisibleCheck`](#visiblecheck)[]\>
 
-Defined in: [runtime/structural-rollout.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L112)
+Defined in: [src/runtime/structural-rollout.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L112)
 
 ###### Parameters
 
@@ -8926,7 +9347,7 @@ Defined in: [runtime/structural-rollout.ts:112](https://github.com/tangle-networ
 
 ### CheckOutcome
 
-Defined in: [runtime/structural-rollout.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L205)
+Defined in: [src/runtime/structural-rollout.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L205)
 
 How one candidate fared against the frozen visible checks, split by check kind.
 
@@ -8936,31 +9357,31 @@ How one candidate fared against the frozen visible checks, split by check kind.
 
 > **passedOfficial**: `number`
 
-Defined in: [runtime/structural-rollout.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L206)
+Defined in: [src/runtime/structural-rollout.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L206)
 
 ##### totalOfficial
 
 > **totalOfficial**: `number`
 
-Defined in: [runtime/structural-rollout.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L207)
+Defined in: [src/runtime/structural-rollout.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L207)
 
 ##### passedAuthored
 
 > **passedAuthored**: `number`
 
-Defined in: [runtime/structural-rollout.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L208)
+Defined in: [src/runtime/structural-rollout.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L208)
 
 ##### totalAuthored
 
 > **totalAuthored**: `number`
 
-Defined in: [runtime/structural-rollout.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L209)
+Defined in: [src/runtime/structural-rollout.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L209)
 
 ##### failureOutput
 
 > **failureOutput**: `string`
 
-Defined in: [runtime/structural-rollout.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L211)
+Defined in: [src/runtime/structural-rollout.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L211)
 
 The checks' failure report — the ONLY feedback the repair loop may see.
 
@@ -8968,7 +9389,7 @@ The checks' failure report — the ONLY feedback the repair loop may see.
 
 > `optional` **crashed?**: `boolean`
 
-Defined in: [runtime/structural-rollout.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L214)
+Defined in: [src/runtime/structural-rollout.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L214)
 
 True when the candidate crashed before any check could run — ranks below a
  candidate that ran and failed everything.
@@ -8977,7 +9398,7 @@ True when the candidate crashed before any check could run — ranks below a
 
 ### CheckExecChannel
 
-Defined in: [runtime/structural-rollout.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L219)
+Defined in: [src/runtime/structural-rollout.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L219)
 
 Minimal exec channel the default runner needs. `SandboxInstance` (and therefore
  `ValidationCtx.box`) satisfies it structurally.
@@ -8988,7 +9409,7 @@ Minimal exec channel the default runner needs. `SandboxInstance` (and therefore
 
 > **exec**(`command`, `options?`): `Promise`\<\{ `exitCode`: `number`; `stdout`: `string`; `stderr`: `string`; \}\>
 
-Defined in: [runtime/structural-rollout.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L220)
+Defined in: [src/runtime/structural-rollout.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L220)
 
 ###### Parameters
 
@@ -9010,7 +9431,7 @@ Defined in: [runtime/structural-rollout.ts:220](https://github.com/tangle-networ
 
 ### CheckRunContext
 
-Defined in: [runtime/structural-rollout.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L226)
+Defined in: [src/runtime/structural-rollout.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L226)
 
 #### Properties
 
@@ -9018,13 +9439,13 @@ Defined in: [runtime/structural-rollout.ts:226](https://github.com/tangle-networ
 
 > **task**: [`AgenticTask`](#agentictask)
 
-Defined in: [runtime/structural-rollout.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L227)
+Defined in: [src/runtime/structural-rollout.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L227)
 
 ##### box?
 
 > `optional` **box?**: [`CheckExecChannel`](#checkexecchannel)
 
-Defined in: [runtime/structural-rollout.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L229)
+Defined in: [src/runtime/structural-rollout.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L229)
 
 Live exec channel for this run (`ValidationCtx.box` / a sandbox instance).
 
@@ -9032,13 +9453,13 @@ Live exec channel for this run (`ValidationCtx.box` / a sandbox instance).
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/structural-rollout.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L230)
+Defined in: [src/runtime/structural-rollout.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L230)
 
 ***
 
 ### CheckRunner
 
-Defined in: [runtime/structural-rollout.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L235)
+Defined in: [src/runtime/structural-rollout.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L235)
 
 Executes the frozen checks against one candidate. Implementations MUST fail loud
  (throw) when they cannot execute — a silent zero poisons selection.
@@ -9049,7 +9470,7 @@ Executes the frozen checks against one candidate. Implementations MUST fail loud
 
 > **run**(`candidate`, `checks`, `ctx`): `Promise`\<[`CheckOutcome`](#checkoutcome)\>
 
-Defined in: [runtime/structural-rollout.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L236)
+Defined in: [src/runtime/structural-rollout.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L236)
 
 ###### Parameters
 
@@ -9073,7 +9494,7 @@ Defined in: [runtime/structural-rollout.ts:236](https://github.com/tangle-networ
 
 ### StructuralRolloutResult
 
-Defined in: [runtime/structural-rollout.ts:489](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L489)
+Defined in: [src/runtime/structural-rollout.ts:489](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L489)
 
 The body's deliverable — a `StrategyResult` plus selection provenance. The extra
  fields ride through `defineStrategy`'s deliverable spread onto `AgenticRunResult`
@@ -9089,7 +9510,7 @@ The body's deliverable — a `StrategyResult` plus selection provenance. The ext
 
 > **score**: `number`
 
-Defined in: [runtime/strategy.ts:809](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L809)
+Defined in: [src/runtime/strategy.ts:809](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L809)
 
 ###### Inherited from
 
@@ -9099,7 +9520,7 @@ Defined in: [runtime/strategy.ts:809](https://github.com/tangle-network/agent-ru
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/strategy.ts:810](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L810)
+Defined in: [src/runtime/strategy.ts:810](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L810)
 
 ###### Inherited from
 
@@ -9109,7 +9530,7 @@ Defined in: [runtime/strategy.ts:810](https://github.com/tangle-network/agent-ru
 
 > **completions**: `number`
 
-Defined in: [runtime/strategy.ts:811](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L811)
+Defined in: [src/runtime/strategy.ts:811](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L811)
 
 ###### Inherited from
 
@@ -9119,7 +9540,7 @@ Defined in: [runtime/strategy.ts:811](https://github.com/tangle-network/agent-ru
 
 > **progression**: `number`[]
 
-Defined in: [runtime/strategy.ts:812](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L812)
+Defined in: [src/runtime/strategy.ts:812](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L812)
 
 ###### Inherited from
 
@@ -9129,7 +9550,7 @@ Defined in: [runtime/strategy.ts:812](https://github.com/tangle-network/agent-ru
 
 > **shots**: `number`
 
-Defined in: [runtime/strategy.ts:813](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L813)
+Defined in: [src/runtime/strategy.ts:813](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L813)
 
 ###### Inherited from
 
@@ -9139,7 +9560,7 @@ Defined in: [runtime/strategy.ts:813](https://github.com/tangle-network/agent-ru
 
 > **selection**: [`SelectionReceipt`](#selectionreceipt)[]
 
-Defined in: [runtime/structural-rollout.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L492)
+Defined in: [src/runtime/structural-rollout.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L492)
 
 One receipt per scored candidate (k samples, then repairs), `SelectionReceipt`
  shaped like the kernel's (`types.ts`), selector 'driver'.
@@ -9148,25 +9569,25 @@ One receipt per scored candidate (k samples, then repairs), `SelectionReceipt`
 
 > **repairStop**: [`RepairStop`](#repairstop)
 
-Defined in: [runtime/structural-rollout.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L493)
+Defined in: [src/runtime/structural-rollout.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L493)
 
 ##### officialChecks
 
 > **officialChecks**: `number`
 
-Defined in: [runtime/structural-rollout.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L494)
+Defined in: [src/runtime/structural-rollout.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L494)
 
 ##### authoredChecks
 
 > **authoredChecks**: `number`
 
-Defined in: [runtime/structural-rollout.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L495)
+Defined in: [src/runtime/structural-rollout.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L495)
 
 ***
 
 ### StructuralRolloutConfig
 
-Defined in: [runtime/structural-rollout.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L498)
+Defined in: [src/runtime/structural-rollout.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L498)
 
 #### Properties
 
@@ -9174,7 +9595,7 @@ Defined in: [runtime/structural-rollout.ts:498](https://github.com/tangle-networ
 
 > `optional` **policy?**: `Partial`\<[`StructuralRolloutPolicy`](#structuralrolloutpolicy)\>
 
-Defined in: [runtime/structural-rollout.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L500)
+Defined in: [src/runtime/structural-rollout.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L500)
 
 Knobs; missing fields take the measured defaults (k=5, repairRounds=2, testgen=6).
 
@@ -9182,7 +9603,7 @@ Knobs; missing fields take the measured defaults (k=5, repairRounds=2, testgen=6
 
 > `optional` **checkSource?**: [`CheckSource`](#checksource)
 
-Defined in: [runtime/structural-rollout.ts:503](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L503)
+Defined in: [src/runtime/structural-rollout.ts:503](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L503)
 
 Where the visible checks come from. Default: official checks from
  `task.meta.visibleChecks` composed with `modelAuthoredChecks()`.
@@ -9191,7 +9612,7 @@ Where the visible checks come from. Default: official checks from
 
 > `optional` **checkRunner?**: [`CheckRunner`](#checkrunner)
 
-Defined in: [runtime/structural-rollout.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L506)
+Defined in: [src/runtime/structural-rollout.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L506)
 
 How candidates are measured. Default `sandboxCheckRunner()` — it needs an exec
  channel (bind one to the runner, or pass `box` here) and fails loud without one.
@@ -9200,7 +9621,7 @@ How candidates are measured. Default `sandboxCheckRunner()` — it needs an exec
 
 > `optional` **box?**: [`CheckExecChannel`](#checkexecchannel)
 
-Defined in: [runtime/structural-rollout.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L510)
+Defined in: [src/runtime/structural-rollout.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L510)
 
 Exec channel threaded into every check run of this strategy (a sandbox instance /
  `ValidationCtx.box`). The strategy seam itself carries no sandbox, so the caller
@@ -9210,7 +9631,7 @@ Exec channel threaded into every check run of this strategy (a sandbox instance 
 
 > `optional` **extractCandidate?**: (`messages`) => `string`
 
-Defined in: [runtime/structural-rollout.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L512)
+Defined in: [src/runtime/structural-rollout.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L512)
 
 Candidate extraction from a shot's conversation. Default `defaultExtractCandidate`.
 
@@ -9228,7 +9649,7 @@ readonly `Msg`[]
 
 ### SurfaceWorkerOut
 
-Defined in: [runtime/supervise-surface.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L34)
+Defined in: [src/runtime/supervise-surface.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L34)
 
 What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is
  the surface check's pass/fail (settled ⟺ resolved); `score` is the partial-credit fraction; `failing`
@@ -9240,37 +9661,37 @@ What a surface worker settles with — the surface verdict the driver + delivera
 
 > `readonly` **resolved**: `boolean`
 
-Defined in: [runtime/supervise-surface.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L35)
+Defined in: [src/runtime/supervise-surface.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L35)
 
 ##### score
 
 > `readonly` **score**: `number`
 
-Defined in: [runtime/supervise-surface.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L36)
+Defined in: [src/runtime/supervise-surface.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L36)
 
 ##### shots
 
 > `readonly` **shots**: `number`
 
-Defined in: [runtime/supervise-surface.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L37)
+Defined in: [src/runtime/supervise-surface.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L37)
 
 ##### summary
 
 > `readonly` **summary**: `string`
 
-Defined in: [runtime/supervise-surface.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L38)
+Defined in: [src/runtime/supervise-surface.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L38)
 
 ##### failing?
 
 > `readonly` `optional` **failing?**: readonly `string`[]
 
-Defined in: [runtime/supervise-surface.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L39)
+Defined in: [src/runtime/supervise-surface.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L39)
 
 ***
 
 ### SurfaceWorkerConfig
 
-Defined in: [runtime/supervise-surface.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L102)
+Defined in: [src/runtime/supervise-surface.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L102)
 
 How a worker runs the surface task (its router substrate + per-attempt bounds).
 
@@ -9280,37 +9701,37 @@ How a worker runs the surface task (its router substrate + per-attempt bounds).
 
 > `readonly` **routerBaseUrl**: `string`
 
-Defined in: [runtime/supervise-surface.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L103)
+Defined in: [src/runtime/supervise-surface.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L103)
 
 ##### routerKey
 
 > `readonly` **routerKey**: `string`
 
-Defined in: [runtime/supervise-surface.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L104)
+Defined in: [src/runtime/supervise-surface.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L104)
 
 ##### model
 
 > `readonly` **model**: `string`
 
-Defined in: [runtime/supervise-surface.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L105)
+Defined in: [src/runtime/supervise-surface.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L105)
 
 ##### maxTokens?
 
 > `readonly` `optional` **maxTokens?**: `number`
 
-Defined in: [runtime/supervise-surface.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L106)
+Defined in: [src/runtime/supervise-surface.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L106)
 
 ##### innerTurns?
 
 > `readonly` `optional` **innerTurns?**: `number`
 
-Defined in: [runtime/supervise-surface.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L107)
+Defined in: [src/runtime/supervise-surface.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L107)
 
 ##### budget?
 
 > `readonly` `optional` **budget?**: `number`
 
-Defined in: [runtime/supervise-surface.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L109)
+Defined in: [src/runtime/supervise-surface.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L109)
 
 Refine-shot budget for ONE worker attempt (max steered shots). Default 1.
 
@@ -9318,7 +9739,7 @@ Refine-shot budget for ONE worker attempt (max steered shots). Default 1.
 
 ### SuperviseSurfaceOptions
 
-Defined in: [runtime/supervise-surface.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L168)
+Defined in: [src/runtime/supervise-surface.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L168)
 
 #### Properties
 
@@ -9326,7 +9747,7 @@ Defined in: [runtime/supervise-surface.ts:168](https://github.com/tangle-network
 
 > `readonly` **surface**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/supervise-surface.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L170)
+Defined in: [src/runtime/supervise-surface.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L170)
 
 The graded surface workers solve (open/tools/call/score/close).
 
@@ -9334,7 +9755,7 @@ The graded surface workers solve (open/tools/call/score/close).
 
 > `readonly` **worker**: [`SurfaceWorkerConfig`](#surfaceworkerconfig)
 
-Defined in: [runtime/supervise-surface.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L172)
+Defined in: [src/runtime/supervise-surface.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L172)
 
 Where/how each worker runs the surface task.
 
@@ -9342,7 +9763,7 @@ Where/how each worker runs the surface task.
 
 > `readonly` `optional` **budget?**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise-surface.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L175)
+Defined in: [src/runtime/supervise-surface.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L175)
 
 The conserved compute pool for the whole supervised run. Default: sized off the worker's inner-loop
  bounds for a handful of worker spawns — raise it to let the driver try more.
@@ -9351,7 +9772,7 @@ The conserved compute pool for the whole supervised run. Default: sized off the 
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [runtime/supervise-surface.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L178)
+Defined in: [src/runtime/supervise-surface.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L178)
 
 The driver brain's router substrate (its own inference). Default: the worker's router + model — the
  driver and workers share one router unless you separate them (e.g. a stronger driver model).
@@ -9360,7 +9781,7 @@ The driver brain's router substrate (its own inference). Default: the worker's r
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry) \| `null`
 
-Defined in: [runtime/supervise-surface.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L182)
+Defined in: [src/runtime/supervise-surface.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L182)
 
 The self-improvement lens fed to the driver on each settled worker. Default `failuresAnalyst()`
  (target the still-failing tests). Pass a custom registry to change it, or `null` to turn the
@@ -9370,7 +9791,7 @@ The self-improvement lens fed to the driver on each settled worker. Default `fai
 
 > `readonly` `optional` **strategy?**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/supervise-surface.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L184)
+Defined in: [src/runtime/supervise-surface.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L184)
 
 The strategy each worker runs over the surface. Default `refine` (iterate-with-feedback).
 
@@ -9378,7 +9799,7 @@ The strategy each worker runs over the surface. Default `refine` (iterate-with-f
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [runtime/supervise-surface.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L187)
+Defined in: [src/runtime/supervise-surface.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L187)
 
 Max workers live at once. Default 1 (serial — required when workers share a persistent artifact, so
  they continue each other instead of racing the file).
@@ -9387,7 +9808,7 @@ Max workers live at once. Default 1 (serial — required when workers share a pe
 
 ### SuperviseSurfaceResult
 
-Defined in: [runtime/supervise-surface.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L191)
+Defined in: [src/runtime/supervise-surface.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L191)
 
 The deployable outcome of a supervised surface run.
 
@@ -9397,43 +9818,43 @@ The deployable outcome of a supervised surface run.
 
 > `readonly` **resolved**: `boolean`
 
-Defined in: [runtime/supervise-surface.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L192)
+Defined in: [src/runtime/supervise-surface.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L192)
 
 ##### score
 
 > `readonly` **score**: `number`
 
-Defined in: [runtime/supervise-surface.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L193)
+Defined in: [src/runtime/supervise-surface.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L193)
 
 ##### usd
 
 > `readonly` **usd**: `number`
 
-Defined in: [runtime/supervise-surface.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L194)
+Defined in: [src/runtime/supervise-surface.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L194)
 
 ##### tokensIn
 
 > `readonly` **tokensIn**: `number`
 
-Defined in: [runtime/supervise-surface.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L195)
+Defined in: [src/runtime/supervise-surface.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L195)
 
 ##### tokensOut
 
 > `readonly` **tokensOut**: `number`
 
-Defined in: [runtime/supervise-surface.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L196)
+Defined in: [src/runtime/supervise-surface.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L196)
 
 ##### ms
 
 > `readonly` **ms**: `number`
 
-Defined in: [runtime/supervise-surface.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L197)
+Defined in: [src/runtime/supervise-surface.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L197)
 
 ##### completions
 
 > `readonly` **completions**: `number`
 
-Defined in: [runtime/supervise-surface.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L199)
+Defined in: [src/runtime/supervise-surface.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L199)
 
 Total conserved-pool iterations = the driver + worker LLM rounds the run actually spent.
 
@@ -9441,7 +9862,7 @@ Total conserved-pool iterations = the driver + worker LLM rounds the run actuall
 
 ### AuthoredProfile
 
-Defined in: [runtime/supervise/authoring.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L25)
+Defined in: [src/runtime/supervise/authoring.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L25)
 
 What the supervisor AUTHORS per sub-task — a worker recipe (a partial `AgentProfile`).
 
@@ -9451,13 +9872,13 @@ What the supervisor AUTHORS per sub-task — a worker recipe (a partial `AgentPr
 
 > **name**: `string`
 
-Defined in: [runtime/supervise/authoring.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L26)
+Defined in: [src/runtime/supervise/authoring.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L26)
 
 ##### systemPrompt
 
 > **systemPrompt**: `string`
 
-Defined in: [runtime/supervise/authoring.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L28)
+Defined in: [src/runtime/supervise/authoring.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L28)
 
 The rich, task-specific instructions the supervisor wrote for THIS worker.
 
@@ -9465,7 +9886,7 @@ The rich, task-specific instructions the supervisor wrote for THIS worker.
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/supervise/authoring.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L30)
+Defined in: [src/runtime/supervise/authoring.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L30)
 
 The model the supervisor chose for this sub-task (falls back to the run default).
 
@@ -9473,7 +9894,7 @@ The model the supervisor chose for this sub-task (falls back to the run default)
 
 ### ProfileRichnessThresholds
 
-Defined in: [runtime/supervise/authoring.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L132)
+Defined in: [src/runtime/supervise/authoring.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L132)
 
 Thresholds below which a system prompt is treated as a thin stub. Tunable per call.
 
@@ -9483,7 +9904,7 @@ Thresholds below which a system prompt is treated as a thin stub. Tunable per ca
 
 > `readonly` **minSystemPromptChars**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L134)
+Defined in: [src/runtime/supervise/authoring.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L134)
 
 A prompt shorter than this many characters is thin (default 600).
 
@@ -9491,7 +9912,7 @@ A prompt shorter than this many characters is thin (default 600).
 
 > `readonly` **minSystemPromptLines**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L136)
+Defined in: [src/runtime/supervise/authoring.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L136)
 
 A prompt with fewer than this many non-blank lines is thin (default 6).
 
@@ -9499,7 +9920,7 @@ A prompt with fewer than this many non-blank lines is thin (default 6).
 
 ### ProfileRichness
 
-Defined in: [runtime/supervise/authoring.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L146)
+Defined in: [src/runtime/supervise/authoring.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L146)
 
 Per-field verdict on one authored profile — the raw material the bench renders + scores.
 
@@ -9509,13 +9930,13 @@ Per-field verdict on one authored profile — the raw material the bench renders
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/supervise/authoring.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L147)
+Defined in: [src/runtime/supervise/authoring.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L147)
 
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string`
 
-Defined in: [runtime/supervise/authoring.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L150)
+Defined in: [src/runtime/supervise/authoring.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L150)
 
 The resolved system prompt (canonical `prompt.systemPrompt`, the sandbox `prompt.system`
  convention, or a bare-string prompt — whichever the author used).
@@ -9524,55 +9945,55 @@ The resolved system prompt (canonical `prompt.systemPrompt`, the sandbox `prompt
 
 > `readonly` **systemPromptChars**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L151)
+Defined in: [src/runtime/supervise/authoring.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L151)
 
 ##### systemPromptLines
 
 > `readonly` **systemPromptLines**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L152)
+Defined in: [src/runtime/supervise/authoring.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L152)
 
 ##### sentenceCount
 
 > `readonly` **sentenceCount**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L153)
+Defined in: [src/runtime/supervise/authoring.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L153)
 
 ##### hasDescription
 
 > `readonly` **hasDescription**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L154)
+Defined in: [src/runtime/supervise/authoring.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L154)
 
 ##### hasTools
 
 > `readonly` **hasTools**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L155)
+Defined in: [src/runtime/supervise/authoring.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L155)
 
 ##### hasSkills
 
 > `readonly` **hasSkills**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L156)
+Defined in: [src/runtime/supervise/authoring.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L156)
 
 ##### hasMcp
 
 > `readonly` **hasMcp**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L157)
+Defined in: [src/runtime/supervise/authoring.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L157)
 
 ##### hasSubagents
 
 > `readonly` **hasSubagents**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L158)
+Defined in: [src/runtime/supervise/authoring.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L158)
 
 ##### richness
 
 > `readonly` **richness**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L160)
+Defined in: [src/runtime/supervise/authoring.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L160)
 
 0..1 — fraction of richness signals present (prompt-depth + the four levers).
 
@@ -9580,7 +10001,7 @@ Defined in: [runtime/supervise/authoring.ts:160](https://github.com/tangle-netwo
 
 > `readonly` **thin**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L162)
+Defined in: [src/runtime/supervise/authoring.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L162)
 
 True when the supervisor authored a stub instead of a real profile.
 
@@ -9588,7 +10009,7 @@ True when the supervisor authored a stub instead of a real profile.
 
 > `readonly` **reasons**: `string`[]
 
-Defined in: [runtime/supervise/authoring.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L164)
+Defined in: [src/runtime/supervise/authoring.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L164)
 
 The specific reasons it is thin (empty when rich) — used in the finding's action.
 
@@ -9596,7 +10017,7 @@ The specific reasons it is thin (empty when rich) — used in the finding's acti
 
 ### ReservationTicket
 
-Defined in: [runtime/supervise/budget.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L30)
+Defined in: [src/runtime/supervise/budget.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L30)
 
 Opaque, single-use reservation handle returned by `reserve` and consumed by
  `reconcile`. Carries the reserved ceilings so reconciliation needs no lookup.
@@ -9607,13 +10028,13 @@ Opaque, single-use reservation handle returned by `reserve` and consumed by
 
 > `readonly` **id**: `number`
 
-Defined in: [runtime/supervise/budget.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L31)
+Defined in: [src/runtime/supervise/budget.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L31)
 
 ##### reserved
 
 > `readonly` **reserved**: `object`
 
-Defined in: [runtime/supervise/budget.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L32)
+Defined in: [src/runtime/supervise/budget.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L32)
 
 ###### tokens
 
@@ -9631,7 +10052,7 @@ Defined in: [runtime/supervise/budget.ts:32](https://github.com/tangle-network/a
 
 ### BudgetPool
 
-Defined in: [runtime/supervise/budget.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L52)
+Defined in: [src/runtime/supervise/budget.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L52)
 
 #### Methods
 
@@ -9639,7 +10060,7 @@ Defined in: [runtime/supervise/budget.ts:52](https://github.com/tangle-network/a
 
 > **reserve**(`b`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"`; \}
 
-Defined in: [runtime/supervise/budget.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L58)
+Defined in: [src/runtime/supervise/budget.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L58)
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover tokens, usd, or iterations — the
@@ -9659,7 +10080,7 @@ caller inspects `ok` before `ticket`.
 
 > **reconcile**(`ticket`, `spent`): `void`
 
-Defined in: [runtime/supervise/budget.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L66)
+Defined in: [src/runtime/supervise/budget.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L66)
 
 Release a reservation: commit the actual `spent`, refund the unspent remainder
 to the free pool. Throws on an unknown or already-reconciled ticket (fail loud —
@@ -9683,7 +10104,7 @@ a double refund would silently break conservation).
 
 > **spendFrom**(`events`): `Promise`\<[`Spend`](#spend)\>
 
-Defined in: [runtime/supervise/budget.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L70)
+Defined in: [src/runtime/supervise/budget.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L70)
 
 Fold a normalized `UsageEvent` stream (or array) into a `Spend`. Tokens via
  `addTokenUsage`, usd on its own channel, iterations from `'iteration'` events.
@@ -9703,7 +10124,7 @@ Fold a normalized `UsageEvent` stream (or array) into a `Spend`. Tokens via
 
 > **readout**(): [`BudgetReadout`](#budgetreadout)
 
-Defined in: [runtime/supervise/budget.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L72)
+Defined in: [src/runtime/supervise/budget.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L72)
 
 The current readout, reflecting all outstanding reservations.
 
@@ -9715,7 +10136,7 @@ The current readout, reflecting all outstanding reservations.
 
 > **observe**(`spend`): `void`
 
-Defined in: [runtime/supervise/budget.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L83)
+Defined in: [src/runtime/supervise/budget.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L83)
 
 Record OBSERVED spend that did NOT go through reserve/reconcile — the driver's OWN inference
 (its chat turns), which is real compute but not a spawned child. A direct `free → committed`
@@ -9740,7 +10161,7 @@ only makes the live `readout()` reflect driver inference for the in-loop guard.
 
 > **assertNoOpenTickets**(): `void`
 
-Defined in: [runtime/supervise/budget.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L87)
+Defined in: [src/runtime/supervise/budget.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L87)
 
 Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
@@ -9754,7 +10175,7 @@ Fail loud if any reservation is still open — the conserved-pool leak detector.
 
 ### DeliverableSpec
 
-Defined in: [runtime/supervise/completion-gate.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/completion-gate.ts#L32)
+Defined in: [src/runtime/supervise/completion-gate.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/completion-gate.ts#L32)
 
 The deployable completion oracle passed to [gateOnDeliverable](#gateondeliverable): a `check` that
 decides DELIVERED (settles `valid` ⟺ it resolves true) plus an optional `describe` of
@@ -9773,7 +10194,7 @@ model judging itself.
 
 > **check**: (`out`) => `boolean` \| `Promise`\<`boolean`\>
 
-Defined in: [runtime/supervise/completion-gate.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/completion-gate.ts#L34)
+Defined in: [src/runtime/supervise/completion-gate.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/completion-gate.ts#L34)
 
 The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves true`.
 
@@ -9791,7 +10212,7 @@ The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves tr
 
 > `optional` **describe?**: `string`
 
-Defined in: [runtime/supervise/completion-gate.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/completion-gate.ts#L36)
+Defined in: [src/runtime/supervise/completion-gate.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/completion-gate.ts#L36)
 
 What the spawn was supposed to produce — surfaced in traces/reports.
 
@@ -9799,7 +10220,7 @@ What the spawn was supposed to produce — surfaced in traces/reports.
 
 ### DriverAgentOptions
 
-Defined in: [runtime/supervise/coordination-driver.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L47)
+Defined in: [src/runtime/supervise/coordination-driver.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L47)
 
 #### Properties
 
@@ -9807,13 +10228,13 @@ Defined in: [runtime/supervise/coordination-driver.ts:47](https://github.com/tan
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/supervise/coordination-driver.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L48)
+Defined in: [src/runtime/supervise/coordination-driver.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L48)
 
 ##### brain
 
 > `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/supervise/coordination-driver.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L52)
+Defined in: [src/runtime/supervise/coordination-driver.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L52)
 
 The driver-LLM seam — ONE inference turn over the conversation + the coordination tool specs
  (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
@@ -9823,7 +10244,7 @@ The driver-LLM seam — ONE inference turn over the conversation + the coordinat
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/coordination-driver.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L54)
+Defined in: [src/runtime/supervise/coordination-driver.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L54)
 
 Shared blob store — `observe_agent` reads settled outputs through it.
 
@@ -9831,7 +10252,7 @@ Shared blob store — `observe_agent` reads settled outputs through it.
 
 > `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [runtime/supervise/coordination-driver.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L56)
+Defined in: [src/runtime/supervise/coordination-driver.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L56)
 
 Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam).
 
@@ -9839,7 +10260,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 > `readonly` **perWorker**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise/coordination-driver.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L58)
+Defined in: [src/runtime/supervise/coordination-driver.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L58)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -9847,7 +10268,7 @@ Per-child budget reserved from the conserved pool on each spawn.
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [runtime/supervise/coordination-driver.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L61)
+Defined in: [src/runtime/supervise/coordination-driver.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L61)
 
 Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
@@ -9856,7 +10277,7 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
 
-Defined in: [runtime/supervise/coordination-driver.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L64)
+Defined in: [src/runtime/supervise/coordination-driver.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L64)
 
 The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
  Unset → no analyst feed (status quo: the driver gets settled outputs, no findings).
@@ -9865,7 +10286,7 @@ The analyst lenses available to the driver. Required for `analyzeOnSettle` (and 
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [runtime/supervise/coordination-driver.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L68)
+Defined in: [src/runtime/supervise/coordination-driver.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L68)
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
@@ -9875,7 +10296,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result 
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
 
-Defined in: [runtime/supervise/coordination-driver.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L71)
+Defined in: [src/runtime/supervise/coordination-driver.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L71)
 
 The driver's stance — a string, or built from the task (the worker-driver prompt /
  the generator). INJECTED so the prompt is a pluggable, optimizable role.
@@ -9884,7 +10305,7 @@ The driver's stance — a string, or built from the task (the worker-driver prom
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [runtime/supervise/coordination-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L76)
+Defined in: [src/runtime/supervise/coordination-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L76)
 
 WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
  not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
@@ -9895,7 +10316,7 @@ WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — s
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L83)
+Defined in: [src/runtime/supervise/coordination-driver.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L83)
 
 Runs an `extraTools` call. Returns a string result, or null/undefined to signal "not handled"
  so the call falls through to the coordination dispatch. Required iff `extraTools` is set.
@@ -9918,7 +10339,7 @@ Runs an `extraTools` call. Returns a string result, or null/undefined to signal 
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/coordination-driver.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L91)
+Defined in: [src/runtime/supervise/coordination-driver.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L91)
 
 Max driver turns before the loop force-finalizes on the best settled child. Default 16.
  `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
@@ -9929,7 +10350,7 @@ Max driver turns before the loop force-finalizes on the best settled child. Defa
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/supervise/coordination-driver.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L94)
+Defined in: [src/runtime/supervise/coordination-driver.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L94)
 
 Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
  deterministic in tests. Defaults to `Date.now`.
@@ -9942,7 +10363,7 @@ Injected clock for the in-loop absolute-deadline guard — keeps the deadline ch
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [runtime/supervise/coordination-driver.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L103)
+Defined in: [src/runtime/supervise/coordination-driver.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L103)
 
 Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
  lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
@@ -9957,7 +10378,7 @@ Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-bra
 
 ### CoordinationMcpHandle
 
-Defined in: [runtime/supervise/coordination-mcp.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L34)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L34)
 
 #### Properties
 
@@ -9965,7 +10386,7 @@ Defined in: [runtime/supervise/coordination-mcp.ts:34](https://github.com/tangle
 
 > `readonly` **url**: `string`
 
-Defined in: [runtime/supervise/coordination-mcp.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L36)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L36)
 
 The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`.
 
@@ -9973,13 +10394,13 @@ The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`.
 
 > `readonly` **port**: `number`
 
-Defined in: [runtime/supervise/coordination-mcp.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L37)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L37)
 
 ##### drainResolved
 
 > **drainResolved**: () => `Promise`\<`number`\>
 
-Defined in: [runtime/supervise/coordination-mcp.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L42)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L42)
 
 Post-loop drain of already-settled, unpulled children into the ledger — call before reading
  `settled()` for a finalize, so a delivered child the harness never awaited is not lost.
@@ -9999,7 +10420,7 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 
 > **history**: () => readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](#coordinationevent)\>[]
 
-Defined in: [runtime/supervise/coordination-mcp.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L45)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L45)
 
 The full ordered bus-event log — observability audit + replay trail.
 
@@ -10015,7 +10436,7 @@ readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](#coordinationevent)\>[
 
 > **stats**: () => [`BusStats`](#busstats)
 
-Defined in: [runtime/supervise/coordination-mcp.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L47)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L47)
 
 Bus throughput counters for live dashboards.
 
@@ -10029,7 +10450,7 @@ Bus throughput counters (published / pulled / by-kind) for live dashboards.
 
 > **raiseFinding**: (`finding`) => `Promise`\<`void`\>
 
-Defined in: [runtime/supervise/coordination-mcp.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L49)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L49)
 
 Raise a `finding` on the bus from an online detector watching a worker's live pipe.
 
@@ -10053,7 +10474,7 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 > **settled**(): readonly `object`[]
 
-Defined in: [runtime/supervise/coordination-mcp.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L39)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L39)
 
 The coordination tools' settled-worker ledger (for the driver's finalize).
 
@@ -10065,7 +10486,7 @@ readonly `object`[]
 
 > **isStopped**(): `boolean`
 
-Defined in: [runtime/supervise/coordination-mcp.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L43)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L43)
 
 ###### Returns
 
@@ -10075,7 +10496,7 @@ Defined in: [runtime/supervise/coordination-mcp.ts:43](https://github.com/tangle
 
 > **close**(): `Promise`\<`void`\>
 
-Defined in: [runtime/supervise/coordination-mcp.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L50)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L50)
 
 ###### Returns
 
@@ -10085,7 +10506,7 @@ Defined in: [runtime/supervise/coordination-mcp.ts:50](https://github.com/tangle
 
 ### DelegateOptions
 
-Defined in: [runtime/supervise/delegate.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L39)
+Defined in: [src/runtime/supervise/delegate.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L39)
 
 Inputs to [delegate](#delegate). The intent is the first positional arg; everything here is optional
  with sensible defaults, so the common call is `delegate(intent, { backend, router })`.
@@ -10102,7 +10523,7 @@ Inputs to [delegate](#delegate). The intent is the first positional arg; everyth
 
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`Out`\>
 
-Defined in: [runtime/supervise/delegate.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L43)
+Defined in: [src/runtime/supervise/delegate.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L43)
 
 The completion oracle (settled ⟺ delivered) the authored workers settle against. Strongly
  recommended — without it the supervisor trusts a worker's self-report. For a code intent,
@@ -10112,7 +10533,7 @@ The completion oracle (settled ⟺ delivered) the authored workers settle agains
 
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
 
-Defined in: [runtime/supervise/delegate.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L47)
+Defined in: [src/runtime/supervise/delegate.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L47)
 
 WHERE the authored workers run — the worker-execution backend (`router-tools` / `sandbox` /
  `cli-worktree` / …). The supervisor authors the worker PROFILE; this is the substrate it runs
@@ -10122,7 +10543,7 @@ WHERE the authored workers run — the worker-execution backend (`router-tools` 
 
 > `readonly` `optional` **budget?**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise/delegate.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L49)
+Defined in: [src/runtime/supervise/delegate.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L49)
 
 The conserved compute pool for the whole delegation. Defaults to [defaultDelegateBudget](#defaultdelegatebudget).
 
@@ -10130,7 +10551,7 @@ The conserved compute pool for the whole delegation. Defaults to [defaultDelegat
 
 > `readonly` `optional` **model?**: `string`
 
-Defined in: [runtime/supervise/delegate.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L52)
+Defined in: [src/runtime/supervise/delegate.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L52)
 
 The model the supervisor BRAIN runs on (the router model). The brain must tool-call
  (`spawn_agent` / `await_event`), so a delegator model, not a hidden-reasoning model.
@@ -10139,7 +10560,7 @@ The model the supervisor BRAIN runs on (the router model). The brain must tool-c
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [runtime/supervise/delegate.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L56)
+Defined in: [src/runtime/supervise/delegate.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L56)
 
 The supervisor brain's router substrate. REQUIRED for the default router-brained supervisor
  (the brain is resolved from this), unless a test injects `brain` directly. `model` overrides
@@ -10149,7 +10570,7 @@ The supervisor brain's router substrate. REQUIRED for the default router-brained
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/supervise/delegate.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L58)
+Defined in: [src/runtime/supervise/delegate.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L58)
 
 Inject the supervisor brain directly (tests / advanced) instead of resolving it from `router`.
 
@@ -10157,7 +10578,7 @@ Inject the supervisor brain directly (tests / advanced) instead of resolving it 
 
 > `readonly` `optional` **supervisor?**: `Partial`\<`Pick`\<[`SupervisorProfile`](#supervisorprofile), `"name"` \| `"systemPrompt"`\>\>
 
-Defined in: [runtime/supervise/delegate.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L61)
+Defined in: [src/runtime/supervise/delegate.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L61)
 
 Override the default authoring-supervisor profile (name / extra system-prompt stance). The
  default already carries the authoring skill; override only to add a goal or rename.
@@ -10166,7 +10587,7 @@ Override the default authoring-supervisor profile (name / extra system-prompt st
 
 > `readonly` `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [runtime/supervise/delegate.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L63)
+Defined in: [src/runtime/supervise/delegate.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L63)
 
 Restrict the run to this subset of models (forwarded to `supervise()`).
 
@@ -10174,13 +10595,13 @@ Restrict the run to this subset of models (forwarded to `supervise()`).
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/delegate.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L64)
+Defined in: [src/runtime/supervise/delegate.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L64)
 
 ***
 
 ### WatchTraceOptions
 
-Defined in: [runtime/supervise/detector-monitor.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L23)
+Defined in: [src/runtime/supervise/detector-monitor.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L23)
 
 #### Properties
 
@@ -10188,7 +10609,7 @@ Defined in: [runtime/supervise/detector-monitor.ts:23](https://github.com/tangle
 
 > `readonly` `optional` **detectors?**: readonly `StreamingDetector`[]
 
-Defined in: [runtime/supervise/detector-monitor.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L25)
+Defined in: [src/runtime/supervise/detector-monitor.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L25)
 
 The detectors to run online. Defaults to a stuck-loop + error-streak panel.
 
@@ -10196,7 +10617,7 @@ The detectors to run online. Defaults to a stuck-loop + error-streak panel.
 
 > `readonly` `optional` **onSignal?**: (`signal`, `span`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/supervise/detector-monitor.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L27)
+Defined in: [src/runtime/supervise/detector-monitor.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L27)
 
 Fired for each signal a detector raises — the seam that raises a `finding` on the bus.
 
@@ -10218,7 +10639,7 @@ Fired for each signal a detector raises — the seam that raises a `finding` on 
 
 ### BusEvent
 
-Defined in: [runtime/supervise/event-bus.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L27)
+Defined in: [src/runtime/supervise/event-bus.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L27)
 
 Every bus event is a discriminated union member keyed by `type`.
 
@@ -10228,13 +10649,13 @@ Every bus event is a discriminated union member keyed by `type`.
 
 > `readonly` **type**: `string`
 
-Defined in: [runtime/supervise/event-bus.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L28)
+Defined in: [src/runtime/supervise/event-bus.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L28)
 
 ***
 
 ### BusRecord
 
-Defined in: [runtime/supervise/event-bus.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L33)
+Defined in: [src/runtime/supervise/event-bus.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L33)
 
 A published event stamped for ordering and observability. `seq` is the monotonic publish index;
  `priority` drives pull order (higher = bumped ahead); `at` is the wall-clock publish time (ms).
@@ -10251,31 +10672,31 @@ A published event stamped for ordering and observability. `seq` is the monotonic
 
 > `readonly` **seq**: `number`
 
-Defined in: [runtime/supervise/event-bus.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L34)
+Defined in: [src/runtime/supervise/event-bus.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L34)
 
 ##### at
 
 > `readonly` **at**: `number`
 
-Defined in: [runtime/supervise/event-bus.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L35)
+Defined in: [src/runtime/supervise/event-bus.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L35)
 
 ##### priority
 
 > `readonly` **priority**: `number`
 
-Defined in: [runtime/supervise/event-bus.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L36)
+Defined in: [src/runtime/supervise/event-bus.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L36)
 
 ##### event
 
 > `readonly` **event**: `E`
 
-Defined in: [runtime/supervise/event-bus.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L37)
+Defined in: [src/runtime/supervise/event-bus.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L37)
 
 ***
 
 ### PublishOptions
 
-Defined in: [runtime/supervise/event-bus.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L40)
+Defined in: [src/runtime/supervise/event-bus.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L40)
 
 #### Properties
 
@@ -10283,7 +10704,7 @@ Defined in: [runtime/supervise/event-bus.ts:40](https://github.com/tangle-networ
 
 > `readonly` `optional` **priority?**: `number`
 
-Defined in: [runtime/supervise/event-bus.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L43)
+Defined in: [src/runtime/supervise/event-bus.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L43)
 
 Higher = pulled ahead of lower-priority queued events (default 0). A blocking question sets
  this so it bumps to the front of the driver's inbox.
@@ -10292,7 +10713,7 @@ Higher = pulled ahead of lower-priority queued events (default 0). A blocking qu
 
 > `readonly` `optional` **queue?**: `boolean`
 
-Defined in: [runtime/supervise/event-bus.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L47)
+Defined in: [src/runtime/supervise/event-bus.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L47)
 
 Whether the event enters the pull queue (default true). Set `false` for record-only events —
  the parent→child down-leg (steer / answer / resume): they belong in `history()` and reach
@@ -10302,7 +10723,7 @@ Whether the event enters the pull queue (default true). Set `false` for record-o
 
 ### BusStats
 
-Defined in: [runtime/supervise/event-bus.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L50)
+Defined in: [src/runtime/supervise/event-bus.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L50)
 
 #### Properties
 
@@ -10310,19 +10731,19 @@ Defined in: [runtime/supervise/event-bus.ts:50](https://github.com/tangle-networ
 
 > `readonly` **published**: `number`
 
-Defined in: [runtime/supervise/event-bus.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L51)
+Defined in: [src/runtime/supervise/event-bus.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L51)
 
 ##### pulled
 
 > `readonly` **pulled**: `number`
 
-Defined in: [runtime/supervise/event-bus.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L52)
+Defined in: [src/runtime/supervise/event-bus.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L52)
 
 ##### byKind
 
 > `readonly` **byKind**: `Readonly`\<`Record`\<`string`, `number`\>\>
 
-Defined in: [runtime/supervise/event-bus.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L54)
+Defined in: [src/runtime/supervise/event-bus.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L54)
 
 Count published per event `type`.
 
@@ -10330,7 +10751,7 @@ Count published per event `type`.
 
 ### EventBus
 
-Defined in: [runtime/supervise/event-bus.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L57)
+Defined in: [src/runtime/supervise/event-bus.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L57)
 
 #### Type Parameters
 
@@ -10344,7 +10765,7 @@ Defined in: [runtime/supervise/event-bus.ts:57](https://github.com/tangle-networ
 
 > **publish**(`event`, `opts?`): `Promise`\<[`BusRecord`](#busrecord)\<`E`\>\>
 
-Defined in: [runtime/supervise/event-bus.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L60)
+Defined in: [src/runtime/supervise/event-bus.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L60)
 
 Stamp + queue the event, then deliver the stamped record to every subscriber in order.
  Returns the stamped record.
@@ -10367,7 +10788,7 @@ Stamp + queue the event, then deliver the stamped record to every subscriber in 
 
 > **pull**(`kinds?`): `E` \| `undefined`
 
-Defined in: [runtime/supervise/event-bus.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L63)
+Defined in: [src/runtime/supervise/event-bus.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L63)
 
 Remove and return the highest-priority QUEUED event whose type is in `kinds` (any if omitted),
  ties broken FIFO by `seq`; `undefined` when nothing matches.
@@ -10386,7 +10807,7 @@ readonly `E`\[`"type"`\][]
 
 > **subscribe**(`handler`): () => `void`
 
-Defined in: [runtime/supervise/event-bus.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L66)
+Defined in: [src/runtime/supervise/event-bus.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L66)
 
 Register a pass-through handler; it receives the stamped record of every event published after
  registration. Returns an unsubscribe fn.
@@ -10405,7 +10826,7 @@ Register a pass-through handler; it receives the stamped record of every event p
 
 > **pending**(`kinds?`): `number`
 
-Defined in: [runtime/supervise/event-bus.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L68)
+Defined in: [src/runtime/supervise/event-bus.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L68)
 
 Count of queued, not-yet-pulled events (filtered by `kinds` when given).
 
@@ -10423,7 +10844,7 @@ readonly `E`\[`"type"`\][]
 
 > **history**(): readonly [`BusRecord`](#busrecord)\<`E`\>[]
 
-Defined in: [runtime/supervise/event-bus.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L70)
+Defined in: [src/runtime/supervise/event-bus.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L70)
 
 The full ordered log of every event ever published (the audit/replay trail).
 
@@ -10435,7 +10856,7 @@ readonly [`BusRecord`](#busrecord)\<`E`\>[]
 
 > **stats**(): [`BusStats`](#busstats)
 
-Defined in: [runtime/supervise/event-bus.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L72)
+Defined in: [src/runtime/supervise/event-bus.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L72)
 
 Throughput counters for observability dashboards.
 
@@ -10447,7 +10868,7 @@ Throughput counters for observability dashboards.
 
 ### InboxMessage
 
-Defined in: [runtime/supervise/inbox.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L19)
+Defined in: [src/runtime/supervise/inbox.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L19)
 
 **`Experimental`**
 
@@ -10470,7 +10891,7 @@ and the worker's agent loop drains them at two points (Drew's two delivery modes
 
 > `readonly` **kind**: `"steer"` \| `"answer"`
 
-Defined in: [runtime/supervise/inbox.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L20)
+Defined in: [src/runtime/supervise/inbox.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L20)
 
 **`Experimental`**
 
@@ -10478,7 +10899,7 @@ Defined in: [runtime/supervise/inbox.ts:20](https://github.com/tangle-network/ag
 
 > `readonly` **text**: `string`
 
-Defined in: [runtime/supervise/inbox.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L21)
+Defined in: [src/runtime/supervise/inbox.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L21)
 
 **`Experimental`**
 
@@ -10486,7 +10907,7 @@ Defined in: [runtime/supervise/inbox.ts:21](https://github.com/tangle-network/ag
 
 > `readonly` **interrupt**: `boolean`
 
-Defined in: [runtime/supervise/inbox.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L23)
+Defined in: [src/runtime/supervise/inbox.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L23)
 
 **`Experimental`**
 
@@ -10496,7 +10917,7 @@ Forceful messages abort the in-flight turn; queued ones wait for the boundary fl
 
 > `readonly` `optional` **questionId?**: `string`
 
-Defined in: [runtime/supervise/inbox.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L25)
+Defined in: [src/runtime/supervise/inbox.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L25)
 
 **`Experimental`**
 
@@ -10506,7 +10927,7 @@ Present for an `answer` — the question id it resolves.
 
 ### Inbox
 
-Defined in: [runtime/supervise/inbox.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L28)
+Defined in: [src/runtime/supervise/inbox.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L28)
 
 #### Methods
 
@@ -10514,7 +10935,7 @@ Defined in: [runtime/supervise/inbox.ts:28](https://github.com/tangle-network/ag
 
 > **deliver**(`msg`): `void`
 
-Defined in: [runtime/supervise/inbox.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L30)
+Defined in: [src/runtime/supervise/inbox.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L30)
 
 The `Executor.deliver` implementation — accept a raw down-message from `Scope.send`.
 
@@ -10532,7 +10953,7 @@ The `Executor.deliver` implementation — accept a raw down-message from `Scope.
 
 > **drain**(): [`InboxMessage`](#inboxmessage)[]
 
-Defined in: [runtime/supervise/inbox.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L32)
+Defined in: [src/runtime/supervise/inbox.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L32)
 
 Remove and return all pending messages (the flush).
 
@@ -10544,7 +10965,7 @@ Remove and return all pending messages (the flush).
 
 > **pending**(): `number`
 
-Defined in: [runtime/supervise/inbox.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L33)
+Defined in: [src/runtime/supervise/inbox.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L33)
 
 ###### Returns
 
@@ -10554,7 +10975,7 @@ Defined in: [runtime/supervise/inbox.ts:33](https://github.com/tangle-network/ag
 
 > **freshInterrupt**(): `AbortSignal`
 
-Defined in: [runtime/supervise/inbox.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L36)
+Defined in: [src/runtime/supervise/inbox.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L36)
 
 Open a fresh per-turn interrupt signal; a later forceful `deliver` aborts it. The loop links
  this into the signal it passes to its inference call, then re-plans when it fires.
@@ -10567,7 +10988,7 @@ Open a fresh per-turn interrupt signal; a later forceful `deliver` aborts it. Th
 
 > **fold**(`messages`): `string`
 
-Defined in: [runtime/supervise/inbox.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L38)
+Defined in: [src/runtime/supervise/inbox.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L38)
 
 Render drained messages as ONE operator turn to fold into the worker's conversation.
 
@@ -10585,7 +11006,7 @@ readonly [`InboxMessage`](#inboxmessage)[]
 
 ### PatchDeliverableOptions
 
-Defined in: [runtime/supervise/patch-deliverable.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L28)
+Defined in: [src/runtime/supervise/patch-deliverable.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L28)
 
 **`Experimental`**
 
@@ -10603,7 +11024,7 @@ Defined in: [runtime/supervise/patch-deliverable.ts:28](https://github.com/tangl
 
 > `optional` **maxDiffLines?**: `number`
 
-Defined in: [runtime/supervise/patch-checks.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-checks.ts#L39)
+Defined in: [src/runtime/supervise/patch-checks.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-checks.ts#L39)
 
 **`Experimental`**
 
@@ -10617,7 +11038,7 @@ Default 400. Hard cap; gate fails when exceeded.
 
 > `optional` **forbiddenPaths?**: `string`[]
 
-Defined in: [runtime/supervise/patch-checks.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-checks.ts#L41)
+Defined in: [src/runtime/supervise/patch-checks.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-checks.ts#L41)
 
 **`Experimental`**
 
@@ -10631,7 +11052,7 @@ Literal path prefixes the patch must not touch.
 
 > `optional` **require?**: readonly (`"tests"` \| `"typecheck"`)[]
 
-Defined in: [runtime/supervise/patch-deliverable.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L35)
+Defined in: [src/runtime/supervise/patch-deliverable.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L35)
 
 **`Experimental`**
 
@@ -10644,7 +11065,7 @@ that command). Default `[]` — gate on no-op / secret / forbidden / diff-size o
 
 ### InMemoryRunContextOptions
 
-Defined in: [runtime/supervise/run-context.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L33)
+Defined in: [src/runtime/supervise/run-context.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L33)
 
 Options for the in-memory run context.
 
@@ -10654,7 +11075,7 @@ Options for the in-memory run context.
 
 > `readonly` `optional` **withDriver?**: `boolean`
 
-Defined in: [runtime/supervise/run-context.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L40)
+Defined in: [src/runtime/supervise/run-context.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L40)
 
 Wrap the executor registry with `withDriverExecutor` so a spawned child marked
 `role: 'driver'` resolves to the recursive driver-executor (agents driving agents
@@ -10665,7 +11086,7 @@ leaf workers. Default `false`.
 
 ### InMemoryRunContext
 
-Defined in: [runtime/supervise/run-context.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L47)
+Defined in: [src/runtime/supervise/run-context.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L47)
 
 The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`.
 The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
@@ -10676,25 +11097,25 @@ The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
 
 > `readonly` **journal**: `SpawnJournal`
 
-Defined in: [runtime/supervise/run-context.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L48)
+Defined in: [src/runtime/supervise/run-context.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L48)
 
 ##### blobs
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/run-context.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L49)
+Defined in: [src/runtime/supervise/run-context.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L49)
 
 ##### executors
 
 > `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [runtime/supervise/run-context.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L50)
+Defined in: [src/runtime/supervise/run-context.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L50)
 
 ***
 
 ### ProviderSeam
 
-Defined in: [runtime/supervise/runtime.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L201)
+Defined in: [src/runtime/supervise/runtime.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L201)
 
 Generic environment provider executor config. External packages implement
  `AgentEnvironmentProvider`; this built-in wrapper lets `createExecutor`
@@ -10710,7 +11131,7 @@ Generic environment provider executor config. External packages implement
 
 > `optional` **defaults?**: `Partial`\<`CreateAgentEnvironmentInput`\>
 
-Defined in: [runtime/environment-provider.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L269)
+Defined in: [src/runtime/environment-provider.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L269)
 
 **`Experimental`**
 
@@ -10722,7 +11143,7 @@ Defined in: [runtime/environment-provider.ts:269](https://github.com/tangle-netw
 
 > `optional` **runtime?**: [`Runtime`](#runtime-3)
 
-Defined in: [runtime/environment-provider.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L270)
+Defined in: [src/runtime/environment-provider.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L270)
 
 **`Experimental`**
 
@@ -10734,7 +11155,7 @@ Defined in: [runtime/environment-provider.ts:270](https://github.com/tangle-netw
 
 > `optional` **destroyOnSettle?**: `boolean`
 
-Defined in: [runtime/environment-provider.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L271)
+Defined in: [src/runtime/environment-provider.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L271)
 
 **`Experimental`**
 
@@ -10746,7 +11167,7 @@ Defined in: [runtime/environment-provider.ts:271](https://github.com/tangle-netw
 
 > `optional` **requireTerminalEvent?**: `boolean`
 
-Defined in: [runtime/environment-provider.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L272)
+Defined in: [src/runtime/environment-provider.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L272)
 
 **`Experimental`**
 
@@ -10758,7 +11179,7 @@ Defined in: [runtime/environment-provider.ts:272](https://github.com/tangle-netw
 
 > `optional` **taskToTurn?**: (`task`, `specProfile`) => `AgentTurnInput`
 
-Defined in: [runtime/environment-provider.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L273)
+Defined in: [src/runtime/environment-provider.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L273)
 
 **`Experimental`**
 
@@ -10784,19 +11205,19 @@ Defined in: [runtime/environment-provider.ts:273](https://github.com/tangle-netw
 
 > **provider**: `string` \| `AgentEnvironmentProvider`
 
-Defined in: [runtime/supervise/runtime.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L202)
+Defined in: [src/runtime/supervise/runtime.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L202)
 
 ##### registry?
 
 > `optional` **registry?**: [`AgentEnvironmentProviderRegistry`](runtime/environment-provider.md#agentenvironmentproviderregistry)
 
-Defined in: [runtime/supervise/runtime.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L203)
+Defined in: [src/runtime/supervise/runtime.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L203)
 
 ***
 
 ### SuperviseOptions
 
-Defined in: [runtime/supervise/supervise.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L46)
+Defined in: [src/runtime/supervise/supervise.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L46)
 
 #### Properties
 
@@ -10804,7 +11225,7 @@ Defined in: [runtime/supervise/supervise.ts:46](https://github.com/tangle-networ
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise/supervise.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L48)
+Defined in: [src/runtime/supervise/supervise.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L48)
 
 The conserved compute pool for the whole run.
 
@@ -10812,7 +11233,7 @@ The conserved compute pool for the whole run.
 
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
 
-Defined in: [runtime/supervise/supervise.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L50)
+Defined in: [src/runtime/supervise/supervise.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L50)
 
 WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`.
 
@@ -10820,7 +11241,7 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
-Defined in: [runtime/supervise/supervise.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L54)
+Defined in: [src/runtime/supervise/supervise.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L54)
 
 The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
@@ -10830,7 +11251,7 @@ The completion oracle for backend-derived workers (settled ⟺ delivered). Stron
 
 > `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [runtime/supervise/supervise.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L56)
+Defined in: [src/runtime/supervise/supervise.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L56)
 
 Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
 
@@ -10838,7 +11259,7 @@ Override the worker seam directly (tests / advanced) instead of deriving it from
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [runtime/supervise/supervise.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L58)
+Defined in: [src/runtime/supervise/supervise.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L58)
 
 The supervisor's router substrate (`harness` null). The profile's model wins.
 
@@ -10846,7 +11267,7 @@ The supervisor's router substrate (`harness` null). The profile's model wins.
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/supervise/supervise.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L60)
+Defined in: [src/runtime/supervise/supervise.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L60)
 
 Inject the supervisor brain directly (tests / advanced).
 
@@ -10854,7 +11275,7 @@ Inject the supervisor brain directly (tests / advanced).
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
-Defined in: [runtime/supervise/supervise.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L62)
+Defined in: [src/runtime/supervise/supervise.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L62)
 
 Run a sandboxed-harness supervisor (`harness` set).
 
@@ -10862,7 +11283,7 @@ Run a sandboxed-harness supervisor (`harness` set).
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [runtime/supervise/supervise.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L66)
+Defined in: [src/runtime/supervise/supervise.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L66)
 
 WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do simple work
  itself) OR SPAWN (delegate when it needs parallelism), not be a pure manager. Pair with
@@ -10872,7 +11293,7 @@ WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do 
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [runtime/supervise/supervise.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L72)
+Defined in: [src/runtime/supervise/supervise.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L72)
 
 Runs an `extraTools` call; null/undefined falls through to the coordination dispatch.
 
@@ -10894,7 +11315,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **perWorker?**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise/supervise.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L77)
+Defined in: [src/runtime/supervise/supervise.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L77)
 
 Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
 
@@ -10902,7 +11323,7 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [runtime/supervise/supervise.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L81)
+Defined in: [src/runtime/supervise/supervise.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L81)
 
 Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
  flight. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work (live boxes/
@@ -10912,7 +11333,7 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
 
-Defined in: [runtime/supervise/supervise.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L84)
+Defined in: [src/runtime/supervise/supervise.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L84)
 
 Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
  (the driver receives settled worker outputs, no analyst findings).
@@ -10921,7 +11342,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [runtime/supervise/supervise.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L89)
+Defined in: [src/runtime/supervise/supervise.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L89)
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
@@ -10932,7 +11353,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 
 > `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
+Defined in: [src/runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
 
 Worker output store. Defaults to in-memory.
 
@@ -10940,19 +11361,19 @@ Worker output store. Defaults to in-memory.
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [runtime/supervise/supervise.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L92)
+Defined in: [src/runtime/supervise/supervise.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L92)
 
 ##### maxTurns?
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/supervise.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L93)
+Defined in: [src/runtime/supervise/supervise.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L93)
 
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [runtime/supervise/supervise.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L99)
+Defined in: [src/runtime/supervise/supervise.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L99)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
  its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
@@ -10964,13 +11385,13 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/supervise.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L100)
+Defined in: [src/runtime/supervise/supervise.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L100)
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/supervise/supervise.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L101)
+Defined in: [src/runtime/supervise/supervise.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L101)
 
 ###### Returns
 
@@ -10980,7 +11401,7 @@ Defined in: [runtime/supervise/supervise.ts:101](https://github.com/tangle-netwo
 
 > `readonly` `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [runtime/supervise/supervise.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L105)
+Defined in: [src/runtime/supervise/supervise.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L105)
 
 Restrict the run to this subset of models. When set, every configured model — the
  supervisor router model, the profile's model, and the backend's model — must be a member,
@@ -10990,7 +11411,7 @@ Restrict the run to this subset of models. When set, every configured model — 
 
 ### SupervisorProfile
 
-Defined in: [runtime/supervise/supervisor-agent.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L48)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L48)
 
 The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
  `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
@@ -11001,13 +11422,13 @@ The supervisor's profile — the subset of an `AgentProfile` that selects + shap
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L49)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L49)
 
 ##### harness?
 
 > `readonly` `optional` **harness?**: `string` \| `null`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L51)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L51)
 
 null/undefined → router brain (in-process tool-loop); a coding-CLI harness → sandboxed brain.
 
@@ -11015,7 +11436,7 @@ null/undefined → router brain (in-process tool-loop); a coding-CLI harness →
 
 > `readonly` `optional` **model?**: `string`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L53)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L53)
 
 The router model when the brain is router-driven (falls back to the deps router config).
 
@@ -11023,7 +11444,7 @@ The router model when the brain is router-driven (falls back to the deps router 
 
 > `readonly` `optional` **systemPrompt?**: `string`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L55)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L55)
 
 The standing instructions ("you delegate, you do not solve").
 
@@ -11031,7 +11452,7 @@ The standing instructions ("you delegate, you do not solve").
 
 ### SupervisorAgentDeps
 
-Defined in: [runtime/supervise/supervisor-agent.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L69)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L69)
 
 #### Properties
 
@@ -11039,13 +11460,13 @@ Defined in: [runtime/supervise/supervisor-agent.ts:69](https://github.com/tangle
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L70)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L70)
 
 ##### makeWorkerAgent
 
 > `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L72)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L72)
 
 Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms).
 
@@ -11053,7 +11474,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 > `readonly` **perWorker**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L74)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L74)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -11061,7 +11482,7 @@ Per-child budget reserved from the conserved pool on each spawn.
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L78)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L78)
 
 Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
@@ -11071,7 +11492,7 @@ Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L80)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L80)
 
 Router substrate for a router-brained supervisor (`harness` null). The profile's model wins.
 
@@ -11079,7 +11500,7 @@ Router substrate for a router-brained supervisor (`harness` null). The profile's
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L82)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L82)
 
 Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile.
 
@@ -11087,7 +11508,7 @@ Inject the brain directly (tests / advanced) instead of resolving `routerBrain` 
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L84)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L84)
 
 Required for a sandboxed-harness supervisor (`harness` set): runs the harness as the driver.
 
@@ -11095,7 +11516,7 @@ Required for a sandboxed-harness supervisor (`harness` set): runs the harness as
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [runtime/supervise/supervisor-agent.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L87)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L87)
 
 WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple work ITSELF and
  only delegate when it needs parallelism. Pair with `executeExtraTool`.
@@ -11104,7 +11525,7 @@ WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L93)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L93)
 
 Runs an `extraTools` call; null/undefined falls through to the coordination dispatch.
 
@@ -11126,7 +11547,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L98)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L98)
 
 Analyst lenses available to the driver (both arms). Required for `analyzeOnSettle`.
 
@@ -11134,7 +11555,7 @@ Analyst lenses available to the driver (both arms). Required for `analyzeOnSettl
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [runtime/supervise/supervisor-agent.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L101)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L101)
 
 Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`.
@@ -11143,13 +11564,13 @@ Analyst kinds run on each worker-settle → a `finding` the driver composes its 
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L102)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L102)
 
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L106)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L106)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
  distills its coordination transcript to a compact progress note once it exceeds the threshold,
@@ -11159,7 +11580,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 ### TraceSource
 
-Defined in: [runtime/supervise/trace-source.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L38)
+Defined in: [src/runtime/supervise/trace-source.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L38)
 
 #### Methods
 
@@ -11167,7 +11588,7 @@ Defined in: [runtime/supervise/trace-source.ts:38](https://github.com/tangle-net
 
 > **onSpan**(`handler`): () => `void`
 
-Defined in: [runtime/supervise/trace-source.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L41)
+Defined in: [src/runtime/supervise/trace-source.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L41)
 
 Subscribe to tool spans as they are produced (ONLINE). Returns an unsubscribe. A source that
  only exposes its trace at the end registers nothing and returns a no-op.
@@ -11186,7 +11607,7 @@ Subscribe to tool spans as they are produced (ONLINE). Returns an unsubscribe. A
 
 > **collect**(): `Promise`\<`ToolSpan`[]\>
 
-Defined in: [runtime/supervise/trace-source.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L43)
+Defined in: [src/runtime/supervise/trace-source.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L43)
 
 The full set of tool spans for the run (SETTLE / batch). Always available.
 
@@ -11198,7 +11619,7 @@ The full set of tool spans for the run (SETTLE / batch). Always available.
 
 ### SessionTraceBox
 
-Defined in: [runtime/supervise/trace-source.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L279)
+Defined in: [src/runtime/supervise/trace-source.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L279)
 
 The minimal box surface this needs: list a session's messages (incl. mid-turn partials).
 
@@ -11208,7 +11629,7 @@ The minimal box surface this needs: list a session's messages (incl. mid-turn pa
 
 > **messages**(`opts`): `Promise`\<readonly `SessionMessageLike`[]\>
 
-Defined in: [runtime/supervise/trace-source.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L280)
+Defined in: [src/runtime/supervise/trace-source.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L280)
 
 ###### Parameters
 
@@ -11226,7 +11647,7 @@ Defined in: [runtime/supervise/trace-source.ts:280](https://github.com/tangle-ne
 
 ### TrajectoryAnalysis
 
-Defined in: [runtime/supervise/trajectory-recorder.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L16)
+Defined in: [src/runtime/supervise/trajectory-recorder.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L16)
 
 #### Properties
 
@@ -11234,7 +11655,7 @@ Defined in: [runtime/supervise/trajectory-recorder.ts:16](https://github.com/tan
 
 > `readonly` **trajectory**: `Trajectory`
 
-Defined in: [runtime/supervise/trajectory-recorder.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L19)
+Defined in: [src/runtime/supervise/trajectory-recorder.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L19)
 
 Structured run summary (tool-call count, step order). Steps carry a single timestamp, so per-span
  duration is 0; loop/waste detection keys on call PATTERNS + cross-span windows, not durations.
@@ -11243,7 +11664,7 @@ Structured run summary (tool-call count, step order). Steps carry a single times
 
 > `readonly` **stuckLoop**: `StuckLoopReport`
 
-Defined in: [runtime/supervise/trajectory-recorder.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L22)
+Defined in: [src/runtime/supervise/trajectory-recorder.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L22)
 
 Full-run repeated-call view (total occurrences + window) — allows one intervening call so it
 catches a loop the online consecutive detector interleaves past.
@@ -11252,7 +11673,7 @@ catches a loop the online consecutive detector interleaves past.
 
 > `readonly` **toolWaste**: `ToolWasteReport`
 
-Defined in: [runtime/supervise/trajectory-recorder.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L24)
+Defined in: [src/runtime/supervise/trajectory-recorder.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L24)
 
 Wasted-vs-total tool-call ratio for the run.
 
@@ -11260,7 +11681,7 @@ Wasted-vs-total tool-call ratio for the run.
 
 ### Agent
 
-Defined in: [runtime/supervise/types.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L50)
+Defined in: [src/runtime/supervise/types.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L50)
 
 One self-similar atom. A leaf is an `Agent` that never calls `scope.spawn`; a driver
 is an `Agent` whose `act` spawns children and reacts to them via `scope.next()`. An
@@ -11287,7 +11708,7 @@ unordered collection. `scope.next()` delivers strictly in recorded `seq` order.
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/supervise/types.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L51)
+Defined in: [src/runtime/supervise/types.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L51)
 
 #### Methods
 
@@ -11295,7 +11716,7 @@ Defined in: [runtime/supervise/types.ts:51](https://github.com/tangle-network/ag
 
 > **act**(`task`, `scope`): `Promise`\<`Out`\>
 
-Defined in: [runtime/supervise/types.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L52)
+Defined in: [src/runtime/supervise/types.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L52)
 
 ###### Parameters
 
@@ -11315,7 +11736,7 @@ Defined in: [runtime/supervise/types.ts:52](https://github.com/tangle-network/ag
 
 ### Executor
 
-Defined in: [runtime/supervise/types.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L71)
+Defined in: [src/runtime/supervise/types.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L71)
 
 The leaf runtime — ONE open interface, not a closed union. `execute` returns a
 `Promise<ExecutorResult>` for one-shot executors OR an `AsyncIterable<UsageEvent>` for
@@ -11342,7 +11763,7 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 > `readonly` **runtime**: [`Runtime`](#runtime-3)
 
-Defined in: [runtime/supervise/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L73)
+Defined in: [src/runtime/supervise/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L73)
 
 Stable runtime tag for traces + the equal-k exemption check.
 
@@ -11350,7 +11771,7 @@ Stable runtime tag for traces + the equal-k exemption check.
 
 > `readonly` `optional` **budgetExempt?**: `boolean`
 
-Defined in: [runtime/supervise/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L79)
+Defined in: [src/runtime/supervise/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L79)
 
 When true, this executor's spend is NOT metered against the conserved pool and its
 iterations are excluded from the equal-k assertion (a `cli` subprocess without
@@ -11362,7 +11783,7 @@ token accounting). Fail-loud everywhere else: a metered executor MUST report usa
 
 > **execute**(`task`, `signal`): `AsyncIterable`\<[`UsageEvent`](#usageevent), `any`, `any`\> \| `Promise`\<[`ExecutorResult`](#executorresult)\<`Out`\>\>
 
-Defined in: [runtime/supervise/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L85)
+Defined in: [src/runtime/supervise/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L85)
 
 One-shot → resolves a `ExecutorResult`; streaming → yields incremental `UsageEvent`s and
 the terminal artifact is read from `resultArtifact()` after the stream drains.
@@ -11386,7 +11807,7 @@ the terminal artifact is read from `resultArtifact()` after the stream drains.
 
 > `optional` **deliver**(`msg`): `void`
 
-Defined in: [runtime/supervise/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L96)
+Defined in: [src/runtime/supervise/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L96)
 
 Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
 verb). A streaming executor drains pending messages between turns and folds them into the next
@@ -11408,7 +11829,7 @@ executor's to ignore.
 
 > **teardown**(`grace`): `Promise`\<\{ `destroyed`: `boolean`; \}\>
 
-Defined in: [runtime/supervise/types.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L101)
+Defined in: [src/runtime/supervise/types.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L101)
 
 Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
 (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
@@ -11427,7 +11848,7 @@ Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
 
 > **resultArtifact**(): `object`
 
-Defined in: [runtime/supervise/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L106)
+Defined in: [src/runtime/supervise/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L106)
 
 The replay source (B1): the content-addressed `outRef` + the materialized output the
 driver branched on, its verdict, and the conserved spend. Read once, after settle.
@@ -11456,7 +11877,7 @@ driver branched on, its verdict, and the conserved spend. Read once, after settl
 
 > `optional` **metered**(): [`Spend`](#spend) \| `undefined`
 
-Defined in: [runtime/supervise/types.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L115)
+Defined in: [src/runtime/supervise/types.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L115)
 
 A driver-executor's OWN-inference subtree total (rolled up from its nested tree's `metered`
 events) — the parent scope journals it as a `metered` event for this node on settle, on BOTH
@@ -11473,7 +11894,7 @@ executors omit it (returns `undefined`).
 
 ### ExecutorResult
 
-Defined in: [runtime/supervise/types.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L119)
+Defined in: [src/runtime/supervise/types.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L119)
 
 Terminal artifact of a one-shot `Executor.execute`.
 
@@ -11489,31 +11910,31 @@ Terminal artifact of a one-shot `Executor.execute`.
 
 > **outRef**: `string`
 
-Defined in: [runtime/supervise/types.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L120)
+Defined in: [src/runtime/supervise/types.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L120)
 
 ##### out
 
 > **out**: `Out`
 
-Defined in: [runtime/supervise/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L121)
+Defined in: [src/runtime/supervise/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L121)
 
 ##### verdict?
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/supervise/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L122)
+Defined in: [src/runtime/supervise/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L122)
 
 ##### spent
 
 > **spent**: [`Spend`](#spend)
 
-Defined in: [runtime/supervise/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L123)
+Defined in: [src/runtime/supervise/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L123)
 
 ***
 
 ### AgentSpec
 
-Defined in: [runtime/supervise/types.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L153)
+Defined in: [src/runtime/supervise/types.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L153)
 
 `AgentProfile` does NOT carry a `harness`/backend field — `harness` lives on the
 sandbox SDK's `BackendConfig`, not the portable profile. So an agent is mapped to its
@@ -11531,13 +11952,13 @@ Fail loud on an unresolvable spec (no executor and an unknown harness).
 
 > `readonly` **profile**: `AgentProfile`
 
-Defined in: [runtime/supervise/types.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L154)
+Defined in: [src/runtime/supervise/types.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L154)
 
 ##### harness
 
 > `readonly` **harness**: `BackendType` \| `null`
 
-Defined in: [runtime/supervise/types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L156)
+Defined in: [src/runtime/supervise/types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L156)
 
 `null` selects router/inline; a `BackendType` selects the sandboxed harness.
 
@@ -11545,7 +11966,7 @@ Defined in: [runtime/supervise/types.ts:156](https://github.com/tangle-network/a
 
 > `readonly` `optional` **executor?**: [`Executor`](#executor)\<`unknown`\>
 
-Defined in: [runtime/supervise/types.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L158)
+Defined in: [src/runtime/supervise/types.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L158)
 
 Bring-your-own executor: when set, overrides harness-based resolution entirely.
 
@@ -11553,7 +11974,7 @@ Bring-your-own executor: when set, overrides harness-based resolution entirely.
 
 ### ExecutorContext
 
-Defined in: [runtime/supervise/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L171)
+Defined in: [src/runtime/supervise/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L171)
 
 Construction context handed to a `ExecutorFactory` — the seams a built-in needs
  (sandbox client for the sandbox executor, router config for router/inline) without
@@ -11565,13 +11986,13 @@ Construction context handed to a `ExecutorFactory` — the seams a built-in need
 
 > `readonly` **signal**: `AbortSignal`
 
-Defined in: [runtime/supervise/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L172)
+Defined in: [src/runtime/supervise/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L172)
 
 ##### seams
 
 > `readonly` **seams**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
-Defined in: [runtime/supervise/types.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L174)
+Defined in: [src/runtime/supervise/types.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L174)
 
 Opaque seams the registry threads through; a built-in narrows what it needs.
 
@@ -11579,7 +12000,7 @@ Opaque seams the registry threads through; a built-in narrows what it needs.
 
 ### ExecutorRegistry
 
-Defined in: [runtime/supervise/types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L183)
+Defined in: [src/runtime/supervise/types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L183)
 
 The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
 registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
@@ -11592,7 +12013,7 @@ point, mirroring the open `Executor` interface.
 
 > **register**\<`Out`\>(`runtime`, `factory`): `void`
 
-Defined in: [runtime/supervise/types.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L185)
+Defined in: [src/runtime/supervise/types.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L185)
 
 Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
@@ -11620,7 +12041,7 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 > **resolve**\<`Out`\>(`spec`): \{ `succeeded`: `true`; `value`: [`ExecutorFactory`](#executorfactory)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
 
-Defined in: [runtime/supervise/types.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L192)
+Defined in: [src/runtime/supervise/types.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L192)
 
 Resolve a spec to a factory. Precedence: a BYO `spec.executor` → a trivial factory
 returning it; else `harness === null` → the `'router'` factory; else a registered
@@ -11647,7 +12068,7 @@ inspects `succeeded` before `value` (no silent fallback).
 
 ### Budget
 
-Defined in: [runtime/supervise/types.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L200)
+Defined in: [src/runtime/supervise/types.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L200)
 
 A budget envelope on a spawn or the root. All ceilings; the pool reserves against them.
 
@@ -11657,31 +12078,31 @@ A budget envelope on a spawn or the root. All ceilings; the pool reserves agains
 
 > `readonly` **maxIterations**: `number`
 
-Defined in: [runtime/supervise/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L201)
+Defined in: [src/runtime/supervise/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L201)
 
 ##### maxTokens
 
 > `readonly` **maxTokens**: `number`
 
-Defined in: [runtime/supervise/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L202)
+Defined in: [src/runtime/supervise/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L202)
 
 ##### maxUsd?
 
 > `readonly` `optional` **maxUsd?**: `number`
 
-Defined in: [runtime/supervise/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L203)
+Defined in: [src/runtime/supervise/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L203)
 
 ##### deadlineMs?
 
 > `readonly` `optional` **deadlineMs?**: `number`
 
-Defined in: [runtime/supervise/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L204)
+Defined in: [src/runtime/supervise/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L204)
 
 ***
 
 ### Spend
 
-Defined in: [runtime/supervise/types.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L209)
+Defined in: [src/runtime/supervise/types.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L209)
 
 Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd
  are separate channels (never folded).
@@ -11692,19 +12113,19 @@ Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and 
 
 > **iterations**: `number`
 
-Defined in: [runtime/supervise/types.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L210)
+Defined in: [src/runtime/supervise/types.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L210)
 
 ##### tokens
 
 > **tokens**: [`LoopTokenUsage`](#looptokenusage)
 
-Defined in: [runtime/supervise/types.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L211)
+Defined in: [src/runtime/supervise/types.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L211)
 
 ##### usdKnown?
 
 > `optional` **usdKnown?**: `boolean`
 
-Defined in: [runtime/supervise/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L214)
+Defined in: [src/runtime/supervise/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L214)
 
 Dollar accounting is known unless explicitly false. A false value must not be treated as $0
  when enforcing a dollar-denominated comparison or limit.
@@ -11713,19 +12134,19 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 > **usd**: `number`
 
-Defined in: [runtime/supervise/types.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L215)
+Defined in: [src/runtime/supervise/types.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L215)
 
 ##### ms
 
 > **ms**: `number`
 
-Defined in: [runtime/supervise/types.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L216)
+Defined in: [src/runtime/supervise/types.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L216)
 
 ***
 
 ### Scope
 
-Defined in: [runtime/supervise/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L287)
+Defined in: [src/runtime/supervise/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L287)
 
 The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves
 budget atomically from the shared pool and fails closed when the pool cannot cover it.
@@ -11744,7 +12165,7 @@ not the replay log.
 
 > `readonly` **signal**: `AbortSignal`
 
-Defined in: [runtime/supervise/types.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L321)
+Defined in: [src/runtime/supervise/types.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L321)
 
 This scope's abort signal — aborted when the run is cancelled, a breaker trips, the pool
  is exhausted, or a parent scope cascades. A long-running driver `act` over this scope reads
@@ -11755,7 +12176,7 @@ This scope's abort signal — aborted when the run is cancelled, a breaker trips
 
 > `readonly` **view**: [`TreeView`](#treeview)
 
-Defined in: [runtime/supervise/types.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L335)
+Defined in: [src/runtime/supervise/types.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L335)
 
 The live tree — reads the in-memory nursery, not the journal.
 
@@ -11763,7 +12184,7 @@ The live tree — reads the in-memory nursery, not the journal.
 
 > `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
-Defined in: [runtime/supervise/types.ts:337](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L337)
+Defined in: [src/runtime/supervise/types.ts:337](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L337)
 
 Conserved-pool readouts (post-reservation).
 
@@ -11773,7 +12194,7 @@ Conserved-pool readouts (post-reservation).
 
 > **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: `Handle`\<`C`\>; \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"` \| `"depth-exceeded"`; \}
 
-Defined in: [runtime/supervise/types.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L293)
+Defined in: [src/runtime/supervise/types.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L293)
 
 Spawn a child. Reserves `opts.budget` from the conserved pool atomically; refunds the
 unspent remainder on settle. Returns a typed outcome — fail-closed on an exhausted
@@ -11807,7 +12228,7 @@ pool or an exceeded depth ceiling (the caller inspects `ok` before `handle`).
 
 > **next**(): `Promise`\<[`Settled`](#settled-2)\<`Out`\> \| `null`\>
 
-Defined in: [runtime/supervise/types.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L300)
+Defined in: [src/runtime/supervise/types.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L300)
 
 ray.wait n=1 over this scope's in-memory live set; resolves as each child settles;
  `null` when the live set is empty.
@@ -11820,7 +12241,7 @@ ray.wait n=1 over this scope's in-memory live set; resolves as each child settle
 
 > **nextResolved**(): `Promise`\<[`Settled`](#settled-2)\<`Out`\> \| `null`\>
 
-Defined in: [runtime/supervise/types.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L307)
+Defined in: [src/runtime/supervise/types.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L307)
 
 Non-blocking twin of `next()`: deliver an ALREADY-settled, undelivered child, or `null`
 when none is ready — never awaits a live child. The driver's post-loop drain reads this so
@@ -11835,7 +12256,7 @@ the finalize ledger instead of being silently lost.
 
 > **send**(`nodeId`, `msg`): `boolean`
 
-Defined in: [runtime/supervise/types.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L316)
+Defined in: [src/runtime/supervise/types.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L316)
 
 Steer a RUNNING child out-of-band — deliver a message to its executor's inbox (the driver's
 `send` verb: next-instruction, interrupt, or resume). Returns `true` if the message was
@@ -11862,7 +12283,7 @@ is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an M
 
 > **meter**(`spend`, `detail?`): `Promise`\<`void`\>
 
-Defined in: [runtime/supervise/types.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L333)
+Defined in: [src/runtime/supervise/types.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L333)
 
 Meter the driver's OWN compute against the conserved pool — its inference turns, which are
 real tokens/usd but not a spawned child (no reserve/reconcile). A direct `free → committed`
@@ -11892,7 +12313,7 @@ metered event is cost-critical, so it lands before the join-barrier roll-up).
 
 ### TreeView
 
-Defined in: [runtime/supervise/types.ts:362](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L362)
+Defined in: [src/runtime/supervise/types.ts:362](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L362)
 
 The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer.
 
@@ -11902,19 +12323,19 @@ The live tree — what `scope.view` / `RootHandle.view()` materialize for a view
 
 > `readonly` **root**: `string`
 
-Defined in: [runtime/supervise/types.ts:363](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L363)
+Defined in: [src/runtime/supervise/types.ts:363](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L363)
 
 ##### nodes
 
 > `readonly` **nodes**: readonly `NodeSnapshot`[]
 
-Defined in: [runtime/supervise/types.ts:364](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L364)
+Defined in: [src/runtime/supervise/types.ts:364](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L364)
 
 ##### inFlight
 
 > `readonly` **inFlight**: `number`
 
-Defined in: [runtime/supervise/types.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L366)
+Defined in: [src/runtime/supervise/types.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L366)
 
 Count of nodes in `running` or `acquiring` — the "what's in flow?" answer.
 
@@ -11922,7 +12343,7 @@ Count of nodes in `running` or `acquiring` — the "what's in flow?" answer.
 
 ### ResultBlobStore
 
-Defined in: [runtime/supervise/types.ts:426](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L426)
+Defined in: [src/runtime/supervise/types.ts:426](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L426)
 
 Content-addressed result blobs (the `outRef` → artifact map) backing the replay
  invariant. Split from the journal so the journal stays small (decisions) and the
@@ -11934,7 +12355,7 @@ Content-addressed result blobs (the `outRef` → artifact map) backing the repla
 
 > **put**(`outRef`, `artifact`): `Promise`\<`void`\>
 
-Defined in: [runtime/supervise/types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L427)
+Defined in: [src/runtime/supervise/types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L427)
 
 ###### Parameters
 
@@ -11954,7 +12375,7 @@ Defined in: [runtime/supervise/types.ts:427](https://github.com/tangle-network/a
 
 > **get**(`outRef`): `Promise`\<`unknown`\>
 
-Defined in: [runtime/supervise/types.ts:428](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L428)
+Defined in: [src/runtime/supervise/types.ts:428](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L428)
 
 ###### Parameters
 
@@ -11970,7 +12391,7 @@ Defined in: [runtime/supervise/types.ts:428](https://github.com/tangle-network/a
 
 ### Supervisor
 
-Defined in: [runtime/supervise/types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L438)
+Defined in: [src/runtime/supervise/types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L438)
 
 Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker,
 and the root handle. `run` executes the root `Agent` to completion; `attach` wires a
@@ -11992,7 +12413,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 > **run**(`root`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`Out`\>\>
 
-Defined in: [runtime/supervise/types.ts:439](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L439)
+Defined in: [src/runtime/supervise/types.ts:439](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L439)
 
 ###### Parameters
 
@@ -12016,7 +12437,7 @@ Defined in: [runtime/supervise/types.ts:439](https://github.com/tangle-network/a
 
 > **attach**(`h`): `void`
 
-Defined in: [runtime/supervise/types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L440)
+Defined in: [src/runtime/supervise/types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L440)
 
 ###### Parameters
 
@@ -12032,7 +12453,7 @@ Defined in: [runtime/supervise/types.ts:440](https://github.com/tangle-network/a
 
 ### SupervisorOpts
 
-Defined in: [runtime/supervise/types.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L443)
+Defined in: [src/runtime/supervise/types.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L443)
 
 #### Properties
 
@@ -12040,7 +12461,7 @@ Defined in: [runtime/supervise/types.ts:443](https://github.com/tangle-network/a
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise/types.ts:445](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L445)
+Defined in: [src/runtime/supervise/types.ts:445](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L445)
 
 The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
@@ -12048,7 +12469,7 @@ The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
 > `readonly` **runId**: `string`
 
-Defined in: [runtime/supervise/types.ts:447](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L447)
+Defined in: [src/runtime/supervise/types.ts:447](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L447)
 
 Trace-correlation root + the journal/blob root key.
 
@@ -12056,7 +12477,7 @@ Trace-correlation root + the journal/blob root key.
 
 > `readonly` **journal**: `SpawnJournal`
 
-Defined in: [runtime/supervise/types.ts:449](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L449)
+Defined in: [src/runtime/supervise/types.ts:449](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L449)
 
 Event source — defaults to the in-memory journal in the impl; pass JSONL/FS for durability.
 
@@ -12064,7 +12485,7 @@ Event source — defaults to the in-memory journal in the impl; pass JSONL/FS fo
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/types.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L451)
+Defined in: [src/runtime/supervise/types.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L451)
 
 Result payload store backing `outRef` rehydration.
 
@@ -12072,7 +12493,7 @@ Result payload store backing `outRef` rehydration.
 
 > `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [runtime/supervise/types.ts:453](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L453)
+Defined in: [src/runtime/supervise/types.ts:453](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L453)
 
 Executor resolution — the open registry mapping `AgentSpec` → `Executor`.
 
@@ -12080,7 +12501,7 @@ Executor resolution — the open registry mapping `AgentSpec` → `Executor`.
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [runtime/supervise/types.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L455)
+Defined in: [src/runtime/supervise/types.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L455)
 
 Runtime recursion-depth ceiling (paired with the conserved pool per R3).
 
@@ -12088,7 +12509,7 @@ Runtime recursion-depth ceiling (paired with the conserved pool per R3).
 
 > `readonly` `optional` **maxRestarts?**: `number`
 
-Defined in: [runtime/supervise/types.ts:460](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L460)
+Defined in: [src/runtime/supervise/types.ts:460](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L460)
 
 OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
 trips the supervisor to `no-winner` rather than restarting forever.
@@ -12097,13 +12518,13 @@ trips the supervisor to `no-winner` rather than restarting forever.
 
 > `readonly` `optional` **withinMs?**: `number`
 
-Defined in: [runtime/supervise/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L461)
+Defined in: [src/runtime/supervise/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L461)
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/supervise/types.ts:462](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L462)
+Defined in: [src/runtime/supervise/types.ts:462](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L462)
 
 ###### Returns
 
@@ -12113,13 +12534,13 @@ Defined in: [runtime/supervise/types.ts:462](https://github.com/tangle-network/a
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/supervise/types.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L463)
+Defined in: [src/runtime/supervise/types.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L463)
 
 ##### hooks?
 
 > `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/supervise/types.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L466)
+Defined in: [src/runtime/supervise/types.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L466)
 
 Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
  same `agent.spawn`/`agent.child` stream `runLoop` feeds — one observable recursive tree.
@@ -12128,7 +12549,7 @@ Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle em
 
 ### WidenGate
 
-Defined in: [runtime/supervise/types.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L522)
+Defined in: [src/runtime/supervise/types.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L522)
 
 The progressive-widening gate (MCTS-PW). Decides whether a settled child is
 `promising` enough to spawn another under the remaining pool. DEFAULTS TO FLAT
@@ -12149,7 +12570,7 @@ an explicit, argued `judgeExempt: true` (the documented escape hatch, off by def
 
 > `readonly` `optional` **judgeExempt?**: `boolean`
 
-Defined in: [runtime/supervise/types.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L527)
+Defined in: [src/runtime/supervise/types.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L527)
 
 When true, widening may read `verdict` directly (collides with the steer firewall —
  must be explicitly argued per cell, never defaulted on).
@@ -12160,7 +12581,7 @@ When true, widening may read `verdict` directly (collides with the steer firewal
 
 > **shouldWiden**(`settled`, `budget`): `boolean`
 
-Defined in: [runtime/supervise/types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L524)
+Defined in: [src/runtime/supervise/types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L524)
 
 Default impl returns false for every settlement (flat — never widens).
 
@@ -12182,7 +12603,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ### WorktreeCliExecutorOptions
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L45)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L45)
 
 **`Experimental`**
 
@@ -12192,7 +12613,7 @@ Defined in: [runtime/supervise/worktree-cli-executor.ts:45](https://github.com/t
 
 > **repoRoot**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L47)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L47)
 
 **`Experimental`**
 
@@ -12202,7 +12623,7 @@ Absolute path to the git checkout the worktree is cut from.
 
 > **profile**: `AgentProfile`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L55)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L55)
 
 **`Experimental`**
 
@@ -12216,7 +12637,7 @@ Harness-specific nested controls that the pinned materializer cannot preserve al
 
 > **harness**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L57)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L57)
 
 **`Experimental`**
 
@@ -12226,7 +12647,7 @@ Local CLI for this leaf. This explicit choice overrides `profile.harness`.
 
 > **taskPrompt**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L59)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L59)
 
 **`Experimental`**
 
@@ -12236,7 +12657,7 @@ The per-task instruction handed to the harness (composed under the system prompt
 
 > `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L61)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L61)
 
 **`Experimental`**
 
@@ -12246,7 +12667,7 @@ Unique id for the worktree path + branch. Defaults to a fresh UUID.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L63)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L63)
 
 **`Experimental`**
 
@@ -12256,7 +12677,7 @@ Override the base ref the worktree is cut from (default `HEAD`).
 
 > `optional` **harnessTimeoutMs?**: `number`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L65)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L65)
 
 **`Experimental`**
 
@@ -12266,7 +12687,7 @@ Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness`
 
 > `optional` **codexReproducible?**: `boolean`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L68)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L68)
 
 **`Experimental`**
 
@@ -12277,7 +12698,7 @@ Run Codex with an ephemeral session, isolated config/instructions, network disab
 
 > `optional` **codexReadDeniedPaths?**: readonly `string`[]
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L71)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L71)
 
 **`Experimental`**
 
@@ -12288,7 +12709,7 @@ Absolute host paths denied to reproducible Codex (for benchmark answer copies, c
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L76)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L76)
 
 **`Experimental`**
 
@@ -12299,7 +12720,7 @@ Its exit code becomes `artifact.checks.tests.passed`. Omit to skip (no signal de
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L78)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L78)
 
 **`Experimental`**
 
@@ -12309,7 +12730,7 @@ Shell command run in the live worktree to derive the typecheck-PASS signal (e.g.
 
 > `optional` **checkTimeoutMs?**: `number`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L80)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L80)
 
 **`Experimental`**
 
@@ -12319,7 +12740,7 @@ Wall-clock cap per verification command (ms). Default = `harnessTimeoutMs` or 5 
 
 > `optional` **checkOutputCap?**: `number`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L82)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L82)
 
 **`Experimental`**
 
@@ -12329,7 +12750,7 @@ Cap on each check's captured output. Default 16k.
 
 > `optional` **runGit?**: [`GitRunner`](mcp.md#gitrunner)
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L84)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L84)
 
 **`Experimental`**
 
@@ -12339,7 +12760,7 @@ Test seam — inject a git runner so unit tests drive the worktree helpers witho
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L86)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L86)
 
 **`Experimental`**
 
@@ -12377,7 +12798,7 @@ Does NOT throw when:
 
 > `optional` **runCommand?**: `WorktreeCheckRunner`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L89)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L89)
 
 **`Experimental`**
 
@@ -12388,7 +12809,7 @@ Test seam — inject the verification-command runner so unit tests script test/t
 
 > `optional` **budgetExempt?**: `boolean`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L95)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L95)
 
 **`Experimental`**
 
@@ -12400,7 +12821,7 @@ likewise return `LocalHarnessResult.usage`.
 
 ### AuthoredHarness
 
-Defined in: [runtime/supervise/worktree-fanout.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L31)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L31)
 
 **`Experimental`**
 
@@ -12413,7 +12834,7 @@ One authored harness profile in a worktree fanout: the §1.5 profile + which loc
 
 > **name**: `string`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L33)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L33)
 
 **`Experimental`**
 
@@ -12423,7 +12844,7 @@ A short label for the worktree branch + trace node.
 
 > **profile**: `AgentProfile`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L35)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L35)
 
 **`Experimental`**
 
@@ -12433,7 +12854,7 @@ The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness v
 
 > **harness**: `"opencode"` \| `"codex"` \| `"claude"`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L37)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L37)
 
 **`Experimental`**
 
@@ -12443,7 +12864,7 @@ Which local harness CLI drives this leaf.
 
 > `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L39)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L39)
 
 **`Experimental`**
 
@@ -12453,7 +12874,7 @@ Per-harness model/runId/baseRef overrides flow through the profile + these.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L40)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L40)
 
 **`Experimental`**
 
@@ -12461,7 +12882,7 @@ Defined in: [runtime/supervise/worktree-fanout.ts:40](https://github.com/tangle-
 
 ### WorktreeFanoutOptions
 
-Defined in: [runtime/supervise/worktree-fanout.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L44)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L44)
 
 **`Experimental`**
 
@@ -12475,7 +12896,7 @@ Defined in: [runtime/supervise/worktree-fanout.ts:44](https://github.com/tangle-
 
 > `optional` **maxDiffLines?**: `number`
 
-Defined in: [runtime/supervise/patch-checks.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-checks.ts#L39)
+Defined in: [src/runtime/supervise/patch-checks.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-checks.ts#L39)
 
 **`Experimental`**
 
@@ -12489,7 +12910,7 @@ Default 400. Hard cap; gate fails when exceeded.
 
 > `optional` **forbiddenPaths?**: `string`[]
 
-Defined in: [runtime/supervise/patch-checks.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-checks.ts#L41)
+Defined in: [src/runtime/supervise/patch-checks.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-checks.ts#L41)
 
 **`Experimental`**
 
@@ -12503,7 +12924,7 @@ Literal path prefixes the patch must not touch.
 
 > `optional` **require?**: readonly (`"tests"` \| `"typecheck"`)[]
 
-Defined in: [runtime/supervise/patch-deliverable.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L35)
+Defined in: [src/runtime/supervise/patch-deliverable.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L35)
 
 **`Experimental`**
 
@@ -12520,7 +12941,7 @@ that command). Default `[]` — gate on no-op / secret / forbidden / diff-size o
 
 > **repoRoot**: `string`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L46)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L46)
 
 **`Experimental`**
 
@@ -12530,7 +12951,7 @@ Absolute path to the git checkout each worktree is cut from.
 
 > **taskPrompt**: `string`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L48)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L48)
 
 **`Experimental`**
 
@@ -12540,7 +12961,7 @@ The per-task instruction handed to every harness (composed under each profile's 
 
 > **harnesses**: readonly [`AuthoredHarness`](#authoredharness)[]
 
-Defined in: [runtime/supervise/worktree-fanout.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L50)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L50)
 
 **`Experimental`**
 
@@ -12550,7 +12971,7 @@ The authored harness profiles — one fanout item (and one worktree-CLI leaf) ea
 
 > `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`WorktreeHarnessResult`\>
 
-Defined in: [runtime/supervise/worktree-fanout.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L56)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L56)
 
 **`Experimental`**
 
@@ -12562,7 +12983,7 @@ no-op/secret/forbidden/diff-size + required test/typecheck gate). Pass any
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L58)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L58)
 
 **`Experimental`**
 
@@ -12572,7 +12993,7 @@ Shell command run in each worktree to derive the tests-PASS signal.
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L60)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L60)
 
 **`Experimental`**
 
@@ -12582,7 +13003,7 @@ Shell command run in each worktree to derive the typecheck-PASS signal.
 
 > `optional` **harnessTimeoutMs?**: `number`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L62)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L62)
 
 **`Experimental`**
 
@@ -12592,7 +13013,7 @@ Wall-clock cap per harness subprocess (ms).
 
 > `optional` **winnerStrategy?**: [`WinnerStrategy`](#winnerstrategy)
 
-Defined in: [runtime/supervise/worktree-fanout.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L64)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L64)
 
 **`Experimental`**
 
@@ -12602,7 +13023,7 @@ Winner-selection strategy. Default `highest-score`.
 
 > `optional` **runGit?**: [`GitRunner`](mcp.md#gitrunner)
 
-Defined in: [runtime/supervise/worktree-fanout.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L67)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L67)
 
 **`Experimental`**
 
@@ -12613,7 +13034,7 @@ Test seams forwarded to every worktree-CLI leaf (inject git/harness/command runn
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [runtime/supervise/worktree-fanout.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L68)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L68)
 
 **`Experimental`**
 
@@ -12649,7 +13070,7 @@ Does NOT throw when:
 
 > `optional` **runCommand?**: `WorktreeCheckRunner`
 
-Defined in: [runtime/supervise/worktree-fanout.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L69)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L69)
 
 **`Experimental`**
 
@@ -12657,7 +13078,7 @@ Defined in: [runtime/supervise/worktree-fanout.ts:69](https://github.com/tangle-
 
 ### ToolLoopCompaction
 
-Defined in: [runtime/tool-loop.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L50)
+Defined in: [src/runtime/tool-loop.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L50)
 
 Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop
  does, but in place. A stateless chat API re-sends the WHOLE running conversation every turn, so an
@@ -12676,7 +13097,7 @@ Self-compaction — bound the loop's OWN context window the way a fresh-respawn 
 
 > `readonly` **thresholdTokens**: `number`
 
-Defined in: [runtime/tool-loop.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L52)
+Defined in: [src/runtime/tool-loop.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L52)
 
 Compact once the estimated token count of the conversation exceeds this.
 
@@ -12684,7 +13105,7 @@ Compact once the estimated token count of the conversation exceeds this.
 
 > `readonly` **distill**: (`messages`) => `string` \| `Promise`\<`string`\>
 
-Defined in: [runtime/tool-loop.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L55)
+Defined in: [src/runtime/tool-loop.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L55)
 
 Distill the conversation into a compact progress note that REPLACES the middle. Receives the
  full conversation (so it can summarize everything done so far); returns the digest string.
@@ -12703,7 +13124,7 @@ readonly `Msg`[]
 
 > `readonly` `optional` **preserveHead?**: `number`
 
-Defined in: [runtime/tool-loop.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L57)
+Defined in: [src/runtime/tool-loop.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L57)
 
 Leading messages preserved verbatim (system + the original task). Default 2.
 
@@ -12711,7 +13132,7 @@ Leading messages preserved verbatim (system + the original task). Default 2.
 
 > `readonly` `optional` **estimateTokens?**: (`messages`) => `number`
 
-Defined in: [runtime/tool-loop.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L59)
+Defined in: [src/runtime/tool-loop.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L59)
 
 Token estimator over the conversation. Default ≈ chars/4 (incl. tool-call arguments).
 
@@ -12729,7 +13150,7 @@ readonly `Msg`[]
 
 > `readonly` `optional` **onCompact?**: (`info`) => `void`
 
-Defined in: [runtime/tool-loop.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L61)
+Defined in: [src/runtime/tool-loop.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L61)
 
 Notified each time a compaction fires — for observability/metering.
 
@@ -12757,7 +13178,7 @@ Notified each time a compaction fires — for observability/metering.
 
 ### ValidationCtx
 
-Defined in: [runtime/types.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L33)
+Defined in: [src/runtime/types.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L33)
 
 **`Experimental`**
 
@@ -12767,7 +13188,7 @@ Defined in: [runtime/types.ts:33](https://github.com/tangle-network/agent-runtim
 
 > **iteration**: `number`
 
-Defined in: [runtime/types.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L35)
+Defined in: [src/runtime/types.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L35)
 
 **`Experimental`**
 
@@ -12777,7 +13198,7 @@ Iteration index this output came from (0-based).
 
 > `optional` **box?**: `SandboxInstance`
 
-Defined in: [runtime/types.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L41)
+Defined in: [src/runtime/types.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L41)
 
 **`Experimental`**
 
@@ -12789,7 +13210,7 @@ to bypass the loop kernel with raw Sandbox SDK orchestration.
 
 > **signal**: `AbortSignal`
 
-Defined in: [runtime/types.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L43)
+Defined in: [src/runtime/types.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L43)
 
 **`Experimental`**
 
@@ -12799,7 +13220,7 @@ Cooperative cancellation channel.
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](#looptraceemitter)
 
-Defined in: [runtime/types.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L49)
+Defined in: [src/runtime/types.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L49)
 
 **`Experimental`**
 
@@ -12811,7 +13232,7 @@ The kernel passes `ctx.traceEmitter` from `ExecCtx` when available.
 
 ### Validator
 
-Defined in: [runtime/types.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L53)
+Defined in: [src/runtime/types.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L53)
 
 **`Experimental`**
 
@@ -12831,7 +13252,7 @@ Defined in: [runtime/types.ts:53](https://github.com/tangle-network/agent-runtim
 
 > **validate**(`output`, `ctx`): `Promise`\<`Verdict`\>
 
-Defined in: [runtime/types.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L54)
+Defined in: [src/runtime/types.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L54)
 
 **`Experimental`**
 
@@ -12853,7 +13274,7 @@ Defined in: [runtime/types.ts:54](https://github.com/tangle-network/agent-runtim
 
 ### AgentRunSpec
 
-Defined in: [runtime/types.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L68)
+Defined in: [src/runtime/types.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L68)
 
 **`Experimental`**
 
@@ -12877,7 +13298,7 @@ through them when the driver plans N tasks.
 
 > **profile**: `AgentProfile`
 
-Defined in: [runtime/types.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L70)
+Defined in: [src/runtime/types.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L70)
 
 **`Experimental`**
 
@@ -12887,7 +13308,7 @@ Sandbox SDK profile — what kind of agent runs the task.
 
 > **taskToPrompt**: (`task`) => `string`
 
-Defined in: [runtime/types.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L72)
+Defined in: [src/runtime/types.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L72)
 
 **`Experimental`**
 
@@ -12907,7 +13328,7 @@ Task → prompt formatter. Pure and deterministic.
 
 > `optional` **prepareBox?**: (`box`, `ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/types.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L86)
+Defined in: [src/runtime/types.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L86)
 
 **`Experimental`**
 
@@ -12947,7 +13368,7 @@ meaning to the entries; not calling it simply leaves the manifest empty.
 
 > `optional` **name?**: `string`
 
-Defined in: [runtime/types.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L94)
+Defined in: [src/runtime/types.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L94)
 
 **`Experimental`**
 
@@ -12958,7 +13379,7 @@ selector tiebreak. Falls back to `profile.name ?? 'agent'`.
 
 > `optional` **sandboxOverrides?**: `Partial`\<`Omit`\<`CreateSandboxOptions`, `"backend"`\>\> & `object`
 
-Defined in: [runtime/types.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L100)
+Defined in: [src/runtime/types.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L100)
 
 **`Experimental`**
 
@@ -12976,7 +13397,7 @@ kernel and cannot be overridden here — use `profile` itself for that.
 
 ### OutputAdapter
 
-Defined in: [runtime/types.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L114)
+Defined in: [src/runtime/types.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L114)
 
 **`Experimental`**
 
@@ -12998,7 +13419,7 @@ persisted streams during tests / replays.
 
 > **parse**(`events`): `Output`
 
-Defined in: [runtime/types.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L115)
+Defined in: [src/runtime/types.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L115)
 
 **`Experimental`**
 
@@ -13016,7 +13437,7 @@ Defined in: [runtime/types.ts:115](https://github.com/tangle-network/agent-runti
 
 ### LoopTokenUsage
 
-Defined in: [runtime/types.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L120)
+Defined in: [src/runtime/types.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L120)
 
 LLM token usage. Structurally maps into agent-eval's paid-call receipt so a
 campaign dispatch settles real usage instead of appearing as a stub.
@@ -13027,19 +13448,19 @@ campaign dispatch settles real usage instead of appearing as a stub.
 
 > **input**: `number`
 
-Defined in: [runtime/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L121)
+Defined in: [src/runtime/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L121)
 
 ##### output
 
 > **output**: `number`
 
-Defined in: [runtime/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L122)
+Defined in: [src/runtime/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L122)
 
 ***
 
 ### MountManifestEntry
 
-Defined in: [runtime/types.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L136)
+Defined in: [src/runtime/types.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L136)
 
 **`Experimental`**
 
@@ -13057,7 +13478,7 @@ auditable after the fact ("what exactly was this agent given?").
 
 > **path**: `string`
 
-Defined in: [runtime/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L138)
+Defined in: [src/runtime/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L138)
 
 **`Experimental`**
 
@@ -13067,7 +13488,7 @@ Destination path inside the box where the resource was placed.
 
 > **sha256**: `string`
 
-Defined in: [runtime/types.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L141)
+Defined in: [src/runtime/types.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L141)
 
 **`Experimental`**
 
@@ -13078,7 +13499,7 @@ Hex SHA-256 of the mounted bytes. The caller computes it from the bytes
 
 > **bytes**: `number`
 
-Defined in: [runtime/types.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L143)
+Defined in: [src/runtime/types.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L143)
 
 **`Experimental`**
 
@@ -13088,7 +13509,7 @@ Size of the mounted resource in bytes.
 
 > **source**: `string`
 
-Defined in: [runtime/types.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L146)
+Defined in: [src/runtime/types.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L146)
 
 **`Experimental`**
 
@@ -13099,7 +13520,7 @@ Free-form origin of the resource (e.g. a repo ref, a corpus id, a local
 
 ### SelectionReceipt
 
-Defined in: [runtime/types.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L158)
+Defined in: [src/runtime/types.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L158)
 
 **`Experimental`**
 
@@ -13115,7 +13536,7 @@ per scored candidate at finalize so a run answers "why did THIS one win?".
 
 > **candidateIndex**: `number`
 
-Defined in: [runtime/types.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L160)
+Defined in: [src/runtime/types.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L160)
 
 **`Experimental`**
 
@@ -13125,7 +13546,7 @@ Iteration index this receipt is about.
 
 > **selected**: `boolean`
 
-Defined in: [runtime/types.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L162)
+Defined in: [src/runtime/types.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L162)
 
 **`Experimental`**
 
@@ -13135,7 +13556,7 @@ True for the iteration the selector chose as winner; false otherwise.
 
 > `optional` **score?**: `number`
 
-Defined in: [runtime/types.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L164)
+Defined in: [src/runtime/types.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L164)
 
 **`Experimental`**
 
@@ -13145,7 +13566,7 @@ The candidate's verdict score, when it has one.
 
 > `optional` **reason?**: `string`
 
-Defined in: [runtime/types.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L166)
+Defined in: [src/runtime/types.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L166)
 
 **`Experimental`**
 
@@ -13155,7 +13576,7 @@ Why this candidate was (or was not) selected, when the selector states it.
 
 > **selector**: `"default"` \| `"driver"` \| `"caller"`
 
-Defined in: [runtime/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L170)
+Defined in: [src/runtime/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L170)
 
 **`Experimental`**
 
@@ -13167,7 +13588,7 @@ Identity of the selector that produced this receipt — `'caller'` (an
 
 ### RunProvenance
 
-Defined in: [runtime/types.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L182)
+Defined in: [src/runtime/types.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L182)
 
 **`Experimental`**
 
@@ -13183,7 +13604,7 @@ candidate to select.
 
 > **mounts**: [`MountManifestEntry`](#mountmanifestentry)[]
 
-Defined in: [runtime/types.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L184)
+Defined in: [src/runtime/types.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L184)
 
 **`Experimental`**
 
@@ -13193,7 +13614,7 @@ Every resource recorded via `prepareBox`'s `recordMount`, in record order.
 
 > **selectionReceipts**: [`SelectionReceipt`](#selectionreceipt)[]
 
-Defined in: [runtime/types.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L186)
+Defined in: [src/runtime/types.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L186)
 
 **`Experimental`**
 
@@ -13203,7 +13624,7 @@ One receipt per scored candidate at finalize, in iteration order.
 
 ### Iteration
 
-Defined in: [runtime/types.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L199)
+Defined in: [src/runtime/types.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L199)
 
 **`Experimental`**
 
@@ -13223,7 +13644,7 @@ Defined in: [runtime/types.ts:199](https://github.com/tangle-network/agent-runti
 
 > **index**: `number`
 
-Defined in: [runtime/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L201)
+Defined in: [src/runtime/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L201)
 
 **`Experimental`**
 
@@ -13233,7 +13654,7 @@ Defined in: [runtime/types.ts:201](https://github.com/tangle-network/agent-runti
 
 > **task**: `Task`
 
-Defined in: [runtime/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L202)
+Defined in: [src/runtime/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L202)
 
 **`Experimental`**
 
@@ -13241,7 +13662,7 @@ Defined in: [runtime/types.ts:202](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L204)
+Defined in: [src/runtime/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L204)
 
 **`Experimental`**
 
@@ -13251,7 +13672,7 @@ Stable name of the `AgentRunSpec` that produced this iteration.
 
 > `optional` **output?**: `Output`
 
-Defined in: [runtime/types.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L205)
+Defined in: [src/runtime/types.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L205)
 
 **`Experimental`**
 
@@ -13259,7 +13680,7 @@ Defined in: [runtime/types.ts:205](https://github.com/tangle-network/agent-runti
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/types.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L206)
+Defined in: [src/runtime/types.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L206)
 
 **`Experimental`**
 
@@ -13267,7 +13688,7 @@ Defined in: [runtime/types.ts:206](https://github.com/tangle-network/agent-runti
 
 > `optional` **error?**: `Error`
 
-Defined in: [runtime/types.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L207)
+Defined in: [src/runtime/types.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L207)
 
 **`Experimental`**
 
@@ -13275,7 +13696,7 @@ Defined in: [runtime/types.ts:207](https://github.com/tangle-network/agent-runti
 
 > **events**: `SandboxEvent`[]
 
-Defined in: [runtime/types.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L209)
+Defined in: [src/runtime/types.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L209)
 
 **`Experimental`**
 
@@ -13285,7 +13706,7 @@ Raw sandbox event stream collected for this iteration.
 
 > **startedAt**: `number`
 
-Defined in: [runtime/types.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L210)
+Defined in: [src/runtime/types.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L210)
 
 **`Experimental`**
 
@@ -13293,7 +13714,7 @@ Defined in: [runtime/types.ts:210](https://github.com/tangle-network/agent-runti
 
 > **endedAt**: `number`
 
-Defined in: [runtime/types.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L211)
+Defined in: [src/runtime/types.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L211)
 
 **`Experimental`**
 
@@ -13301,7 +13722,7 @@ Defined in: [runtime/types.ts:211](https://github.com/tangle-network/agent-runti
 
 > **costUsd**: `number`
 
-Defined in: [runtime/types.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L212)
+Defined in: [src/runtime/types.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L212)
 
 **`Experimental`**
 
@@ -13309,7 +13730,7 @@ Defined in: [runtime/types.ts:212](https://github.com/tangle-network/agent-runti
 
 > **tokenUsage**: [`LoopTokenUsage`](#looptokenusage)
 
-Defined in: [runtime/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L214)
+Defined in: [src/runtime/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L214)
 
 **`Experimental`**
 
@@ -13319,7 +13740,7 @@ Summed LLM token usage across every `llm_call` event in this iteration.
 
 ### Driver
 
-Defined in: [runtime/types.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L218)
+Defined in: [src/runtime/types.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L218)
 
 **`Experimental`**
 
@@ -13343,7 +13764,7 @@ Defined in: [runtime/types.ts:218](https://github.com/tangle-network/agent-runti
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [runtime/types.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L222)
+Defined in: [src/runtime/types.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L222)
 
 **`Experimental`**
 
@@ -13355,7 +13776,7 @@ Stable identifier surfaced in trace events. Default `'driver'`.
 
 > **plan**(`task`, `history`): `Promise`\<`Task`[]\>
 
-Defined in: [runtime/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L227)
+Defined in: [src/runtime/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L227)
 
 **`Experimental`**
 
@@ -13380,7 +13801,7 @@ readonly [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
 > **decide**(`history`): `Decision` \| `Promise`\<`Decision`\>
 
-Defined in: [runtime/types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L234)
+Defined in: [src/runtime/types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L234)
 
 **`Experimental`**
 
@@ -13403,7 +13824,7 @@ readonly [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
 > `optional` **describePlan**(): [`LoopPlanDescription`](#loopplandescription) \| `undefined`
 
-Defined in: [runtime/types.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L244)
+Defined in: [src/runtime/types.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L244)
 
 **`Experimental`**
 
@@ -13423,7 +13844,7 @@ own topology returns its chosen move's kind + rationale here.
 
 > `optional` **selectWinner**(`history`): [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
 
-Defined in: [runtime/types.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L254)
+Defined in: [src/runtime/types.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L254)
 
 **`Experimental`**
 
@@ -13448,7 +13869,7 @@ readonly [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
 ### LoopPlanDescription
 
-Defined in: [runtime/types.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L260)
+Defined in: [src/runtime/types.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L260)
 
 **`Experimental`**
 
@@ -13460,7 +13881,7 @@ Driver-supplied description of the just-planned move.
 
 > **kind**: `string`
 
-Defined in: [runtime/types.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L262)
+Defined in: [src/runtime/types.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L262)
 
 **`Experimental`**
 
@@ -13470,7 +13891,7 @@ Topology move this round — e.g. `'refine' | 'fanout' | 'verify' | 'stop'`.
 
 > `optional` **rationale?**: `string`
 
-Defined in: [runtime/types.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L264)
+Defined in: [src/runtime/types.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L264)
 
 **`Experimental`**
 
@@ -13480,7 +13901,7 @@ Why the driver chose this move (the agent's rationale), when available.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L271)
+Defined in: [src/runtime/types.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L271)
 
 **`Experimental`**
 
@@ -13493,7 +13914,7 @@ Omit to keep the inferred (best-valid / latest) branch point.
 
 ### LoopWinner
 
-Defined in: [runtime/types.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L275)
+Defined in: [src/runtime/types.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L275)
 
 **`Experimental`**
 
@@ -13513,7 +13934,7 @@ Defined in: [runtime/types.ts:275](https://github.com/tangle-network/agent-runti
 
 > **task**: `Task`
 
-Defined in: [runtime/types.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L276)
+Defined in: [src/runtime/types.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L276)
 
 **`Experimental`**
 
@@ -13521,7 +13942,7 @@ Defined in: [runtime/types.ts:276](https://github.com/tangle-network/agent-runti
 
 > **output**: `Output`
 
-Defined in: [runtime/types.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L277)
+Defined in: [src/runtime/types.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L277)
 
 **`Experimental`**
 
@@ -13529,7 +13950,7 @@ Defined in: [runtime/types.ts:277](https://github.com/tangle-network/agent-runti
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/types.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L278)
+Defined in: [src/runtime/types.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L278)
 
 **`Experimental`**
 
@@ -13537,7 +13958,7 @@ Defined in: [runtime/types.ts:278](https://github.com/tangle-network/agent-runti
 
 > **iterationIndex**: `number`
 
-Defined in: [runtime/types.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L279)
+Defined in: [src/runtime/types.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L279)
 
 **`Experimental`**
 
@@ -13545,7 +13966,7 @@ Defined in: [runtime/types.ts:279](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L280)
+Defined in: [src/runtime/types.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L280)
 
 **`Experimental`**
 
@@ -13553,7 +13974,7 @@ Defined in: [runtime/types.ts:280](https://github.com/tangle-network/agent-runti
 
 ### LoopResult
 
-Defined in: [runtime/types.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L284)
+Defined in: [src/runtime/types.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L284)
 
 **`Experimental`**
 
@@ -13577,7 +13998,7 @@ Defined in: [runtime/types.ts:284](https://github.com/tangle-network/agent-runti
 
 > **decision**: `Decision`
 
-Defined in: [runtime/types.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L285)
+Defined in: [src/runtime/types.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L285)
 
 **`Experimental`**
 
@@ -13585,7 +14006,7 @@ Defined in: [runtime/types.ts:285](https://github.com/tangle-network/agent-runti
 
 > **iterations**: [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
-Defined in: [runtime/types.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L286)
+Defined in: [src/runtime/types.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L286)
 
 **`Experimental`**
 
@@ -13593,7 +14014,7 @@ Defined in: [runtime/types.ts:286](https://github.com/tangle-network/agent-runti
 
 > `optional` **winner?**: [`LoopWinner`](#loopwinner)\<`Task`, `Output`\>
 
-Defined in: [runtime/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L287)
+Defined in: [src/runtime/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L287)
 
 **`Experimental`**
 
@@ -13601,7 +14022,7 @@ Defined in: [runtime/types.ts:287](https://github.com/tangle-network/agent-runti
 
 > **durationMs**: `number`
 
-Defined in: [runtime/types.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L288)
+Defined in: [src/runtime/types.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L288)
 
 **`Experimental`**
 
@@ -13609,7 +14030,7 @@ Defined in: [runtime/types.ts:288](https://github.com/tangle-network/agent-runti
 
 > **costUsd**: `number`
 
-Defined in: [runtime/types.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L290)
+Defined in: [src/runtime/types.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L290)
 
 **`Experimental`**
 
@@ -13619,7 +14040,7 @@ Sum of every iteration's `costUsd`.
 
 > **tokenUsage**: [`LoopTokenUsage`](#looptokenusage)
 
-Defined in: [runtime/types.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L293)
+Defined in: [src/runtime/types.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L293)
 
 **`Experimental`**
 
@@ -13630,7 +14051,7 @@ Sum of every iteration's token usage. `loopDispatch` commits it through
 
 > **provenance**: [`RunProvenance`](#runprovenance)
 
-Defined in: [runtime/types.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L297)
+Defined in: [src/runtime/types.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L297)
 
 **`Experimental`**
 
@@ -13642,7 +14063,7 @@ Domain-free run provenance for auditability: the mount manifest recorded
 
 ### SandboxClient
 
-Defined in: [runtime/types.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L313)
+Defined in: [src/runtime/types.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L313)
 
 **`Experimental`**
 
@@ -13662,7 +14083,7 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 
 > **create**(`options?`): `Promise`\<`SandboxInstance`\>
 
-Defined in: [runtime/types.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L314)
+Defined in: [src/runtime/types.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L314)
 
 **`Experimental`**
 
@@ -13680,7 +14101,7 @@ Defined in: [runtime/types.ts:314](https://github.com/tangle-network/agent-runti
 
 > `optional` **describePlacement**(`box`): [`LoopSandboxPlacement`](#loopsandboxplacement)
 
-Defined in: [runtime/types.ts:315](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L315)
+Defined in: [src/runtime/types.ts:315](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L315)
 
 **`Experimental`**
 
@@ -13698,7 +14119,7 @@ Defined in: [runtime/types.ts:315](https://github.com/tangle-network/agent-runti
 
 > `optional` **criuStatus**(): `Promise`\<\{ `available`: `boolean`; `criuVersion?`: `string`; `reason?`: `string`; \}\>
 
-Defined in: [runtime/types.ts:326](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L326)
+Defined in: [src/runtime/types.ts:326](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L326)
 
 **`Experimental`**
 
@@ -13718,7 +14139,7 @@ The raw `Sandbox` SDK class satisfies it; the loop's test fakes omit it
 
 ### LoopLineageOptions
 
-Defined in: [runtime/types.ts:350](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L350)
+Defined in: [src/runtime/types.ts:350](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L350)
 
 **`Experimental`**
 
@@ -13746,7 +14167,7 @@ are copy-on-write, but each is still a live box until loop end).
 
 > `optional` **sessionContinuity?**: `boolean`
 
-Defined in: [runtime/types.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L365)
+Defined in: [src/runtime/types.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L365)
 
 **`Experimental`**
 
@@ -13767,7 +14188,7 @@ proves the session EXISTS server-side, not that prior turns replay into it.
 
 > `optional` **forkFanout?**: `boolean`
 
-Defined in: [runtime/types.ts:380](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L380)
+Defined in: [src/runtime/types.ts:380](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L380)
 
 **`Experimental`**
 
@@ -13788,7 +14209,7 @@ different-per-branch profiles use the unforked fanout path.
 
 > `optional` **streaming?**: `"sse"` \| `"poll"`
 
-Defined in: [runtime/types.ts:392](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L392)
+Defined in: [src/runtime/types.ts:392](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L392)
 
 **`Experimental`**
 
@@ -13806,7 +14227,7 @@ idle-drop. Applies to the default fresh-box path too, not only when
 
 ### LoopSandboxPlacement
 
-Defined in: [runtime/types.ts:396](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L396)
+Defined in: [src/runtime/types.ts:396](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L396)
 
 **`Experimental`**
 
@@ -13820,7 +14241,7 @@ Defined in: [runtime/types.ts:396](https://github.com/tangle-network/agent-runti
 
 > **kind**: `"sibling"` \| `"fleet"`
 
-Defined in: [runtime/types.ts:397](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L397)
+Defined in: [src/runtime/types.ts:397](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L397)
 
 **`Experimental`**
 
@@ -13828,7 +14249,7 @@ Defined in: [runtime/types.ts:397](https://github.com/tangle-network/agent-runti
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [runtime/types.ts:398](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L398)
+Defined in: [src/runtime/types.ts:398](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L398)
 
 **`Experimental`**
 
@@ -13836,7 +14257,7 @@ Defined in: [runtime/types.ts:398](https://github.com/tangle-network/agent-runti
 
 > `optional` **fleetId?**: `string`
 
-Defined in: [runtime/types.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L399)
+Defined in: [src/runtime/types.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L399)
 
 **`Experimental`**
 
@@ -13844,7 +14265,7 @@ Defined in: [runtime/types.ts:399](https://github.com/tangle-network/agent-runti
 
 > `optional` **machineId?**: `string`
 
-Defined in: [runtime/types.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L400)
+Defined in: [src/runtime/types.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L400)
 
 **`Experimental`**
 
@@ -13852,7 +14273,7 @@ Defined in: [runtime/types.ts:400](https://github.com/tangle-network/agent-runti
 
 ### LoopTraceEmitter
 
-Defined in: [runtime/types.ts:404](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L404)
+Defined in: [src/runtime/types.ts:404](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L404)
 
 **`Experimental`**
 
@@ -13862,7 +14283,7 @@ Defined in: [runtime/types.ts:404](https://github.com/tangle-network/agent-runti
 
 > **emit**(`event`): `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/types.ts:405](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L405)
+Defined in: [src/runtime/types.ts:405](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L405)
 
 **`Experimental`**
 
@@ -13880,7 +14301,7 @@ Defined in: [runtime/types.ts:405](https://github.com/tangle-network/agent-runti
 
 ### LoopStartedPayload
 
-Defined in: [runtime/types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L440)
+Defined in: [src/runtime/types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L440)
 
 **`Experimental`**
 
@@ -13890,7 +14311,7 @@ Defined in: [runtime/types.ts:440](https://github.com/tangle-network/agent-runti
 
 > **driver**: `string`
 
-Defined in: [runtime/types.ts:441](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L441)
+Defined in: [src/runtime/types.ts:441](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L441)
 
 **`Experimental`**
 
@@ -13898,7 +14319,7 @@ Defined in: [runtime/types.ts:441](https://github.com/tangle-network/agent-runti
 
 > **agentRunNames**: `string`[]
 
-Defined in: [runtime/types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L442)
+Defined in: [src/runtime/types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L442)
 
 **`Experimental`**
 
@@ -13906,7 +14327,7 @@ Defined in: [runtime/types.ts:442](https://github.com/tangle-network/agent-runti
 
 > **maxIterations**: `number`
 
-Defined in: [runtime/types.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L443)
+Defined in: [src/runtime/types.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L443)
 
 **`Experimental`**
 
@@ -13914,7 +14335,7 @@ Defined in: [runtime/types.ts:443](https://github.com/tangle-network/agent-runti
 
 > **maxConcurrency**: `number`
 
-Defined in: [runtime/types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L444)
+Defined in: [src/runtime/types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L444)
 
 **`Experimental`**
 
@@ -13922,7 +14343,7 @@ Defined in: [runtime/types.ts:444](https://github.com/tangle-network/agent-runti
 
 ### LoopPlanPayload
 
-Defined in: [runtime/types.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L455)
+Defined in: [src/runtime/types.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L455)
 
 **`Experimental`**
 
@@ -13937,7 +14358,7 @@ provided, else inferred from `plannedCount` (0→stop, 1→refine, N→fanout).
 
 > **roundIndex**: `number`
 
-Defined in: [runtime/types.ts:457](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L457)
+Defined in: [src/runtime/types.ts:457](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L457)
 
 **`Experimental`**
 
@@ -13947,7 +14368,7 @@ Defined in: [runtime/types.ts:457](https://github.com/tangle-network/agent-runti
 
 > **plannedCount**: `number`
 
-Defined in: [runtime/types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L459)
+Defined in: [src/runtime/types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L459)
 
 **`Experimental`**
 
@@ -13957,7 +14378,7 @@ Tasks the driver issued this round.
 
 > **moveKind**: `string`
 
-Defined in: [runtime/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L461)
+Defined in: [src/runtime/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L461)
 
 **`Experimental`**
 
@@ -13967,7 +14388,7 @@ Topology move — `'refine' | 'fanout' | 'verify' | 'stop'` etc.
 
 > `optional` **rationale?**: `string`
 
-Defined in: [runtime/types.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L463)
+Defined in: [src/runtime/types.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L463)
 
 **`Experimental`**
 
@@ -13977,7 +14398,7 @@ Driver rationale for the move, when available.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:469](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L469)
+Defined in: [src/runtime/types.ts:469](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L469)
 
 **`Experimental`**
 
@@ -13989,7 +14410,7 @@ latest) iteration so far — unless a driver later declares it explicitly.
 
 > **childIndices**: `number`[]
 
-Defined in: [runtime/types.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L471)
+Defined in: [src/runtime/types.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L471)
 
 **`Experimental`**
 
@@ -13999,7 +14420,7 @@ Iteration indices this round dispatched (the edge targets).
 
 ### LoopIterationStartedPayload
 
-Defined in: [runtime/types.ts:475](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L475)
+Defined in: [src/runtime/types.ts:475](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L475)
 
 **`Experimental`**
 
@@ -14009,7 +14430,7 @@ Defined in: [runtime/types.ts:475](https://github.com/tangle-network/agent-runti
 
 > **iterationIndex**: `number`
 
-Defined in: [runtime/types.ts:476](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L476)
+Defined in: [src/runtime/types.ts:476](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L476)
 
 **`Experimental`**
 
@@ -14017,7 +14438,7 @@ Defined in: [runtime/types.ts:476](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:477](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L477)
+Defined in: [src/runtime/types.ts:477](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L477)
 
 **`Experimental`**
 
@@ -14025,7 +14446,7 @@ Defined in: [runtime/types.ts:477](https://github.com/tangle-network/agent-runti
 
 > **taskHash**: `string`
 
-Defined in: [runtime/types.ts:478](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L478)
+Defined in: [src/runtime/types.ts:478](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L478)
 
 **`Experimental`**
 
@@ -14033,7 +14454,7 @@ Defined in: [runtime/types.ts:478](https://github.com/tangle-network/agent-runti
 
 > `optional` **groupId?**: `number`
 
-Defined in: [runtime/types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L480)
+Defined in: [src/runtime/types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L480)
 
 **`Experimental`**
 
@@ -14043,7 +14464,7 @@ Plan round (== `LoopPlanPayload.roundIndex`) this iteration belongs to.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:482](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L482)
+Defined in: [src/runtime/types.ts:482](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L482)
 
 **`Experimental`**
 
@@ -14053,7 +14474,7 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 ### LoopIterationDispatchPayload
 
-Defined in: [runtime/types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L493)
+Defined in: [src/runtime/types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L493)
 
 **`Experimental`**
 
@@ -14068,7 +14489,7 @@ they write lands on it directly.
 
 > **iterationIndex**: `number`
 
-Defined in: [runtime/types.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L494)
+Defined in: [src/runtime/types.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L494)
 
 **`Experimental`**
 
@@ -14076,7 +14497,7 @@ Defined in: [runtime/types.ts:494](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L495)
+Defined in: [src/runtime/types.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L495)
 
 **`Experimental`**
 
@@ -14084,7 +14505,7 @@ Defined in: [runtime/types.ts:495](https://github.com/tangle-network/agent-runti
 
 > **placement**: `"sibling"` \| `"fleet"`
 
-Defined in: [runtime/types.ts:496](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L496)
+Defined in: [src/runtime/types.ts:496](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L496)
 
 **`Experimental`**
 
@@ -14092,7 +14513,7 @@ Defined in: [runtime/types.ts:496](https://github.com/tangle-network/agent-runti
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [runtime/types.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L498)
+Defined in: [src/runtime/types.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L498)
 
 **`Experimental`**
 
@@ -14102,7 +14523,7 @@ Set on every placement. Lets analyst loops correlate per-iteration logs.
 
 > `optional` **fleetId?**: `string`
 
-Defined in: [runtime/types.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L500)
+Defined in: [src/runtime/types.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L500)
 
 **`Experimental`**
 
@@ -14112,7 +14533,7 @@ Set only when `placement === 'fleet'`.
 
 > `optional` **machineId?**: `string`
 
-Defined in: [runtime/types.ts:502](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L502)
+Defined in: [src/runtime/types.ts:502](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L502)
 
 **`Experimental`**
 
@@ -14122,7 +14543,7 @@ Set only when `placement === 'fleet'`.
 
 > `optional` **groupId?**: `number`
 
-Defined in: [runtime/types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L504)
+Defined in: [src/runtime/types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L504)
 
 **`Experimental`**
 
@@ -14132,7 +14553,7 @@ Plan round this iteration belongs to.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L506)
+Defined in: [src/runtime/types.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L506)
 
 **`Experimental`**
 
@@ -14142,7 +14563,7 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 ### LoopIterationEndedPayload
 
-Defined in: [runtime/types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L510)
+Defined in: [src/runtime/types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L510)
 
 **`Experimental`**
 
@@ -14152,7 +14573,7 @@ Defined in: [runtime/types.ts:510](https://github.com/tangle-network/agent-runti
 
 > **iterationIndex**: `number`
 
-Defined in: [runtime/types.ts:511](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L511)
+Defined in: [src/runtime/types.ts:511](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L511)
 
 **`Experimental`**
 
@@ -14160,7 +14581,7 @@ Defined in: [runtime/types.ts:511](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L512)
+Defined in: [src/runtime/types.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L512)
 
 **`Experimental`**
 
@@ -14168,7 +14589,7 @@ Defined in: [runtime/types.ts:512](https://github.com/tangle-network/agent-runti
 
 > `optional` **outputHash?**: `string`
 
-Defined in: [runtime/types.ts:513](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L513)
+Defined in: [src/runtime/types.ts:513](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L513)
 
 **`Experimental`**
 
@@ -14176,7 +14597,7 @@ Defined in: [runtime/types.ts:513](https://github.com/tangle-network/agent-runti
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/types.ts:514](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L514)
+Defined in: [src/runtime/types.ts:514](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L514)
 
 **`Experimental`**
 
@@ -14184,7 +14605,7 @@ Defined in: [runtime/types.ts:514](https://github.com/tangle-network/agent-runti
 
 > `optional` **error?**: `string`
 
-Defined in: [runtime/types.ts:515](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L515)
+Defined in: [src/runtime/types.ts:515](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L515)
 
 **`Experimental`**
 
@@ -14192,7 +14613,7 @@ Defined in: [runtime/types.ts:515](https://github.com/tangle-network/agent-runti
 
 > **costUsd**: `number`
 
-Defined in: [runtime/types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L516)
+Defined in: [src/runtime/types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L516)
 
 **`Experimental`**
 
@@ -14200,7 +14621,7 @@ Defined in: [runtime/types.ts:516](https://github.com/tangle-network/agent-runti
 
 > **durationMs**: `number`
 
-Defined in: [runtime/types.ts:517](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L517)
+Defined in: [src/runtime/types.ts:517](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L517)
 
 **`Experimental`**
 
@@ -14208,7 +14629,7 @@ Defined in: [runtime/types.ts:517](https://github.com/tangle-network/agent-runti
 
 > `optional` **tokenUsage?**: [`LoopTokenUsage`](#looptokenusage)
 
-Defined in: [runtime/types.ts:520](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L520)
+Defined in: [src/runtime/types.ts:520](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L520)
 
 **`Experimental`**
 
@@ -14219,7 +14640,7 @@ Summed LLM token usage for this iteration — maps to gen_ai.usage.* on the
 
 > `optional` **groupId?**: `number`
 
-Defined in: [runtime/types.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L522)
+Defined in: [src/runtime/types.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L522)
 
 **`Experimental`**
 
@@ -14229,7 +14650,7 @@ Plan round this iteration belongs to.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L524)
+Defined in: [src/runtime/types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L524)
 
 **`Experimental`**
 
@@ -14239,7 +14660,7 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 > `optional` **outputPreview?**: `string`
 
-Defined in: [runtime/types.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L527)
+Defined in: [src/runtime/types.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L527)
 
 **`Experimental`**
 
@@ -14250,7 +14671,7 @@ Truncated string preview of the parsed output — for a viewer's drawer.
 
 ### LoopDecisionPayload
 
-Defined in: [runtime/types.ts:531](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L531)
+Defined in: [src/runtime/types.ts:531](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L531)
 
 **`Experimental`**
 
@@ -14260,7 +14681,7 @@ Defined in: [runtime/types.ts:531](https://github.com/tangle-network/agent-runti
 
 > **decision**: `string`
 
-Defined in: [runtime/types.ts:532](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L532)
+Defined in: [src/runtime/types.ts:532](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L532)
 
 **`Experimental`**
 
@@ -14268,7 +14689,7 @@ Defined in: [runtime/types.ts:532](https://github.com/tangle-network/agent-runti
 
 > **historyLength**: `number`
 
-Defined in: [runtime/types.ts:533](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L533)
+Defined in: [src/runtime/types.ts:533](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L533)
 
 **`Experimental`**
 
@@ -14276,7 +14697,7 @@ Defined in: [runtime/types.ts:533](https://github.com/tangle-network/agent-runti
 
 ### LoopEndedPayload
 
-Defined in: [runtime/types.ts:537](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L537)
+Defined in: [src/runtime/types.ts:537](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L537)
 
 **`Experimental`**
 
@@ -14286,7 +14707,7 @@ Defined in: [runtime/types.ts:537](https://github.com/tangle-network/agent-runti
 
 > `optional` **winnerIterationIndex?**: `number`
 
-Defined in: [runtime/types.ts:538](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L538)
+Defined in: [src/runtime/types.ts:538](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L538)
 
 **`Experimental`**
 
@@ -14294,7 +14715,7 @@ Defined in: [runtime/types.ts:538](https://github.com/tangle-network/agent-runti
 
 > **totalCostUsd**: `number`
 
-Defined in: [runtime/types.ts:539](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L539)
+Defined in: [src/runtime/types.ts:539](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L539)
 
 **`Experimental`**
 
@@ -14302,7 +14723,7 @@ Defined in: [runtime/types.ts:539](https://github.com/tangle-network/agent-runti
 
 > **durationMs**: `number`
 
-Defined in: [runtime/types.ts:540](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L540)
+Defined in: [src/runtime/types.ts:540](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L540)
 
 **`Experimental`**
 
@@ -14310,7 +14731,7 @@ Defined in: [runtime/types.ts:540](https://github.com/tangle-network/agent-runti
 
 > **iterations**: `number`
 
-Defined in: [runtime/types.ts:541](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L541)
+Defined in: [src/runtime/types.ts:541](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L541)
 
 **`Experimental`**
 
@@ -14318,7 +14739,7 @@ Defined in: [runtime/types.ts:541](https://github.com/tangle-network/agent-runti
 
 ### LoopTeardownFailedPayload
 
-Defined in: [runtime/types.ts:547](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L547)
+Defined in: [src/runtime/types.ts:547](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L547)
 
 **`Experimental`**
 
@@ -14332,7 +14753,7 @@ Emitted when a box's `delete()` throws or times out during teardown — the
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [runtime/types.ts:548](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L548)
+Defined in: [src/runtime/types.ts:548](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L548)
 
 **`Experimental`**
 
@@ -14340,7 +14761,7 @@ Defined in: [runtime/types.ts:548](https://github.com/tangle-network/agent-runti
 
 > **reason**: `string`
 
-Defined in: [runtime/types.ts:550](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L550)
+Defined in: [src/runtime/types.ts:550](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L550)
 
 **`Experimental`**
 
@@ -14350,7 +14771,7 @@ Defined in: [runtime/types.ts:550](https://github.com/tangle-network/agent-runti
 
 ### ExecCtx
 
-Defined in: [runtime/types.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L558)
+Defined in: [src/runtime/types.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L558)
 
 **`Experimental`**
 
@@ -14362,7 +14783,7 @@ Execution context for `runLoop`: the sandbox client the kernel creates boxes thr
 
 > **sandboxClient**: [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [runtime/types.ts:560](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L560)
+Defined in: [src/runtime/types.ts:560](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L560)
 
 **`Experimental`**
 
@@ -14372,7 +14793,7 @@ Sandbox SDK client — the kernel calls `.create()` per iteration.
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/types.ts:562](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L562)
+Defined in: [src/runtime/types.ts:562](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L562)
 
 **`Experimental`**
 
@@ -14382,7 +14803,7 @@ Optional runtime hooks. Execution-scoped; never part of `AgentProfile`.
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](#looptraceemitter)
 
-Defined in: [runtime/types.ts:564](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L564)
+Defined in: [src/runtime/types.ts:564](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L564)
 
 **`Experimental`**
 
@@ -14392,7 +14813,7 @@ Optional trace emitter. When set, the kernel emits `loop.*` events.
 
 > `optional` **onSandboxEvent?**: (`event`, `meta`) => `void` \| `PromiseLike`\<`void`\>
 
-Defined in: [runtime/types.ts:582](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L582)
+Defined in: [src/runtime/types.ts:582](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L582)
 
 **`Experimental`**
 
@@ -14434,7 +14855,7 @@ on that.
 
 > `optional` **runHandle?**: [`RuntimeRunHandle`](index.md#runtimerunhandle)
 
-Defined in: [runtime/types.ts:591](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L591)
+Defined in: [src/runtime/types.ts:591](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L591)
 
 **`Experimental`**
 
@@ -14446,7 +14867,7 @@ the kernel infers from a sandbox event stream is forwarded via
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/types.ts:593](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L593)
+Defined in: [src/runtime/types.ts:593](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L593)
 
 **`Experimental`**
 
@@ -14456,7 +14877,7 @@ Cooperative cancellation signal.
 
 > `optional` **traceId?**: `string`
 
-Defined in: [runtime/types.ts:599](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L599)
+Defined in: [src/runtime/types.ts:599](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L599)
 
 **`Experimental`**
 
@@ -14468,7 +14889,7 @@ inherited from TRACE_ID env var in MCP subprocess mode.
 
 > `optional` **parentSpanId?**: `string`
 
-Defined in: [runtime/types.ts:604](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L604)
+Defined in: [src/runtime/types.ts:604](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L604)
 
 **`Experimental`**
 
@@ -14479,7 +14900,7 @@ this span. Typically inherited from PARENT_SPAN_ID env var.
 
 ### VerifierEnvironmentOptions
 
-Defined in: [runtime/verifier-environment.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L34)
+Defined in: [src/runtime/verifier-environment.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L34)
 
 #### Properties
 
@@ -14487,13 +14908,13 @@ Defined in: [runtime/verifier-environment.ts:34](https://github.com/tangle-netwo
 
 > **name**: `string`
 
-Defined in: [runtime/verifier-environment.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L35)
+Defined in: [src/runtime/verifier-environment.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L35)
 
 ##### extraTools?
 
 > `optional` **extraTools?**: [`AgenticTool`](#agentictool)[]
 
-Defined in: [runtime/verifier-environment.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L39)
+Defined in: [src/runtime/verifier-environment.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L39)
 
 Extra domain tools (read-only helpers: calculator, retrieval, style lookup).
 
@@ -14503,7 +14924,7 @@ Extra domain tools (read-only helpers: calculator, retrieval, style lookup).
 
 > **check**(`task`, `answer`): [`SurfaceScore`](#surfacescore) \| `Promise`\<[`SurfaceScore`](#surfacescore)\>
 
-Defined in: [runtime/verifier-environment.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L37)
+Defined in: [src/runtime/verifier-environment.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L37)
 
 The deployable check over a submitted answer. Graded via passes/total.
 
@@ -14525,7 +14946,7 @@ The deployable check over a submitted answer. Graded via passes/total.
 
 > `optional` **callExtra**(`task`, `name`, `args`): `string` \| `Promise`\<`string`\>
 
-Defined in: [runtime/verifier-environment.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L41)
+Defined in: [src/runtime/verifier-environment.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L41)
 
 Executes the extra tools. Required when `extraTools` is set.
 
@@ -14551,7 +14972,7 @@ Executes the extra tools. Required when `extraTools` is set.
 
 ### WaterfallSpan
 
-Defined in: [runtime/waterfall.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L11)
+Defined in: [src/runtime/waterfall.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L11)
 
 #### Properties
 
@@ -14559,13 +14980,13 @@ Defined in: [runtime/waterfall.ts:11](https://github.com/tangle-network/agent-ru
 
 > **id**: `string`
 
-Defined in: [runtime/waterfall.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L12)
+Defined in: [src/runtime/waterfall.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L12)
 
 ##### label
 
 > **label**: `string`
 
-Defined in: [runtime/waterfall.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L14)
+Defined in: [src/runtime/waterfall.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L14)
 
 The spawn label (`shot:0`, `analyst:1`, a nested agent's label) — the row name.
 
@@ -14573,43 +14994,43 @@ The spawn label (`shot:0`, `analyst:1`, a nested agent's label) — the row name
 
 > **runId**: `string`
 
-Defined in: [runtime/waterfall.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L15)
+Defined in: [src/runtime/waterfall.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L15)
 
 ##### parentId?
 
 > `optional` **parentId?**: `string`
 
-Defined in: [runtime/waterfall.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L16)
+Defined in: [src/runtime/waterfall.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L16)
 
 ##### startMs
 
 > **startMs**: `number`
 
-Defined in: [runtime/waterfall.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L17)
+Defined in: [src/runtime/waterfall.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L17)
 
 ##### endMs?
 
 > `optional` **endMs?**: `number`
 
-Defined in: [runtime/waterfall.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L18)
+Defined in: [src/runtime/waterfall.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L18)
 
 ##### status
 
 > **status**: `"running"` \| `"done"` \| `"down"`
 
-Defined in: [runtime/waterfall.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L19)
+Defined in: [src/runtime/waterfall.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L19)
 
 ##### usd
 
 > **usd**: `number`
 
-Defined in: [runtime/waterfall.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L20)
+Defined in: [src/runtime/waterfall.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L20)
 
 ##### tokens
 
 > **tokens**: `object`
 
-Defined in: [runtime/waterfall.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L21)
+Defined in: [src/runtime/waterfall.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L21)
 
 ###### input
 
@@ -14623,13 +15044,13 @@ Defined in: [runtime/waterfall.ts:21](https://github.com/tangle-network/agent-ru
 
 > `optional` **score?**: `number`
 
-Defined in: [runtime/waterfall.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L22)
+Defined in: [src/runtime/waterfall.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L22)
 
 ***
 
 ### WaterfallReport
 
-Defined in: [runtime/waterfall.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L25)
+Defined in: [src/runtime/waterfall.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L25)
 
 #### Properties
 
@@ -14637,13 +15058,13 @@ Defined in: [runtime/waterfall.ts:25](https://github.com/tangle-network/agent-ru
 
 > **spans**: [`WaterfallSpan`](#waterfallspan)[]
 
-Defined in: [runtime/waterfall.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L26)
+Defined in: [src/runtime/waterfall.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L26)
 
 ##### totalMs
 
 > **totalMs**: `number`
 
-Defined in: [runtime/waterfall.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L28)
+Defined in: [src/runtime/waterfall.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L28)
 
 Wall-clock of the observed window (first spawn → last settle).
 
@@ -14651,13 +15072,13 @@ Wall-clock of the observed window (first spawn → last settle).
 
 > **totalUsd**: `number`
 
-Defined in: [runtime/waterfall.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L29)
+Defined in: [src/runtime/waterfall.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L29)
 
 ##### totalTokens
 
 > **totalTokens**: `object`
 
-Defined in: [runtime/waterfall.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L30)
+Defined in: [src/runtime/waterfall.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L30)
 
 ###### input
 
@@ -14671,7 +15092,7 @@ Defined in: [runtime/waterfall.ts:30](https://github.com/tangle-network/agent-ru
 
 > **byKind**: `Record`\<`string`, \{ `count`: `number`; `ms`: `number`; `usd`: `number`; `tokens`: \{ `input`: `number`; `output`: `number`; \}; \}\>
 
-Defined in: [runtime/waterfall.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L32)
+Defined in: [src/runtime/waterfall.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L32)
 
 Rollup by label prefix (the part before ':') — shots vs analysts vs anything else.
 
@@ -14679,7 +15100,7 @@ Rollup by label prefix (the part before ':') — shots vs analysts vs anything e
 
 ### WaterfallCollector
 
-Defined in: [runtime/waterfall.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L49)
+Defined in: [src/runtime/waterfall.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L49)
 
 #### Properties
 
@@ -14687,7 +15108,7 @@ Defined in: [runtime/waterfall.ts:49](https://github.com/tangle-network/agent-ru
 
 > **hooks**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/waterfall.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L51)
+Defined in: [src/runtime/waterfall.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L51)
 
 Attach these to RunAgenticOptions.hooks / BenchmarkConfig.hooks.
 
@@ -14697,7 +15118,7 @@ Attach these to RunAgenticOptions.hooks / BenchmarkConfig.hooks.
 
 > **report**(): [`WaterfallReport`](#waterfallreport)
 
-Defined in: [runtime/waterfall.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L52)
+Defined in: [src/runtime/waterfall.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L52)
 
 ###### Returns
 
@@ -14707,7 +15128,7 @@ Defined in: [runtime/waterfall.ts:52](https://github.com/tangle-network/agent-ru
 
 > **render**(`opts?`): `string`
 
-Defined in: [runtime/waterfall.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L54)
+Defined in: [src/runtime/waterfall.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L54)
 
 The text waterfall — one row per span, bars scaled to the observed window.
 
@@ -14731,7 +15152,7 @@ The text waterfall — one row per span, bars scaled to the observed window.
 
 > **reset**(): `void`
 
-Defined in: [runtime/waterfall.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L55)
+Defined in: [src/runtime/waterfall.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L55)
 
 ###### Returns
 
@@ -14741,7 +15162,7 @@ Defined in: [runtime/waterfall.ts:55](https://github.com/tangle-network/agent-ru
 
 ### Workspace
 
-Defined in: [runtime/workspace.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L11)
+Defined in: [src/runtime/workspace.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L11)
 
 #### Properties
 
@@ -14749,7 +15170,7 @@ Defined in: [runtime/workspace.ts:11](https://github.com/tangle-network/agent-ru
 
 > `readonly` **ref**: `string`
 
-Defined in: [runtime/workspace.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L12)
+Defined in: [src/runtime/workspace.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L12)
 
 #### Methods
 
@@ -14757,7 +15178,7 @@ Defined in: [runtime/workspace.ts:12](https://github.com/tangle-network/agent-ru
 
 > **materialize**(`dir`): `Promise`\<`void`\>
 
-Defined in: [runtime/workspace.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L13)
+Defined in: [src/runtime/workspace.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L13)
 
 ###### Parameters
 
@@ -14773,7 +15194,7 @@ Defined in: [runtime/workspace.ts:13](https://github.com/tangle-network/agent-ru
 
 > **commit**(`dir`, `message`): `Promise`\<[`WorkspaceCommit`](#workspacecommit)\>
 
-Defined in: [runtime/workspace.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L14)
+Defined in: [src/runtime/workspace.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L14)
 
 ###### Parameters
 
@@ -14793,7 +15214,7 @@ Defined in: [runtime/workspace.ts:14](https://github.com/tangle-network/agent-ru
 
 > **head**(): `Promise`\<`string`\>
 
-Defined in: [runtime/workspace.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L15)
+Defined in: [src/runtime/workspace.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L15)
 
 ###### Returns
 
@@ -14803,7 +15224,7 @@ Defined in: [runtime/workspace.ts:15](https://github.com/tangle-network/agent-ru
 
 ### GitWorkspaceOptions
 
-Defined in: [runtime/workspace.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L40)
+Defined in: [src/runtime/workspace.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L40)
 
 #### Properties
 
@@ -14811,31 +15232,31 @@ Defined in: [runtime/workspace.ts:40](https://github.com/tangle-network/agent-ru
 
 > `readonly` **ref**: `string`
 
-Defined in: [runtime/workspace.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L41)
+Defined in: [src/runtime/workspace.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L41)
 
 ##### shell?
 
 > `readonly` `optional` **shell?**: [`Shell`](#shell)
 
-Defined in: [runtime/workspace.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L42)
+Defined in: [src/runtime/workspace.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L42)
 
 ##### branch?
 
 > `readonly` `optional` **branch?**: `string`
 
-Defined in: [runtime/workspace.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L43)
+Defined in: [src/runtime/workspace.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L43)
 
 ##### noHooks?
 
 > `readonly` `optional` **noHooks?**: `boolean`
 
-Defined in: [runtime/workspace.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L44)
+Defined in: [src/runtime/workspace.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L44)
 
 ***
 
 ### WorkspaceRun
 
-Defined in: [runtime/workspace.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L137)
+Defined in: [src/runtime/workspace.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L137)
 
 #### Type Parameters
 
@@ -14849,19 +15270,19 @@ Defined in: [runtime/workspace.ts:137](https://github.com/tangle-network/agent-r
 
 > `readonly` **valid**: `boolean`
 
-Defined in: [runtime/workspace.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L138)
+Defined in: [src/runtime/workspace.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L138)
 
 ##### value
 
 > `readonly` **value**: `T`
 
-Defined in: [runtime/workspace.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L139)
+Defined in: [src/runtime/workspace.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L139)
 
 ##### commit?
 
 > `readonly` `optional` **commit?**: [`WorkspaceCommit`](#workspacecommit)
 
-Defined in: [runtime/workspace.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L141)
+Defined in: [src/runtime/workspace.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L141)
 
 Present when a commit was attempted (valid, or `commitOnInvalid`).
 
@@ -14871,7 +15292,7 @@ Present when a commit was attempted (valid, or `commitOnInvalid`).
 
 > **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: `AnalystFindingEvent`; \} \| \{ `type`: `"steer"`; `down`: `DownMessageEvent`; \} \| \{ `type`: `"answer"`; `down`: `DownMessageEvent`; `questionId`: `string`; \}
 
-Defined in: [mcp/tools/coordination.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L86)
+Defined in: [src/mcp/tools/coordination.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L86)
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. DOWN (parent→child): steer / answer — record-only (history + subscribers),
@@ -14883,7 +15304,7 @@ Every message on the one typed pipe. UP (child→parent): question / settled / f
 
 > **MakeWorkerAgent** = (`profile`) => [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [mcp/tools/coordination.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L93)
+Defined in: [src/mcp/tools/coordination.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L93)
 
 #### Parameters
 
@@ -14901,7 +15322,7 @@ Defined in: [mcp/tools/coordination.ts:93](https://github.com/tangle-network/age
 
 > **InProcessOnPrompt** = (`prompt`, `ctx`) => `SandboxEvent`[] \| `AsyncIterable`\<`SandboxEvent`\> \| `Promise`\<`SandboxEvent`[]\>
 
-Defined in: [runtime/in-process-sandbox-client.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L70)
+Defined in: [src/runtime/in-process-sandbox-client.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L70)
 
 The user callback: given a prompt and its round, produce the box's event
 stream for that turn. Return a plain `SandboxEvent[]` (the common case) or an
@@ -14928,7 +15349,7 @@ async iterable for streaming. The callback may also write files into
 
 > **LoopOptionsForDispatch**\<`Task`, `Output`, `Decision`\> = `Omit`\<`RunLoopOptions`\<`Task`, `Output`, `Decision`\>, `"ctx"`\>
 
-Defined in: [runtime/loop-dispatch.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L44)
+Defined in: [src/runtime/loop-dispatch.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L44)
 
 runLoop options minus the `ctx` (loopDispatch builds the ctx).
 
@@ -14952,7 +15373,7 @@ runLoop options minus the `ctx` (loopDispatch builds the ctx).
 
 > **Outcome**\<`D`\> = \{ `kind`: `"done"`; `deliverable`: `D`; \} \| \{ `kind`: `"blocked"`; `blockers`: `string`[]; \}
 
-Defined in: [runtime/personify/types.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L55)
+Defined in: [src/runtime/personify/types.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L55)
 
 The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete
 list of blockers that stopped it — never a half-done best-effort coercion. A `blocked`
@@ -14974,7 +15395,7 @@ keystone's typed `SupervisedResult<Outcome<D>>` carries it end to end with no co
 
 > **DefinePersona** = \<`D`\>(`input`) => [`Persona`](#persona)\<`D`\>
 
-Defined in: [runtime/personify/types.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L144)
+Defined in: [src/runtime/personify/types.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L144)
 
 Builds a frozen `Persona`, failing loud on the executors-supplied invariant (neither a
  registry nor seams = an unresolvable persona). Pure — no I/O, no engine.
@@ -15001,7 +15422,7 @@ Builds a frozen `Persona`, failing loud on the executors-supplied invariant (nei
 
 > **LoopShape**\<`Task`, `D`\> = (`ctx`) => [`Agent`](#agent)\<`Task`, [`Outcome`](#outcome-1)\<`D`\>\>
 
-Defined in: [runtime/personify/types.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L193)
+Defined in: [src/runtime/personify/types.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L193)
 
 A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it
 returns the root `Agent<Task, Outcome<D>>` whose `act` decomposes the task, fans out
@@ -15035,7 +15456,7 @@ synthesizes the terminal `Outcome<D>`. The shape is STRUCTURE; the persona is CO
 
 > **RunPersonified** = \<`Task`, `D`\>(`options`) => `Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-1)\<`D`\>\>\>
 
-Defined in: [runtime/personify/types.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L256)
+Defined in: [src/runtime/personify/types.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L256)
 
 The composed run signature.
 
@@ -15065,7 +15486,7 @@ The composed run signature.
 
 > **CombinatorShape**\<`Task`, `D`\> = [`LoopShape`](#loopshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/wave-types.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L65)
+Defined in: [src/runtime/personify/wave-types.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L65)
 
 A combinator is just a `LoopShape`: a factory `(ShapeContext) => Agent` whose `Agent.act`
 runs the combinator's structure over the `Scope` (spawn children, drain `next()`, select via
@@ -15090,7 +15511,7 @@ the persona carries the domain.
 
 > **Pipeline** = \<`Task`, `D`\>(`stages`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/wave-types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L90)
+Defined in: [src/runtime/personify/wave-types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L90)
 
 `pipeline(stages)` — build the sequential combinator from an ordered stage list. The first
  stage's `StepIn` is the root `Task`; the last stage's `StepOut` is the deliverable `D`.
@@ -15121,7 +15542,7 @@ Defined in: [runtime/personify/wave-types.ts:90](https://github.com/tangle-netwo
 
 > **FanoutWinnerSelector**\<`D`\> = (`iterations`) => \{ `output?`: [`Outcome`](#outcome-1)\<`D`\>; \} \| `undefined`
 
-Defined in: [runtime/personify/wave-types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L139)
+Defined in: [src/runtime/personify/wave-types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L139)
 
 A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the
  child's `Outcome<D>`), returning the chosen iteration or `undefined` when none qualifies.
@@ -15148,7 +15569,7 @@ A winner-selection strategy: argmax/sort over the gathered child iterations (eac
 
 > **WinnerStrategy** = `"highest-score"` \| `"smallest-artifact"` \| `"first-valid"`
 
-Defined in: [runtime/personify/wave-types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L145)
+Defined in: [src/runtime/personify/wave-types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L145)
 
 Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid
  score, the smallest delivered artifact (via a `sizeOf` extractor), or the earliest valid.
@@ -15159,7 +15580,7 @@ Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge)
 
 > **Fanout** = \<`Task`, `Item`, `D`\>(`items`, `opts`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/wave-types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L156)
+Defined in: [src/runtime/personify/wave-types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L156)
 
 `fanout(items, opts)` — build the fanout combinator over a static item list.
 
@@ -15197,7 +15618,7 @@ Defined in: [runtime/personify/wave-types.ts:156](https://github.com/tangle-netw
 
 > **LoopUntil** = \<`Task`, `State`, `D`\>(`seed`, `spec`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/wave-types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L194)
+Defined in: [src/runtime/personify/wave-types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L194)
 
 `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state.
 
@@ -15235,7 +15656,7 @@ Defined in: [runtime/personify/wave-types.ts:194](https://github.com/tangle-netw
 
 > **Panel** = \<`Task`, `Artifact`, `D`\>(`spec`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/wave-types.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L244)
+Defined in: [src/runtime/personify/wave-types.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L244)
 
 `panel(spec)` — build the M-judge write-only-merge combinator.
 
@@ -15269,7 +15690,7 @@ Defined in: [runtime/personify/wave-types.ts:244](https://github.com/tangle-netw
 
 > **Verify** = \<`Task`, `Candidate`, `D`\>(`spec`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/wave-types.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L270)
+Defined in: [src/runtime/personify/wave-types.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L270)
 
 `verify(spec)` — build the 2-node implement→verifier-gate combinator.
 
@@ -15303,7 +15724,7 @@ Defined in: [runtime/personify/wave-types.ts:270](https://github.com/tangle-netw
 
 > **WidenDecision**\<`D`\> = \{ `kind`: `"widen"`; `toward`: [`WidenLineage`](#widenlineage)\<`D`\>; \} \| \{ `kind`: `"stop"`; `rationale?`: `string`; \}
 
-Defined in: [runtime/personify/wave-types.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L324)
+Defined in: [src/runtime/personify/wave-types.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L324)
 
 A widening decision: extend one lineage by one child, or stop widening. `flatWidenGate`
  always returns `{ kind: 'stop' }`.
@@ -15320,7 +15741,7 @@ A widening decision: extend one lineage by one child, or stop widening. `flatWid
 
 > **Widen** = \<`Task`, `Seed`, `D`\>(`spec`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/wave-types.ts:336](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L336)
+Defined in: [src/runtime/personify/wave-types.ts:336](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L336)
 
 `widen(spec)` — build the streaming progressive-widening combinator.
 
@@ -15354,7 +15775,7 @@ Defined in: [runtime/personify/wave-types.ts:336](https://github.com/tangle-netw
 
 > **FlatWidenGate** = \<`D`\>() => [`ScopeWidenGate`](#scopewidengate)\<`D`\>
 
-Defined in: [runtime/personify/wave-types.ts:341](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L341)
+Defined in: [src/runtime/personify/wave-types.ts:341](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L341)
 
 The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall
  conflict dormant. Exported so a gate run can pass it explicitly and a test can assert the
@@ -15376,7 +15797,7 @@ The flat default `ScopeWidenGate` factory contract — never widens, keeping the
 
 > **AssertTraceDerivedFindings** = (`findings`) => `void`
 
-Defined in: [runtime/personify/wave-types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L402)
+Defined in: [src/runtime/personify/wave-types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L402)
 
 The firewall assertion contract, re-stated for the reactive seam (PORT of
 `assertTraceDerivedFindings`). A PROVENANCE check, not a content check: span/event/artifact/
@@ -15400,7 +15821,7 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 > **RenderCorpusToInstructions** = (`opts`) => `Promise`\<`AgentProfile`\>
 
-Defined in: [runtime/personify/wave-types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L493)
+Defined in: [src/runtime/personify/wave-types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L493)
 
 `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the
  durable corpus); returns a fresh `AgentProfile` with the accreted facts merged in.
@@ -15421,7 +15842,7 @@ Defined in: [runtime/personify/wave-types.ts:493](https://github.com/tangle-netw
 
 > **TrajectoryReportFn** = (`journal`, `blobs`, `root`, `options?`) => `Promise`\<[`TrajectoryReport`](#trajectoryreport-3)\>
 
-Defined in: [runtime/personify/wave-types.ts:552](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L552)
+Defined in: [src/runtime/personify/wave-types.ts:552](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L552)
 
 `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs).
 
@@ -15453,7 +15874,7 @@ Defined in: [runtime/personify/wave-types.ts:552](https://github.com/tangle-netw
 
 > **EqualKOnCost** = (`arms`, `options?`) => [`EqualKVerdict`](#equalkverdict)
 
-Defined in: [runtime/personify/wave-types.ts:607](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L607)
+Defined in: [src/runtime/personify/wave-types.ts:607](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L607)
 
 `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost.
 
@@ -15477,7 +15898,7 @@ Defined in: [runtime/personify/wave-types.ts:607](https://github.com/tangle-netw
 
 > **Environment** = [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/run-benchmark.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L30)
+Defined in: [src/runtime/run-benchmark.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L30)
 
 A checkable task domain — implement these 5 hooks and the suite does the rest. The
  same seam as `AgenticSurface`; `Environment` is the RL/gym-standard name for it.
@@ -15488,7 +15909,7 @@ A checkable task domain — implement these 5 hooks and the suite does the rest.
 
 > **Deliverable**\<`Out`\> = \{ `kind`: `"events"`; `fromEvents`: (`events`) => `Out`; \} \| \{ `kind`: `"artifact"`; `path`: `string`; `fromArtifact`: (`raw`, `events`) => `Out`; \}
 
-Defined in: [runtime/sandbox-run.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L51)
+Defined in: [src/runtime/sandbox-run.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L51)
 
 **`Experimental`**
 
@@ -15510,7 +15931,7 @@ How a typed deliverable `Out` is materialized from a finished turn.
 
 > **OpenSandboxRunPromptOptions** = `Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
 
-Defined in: [runtime/sandbox-run.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L111)
+Defined in: [src/runtime/sandbox-run.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L111)
 
 **`Experimental`**
 
@@ -15525,7 +15946,7 @@ controls such as `timeoutMs`.
 
 > **SteeringDecision** = `"refine"` \| `"pick-winner"` \| `"fail"`
 
-Defined in: [runtime/steering-drivers.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L55)
+Defined in: [src/runtime/steering-drivers.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L55)
 
 Terminal-or-continue decision shared by all three steering drivers. The
 non-terminal `'refine'` keeps the loop running another shot; the terminal
@@ -15539,7 +15960,7 @@ for another round). Identical to the reference refine driver's decision set.
 
 > **ApplyContinuation**\<`Task`\> = (`task`, `continuation`) => `Task`
 
-Defined in: [runtime/steering-drivers.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L64)
+Defined in: [src/runtime/steering-drivers.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L64)
 
 Fold a steering string into the caller's Task shape, producing the Task for
 the next shot. The substrate never assumes how a Task carries its prompt, so
@@ -15573,7 +15994,7 @@ fixtures, feature names) and replace only the instruction.
 
 > **ChampionPolicy** = `"score"` \| `"costAware"`
 
-Defined in: [runtime/strategy-evolution.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L55)
+Defined in: [src/runtime/strategy-evolution.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L55)
 
 ***
 
@@ -15581,7 +16002,7 @@ Defined in: [runtime/strategy-evolution.ts:55](https://github.com/tangle-network
 
 > **AgentTurnBackend** = \{ `kind`: `"box"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`PromptOptions`, `"signal"`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"box-task"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`TaskOptions`, `"signal"`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
 
-Defined in: [runtime/stream-agent-turn.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L82)
+Defined in: [src/runtime/stream-agent-turn.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L82)
 
 **`Experimental`**
 
@@ -15704,7 +16125,7 @@ any custom backend): the turn is one `backend.stream()` call.
 
 > **RepairStop** = `"already-passing"` \| `"no-signal"` \| `"repaired-pass"` \| `"rounds-exhausted"` \| `"no-candidates"`
 
-Defined in: [runtime/structural-rollout.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L479)
+Defined in: [src/runtime/structural-rollout.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L479)
 
 ***
 
@@ -15712,7 +16133,7 @@ Defined in: [runtime/structural-rollout.ts:479](https://github.com/tangle-networ
 
 > **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
-Defined in: [runtime/supervise/budget.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L44)
+Defined in: [src/runtime/supervise/budget.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L44)
 
 Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
@@ -15726,7 +16147,7 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 > **ExecutorConfig** = `object` & `RouterSeam` \| `object` & `RouterToolsSeam` \| `object` & `BridgeSeam` \| `object` & `CliSeam` \| `object` & `CliWorktreeSeam` \| `object` & [`ProviderSeam`](#providerseam) \| `object` & `SandboxSeam`
 
-Defined in: [runtime/supervise/runtime.ts:1540](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1540)
+Defined in: [src/runtime/supervise/runtime.ts:1540](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1540)
 
 Config for [createExecutor](#createexecutor): the backend is DATA — the cost dial a profile,
 an experiment config, or a replay journal can name — not an import choice. Each
@@ -15738,7 +16159,7 @@ variant carries its backend's seam (router/router-tools/bridge/cli/cli-worktree/
 
 > **DriveHarness** = (`args`) => `Promise`\<`void`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L62)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L62)
 
 How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
@@ -15775,7 +16196,7 @@ How to run a sandboxed harness as the DRIVER, with the coordination verbs mounte
 
 > **UsageEvent** = \{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
-Defined in: [runtime/supervise/types.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L131)
+Defined in: [src/runtime/supervise/types.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L131)
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
@@ -15787,7 +16208,7 @@ conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage
 
 > **Runtime** = `"router"` \| `"inline"` \| `"sandbox"` \| `"cli"` \| `string` & `object`
 
-Defined in: [runtime/supervise/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L138)
+Defined in: [src/runtime/supervise/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L138)
 
 The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name.
 External executors can register additional runtime strings without widening this type.
@@ -15798,7 +16219,7 @@ External executors can register additional runtime strings without widening this
 
 > **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](#executor)\<`Out`\>
 
-Defined in: [runtime/supervise/types.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L166)
+Defined in: [src/runtime/supervise/types.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L166)
 
 Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not
 shared) so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a
@@ -15830,7 +16251,7 @@ user supply construction args without pre-instantiating.
 
 > **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: `Handle`\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: `Handle`\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `seq`: `number`; \}
 
-Defined in: [runtime/supervise/types.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L259)
+Defined in: [src/runtime/supervise/types.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L259)
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -15886,7 +16307,7 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 > **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
 
-Defined in: [runtime/supervise/types.ts:470](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L470)
+Defined in: [src/runtime/supervise/types.ts:470](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L470)
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -15978,7 +16399,7 @@ The conserved spend incurred before the run failed — real cost is paid even wh
 
 > **WorktreePatchArtifact** = `WorktreeHarnessResult`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L42)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L42)
 
 Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured
  diff + the harness's run record + the derived checks).
@@ -15989,7 +16410,7 @@ Terminal artifact of one worktree-CLI run — the canonical worktree-harness res
 
 > **ToolLoopChat** = (`messages`, `tools`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; \}\>
 
-Defined in: [runtime/tool-loop.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L17)
+Defined in: [src/runtime/tool-loop.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L17)
 
 One inference turn over the running conversation + the tool specs → the model's text, any
  tool calls, and token usage. The seam every brain satisfies.
@@ -16014,7 +16435,7 @@ One inference turn over the running conversation + the tool specs → the model'
 
 > **ToolLoopCompactionOptions** = `Omit`\<[`ToolLoopCompaction`](#toolloopcompaction), `"distill"`\> & `object`
 
-Defined in: [runtime/tool-loop.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L66)
+Defined in: [src/runtime/tool-loop.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L66)
 
 Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional
  because the supervisor has a default digest that combines a brain note with live worker state.
@@ -16031,7 +16452,7 @@ Public supervisor-facing compaction config: same knobs as the primitive, but `di
 
 > **MountRecorder** = (`entry`) => `void`
 
-Defined in: [runtime/types.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L196)
+Defined in: [src/runtime/types.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L196)
 
 **`Experimental`**
 
@@ -16055,7 +16476,7 @@ declares what it mounted without the kernel having to inspect box contents.
 
 > **LoopTraceEvent** = \{ `kind`: `"loop.started"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopStartedPayload`](#loopstartedpayload); \} \| \{ `kind`: `"loop.plan"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopPlanPayload`](#loopplanpayload); \} \| \{ `kind`: `"loop.iteration.started"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationStartedPayload`](#loopiterationstartedpayload); \} \| \{ `kind`: `"loop.iteration.dispatch"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationDispatchPayload`](#loopiterationdispatchpayload); \} \| \{ `kind`: `"loop.iteration.ended"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationEndedPayload`](#loopiterationendedpayload); \} \| \{ `kind`: `"loop.decision"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopDecisionPayload`](#loopdecisionpayload); \} \| \{ `kind`: `"loop.ended"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopEndedPayload`](#loopendedpayload); \} \| \{ `kind`: `"loop.teardown.failed"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopTeardownFailedPayload`](#loopteardownfailedpayload); \}
 
-Defined in: [runtime/types.ts:409](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L409)
+Defined in: [src/runtime/types.ts:409](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L409)
 
 **`Experimental`**
 
@@ -16065,7 +16486,7 @@ Defined in: [runtime/types.ts:409](https://github.com/tangle-network/agent-runti
 
 > **Shell** = (`args`, `cwd?`) => `Promise`\<\{ `stdout`: `string`; `stderr`: `string`; `code`: `number`; \}\>
 
-Defined in: [runtime/workspace.ts:2](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L2)
+Defined in: [src/runtime/workspace.ts:2](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L2)
 
 Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`.
 
@@ -16089,7 +16510,7 @@ Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.
 
 > **WorkspaceCommit** = \{ `ok`: `true`; `rev`: `string`; \} \| \{ `ok`: `false`; `conflict`: `string`; \}
 
-Defined in: [runtime/workspace.ts:7](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L7)
+Defined in: [src/runtime/workspace.ts:7](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L7)
 
 ## Variables
 
@@ -16097,9 +16518,21 @@ Defined in: [runtime/workspace.ts:7](https://github.com/tangle-network/agent-run
 
 > `const` **defaultAuditorInstruction**: `string`
 
-Defined in: [runtime/audit-intent.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L66)
+Defined in: [src/runtime/audit-intent.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L66)
 
 Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories.
+
+***
+
+### mcpSecretEnvMetadataKey
+
+> `const` **mcpSecretEnvMetadataKey**: `"secretEnv"` = `'secretEnv'`
+
+Defined in: [src/runtime/key-provider.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/key-provider.ts#L55)
+
+The `AgentProfileMcpServer.metadata` key the declarative secret-env map
+ rides under: `{ ENV_VAR_NAME: 'PROVIDER_KEY_NAME' }`. Names only — values
+ are resolved at materialize time and never stored.
 
 ***
 
@@ -16107,7 +16540,7 @@ Default system instruction for intent-auditor agents: diagnose diverged/drifting
 
 > `const` **defaultAnalystInstruction**: `string`
 
-Defined in: [runtime/observe.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L57)
+Defined in: [src/runtime/observe.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L57)
 
 The default observer instruction — exported so an optimizer can seed its population.
 
@@ -16117,7 +16550,7 @@ The default observer instruction — exported so an optimizer can seed its popul
 
 > `const` **assertTraceDerivedFindings**: [`AssertTraceDerivedFindings`](#asserttracederivedfindings-1)
 
-Defined in: [runtime/personify/analyst.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L47)
+Defined in: [src/runtime/personify/analyst.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L47)
 
 ***
 
@@ -16125,7 +16558,7 @@ Defined in: [runtime/personify/analyst.ts:47](https://github.com/tangle-network/
 
 > `const` **builtinShapes**: [`ShapeRegistry`](#shaperegistry)
 
-Defined in: [runtime/personify/registry.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/registry.ts#L50)
+Defined in: [src/runtime/personify/registry.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/registry.ts#L50)
 
 The default registry `runPersonified` resolves a shape name against. Empty by construction —
  a caller registers its own composed shapes; the engine ships no domain shape.
@@ -16136,7 +16569,7 @@ The default registry `runPersonified` resolves a shape name against. Empty by co
 
 > `const` **strategyAuthorContract**: "\nYou author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to\nspend a compute budget to beat a task's deployable check. You compose exactly two steps:\n\n  shot(spec?: \{ handle?, messages?, steer?, persona?, tools? \}): Promise\<ShotResult \| null\>\n    Runs ONE worker attempt (a bounded tool loop) over an artifact.\n    - omit handle  =\> the shot opens its OWN fresh artifact and closes it after (a sample).\n    - pass handle  =\> the shot CONTINUES that artifact (state accumulates across shots).\n    - messages     =\> the carried conversation (pass the previous ShotResult.messages to continue).\n    - steer        =\> a corrective instruction injected before the shot.\n    - persona      =\> \{ systemPrompt?, model? \} — give THIS shot its own role and/or model\n      (multi-agent strategies: a researcher shot then an engineer shot, a panel of k\n      personas over one budget). On a fresh shot the systemPrompt replaces the task's; on\n      a carried conversation it arrives as a hand-off message. Same conserved budget.\n    - tools        =\> string\[\] — restrict THIS shot to a subset of the task's tools by\n      name (focus an explore shot on read-only tools, an execute shot on write tools).\n      Restriction-only; unknown names make the shot fail. ALWAYS select from\n      await listTools(handle) — never hardcode. Omitted =\> the shot sees every tool.\n    ShotResult = \{ messages, score (0..1 on the task's check), passes, total, completions, toolErrors \}\n    Returns null if the attempt failed infra-wise.\n\n  critique(messages): Promise\<string \| null\>\n    A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective\n    instruction (or null when it judges the work complete). Costs ~1 completion.\n\n  consult(messages, instruction): Promise\<string \| null\>\n    The RAW analyst channel: the same firewalled critic answers YOUR instruction over the\n    trajectory verbatim (no reformatting) — use it when you need a specific reply format\n    (a decision, a prediction). Costs ~1 completion.\n\n  surface.open(task) / surface.close(handle)\n    Open a persistent artifact you manage yourself (remember to close in a finally).\n    close is idempotent — closing an already-closed handle is a safe no-op.\n\n  listTools(handle): Promise\<Array\<\{ name, description? \}\>\>\n    The tools THIS task actually offers. TOOL SETS VARY PER TASK — if you restrict a\n    shot with \`tools\`, you MUST pick names from await listTools(handle); hardcoding\n    names from an example kills your shots on every task whose tools differ.\n\nRules:\n- ALWAYS await every shot/critique/surface call — a floating promise that rejects\n  crashes the whole benchmark run.\n- Stay within ~budget total shots; every shot/critique spends from a conserved pool.\n- For a FRESH attempt OMIT \`messages\` entirely (never pass \`\[\]\` — an empty array is a\n  fresh conversation too, but be explicit). To CONTINUE, pass the previous\n  ShotResult.messages unchanged.\n- Return \{ score, resolved, completions, progression, shots \} — score = the BEST checkpoint\n  you reached (keep-best, never final-state), progression = score after each shot.\n- The module must be EXACTLY this shape (no other imports, no commentary outside code):\n\nimport \{ defineStrategy \} from '@tangle-network/agent-runtime/loops'\nexport default defineStrategy('your-strategy-name', async (\{ surface, task, budget, shot, critique, listTools \}) =\> \{\n  // your composition (listTools comes from the destructured context — it is NOT a global)\n\})\n"
 
-Defined in: [runtime/strategy-author.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L21)
+Defined in: [src/runtime/strategy-author.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L22)
 
 The compressed consumable a skill carries: everything an author needs to emit a loop.
 
@@ -16146,7 +16579,7 @@ The compressed consumable a skill carries: everything an author needs to emit a 
 
 > `const` **sample**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:769](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L769)
+Defined in: [src/runtime/strategy.ts:769](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L769)
 
 Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample).
 
@@ -16156,7 +16589,7 @@ Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N 
 
 > `const` **refine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:774](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L774)
+Defined in: [src/runtime/strategy.ts:774](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L774)
 
 Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage).
 
@@ -16166,7 +16599,7 @@ Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next 
 
 > `const` **adaptiveRefine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:974](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L974)
+Defined in: [src/runtime/strategy.ts:974](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L974)
 
 A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot
  fails to improve the score it ABANDONS that line and restarts fresh (branch-when-stuck)
@@ -16180,7 +16613,7 @@ A NEW strategy, authored from the steps (~20 lines): refine, but when a steered 
 
 > `const` **sampleThenRefine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:1017](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1017)
+Defined in: [src/runtime/strategy.ts:1017](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1017)
 
 The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open),
  then refine the best-verifying line with the remaining budget. Sample's basin escape +
@@ -16192,7 +16625,7 @@ The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept 
 
 > `const` **defaultStructuralRolloutPolicy**: [`StructuralRolloutPolicy`](#structuralrolloutpolicy)
 
-Defined in: [runtime/structural-rollout.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L60)
+Defined in: [src/runtime/structural-rollout.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L60)
 
 The measured default recipe: 5 samples, 2 guarded repair rounds, 6 authored checks.
 
@@ -16202,7 +16635,7 @@ The measured default recipe: 5 samples, 2 guarded repair rounds, 6 authored chec
 
 > `const` **defaultProfileRichnessThresholds**: [`ProfileRichnessThresholds`](#profilerichnessthresholds)
 
-Defined in: [runtime/supervise/authoring.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L140)
+Defined in: [src/runtime/supervise/authoring.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L140)
 
 Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minimum system prompt.
 
@@ -16212,7 +16645,7 @@ Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minim
 
 > `const` **defaultDelegateBudget**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise/delegate.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L35)
+Defined in: [src/runtime/supervise/delegate.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L35)
 
 The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`.
  A modest token ceiling + a small iteration ceiling — generous enough for a few-worker decompose,
@@ -16224,7 +16657,7 @@ The conserved pool a `delegate()` call applies when the caller does not pass its
 
 > `const` **cliWorktreeExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
-Defined in: [runtime/supervise/runtime.ts:1502](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1502)
+Defined in: [src/runtime/supervise/runtime.ts:1502](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1502)
 
 The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored
 `AgentProfile` driving claude / codex / opencode on its own worktree. `budgetExempt` like
@@ -16236,7 +16669,7 @@ the other CLI leaves; the authored systemPrompt + model reach the harness via §
 
 > **contentAddress**(`artifact`): `string`
 
-Defined in: [durable/spawn-journal.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L49)
+Defined in: [src/durable/spawn-journal.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L49)
 
 Mint the content-addressed `outRef` for a result artifact: `sha256:<hex>` over a
 stable JSON encoding. Producers call this to derive the `outRef` they journal and
@@ -16262,7 +16695,7 @@ artifacts hash identically regardless of key insertion order.
 
 > **anytimeReport**(`spans`, `opts?`): [`AnytimeReport`](#anytimereport)
 
-Defined in: [runtime/anytime.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L73)
+Defined in: [src/runtime/anytime.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L73)
 
 Derive anytime metrics from waterfall spans. `targets` are the satisficing score
  bars (default [1] = fully resolved; COCO-style multi-target: [0.5, 0.8, 1]);
@@ -16295,7 +16728,7 @@ Derive anytime metrics from waterfall spans. `targets` are the satisficing score
 
 > **renderAnytimeTable**(`report`): `string`
 
-Defined in: [runtime/anytime.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L164)
+Defined in: [src/runtime/anytime.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L164)
 
 One row per (strategy, satisficing target): the shareable time-to-satisfactory table.
 
@@ -16315,7 +16748,7 @@ One row per (strategy, satisficing target): the shareable time-to-satisfactory t
 
 > **auditIntent**(`input`, `opts`): `Promise`\<[`IntentAudit`](#intentaudit)\>
 
-Defined in: [runtime/audit-intent.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L110)
+Defined in: [src/runtime/audit-intent.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L110)
 
 The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention.
 
@@ -16339,7 +16772,7 @@ The route-rigor analyst: compare declared vs revealed vs user intent over a traj
 
 > **leaderboard**(`records`, `opts?`): [`Leaderboard`](#leaderboard)
 
-Defined in: [runtime/benchmark-report.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L158)
+Defined in: [src/runtime/benchmark-report.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L158)
 
 Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic.
 
@@ -16363,7 +16796,7 @@ readonly `RunRecord`[]
 
 > **pairwiseSignificance**(`records`, `opts?`): [`PairwiseVerdict`](#pairwiseverdict)[]
 
-Defined in: [runtime/benchmark-report.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L293)
+Defined in: [src/runtime/benchmark-report.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L293)
 
 Compare EVERY profile pair on the scenarios they both ran — paired-bootstrap effect + CI, a real
  paired-test p-value, BH-corrected across all pairs. This is the honest "did A beat B" table the
@@ -16389,7 +16822,7 @@ readonly `RunRecord`[]
 
 > **renderLeaderboardMarkdown**(`report`): `string`
 
-Defined in: [runtime/benchmark-report.ts:357](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L357)
+Defined in: [src/runtime/benchmark-report.ts:357](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L357)
 
 Render the report as a publishable Markdown document: provenance → leaderboard → the full profile×axis
  matrix → cost/latency/token columns. Every axis is shown — a curated subset is a reporting failure.
@@ -16410,7 +16843,7 @@ Render the report as a publishable Markdown document: provenance → leaderboard
 
 > **renderPairwiseMarkdown**(`verdicts`, `title?`): `string`
 
-Defined in: [runtime/benchmark-report.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L400)
+Defined in: [src/runtime/benchmark-report.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L400)
 
 Render the pairwise-significance table — every profile pair's paired delta, CI, and BH-corrected
  verdict. Feed it `pairwiseSignificance(records)`. This is the "did A really beat B" evidence the point
@@ -16436,7 +16869,7 @@ readonly [`PairwiseVerdict`](#pairwiseverdict)[]
 
 > **renderLeaderboardSvg**(`report`): `string`
 
-Defined in: [runtime/benchmark-report.ts:435](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L435)
+Defined in: [src/runtime/benchmark-report.ts:435](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L435)
 
 Render a self-contained SVG: a ranked score bar chart on top, the profile×axis heatmap below. No deps,
  embeddable anywhere (README, HTML page, hosted leaderboard).
@@ -16457,7 +16890,7 @@ Render a self-contained SVG: a ranked score bar chart on top, the profile×axis 
 
 > **renderLeaderboardHtml**(`report`): `string`
 
-Defined in: [runtime/benchmark-report.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L506)
+Defined in: [src/runtime/benchmark-report.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L506)
 
 Render a self-contained HTML leaderboard page (the hosted surface): the SVG charts + the full Markdown
  matrix as a table. Single file, no assets, opens in any browser.
@@ -16478,7 +16911,7 @@ Render a self-contained HTML leaderboard page (the hosted surface): the SVG char
 
 > **completionAuthorizes**(`v`, `policy?`): `boolean`
 
-Defined in: [runtime/completion.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L64)
+Defined in: [src/runtime/completion.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L64)
 
 Decide whether a `CompletionVerdict` may end the node under the policy: authority scales with the verdict's determinism, and probabilistic verdicts must clear `minConfidence`.
 
@@ -16502,7 +16935,7 @@ Decide whether a `CompletionVerdict` may end the node under the policy: authorit
 
 > **stopSentinel**(`seed`): `string`
 
-Defined in: [runtime/completion.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L75)
+Defined in: [src/runtime/completion.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L75)
 
 A unique, attributable stop sentinel for a node (ralph-loop style). Deterministic from the
 seed (no Math.random — reproducible + attributable to the node); the agent is instructed to
@@ -16524,7 +16957,7 @@ emit it VERBATIM when it judges itself done. Unguessable enough that content nev
 
 > **sentinelCompletion**\<`Task`\>(`sentinel`, `opts?`): [`CompletionAnalyst`](#completionanalyst)\<`Task`, `string`\>
 
-Defined in: [runtime/completion.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L88)
+Defined in: [src/runtime/completion.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L88)
 
 Completion for a sandbox-agent node: done iff the latest output carries the node's stop
 sentinel. PROBABILISTIC (the agent's own self-judgment) — the driver validates it.
@@ -16557,7 +16990,7 @@ sentinel. PROBABILISTIC (the agent's own self-judgment) — the driver validates
 
 > **deterministicCompletion**\<`Task`, `Output`\>(`check`): [`CompletionAnalyst`](#completionanalyst)\<`Task`, `Output`\>
 
-Defined in: [runtime/completion.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L113)
+Defined in: [src/runtime/completion.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L113)
 
 Completion for a DETERMINISTIC check (build/test/lint/citation/proof): done iff the check
 passes. Ground truth — the driver ends directly, no validation. The check reads the output
@@ -16589,7 +17022,7 @@ passes. Ground truth — the driver ends directly, no validation. The check read
 
 > **defineLeaderboard**\<`TCase`, `TArtifact`\>(`spec`): [`DefinedLeaderboard`](#definedleaderboard)\<`TCase`, `TArtifact`\>
 
-Defined in: [runtime/define-leaderboard.ts:305](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L305)
+Defined in: [src/runtime/define-leaderboard.ts:305](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L305)
 
 Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable
 harness×model leaderboard — `run()` executes the matrix, `toBenchmarkAdapter()`
@@ -16621,7 +17054,7 @@ exposes the same domain as a structural `BenchmarkAdapter`.
 
 > **harvestCorpus**(`opts`): `Promise`\<[`HarvestReport`](#harvestreport)\>
 
-Defined in: [runtime/harvest-corpus.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L63)
+Defined in: [src/runtime/harvest-corpus.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L63)
 
 Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel.
 
@@ -16641,7 +17074,7 @@ Batch the firewalled `observe()` analyst over completed runs and accrete the tra
 
 > **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [runtime/in-process-sandbox-client.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L116)
+Defined in: [src/runtime/in-process-sandbox-client.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L116)
 
 **`Experimental`**
 
@@ -16666,7 +17099,7 @@ this function, so call sites stay cast-free.
 
 > **inlineSandboxClient**(`factory`): [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [runtime/inline-sandbox-client.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/inline-sandbox-client.ts#L44)
+Defined in: [src/runtime/inline-sandbox-client.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/inline-sandbox-client.ts#L44)
 
 Adapt an `ExecutorFactory` into a `SandboxClient` for `runLoop`. The factory is
 instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
@@ -16684,11 +17117,105 @@ run once on the prompt, emit the terminal result event, tear down.
 
 ***
 
+### envKeyProvider()
+
+> **envKeyProvider**(`env?`): [`KeyProvider`](#keyprovider)
+
+Defined in: [src/runtime/key-provider.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/key-provider.ts#L43)
+
+The env-backed provider: reads the (dotenvx-loaded) process env. Empty /
+ whitespace-only values count as absent — fail loud, not with a blank key.
+
+#### Parameters
+
+##### env?
+
+`Record`\<`string`, `string` \| `undefined`\> = `process.env`
+
+#### Returns
+
+[`KeyProvider`](#keyprovider)
+
+***
+
+### secretEnvOfMcpServer()
+
+> **secretEnvOfMcpServer**(`server`): `Record`\<`string`, `string`\> \| `undefined`
+
+Defined in: [src/runtime/key-provider.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/key-provider.ts#L59)
+
+Read (and validate) a server entry's declared secret-env map, if any.
+ Malformed metadata throws — a half-declared secret must never half-boot.
+
+#### Parameters
+
+##### server
+
+`AgentProfileMcpServer`
+
+#### Returns
+
+`Record`\<`string`, `string`\> \| `undefined`
+
+***
+
+### resolveSecretEnv()
+
+> **resolveSecretEnv**(`secretEnv`, `keys`, `label`): `Promise`\<`Record`\<`string`, `string`\>\>
+
+Defined in: [src/runtime/key-provider.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/key-provider.ts#L87)
+
+Resolve a declared secret-env map into the real env entries for a server
+spawn. Fail-closed: no provider or a missing key throws, naming the KEY
+NAME only (the value never appears in any message). `label` names the
+server for the error (e.g. `profile.mcp['exa']`).
+
+#### Parameters
+
+##### secretEnv
+
+`Record`\<`string`, `string`\>
+
+##### keys
+
+[`KeyProvider`](#keyprovider) \| `undefined`
+
+##### label
+
+`string`
+
+#### Returns
+
+`Promise`\<`Record`\<`string`, `string`\>\>
+
+***
+
+### localSandboxClient()
+
+> **localSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-3)
+
+Defined in: [src/runtime/local-sandbox-client.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L52)
+
+A same-host `SandboxClient` adapter with no process isolation. Local MCP is
+refused unless the caller explicitly supplies a policy that allows it.
+
+#### Parameters
+
+##### opts
+
+[`LocalSandboxClientOptions`](#localsandboxclientoptions)
+
+#### Returns
+
+[`SandboxClient`](#sandboxclient-3)
+
+***
+
 ### loopCampaignDispatch()
 
 > **loopCampaignDispatch**\<`Task`, `Output`, `Decision`, `TScenario`, `TArtifact`\>(`opts`): `DispatchFn`\<`TScenario`, `TArtifact`\>
 
-Defined in: [runtime/loop-dispatch.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L217)
+Defined in: [src/runtime/loop-dispatch.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L217)
 
 Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for
 agent-eval fixture scenarios: load fixtures in `agent-eval/campaign`, build
@@ -16732,7 +17259,7 @@ the runtime loop here, and keep cost + token + trace reporting automatic.
 
 > **loopDispatch**\<`Task`, `Output`, `Decision`, `TScenario`, `TArtifact`\>(`opts`): `ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
 
-Defined in: [runtime/loop-dispatch.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L240)
+Defined in: [src/runtime/loop-dispatch.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L240)
 
 Adapter for `runProfileMatrix` (profile is an axis). Returns a
 `ProfileDispatchFn` that runs `runLoop` per (profile, scenario) cell and
@@ -16772,11 +17299,33 @@ reports usage automatically.
 
 ***
 
+### sanitizeMcpToolSchema()
+
+> **sanitizeMcpToolSchema**(`s`): `Record`\<`string`, `unknown`\>
+
+Defined in: [src/runtime/mcp-environment.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L83)
+
+Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema.
+ Shared with the same-host stdio client (`materializeLocalMcp`) — one coercion
+ rule for every MCP tool a worker sees, regardless of transport.
+
+#### Parameters
+
+##### s
+
+`unknown`
+
+#### Returns
+
+`Record`\<`string`, `unknown`\>
+
+***
+
 ### createMcpEnvironment()
 
 > **createMcpEnvironment**(`opts`): [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/mcp-environment.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L95)
+Defined in: [src/runtime/mcp-environment.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/mcp-environment.ts#L97)
 
 Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks.
 
@@ -16796,7 +17345,7 @@ Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` wi
 
 > **observe**(`input`, `opts`): `Promise`\<[`Observation`](#observation)\>
 
-Defined in: [runtime/observe.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L140)
+Defined in: [src/runtime/observe.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L140)
 
 The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus.
 
@@ -16820,7 +17369,7 @@ The third-person trace analyst: read a worker's trace and produce steer findings
 
 > **renderReport**(`findings`): `string`
 
-Defined in: [runtime/observe.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L227)
+Defined in: [src/runtime/observe.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L227)
 
 Operator-facing report, split by who should act. The agent block is the
  steer; the operator block is the advice.
@@ -16841,7 +17390,7 @@ readonly `AnalystFinding`[]
 
 > **createScopeAnalyst**\<`D`\>(`scope`, `options`): [`ScopeAnalyst`](#scopeanalyst)\<`D`\>
 
-Defined in: [runtime/personify/analyst.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L97)
+Defined in: [src/runtime/personify/analyst.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L97)
 
 Build a `ScopeAnalyst` that spawns the analyst agent through `Scope.spawn` (so its compute is
 metered by the conserved pool), drains its single settlement, and enforces the trace-derived
@@ -16881,7 +17430,7 @@ Fail loud (no silent empty findings):
 
 > **registryScopeAnalyst**\<`D`\>(`registry`, `buildInputs`): [`ScopeAnalyst`](#scopeanalyst)\<`D`\>
 
-Defined in: [runtime/personify/analyst.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L203)
+Defined in: [src/runtime/personify/analyst.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L203)
 
 A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges
 N analyst KINDS into one `AnalystRunResult.findings`; `analyze` runs it over the caller-projected
@@ -16920,7 +17469,7 @@ over with a fabricated input here.
 
 > **buildSteerContext**\<`D`\>(`findings`, `settledSoFar`): [`SteerContext`](#steercontext)\<`D`\>
 
-Defined in: [runtime/personify/analyst.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L231)
+Defined in: [src/runtime/personify/analyst.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L231)
 
 Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any
 future steer). One place enforces the firewall: `findings` is asserted trace-derived before it is
@@ -16958,7 +17507,7 @@ readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 > **selectValidWinner**\<`D`\>(`opts?`): [`FanoutWinnerSelector`](#fanoutwinnerselector)\<`D`\>
 
-Defined in: [runtime/personify/combinators.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L59)
+Defined in: [src/runtime/personify/combinators.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L59)
 
 The single content-free valid-only winner selector. Among the gated-VALID children only
 (`verdict.valid === true`), pick by `strategy` — best score / smallest delivered artifact /
@@ -16996,7 +17545,7 @@ the selection logic previously copied per role.
 
 > **pipeline**\<`Task`, `D`\>(`stages`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/combinators.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L101)
+Defined in: [src/runtime/personify/combinators.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L101)
 
 `pipeline(stages)` — run the stages in order, feeding each stage's `done` deliverable into the
 next stage's task. The first stage that ends `blocked` (a child that went down, a child the
@@ -17030,7 +17579,7 @@ readonly [`PipelineStage`](#pipelinestage)\<`Task`, `unknown`, `unknown`\>[]
 
 > **fanout**\<`Task`, `Item`, `D`\>(`items`, `opts`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/combinators.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L139)
+Defined in: [src/runtime/personify/combinators.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L139)
 
 `fanout(items, opts)` — spawn one child per item in a single round (bounded by the conserved
 pool's fail-closed admission), drain via `scope.next()`, then either synthesize over the
@@ -17072,7 +17621,7 @@ readonly `Item`[]
 
 > **loopUntil**\<`Task`, `State`, `D`\>(`seed`, `spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/combinators.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L222)
+Defined in: [src/runtime/personify/combinators.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L222)
 
 `loopUntil(seed, spec)` — one `step` child per round; `fold` accumulates each settlement into
 the running state; `until` (reading the round's trace findings, NOT a fresh raw verdict) is
@@ -17118,7 +17667,7 @@ argument is the empty array — never a fabricated finding (fail-loud honesty ov
 
 > **panel**\<`Task`, `Artifact`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/combinators.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L274)
+Defined in: [src/runtime/personify/combinators.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L274)
 
 `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements,
 and fold them into a panel verdict via the pure WRITE-ONLY `merge` (a judge's output never
@@ -17156,7 +17705,7 @@ concrete blocker before `merge` is consulted.
 
 > **verify**\<`Task`, `Candidate`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/combinators.ts:334](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L334)
+Defined in: [src/runtime/personify/combinators.ts:334](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L334)
 
 `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades
 it; only a `valid` verifier verdict ships. Any other outcome (implement down, verifier down,
@@ -17193,7 +17742,7 @@ never a coerced "done". The implement child does not grade itself.
 
 > **widen**\<`Task`, `Seed`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [runtime/personify/combinators.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L388)
+Defined in: [src/runtime/personify/combinators.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L388)
 
 `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS
 to each `scope.next()`: on every settled child it consults `spec.gate.decide` and, when the gate
@@ -17241,7 +17790,7 @@ a scope whose siblings are quiesced, or read findings without the shared-cursor 
 
 > **flatWidenGate**\<`D`\>(): [`ScopeWidenGate`](#scopewidengate)\<`D`\>
 
-Defined in: [runtime/personify/combinators.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L451)
+Defined in: [src/runtime/personify/combinators.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L451)
 
 The flat default `ScopeWidenGate` — never widens, keeping the R2 selector≠judge collision
 dormant. A gate run passes this explicitly; a test asserts the default is flat.
@@ -17262,7 +17811,7 @@ dormant. A gate run passes this explicitly; a test asserts the default is flat.
 
 > **renderCorpusToInstructions**(`opts`): `Promise`\<`AgentProfile`\>
 
-Defined in: [runtime/personify/corpus.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L302)
+Defined in: [src/runtime/personify/corpus.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/corpus.ts#L302)
 
 The learning-flywheel READ side. Queries the corpus through `filter`, renders the matching facts
 (most-confident first, capped by `maxLines`) into instruction lines, and returns a FRESH
@@ -17291,7 +17840,7 @@ An empty query result returns a fresh COPY of the profile with no instruction ch
 
 > **definePersona**\<`D`\>(`input`): [`Persona`](#persona)\<`D`\>
 
-Defined in: [runtime/personify/persona.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/persona.ts#L57)
+Defined in: [src/runtime/personify/persona.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/persona.ts#L57)
 
 Build a frozen `Persona`. Fails loud on the executors-supplied invariant: a persona with
 neither a pre-built registry nor a seam bag cannot resolve its built-in runtimes, so it is
@@ -17319,7 +17868,7 @@ unrunnable — refuse it at definition time, not at the first spawn. Pure; no I/
 
 > **runPersonified**\<`Task`, `D`\>(`options`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<[`Outcome`](#outcome-1)\<`D`\>\>\>
 
-Defined in: [runtime/personify/persona.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/persona.ts#L132)
+Defined in: [src/runtime/personify/persona.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/persona.ts#L132)
 
 Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape
 (a factory verbatim, or a registered name through `builtinShapes`), applies it to a
@@ -17353,7 +17902,7 @@ default-shape fallback.
 
 > **createShapeRegistry**(): [`ShapeRegistry`](#shaperegistry)
 
-Defined in: [runtime/personify/registry.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/registry.ts#L26)
+Defined in: [src/runtime/personify/registry.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/registry.ts#L26)
 
 Build a fresh open `ShapeRegistry`. A factory is stored type-erased and re-cast on resolve — the
 caller asserts the `<Task, D>` it expects, exactly as the executor registry stores its factories.
@@ -17368,7 +17917,7 @@ caller asserts the `<Task, D>` it expects, exactly as the executor registry stor
 
 > **registerShape**\<`Task`, `D`\>(`name`, `factory`): `void`
 
-Defined in: [runtime/personify/registry.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/registry.ts#L54)
+Defined in: [src/runtime/personify/registry.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/registry.ts#L54)
 
 Register a composed shape on the default `builtinShapes` registry — the one-call extension
  point a caller invokes so its shape is resolvable by name with zero edits to the engine.
@@ -17403,7 +17952,7 @@ Register a composed shape on the default `builtinShapes` registry — the one-ca
 
 > **trajectoryReport**(`journal`, `blobs`, `root`, `options?`): `Promise`\<[`TrajectoryReport`](#trajectoryreport-3)\>
 
-Defined in: [runtime/personify/trajectory.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/trajectory.ts#L53)
+Defined in: [src/runtime/personify/trajectory.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/trajectory.ts#L53)
 
 Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the
 journal for structure + spend and, when `withOutputs`, the blob store for each `done`
@@ -17439,7 +17988,7 @@ store cannot rehydrate (a silent gap would mis-cost or mis-evidence the tree).
 
 > **equalKOnCost**(`arms`, `options?`): [`EqualKVerdict`](#equalkverdict)
 
-Defined in: [runtime/personify/trajectory.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/trajectory.ts#L144)
+Defined in: [src/runtime/personify/trajectory.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/trajectory.ts#L144)
 
 Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration
 count. Compares each arm's root-rolled-up `total` on the two conserved channels: an arm is
@@ -17467,7 +18016,7 @@ readonly [`EqualKArm`](#equalkarm)[]
 
 > **promotionGate**(`opts`): [`PromotionVerdict`](#promotionverdict)
 
-Defined in: [runtime/promotion-gate.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L64)
+Defined in: [src/runtime/promotion-gate.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/promotion-gate.ts#L64)
 
 Statistical promotion decision over a holdout benchmark: a seeded paired bootstrap (`heldoutSignificance`) whose CI lower bound must clear `deltaThreshold`.
 
@@ -17487,7 +18036,7 @@ Statistical promotion decision over a holdout benchmark: a seeded paired bootstr
 
 > **reportLoopUsage**\<`Task`, `Output`, `Decision`\>(`cost`, `result`, `source?`): `void`
 
-Defined in: [runtime/report-usage.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/report-usage.ts#L34)
+Defined in: [src/runtime/report-usage.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/report-usage.ts#L34)
 
 Forward a `LoopResult`'s aggregated cost + token usage into a campaign cost
 meter so the backend-integrity guard sees real LLM activity. `source`
@@ -17531,7 +18080,7 @@ defaults to `'loop'`.
 
 > **resolveSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [runtime/resolve-sandbox-client.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L54)
+Defined in: [src/runtime/resolve-sandbox-client.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L62)
 
 Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core
 that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
@@ -17553,7 +18102,7 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 
 > **routerChatWithUsage**(`cfg`, `messages`, `opts?`): `Promise`\<[`RouterChatResult`](#routerchatresult)\>
 
-Defined in: [runtime/router-client.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L49)
+Defined in: [src/runtime/router-client.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L49)
 
 One OpenAI-compatible chat completion through the Tangle router, returning text + REAL token usage (`undefined` when the provider omits it — never a fabricated 0).
 
@@ -17602,7 +18151,7 @@ the reasoning/content split in `parseChatResult`.
 
 > **routerChatWithTools**(`cfg`, `messages`, `tools`, `opts?`): `Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
 
-Defined in: [runtime/router-client.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L187)
+Defined in: [src/runtime/router-client.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L187)
 
 A router completion WITH tool-calling — the operator driver's LLM seam. Passes OpenAI-shape
 `messages` (system/user/assistant-with-tool_calls/tool roles) + function `tools`, and returns the
@@ -17651,7 +18200,7 @@ readonly `object`[]
 
 > **routerToolLoop**(`cfg`, `system`, `user`, `tools`, `execute`, `opts?`): `Promise`\<[`RouterToolLoopResult`](#routertoolloopresult)\>
 
-Defined in: [runtime/router-client.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L285)
+Defined in: [src/runtime/router-client.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L285)
 
 The tool-using router backend: a real agentic loop OVER the Tangle router (which
 supports tool-calling), off-box — no sandbox. Each turn is one router completion
@@ -17720,7 +18269,7 @@ Seed the loop with an existing conversation (depth continuation) instead of
 
 > **routerBrain**(`cfg`, `opts?`): [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/router-client.ts:327](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L327)
+Defined in: [src/runtime/router-client.ts:327](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L327)
 
 The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's
 tool-calling. The driver's spawn/observe/steer/await/stop turns become real router tool-calls.
@@ -17749,7 +18298,7 @@ The turnkey production brain — tests script a mock `ToolLoopChat`; production 
 
 > **runBenchmark**(`cfg`): `Promise`\<[`BenchmarkReport`](#benchmarkreport)\>
 
-Defined in: [runtime/run-benchmark.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L133)
+Defined in: [src/runtime/run-benchmark.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L133)
 
 Run the requested strategies over the tasks, scored by the Environment's own check.
  Resilient: a task whose rollouts fail (transient infra) is excluded from the stats but
@@ -17771,7 +18320,7 @@ Run the requested strategies over the tasks, scored by the Environment's own che
 
 > **printBenchmarkReport**(`report`): `void`
 
-Defined in: [runtime/run-benchmark.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L232)
+Defined in: [src/runtime/run-benchmark.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L232)
 
 Pretty-print a report — the "free optimization" verdict, with the cost vector.
 
@@ -17791,7 +18340,7 @@ Pretty-print a report — the "free optimization" verdict, with the cost vector.
 
 > **runLoop**\<`Task`, `Output`, `Decision`\>(`options`): `Promise`\<[`LoopResult`](#loopresult)\<`Task`, `Output`, `Decision`\>\>
 
-Defined in: [runtime/run-loop.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L143)
+Defined in: [src/runtime/run-loop.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L143)
 
 **`Experimental`**
 
@@ -17827,7 +18376,7 @@ The round-synchronous loop kernel: each round `driver.plan()` fans N tasks to sa
 
 > **defaultSelectWinner**\<`Task`, `Output`\>(`iterations`): [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
 
-Defined in: [runtime/run-loop.ts:1131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1131)
+Defined in: [src/runtime/run-loop.ts:1131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1131)
 
 The kernel's winner argmax — best-valid-score, ties broken by earliest index,
 falling back to the best-scoring non-errored output when none is valid. Exported
@@ -17861,7 +18410,7 @@ a forked copy).
 
 > **acquireSandbox**(`client`, `options`, `acquire?`): `Promise`\<`SandboxInstance`\>
 
-Defined in: [runtime/sandbox-acquire.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-acquire.ts#L73)
+Defined in: [src/runtime/sandbox-acquire.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-acquire.ts#L73)
 
 **`Experimental`**
 
@@ -17891,7 +18440,7 @@ Cold-start-resilient sandbox acquisition: create by name, observe readiness from
 
 > **probeSandboxCapabilities**(`client`): `Promise`\<[`SandboxCapabilities`](#sandboxcapabilities)\>
 
-Defined in: [runtime/sandbox-capabilities.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L46)
+Defined in: [src/runtime/sandbox-capabilities.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-capabilities.ts#L46)
 
 **`Experimental`**
 
@@ -17916,7 +18465,7 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 > **extractLlmCallEvent**(`event`, `agentRunName`): RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
-Defined in: [runtime/sandbox-events.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L32)
+Defined in: [src/runtime/sandbox-events.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L32)
 
 Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
 the event carries usage/cost data. Returns `undefined` for non-cost events
@@ -17951,7 +18500,7 @@ RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
 > **sumSandboxUsage**(`events`, `agentRunName?`): `object`
 
-Defined in: [runtime/sandbox-events.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L91)
+Defined in: [src/runtime/sandbox-events.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L91)
 
 Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an
 `openSandboxRun` cell. Folds `extractLlmCallEvent` over the stream (which reads usage off EVERY backend
@@ -17998,7 +18547,7 @@ readonly `SandboxEvent`[]
 
 > **createSandboxToolPartState**(): [`SandboxToolPartState`](#sandboxtoolpartstate)
 
-Defined in: [runtime/sandbox-events.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L161)
+Defined in: [src/runtime/sandbox-events.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L161)
 
 **`Experimental`**
 
@@ -18015,7 +18564,7 @@ empty call-status map so each turn projects tool frames independently.
 
 > **mapSandboxToolEvent**(`event`, `state`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`[]
 
-Defined in: [runtime/sandbox-events.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L192)
+Defined in: [src/runtime/sandbox-events.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L192)
 
 **`Experimental`**
 
@@ -18059,7 +18608,7 @@ Returns `[]` for every non-tool event.
 
 > **mapSandboxEvent**(`event`, `opts?`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: [runtime/sandbox-events.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L319)
+Defined in: [src/runtime/sandbox-events.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L319)
 
 Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary,
 for runtimes that bridge a sandbox `streamPrompt` into the
@@ -18102,7 +18651,7 @@ The opencode backend emits incremental text as
 
 > **createSandboxLineage**(`client`, `capabilities`, `options?`): [`SandboxLineage`](#sandboxlineage)
 
-Defined in: [runtime/sandbox-lineage.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L203)
+Defined in: [src/runtime/sandbox-lineage.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L203)
 
 **`Experimental`**
 
@@ -18148,7 +18697,7 @@ Run provenance recorder forwarded to every `prepareBox` the lineage runs
 
 > **openSandboxRun**\<`Out`\>(`client`, `options`, `deliverable`): `Promise`\<[`SandboxRun`](#sandboxrun)\<`Out`\>\>
 
-Defined in: [runtime/sandbox-run.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L156)
+Defined in: [src/runtime/sandbox-run.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L156)
 
 **`Experimental`**
 
@@ -18182,11 +18731,58 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 
 ***
 
+### connectStdioMcp()
+
+> **connectStdioMcp**(`spec`): `Promise`\<[`StdioMcpConnection`](#stdiomcpconnection)\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L118)
+
+Spawn a trusted host command, complete the stdio MCP handshake, and return
+the live connection. This low-level function provides no process isolation.
+
+#### Parameters
+
+##### spec
+
+[`StdioMcpServerSpec`](#stdiomcpserverspec)
+
+#### Returns
+
+`Promise`\<[`StdioMcpConnection`](#stdiomcpconnection)\>
+
+***
+
+### materializeLocalMcp()
+
+> **materializeLocalMcp**(`profile`, `opts?`): `Promise`\<[`LocalMcpMaterialization`](#localmcpmaterialization)\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:328](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L328)
+
+Spawn every explicitly trusted stdio server in `profile.mcp` as a same-host
+child and expose its tools under `<server>__<tool>` names. The default policy
+refuses local processes. A profile with no MCP surface returns zero tools.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile`
+
+##### opts?
+
+[`MaterializeLocalMcpOptions`](#materializelocalmcpoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`LocalMcpMaterialization`](#localmcpmaterialization)\>
+
+***
+
 ### naiveDriver()
 
 > **naiveDriver**\<`Task`, `Output`\>(`options`): [`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
-Defined in: [runtime/steering-drivers.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L109)
+Defined in: [src/runtime/steering-drivers.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L109)
 
 `naiveDriver` — the no-signal steering control.
 
@@ -18224,7 +18820,7 @@ attributable to the grader's findings.
 
 > **dumbDriver**\<`Task`, `Output`\>(`options`): [`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
-Defined in: [runtime/steering-drivers.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L168)
+Defined in: [src/runtime/steering-drivers.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L168)
 
 `dumbDriver` — the pass/fail-only steering control.
 
@@ -18265,7 +18861,7 @@ exactly the value the findings add over a bare boolean.
 
 > **assertStrategyContract**(`code`): `void`
 
-Defined in: [runtime/strategy-author.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L114)
+Defined in: [src/runtime/strategy-author.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L115)
 
 Static CONTRACT lint over an authored strategy module — the module-boundary
  enforcement of the harness's two measurement invariants:
@@ -18294,7 +18890,7 @@ Static CONTRACT lint over an authored strategy module — the module-boundary
 
 > **authorStrategy**(`opts`): `Promise`\<[`AuthoredStrategy`](#authoredstrategy)\>
 
-Defined in: [runtime/strategy-author.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L179)
+Defined in: [src/runtime/strategy-author.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L182)
 
 Author + load a strategy from losses. Throws when the author emits no loadable module;
  with `fallbackModel` set, the named fallback gets one attempt first.
@@ -18315,7 +18911,7 @@ Author + load a strategy from losses. Throws when the author emits no loadable m
 
 > **discriminatingMeans**(`report`, `fieldOrder`): `Record`\<`string`, \{ `score`: `number`; `usd`: `number`; \}\> \| `null`
 
-Defined in: [runtime/strategy-evolution.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L237)
+Defined in: [src/runtime/strategy-evolution.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L237)
 
 Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field
  strategies did not all score identically. Zero-spread tasks (everyone 1.0, everyone
@@ -18342,7 +18938,7 @@ Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the
 
 > **pickChampion**(`means`, `fieldOrder`, `policy`, `epsilon`): [`ChampionPick`](#championpick)
 
-Defined in: [runtime/strategy-evolution.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L262)
+Defined in: [src/runtime/strategy-evolution.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L262)
 
 The champion pick over a means table. 'score' takes the best mean score (ties →
  field order). 'costAware' treats scores within `epsilon` of the best as tied and
@@ -18376,7 +18972,7 @@ The champion pick over a means table. 'score' takes the best mean score (ties �
 
 > **selectChampion**(`report`, `fieldOrder`, `policy`, `epsilon`): [`ChampionPick`](#championpick)
 
-Defined in: [runtime/strategy-evolution.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L285)
+Defined in: [src/runtime/strategy-evolution.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L285)
 
 Search-side champion selection over a tournament report.
 
@@ -18408,7 +19004,7 @@ Search-side champion selection over a tournament report.
 
 > **runStrategyEvolution**(`cfg`): `Promise`\<[`EvolutionReport`](#evolutionreport)\>
 
-Defined in: [runtime/strategy-evolution.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L365)
+Defined in: [src/runtime/strategy-evolution.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L365)
 
 Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice.
 
@@ -18428,7 +19024,7 @@ Multi-generation strategy search: author candidates from tournament losses, play
 
 > **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:630](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L630)
+Defined in: [src/runtime/strategy.ts:630](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L630)
 
 DEPTH: one persistent artifact, carried across analyst-steered shots.
 
@@ -18462,7 +19058,7 @@ DEPTH: one persistent artifact, carried across analyst-steered shots.
 
 > **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:701](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L701)
+Defined in: [src/runtime/strategy.ts:701](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L701)
 
 BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
@@ -18496,7 +19092,7 @@ BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
 > **defineStrategy**(`name`, `run`): [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:848](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L848)
+Defined in: [src/runtime/strategy.ts:848](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L848)
 
 Author a Strategy from the composable steps — the open, compact way.
 
@@ -18520,7 +19116,7 @@ Author a Strategy from the composable steps — the open, compact way.
 
 > **runAgentic**(`opts`): `Promise`\<[`AgenticRunResult`](#agenticrunresult)\>
 
-Defined in: [runtime/strategy.ts:1089](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1089)
+Defined in: [src/runtime/strategy.ts:1089](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1089)
 
 Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope.
 
@@ -18540,7 +19136,7 @@ Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-
 
 > **streamAgentTurn**(`backend`, `prompt`, `opts?`): `AsyncGenerator`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
 
-Defined in: [runtime/stream-agent-turn.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L225)
+Defined in: [src/runtime/stream-agent-turn.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L225)
 
 **`Experimental`**
 
@@ -18575,7 +19171,7 @@ timeout alike. The generator never throws; failures surface in-band as
 
 > **collectAgentTurn**(`stream`): `Promise`\<[`CollectedAgentTurn`](#collectedagentturn)\>
 
-Defined in: [runtime/stream-agent-turn.ts:298](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L298)
+Defined in: [src/runtime/stream-agent-turn.ts:298](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L298)
 
 **`Experimental`**
 
@@ -18600,7 +19196,7 @@ event — a stream that violates the contract must not read as an empty turn.
 
 > **filterAuthoredAsserts**(`reply`, `entrySymbol`, `count`): `string`[]
 
-Defined in: [runtime/structural-rollout.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L125)
+Defined in: [src/runtime/structural-rollout.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L125)
 
 The proven authored-assert filter (lifted from the rigs' generateTests): keep only
  single-line, paren-balanced asserts that reference the entry symbol — malformed lines
@@ -18630,7 +19226,7 @@ The proven authored-assert filter (lifted from the rigs' generateTests): keep on
 
 > **modelAuthoredChecks**(`overrides?`): [`CheckSource`](#checksource)
 
-Defined in: [runtime/structural-rollout.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L149)
+Defined in: [src/runtime/structural-rollout.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L149)
 
 Default authored-check source: one metered LLM call per task, before sampling,
  filtered through `filterAuthoredAsserts`. Returns [] (no signal, never a fabricated
@@ -18654,7 +19250,7 @@ Default authored-check source: one metered LLM call per task, before sampling,
 
 > **officialChecksFromMeta**(`key?`): [`CheckSource`](#checksource)
 
-Defined in: [runtime/structural-rollout.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L167)
+Defined in: [src/runtime/structural-rollout.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L167)
 
 Official checks the surface stashed on the task (e.g. MBPP's shown assert). Reads
  `task.meta[key]` as a string array; anything else means no official checks.
@@ -18675,7 +19271,7 @@ Official checks the surface stashed on the task (e.g. MBPP's shown assert). Read
 
 > **composeCheckSources**(...`sources`): [`CheckSource`](#checksource)
 
-Defined in: [runtime/structural-rollout.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L181)
+Defined in: [src/runtime/structural-rollout.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L181)
 
 Concatenate check sources (official first by convention — ordering does not affect
  scoring, which reads each check's `kind`).
@@ -18696,7 +19292,7 @@ Concatenate check sources (official first by convention — ordering does not af
 
 > **resolveEntrySymbol**(`task`): `string` \| `undefined`
 
-Defined in: [runtime/structural-rollout.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L194)
+Defined in: [src/runtime/structural-rollout.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L194)
 
 The symbol authored checks are pinned to: `task.meta.entryPoint` when the surface
  provides it, else the LAST `def name(` in the visible prompt (a code-completion stub
@@ -18718,7 +19314,7 @@ The symbol authored checks are pinned to: `task.meta.entryPoint` when the surfac
 
 > **sandboxCheckRunner**(`options?`): [`CheckRunner`](#checkrunner)
 
-Defined in: [runtime/structural-rollout.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L279)
+Defined in: [src/runtime/structural-rollout.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L279)
 
 Default CheckRunner backend: pipes the check program into `python3` over the sandbox
  exec channel (`ctx.box`, or one bound at construction). Never shells out to docker
@@ -18752,7 +19348,7 @@ Default CheckRunner backend: pipes the check program into `python3` over the san
 
 > **compareCheckOutcomes**(`a`, `b`): `number`
 
-Defined in: [runtime/structural-rollout.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L347)
+Defined in: [src/runtime/structural-rollout.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L347)
 
 The selection order: crash < ran; then official pass-fraction; authored guesses only
  break ties. Returns > 0 when `a` outranks `b`. Strictly lexicographic — on MBPP,
@@ -18778,7 +19374,7 @@ The selection order: crash < ran; then official pass-fraction; authored guesses 
 
 > **visibleCheckScore**(`o`): `number`
 
-Defined in: [runtime/structural-rollout.ts:360](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L360)
+Defined in: [src/runtime/structural-rollout.ts:360](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L360)
 
 Display scalar for receipts/reports (the rigs' `visibleScore` shape): crash = -1,
  else official fraction + 0.001 × authored fraction. Selection itself uses the exact
@@ -18800,7 +19396,7 @@ Display scalar for receipts/reports (the rigs' `visibleScore` shape): crash = -1
 
 > **selectBestIndex**(`outcomes`): `number`
 
-Defined in: [runtime/structural-rollout.ts:367](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L367)
+Defined in: [src/runtime/structural-rollout.ts:367](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L367)
 
 Argmax by `compareCheckOutcomes`, FIRST index wins ties (deterministic; with zero
  visible coverage every candidate ties at no-signal and index 0 is the blind pick).
@@ -18821,7 +19417,7 @@ readonly [`CheckOutcome`](#checkoutcome)[]
 
 > **canDisplace**(`challenger`, `incumbent`): `boolean`
 
-Defined in: [runtime/structural-rollout.ts:382](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L382)
+Defined in: [src/runtime/structural-rollout.ts:382](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L382)
 
 The repair keep-best guard: a challenger displaces the incumbent only when it is
  strictly better in the selection order AND passes at least as many official checks.
@@ -18849,7 +19445,7 @@ The repair keep-best guard: a challenger displaces the incumbent only when it is
 
 > **defaultExtractCandidate**(`messages`): `string`
 
-Defined in: [runtime/structural-rollout.ts:403](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L403)
+Defined in: [src/runtime/structural-rollout.ts:403](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L403)
 
 The candidate a shot produced, read from its conversation: the LAST `submit_answer`
  tool-call argument (verifier environments submit the artifact explicitly), else the
@@ -18873,7 +19469,7 @@ readonly `Msg`[]
 
 > **structuralRollout**(`config?`): [`Strategy`](#strategy-3)
 
-Defined in: [runtime/structural-rollout.ts:525](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L525)
+Defined in: [src/runtime/structural-rollout.ts:525](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L525)
 
 Build the structuralRollout `Strategy`: k shots → score each by the frozen visible
 checks (official above authored, crash lowest) → argmax with first-index tie-break →
@@ -18900,7 +19496,7 @@ Budget note: `runAgentic`'s `budget` sizes the pool — pass at least
 
 > **failuresAnalyst**(): [`AnalystRegistry`](#analystregistry)
 
-Defined in: [runtime/supervise-surface.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L76)
+Defined in: [src/runtime/supervise-surface.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L76)
 
 The default self-improvement LENS — authored content, not a code path. On each settled worker it hands
  the driver the still-FAILING tests (not just a score), so the next spawn targets the persistently-hard
@@ -18916,7 +19512,7 @@ The default self-improvement LENS — authored content, not a code path. On each
 
 > **superviseSurface**(`profile`, `task`, `opts`): `Promise`\<[`SuperviseSurfaceResult`](#supervisesurfaceresult)\>
 
-Defined in: [runtime/supervise-surface.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L205)
+Defined in: [src/runtime/supervise-surface.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L205)
 
 Drive a team of agents (spawned + steered by `profile`) to solve a graded `AgenticSurface` task, and
  report the deployable outcome + the full conserved spend. This is `supervise()` configured for surfaces
@@ -18946,7 +19542,7 @@ Drive a team of agents (spawned + steered by `profile`) to solve a graded `Agent
 
 > **asAuthoredProfile**(`raw`): [`AuthoredProfile`](#authoredprofile) \| `null`
 
-Defined in: [runtime/supervise/authoring.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L35)
+Defined in: [src/runtime/supervise/authoring.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L35)
 
 Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the
  supervisor failed to author one (empty/placeholder profile — a skill violation worth catching).
@@ -18967,7 +19563,7 @@ Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or nul
 
 > **supervisorInstructions**(`opts?`): `string`
 
-Defined in: [runtime/supervise/authoring.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L47)
+Defined in: [src/runtime/supervise/authoring.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L47)
 
 The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable
  surface: editing this changes how the supervisor designs every agent it spawns.
@@ -18990,7 +19586,7 @@ The supervisor SKILL — the how-to the supervisor reads (its system prompt). TH
 
 > **authoredWorker**(`profile`, `opts`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/authoring.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L67)
+Defined in: [src/runtime/supervise/authoring.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L67)
 
 Build a worker AGENT from a profile the supervisor authored: the authored `systemPrompt` +
  `model` shape the worker's one model call; the deliverable gates settlement (valid ⟺ delivered).
@@ -19029,7 +19625,7 @@ Build a worker AGENT from a profile the supervisor authored: the authored `syste
 
 > **assessAuthoredProfile**(`profile`, `opts?`): [`ProfileRichness`](#profilerichness)
 
-Defined in: [runtime/supervise/authoring.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L182)
+Defined in: [src/runtime/supervise/authoring.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L182)
 
 OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is read). The task
  context (`needsMcp`) lets a domain say "this work needs a data/tool MCP" so a missing MCP counts.
@@ -19060,7 +19656,7 @@ OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is 
 
 > **profileRichnessFinding**(`richness`, `opts?`): `AnalystFinding`
 
-Defined in: [runtime/supervise/authoring.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L245)
+Defined in: [src/runtime/supervise/authoring.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L245)
 
 Turn a [ProfileRichness](#profilerichness) verdict into a bus-routable `AnalystFinding` (area `profile-quality`).
  Severity scales with thinness; the recommended action names the MISSING lever so the supervisor can
@@ -19092,7 +19688,7 @@ Turn a [ProfileRichness](#profilerichness) verdict into a bus-routable `AnalystF
 
 > **spendFromUsageEvents**(`events`): [`Spend`](#spend)
 
-Defined in: [runtime/supervise/budget.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L93)
+Defined in: [src/runtime/supervise/budget.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L93)
 
 Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
  channels; iterations come from `'iteration'` events. Pure; `ms` stays zero (the
@@ -19114,7 +19710,7 @@ Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
 
 > **createBudgetPool**(`root`, `now?`): [`BudgetPool`](#budgetpool)
 
-Defined in: [runtime/supervise/budget.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L136)
+Defined in: [src/runtime/supervise/budget.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/budget.ts#L136)
 
 Create a conserved reservation pool from a root `Budget`. `now()` is injected so the
 deadline readout is deterministic; defaults to `Date.now` for non-test callers. The
@@ -19141,7 +19737,7 @@ readout's `deadlineMs` is a stable wall-clock instant, not a shrinking remainder
 
 > **gateOnDeliverable**\<`Out`\>(`inner`, `deliverable`): [`Executor`](#executor)\<`Out`\>
 
-Defined in: [runtime/supervise/completion-gate.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/completion-gate.ts#L45)
+Defined in: [src/runtime/supervise/completion-gate.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/completion-gate.ts#L45)
 
 Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the
 inner verdict. Handles both `execute` shapes (one-shot `Promise<ExecutorResult>` and
@@ -19174,7 +19770,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 > **driverAgent**(`opts`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L166)
+Defined in: [src/runtime/supervise/coordination-driver.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L166)
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -19195,7 +19791,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:378](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L378)
+Defined in: [src/runtime/supervise/coordination-driver.ts:378](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L378)
 
 Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
  output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
@@ -19224,7 +19820,7 @@ readonly `object`[]
 
 > **serveCoordinationMcp**(`opts`): `Promise`\<[`CoordinationMcpHandle`](#coordinationmcphandle)\>
 
-Defined in: [runtime/supervise/coordination-mcp.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L55)
+Defined in: [src/runtime/supervise/coordination-mcp.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-mcp.ts#L55)
 
 Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
  opencode locally, same host); pass `host` to bind elsewhere when the harness is remote.
@@ -19304,7 +19900,7 @@ Pass-through subscriber for every bus event (settled / question / finding).
 
 > **delegate**\<`Out`\>(`intent`, `opts?`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`Out`\>\>
 
-Defined in: [runtime/supervise/delegate.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L89)
+Defined in: [src/runtime/supervise/delegate.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L89)
 
 Delegate an INTENT to a default authoring supervisor and return its `SupervisedResult` unchanged.
 
@@ -19338,7 +19934,7 @@ authored worker's delivered output; a `no-winner` result names why (never a fabr
 
 > **defaultToolDetectors**(): `StreamingDetector`[]
 
-Defined in: [runtime/supervise/detector-monitor.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L38)
+Defined in: [src/runtime/supervise/detector-monitor.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L38)
 
 The default online panel for a tool-call pipe: a worker repeating the same call, or hammering
  consecutive errors. (No-progress needs a domain progress-probe, so it is opt-in, not default.)
@@ -19359,7 +19955,7 @@ The default online panel for a tool-call pipe: a worker repeating the same call,
 
 > **watchTrace**(`source`, `opts?`): () => `void`
 
-Defined in: [runtime/supervise/detector-monitor.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L44)
+Defined in: [src/runtime/supervise/detector-monitor.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/detector-monitor.ts#L44)
 
 Subscribe to a `TraceSource` and run the streaming detectors over its live spans. Returns an
  unsubscribe. A defensive `argHash` failure (circular args) never throws out of the side-channel.
@@ -19384,7 +19980,7 @@ Subscribe to a `TraceSource` and run the streaming detectors over its live spans
 
 > **createEventBus**\<`E`\>(`now?`): [`EventBus`](#eventbus)\<`E`\>
 
-Defined in: [runtime/supervise/event-bus.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L76)
+Defined in: [src/runtime/supervise/event-bus.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L76)
 
 Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane.
 
@@ -19410,7 +20006,7 @@ Create the child→parent coordination bus: one typed pipe for settled outputs, 
 
 > **createInbox**(): [`Inbox`](#inbox)
 
-Defined in: [runtime/supervise/inbox.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L57)
+Defined in: [src/runtime/supervise/inbox.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/inbox.ts#L57)
 
 Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle.
 
@@ -19424,7 +20020,7 @@ Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `ans
 
 > **assertModelAllowed**(`model`, `allowed`): `void`
 
-Defined in: [runtime/supervise/model-policy.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/model-policy.ts#L14)
+Defined in: [src/runtime/supervise/model-policy.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/model-policy.ts#L14)
 
 Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a
 member of `allowed`. No-op when `allowed` is unset (the unrestricted default) or when
@@ -19450,7 +20046,7 @@ readonly `string`[] \| `undefined`
 
 > **patchDelivered**(`options?`): [`DeliverableSpec`](#deliverablespec)\<`WorktreeHarnessResult`\>
 
-Defined in: [runtime/supervise/patch-deliverable.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L45)
+Defined in: [src/runtime/supervise/patch-deliverable.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L45)
 
 **`Experimental`**
 
@@ -19474,7 +20070,7 @@ whether the patch is DELIVERED (the `valid` conjunction).
 
 > **createInMemoryRunContext**(`opts?`): [`InMemoryRunContext`](#inmemoryruncontext)
 
-Defined in: [runtime/supervise/run-context.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L57)
+Defined in: [src/runtime/supervise/run-context.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L57)
 
 Build a fresh in-memory run context. Every call returns NEW stores (no shared global
 state between runs), so two runs never cross-contaminate their journals/blobs.
@@ -19495,7 +20091,7 @@ state between runs), so two runs never cross-contaminate their journals/blobs.
 
 > **createExecutor**(`config`): [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
-Defined in: [runtime/supervise/runtime.ts:1557](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1557)
+Defined in: [src/runtime/supervise/runtime.ts:1557](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1557)
 
 The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
 injects the matching seam, and delegates to that backend's built-in implementation.
@@ -19520,7 +20116,7 @@ per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 
 > **createExecutorRegistry**(): [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [runtime/supervise/runtime.ts:1603](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1603)
+Defined in: [src/runtime/supervise/runtime.ts:1603](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1603)
 
 The open resolver/registry. Pre-registers the three built-ins under their
 runtime tags (`'router'`, `'sandbox'`, `'cli'`) and accepts `register(name,
@@ -19542,7 +20138,7 @@ harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
 
 > **createScope**\<`Out`\>(`args`): [`Scope`](#scope-1)\<`Out`\>
 
-Defined in: [runtime/supervise/scope.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L194)
+Defined in: [src/runtime/supervise/scope.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L194)
 
 Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay.
 
@@ -19568,7 +20164,7 @@ Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children o
 
 > **settledToIteration**\<`Out`\>(`settled`): [`Iteration`](#iteration-1)\<`unknown`, `Out`\>
 
-Defined in: [runtime/supervise/scope.ts:679](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L679)
+Defined in: [src/runtime/supervise/scope.ts:679](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L679)
 
 The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's
 `Iteration` shape so `defaultSelectWinner` stays single-sourced — the supervisor selects
@@ -19602,7 +20198,7 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 > **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [runtime/supervise/supervise.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L26)
+Defined in: [src/runtime/supervise/supervise.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L26)
 
 Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
@@ -19628,7 +20224,7 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
 
-Defined in: [runtime/supervise/supervise.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L117)
+Defined in: [src/runtime/supervise/supervise.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L117)
 
 One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use.
 
@@ -19656,7 +20252,7 @@ One-call supervisor: build + run a supervisor from its profile with sensible def
 
 > **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L110)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L110)
 
 Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker.
 
@@ -19680,7 +20276,7 @@ Build a supervisor `Agent` from its profile: the brain resolves from `profile.ha
 
 > **createSupervisor**\<`Task`, `Out`\>(): [`Supervisor`](#supervisor-1)\<`Task`, `Out`\>
 
-Defined in: [runtime/supervise/supervisor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor.ts#L65)
+Defined in: [src/runtime/supervise/supervisor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor.ts#L65)
 
 #### Type Parameters
 
@@ -19702,7 +20298,7 @@ Defined in: [runtime/supervise/supervisor.ts:65](https://github.com/tangle-netwo
 
 > **decodeToolPart**(`part`, `harness?`): `ToolStepInput` \| `undefined`
 
-Defined in: [runtime/supervise/trace-source.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L147)
+Defined in: [src/runtime/supervise/trace-source.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L147)
 
 Decode a part with a specific harness's adapter when known, else try every registered adapter
  (the composite — robust to mixed/unknown streams). Never throws.
@@ -19727,7 +20323,7 @@ Decode a part with a specific harness's adapter when known, else try every regis
 
 > **createPushTraceSource**(`opts?`): `object`
 
-Defined in: [runtime/supervise/trace-source.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L172)
+Defined in: [src/runtime/supervise/trace-source.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L172)
 
 A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): the loop calls
  `record(step)` for each tool call; it becomes a span, fan-out to live subscribers + buffered for
@@ -19773,7 +20369,7 @@ A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): th
 
 > **sandboxSessionTraceSource**(`box`, `sessionId`, `opts?`): [`TraceSource`](#tracesource)
 
-Defined in: [runtime/supervise/trace-source.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L287)
+Defined in: [src/runtime/supervise/trace-source.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L287)
 
 The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool
  calls into spans. `collect` (settle) is the solid path — `box.messages({sessionId})` → parts → spans;
@@ -19820,7 +20416,7 @@ The box's harness (e.g. 'opencode', 'claude-code') → selects its decoder adapt
 
 > **analyzeTrace**(`source`, `runId?`): `Promise`\<[`TrajectoryAnalysis`](#trajectoryanalysis)\>
 
-Defined in: [runtime/supervise/trajectory-recorder.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L28)
+Defined in: [src/runtime/supervise/trajectory-recorder.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trajectory-recorder.ts#L28)
 
 Collect the source's spans and run the agent-eval batch analyzers over them under one `runId`.
 
@@ -19844,7 +20440,7 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 
 > **createWorktreeCliExecutor**(`options`): [`Executor`](#executor)\<`WorktreeHarnessResult`\>
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L107)
+Defined in: [src/runtime/supervise/worktree-cli-executor.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L107)
 
 **`Experimental`**
 
@@ -19870,7 +20466,7 @@ before `execute()` resolves throws.
 
 > **worktreeFanout**\<`Task`\>(`options`): [`CombinatorShape`](#combinatorshape)\<`Task`, `WorktreeHarnessResult`\>
 
-Defined in: [runtime/supervise/worktree-fanout.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L79)
+Defined in: [src/runtime/supervise/worktree-fanout.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L79)
 
 **`Experimental`**
 
@@ -19900,7 +20496,7 @@ the shared valid-only `selectValidWinner` (never a judge).
 
 > **createVerifierEnvironment**(`opts`): [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/verifier-environment.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L68)
+Defined in: [src/runtime/verifier-environment.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/verifier-environment.ts#L68)
 
 Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it.
 
@@ -19920,7 +20516,7 @@ Any checkable task as an `Environment`, no tool surface required: the artifact i
 
 > **createWaterfallCollector**(): [`WaterfallCollector`](#waterfallcollector)
 
-Defined in: [runtime/waterfall.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L59)
+Defined in: [src/runtime/waterfall.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L59)
 
 Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline.
 
@@ -19934,7 +20530,7 @@ Build a `WaterfallCollector` that records agent spans and renders them as an ASC
 
 > **localShell**(): [`Shell`](#shell)
 
-Defined in: [runtime/workspace.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L19)
+Defined in: [src/runtime/workspace.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L19)
 
 Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit).
 
@@ -19948,7 +20544,7 @@ Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr,
 
 > **gitWorkspace**(`opts`): [`Workspace`](#workspace)
 
-Defined in: [runtime/workspace.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L48)
+Defined in: [src/runtime/workspace.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L48)
 
 A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned.
 
@@ -19968,7 +20564,7 @@ A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, co
 
 > **jjWorkspace**(`opts`): [`Workspace`](#workspace)
 
-Defined in: [runtime/workspace.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L92)
+Defined in: [src/runtime/workspace.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L92)
 
 A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
  Same port, same `Shell` — a drop-in for `gitWorkspace`. jj suits agent loops:
@@ -19991,7 +20587,7 @@ A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
 
 > **runInWorkspace**\<`T`\>(`ws`, `body`, `opts?`): `Promise`\<[`WorkspaceRun`](#workspacerun)\<`T`\>\>
 
-Defined in: [runtime/workspace.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L151)
+Defined in: [src/runtime/workspace.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/workspace.ts#L151)
 
 Run a worker `body` inside a FRESH clone of a shared `Workspace`, then commit its work back
 so the next worker (or the supervisor) builds on it. This is the seam that turns isolated

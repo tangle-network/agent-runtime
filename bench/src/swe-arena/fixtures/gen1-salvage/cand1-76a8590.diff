@@ -1,0 +1,293 @@
+diff --git a/.improve/raw-trace-diagnosis.md b/.improve/raw-trace-diagnosis.md
+new file mode 100644
+index 0000000..7b8efee
+--- /dev/null
++++ b/.improve/raw-trace-diagnosis.md
+@@ -0,0 +1,62 @@
++# Round-4 raw-trace diagnosis
++
++## Trace paths inspected
++
++Baseline cell results (all six cells):
++
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/improve-run/baseline/astropy__astropy-13033_0/cached-result.json`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/improve-run/baseline/astropy__astropy-13033_1/cached-result.json`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/improve-run/baseline/django__django-11532_0/cached-result.json`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/improve-run/baseline/django__django-11532_1/cached-result.json`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/improve-run/baseline/matplotlib__matplotlib-20826_{0,1}/cached-result.json`
++
++Underlying run artifacts followed from those results:
++
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/arm-runs/1deb554c45/rep-0/patches/astropy__astropy-13033.r4.patch`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/arm-runs/1deb554c45/rep-1/patches/astropy__astropy-13033.r4.patch`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/arm-runs/1deb554c45/rep-1/runs/django__django-11532/R4/driver.log`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/arm-runs/1deb554c45/rep-1/runs/django__django-11532/R4/result.json`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/arm-runs/1deb554c45/rep-1/runs/django__django-11532/R4/verify.log`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/arm-runs/1deb554c45/rep-1/runs/django__django-11532/R4/ws/.loops/supervisor/sup-1-f76508/journal.jsonl`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/arm-runs/1deb554c45/rep-1/runs/django__django-11532/R4/ws/.loops/supervisor/sup-1-f76508/workers/w-{0..5}.patch`
++- `/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/r4/arm-runs/1deb554c45/rep-0/patches/django__django-11532.r4.patch` (the resolved rep, for contrast)
++
++## Failure mechanism 1 — django__django-11532 rep-1: deadline overrun with zero delivery (composite 0.000)
++
++`result.json` shows `driver_rc: 3`, `sup_status: "running"`, `patch_lines: 0`, `wall_s: 2602` — the outer driver (`run-supervisor.mjs`, immutable) killed the run at `DRIVER_DEADLINE_MS=2600000` while the supervisor was still driving.
++`driver.log` ends with `[driver] deadline exceeded (2600000ms) — supervisor still running`.
++The journal shows the brain spawned 7 subtasks (`fix-unicode-dns-message-id`, `refine-patch-target`, `refine-wire-dnsname`, `diagnose-and-fix-patch`, `deep-diagnosis`, `find-upstream-fix`), all settling `valid:false`, and it was still spawning diagnostic workers at kill time.
++At that moment FOUR non-empty candidate patches sat persisted under `workers/` (w-0: 2856B, w-1: 1855B, w-2: 4171B, w-3: 3816B) — I verified with `git apply --check` against the preserved workspace that **all four still apply cleanly**.
++The existing best-effort delivery path (`src/best-effort.ts`) only runs at a supervisor settle; a run that never settles before the hard kill delivers a 0-byte patch, which the official judge necessarily scores unresolved.
++The supervisor has iteration/token budgets but **no wall-clock awareness**, so a hard instance rides to the driver deadline and forfeits.
++
++## Failure mechanism 2 — astropy__astropy-13033 both reps: invented error-message wording (composite 0.000, verify_pass=true)
++
++Both delivered patches (`rep-0/patches/astropy__astropy-13033.r4.patch`, `rep-1/patches/astropy__astropy-13033.r4.patch`) fix the misleading-exception issue by **adding a new raise branch with self-invented wording**:
++rep-0 invents `"... object is invalid - missing required column: 'flux'"` and rewrites the sibling wrong-order branch to raw list reprs; rep-1 invents `"... expected 'time' as the first columns but the following required column are missing: 'flux'"` (with a singular/plural grammar error).
++The per-instance verify script (immutable) only checks that the missing column name appears in the exception text, so both pass self-verify; the maintainer's FAIL_TO_PASS tests assert the exact gold message format, so both fail the official judge.
++The winning strategy for message-fidelity issues is the smallest edit to the existing message in its existing style, cross-checked against wording the repo's tests assert — neither worker was told this, and the post-delivery reviewer only checked fix *placement*, not message wording.
++
++## Code changes made (all inside the declared change-space)
++
++1. **`extensions/pi/loops.ts` — wall-clock soft deadline in `runSupervisor`** (fixes mechanism 1).
++   Derives a settle point from the driver's own `DRIVER_DEADLINE_MS` (hard deadline minus a 60–240s margin, override via `LOOPS_SOFT_DEADLINE_MARGIN_MS`); at that point it aborts the run and settles through the SAME best-effort path an all-fail run uses (`deliverBestEffortPatch`), with a 60s grace window in case a worker subprocess ignores the abort.
++   Spend for the abandoned run is recovered from the journal (`recoverJournalSpend`); a caller cancel or a genuine run failure still propagates unchanged.
++   Inactive when no driver deadline is configured, so interactive runs are untouched.
++   Verified: `recoverJournalSpend` on the real rep-1 journal returns 167,093 tokens / $0.1333, matching the arm's independently recovered `brainTotal` exactly.
++2. **`src/best-effort.ts` — `recoverJournalSpend(journalPath)`** helper supporting (1); sums `metered` and `settled` spend rows, tolerant of corrupt lines and missing files.
++3. **`extensions/pi/prompts/worker-coding-system.md` — "error messages are an exact-match surface" section** (fixes mechanism 2).
++   Workers on message-fidelity issues must make the smallest edit to the existing message in its existing branch/style, must not invent new phrasing or restyle sibling messages, must grep the repo's tests for asserted message formats, and must check singular/plural grammar both ways.
++4. **`extensions/pi/prompts/supervisor-system.md` — the existing single post-delivery reviewer now also checks message drift** (`REVIEW: message-drift — ...`), reusing the one already-budgeted reviewer round, and the refine step handles a drift finding the same way as a misplacement finding.
++
++## Cost impact
++
++The soft deadline strictly *reduces* the runaway case (rep-1 burned 2602s and ~608k recovered tokens; the settle now lands ~240s earlier and stops further brain/worker spawning).
++Prompt additions are ~450 tokens per worker call and ~130 per reviewer call, <1% of the 50–140k tokens a cell spends — well under the +20% ceiling.
++
++## Verification of the change itself
++
++- `tsc --noEmit` — clean (rc=0, after real dependency install; the first `npx tsc` attempt was a false positive from a name-squatting package and was rerun with the workspace's own compiler).
++- `vitest run` — 10 files, 56/56 tests pass.
++- Extension loads through the driver's exact contract (`default export` registering `spawn_supervisor` et al.) — verified by importing it with a stub `ExtensionAPI`.
++- `pnpm-lock.yaml` churn from the dependency install was reverted; the diff touches only the four files listed above plus this artifact.
+diff --git a/extensions/pi/loops.ts b/extensions/pi/loops.ts
+index e83e6d9..3529d79 100644
+--- a/extensions/pi/loops.ts
++++ b/extensions/pi/loops.ts
+@@ -42,7 +42,7 @@ import {
+ } from '@tangle-network/agent-runtime/loops'
+ import { resumeStrategyLoop } from '../../src/runner.js'
+ import { cancelStrategyLoop, listStrategyLoops, renderStrategyLoop, startStrategyLoop } from '../../src/strategy-loop.js'
+-import { type BestEffortDelivery, deliverBestEffortPatch } from '../../src/best-effort.js'
++import { type BestEffortDelivery, deliverBestEffortPatch, recoverJournalSpend } from '../../src/best-effort.js'
+ import { withUntrackedArtifacts } from '../../src/worker-clone.js'
+ import { closingWorkerNote, composeWorkerEvidence, settledWorkerOut, VERIFY_TAIL_CHARS } from '../../src/worker-evidence.js'
+ import { Sandbox } from '@tangle-network/sandbox'
+@@ -902,9 +902,59 @@ async function runSupervisor(args: RunSupervisorArgs): Promise<RunSupervisorOutp
+   const root = driverAgent(opts)
+   args.report('driving')
+ 
++  // Wall-clock soft deadline. The outer driver kills this process at
++  // DRIVER_DEADLINE_MS with NOTHING delivered — a run still driving at that
++  // instant scores zero even when settled candidate patches sit on disk
++  // (measured: django-11532 rep-1 rode the 2600s deadline mid-"deep-diagnosis"
++  // with four non-empty worker patches persisted, and delivered a 0-byte
++  // result). Shortly before the hard kill, abort the run and settle through
++  // the SAME best-effort path an all-fail run uses. Inactive when no driver
++  // deadline is configured, so interactive runs are untouched.
++  const softDeadline = softDeadlineMs()
++  const runAbort = new AbortController()
++  const propagateAbort = () => runAbort.abort()
++  if (args.signal.aborted) propagateAbort()
++  else args.signal.addEventListener('abort', propagateAbort, { once: true })
++  let softExpired = false
++  let softTimer: NodeJS.Timeout | undefined
++  let graceTimer: NodeJS.Timeout | undefined
++  const softSettle =
++    softDeadline === undefined
++      ? undefined
++      : new Promise<'soft-deadline'>((resolveSoft) => {
++          softTimer = setTimeout(() => {
++            softExpired = true
++            args.report('soft deadline: aborting run to settle the best candidate')
++            runAbort.abort()
++            // The abort normally settles the run promise below; the grace timer
++            // covers a worker subprocess that ignores it — deliver anyway,
++            // before the driver's hard kill.
++            graceTimer = setTimeout(() => resolveSoft('soft-deadline'), softDeadlineGraceMs)
++            graceTimer.unref?.()
++          }, softDeadline)
++          softTimer.unref?.()
++        })
++
++  const settleSoftDeadline = (): RunSupervisorOutput => {
++    const bestEffort = deliverBestEffortPatch(args.eventDir, args.workspaceDir)
++    const spend = recoverJournalSpend(join(args.eventDir, 'journal.jsonl'))
++    args.report(
++      bestEffort
++        ? `best-effort (soft deadline: ${bestEffort.worker} patch applied before the driver kill)`
++        : 'no-winner (soft deadline, no applicable candidate patch)',
++    )
++    return {
++      delivered: bestEffort !== undefined,
++      ...(bestEffort ? { bestEffort } : {}),
++      reason: 'soft-deadline',
++      spentTokens: spend.tokens,
++      spentUsd: spend.usd,
++    }
++  }
++
+   args.governor?.startReaper()
+   try {
+-    const result = await createSupervisor<unknown, unknown>().run(root, args.task, {
++    const runPromise = createSupervisor<unknown, unknown>().run(root, args.task, {
+       // maxUsd is recorded on the pool so cumulative spend lands in spentTotal;
+       // the pool fails CLOSED on iterations/tokens. The usd CEILING is enforced
+       // by the governor's create-time fence (the pool only refuses on usd when
+@@ -924,10 +974,27 @@ async function runSupervisor(args: RunSupervisorArgs): Promise<RunSupervisorOutp
+       blobs,
+       executors: createExecutorRegistry(),
+       maxDepth: args.maxDepth,
+-      ...(args.signal ? { signal: args.signal } : {}),
++      signal: runAbort.signal,
+       now: () => Date.now(),
+     })
+ 
++    let result: Awaited<typeof runPromise>
++    try {
++      const raced = softSettle ? await Promise.race([runPromise, softSettle]) : await runPromise
++      if (raced === 'soft-deadline') {
++        // The run promise is abandoned past the grace window; its eventual
++        // rejection must not surface as an unhandled rejection.
++        runPromise.catch(() => {})
++        return settleSoftDeadline()
++      }
++      result = raced
++    } catch (err) {
++      // Only OUR soft-deadline abort converts to a best-effort settle; a caller
++      // cancel (args.signal) or a genuine run failure still propagates.
++      if (!softExpired || args.signal.aborted) throw err
++      return settleSoftDeadline()
++    }
++
+     const gatePassed = result.kind === 'winner'
+     // Best-effort delivery: when NOTHING passed the gate, apply the best
+     // persisted candidate patch to the workspace rather than delivering a
+@@ -952,13 +1019,39 @@ async function runSupervisor(args: RunSupervisorArgs): Promise<RunSupervisorOutp
+       spentUsd,
+     }
+   } finally {
++    clearTimeout(softTimer)
++    clearTimeout(graceTimer)
++    args.signal.removeEventListener('abort', propagateAbort)
+     if (args.governor) {
+       await args.governor.stopReaper()
+-      await args.governor.assertNoLeaks()
++      // A soft-deadline settle abandons in-flight workers mid-abort; a box the
++      // reaper has not collected yet must not convert a delivered best-effort
++      // result into status=failed.
++      if (softExpired) await args.governor.assertNoLeaks().catch(() => undefined)
++      else await args.governor.assertNoLeaks()
+     }
+   }
+ }
+ 
++/**
++ * The run's wall-clock settle point, derived from the driver's own kill
++ * deadline (DRIVER_DEADLINE_MS): the hard deadline minus a margin sized to
++ * finish the abort + best-effort delivery + state persist before the kill
++ * lands. Undefined when no driver deadline is configured.
++ */
++function softDeadlineMs(): number | undefined {
++  const driverDeadline = parsePositiveInt(process.env.DRIVER_DEADLINE_MS, 0)
++  if (driverDeadline <= 0) return undefined
++  const margin = parsePositiveInt(
++    process.env.LOOPS_SOFT_DEADLINE_MARGIN_MS,
++    Math.min(240_000, Math.max(60_000, Math.round(driverDeadline * 0.1))),
++  )
++  return Math.max(30_000, driverDeadline - margin)
++}
++
++/** How long past the soft-deadline abort to wait for the run to settle on its own. */
++const softDeadlineGraceMs = 60_000
++
+ interface SupervisorWorkerArgs {
+   label: string
+   fallbackGoal: string
+diff --git a/extensions/pi/prompts/supervisor-system.md b/extensions/pi/prompts/supervisor-system.md
+index ffe9e35..9b31f44 100644
+--- a/extensions/pi/prompts/supervisor-system.md
++++ b/extensions/pi/prompts/supervisor-system.md
+@@ -38,7 +38,7 @@ You spawn workers, then collect what settles (await the next settled worker). Fo
+   - OBSERVE: read what actually happened. Did the worker's deliverable pass the gate (valid=true ⟺ the verify exited 0)? If it failed, call observe_agent on it: a failed worker's output IS its evidence block — the tail of the failing verify output, a summary of the diff it produced, and its closing note. Read the evidence and QUOTE the exact failing assertion/error in whatever you author next; a refine goal that names the literal failure line beats a paraphrase every time. The reason drives your next move; "it failed" alone tells you nothing.
+   - RATE: turn the observation into a judgment with a reason. "Delivered, gate passed, exactly the slice I authored — keep." / "Failed: the build error is a missing import in the file it wrote — close, one fix away — refine." / "Failed: produced an empty patch, never engaged the goal — the goal was too vague — re-scope." / "Failed: solved a different problem than I asked — re-author the goal more concretely."
+   - RANK: when several workers attempted the same slice (a fanout), keep the one that PASSED the gate with the cleanest result; discard the rest. Only a gated-valid result can win — never promote an ungated patch because it "looks done."
+-  - REVIEW BEFORE YOU ACCEPT — at most ONE reviewer round per slice. A gate-pass proves the symptom check passed, not that the fix is the one this repo's maintainers would merge (measured failure: a gate-passing worker fixed a django issue with its own helper in an atypical module while the project's hidden tests imported the fix from the shared utils module). When a coding worker settles valid=true, before counting the slice delivered spawn ONE read-only reviewer worker with a goal like: "The delivered fix is the newest commit(s) in your workspace — read it with `git log -p -3`. Review the diff as this repository's maintainer: for each change, is it in the file/module and style the project's sibling fixes use? Search the repo for where utilities of this kind already live. Change NOTHING. End your reply with exactly one line: `REVIEW: misplaced — <file/symbol> belongs in <canonical path>` or `REVIEW: placement correct`." The reviewer edits nothing, so the already-delivered workspace keeps the gate green — its value is the review line in its settled output (observe_agent shows a no-edit worker's evidence block; the worker note at the end is its verdict line), never its gate result. This post-delivery reviewer is the ONE exception to "never spawn a read-only worker". If the review names a misplacement → REFINE: spawn a worker to relocate the fix to the named canonical location (same behavior, the verify must pass again), quoting the reviewer's line — then accept WITHOUT a second review. If it says placement correct, returns nothing usable, or a reviewer already ran for this slice → accept. Never review a reviewer.
++  - REVIEW BEFORE YOU ACCEPT — at most ONE reviewer round per slice. A gate-pass proves the symptom check passed, not that the fix is the one this repo's maintainers would merge (measured failure: a gate-passing worker fixed a django issue with its own helper in an atypical module while the project's hidden tests imported the fix from the shared utils module). When a coding worker settles valid=true, before counting the slice delivered spawn ONE read-only reviewer worker with a goal like: "The delivered fix is the newest commit(s) in your workspace — read it with `git log -p -3`. Review the diff as this repository's maintainer: (1) for each change, is it in the file/module and style the project's sibling fixes use? Search the repo for where utilities of this kind already live. (2) If the diff adds or edits a user-visible error/exception message: is it the smallest edit of the pre-existing message in its existing style — not an invented phrasing, not a new raise branch, not a restyled sibling message the issue never complained about — and does it match any wording the repo's tests assert on (grep the tests for a distinctive fragment of the message)? Also check singular/plural grammar agrees. Change NOTHING. End your reply with exactly one line: `REVIEW: misplaced — <file/symbol> belongs in <canonical path>` or `REVIEW: message-drift — <the invented wording> should be <the minimal-delta / test-asserted wording>` or `REVIEW: placement correct`." The reviewer edits nothing, so the already-delivered workspace keeps the gate green — its value is the review line in its settled output (observe_agent shows a no-edit worker's evidence block; the worker note at the end is its verdict line), never its gate result. This post-delivery reviewer is the ONE exception to "never spawn a read-only worker". If the review names a misplacement or message-drift → REFINE: spawn a worker to fix exactly what the review line names (relocate to the canonical location, or restore the minimal-delta message wording; same behavior, the verify must pass again), quoting the reviewer's line — then accept WITHOUT a second review. If it says placement correct, returns nothing usable, or a reviewer already ran for this slice → accept. Never review a reviewer.
+   - DECIDE — pick exactly one and say why:
+       • CONTINUE: the slice is delivered and there are more slices in the tree — spawn the next dependency-ready one.
+       • REFINE: a worker got close but the gate failed for a correctable reason — spawn a worker whose goal is "continue from the current workspace state; the build fails because X; fix X and re-run the verify" (depth, not a fresh start).
+diff --git a/extensions/pi/prompts/worker-coding-system.md b/extensions/pi/prompts/worker-coding-system.md
+index 18cdd3f..353bcbc 100644
+--- a/extensions/pi/prompts/worker-coding-system.md
++++ b/extensions/pi/prompts/worker-coding-system.md
+@@ -23,6 +23,12 @@ GATE-PASS IS NECESSARY, NOT SUFFICIENT — FIX IT THE WAY THIS PROJECT WOULD.
+     Failing your OWN asserts means you are NOT done — relocate the fix, correct the string, handle the edge case, then re-run both your script and the verify. Write the script outside the repo tree (or delete it before finishing) so it never rides your diff.
+   - Do not stop at the first state where the verify goes green. Re-read the goal and ask: would this diff survive review by this repo's maintainers? Only then are you done.
+ 
++ERROR MESSAGES AND OTHER USER-VISIBLE STRINGS ARE AN EXACT-MATCH SURFACE.
++  - When the goal is about a wrong/misleading/unclear error message — or your fix adds or edits one — the project's real test suite almost certainly asserts the EXACT final wording, and the wording it asserts is the maintainer's, not yours. Inventing your own phrasing passes a symptom check and fails the real suite. (Measured failure: two workers each "fixed" a misleading exception with self-invented wording — "missing required column: 'flux'" and "the following required column are missing: 'flux'" — both passed the goal's substring check, both were rejected by the maintainer tests asserting a different exact message.)
++  - Make the SMALLEST edit to the EXISTING message in the EXISTING branch: keep its sentence frame, prefix, and quoting style, and extend it with only the information the issue says is missing (e.g. print the full expected list and the full found list instead of just the first element). Do NOT add a new raise branch with a new message style, and do NOT restyle sibling messages the issue did not complain about — every message you touch is a message some test may assert on.
++  - Before settling on wording, grep the repo's tests for assertions on the message(s) you are changing (search for a distinctive fragment like "object is invalid"). If a test asserts a format, that format IS the spec. If none does, stay maximally conservative: minimal-delta wording in the existing style.
++  - Run the message for BOTH the singular and the plural case and read it aloud: pluralization must agree everywhere in the sentence ("column is" / "columns are"), with no mixed forms.
++
+ RUN THE VERIFY AND FIX REAL FAILURES — NEVER WEAKEN THE CHECK.
+   - Before you consider yourself done, run the verify command (and the tests/typecheck the goal names). This is non-negotiable: an untested change is an unfinished change.
+   - If it fails, READ the failure and fix the underlying cause. Do not weaken the test, stub the thing the test exercises, special-case the test's inputs, delete the failing assertion, or hard-code the expected output. Gaming the check delivers nothing — the supervisor gates on a real exit code and an ungated patch can never win.
+diff --git a/src/best-effort.ts b/src/best-effort.ts
+index d909bcf..1f1157a 100644
+--- a/src/best-effort.ts
++++ b/src/best-effort.ts
+@@ -106,6 +106,46 @@ function lastFinishedSignals(eventFile: string): Pick<BestEffortCandidate, 'test
+   return signals
+ }
+ 
++export interface RecoveredSpend {
++  readonly tokens: number
++  readonly usd: number
++}
++
++/**
++ * Recover the tree's spend from the journal when the run never returned a
++ * `spentTotal` — the soft-deadline settle abandons the run promise, so the
++ * pool's own accounting is unreachable. Sums the brain's `metered` events and
++ * each worker's `settled` spend; the result is a floor (in-flight work that
++ * never settled is invisible), which is the honest direction to be wrong in.
++ */
++export function recoverJournalSpend(journalPath: string): RecoveredSpend {
++  let tokens = 0
++  let usd = 0
++  if (!existsSync(journalPath)) return { tokens, usd }
++  let raw = ''
++  try {
++    raw = readFileSync(journalPath, 'utf8')
++  } catch {
++    return { tokens, usd }
++  }
++  for (const line of raw.split('\n')) {
++    const trimmed = line.trim()
++    if (!trimmed) continue
++    try {
++      const parsed = JSON.parse(trimmed) as Record<string, unknown>
++      const spend = (parsed.kind === 'metered' ? parsed.spend : parsed.kind === 'settled' ? parsed.spent : undefined) as
++        | { tokens?: { input?: number; output?: number }; usd?: number }
++        | undefined
++      if (!spend) continue
++      tokens += (spend.tokens?.input ?? 0) + (spend.tokens?.output ?? 0)
++      usd += spend.usd ?? 0
++    } catch {
++      // A corrupt journal line cannot invalidate the spend recorded around it.
++    }
++  }
++  return { tokens, usd }
++}
++
+ /**
+  * Apply the best-ranked candidate that applies cleanly to the workspace and
+  * commit it, mirroring how a gate-passing worker's delivery lands as a commit.

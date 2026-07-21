@@ -8,6 +8,8 @@
  * `CandidateGenerator`:
  *   - `reflectiveGenerator` — cheap, no sandbox, applies pre-drafted patches
  *   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
+ *   - `driverLoopGenerator`  — the driver→worker atom: an LLM driver authors,
+ *     observes, rates, and steers the harness sessions (default for tool/mcp)
  */
 
 export {
@@ -18,10 +20,28 @@ export {
   type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
+  defaultBuildPrompt,
   type Verifier,
   type VerifyResult,
 } from './agentic-generator'
-export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
+export { findingLines, mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
+export {
+  type CampaignOtlpOptions,
+  type CampaignTraceResolverOptions,
+  campaignCellSpansToOtlp,
+  campaignTraceResolver,
+  convertCampaignDirToOtlp,
+} from './campaign-otlp'
+export {
+  type DriverLoopGeneratorOptions,
+  driverLoopGenerator,
+} from './driver-loop-generator'
+export {
+  isAnalystFinding,
+  LIFTED_FINDING_ANALYST_ID,
+  type ToAnalystFindingsOptions,
+  toAnalystFindings,
+} from './findings'
 export {
   type ImproveCodeOptions,
   type ImprovementCandidate,
@@ -39,6 +59,12 @@ export {
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
 export {
+  buildDriverSystem,
+  optimizerMethod,
+  researchDriverNote,
+  strategyAuthorMethod,
+} from './optimizer-prompt'
+export {
   type ProfileDiffProposerContext,
   type ProfileDiffProposerOptions,
   profileDiffProposer,
@@ -48,3 +74,14 @@ export {
   rawTraceDistiller,
 } from './raw-trace-distiller'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'
+export {
+  applyRolloutPolicyToProfile,
+  enumerateNeighborPolicies,
+  normalizeRolloutPolicy,
+  parseRolloutPolicy,
+  ROLLOUT_POLICY_BOUNDS,
+  ROLLOUT_POLICY_EXTENSION,
+  rolloutPolicyProposer,
+  serializeRolloutPolicy,
+  structuralRolloutPolicyFromProfile,
+} from './rollout-policy'

@@ -1,0 +1,247 @@
+<title>Stream loop — run topology & telemetry</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b21; --panel2:#1c2129; --line:#2a3039; --ink:#e6e9ee; --ink2:#98a2b3;
+    --zai:#5b8cff; --zai-bg:#141d33; --docker:#28c7a8; --sup:#f0a63b; --worker:#8b7cf0;
+    --ok:#3fb96b; --no:#e0574d; --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,'Segoe UI',Roboto,Arial,sans-serif;
+  }
+  :root{--docker-bg:#12241f; --zai-bg:#141d33; --sup-bg:#2a2113; --worker-bg:#1c1930; --ok-bg:#12241a; --no-bg:#2a1614;}
+  @media (prefers-color-scheme: light){:root{
+    --bg:#f5f6f8; --panel:#ffffff; --panel2:#f0f2f5; --line:#dfe3e9; --ink:#1a1f28; --ink2:#5a6373;
+    --zai:#2f5fe0; --docker:#0e9e84; --sup:#b5741a; --worker:#6a56d6;
+    --zai-bg:#e9eefc; --docker-bg:#e0f4ef; --sup-bg:#f7ecd8; --worker-bg:#ece8fa; --ok-bg:#e3f2e9; --no-bg:#fbe6e3; --ok:#1f9c53; --no:#c53727;
+  }}
+  :root[data-theme="light"]{
+    --bg:#f5f6f8; --panel:#ffffff; --panel2:#f0f2f5; --line:#dfe3e9; --ink:#1a1f28; --ink2:#5a6373;
+    --zai:#2f5fe0; --docker:#0e9e84; --sup:#b5741a; --worker:#6a56d6;
+    --zai-bg:#e9eefc; --docker-bg:#e0f4ef; --sup-bg:#f7ecd8; --worker-bg:#ece8fa; --ok-bg:#e3f2e9; --no-bg:#fbe6e3; --ok:#1f9c53; --no:#c53727;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1216; --panel:#171b21; --panel2:#1c2129; --line:#2a3039; --ink:#e6e9ee; --ink2:#98a2b3;
+    --zai:#5b8cff; --docker:#28c7a8; --sup:#f0a63b; --worker:#8b7cf0;
+    --zai-bg:#141d33; --docker-bg:#12241f; --sup-bg:#2a2113; --worker-bg:#1c1930; --ok-bg:#12241a; --no-bg:#2a1614;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);margin:0;padding:32px 20px 80px;line-height:1.5}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:23px;letter-spacing:-.01em;margin:0 0 4px}
+  .sub{color:var(--ink2);font-size:14px;margin:0 0 26px;max-width:70ch}
+  h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);margin:34px 0 12px;font-weight:600}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 20px}
+  .mono{font-family:var(--mono)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin:12px 0 0}
+  .lg{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .flow{overflow-x:auto}
+  svg{display:block;max-width:100%}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px}
+  .kv dt{color:var(--ink2)} .kv dd{margin:0;font-family:var(--mono);font-size:12px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .stat{display:flex;flex-direction:column;gap:2px}
+  .stat .n{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums}
+  .stat .l{font-size:11px;color:var(--ink2);text-transform:uppercase;letter-spacing:.05em}
+  .stats{display:flex;gap:28px;flex-wrap:wrap}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th{text-align:left;color:var(--ink2);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;padding:7px 10px;border-bottom:1px solid var(--line);font-weight:600}
+  td{padding:6px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  tr:last-child td{border-bottom:none}
+  .pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;font-family:var(--mono)}
+  .p-ok{background:var(--ok-bg);color:var(--ok)} .p-no{background:var(--no-bg);color:var(--no)} .p-dl{background:var(--panel2);color:var(--ink2)}
+  .note{font-size:12px;color:var(--ink2);margin-top:8px;max-width:78ch}
+  .badge{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:4px;background:var(--panel2);color:var(--ink2);border:1px solid var(--line)}
+</style>
+<div class="wrap">
+  <h1>Stream loop — run topology &amp; telemetry</h1>
+  <p class="sub">The two-arm SWE-bench stream: frozen (F) vs supervised-learning (L), same instance in the same slot. This snapshots the request graph, the model routing, and the measured curve. Live run = <span class="badge" id="livecfg">glm-5.2 self-supervision · CONC=1</span></p>
+
+  <div class="panel" style="border-color:var(--sup);background:var(--sup-bg);margin-bottom:16px">
+    <p style="margin:0;font-size:13px;color:var(--ink)"><b>NOT a delegation tree.</b> This experiment does <b>not</b> have a supervisor spawn workers a/b/c. The driver samples <b>k=4 workers independently and in parallel</b> (no supervisor involved), scores them, keeps the best — and <b>only if it failed</b> does the supervisor write <b>one</b> advice plan for a retry. The supervisor is a <b>reviewer at the end</b>, not a <b>dispatcher at the start</b>. (The delegation-tree topology — supervisor → workers — exists in the codebase via <span class="mono">supervise()</span>/coordination-MCP, but this run doesn't use it.)</p>
+  </div>
+
+  <h2>Execution sequence — one instance, left→right in time</h2>
+  <div class="panel flow">
+    <svg viewBox="0 0 1040 470" width="1040" height="470" font-family="var(--sans)" font-size="12">
+      <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="currentColor"/></marker></defs>
+      <!-- phase headers -->
+      <g fill="var(--ink2)" font-size="10.5" font-family="var(--mono)">
+        <text x="95" y="20">t0 · setup</text><text x="300" y="20">t1 · sample k=4</text><text x="530" y="20">t2 · score</text>
+        <text x="690" y="20">t3 · select</text><text x="800" y="20">t4 · repair</text><text x="945" y="20">t5 · grade</text>
+      </g>
+      <line x1="30" y1="28" x2="1020" y2="28" stroke="var(--line)"/>
+      <!-- t0: driver + repro author -->
+      <g>
+        <rect x="30" y="205" width="130" height="58" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+        <text x="95" y="228" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11.5">stream driver</text>
+        <text x="95" y="243" text-anchor="middle" fill="var(--ink2)" font-size="9.5">local · swe-stream.mts</text>
+        <text x="95" y="255" text-anchor="middle" fill="var(--ink2)" font-size="9.5">no model</text>
+      </g>
+      <g color="var(--zai)">
+        <line x1="160" y1="215" x2="230" y2="80" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+        <rect x="230" y="44" width="165" height="60" rx="8" fill="var(--zai-bg)" stroke="var(--zai)"/>
+        <text x="312" y="64" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11.5">repro author</text>
+        <text x="312" y="79" text-anchor="middle" fill="var(--zai)" font-size="9.5" font-family="var(--mono)">glm-5.2 · HTTPS zai</text>
+        <text x="312" y="92" text-anchor="middle" fill="var(--ink2)" font-size="9">no tools · writes 1 test</text>
+      </g>
+      <!-- t1: k=4 workers, parallel siblings -->
+      <g color="var(--worker)">
+        <line x1="160" y1="230" x2="228" y2="230" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+        <text x="180" y="222" fill="var(--ink2)" font-size="9">sample</text>
+      </g>
+      <g>
+        <!-- 4 sibling boxes a-d -->
+        <g fill="var(--worker-bg)" stroke="var(--worker)">
+          <rect x="230" y="135" width="165" height="42" rx="7"/><rect x="230" y="185" width="165" height="42" rx="7"/>
+          <rect x="230" y="235" width="165" height="42" rx="7"/><rect x="230" y="285" width="165" height="42" rx="7"/>
+        </g>
+        <g fill="var(--ink)" font-weight="600" font-size="11" text-anchor="middle">
+          <text x="312" y="152">worker a</text><text x="312" y="202">worker b</text><text x="312" y="252">worker c</text><text x="312" y="302">worker d</text>
+        </g>
+        <g fill="var(--worker)" font-size="9" font-family="var(--mono)" text-anchor="middle">
+          <text x="312" y="166">glm-5.2 · ≤12 tool turns</text><text x="312" y="216">glm-5.2 · ≤12 tool turns</text>
+          <text x="312" y="266">glm-5.2 · ≤12 tool turns</text><text x="312" y="316">glm-5.2 · ≤12 tool turns</text>
+        </g>
+      </g>
+      <text x="312" y="345" text-anchor="middle" fill="var(--ink2)" font-size="9.5">independent · parallel · emit-patch harness (read/edit/run tools)</text>
+      <!-- t2: score each in jail -->
+      <g color="var(--docker)">
+        <g stroke="currentColor" stroke-width="1.2">
+          <line x1="395" y1="156" x2="455" y2="200" marker-end="url(#ar)"/><line x1="395" y1="206" x2="455" y2="212" marker-end="url(#ar)"/>
+          <line x1="395" y1="256" x2="455" y2="224" marker-end="url(#ar)"/><line x1="395" y1="306" x2="455" y2="236" marker-end="url(#ar)"/>
+        </g>
+        <rect x="455" y="175" width="150" height="90" rx="8" fill="var(--docker-bg)" stroke="var(--docker)"/>
+        <text x="530" y="200" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11.5">score in jail</text>
+        <text x="530" y="216" text-anchor="middle" fill="var(--docker)" font-size="9.5" font-family="var(--mono)">docker · net=none</text>
+        <text x="530" y="232" text-anchor="middle" fill="var(--ink2)" font-size="9">apply patch → run</text>
+        <text x="530" y="245" text-anchor="middle" fill="var(--ink2)" font-size="9">the repro → severity</text>
+        <text x="530" y="258" text-anchor="middle" fill="var(--ink2)" font-size="9">(local, no model)</text>
+      </g>
+      <!-- t3: select argmax -->
+      <g>
+        <line x1="605" y1="220" x2="655" y2="220" stroke="var(--ink2)" stroke-width="1.4" marker-end="url(#ar)"/>
+        <rect x="655" y="196" width="80" height="48" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+        <text x="695" y="216" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11">argmax</text>
+        <text x="695" y="231" text-anchor="middle" fill="var(--ink2)" font-size="9">pick best</text>
+      </g>
+      <!-- t4: repair branch -->
+      <line x1="735" y1="215" x2="785" y2="150" stroke="var(--ink2)" stroke-width="1.2" marker-end="url(#ar)" color="var(--ink2)"/>
+      <line x1="735" y1="225" x2="785" y2="290" stroke="var(--sup)" stroke-width="1.2" marker-end="url(#ar)" color="var(--sup)"/>
+      <g color="var(--ink2)">
+        <rect x="785" y="118" width="175" height="62" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+        <text x="872" y="138" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11">ARM F · repair</text>
+        <text x="872" y="153" text-anchor="middle" fill="var(--ink2)" font-size="9.5">worker retries on raw</text>
+        <text x="872" y="165" text-anchor="middle" fill="var(--ink2)" font-size="9.5">error text (the control)</text>
+      </g>
+      <g color="var(--sup)">
+        <rect x="785" y="258" width="175" height="76" rx="8" fill="var(--sup-bg)" stroke="var(--sup)"/>
+        <text x="872" y="278" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11">ARM L · supervisor</text>
+        <text x="872" y="293" text-anchor="middle" fill="var(--sup)" font-size="9.5" font-family="var(--mono)">glm-5.2 · HTTPS zai</text>
+        <text x="872" y="306" text-anchor="middle" fill="var(--ink2)" font-size="9">no-tools · writes 1 plan</text>
+        <text x="872" y="318" text-anchor="middle" fill="var(--ink2)" font-size="9">→ worker retries w/ plan</text>
+      </g>
+      <!-- t5: hidden judge -->
+      <line x1="960" y1="150" x2="985" y2="400" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar)" color="var(--ink2)"/>
+      <line x1="960" y1="300" x2="985" y2="410" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar)" color="var(--ink2)"/>
+      <g color="var(--docker)">
+        <rect x="620" y="395" width="400" height="56" rx="8" fill="var(--docker-bg)" stroke="var(--docker)"/>
+        <text x="820" y="418" text-anchor="middle" fill="var(--ink)" font-weight="600">HIDDEN JUDGE · official SWE-bench tests</text>
+        <text x="820" y="435" text-anchor="middle" fill="var(--docker)" font-size="9.5" font-family="var(--mono)">docker · runs AFTER both arms lock · never in any prompt</text>
+      </g>
+    </svg>
+    <div class="legend">
+      <span class="lg"><span class="sw" style="background:var(--zai)"></span>repro author (glm-5.2, no tools)</span>
+      <span class="lg"><span class="sw" style="background:var(--worker)"></span>worker (glm-5.2, emit-patch harness)</span>
+      <span class="lg"><span class="sw" style="background:var(--sup)"></span>supervisor (glm-5.2, no tools, arm L only)</span>
+      <span class="lg"><span class="sw" style="background:var(--docker)"></span>docker jail (local, no network)</span>
+    </div>
+    <p class="note">Every model box calls one endpoint — <span class="mono">api.z.ai/api/coding/paas/v4</span> over HTTPS; every docker box runs locally, network-isolated. In THIS run all three model roles are the same model (glm-5.2 = self-supervision); in the cross-strength config the worker is a cheaper model and only the supervisor is glm-5.2. Arms F and L share t0–t3 (same repro, same 4 candidates); they diverge only at t4 (raw-failure retry vs supervisor-plan retry). Timings per phase are in the ledger (imagePullMs, wallMs, judgeMs); per-model-call timestamps are not yet emitted — see the note below.</p>
+  </div>
+
+  <h2>Supervisor gate — when arm L fires</h2>
+  <div class="panel">
+    <table>
+      <tr><th>candidate outcome</th><th>severity</th><th>arm L action</th><th>why</th></tr>
+      <tr><td>bug fixed (repro passes)</td><td class="mono">0</td><td><span class="pill p-ok">HOLD · already-passing</span></td><td>nothing to repair</td></tr>
+      <tr><td>applied but bug persists</td><td class="mono">1</td><td><span class="pill" style="background:var(--sup-bg);color:var(--sup)">FIRE · wrong-fix</span></td><td>verified wrong fix</td></tr>
+      <tr><td>repro timed out</td><td class="mono">2</td><td><span class="pill p-dl">HOLD · ambiguous</span></td><td>not a clean signal</td></tr>
+      <tr><td>patch failed to apply</td><td class="mono">3</td><td><span class="pill" style="background:var(--sup-bg);color:var(--sup)">FIRE · apply-failed</span></td><td>objective; re-anchor guidance</td></tr>
+      <tr><td>empty diff (no attempt)</td><td class="mono">4</td><td><span class="pill" style="background:var(--sup-bg);color:var(--sup)">FIRE · empty-diff</span></td><td>plan helps most here</td></tr>
+    </table>
+    <p class="note">The supervisor's plan is grounded ONLY in execution-verified evidence (the failing diff + the jailed failure output) — never the worker's self-report — so the credulity hazard measured in the arena cannot occur. Every plan is stripped of code and audited for hidden-test leaks.</p>
+  </div>
+
+  <div class="grid2" style="margin-top:16px">
+    <div>
+      <h2>Live run</h2>
+      <div class="panel">
+        <dl class="kv" id="livekv"></dl>
+      </div>
+    </div>
+    <div>
+      <h2>Prior full run (day-1, n=20) — reference</h2>
+      <div class="panel">
+        <div class="stats" id="d1stats"></div>
+        <p class="note" style="margin-top:14px">Day-1 arm L = memory recall only (no supervisor). L−F = −1 (noise). The live run adds the supervisor, testing whether execution-grounded advice moves the curve.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>L − F cumulative resolved rate — day-1 run (memory-only L)</h2>
+  <div class="panel flow">
+    <svg id="curve" viewBox="0 0 960 260" width="960" height="260"></svg>
+    <div class="legend">
+      <span class="lg"><span class="sw" style="background:var(--ink2)"></span>Frozen (F)</span>
+      <span class="lg"><span class="sw" style="background:var(--sup)"></span>Learning (L)</span>
+      <span class="lg"><span class="sw" style="background:var(--no)"></span>deadline drop (both arms)</span>
+    </div>
+  </div>
+
+  <h2>Per-instance — day-1 run</h2>
+  <div class="panel flow">
+    <table id="pertbl"><thead><tr><th>#</th><th>instance</th><th>F</th><th>L</th><th>recall injected</th></tr></thead><tbody></tbody></table>
+  </div>
+  <p class="note" id="foot"></p>
+</div>
+<script>
+const DATA = __DATA__;
+const $=s=>document.querySelector(s);
+const L=DATA.live, R=DATA.ref;
+// live panel — settled count from live curve
+const settled = L.curve.filter(c=>c.cumF!=null).length, drops = L.curve.filter(c=>c.err).length, tot=L.plan.length||23;
+const lk=$('#livekv');
+const cfg=[['run dir',L.dir],['plan',`${settled} settled · ${drops} dropped · ${tot} total`],
+  ['supervisor fires',`${L.stat.goodfires} good / ${L.stat.fires} fired`],
+  ['live resolved F/L',`${L.stat.F} / ${L.stat.L}`],
+  ['cost F/L','$'+L.stat.costF+' / $'+L.stat.costL],
+  ['events',Object.entries(L.events).map(([k,v])=>k+'×'+v).join(', ')]];
+lk.innerHTML=cfg.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('');
+// reference stats
+const d=R.stat;
+$('#d1stats').innerHTML=[['F resolved',`${d.F}/${d.scored}`],['L resolved',`${d.L}/${d.scored}`],['ΔL−F',(d.L-d.F>=0?'+':'')+(d.L-d.F)],['cost F/L','$'+d.costF+' / $'+d.costL]].map(([l,n])=>`<div class="stat"><span class="n">${n}</span><span class="l">${l}</span></div>`).join('');
+// pick which curve to chart: live if it has >=2 scored points, else reference
+const chart = L.curve.filter(c=>c.cumF!=null).length>=2 ? {c:L.curve,name:L.dir+' (LIVE)'} : {c:R.curve,name:R.dir+' (reference)'};
+// curve
+const scored=chart.c.filter(c=>c.cumF!=null);
+const W=960,H=260,pl=44,pr=20,pt=20,pb=34, iw=W-pl-pr, ih=H-pt-pb;
+const xs=i=>pl+(iw*i/(scored.length-1)); const ys=v=>pt+ih*(1-v);
+let svg='';
+// grid
+for(let g=0;g<=100;g+=25){const y=ys(g/100);svg+=`<line x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${pl-8}" y="${y+3}" text-anchor="end" fill="var(--ink2)" font-size="10">${g}%</text>`;}
+const line=(key,col)=>{let p='';scored.forEach((c,i)=>{p+=(i?'L':'M')+xs(i)+','+ys(c[key]);});return `<path d="${p}" fill="none" stroke="${col}" stroke-width="2.5"/>`;};
+svg+=line('cumF','var(--ink2)')+line('cumL','var(--sup)');
+// endpoints + deadline marks
+scored.forEach((c,i)=>{svg+=`<circle cx="${xs(i)}" cy="${ys(c.cumL)}" r="2.5" fill="var(--sup)"/><circle cx="${xs(i)}" cy="${ys(c.cumF)}" r="2.5" fill="var(--ink2)"/>`;});
+const lastF=scored[scored.length-1].cumF,lastL=scored[scored.length-1].cumL;
+svg+=`<text x="${W-pr+2}" y="${ys(lastF)+3}" fill="var(--ink2)" font-size="11" font-weight="600">${Math.round(lastF*100)}%</text>`;
+svg+=`<text x="${W-pr+2}" y="${ys(lastL)+3}" fill="var(--sup)" font-size="11" font-weight="600">${Math.round(lastL*100)}%</text>`;
+$('#curve').innerHTML=svg;
+// table — always the reference (fully settled) run; live table would be sparse
+$('#pertbl tbody').innerHTML=R.curve.map(c=>{
+  if(c.err) return `<tr><td>${c.i}</td><td class="mono">${c.id}</td><td colspan="3"><span class="pill p-no">deadline drop</span></td></tr>`;
+  const pf=c.F?'<span class="pill p-ok">✓</span>':'<span class="pill p-no">✗</span>';
+  const pll=c.L?'<span class="pill p-ok">✓</span>':'<span class="pill p-no">✗</span>';
+  return `<tr><td>${c.i}</td><td class="mono">${c.id}</td><td>${pf}</td><td>${pll}</td><td class="mono">${c.recall}ch</td></tr>`;
+}).join('');
+$('#foot').textContent=`Autogenerated by bench/src/stream-observe.py from ${L.dir}/ledger.jsonl — re-run the generator anytime for live state. Chart source: ${chart.name}. Per-instance table: ${R.dir} (${d.scored} scored, ${R.curve.filter(c=>c.err).length} deadline drops).`;
+</script>

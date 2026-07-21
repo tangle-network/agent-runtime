@@ -10,8 +10,13 @@ const inlineSandboxClient = vi.fn((factory: unknown): SandboxClient => {
   return { create: async () => ({}) as never, __factory: factory } as unknown as SandboxClient
 })
 
+const localSandboxClient = vi.fn((options: unknown): SandboxClient => {
+  return { create: async () => ({}) as never, __local: options } as unknown as SandboxClient
+})
+
 vi.mock('./supervise/runtime', () => ({ createExecutor }))
 vi.mock('./inline-sandbox-client', () => ({ inlineSandboxClient }))
+vi.mock('./local-sandbox-client', () => ({ localSandboxClient }))
 
 const { resolveSandboxClient } = await import('./resolve-sandbox-client')
 
@@ -84,5 +89,28 @@ describe('resolveSandboxClient', () => {
     expect(() => resolveSandboxClient({ backend: 'router' })).toThrow(
       /router\.baseUrl, router\.key and router\.model/,
     )
+  })
+
+  it("backend 'local' wires the same-host client with the local options", () => {
+    const keys = { get: vi.fn(async () => 'secret') }
+    const local = {
+      router: { baseUrl: 'https://router.tangle.tools', key: 'sk-l', model: 'gem' },
+      keys,
+    }
+    const client = resolveSandboxClient({ backend: 'local', local })
+    expect(localSandboxClient).toHaveBeenCalledWith(local)
+    expect((client as unknown as { __local: unknown }).__local).toBe(local)
+  })
+
+  it("backend 'local' fails loud when a router field is missing", () => {
+    expect(() => resolveSandboxClient({ backend: 'local' })).toThrow(
+      /local\.router\.baseUrl, local\.router\.key and local\.router\.model/,
+    )
+    expect(() =>
+      resolveSandboxClient({
+        backend: 'local',
+        local: { router: { baseUrl: 'x', key: '', model: 'm' } },
+      }),
+    ).toThrow(/local\.router/)
   })
 })

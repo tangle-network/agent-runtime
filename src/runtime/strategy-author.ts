@@ -15,6 +15,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ChatClient } from '@tangle-network/agent-eval'
+import { strategyAuthorMethod } from '../improvement/optimizer-prompt'
 import type { Strategy } from './strategy'
 
 /** The compressed consumable a skill carries: everything an author needs to emit a loop. */
@@ -155,11 +156,13 @@ async function requestAuthoredCode(
         {
           role: 'system',
           content:
-            'You are a senior engineer authoring optimization strategies for agent loops. Output exactly one fenced ```ts code block and nothing else.',
+            'You are a senior researcher authoring optimization strategies for agent loops: you read ' +
+            'per-task losses like experimental data, form a mechanism-level hypothesis, and author the ' +
+            'one composition that tests it. Output exactly one fenced ```ts code block and nothing else.',
         },
         {
           role: 'user',
-          content: `${opts.contract ?? strategyAuthorContract}\n\nBASELINE RESULTS on the "${opts.environmentName}" environment (budget=${opts.budget}):\n${opts.lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget. Use the losses to target the observed failure mode. Output only the module code block.`,
+          content: `${opts.contract ?? strategyAuthorContract}\n\nBASELINE RESULTS on the "${opts.environmentName}" environment (budget=${opts.budget}) — the per-task losses are your gradient:\n${opts.lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget.\n${strategyAuthorMethod}\n\nOutput only the module code block.`,
         },
       ],
     },
