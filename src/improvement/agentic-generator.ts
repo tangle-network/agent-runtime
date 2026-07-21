@@ -428,7 +428,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
             worktreePath,
             verified: false,
           })
-          return { applied: true, summary: summarize(findings) }
+          return acceptedCandidate(findings)
         }
         let result: VerifyResult
         try {
@@ -448,7 +448,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
             worktreePath,
             verified: true,
           })
-          return { applied: true, summary: summarize(findings) }
+          return acceptedCandidate(findings)
         }
         await emitShotDisposition(opts.onShotDisposition, receipt, {
           kind: 'rejected',
@@ -895,6 +895,46 @@ function summarize(findings: AnalystFinding[]): string {
   if (findings.length === 0) return 'agentic improvement'
   if (findings.length === 1) return `agentic: ${truncate(findings[0]!.claim, 64)}`
   return `agentic: ${findings.length} findings addressed`
+}
+
+/**
+ * The accepted-shot result: summary (commit message) + the attribution pair
+ * the driver wraps into a `ProposedCandidate`, so the candidate stays
+ * attributable through `GenerationRecord` and the emitted provenance instead
+ * of landing as an anonymous surface.
+ */
+function acceptedCandidate(findings: AnalystFinding[]): {
+  applied: true
+  summary: string
+  label: string
+  rationale: string
+} {
+  const summary = summarize(findings)
+  return {
+    applied: true,
+    summary,
+    label: slugify(summary.split('\n', 1)[0] ?? summary),
+    rationale: boundedRationale(summary, findings),
+  }
+}
+
+/** Short slug from the summary's first line — the candidate's human label. */
+function slugify(line: string): string {
+  const slug = line
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return truncate(slug || 'agentic-improvement', 48)
+}
+
+/** Bounded "because Z" for the candidate: the findings it addressed, or the
+ *  summary itself when the change was proposed from raw repo/trace context. */
+function boundedRationale(summary: string, findings: AnalystFinding[]): string {
+  if (findings.length === 0) return summary
+  return truncate(
+    findings.map((finding) => `(${finding.severity}) ${finding.claim}`).join('; '),
+    400,
+  )
 }
 
 function truncate(s: string, n: number): string {

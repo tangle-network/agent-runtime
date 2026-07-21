@@ -4,7 +4,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
-import { gitWorktreeAdapter, type ProposeContext } from '@tangle-network/agent-eval/campaign'
+import {
+  gitWorktreeAdapter,
+  inMemoryCampaignStorage,
+  isProposedCandidate,
+  type JudgeConfig,
+  type ProposeContext,
+  runOptimization,
+  type Scenario,
+} from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AGENTIC_PROFILE_RESOURCE_ROOT,
@@ -736,6 +744,10 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     expect(runHarness).toHaveBeenCalledTimes(1)
     expect(out.applied).toBe(true)
     expect(out.summary).toContain('x should be 2')
+    // The accepted shot carries its attribution pair for the driver's
+    // `ProposedCandidate` wrapper.
+    expect(out.label).toBe('agentic-x-should-be-2')
+    expect(out.rationale).toBe('(high) x should be 2')
     expect(dispositions).toEqual([{ kind: 'accepted', worktreePath: wt.path, verified: false }])
   })
 
@@ -803,7 +815,14 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     const surfaces = await driver.propose(ctx(FINDINGS))
 
     expect(surfaces).toHaveLength(1)
-    const surface = surfaces[0]!
+    const proposed = surfaces[0]!
+    // The agentic generator attributes its change, so the driver returns a
+    // `ProposedCandidate` wrapper carrying {label, rationale} around the
+    // committed CodeSurface.
+    if (!isProposedCandidate(proposed)) throw new Error('expected ProposedCandidate')
+    expect(proposed.label).toBe('agentic-x-should-be-2')
+    expect(proposed.rationale).toBe('(high) x should be 2')
+    const surface = proposed.surface
     if (typeof surface === 'string') throw new Error('expected CodeSurface')
     expect(surface.kind).toBe('code')
     // The harness's edit is committed on the candidate branch.
@@ -1039,5 +1058,57 @@ describe('agenticGenerator — raw-trace evidence discipline', () => {
 
     expect(out.applied).toBe(true)
     expect(runHarness).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('agenticGenerator — candidate attribution through the improvement loop', () => {
+  it('threads label + rationale into GenerationRecord and the loop winner', async () => {
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
+      return HARNESS_OK
+    })
+    const driver = improvementDriver({
+      generator: agenticGenerator({ runHarness: runHarness as never }),
+      worktree: gitWorktreeAdapter({ repoRoot }),
+      baseRef: 'main',
+    })
+    const scenarios: Scenario[] = [{ id: 'task', kind: 'fixture' }]
+    // Rewards the agentic CodeSurface candidate over the string baseline so
+    // the candidate promotes and its attribution reaches the winner fields.
+    const judge: JudgeConfig<{ fromCode: boolean }, Scenario> = {
+      name: 'code-wins',
+      dimensions: [{ key: 'q', description: 'candidate quality' }],
+      score: ({ artifact }) => {
+        const composite = artifact.fromCode ? 1 : 0
+        return { composite, dimensions: { q: composite }, notes: '' }
+      },
+    }
+
+    const result = await runOptimization<Scenario, { fromCode: boolean }>({
+      baselineSurface: 'BASELINE',
+      scenarios,
+      dispatchWithSurface: async (surface) => ({ fromCode: typeof surface !== 'string' }),
+      dispatchRef: 'test:agentic-attribution',
+      judges: [judge],
+      proposer: driver,
+      findings: FINDINGS,
+      populationSize: 1,
+      maxGenerations: 1,
+      seed: 7,
+      reps: 1,
+      resumable: false,
+      runDir: '/agentic-attribution',
+      storage: inMemoryCampaignStorage(),
+      tracing: 'off',
+      expectUsage: 'off',
+    })
+
+    const candidate = result.generations[0]!.record.candidates[0]!
+    expect(candidate.label).toBe('agentic-x-should-be-2')
+    expect(candidate.rationale).toBe('(high) x should be 2')
+    expect(result.winnerLabel).toBe('agentic-x-should-be-2')
+    expect(result.winnerRationale).toBe('(high) x should be 2')
+
+    await driver.cleanup()
   })
 })
