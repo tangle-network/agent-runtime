@@ -217,6 +217,25 @@ describe('staircase row schema', () => {
     const dot = { ...row, costRatio: null, verdict: 'rejected-cost' as const, internallyPromoted: false }
     expect(parseStaircaseRow(JSON.stringify(dot)).costRatio).toBeNull()
   })
+
+  it('accepts a gen-3 prefilter kill dot with its killReason', () => {
+    const dot = {
+      ...row,
+      candidate: 'prefilter-kill:aaaabbbbcccc',
+      candidateCommit: null,
+      verdict: 'rejected-prefilter' as const,
+      internallyPromoted: false,
+      coverageComplete: false,
+      resolvedCount: 0,
+      perInstance: [],
+      costRatio: null,
+      killReason: 'smoke: smoke astropy__astropy-13033: resolved=false — below the mechanism bar',
+      armProvenance: null,
+    }
+    const parsed = parseStaircaseRow(JSON.stringify(dot))
+    expect(parsed.verdict).toBe('rejected-prefilter')
+    expect(parsed.killReason).toContain('below the mechanism bar')
+  })
 })
 
 describe('frozen arm + default config', () => {

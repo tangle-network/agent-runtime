@@ -195,8 +195,10 @@ export interface ImproveResult<TScenario extends Scenario, TArtifact> {
   candidate: ImprovementCandidate
   /** Held-out decision for this search result. */
   decision: SelfImproveResult<TScenario, TArtifact>['gateDecision']
-  /** Held-out lift (`winner − baseline` composite). */
-  lift: number
+  /** Held-out lift (`winner − baseline` composite). Absent iff
+   *  `budget.holdout === 'deferred'` — no held-out measurement ran, so there
+   *  is no lift to report (never a fabricated 0). */
+  lift?: number
   /** Full `selfImprove` result for advanced inspection. For code runs,
    *  `raw.winner.surface.worktreeRef` remains live after return whether the
    *  candidate passed or held; call `dispose()` after consuming it. */
@@ -774,7 +776,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   return {
     candidate,
     decision: raw.gateDecision,
-    lift: raw.lift,
+    ...(raw.lift !== undefined ? { lift: raw.lift } : {}),
     raw,
     dispose,
   }
