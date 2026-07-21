@@ -81,7 +81,7 @@ export async function optimizeDriverPrompt(opts: {
    *  inference). Defaults to the worker's router + model when omitted. */
   supervisorRouter?: { baseUrl: string; apiKey: string; model: string }
   reflectionModel?: string
-}): Promise<{ systemPrompt: string; lift: number; shipped: boolean; usd: number }> {
+}): Promise<{ systemPrompt: string; lift: number | undefined; shipped: boolean; usd: number }> {
   const { surface, worker } = opts
 
   // The supervisor brain's router: each candidate prompt drives a real supervised run, so it needs an

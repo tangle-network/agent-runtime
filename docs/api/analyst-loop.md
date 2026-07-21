@@ -10,7 +10,7 @@
 
 ### KnowledgeProposalSource
 
-Defined in: [analyst-loop/types.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L24)
+Defined in: [src/analyst-loop/types.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L24)
 
 Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge.
 
@@ -26,7 +26,7 @@ Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowle
 
 > **proposeFromFindings**(`findings`): [`KnowledgeProposalBatch`](#knowledgeproposalbatch)\<`TProposal`\> \| `Promise`\<[`KnowledgeProposalBatch`](#knowledgeproposalbatch)\<`TProposal`\>\>
 
-Defined in: [analyst-loop/types.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L31)
+Defined in: [src/analyst-loop/types.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L31)
 
 Convert a findings batch into proposals. Returns the partitioned
 result so the loop can report malformed
@@ -47,7 +47,7 @@ readonly `AnalystFinding`[]
 
 ### KnowledgeProposalBatch
 
-Defined in: [analyst-loop/types.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L36)
+Defined in: [src/analyst-loop/types.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L36)
 
 #### Type Parameters
 
@@ -61,19 +61,19 @@ Defined in: [analyst-loop/types.ts:36](https://github.com/tangle-network/agent-r
 
 > **proposals**: `TProposal`[]
 
-Defined in: [analyst-loop/types.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L37)
+Defined in: [src/analyst-loop/types.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L37)
 
 ##### skipped
 
 > **skipped**: `number`
 
-Defined in: [analyst-loop/types.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L38)
+Defined in: [src/analyst-loop/types.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L38)
 
 ##### errors
 
 > **errors**: `object`[]
 
-Defined in: [analyst-loop/types.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L39)
+Defined in: [src/analyst-loop/types.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L39)
 
 ###### findingId
 
@@ -91,7 +91,7 @@ Defined in: [analyst-loop/types.ts:39](https://github.com/tangle-network/agent-r
 
 ### ImprovementProposalSource
 
-Defined in: [analyst-loop/types.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L43)
+Defined in: [src/analyst-loop/types.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L43)
 
 Agent-surface bridge — proposes prompt, skill, tool, and scaffolding edits.
 
@@ -107,7 +107,7 @@ Agent-surface bridge — proposes prompt, skill, tool, and scaffolding edits.
 
 > **proposeFromFindings**(`findings`): [`ImprovementEditBatch`](#improvementeditbatch)\<`TEdit`\> \| `Promise`\<[`ImprovementEditBatch`](#improvementeditbatch)\<`TEdit`\>\>
 
-Defined in: [analyst-loop/types.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L44)
+Defined in: [src/analyst-loop/types.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L44)
 
 ###### Parameters
 
@@ -123,7 +123,7 @@ readonly `AnalystFinding`[]
 
 ### ImprovementEditBatch
 
-Defined in: [analyst-loop/types.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L49)
+Defined in: [src/analyst-loop/types.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L49)
 
 #### Type Parameters
 
@@ -137,19 +137,19 @@ Defined in: [analyst-loop/types.ts:49](https://github.com/tangle-network/agent-r
 
 > **edits**: `TEdit`[]
 
-Defined in: [analyst-loop/types.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L50)
+Defined in: [src/analyst-loop/types.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L50)
 
 ##### skipped
 
 > **skipped**: `number`
 
-Defined in: [analyst-loop/types.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L51)
+Defined in: [src/analyst-loop/types.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L51)
 
 ##### errors
 
 > **errors**: `object`[]
 
-Defined in: [analyst-loop/types.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L52)
+Defined in: [src/analyst-loop/types.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L52)
 
 ###### findingId
 
@@ -167,7 +167,7 @@ Defined in: [analyst-loop/types.ts:52](https://github.com/tangle-network/agent-r
 
 ### RunAnalystLoopOpts
 
-Defined in: [analyst-loop/types.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L55)
+Defined in: [src/analyst-loop/types.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L55)
 
 #### Properties
 
@@ -175,7 +175,7 @@ Defined in: [analyst-loop/types.ts:55](https://github.com/tangle-network/agent-r
 
 > **runId**: `string`
 
-Defined in: [analyst-loop/types.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L57)
+Defined in: [src/analyst-loop/types.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L57)
 
 The run id of the work being analysed.
 
@@ -183,7 +183,7 @@ The run id of the work being analysed.
 
 > **registry**: [`AnalystRegistryLike`](#analystregistrylike)
 
-Defined in: [analyst-loop/types.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L59)
+Defined in: [src/analyst-loop/types.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L59)
 
 The registry — pre-populated with the analyst kinds the consumer wants.
 
@@ -191,7 +191,7 @@ The registry — pre-populated with the analyst kinds the consumer wants.
 
 > **inputs**: `AnalystRunInputs`
 
-Defined in: [analyst-loop/types.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L61)
+Defined in: [src/analyst-loop/types.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L61)
 
 Inputs forwarded to `registry.run` — typically `{ traceStore }`.
 
@@ -199,7 +199,7 @@ Inputs forwarded to `registry.run` — typically `{ traceStore }`.
 
 > **findingsStore**: [`FindingsStoreLike`](#findingsstorelike) \| `null`
 
-Defined in: [analyst-loop/types.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L67)
+Defined in: [src/analyst-loop/types.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L67)
 
 Findings ledger. The loop appends the new run + diffs against the
 baseline run before running adapters. Pass `null` to skip
@@ -209,7 +209,7 @@ persistence (useful for one-shot analyses).
 
 > `optional` **baselineRunId?**: `string` \| `null`
 
-Defined in: [analyst-loop/types.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L74)
+Defined in: [src/analyst-loop/types.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L74)
 
 Prior run id whose findings the loop reads + provides to analysts
 as `priorFindings` AND diffs against. When omitted, the loop picks
@@ -220,7 +220,7 @@ the most recent run in the store (excluding `runId` itself); pass
 
 > `optional` **priorFindingsStrategy?**: `"none"` \| `"per-kind"` \| `"wildcard"`
 
-Defined in: [analyst-loop/types.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L76)
+Defined in: [src/analyst-loop/types.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L76)
 
 Strategy for forwarding prior findings into `ctx.priorFindings`.
 
@@ -228,7 +228,7 @@ Strategy for forwarding prior findings into `ctx.priorFindings`.
 
 > `optional` **knowledgeProposalSource?**: [`KnowledgeProposalSource`](#knowledgeproposalsource)\<`unknown`\>
 
-Defined in: [analyst-loop/types.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L78)
+Defined in: [src/analyst-loop/types.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L78)
 
 Knowledge-side bridge — usually `agent-knowledge`'s `proposeFromFindings`.
 
@@ -236,7 +236,7 @@ Knowledge-side bridge — usually `agent-knowledge`'s `proposeFromFindings`.
 
 > `optional` **improvementProposalSource?**: [`ImprovementProposalSource`](#improvementproposalsource)\<`unknown`\>
 
-Defined in: [analyst-loop/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L80)
+Defined in: [src/analyst-loop/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L80)
 
 Agent-surface bridge — usually a prompt, skill, or tool diff producer.
 
@@ -244,7 +244,7 @@ Agent-surface bridge — usually a prompt, skill, or tool diff producer.
 
 > `optional` **log?**: (`msg`, `fields?`) => `void`
 
-Defined in: [analyst-loop/types.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L82)
+Defined in: [src/analyst-loop/types.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L82)
 
 Optional logger. Defaults to `console.log` for `[analyst-loop]` lines.
 
@@ -266,7 +266,7 @@ Optional logger. Defaults to `console.log` for `[analyst-loop]` lines.
 
 > `optional` **onEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [analyst-loop/types.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L93)
+Defined in: [src/analyst-loop/types.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L93)
 
 Event sink for live progress. Called for every phase of the loop:
 baseline resolution, registry events forwarded from `runStream`,
@@ -291,7 +291,7 @@ loop. Catch + swallow internally if your sink is unreliable.
 
 ### RunAnalystLoopResult
 
-Defined in: [analyst-loop/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L96)
+Defined in: [src/analyst-loop/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L96)
 
 #### Type Parameters
 
@@ -309,43 +309,43 @@ Defined in: [analyst-loop/types.ts:96](https://github.com/tangle-network/agent-r
 
 > **runId**: `string`
 
-Defined in: [analyst-loop/types.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L97)
+Defined in: [src/analyst-loop/types.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L97)
 
 ##### baselineRunId
 
 > **baselineRunId**: `string` \| `null`
 
-Defined in: [analyst-loop/types.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L98)
+Defined in: [src/analyst-loop/types.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L98)
 
 ##### analystResult
 
 > **analystResult**: `AnalystRunResult`
 
-Defined in: [analyst-loop/types.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L99)
+Defined in: [src/analyst-loop/types.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L99)
 
 ##### diff
 
 > **diff**: `FindingsDiff` \| `null`
 
-Defined in: [analyst-loop/types.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L100)
+Defined in: [src/analyst-loop/types.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L100)
 
 ##### knowledge
 
 > **knowledge**: [`KnowledgeReport`](#knowledgereport)\<`TProposal`\> \| `null`
 
-Defined in: [analyst-loop/types.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L101)
+Defined in: [src/analyst-loop/types.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L101)
 
 ##### improvement
 
 > **improvement**: [`ImprovementReport`](#improvementreport)\<`TEdit`\> \| `null`
 
-Defined in: [analyst-loop/types.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L102)
+Defined in: [src/analyst-loop/types.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L102)
 
 ***
 
 ### KnowledgeReport
 
-Defined in: [analyst-loop/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L105)
+Defined in: [src/analyst-loop/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L105)
 
 #### Type Parameters
 
@@ -359,19 +359,19 @@ Defined in: [analyst-loop/types.ts:105](https://github.com/tangle-network/agent-
 
 > **proposals**: `TProposal`[]
 
-Defined in: [analyst-loop/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L106)
+Defined in: [src/analyst-loop/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L106)
 
 ##### skipped
 
 > **skipped**: `number`
 
-Defined in: [analyst-loop/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L107)
+Defined in: [src/analyst-loop/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L107)
 
 ##### errors
 
 > **errors**: `object`[]
 
-Defined in: [analyst-loop/types.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L108)
+Defined in: [src/analyst-loop/types.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L108)
 
 ###### findingId
 
@@ -389,7 +389,7 @@ Defined in: [analyst-loop/types.ts:108](https://github.com/tangle-network/agent-
 
 ### ImprovementReport
 
-Defined in: [analyst-loop/types.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L111)
+Defined in: [src/analyst-loop/types.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L111)
 
 #### Type Parameters
 
@@ -403,19 +403,19 @@ Defined in: [analyst-loop/types.ts:111](https://github.com/tangle-network/agent-
 
 > **edits**: `TEdit`[]
 
-Defined in: [analyst-loop/types.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L112)
+Defined in: [src/analyst-loop/types.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L112)
 
 ##### skipped
 
 > **skipped**: `number`
 
-Defined in: [analyst-loop/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L113)
+Defined in: [src/analyst-loop/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L113)
 
 ##### errors
 
 > **errors**: `object`[]
 
-Defined in: [analyst-loop/types.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L114)
+Defined in: [src/analyst-loop/types.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L114)
 
 ###### findingId
 
@@ -433,7 +433,7 @@ Defined in: [analyst-loop/types.ts:114](https://github.com/tangle-network/agent-
 
 ### AnalystRegistryLike
 
-Defined in: [analyst-loop/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L122)
+Defined in: [src/analyst-loop/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L122)
 
 Narrowed shape we accept for `AnalystRegistry` so the orchestrator
 remains testable without instantiating the real class. The real
@@ -449,7 +449,7 @@ class satisfies this trivially.
 
 > **list**(): readonly `object`[]
 
-Defined in: [analyst-loop/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L123)
+Defined in: [src/analyst-loop/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L123)
 
 ###### Returns
 
@@ -459,7 +459,7 @@ readonly `object`[]
 
 > **run**(`runId`, `inputs`, `opts?`): `Promise`\<`AnalystRunResult`\>
 
-Defined in: [analyst-loop/types.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L124)
+Defined in: [src/analyst-loop/types.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L124)
 
 ###### Parameters
 
@@ -485,7 +485,7 @@ readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
 
 ### FindingsStoreLike
 
-Defined in: [analyst-loop/types.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L135)
+Defined in: [src/analyst-loop/types.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L135)
 
 Narrowed shape we accept for `FindingsStore`.
 
@@ -495,7 +495,7 @@ Narrowed shape we accept for `FindingsStore`.
 
 > **loadAll**(): readonly `AnalystFinding` & `object`[]
 
-Defined in: [analyst-loop/types.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L136)
+Defined in: [src/analyst-loop/types.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L136)
 
 ###### Returns
 
@@ -505,7 +505,7 @@ readonly `AnalystFinding` & `object`[]
 
 > **loadRun**(`runId`): readonly `AnalystFinding` & `object`[]
 
-Defined in: [analyst-loop/types.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L137)
+Defined in: [src/analyst-loop/types.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L137)
 
 ###### Parameters
 
@@ -521,7 +521,7 @@ readonly `AnalystFinding` & `object`[]
 
 > **append**(`runId`, `findings`): `Promise`\<`void`\>
 
-Defined in: [analyst-loop/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L138)
+Defined in: [src/analyst-loop/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L138)
 
 ###### Parameters
 
@@ -541,7 +541,7 @@ readonly `AnalystFinding`[]
 
 ### AnalystRegistryStreamingLike
 
-Defined in: [analyst-loop/types.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L152)
+Defined in: [src/analyst-loop/types.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L152)
 
 Narrow the `AnalystRegistryLike` further when we need streaming: the
 loop checks if the registry exposes `runStream` and uses it when
@@ -560,7 +560,7 @@ events.
 
 > **list**(): readonly `object`[]
 
-Defined in: [analyst-loop/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L123)
+Defined in: [src/analyst-loop/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L123)
 
 ###### Returns
 
@@ -574,7 +574,7 @@ readonly `object`[]
 
 > **run**(`runId`, `inputs`, `opts?`): `Promise`\<`AnalystRunResult`\>
 
-Defined in: [analyst-loop/types.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L124)
+Defined in: [src/analyst-loop/types.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L124)
 
 ###### Parameters
 
@@ -604,7 +604,7 @@ readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
 
 > `optional` **runStream**(`runId`, `inputs`, `opts?`): `AsyncIterable`\<`AnalystRunEvent`\>
 
-Defined in: [analyst-loop/types.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L153)
+Defined in: [src/analyst-loop/types.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L153)
 
 ###### Parameters
 
@@ -632,7 +632,7 @@ readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
 
 > **AnalystLoopEvent** = \{ `type`: `"baseline-resolved"`; `runId`: `string`; `baselineRunId`: `string` \| `null`; `priorFindingCount`: `number`; \} \| \{ `type`: `"analyst"`; `runId`: `string`; `event`: `AnalystRunEvent`; \} \| \{ `type`: `"findings-persisted"`; `runId`: `string`; `count`: `number`; \} \| \{ `type`: `"diff-computed"`; `runId`: `string`; `baselineRunId`: `string`; `appeared`: `number`; `disappeared`: `number`; `persisted`: `number`; `changed`: `number`; \} \| \{ `type`: `"knowledge-proposed"`; `runId`: `string`; `proposalCount`: `number`; `skipped`: `number`; `errors`: `number`; \} \| \{ `type`: `"improvement-proposed"`; `runId`: `string`; `editCount`: `number`; `skipped`: `number`; `errors`: `number`; \} \| \{ `type`: `"loop-completed"`; `runId`: `string`; `durationMs`: `number`; \}
 
-Defined in: [analyst-loop/types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L173)
+Defined in: [src/analyst-loop/types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/types.ts#L173)
 
 Events emitted by `runAnalystLoop` via `opts.onEvent`. UIs and
 JSONL tail-sinks consume this stream. The loop awaits each
@@ -705,7 +705,7 @@ Forwarded verbatim from `AnalystRegistry.runStream`.
 
 > **iterationsToTraceStore**\<`Task`, `Output`\>(`iterations`, `budgets?`): `TraceAnalysisStore`
 
-Defined in: [analyst-loop/iterations-to-trace-store.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/iterations-to-trace-store.ts#L214)
+Defined in: [src/analyst-loop/iterations-to-trace-store.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/iterations-to-trace-store.ts#L214)
 
 Build an in-memory `TraceAnalysisStore` over a loop round's iterations. Fail-loud on an
 empty round — there is nothing for an analyst to read, and a silent empty store would
@@ -741,7 +741,7 @@ readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
 
 > **runAnalystLoop**\<`TProposal`, `TEdit`\>(`opts`): `Promise`\<[`RunAnalystLoopResult`](#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
 
-Defined in: [analyst-loop/run-analyst-loop.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/run-analyst-loop.ts#L29)
+Defined in: [src/analyst-loop/run-analyst-loop.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/run-analyst-loop.ts#L29)
 
 #### Type Parameters
 

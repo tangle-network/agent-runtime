@@ -33,6 +33,7 @@ import {
   type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 import { rethrowAfterCleanup } from './cleanup'
+import { toAnalystFindings } from './findings'
 
 /** The byte-producing seam — the ONE thing that differs between the cheap
  *  reflective path and the full agentic path. A generator makes (uncommitted)
@@ -241,12 +242,17 @@ function advanceToIncumbent(worktree: Worktree, incumbent: CodeSurface): void {
 
 /** Phase-2 report carries `findings` when present; else fall back to the
  *  loop's `ctx.findings`. The report is opaque to the substrate, so probe it
- *  structurally. */
+ *  structurally. Both paths run through `toAnalystFindings` — the wire is
+ *  `unknown[]` at runtime regardless of the generic (static seeds, legacy
+ *  digests), and a bare cast here fed `undefined` claims into build prompts. */
 function resolveFindings(ctx: ProposeContext<AnalystFinding>): AnalystFinding[] {
   const report = ctx.report
   if (report && typeof report === 'object' && 'findings' in report) {
     const f = (report as { findings: unknown }).findings
-    if (Array.isArray(f) && f.length > 0) return f as AnalystFinding[]
+    if (Array.isArray(f) && f.length > 0) {
+      const lifted = toAnalystFindings(f, { analystId: 'report-findings', area: 'report' })
+      if (lifted.length > 0) return lifted
+    }
   }
-  return ctx.findings
+  return toAnalystFindings(ctx.findings ?? [], { analystId: 'loop-context', area: 'seed' })
 }

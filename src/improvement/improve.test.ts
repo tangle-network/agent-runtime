@@ -591,6 +591,51 @@ describe('improve() — default proposer resolution (substrate export drift guar
       expect(round).toContain('"scenario":"b"')
       expect(round).toContain('not a permutation')
     }
+    // The digest is TYPED on the wire: real AnalystFinding envelopes, not
+    // ad-hoc {scenario, composite} objects a consumer must down-cast.
+    const { isAnalystFinding } = await import('./findings')
+    expect(findingsSeen[1]!.length).toBeGreaterThanOrEqual(1)
+    expect(findingsSeen[1]!.every(isAnalystFinding)).toBe(true)
+  })
+
+  it('a real runDir defaults analyzeGeneration to the RAW-TRACE distiller', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const runDir = mkdtempSync(join(tmpdir(), 'improve-rawtrace-'))
+    const failingJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'failing-judge',
+      dimensions: [{ key: 'q', description: 'fixture quality' }],
+      score: () => ({ dimensions: { q: 0 }, composite: 0, notes: 'always failing' }),
+    }
+    const findingsSeen: unknown[][] = []
+    const stubProposer = {
+      kind: 'stub-recorder',
+      async propose(ctx: { findings: unknown[]; populationSize: number }) {
+        findingsSeen.push(ctx.findings)
+        return [{ surface: `candidate-${findingsSeen.length}`, label: 'stub', rationale: 'stub' }]
+      },
+    }
+    try {
+      await improve(promptProfile(), [], {
+        surface: 'prompt',
+        scenarios,
+        judge: failingJudge,
+        agent: stubAgent,
+        generator: stubProposer as never,
+        runDir,
+        budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
+      })
+      // The durable-run default is rawTraceDistiller: a later round's findings
+      // are its raw-trace-context envelopes (paths into the recorded traces),
+      // NOT the distilled failure digest.
+      const later = findingsSeen.at(-1)!
+      expect(JSON.stringify(later)).toContain('raw-trace-context')
+      const { isAnalystFinding } = await import('./findings')
+      expect(later.every(isAnalystFinding)).toBe(true)
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
   })
 
   it('the distiller keeps traceback-sized notes intact and clips at the 1500/500 caps', async () => {
@@ -635,19 +680,19 @@ describe('improve() — default proposer resolution (substrate export drift guar
       budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
     })
     expect(findingsSeen.length).toBeGreaterThanOrEqual(1)
+    // Rows are typed AnalystFinding envelopes; the distilled cell fields ride
+    // `metadata` so consumers keep one wire shape (see generationFailureDistiller).
     const rows = findingsSeen.flat() as Array<{
-      scenario: string
-      notes?: string
-      error?: string
+      metadata?: { scenario?: string; notes?: string; error?: string }
     }>
-    const intact = rows.find((row) => row.scenario === 'a')
-    expect(intact?.notes).toBe(intactNote) // below the cap ⇒ untouched
-    const clipped = rows.find((row) => row.scenario === 'b')
-    expect(clipped?.notes).toBe('n'.repeat(1500)) // at the cap ⇒ exactly 1500
-    const errored = rows.find((row) => row.scenario === 'c')
-    expect(errored?.error).toBeDefined()
-    expect(errored?.error).toContain('e'.repeat(400))
-    expect(errored?.error?.length).toBeLessThanOrEqual(500)
+    const intact = rows.find((row) => row.metadata?.scenario === 'a')
+    expect(intact?.metadata?.notes).toBe(intactNote) // below the cap ⇒ untouched
+    const clipped = rows.find((row) => row.metadata?.scenario === 'b')
+    expect(clipped?.metadata?.notes).toBe('n'.repeat(1500)) // at the cap ⇒ exactly 1500
+    const errored = rows.find((row) => row.metadata?.scenario === 'c')
+    expect(errored?.metadata?.error).toBeDefined()
+    expect(errored?.metadata?.error).toContain('e'.repeat(400))
+    expect(errored?.metadata?.error?.length).toBeLessThanOrEqual(500)
   })
 
   it("surface 'code' + opts.code assembles the worktree pipeline and measures a candidate", async () => {

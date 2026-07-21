@@ -1,0 +1,3 @@
+{"iid": "astropy__astropy-13033", "arm": "SUP2", "resolved": false, "verify_pass": true, "patch_lines": 48, "wall_s": 1262, "spawned": 8, "workers": 7, "sup_status": "completed", "sup_verdict": "best-effort", "delivered": true, "spentTokens": 146618}
+{"iid": "django__django-11532", "arm": "SUP2", "resolved": false, "verify_pass": true, "patch_lines": 64, "wall_s": 1070, "spawned": 3, "workers": 2, "sup_status": "completed", "sup_verdict": "delivered", "delivered": true, "spentTokens": 54623}
+{"iid": "matplotlib__matplotlib-20826", "arm": "SUP2", "resolved": false, "verify_pass": false, "patch_lines": 0, "wall_s": 1530, "spawned": 7, "workers": 6, "sup_status": "completed", "sup_verdict": "no-winner", "delivered": false, "spentTokens": 181765}

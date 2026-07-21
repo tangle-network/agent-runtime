@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, readdir } from 'node:fs/promises'
+import { access, readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -43,14 +43,36 @@ try {
 }
 
 const tests = await collectTests(sourceDir)
-const relativeTests = tests.map((file) => path.relative(benchDir, file))
-if (relativeTests.length === 0) throw new Error('no package tests found under src/')
+if (tests.length === 0) throw new Error('no package tests found under src/')
 
-await run(process.execPath, ['--test', '--import', 'tsx', ...relativeTests], {
-  ...process.env,
-  TSX_TSCONFIG_PATH: 'tsconfig.public.json',
-})
+// Two test runtimes coexist under src/: node:test files run under `node --test`;
+// vitest files (the swe-arena suite) crash there (`vitest` APIs need the vitest
+// worker), so partition by the framework each file actually imports.
+const nodeTests = []
+const vitestTests = []
+for (const file of tests) {
+  const body = await readFile(file, 'utf8')
+  if (/from\s+['"]vitest['"]/.test(body)) vitestTests.push(file)
+  else nodeTests.push(file)
+}
+
+if (nodeTests.length > 0) {
+  await run(
+    process.execPath,
+    ['--test', '--import', 'tsx', ...nodeTests.map((file) => path.relative(benchDir, file))],
+    {
+      ...process.env,
+      TSX_TSCONFIG_PATH: 'tsconfig.public.json',
+    },
+  )
+}
+
+if (vitestTests.length > 0) {
+  await run('npx', ['vitest', 'run', ...vitestTests.map((file) => path.relative(benchDir, file))])
+}
 
 await run(python, ['-m', 'unittest', 'discover', '-s', 'pier_agents', '-p', '*_test.py'])
 
-console.log(`package tests passed: ${tests.length}/${tests.length} TypeScript files + Pier bridge`)
+console.log(
+  `package tests passed: ${tests.length}/${tests.length} TypeScript files (${nodeTests.length} node:test + ${vitestTests.length} vitest) + Pier bridge`,
+)

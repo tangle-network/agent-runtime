@@ -1,0 +1,36 @@
+diff --git a/CHANGES.rst b/CHANGES.rst
+index 498d5e51..c37dd2a2 100644
+--- a/CHANGES.rst
++++ b/CHANGES.rst
+@@ -35,6 +35,7 @@ Unreleased
+ -   Ensure subdomains are applied with nested blueprints. :issue:`4834`
+ -   ``config.from_file`` can use ``text=False`` to indicate that the parser wants a
+     binary file instead. :issue:`4989`
++-   A blueprint named with an empty string raises a ``ValueError``. :issue:`4944`
+ 
+ 
+ Version 2.2.4
+diff --git a/src/flask/blueprints.py b/src/flask/blueprints.py
+index eb50585d..a36722c9 100644
+--- a/src/flask/blueprints.py
++++ b/src/flask/blueprints.py
+@@ -159,6 +159,9 @@ class Blueprint(Scaffold):
+         automatic detection can fail, so the path can be specified
+         manually instead.
+ 
++    .. versionchanged:: 2.3.0
++        Avoids the ``name`` being an empty string, which can cause errors.
++
+     .. versionchanged:: 1.1.0
+         Blueprints have a ``cli`` group to register nested CLI commands.
+         The ``cli_group`` parameter controls the name of the group under
+@@ -182,6 +185,9 @@ class Blueprint(Scaffold):
+         root_path: t.Optional[str] = None,
+         cli_group: t.Optional[str] = _sentinel,  # type: ignore
+     ):
++        if not name:
++            raise ValueError("'name' may not be empty.")
++
+         super().__init__(
+             import_name=import_name,
+             static_folder=static_folder,

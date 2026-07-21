@@ -1,0 +1,8 @@
+:(exclude,glob)**/tests/**
+:(exclude,glob)**/test/**
+:(exclude,glob)test_*.py
+:(exclude,glob)**/test_*.py
+:(exclude,glob)*_test.py
+:(exclude,glob)**/*_test.py
+:(exclude,glob)conftest.py
+:(exclude,glob)**/conftest.py

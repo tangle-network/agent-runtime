@@ -87,6 +87,7 @@
   },
   "bin": {
     "agent-runtime-mcp": "./dist/mcp/bin.js",
+    "agent-runtime-memory-mcp": "./dist/mcp/memory-bin.js",
     "agent-runtime-loop": "./dist/loop-runner-bin.js"
   },
   "files": [
@@ -120,7 +121,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "0.122.8",
+    "@tangle-network/agent-eval": "0.123.0",
     "@tangle-network/agent-interface": "0.32.0",
     "@tangle-network/sandbox": "^0.11.1",
     "@types/node": "^25.9.3",
@@ -152,7 +153,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.122.8 <0.123.0",
+    "@tangle-network/agent-eval": ">=0.122.8 <0.124.0",
     "@tangle-network/agent-interface": ">=0.32.0 <0.33.0",
     "@tangle-network/sandbox": ">=0.11.1 <1.0.0",
     "playwright": "^1.40.0"

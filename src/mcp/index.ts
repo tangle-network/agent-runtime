@@ -103,6 +103,20 @@ export {
   parseCodexTokenUsage,
   runLocalHarness,
 } from './local-harness'
+export {
+  type AgentMemorySpec,
+  type CreateMemoryToolServerOptions,
+  createMemoryToolServer,
+  MEMORY_FILE_ENV,
+  MEMORY_ITEMS_ENV,
+  MEMORY_LOG_ENV,
+  MEMORY_NAME_ENV,
+  type MemoryItem,
+  parseMemoryItems,
+  type ResolvedMemoryEnv,
+  readMemoryItemsFile,
+  resolveMemoryFromEnv,
+} from './memory-server'
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
 export type {
   JsonRpcMessage,
@@ -124,6 +138,15 @@ export type {
   SubmitOutput,
 } from './task-queue'
 export { DelegationTaskQueue, hashIdempotencyInput } from './task-queue'
+// The generic stdio JSON-RPC core every in-repo MCP server serves on (the
+// memory server uses it; the delegation server predates the extraction).
+// Descriptor type aliased: `./server` exports its own McpToolDescriptor above.
+export {
+  createStdioToolServer,
+  type McpToolDescriptor as StdioToolDescriptor,
+  type StdioToolServer,
+  type StdioToolServerOptions,
+} from './tool-server'
 export {
   type Check,
   type CheckRunnerOptions,

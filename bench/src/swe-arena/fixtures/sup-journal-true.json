@@ -1,0 +1,19 @@
+{
+ "_provenance": {
+  "source": "runs/<iid>/SUP/ws/.loops/supervisor/*/journal.jsonl metered events, input+output summed",
+  "extraction": "identical to analyze.py _true_sup_tok; captured 2026-07-15 before scratchpad deletion",
+  "note": "null = no supervisor journal found; sphinx-doc__sphinx-9658 had a journal with zero metered events (true 0)"
+ },
+ "astropy__astropy-13033": 122399,
+ "django__django-11532": 125857,
+ "matplotlib__matplotlib-20826": 62872,
+ "pallets__flask-5014": 15731,
+ "psf__requests-1766": 38224,
+ "psf__requests-2317": 26076,
+ "psf__requests-2931": 54894,
+ "pydata__xarray-4687": 27341,
+ "pytest-dev__pytest-6197": 32192,
+ "sphinx-doc__sphinx-9658": 0,
+ "sympy__sympy-14976": 28694,
+ "sympy__sympy-23534": 26274
+}

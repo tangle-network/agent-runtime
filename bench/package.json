@@ -40,8 +40,9 @@
     "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "0.122.8",
+    "@tangle-network/agent-eval": "0.123.0",
     "@tangle-network/agent-interface": "0.32.0",
+    "@tangle-network/agent-knowledge": "^4.1.0",
     "@tangle-network/agent-runtime": "workspace:*",
     "@tangle-network/sandbox": "^0.11.1"
   },
