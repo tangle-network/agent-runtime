@@ -30,10 +30,10 @@ import {
   changeSpaceViolations,
   decideVerdict,
   defaultRound4Config,
+  instanceVerdictsFromCells,
   isPidAlive,
   normalizeRepoPath,
   parseStaircaseRow,
-  pinnedBaselineResolvedCount,
   porcelainChangedPaths,
   purgeIgnoredArtifacts,
   removeEvalWorktree,
@@ -41,6 +41,7 @@ import {
   resolvedInstanceCount,
   round4BuildPrompt,
   runWithPostGateClock,
+  type EvidenceCell,
   type ReplicateRun,
   type StaircaseRow,
 } from './outer-loop.mts'
@@ -248,6 +249,10 @@ describe('frozen arm + default config', () => {
     // Single-rep scoring flips instance outcomes run-to-run — round 4 runs 2.
     expect(config.repsPerInstance).toBe(2)
   })
+  it('default config: the premeasured baseline artifact path is required-with-default', () => {
+    const config = defaultRound4Config()
+    expect(config.premeasuredBaselinePath).toContain('/r4/premeasured-baseline.json')
+  })
   it('default config: author-shot timeout doubled after 3 gen-1 timeouts; outDir name is overridable', () => {
     const config = defaultRound4Config()
     // 20-min shots died 3× under degraded capacity ("author shot timed out").
@@ -331,54 +336,76 @@ describe('replicate semantics (repsPerInstance)', () => {
   })
 })
 
-describe('pinned baseline (the gate never recomputes its denominator)', () => {
+describe('premeasured-baseline drift (the validated artifact is the only denominator)', () => {
   const iids = ['astropy__astropy-13033', 'django__django-11532', 'matplotlib__matplotlib-20826']
-  const pin = {
+  // AND-verdicts of the premeasured artifact's campaign (measured 1/3).
+  const expected = {
     'astropy__astropy-13033': false,
     'django__django-11532': false,
     'matplotlib__matplotlib-20826': true,
   }
   const run = (iid: string, resolved: boolean | null): ReplicateRun => ({ iid, resolved })
-
-  it('counts pinned-true instances (the measured gen-1 baseline is 1/3)', () => {
-    expect(pinnedBaselineResolvedCount(pin, iids)).toBe(1)
+  const cell = (iid: string, rep: number, resolved: boolean | null): EvidenceCell => ({
+    scenarioId: iid,
+    rep,
+    artifact:
+      resolved === null
+        ? null
+        : {
+            kind: 'swe-arm',
+            iid,
+            commit: 'basecommit0',
+            resolved,
+            verifyPass: resolved,
+            patchLines: 1,
+            wallS: 10,
+            spentTokens: null,
+            spentUsd: null,
+            recoveredTokens: null,
+            workerTokIn: null,
+            workerTokOut: null,
+            judgeAttempts: null,
+            judgeWallS: null,
+            runDir: '/tmp/none',
+            patchPath: '/tmp/none.patch',
+          },
+    ...(resolved === null ? { error: 'inconclusive' } : {}),
   })
 
-  it('fails loud on a missing instance and on an unknown pinned iid', () => {
-    expect(() => pinnedBaselineResolvedCount({ ...pin, 'django__django-11532': undefined as never }, iids)).toThrow(
-      /missing boolean verdict for django__django-11532/,
-    )
-    expect(() => pinnedBaselineResolvedCount({ ...pin, 'scipy__scipy-1': true }, iids)).toThrow(
-      /unknown instance/,
-    )
-  })
-
-  it('default round-4 config pins the measured baseline', () => {
-    const config = defaultRound4Config()
-    expect(config.pinnedBaseline).toEqual(pin)
-    expect(pinnedBaselineResolvedCount(config.pinnedBaseline!, config.instances)).toBe(1)
+  it('instanceVerdictsFromCells ANDs replicates and omits incomplete instances', () => {
+    const cells = [
+      cell(iids[0]!, 0, false), cell(iids[0]!, 1, false),
+      cell(iids[1]!, 0, true), cell(iids[1]!, 1, false), // flaky → AND false
+      cell(iids[2]!, 0, true), // partial → omitted
+    ]
+    expect(instanceVerdictsFromCells(cells, iids, 2)).toEqual({
+      'astropy__astropy-13033': false,
+      'django__django-11532': false,
+    })
+    const inconclusive = [cell(iids[0]!, 0, true), cell(iids[0]!, 1, null)]
+    expect(instanceVerdictsFromCells(inconclusive, [iids[0]!], 2)).toEqual({})
   })
 
   it('drift warnings fire on a reps-complete contradiction, both directions', () => {
     const runs = [
-      run(iids[0]!, true), run(iids[0]!, true),   // pinned false, measured true → drift
-      run(iids[1]!, false), run(iids[1]!, false), // pinned false, measured false → quiet
-      run(iids[2]!, true), run(iids[2]!, false),  // pinned true, measured false → drift
+      run(iids[0]!, true), run(iids[0]!, true),   // premeasured false, cached true → drift
+      run(iids[1]!, false), run(iids[1]!, false), // premeasured false, cached false → quiet
+      run(iids[2]!, true), run(iids[2]!, false),  // premeasured true, cached false → drift
     ]
-    const warnings = baselineDriftWarnings(pin, runs, iids, 2)
+    const warnings = baselineDriftWarnings(expected, runs, iids, 2)
     expect(warnings).toHaveLength(2)
-    expect(warnings[0]).toContain('astropy__astropy-13033: pinned=false')
-    expect(warnings[1]).toContain('matplotlib__matplotlib-20826: pinned=true')
-    expect(warnings.every((w) => w.includes('gate uses the PIN'))).toBe(true)
+    expect(warnings[0]).toContain('astropy__astropy-13033: premeasured=false')
+    expect(warnings[1]).toContain('matplotlib__matplotlib-20826: premeasured=true')
+    expect(warnings.every((w) => w.includes('premeasured artifact rules'))).toBe(true)
   })
 
-  it('a partial or inconclusive baseline record has no AND-verdict — no drift claim', () => {
+  it('a partial or inconclusive cached record has no AND-verdict — no drift claim', () => {
     // Partial coverage (1 of 2 reps per instance): no AND-verdict exists yet,
-    // even where the single present cell disagrees with the pin.
+    // even where the single present cell disagrees with the artifact.
     const partial = [run(iids[1]!, true), run(iids[2]!, false)]
-    expect(baselineDriftWarnings(pin, partial, iids, 2)).toEqual([])
+    expect(baselineDriftWarnings(expected, partial, iids, 2)).toEqual([])
     const inconclusive = [run(iids[2]!, true), run(iids[2]!, null)]
-    expect(baselineDriftWarnings(pin, inconclusive, iids, 2)).toEqual([])
+    expect(baselineDriftWarnings(expected, inconclusive, iids, 2)).toEqual([])
   })
 })
 

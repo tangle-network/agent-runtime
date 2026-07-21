@@ -1,15 +1,16 @@
 /**
- * Substrate passthrough feature-detect: the pure probe over module text plus
- * a live probe against the installed agent-eval contract bundle (shape only —
- * the live values flip to true the day feat/improve-loop-passthroughs merges,
- * which is the intended behavior, so they are not pinned here).
+ * Substrate passthrough guard: the pure probe over module text plus the live
+ * fail-loud assertion against the installed agent-eval contract bundle. The
+ * live assertion doubles as the CI stale-install check — a bench wired to a
+ * substrate that drops premeasuredBaseline/maxImprovementShots fails HERE,
+ * before any run can silently re-spend its baseline.
  */
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
+  assertSubstratePassthroughs,
   detectPassthroughCaps,
-  loadSubstrateCaps,
   resolveContractModulePath,
 } from './capabilities.mts'
 
@@ -34,15 +35,15 @@ describe('detectPassthroughCaps (pure)', () => {
   })
 })
 
-describe('live substrate probe', () => {
-  it('resolves the installed contract bundle and returns booleans, fail-closed on error', () => {
+describe('live substrate guard', () => {
+  it('the installed contract bundle names both passthroughs (stale install = loud failure)', () => {
     const path = resolveContractModulePath()
     expect(path).toMatch(/agent-eval/)
-    expect(readFileSync(path, 'utf8').length).toBeGreaterThan(0)
-    const caps = loadSubstrateCaps()
-    expect(typeof caps.premeasuredBaseline).toBe('boolean')
-    expect(typeof caps.maxImprovementShots).toBe('boolean')
-    // The probe result must equal the pure detector over the same bytes.
-    expect(caps).toEqual(detectPassthroughCaps(readFileSync(path, 'utf8')))
+    const caps = detectPassthroughCaps(readFileSync(path, 'utf8'))
+    expect(caps).toEqual({ premeasuredBaseline: true, maxImprovementShots: true })
+    const logged: string[] = []
+    expect(() => assertSubstratePassthroughs((msg) => logged.push(msg))).not.toThrow()
+    expect(logged.join('\n')).toContain('premeasuredBaseline=true')
+    expect(logged.join('\n')).toContain('maxImprovementShots=true')
   })
 })

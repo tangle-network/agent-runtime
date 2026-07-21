@@ -22,43 +22,35 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 // ---------------------------------------------------------------------------
-// The evaluated artifact. One cell = one (surface × scenario × rep) — the
-// swe cells carry the official-judge outcome + recovered spend; the single
-// static cell carries the change-space/tsc gates.
+// The evaluated artifact. One cell = one (surface × scenario × rep); every
+// cell carries the official-judge outcome + recovered spend. (The `kind`
+// discriminant stays: cached cells on disk carry it, and it keeps replayed
+// artifacts distinguishable from a null/errored cell.)
 // ---------------------------------------------------------------------------
 
-export type R4Artifact =
-  | {
-      kind: 'swe-arm'
-      iid: string
-      commit: string
-      resolved: boolean
-      verifyPass: boolean
-      patchLines: number
-      wallS: number
-      /** Runtime spend-tree total (state.json `result.spentTokens`, winner AND
-       *  no-winner arms). `null` = state.json unreadable, a telemetry gap. */
-      spentTokens: number | null
-      spentUsd: number | null
-      /** spentTokens + opencode-sqlite worker-session tokens. */
-      recoveredTokens: number | null
-      /** Worker-session token split from the opencode sqlite join — the
-       *  usage the campaign CostLedger receipt reports. */
-      workerTokIn: number | null
-      workerTokOut: number | null
-      judgeAttempts: number | null
-      judgeWallS: number | null
-      runDir: string
-      patchPath: string
-    }
-  | {
-      kind: 'static-gate'
-      commit: string
-      changedFiles: string[]
-      violations: string[]
-      typecheckOk: boolean
-      feedback?: string
-    }
+export interface R4Artifact {
+  kind: 'swe-arm'
+  iid: string
+  commit: string
+  resolved: boolean
+  verifyPass: boolean
+  patchLines: number
+  wallS: number
+  /** Runtime spend-tree total (state.json `result.spentTokens`, winner AND
+   *  no-winner arms). `null` = state.json unreadable, a telemetry gap. */
+  spentTokens: number | null
+  spentUsd: number | null
+  /** spentTokens + opencode-sqlite worker-session tokens. */
+  recoveredTokens: number | null
+  /** Worker-session token split from the opencode sqlite join — the
+   *  usage the campaign CostLedger receipt reports. */
+  workerTokIn: number | null
+  workerTokOut: number | null
+  judgeAttempts: number | null
+  judgeWallS: number | null
+  runDir: string
+  patchPath: string
+}
 
 /** The minimal slice of a lib `CampaignCellResult<R4Artifact>` the scoring
  *  reads. Structural so both in-memory campaign results and parsed
@@ -168,7 +160,6 @@ export interface StaircasePerInstance {
 export function perInstanceFromCells(cells: EvidenceCell[]): StaircasePerInstance[] {
   const rows: StaircasePerInstance[] = []
   for (const cell of cells) {
-    if (cell.artifact !== null && cell.artifact.kind === 'static-gate') continue
     const a = cell.artifact !== null && cell.artifact.kind === 'swe-arm' && !cell.error ? cell.artifact : null
     rows.push({
       iid: cell.scenarioId,
@@ -188,48 +179,55 @@ export function perInstanceFromCells(cells: EvidenceCell[]): StaircasePerInstanc
 }
 
 // ---------------------------------------------------------------------------
-// Pinned baseline. The accept/reject gate compares candidates against a
-// MEASURED, reps-confirmed baseline pinned in config — never a per-run
-// recomputation (see the r4-mroh3rkt note above). Retained as the gate's
-// denominator until the substrate's premeasuredBaseline passthrough is
-// consumable (capabilities.mts) — then the pin becomes the fallback.
+// Premeasured-baseline drift. The gate's denominator is the stored
+// premeasured baseline artifact ({surfaceHash, campaign}) that the LIB
+// validates before skipping the baseline campaign — surface hash, seed, reps,
+// and split digest all fail loud on mismatch. A resumed runDir can still hold
+// baseline cells cached by an OLDER run of the same surface; when those
+// contradict the validated artifact, the contradiction is logged loud and the
+// artifact still rules.
 // ---------------------------------------------------------------------------
 
-/** Fail-loud pinned resolved-count: every improvement-set instance must carry a
- *  pinned boolean, and every pinned iid must be in the improvement set. */
-export function pinnedBaselineResolvedCount(pin: Record<string, boolean>, iids: string[]): number {
-  const missing = iids.filter((iid) => typeof pin[iid] !== 'boolean')
-  if (missing.length > 0) {
-    throw new Error(`pinnedBaseline: missing boolean verdict for ${missing.join(', ')}`)
+/** AND-verdict per instance from campaign cells. Only instances with full,
+ *  conclusive replicate coverage produce a verdict — a partial record has no
+ *  AND-verdict to compare. */
+export function instanceVerdictsFromCells(
+  cells: EvidenceCell[],
+  iids: string[],
+  reps: number,
+): Record<string, boolean> {
+  const runs = replicateRunsFromCells(cells)
+  const verdicts: Record<string, boolean> = {}
+  for (const iid of iids) {
+    const mine = runs.filter((r) => r.iid === iid)
+    if (mine.length !== reps || mine.some((r) => r.resolved === null)) continue
+    verdicts[iid] = mine.every((r) => r.resolved === true)
   }
-  const unknown = Object.keys(pin).filter((iid) => !iids.includes(iid))
-  if (unknown.length > 0) {
-    throw new Error(`pinnedBaseline: unknown instance(s) not in the improvement set: ${unknown.join(', ')}`)
-  }
-  return iids.filter((iid) => pin[iid] === true).length
+  return verdicts
 }
 
-/** Per-instance contradictions between the pin and a run's OWN baseline cells.
- *  Only instances with full-reps, conclusive coverage in the run are compared —
- *  a partial baseline record has no AND-verdict to contradict the pin with.
- *  The caller logs these loud and STILL uses the pin. */
+/** Per-instance contradictions between the validated premeasured artifact's
+ *  verdicts and locally cached baseline cells. Only instances with full-reps,
+ *  conclusive coverage on BOTH sides are compared — a partial record has no
+ *  AND-verdict to contradict with. The caller logs these loud and the
+ *  premeasured artifact STILL rules. */
 export function baselineDriftWarnings(
-  pin: Record<string, boolean>,
+  expected: Record<string, boolean>,
   runs: ReplicateRun[],
   iids: string[],
   reps: number,
 ): string[] {
   const warnings: string[] = []
   for (const iid of iids) {
-    const pinned = pin[iid]
-    if (typeof pinned !== 'boolean') continue
+    const want = expected[iid]
+    if (typeof want !== 'boolean') continue
     const mine = runs.filter((r) => r.iid === iid)
     if (mine.length !== reps || mine.some((r) => r.resolved === null)) continue
     const measured = mine.every((r) => r.resolved === true)
-    if (measured !== pinned) {
+    if (measured !== want) {
       warnings.push(
-        `${iid}: pinned=${pinned} but this run's baseline cells measured ${measured} ` +
-          `(reps: ${mine.map((r) => String(r.resolved)).join('/')}) — gate uses the PIN`,
+        `${iid}: premeasured=${want} but cached baseline cells measured ${measured} ` +
+          `(reps: ${mine.map((r) => String(r.resolved)).join('/')}) — the validated premeasured artifact rules`,
       )
     }
   }
@@ -349,30 +347,29 @@ export async function loadCandidateCellGroups(improveRunDir: string): Promise<Ca
 }
 
 // ---------------------------------------------------------------------------
-// Gate evidence — everything the operator gate reports, derived from cells.
+// Gate evidence — the would-be-keep operator brief, derived from cells. The
+// lib's deferred-holdout gate always holds; this evidence tells the operator
+// whether the pre-registered holdout run is worth approving.
 // ---------------------------------------------------------------------------
 
 export interface GateEvidence {
   candResolved: number
   baseResolved: number
-  /** True when `baseResolved` came from the config pin (the default). */
-  baseFromPin: boolean
   candWallS: number
   baseWallS: number
   costRatio: number | null
   coverageComplete: boolean
   verdict: StaircaseVerdict
-  driftWarnings: string[]
 }
 
-/** Score the winner-vs-baseline comparison for the operator gate. The PIN is
- *  the denominator when present; the run's own baseline cells serve as drift
- *  detector + cost-ratio denominator only. */
+/** Score the winner-vs-baseline comparison for the operator brief. Both sides
+ *  come from campaign cells — the baseline side is the lib-validated
+ *  premeasured campaign (or the bootstrap run's freshly measured one). */
 export function gateEvidenceFromCells(input: {
   winnerCells: EvidenceCell[]
   baselineCells: EvidenceCell[]
-  staticViolations: string[]
-  pin?: Record<string, boolean> | undefined
+  /** Dispatch-time change-space violations of the winner's diff. */
+  violations: string[]
   iids: string[]
   reps: number
   costGuardRatio: number
@@ -380,13 +377,7 @@ export function gateEvidenceFromCells(input: {
   const winnerRuns = replicateRunsFromCells(input.winnerCells)
   const baselineRuns = replicateRunsFromCells(input.baselineCells)
   const candResolved = resolvedInstanceCount(winnerRuns, input.iids, input.reps)
-  const baseFromPin = input.pin !== undefined
-  const baseResolved = input.pin
-    ? pinnedBaselineResolvedCount(input.pin, input.iids)
-    : resolvedInstanceCount(baselineRuns, input.iids, input.reps)
-  const driftWarnings = input.pin
-    ? baselineDriftWarnings(input.pin, baselineRuns, input.iids, input.reps)
-    : []
+  const baseResolved = resolvedInstanceCount(baselineRuns, input.iids, input.reps)
   const candWallS = sumWallSFromCells(input.winnerCells)
   const baseWallS = sumWallSFromCells(input.baselineCells)
   const costRatio = baseWallS > 0 ? candWallS / baseWallS : null
@@ -394,19 +385,17 @@ export function gateEvidenceFromCells(input: {
   return {
     candResolved,
     baseResolved,
-    baseFromPin,
     candWallS,
     baseWallS,
     costRatio,
     coverageComplete,
     verdict: decideVerdict({
-      violations: input.staticViolations,
+      violations: input.violations,
       coverageComplete,
       resolvedCount: candResolved,
       parentResolvedCount: baseResolved,
       costRatio,
       costGuardRatio: input.costGuardRatio,
     }),
-    driftWarnings,
   }
 }

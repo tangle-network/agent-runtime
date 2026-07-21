@@ -12,8 +12,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
+  baselineDriftWarnings,
   cellsFromCampaign,
   gateEvidenceFromCells,
+  instanceVerdictsFromCells,
   loadCampaignCells,
   loadCandidateCellGroups,
   perInstanceFromCells,
@@ -85,11 +87,9 @@ describe('cell adapters', () => {
     ])
   })
 
-  it('perInstanceFromCells maps artifact fields, carries cell cost, skips the static cell', () => {
-    const staticArt: R4Artifact = { kind: 'static-gate', commit: 'c1', changedFiles: [], violations: [], typecheckOk: true }
+  it('perInstanceFromCells maps artifact fields and carries cell cost', () => {
     const rows = perInstanceFromCells([
       cell('a', 0, sweArtifact('a', 'c1', true, 250)),
-      cell('static:loops-gates', 0, staticArt),
       cell('b', 1, null, 'boom'),
     ])
     expect(rows).toHaveLength(2)
@@ -181,65 +181,42 @@ describe('disk readers + the r4-mroh3rkt resume shape', () => {
     const winner = groups.find((g) => g.commit === 'b08d31c910')!
     const baselineCells = await loadCampaignCells(join(improveRun, 'baseline'))
 
-    // With the pin (the shipping config): denominator is the pin, drift quiet.
-    const pin = {
+    // Attribution is campaign directory + artifact commit: the candidate's
+    // cells can never masquerade as the baseline, dispatched or replayed.
+    const ev = gateEvidenceFromCells({
+      winnerCells: winner.cells,
+      baselineCells,
+      violations: [],
+      iids: IIDS,
+      reps: 2,
+      costGuardRatio: 1.2,
+    })
+    expect(ev.candResolved).toBe(0)
+    expect(ev.baseResolved).toBe(1) // the bug published 0/3 here
+    expect(ev.verdict).toBe('rejected-no-gain')
+    expect(ev.coverageComplete).toBe(true)
+    expect(ev.costRatio).toBeCloseTo(660 / 600, 5)
+  })
+
+  it('a contradicting cached baseline raises drift warnings and the premeasured artifact rules', async () => {
+    const improveRun = await makeResumedRunDir()
+    const cachedBaseline = await loadCampaignCells(join(improveRun, 'baseline'))
+    // Premeasured artifact verdicts contradicting the cached cells on astropy.
+    const expected = {
+      'astropy__astropy-13033': true, // cached cells measured F/F
+      'django__django-11532': false,
+      'matplotlib__matplotlib-20826': true,
+    }
+    const warnings = baselineDriftWarnings(expected, replicateRunsFromCells(cachedBaseline), IIDS, 2)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('astropy__astropy-13033: premeasured=true')
+    expect(warnings[0]).toContain('premeasured artifact rules')
+    // The AND-verdicts of the cached campaign (the drift comparator source).
+    expect(instanceVerdictsFromCells(cachedBaseline, IIDS, 2)).toEqual({
       'astropy__astropy-13033': false,
       'django__django-11532': false,
       'matplotlib__matplotlib-20826': true,
-    }
-    const pinned = gateEvidenceFromCells({
-      winnerCells: winner.cells,
-      baselineCells,
-      staticViolations: [],
-      pin,
-      iids: IIDS,
-      reps: 2,
-      costGuardRatio: 1.2,
     })
-    expect(pinned.candResolved).toBe(0)
-    expect(pinned.baseResolved).toBe(1) // the bug published 0/3 here
-    expect(pinned.baseFromPin).toBe(true)
-    expect(pinned.driftWarnings).toEqual([])
-    expect(pinned.verdict).toBe('rejected-no-gain')
-    expect(pinned.coverageComplete).toBe(true)
-    expect(pinned.costRatio).toBeCloseTo(660 / 600, 5)
-
-    // WITHOUT the pin the measured baseline cells still carry the truth —
-    // the candidate's cells can never masquerade as the baseline.
-    const unpinned = gateEvidenceFromCells({
-      winnerCells: winner.cells,
-      baselineCells,
-      staticViolations: [],
-      pin: undefined,
-      iids: IIDS,
-      reps: 2,
-      costGuardRatio: 1.2,
-    })
-    expect(unpinned.baseResolved).toBe(1)
-    expect(unpinned.baseFromPin).toBe(false)
-    expect(unpinned.verdict).toBe('rejected-no-gain')
-  })
-
-  it('a contradicting cached baseline raises drift warnings and the pin still rules', async () => {
-    const improveRun = await makeResumedRunDir()
-    const baselineCells = await loadCampaignCells(join(improveRun, 'baseline'))
-    const pin = {
-      'astropy__astropy-13033': true, // contradicts measured F/F
-      'django__django-11532': false,
-      'matplotlib__matplotlib-20826': true,
-    }
-    const ev = gateEvidenceFromCells({
-      winnerCells: baselineCells,
-      baselineCells,
-      staticViolations: [],
-      pin,
-      iids: IIDS,
-      reps: 2,
-      costGuardRatio: 1.2,
-    })
-    expect(ev.baseResolved).toBe(2) // pin says 2/3 — the denominator stays pinned
-    expect(ev.driftWarnings).toHaveLength(1)
-    expect(ev.driftWarnings[0]).toContain('astropy__astropy-13033: pinned=true')
   })
 
   it('a missing replicate keeps the candidate coverage-incomplete (errored cells are never cached)', async () => {
@@ -251,8 +228,7 @@ describe('disk readers + the r4-mroh3rkt resume shape', () => {
     const ev = gateEvidenceFromCells({
       winnerCells: partial.cells,
       baselineCells: await loadCampaignCells(join(improveRun, 'baseline')),
-      staticViolations: [],
-      pin: undefined,
+      violations: [],
       iids: IIDS,
       reps: 2,
       costGuardRatio: 1.2,
