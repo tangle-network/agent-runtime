@@ -244,6 +244,10 @@ export type StaircaseVerdict =
   | 'rejected-cost'
   | 'rejected-out-of-space'
   | 'rejected-incomplete'
+  /** Killed by the gen-3 pre-filter (change-space/tsc/smoke) BEFORE any full
+   *  evaluation — the candidate never became a measured surface. Emitted by
+   *  the outer loop's kill-row writer, never by `decideVerdict`. */
+  | 'rejected-prefilter'
 
 /** protocol_v2 keep-if-better: improvement-set resolved-count must RISE and
  *  cost must stay within the guard. Fail-closed on unprovable cost. */

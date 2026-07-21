@@ -119,6 +119,16 @@ import {
   type AnalystSpec,
   type SupRunArtifacts,
 } from './diagnosis-ensemble.ts'
+import {
+  defaultProposers,
+  fanOutLoopsGenerator,
+  proposerShotHooks,
+  type PrefilterConfig,
+  type PrefilterKill,
+  type ProposerSpec,
+  type SmokeRunner,
+  type SmokeVerdict,
+} from './proposer-fanout.mts'
 import { run, runOk } from './proc.ts'
 import { loadInstanceImages } from './run-experiment.mts'
 import { createSerializedJudge, type SerializedJudge } from './serialized-judge.ts'
@@ -387,6 +397,9 @@ export interface StaircaseRow {
    *  signal, so both are recorded). */
   internallyPromoted: boolean
   verdict: StaircaseVerdict
+  /** Present only on `rejected-prefilter` dots: which pre-filter stage killed
+   *  the candidate and why (e.g. `smoke: pallets__flask-5014 unresolved`). */
+  killReason?: string
   holdout: 'operator-approval-required' | 'not-run'
   armProvenance: { repo: string; commit: string } | null
   diffPath: string | null
@@ -399,6 +412,7 @@ const STAIRCASE_VERDICTS: ReadonlySet<string> = new Set([
   'rejected-cost',
   'rejected-out-of-space',
   'rejected-incomplete',
+  'rejected-prefilter',
 ])
 
 /** Parse + validate one staircase JSONL row. Throws on schema drift. */
@@ -504,6 +518,26 @@ export interface OuterLoopConfig {
   maxShots: number
   proposerHarness: 'claude' | 'codex' | 'opencode'
   proposerTimeoutMs: number
+  /** GEN-3 proposer fan-out: N proposers author candidates CONCURRENTLY, each
+   *  an AgentProfile-pinned harness invocation (see proposer-fanout.mts).
+   *  When set, `populationSize` MUST equal `proposers.length` (one candidate
+   *  slot per proposer — enforced at launch). Unset = the legacy
+   *  single-author generator (`proposerHarness` + bare invocation). */
+  proposers?: ProposerSpec[]
+  /** GEN-3 cheap pre-filter: per candidate, change-space + tsc (the authoring
+   *  verifier) plus ONE smoke arm cell before any full-evaluation spend.
+   *  Killed candidates become `rejected-prefilter` staircase dots. */
+  prefilter?: PrefilterConfig
+  /** Replicates per holdout instance in the operator-approved certification
+   *  run (holdout-certify.mts). Default 2 — the gen-2 winner failed 3/6 vs
+   *  4/6 on a 1-rep holdout with exactly one discordant cell, a known
+   *  single-rep noise class. */
+  holdoutRepsPerInstance?: number
+  /** SAME-PROTOCOL parent measurement the certification bar compares against:
+   *  an explicit {iid -> AND-verdict} map measured under the identical
+   *  reps/fail-closed protocol, or 'measure' — the incumbent runs the same
+   *  2-rep holdout first in the certification run. */
+  holdoutBaseline?: Record<string, boolean> | 'measure'
   /** Router model ids for the blind diagnosis ensemble (config, never a
    *  hardcoded unrouted model). */
   analystModels: string[]
@@ -580,6 +614,117 @@ export function defaultRound4Config(
     })),
     costGuardRatio: 1.2,
     dispatchTimeoutMs: 7_200_000,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GEN-3 configuration — proposer fan-out + pre-filter + the widened
+// improvement set + the 2-rep holdout protocol.
+// ---------------------------------------------------------------------------
+
+/** The gen-3 improvement set: the round-3 trio plus the three BOTH-FAIL
+ *  instances from the original head-to-head (solo glm-5.2 ALSO failed them —
+ *  any resolution beats solo, not just the parent). All six carry committed,
+ *  dual-calibrated verify fixtures (repro base-fail/gold-pass + gold
+ *  official-resolved). */
+export const GEN3_IMPROVEMENT_SET = [
+  'astropy__astropy-13033',
+  'django__django-11532',
+  'matplotlib__matplotlib-20826',
+  'pydata__xarray-4687',
+  'pytest-dev__pytest-6197',
+  'sphinx-doc__sphinx-9658',
+] as const
+
+/** Never-registered spare pool, pre-named in case a gen-3 instance has to be
+ *  replaced (calibration regression, image loss). */
+export const GEN3_SPARE_POOL = [
+  'sympy__sympy-17318',
+  'scikit-learn__scikit-learn-14087',
+  'astropy__astropy-14508',
+] as const
+
+/** Resolve the pre-filter smoke instance. 'cheapest-of-set' picks the
+ *  improvement-set instance with the smallest summed baseline wall seconds
+ *  (from the premeasured artifact's cells); with no baseline measurement yet
+ *  it falls back to the first instance. An explicit iid passes through. */
+export function resolveSmokeInstance(
+  smokeInstance: string,
+  instances: readonly string[],
+  baselineCells: import('./cell-evidence.mts').EvidenceCell[] | null,
+): string {
+  if (smokeInstance !== 'cheapest-of-set') return smokeInstance
+  if (instances.length === 0) throw new Error('resolveSmokeInstance: empty improvement set')
+  if (baselineCells === null || baselineCells.length === 0) return instances[0]!
+  const wall = new Map<string, number>()
+  for (const cell of baselineCells) {
+    if (cell.artifact === null || cell.artifact.kind !== 'swe-arm') continue
+    wall.set(cell.scenarioId, (wall.get(cell.scenarioId) ?? 0) + cell.artifact.wallS)
+  }
+  let best: string | null = null
+  let bestWall = Number.POSITIVE_INFINITY
+  for (const iid of instances) {
+    const w = wall.get(iid)
+    if (w !== undefined && w < bestWall) {
+      best = iid
+      bestWall = w
+    }
+  }
+  return best ?? instances[0]!
+}
+
+/**
+ * The gen-3 config: protocol round 4 continues (frozen arm, same holdout
+ * registry, same roundsDir staircase) with the gen-3 machinery on:
+ *
+ *  - THREE parallel proposers (all claude, bare default-author profile) that
+ *    differ by diagnosis slice/lens — fan-out diversity without unproven
+ *    harness seats; `populationSize` = `proposers.length`.
+ *  - Pre-filter enabled at the mechanism bar on the cheapest-of-set smoke
+ *    instance ('pallets__flask-5014' becomes the designated smoke once its
+ *    verify fixture is authored + calibrated; it has none committed yet).
+ *  - The 6-instance improvement set. The premeasured-baseline artifact path
+ *    is NEW (gen3/): the lib validates a premeasured campaign against the
+ *    FULL scenario split digest, so the 3-instance round-4 artifact cannot
+ *    seed a 6-instance split — the first gen-3 run is the bootstrap that
+ *    measures all six (cache-resumable) and writes the artifact; the three
+ *    new instances are thereby measured on the first round.
+ *  - Holdout protocol pinned at 2 reps, parent measured under the SAME
+ *    protocol ('measure'), operator valve unchanged (holdout: 'deferred').
+ */
+export function defaultGen3Config(
+  hh = DEFAULT_HH_SCRATCHPAD,
+  opts: { outDirName?: string } = {},
+): OuterLoopConfig {
+  const base = defaultRound4Config(hh, opts)
+  const outDirName = opts.outDirName ?? 'gen3'
+  const proposers: ProposerSpec[] = [
+    { name: 'default-author', profile: 'default-author.profile.json', harness: 'claude' },
+    {
+      name: 'mechanics-author',
+      profile: 'default-author.profile.json',
+      harness: 'claude',
+      diagnosisSlice: 'mechanics',
+      lens: 'Focus on MECHANICS: worker lifecycle, sandbox/clone contracts, settlement and delivery paths. Prefer code-path fixes over prompt wording.',
+    },
+    {
+      name: 'prompts-author',
+      profile: 'default-author.profile.json',
+      harness: 'claude',
+      diagnosisSlice: 'prompts',
+      lens: 'Focus on PROMPTS: worker/brain instruction wording, placement guidance, self-check discipline. Prefer prompt/instruction changes over code-path rewrites.',
+    },
+  ]
+  return {
+    ...base,
+    instances: [...GEN3_IMPROVEMENT_SET],
+    outDir: join(hh, outDirName),
+    premeasuredBaselinePath: join(hh, outDirName, 'premeasured-baseline.json'),
+    populationSize: proposers.length,
+    proposers,
+    prefilter: { enabled: true, smokeInstance: 'cheapest-of-set', requireResolved: false },
+    holdoutRepsPerInstance: 2,
+    holdoutBaseline: 'measure',
   }
 }
 
@@ -810,7 +955,7 @@ export function loopsCandidateVerifier(loopsRepo: string): Verifier {
  *  only — the rest of the run keeps its env untouched. */
 const CLAUDE_AMBIENT_AUTH_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'] as const
 
-function proposerShotEnv(harness: OuterLoopConfig['proposerHarness']): NodeJS.ProcessEnv {
+export function proposerShotEnv(harness: OuterLoopConfig['proposerHarness']): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
   if (harness === 'claude') {
     for (const name of CLAUDE_AMBIENT_AUTH_VARS) delete env[name]
@@ -835,46 +980,16 @@ export function constrainedLoopsGenerator(config: OuterLoopConfig): CandidateGen
     // Three runs died as "author shot exited with code 1" with the shot's
     // stderr lost (nothing wires receipt persistence by default). Persist every
     // attempted shot — receipt plus bounded stream tails — so the NEXT failure
-    // names its cause from disk.
-    onShotCompleted: async (receipt, execution) => {
-      const tail = (s: string | undefined): string | null =>
-        s === undefined ? null : s.length > 20_000 ? s.slice(-20_000) : s
-      await mkdir(shotDir, { recursive: true })
-      const name = `gen${receipt.generation ?? 'x'}-cand${receipt.candidateIndex ?? 'x'}-shot${receipt.shot}.json`
-      await writeFile(
-        join(shotDir, name),
-        JSON.stringify({ receipt, stdoutTail: tail(execution?.stdout), stderrTail: tail(execution?.stderr) }, null, 2),
-      )
-      // Proposer-shot spend → the lib's run ledger. The generator only settles
-      // its own receipts on the codexReproducible path (costCallId non-null);
-      // the claude/opencode author path otherwise leaves every shot as $0 in
-      // the run's spend summary. Import the shot receipt's measured usage.
-      if (activeLedger && receipt.costCallId === null && (receipt.usage || receipt.costUsdKnown)) {
-        const usage = receipt.usage
-        const paid = await activeLedger.runPaidCall({
-          channel: 'driver',
-          phase: activePhase ?? 'search.proposal',
-          actor: `proposer-shot:${config.proposerHarness}`,
-          model: receipt.model ?? `${config.proposerHarness}-cli`,
-          tags: {
-            generation: String(receipt.generation ?? -1),
-            candidateIndex: String(receipt.candidateIndex ?? -1),
-            shot: String(receipt.shot),
-          },
-          execute: async () => receipt,
-          receipt: () => ({
-            model: receipt.model ?? `${config.proposerHarness}-cli`,
-            inputTokens: usage?.inputTokens ?? 0,
-            outputTokens: usage ? usage.outputTokens + usage.reasoningOutputTokens : 0,
-            ...(usage ? { cachedTokens: usage.cachedInputTokens } : { usageUnknown: true }),
-            ...(receipt.costUsdKnown && receipt.costUsd !== null
-              ? { actualCostUsd: receipt.costUsd }
-              : {}),
-          }),
-        })
-        if (!paid.succeeded) throw paid.error
-      }
-    },
+    // names its cause from disk. Shared implementation with the gen-3 fan-out
+    // authors (proposer-fanout.mts): receipt persistence + spend settlement
+    // into the run ledger for the claude/opencode paths whose shots would
+    // otherwise read $0.
+    onShotCompleted: proposerShotHooks({
+      shotDir,
+      harness: config.proposerHarness,
+      ledger: () => activeLedger,
+      phase: () => activePhase,
+    }),
   })
   return {
     kind: `round4-constrained:${inner.kind}`,
@@ -917,6 +1032,15 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   if (!Number.isInteger(reps) || reps < 1) {
     throw new Error(`outer-loop: repsPerInstance must be a positive integer, got ${JSON.stringify(config.repsPerInstance)}`)
   }
+  if (config.proposers !== undefined) {
+    if (config.proposers.length === 0) throw new Error('outer-loop: config.proposers must not be empty when set')
+    if (config.proposers.length !== config.populationSize) {
+      throw new Error(
+        `outer-loop: populationSize ${config.populationSize} != proposers.length ${config.proposers.length} — ` +
+          'the fan-out assigns exactly one candidate slot per proposer',
+      )
+    }
+  }
   // Stale-install guard: the resolved substrate must thread the passthroughs
   // this run depends on. Fails loud — a silent drop would re-spend the
   // premeasured baseline and pin the depth dial (see capabilities.mts).
@@ -950,9 +1074,21 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   const excludes = await loadExcludes()
   const images = await loadInstanceImages(config.instanceImagesPath)
   const adapter = createSweBenchAdapter()
-  const tasks = await adapter.loadTasks({ ids: config.instances, split: 'test' })
+  // The pre-filter's smoke instance may sit outside the improvement set (e.g.
+  // a designated cheap instance) — it needs the same problem/image/verify
+  // validation and rides the same loaded-task map.
+  const smokeIid =
+    config.proposers !== undefined && config.prefilter?.enabled
+      ? resolveSmokeInstance(
+          config.prefilter.smokeInstance,
+          config.instances,
+          premeasured ? cellsFromCampaign(premeasured.campaign) : null,
+        )
+      : null
+  const taskIds = [...new Set([...config.instances, ...(smokeIid !== null ? [smokeIid] : [])])]
+  const tasks = await adapter.loadTasks({ ids: taskIds, split: 'test' })
   const problemById = new Map<string, string>()
-  for (const iid of config.instances) {
+  for (const iid of taskIds) {
     const task = tasks.find((t) => t.id === iid)
     if (!task) throw new Error(`outer-loop: ${iid} not found in SWE-bench_Verified`)
     const problem = String(task.metadata?.problem_statement ?? '')
@@ -962,6 +1098,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     if (!existsSync(verifyScript)) throw new Error(`outer-loop: missing verify script ${verifyScript}`)
     problemById.set(iid, problem)
   }
+  if (smokeIid !== null) log(`prefilter smoke instance: ${smokeIid}`)
 
   const judge: SerializedJudge = createSerializedJudge(
     config.judgeTimeoutMs !== undefined ? { timeoutMs: config.judgeTimeoutMs } : {},
@@ -974,6 +1111,141 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
 
   const sweScenarios: Scenario[] = config.instances.map((iid) => ({ id: iid, kind: 'swe-instance' }))
 
+  // Capacity gates on BOTH paths the supervisor arm rides (worker + router).
+  // Shared by every arm dispatch — the improvement cells AND the pre-filter
+  // smoke cell. A cell's WORK clock (config.dispatchTimeoutMs) starts only
+  // after these clear — a capacity hold is never billed to the work budget.
+  const awaitGates = async (): Promise<void> => {
+    for (const gate of gatesForArmKind('supervisor', secrets, {
+      ...(config.gateWaitCeilingMs !== undefined ? { waitCeilingMs: config.gateWaitCeilingMs } : {}),
+      ...(config.capacityModel !== undefined ? { model: config.capacityModel } : {}),
+      onStatus: log,
+    })) {
+      if (!(await waitForCapacity(gate))) throw new Error(`no capacity on ${gate.name} within ceiling`)
+    }
+  }
+
+  // ── the pre-filter smoke runner: ONE supervisor arm cell + official judge
+  // on the smoke instance, run against the proposer's scratch worktree BEFORE
+  // any full-evaluation spend. A crashed smoke KILLS the candidate (recorded
+  // in the kill reason) rather than the round — the pre-filter is allowed to
+  // be strict; a survivor still faces the full gate. ────────────────────
+  const smokeRunner: SmokeRunner | undefined =
+    smokeIid === null
+      ? undefined
+      : async ({ scratchPath, generation, proposer, costLedger }): Promise<SmokeVerdict> => {
+          const iid = smokeIid
+          const requireResolved = config.prefilter?.requireResolved === true
+          const entry = images[iid]!
+          const armOutDir = join(config.outDir, 'prefilter-smoke', `gen${generation}-${proposer.name}`)
+          const nm = join(scratchPath, 'node_modules')
+          let linked = false
+          const t0 = Date.now()
+          try {
+            if (!existsSync(nm)) {
+              await symlink(join(config.loopsRepo, 'node_modules'), nm, 'dir')
+              linked = true
+            }
+            const work = async (): Promise<{ armRes: SupervisorArmResult; resolved: boolean | null }> => {
+              const spec: SupervisorArmSpec = {
+                kind: 'supervisor',
+                name: config.armName,
+                workerModel: config.arm.workerModel,
+                driverModel: config.arm.driverModel,
+                budget: config.arm.budget,
+                maxSandboxes: config.arm.maxSandboxes,
+                maxUsd: config.arm.maxUsd,
+                maxDepth: config.arm.maxDepth,
+                ...(config.arm.envKnobs ? { envKnobs: config.arm.envKnobs } : {}),
+                loopsRepo: scratchPath,
+                extensionPath: join(scratchPath, 'extensions', 'pi', 'loops.ts'),
+                timeoutMs: config.arm.timeoutMs,
+              }
+              log(`>>> prefilter smoke ${proposer.name} ${iid} gen=${generation}`)
+              const armRes = await runSupervisorArm(spec, {
+                instanceId: iid,
+                image: entry.image,
+                baseCommit: entry.base_commit,
+                problemStatement: problemById.get(iid)!,
+                verifyCmd: `bash ${join(config.verifyDir, `${iid}.sh`)}`,
+                outDir: armOutDir,
+                secrets,
+                excludes,
+              })
+              const verdict = await judge.judge(iid, armRes.patchPath, `prefilter-g${generation}-${proposer.name}`)
+              return { armRes, resolved: verdict.resolved }
+            }
+            const runWork = (): Promise<{ armRes: SupervisorArmResult; resolved: boolean | null }> =>
+              runWithPostGateClock({
+                awaitGates,
+                work,
+                timeoutMs: config.dispatchTimeoutMs,
+                label: `prefilter smoke ${proposer.name} ${iid}`,
+              })
+            let outcome: { armRes: SupervisorArmResult; resolved: boolean | null }
+            if (costLedger) {
+              // The smoke's real arm spend reaches the run ledger like any cell.
+              const paid = await costLedger.runPaidCall({
+                channel: 'agent',
+                phase: 'search.prefilter',
+                actor: `prefilter-smoke:${iid}:g${generation}:${proposer.name}`,
+                model: config.arm.workerModel,
+                execute: runWork,
+                receipt: ({ armRes }) => {
+                  const spend = armRes.recoveredSpend
+                  const usageKnown = (spend?.workerTokIn ?? null) !== null || (spend?.workerTokOut ?? null) !== null
+                  return {
+                    model: config.arm.workerModel,
+                    inputTokens: spend?.workerTokIn ?? 0,
+                    outputTokens: spend?.workerTokOut ?? 0,
+                    ...(usageKnown ? {} : { usageUnknown: true }),
+                    ...(armRes.spentUsd !== null ? { actualCostUsd: armRes.spentUsd } : {}),
+                  }
+                },
+              })
+              if (!paid.succeeded) throw paid.error
+              outcome = paid.value
+            } else {
+              outcome = await runWork()
+            }
+            const wallS = Math.round((Date.now() - t0) / 1000)
+            const patchDelivered = outcome.armRes.patch_lines > 0
+            const conclusive = outcome.resolved !== null
+            const pass = requireResolved ? outcome.resolved === true : patchDelivered && conclusive
+            const verdictLine =
+              `smoke ${iid}: resolved=${outcome.resolved} patch_lines=${outcome.armRes.patch_lines} ` +
+              `verify_pass=${outcome.armRes.verify_pass} wall_s=${outcome.armRes.wall_s}`
+            const result: SmokeVerdict = {
+              iid,
+              pass,
+              reason: pass
+                ? verdictLine
+                : `${verdictLine} — below the ${requireResolved ? 'resolved' : 'mechanism (patch + conclusive judge)'} bar`,
+              resolved: outcome.resolved,
+              patchLines: outcome.armRes.patch_lines,
+              wallS,
+            }
+            await mkdir(armOutDir, { recursive: true })
+            await writeFile(join(armOutDir, 'smoke.json'), JSON.stringify(result, null, 2))
+            return result
+          } catch (cause) {
+            const wallS = Math.round((Date.now() - t0) / 1000)
+            const result: SmokeVerdict = {
+              iid,
+              pass: false,
+              reason: `smoke errored: ${(cause as Error).message}`,
+              resolved: null,
+              patchLines: 0,
+              wallS,
+            }
+            await mkdir(armOutDir, { recursive: true })
+            await writeFile(join(armOutDir, 'smoke.json'), JSON.stringify(result, null, 2)).catch(() => {})
+            return result
+          } finally {
+            if (linked) await unlink(nm).catch(() => {})
+          }
+        }
+
   // ── dispatch: one (surface × scenario) cell ──────────────────────────
   const agent = async (surface: MutableSurface, scenario: Scenario, ctx: DispatchContext): Promise<R4Artifact> => {
     const cs = asCodeSurface(surface)
@@ -985,19 +1257,6 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     // record (the lib stores it with `error` set — no side bookkeeping).
     if (rec.violations.length > 0) {
       throw new Error(`change-space violation (${rec.violations.length} path(s)): ${rec.violations.join(', ')}`)
-    }
-
-    // Capacity gates on BOTH paths the supervisor arm rides (worker + router).
-    // The cell's WORK clock (config.dispatchTimeoutMs) starts only after these
-    // clear — a capacity hold is never billed to the arm's dispatch budget.
-    const awaitGates = async (): Promise<void> => {
-      for (const gate of gatesForArmKind('supervisor', secrets, {
-        ...(config.gateWaitCeilingMs !== undefined ? { waitCeilingMs: config.gateWaitCeilingMs } : {}),
-        ...(config.capacityModel !== undefined ? { model: config.capacityModel } : {}),
-        onStatus: log,
-      })) {
-        if (!(await waitForCapacity(gate))) throw new Error(`no capacity on ${gate.name} within ceiling`)
-      }
     }
 
     const runCell = async (): Promise<R4Artifact> => {
@@ -1239,11 +1498,21 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   // pre-registered holdout run happens later, with operator approval. The
   // would-be-KEEP operator brief is computed post-run from campaign cells
   // (see the summary below). ───────────────────────────────────────────
+  const holdoutReps = config.holdoutRepsPerInstance ?? 2
   const holdoutInstruction =
     `holdout (${config.holdoutInstances.length} pre-registered instances: ${config.holdoutInstances.join(', ')}) ` +
-    'was NOT run — operator approval required. To grade a would-be KEEP: apply the winner patch to a loops ' +
-    'checkout and run the holdout instances through run-experiment.mts with the same frozen arm.'
+    `was NOT run — operator approval required. To certify a would-be KEEP under the ${holdoutReps}-rep ` +
+    'fail-closed protocol (same-protocol parent comparison): ' +
+    'tsx src/swe-arena/holdout-certify.mts <config.json> --candidate <winner-loops-commit>'
   const improveRunDir = join(config.outDir, 'improve-run')
+
+  // ── generator: the gen-3 proposer fan-out (parallel AgentProfile-pinned
+  // authors + pre-filter) when `proposers` is configured; the legacy
+  // single-author generator otherwise. ─────────────────────────────────
+  const fanout =
+    config.proposers !== undefined
+      ? fanOutLoopsGenerator(config, { ...(smokeRunner ? { smokeRunner } : {}), log })
+      : null
 
   // ── the improve() call: the optimizer seat ───────────────────────────
   // Typed from improve()'s own parameter: the monorepo hoists two
@@ -1260,7 +1529,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       repoRoot: config.loopsRepo,
       baseRef: config.loopsBaseRef,
       worktreeDir: join(config.outDir, 'loops-worktrees'),
-      generator: constrainedLoopsGenerator(config),
+      generator: fanout ?? constrainedLoopsGenerator(config),
     },
     scenarios: sweScenarios,
     judge: judgeConfig,
@@ -1401,6 +1670,48 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       log(`staircase: ${rows.length} row(s) → ${genFile} (${rows.map((r) => r.verdict).join(', ')})`)
     }
 
+    // Pre-filter kills: candidates the fan-out killed BEFORE evaluation never
+    // became surfaces (zero arm cells), so the loop has no row for them —
+    // each becomes an explicit `rejected-prefilter` staircase dot with its
+    // kill reason and forensics patch.
+    if (fanout) {
+      const kills = fanout.drainPrefilterKills()
+      for (const kill of kills) {
+        const row: StaircaseRow = {
+          schema: STAIRCASE_SCHEMA,
+          round: config.round,
+          generation: kill.generation,
+          runId,
+          at: new Date().toISOString(),
+          candidate: `prefilter-kill:${kill.diffSha256?.slice('sha256:'.length, 'sha256:'.length + 12) ?? kill.proposer}`,
+          candidateCommit: null,
+          parent: premeasured?.surfaceHash ?? 'baseline',
+          parentResolvedCount: measuredBaselineCount,
+          label: kill.proposer,
+          rationale: `prefilter kill at stage '${kill.stage}' (${kill.harness})`,
+          changedFiles: [],
+          changeSpaceViolations: kill.stage === 'change-space' ? [kill.reason] : [],
+          perInstance: [],
+          resolvedCount: 0,
+          coverageComplete: false,
+          wallS: kill.smoke?.wallS ?? 0,
+          baselineWallS,
+          costRatio: null,
+          costGuardRatio: config.costGuardRatio,
+          internallyPromoted: false,
+          verdict: 'rejected-prefilter',
+          killReason: `${kill.stage}: ${kill.reason}`,
+          holdout: 'operator-approval-required',
+          armProvenance: null,
+          diffPath: kill.patchPath,
+          diffSha256: kill.diffSha256,
+        }
+        const genFile = join(config.roundsDir, `gen-${kill.generation}.jsonl`)
+        await appendFile(genFile, JSON.stringify(row) + '\n')
+        log(`staircase: prefilter kill dot (${kill.proposer}, ${kill.stage}) → ${genFile}`)
+      }
+    }
+
     const winnerSurface = result.raw.winner.surface
     const winnerCs =
       typeof winnerSurface === 'object' && winnerSurface !== null && winnerSurface.kind === 'code'
@@ -1510,6 +1821,13 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
         instances: config.holdoutInstances,
         mode: 'deferred',
         status: 'operator-approval-required',
+        // The certification protocol the operator run must use — 2-rep
+        // fail-closed with a same-protocol parent (gen-2 postmortem).
+        protocol: {
+          repsPerInstance: holdoutReps,
+          resolvedRule: 'all-reps',
+          parentBaseline: config.holdoutBaseline ?? 'measure',
+        },
         instruction: holdoutInstruction,
       },
     }
@@ -1625,15 +1943,17 @@ if (isMain) {
   if (argv[0] === '--write-config') {
     const path = argv[1]
     if (!path || path.startsWith('--')) {
-      console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>]')
+      console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3]')
       process.exit(2)
     }
     const outDirName = flag('--out-name')
+    const gen3 = argv.includes('--gen3')
+    const make = gen3 ? defaultGen3Config : defaultRound4Config
     await writeFile(
       path,
-      JSON.stringify(defaultRound4Config(undefined, outDirName ? { outDirName } : {}), null, 2) + '\n',
+      JSON.stringify(make(undefined, outDirName ? { outDirName } : {}), null, 2) + '\n',
     )
-    console.log(`default round-4 config → ${path}`)
+    console.log(`default ${gen3 ? 'gen-3' : 'round-4'} config → ${path}`)
   } else if (argv[0] === '--calibration-smoke') {
     const dir = argv[1] && !argv[1].startsWith('--') ? argv[1] : undefined
     const n = flag('--analysts')
@@ -1665,7 +1985,7 @@ if (isMain) {
   } else {
     console.error(
       'usage: tsx src/swe-arena/outer-loop.mts <config.json>            # SPENDS: arms + judges + proposer\n' +
-        '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>]\n' +
+        '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3]\n' +
         '       tsx src/swe-arena/outer-loop.mts --calibration-smoke [supRunDir] [--analysts N] [--model M] [--endpoint router|zai] [--retries N]',
     )
     process.exit(2)

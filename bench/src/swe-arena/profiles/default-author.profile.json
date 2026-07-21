@@ -1,0 +1,4 @@
+{
+  "name": "swe-arena-default-author",
+  "description": "The gen-2 winning author seat, codified: bare claude CLI invocation. No systemPrompt, no instructions, no model override — harnessInvocation() with this profile is byte-identical to the legacy prompt-only buildArgs path, so provenance pins the author identity without changing gen-2 behavior."
+}
