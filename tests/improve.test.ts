@@ -27,9 +27,21 @@ const agent = async (
   _scenario: DemoScenario,
   ctx: DispatchContext,
 ): Promise<string> => {
-  ctx.cost.observe(0.0001, 'test')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return String(surface)
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'test',
+    model: 'deterministic-test',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => String(surface),
+    receipt: () => ({
+      model: 'deterministic-test',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 /** Deterministic judge: the literal string `PROMOTED` scores 1.0, anything else
@@ -57,7 +69,7 @@ function profileWith(systemPrompt: string): AgentProfile {
 }
 
 describe('improve() — facade over selfImprove', () => {
-  it('gate:none is a baseline-only run that leaves the profile unchanged', async () => {
+  it('gate:none returns a detached baseline candidate', async () => {
     const profile = profileWith('BASELINE')
     const out = await improve(profile, [], {
       surface: 'prompt',
@@ -68,15 +80,51 @@ describe('improve() — facade over selfImprove', () => {
       agent,
     })
 
-    expect(out.shipped).toBe(false)
-    expect(out.gateDecision).not.toBe('ship')
-    // No generation ran, so the winner is the baseline surface and the profile
-    // field is untouched. The returned profile is the same reference.
-    expect(out.profile).toBe(profile)
-    expect(out.profile.prompt?.systemPrompt).toBe('BASELINE')
+    expect(out.decision).not.toBe('ship')
+    expect(out.candidate).toMatchObject({
+      surface: 'prompt',
+      value: 'BASELINE',
+      profile: { prompt: { systemPrompt: 'BASELINE' } },
+    })
+    expect(profile.prompt?.systemPrompt).toBe('BASELINE')
   })
 
-  it('applies the promoted prompt back into the profile on a ship verdict', async () => {
+  it('forwards dispatchTimeoutMs through improve() to abort a stalled cell', async () => {
+    let observedAbort = false
+    const stalledAgent = (
+      _surface: MutableSurface,
+      _scenario: DemoScenario,
+      ctx: DispatchContext,
+    ): Promise<string> =>
+      new Promise(() => {
+        ctx.signal.addEventListener(
+          'abort',
+          () => {
+            observedAbort = true
+          },
+          { once: true },
+        )
+      })
+
+    await expect(
+      improve(profileWith('BASELINE'), [], {
+        surface: 'prompt',
+        gate: 'none',
+        generator: scriptedWinner,
+        scenarios: scenarios.slice(0, 2),
+        judge,
+        agent: stalledAgent,
+        budget: { holdoutFraction: 0.5 },
+        dispatchTimeoutMs: 25,
+        expectUsage: 'off',
+        maxConcurrency: 1,
+      }),
+    ).rejects.toThrow(/dispatch exceeded 25ms/)
+
+    expect(observedAbort).toBe(true)
+  })
+
+  it('returns a frozen prompt candidate on a ship decision without changing the profile', async () => {
     const profile = profileWith('BASELINE')
     const out = await improve(profile, [], {
       surface: 'prompt',
@@ -88,13 +136,12 @@ describe('improve() — facade over selfImprove', () => {
       budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
     })
 
-    expect(out.shipped).toBe(true)
-    expect(out.gateDecision).toBe('ship')
+    expect(out.decision).toBe('ship')
     expect(out.lift).toBeGreaterThan(0)
-    // The promoted winner surface is written into the prompt field; the input
-    // profile is NOT mutated (the facade returns a copy).
-    expect(out.profile.prompt?.systemPrompt).toBe('PROMOTED')
-    expect(out.profile).not.toBe(profile)
+    expect(out.candidate.value).toBe('PROMOTED')
+    expect(out.candidate.profile?.prompt?.systemPrompt).toBe('PROMOTED')
+    expect(Object.isFrozen(out.candidate)).toBe(true)
+    expect(Object.isFrozen(out.candidate.profile?.prompt)).toBe(true)
     expect(profile.prompt?.systemPrompt).toBe('BASELINE')
   })
 
@@ -110,7 +157,7 @@ describe('improve() — facade over selfImprove', () => {
     await expect(
       improve(profile, [], {
         surface: 'prompt',
-        generator: scriptedWinner,
+        gate: 'none',
         scenarios,
         judge,
         agent,
@@ -125,21 +172,19 @@ describe('improve() — facade over selfImprove', () => {
     const out = await improve(profile, [], {
       surface: 'prompt',
       gate: 'none',
-      generator: scriptedWinner,
       scenarios,
       judge,
       agent,
       llm: { model: 'deepseek-v4-flash' },
       allowedModels: ['deepseek-v4-flash'],
     })
-    expect(out.gateDecision).not.toBe('ship')
+    expect(out.decision).not.toBe('ship')
   })
 
-  it('throws ConfigError when a shipped JSON-surface winner is not valid JSON', async () => {
-    const profile: AgentProfile = { name: 'demo', resources: { skills: [] } }
-    // Scores 1.0 (includes PROMOTED, so the held-out gate ships it) but is NOT
-    // valid JSON for the `skills` surface — `applyWinnerToProfile` must fail loud
-    // with a typed error, not throw a raw SyntaxError after the ship verdict.
+  it('throws ConfigError when a JSON-surface candidate is not valid JSON', async () => {
+    const profile: AgentProfile = { name: 'demo', tools: {} }
+    // Scores 1.0 but is not valid JSON for the `tools` surface. Candidate
+    // materialization must fail with a typed error, not a raw SyntaxError.
     const malformedWinner: SurfaceProposer = {
       kind: 'malformed-json',
       async propose() {
@@ -148,7 +193,7 @@ describe('improve() — facade over selfImprove', () => {
     }
     await expect(
       improve(profile, [], {
-        surface: 'skills',
+        surface: 'tools',
         generator: malformedWinner,
         scenarios,
         judge,

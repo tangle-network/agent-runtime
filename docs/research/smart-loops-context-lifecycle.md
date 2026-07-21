@@ -69,7 +69,7 @@ run the agents over them.
 
 | Need | We already have |
 |---|---|
-| externalized, replayable tracking state | `Scope`/`Supervisor` **journal** (append-only, replay/resume) |
+| externalized, replayable completed decisions | `Scope`/`Supervisor` journal. Coordinator restart recovery is still missing. |
 | cross-chapter / cross-run memory | the **`Corpus`** primitive |
 | the tracking/knowledge documents themselves | **agent-knowledge** (the KB *is* the external memory) |
 | a chapter-close (distilled transfer brief) | the **`handoff`** skill; harness **context compaction** |

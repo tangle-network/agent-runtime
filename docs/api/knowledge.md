@@ -8,9 +8,87 @@
 
 ## References
 
+### CreateKnowledgeImprovementActivationExecutorOptions
+
+Re-exports [CreateKnowledgeImprovementActivationExecutorOptions](index.md#createknowledgeimprovementactivationexecutoroptions)
+
+***
+
+### createKnowledgeImprovementActivationExecutor
+
+Re-exports [createKnowledgeImprovementActivationExecutor](index.md#createknowledgeimprovementactivationexecutor)
+
+***
+
+### KnowledgeImprovementActivationExecutor
+
+Re-exports [KnowledgeImprovementActivationExecutor](index.md#knowledgeimprovementactivationexecutor)
+
+***
+
+### AgentKnowledgeReadinessCheckOptions
+
+Re-exports [AgentKnowledgeReadinessCheckOptions](index.md#agentknowledgereadinesscheckoptions)
+
+***
+
+### buildKnowledgeImprovementExperimentBundles
+
+Re-exports [buildKnowledgeImprovementExperimentBundles](index.md#buildknowledgeimprovementexperimentbundles)
+
+***
+
+### createAgentKnowledgeReadinessCheck
+
+Re-exports [createAgentKnowledgeReadinessCheck](index.md#createagentknowledgereadinesscheck)
+
+***
+
+### KnowledgeImprovementCandidatePair
+
+Re-exports [KnowledgeImprovementCandidatePair](index.md#knowledgeimprovementcandidatepair)
+
+***
+
+### KnowledgeImprovementExperimentBundles
+
+Re-exports [KnowledgeImprovementExperimentBundles](index.md#knowledgeimprovementexperimentbundles)
+
+***
+
+### KnowledgeImprovementJobMeasurement
+
+Re-exports [KnowledgeImprovementJobMeasurement](index.md#knowledgeimprovementjobmeasurement)
+
+***
+
+### KnowledgeImprovementJobResult
+
+Re-exports [KnowledgeImprovementJobResult](index.md#knowledgeimprovementjobresult)
+
+***
+
+### RunKnowledgeImprovementJobOptions
+
+Re-exports [RunKnowledgeImprovementJobOptions](index.md#runknowledgeimprovementjoboptions)
+
+***
+
+### runKnowledgeImprovementJob
+
+Re-exports [runKnowledgeImprovementJob](index.md#runknowledgeimprovementjob)
+
+***
+
 ### createSupervisedKnowledgeUpdater
 
 Re-exports [createSupervisedKnowledgeUpdater](index.md#createsupervisedknowledgeupdater)
+
+***
+
+### formatSupervisedKnowledgeTask
+
+Re-exports [formatSupervisedKnowledgeTask](index.md#formatsupervisedknowledgetask)
 
 ***
 

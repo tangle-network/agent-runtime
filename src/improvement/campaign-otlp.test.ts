@@ -42,11 +42,23 @@ const scenarios: Scenario[] = [
  *  paths (`ctx.cost.observe` → `cost.<source>` spans, `ctx.trace.span`) the
  *  real substrate uses to populate `spans.jsonl`. */
 async function tracedDispatch(scenario: Scenario, ctx: DispatchContext): Promise<{ text: string }> {
-  ctx.cost.observe(0.0002, 'stub')
-  ctx.cost.observeTokens({ input: 3, output: 5 })
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'stub',
+    model: 'deterministic-test',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0002 },
+    execute: async () => ({ text: `artifact-${scenario.id}` }),
+    receipt: () => ({
+      model: 'deterministic-test',
+      inputTokens: 3,
+      outputTokens: 5,
+      actualCostUsd: 0.0002,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
   const span = ctx.trace.span('worker.turn', { 'tool.name': 'grep' })
   span.end({ outcome: 'ok' })
-  return { text: `artifact-${scenario.id}` }
+  return paid.value
 }
 
 const root = mkdtempSync(join(tmpdir(), 'campaign-otlp-'))

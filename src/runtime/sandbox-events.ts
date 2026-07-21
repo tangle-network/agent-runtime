@@ -79,10 +79,11 @@ export function extractLlmCallEvent(
  * `openSandboxRun` cell. Folds `extractLlmCallEvent` over the stream (which reads usage off EVERY backend
  * event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
  *
- *     const turn = await run.start(prompt)
- *     const u = sumSandboxUsage(turn.events)
- *     if (u.input || u.output) ctx.cost.observeTokens({ input: u.input, output: u.output })
- *     if (u.costUsd) ctx.cost.observe(u.costUsd, 'sandbox-cell')
+ *     receipt: (turn) => {
+ *       const u = sumSandboxUsage(turn.events)
+ *       return { model, inputTokens: u.input, outputTokens: u.output,
+ *         ...(u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}) }
+ *     }
  *
  * Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
  * matrix as a stub. `agentRunName` is the fallback model label for cost-only events (default `'agent'`).

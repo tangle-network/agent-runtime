@@ -99,10 +99,10 @@ export function openAiCompatibleRuns(): AgentRun[] {
  * 3. Mastra agent (TypeScript).
  *
  * LIVE: Mastra emits OpenTelemetry natively. Configure its OTLP exporter to
- * point at `${INTELLIGENCE_BASE}/v1/otlp` (hosted) OR collect the spans and
+ * point at `${TANGLE_INTELLIGENCE_URL}/v1/otlp` (hosted) OR collect the spans and
  * call `toInsightReport` in-process:
  *   export const mastra = new Mastra({ telemetry: { enabled: true,
- *     export: { type: 'otlp', endpoint: `${INTELLIGENCE_BASE}/v1/otlp/v1/traces` } } })
+ *     export: { type: 'otlp', endpoint: `${TANGLE_INTELLIGENCE_URL}/v1/otlp/v1/traces` } } })
  * Add a `score` attribute from your eval step. No Tangle SDK required.
  */
 export function mastraRuns(): AgentRun[] {

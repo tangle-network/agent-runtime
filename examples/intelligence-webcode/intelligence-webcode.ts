@@ -6,7 +6,7 @@
  * waterfall, and the spans streamed to your trace collector.
  *
  * Three intelligence layers, all on one cell:
- *   1. BOUNDARY (the bill + the control) — `withTangleIntelligence(cell, { project, effort })`.
+ *   1. BOUNDARY (the bill + the control) — `withIntelligence(cell, { project, effort })`.
  *      `effort ∈ off | eco | standard | thorough | max`; `'off'` is the PROVABLE passthrough floor —
  *      intelligence spend clamped to 0, the cell still runs. This is the one knob that gates spend.
  *   2. WATERFALL (the cost truth) — `createWaterfallCollector()` on the run. The sum of its spans IS the
@@ -14,7 +14,7 @@
  *   3. OTLP (the production trace pipe) — `createOtelExporter()` + `loopEventToOtelSpan`. Streams every
  *      span to your OTLP/HTTP collector (set `OTEL_EXPORTER_OTLP_ENDPOINT`); a no-op when unset.
  *
- * The intelligence attaches at TWO seams: the BOUNDARY wraps the whole cell (`withTangleIntelligence`
+ * The intelligence attaches at TWO seams: the BOUNDARY wraps the whole cell (`withIntelligence`
  * works over any async fn), and the INTERNAL trace rides `openSandboxRun`'s `hooks` (the only run verb
  * here that emits per-tool spans). Same pattern instruments `runProfileMatrix`'s dispatch wholesale.
  *
@@ -30,7 +30,7 @@ import {
   loopEventToOtelSpan,
   type RuntimeHooks,
 } from '@tangle-network/agent-runtime'
-import { type EffortTier, withTangleIntelligence } from '@tangle-network/agent-runtime/intelligence'
+import { type EffortTier, withIntelligence } from '@tangle-network/agent-runtime/intelligence'
 import {
   type AgentRunSpec,
   createWaterfallCollector,
@@ -62,7 +62,7 @@ interface CellResult {
 
 /** One instrumented cell: run a harness×model on a WebCode task in its own sandbox with the INTERNAL trace
  *  collected (cost waterfall) AND streamed (OTLP), then score on the hidden tests. Wrapping this in
- *  `withTangleIntelligence` (below) adds the BOUNDARY layer. */
+ *  `withIntelligence` (below) adds the BOUNDARY layer. */
 function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<CellResult> {
   return async ({ profile, task }) => {
     const harness = String(profile.metadata?.harness ?? 'opencode')
@@ -145,9 +145,9 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
 
 /** Run the WebCode grid × tasks with the full intelligence stack on every cell. */
 export async function runIntelligenceWebcode(client: SandboxClient): Promise<void> {
-  // LAYER 1 — the BOUNDARY: every cell runs under `withTangleIntelligence` — traced + billed, effort-gated.
+  // LAYER 1 — the BOUNDARY: every cell runs under `withIntelligence` — observed + billed, effort-gated.
   // `effort: 'off'` clamps intelligence spend to 0 (the provable passthrough floor) while still running.
-  const smartCell = withTangleIntelligence(instrumentedCell(client), { project, effort })
+  const smartCell = withIntelligence(instrumentedCell(client), { project, effort })
   const webcodeTasks = loadWebCodeTasks(
     process.env.LIMIT ? { limit: Number(process.env.LIMIT) } : {},
   )

@@ -219,24 +219,34 @@ async function sampleSolverScore(args: {
     decide: () => 'done',
   }
 
-  const result = await runLoop<SolverTask, { answer: string }, 'done'>({
-    driver: fanout,
-    agentRun: solverSpec,
-    output: solverOutput,
-    validator,
-    task: { example, sampleIndex: 0 },
-    ctx: { sandboxClient: solver, signal: args.signal },
-    maxIterations: samples,
-    maxConcurrency: samples,
-  })
-
-  ledger.record({
-    model: solverSpec.profile.name ?? channel,
+  const model = solverSpec.profile.model?.default ?? solverSpec.profile.name ?? channel
+  const paid = await ledger.runPaidCall({
     channel,
-    usage: { inputTokens: result.tokenUsage.input, outputTokens: result.tokenUsage.output },
-    actualCostUsd: result.costUsd,
+    phase: 'solver-sampling',
+    actor: `${channel}/sample-x${samples}`,
+    model,
     tags: { role: channel },
+    signal: args.signal,
+    execute: (signal) =>
+      runLoop<SolverTask, { answer: string }, 'done'>({
+        driver: fanout,
+        agentRun: solverSpec,
+        output: solverOutput,
+        validator,
+        task: { example, sampleIndex: 0 },
+        ctx: { sandboxClient: solver, signal },
+        maxIterations: samples,
+        maxConcurrency: samples,
+      }),
+    receipt: (result) => ({
+      model,
+      inputTokens: result.tokenUsage.input,
+      outputTokens: result.tokenUsage.output,
+      ...(result.costUsd > 0 ? { actualCostUsd: result.costUsd } : {}),
+    }),
   })
+  if (!paid.succeeded) throw paid.error
+  const result = paid.value
 
   const scored = result.iterations.filter((it) => it.verdict).map((it) => it.verdict?.score ?? 0)
   if (scored.length === 0)
@@ -415,23 +425,34 @@ export async function createDataCreationLoop(
       },
     }
 
-    const result = await runLoop<ChallengerTask, DataExample, ChallengerDecision>({
-      driver: challengerDriver(maxRetries, config.baseInstruction),
-      agentRun: challengerSpec,
-      output: challengerOutput,
-      validator,
-      task: { doc: config.doc, prompt: config.baseInstruction(config.doc) },
-      ctx: { sandboxClient: config.challenger, signal: config.signal },
-      maxIterations: maxRetries + 1,
-    })
-
-    cost.record({
-      model: challengerSpec.profile.name ?? 'challenger',
+    const challengerModel =
+      challengerSpec.profile.model?.default ?? challengerSpec.profile.name ?? 'challenger'
+    const paid = await cost.runPaidCall({
       channel: 'challenger',
-      usage: { inputTokens: result.tokenUsage.input, outputTokens: result.tokenUsage.output },
-      actualCostUsd: result.costUsd,
+      phase: 'example-generation',
+      actor: 'challenger',
+      model: challengerModel,
       tags: { role: 'challenger' },
+      signal: config.signal,
+      execute: (signal) =>
+        runLoop<ChallengerTask, DataExample, ChallengerDecision>({
+          driver: challengerDriver(maxRetries, config.baseInstruction),
+          agentRun: challengerSpec,
+          output: challengerOutput,
+          validator,
+          task: { doc: config.doc, prompt: config.baseInstruction(config.doc) },
+          ctx: { sandboxClient: config.challenger, signal },
+          maxIterations: maxRetries + 1,
+        }),
+      receipt: (result) => ({
+        model: challengerModel,
+        inputTokens: result.tokenUsage.input,
+        outputTokens: result.tokenUsage.output,
+        ...(result.costUsd > 0 ? { actualCostUsd: result.costUsd } : {}),
+      }),
     })
+    if (!paid.succeeded) throw paid.error
+    const result = paid.value
 
     const plain = evaluations.get(0)
     if (plain) plainGaps.push(plain.gap)

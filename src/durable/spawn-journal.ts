@@ -376,10 +376,10 @@ function replayHandle(id: NodeId, label: string, status: NodeStatus) {
 }
 
 /**
- * Materialize the live tree (`TreeView`) from a journaled event list for resume. Folds
+ * Materialize a recorded `TreeView` from a journaled event list for inspection. Folds
  * `spawned`/`settled`/`cancelled` into a per-node snapshot in `seq` order, then adds each
- * `metered` event's driver-inference spend onto its node in a separate additive pass — so the
- * resumed view matches what `scope.view` showed at the recorded cursor position.
+ * `metered` event's driver-inference spend onto its node in a separate additive pass so the view
+ * matches the recorded cursor. It does not recover live executors or driver state after restart.
  */
 export function materializeTreeView(events: SpawnEvent[]): TreeView {
   const nodes = new Map<NodeId, MutableSnapshot>()
@@ -453,6 +453,7 @@ function addJournalSpend(a: Spend, b: Spend): Spend {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
     usd: a.usd + b.usd,
+    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
 }

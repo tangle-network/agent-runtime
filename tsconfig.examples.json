@@ -13,7 +13,6 @@
         "src/runtime/environment-provider.ts"
       ],
       "@tangle-network/agent-runtime/analyst-loop": ["src/analyst-loop/index.ts"],
-      "@tangle-network/agent-runtime/lifecycle": ["src/lifecycle/index.ts"],
       "@tangle-network/agent-runtime/profiles": ["src/profiles/index.ts"],
       "@tangle-network/agent-runtime/platform": ["src/platform/index.ts"],
       "@tangle-network/agent-runtime/mcp": ["src/mcp/index.ts"]

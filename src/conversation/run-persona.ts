@@ -15,7 +15,7 @@
  * `dispatchWithSurface` bridges.
  */
 
-import type { AgentProfile } from '@tangle-network/agent-eval'
+import type { AgentProfile, MaximumCharge } from '@tangle-network/agent-eval'
 import type {
   DispatchContext,
   ProfileDispatchFn,
@@ -208,6 +208,11 @@ export interface RunPersonaConfig<TScenario extends Scenario, TArtifact> {
   maxTurns?: (scenario: TScenario) => number
   seed?: (scenario: TScenario) => string
   workerName?: string
+  /** Provider- or executor-enforced maximum for the whole worker conversation.
+   * Required before execution when the enclosing campaign is cost-capped. */
+  maximumCharge?:
+    | MaximumCharge
+    | ((worker: AgentProfile, scenario: TScenario) => MaximumCharge | undefined)
 }
 
 /**
@@ -224,18 +229,37 @@ export function runPersonaDispatch<TScenario extends Scenario, TArtifact>(
     scenario: TScenario,
     ctx: DispatchContext,
   ): Promise<TArtifact> => {
-    const result = await runPersonaConversation({
-      worker,
-      persona: config.personaOf(scenario),
-      backendFor: config.backendFor,
-      systemPromptOf: config.systemPromptOf,
-      maxTurns: config.maxTurns?.(scenario),
-      seed: config.seed?.(scenario),
+    const model = worker.model?.default ?? 'unknown'
+    const maximumCharge =
+      typeof config.maximumCharge === 'function'
+        ? config.maximumCharge(worker, scenario)
+        : config.maximumCharge
+    const paid = await ctx.cost.runPaidCall({
+      channel: 'agent',
+      actor: 'persona-conversation',
+      model,
       signal: ctx.signal,
-      workerName: config.workerName,
+      ...(maximumCharge ? { maximumCharge } : {}),
+      execute: (executionSignal) =>
+        runPersonaConversation({
+          worker,
+          persona: config.personaOf(scenario),
+          backendFor: config.backendFor,
+          systemPromptOf: config.systemPromptOf,
+          maxTurns: config.maxTurns?.(scenario),
+          seed: config.seed?.(scenario),
+          signal: executionSignal,
+          workerName: config.workerName,
+        }),
+      receipt: (result) => ({
+        model,
+        inputTokens: result.tokensIn,
+        outputTokens: result.tokensOut,
+        ...(result.costUsd > 0 ? { actualCostUsd: result.costUsd } : {}),
+      }),
     })
-    ctx.cost.observe(result.costUsd, 'persona-conversation')
-    ctx.cost.observeTokens({ input: result.tokensIn, output: result.tokensOut })
+    if (!paid.succeeded) throw paid.error
+    const result = paid.value
     return config.artifactOf(result.transcript, scenario)
   }
 }

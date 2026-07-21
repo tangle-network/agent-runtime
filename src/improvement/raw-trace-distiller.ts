@@ -3,7 +3,7 @@
  * `rawTraceDistiller` — the meta-harness `analyzeGeneration` producer.
  *
  * The default `generationFailureDistiller` (in `improve.ts`) COMPRESSES each
- * generation's failing cells into ~400-char structured findings before the next
+ * generation's failing cells into ~1500-char structured findings before the next
  * proposal round. That is the ACE-style recipe: a small summary is the proposer's
  * whole view of what went wrong. This producer does the opposite — the
  * meta-harness recipe (yoonholee.com/meta-harness): it does NOT summarize. It
@@ -11,7 +11,7 @@
  * disk under `runDir` — the durable per-cell `spans.jsonl` event logs,
  * `cached-result.json` scores, and any artifacts the substrate persisted — and
  * instructs the agent to `grep`/`cat`/`ls` them to diagnose the failures itself
- * (up to the harness's full context, ~millions of tokens, vs a ~400-char digest).
+ * (up to the harness's full context, ~millions of tokens, vs a ~1500-char digest).
  *
  * It emits `AnalystFinding[]` so it drops into the SAME `opts.analyzeGeneration`
  * slot the default distiller uses, and renders through the same
@@ -111,22 +111,29 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
     const totalFailingCells = ranked.reduce((n, c) => n + c.cells.length, 0)
 
     // A clean generation: keep the proposer's steering context rather than
-    // wiping it (parity with the default distiller's static-seed fallback).
+    // wiping it (parity with the default distiller's static-seed fallback). An
+    // EMPTY fallback array means there is no STATIC seed to preserve — it must NOT
+    // wipe the context to nothing. Fall through to the default raw-trace
+    // instruction so the meta-harness discipline stays live (the agent still
+    // inspects the on-disk traces next round, and the finding's `raw-trace-context`
+    // area keeps the agenticGenerator's diagnosis-evidence gate armed). A bare
+    // `??` would return the empty array and silently disable both.
     if (totalFailingCells === 0) {
-      return (
-        options.fallbackFindings ?? [
-          makeFinding({
-            analyst_id: ANALYST_ID,
-            severity: 'info',
-            area: 'raw-trace-context',
-            confidence: 1,
-            claim: `Generation ${input.generation} had no failing cells. The full raw run traces are on disk under ${genRoot}.`,
-            recommended_action: `To keep improving, grep/cat the raw traces under ${genRoot} (per-cell spans.jsonl + cached-result.json) to find the weakest passing runs, then make a targeted harness-code edit.`,
-            evidence_refs: [{ kind: 'artifact', uri: genRoot }],
-            metadata: { generation: input.generation, runDir: genRoot, failingCells: 0 },
-          }),
-        ]
-      )
+      if (options.fallbackFindings && options.fallbackFindings.length > 0) {
+        return options.fallbackFindings
+      }
+      return [
+        makeFinding({
+          analyst_id: ANALYST_ID,
+          severity: 'info',
+          area: 'raw-trace-context',
+          confidence: 1,
+          claim: `Generation ${input.generation} had no failing cells. The full raw run traces are on disk under ${genRoot}.`,
+          recommended_action: `To keep improving, grep/cat the raw traces under ${genRoot} (per-cell spans.jsonl + cached-result.json) to find the weakest passing runs, then make a targeted harness-code edit.`,
+          evidence_refs: [{ kind: 'artifact', uri: genRoot }],
+          metadata: { generation: input.generation, runDir: genRoot, failingCells: 0 },
+        }),
+      ]
     }
 
     const findings: AnalystFinding[] = []

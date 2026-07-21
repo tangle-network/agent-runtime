@@ -19,8 +19,9 @@ import os
 import time
 import urllib.request
 
-INTELLIGENCE_BASE = os.environ.get(
-    "INTELLIGENCE_BASE", "https://intelligence.tangle.tools/v1/otlp"
+INTELLIGENCE_BASE = (
+    os.environ.get("TANGLE_INTELLIGENCE_URL", "https://intelligence.tangle.tools").rstrip("/")
+    + "/v1/otlp"
 )
 API_KEY = os.environ.get("TANGLE_API_KEY", "sk-tan-...")
 

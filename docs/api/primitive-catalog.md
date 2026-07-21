@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.89.0` and `@tangle-network/agent-eval@0.108.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.101.1` and `@tangle-network/agent-eval@0.122.8` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,28 +15,40 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 250 exports.
+Import from `@tangle-network/agent-runtime` — 375 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `agenticGenerator` | function | Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place. |
+| `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
 | `applyRolloutPolicyToProfile` | function | Persist a policy into the profile's extensions namespace. Shallow copy; never |
 | `applyRunRecordDefaults` | function | Stamp cross-cutting defaults onto adapter-projected RunRecords without |
 | `auditLoopRunner` | function | `audit` mode — analyst loop over captured trace/run data. |
+| `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
+| `buildKnowledgeImprovementExperimentBundles` | function | Attach both frozen knowledge inputs to one otherwise-identical bundle pair. |
 | `buildLoopOtelSpans` | function | Build a nested, real-duration OTLP span tree for ONE loop run from its full |
 | `buildLoopSpanNodes` | function | Sink-neutral core behind {@link buildLoopOtelSpans}: reconstruct the |
+| `buildRuntimeEventOtelSpans` | function | Convert normalized runtime events into lossless, redacted child spans. |
 | `campaignCellSpansToOtlp` | function | Convert ONE cell's `spans.jsonl` content to OTLP-flat JSONL lines. |
 | `campaignTraceResolver` | function | Build the `resolveTraces` function `traceAnalystProposer`/`haloProposer` |
+| `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
+| `candidateKnowledgeExecutionPaths` | function | Deterministic, signed locations used by every candidate executor. |
+| `captureAgentCandidateWorkspace` | function | Capture one exact regular-file workspace for immutable candidate execution. |
+| `captureAgentCandidateWorkspaceFiles` | function | Capture detached files returned by a remote executor into the standard archive. |
 | `cleanModelId` | function | Trim a candidate model id; `undefined` for non-strings and blanks. |
 | `commandVerifier` | function | A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other |
 | `composeRuntimeHooks` | function | Merge several {@link RuntimeHooks} into one. Falsy entries are dropped (so you can |
 | `computeBackoff` | function | Compute the delay before the next attempt. Default: 250ms exponential with jitter. |
 | `convertCampaignDirToOtlp` | function | Walk `dir` (a campaign run dir, a generation dir, or a whole `selfImprove` |
+| `createAgentCandidateWorkspacePort` | function | Create the standard bounded materializer for candidate execution ports. |
+| `createAgentKnowledgeReadinessCheck` | function | Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring. |
 | `createConversationBackend` | function | Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is |
 | `createIterableBackend` | function | Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`. |
+| `createKnowledgeImprovementActivationExecutor` | function | Apply or restore one local knowledge candidate through the shared activation contract. |
 | `createOpenAICompatibleBackend` | function | OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any |
 | `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
+| `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
 | `createRuntimeEventCollector` | function | Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s for inspection. |
 | `createRuntimeStreamEventCollector` | function | Streaming-event counterpart of `createRuntimeEventCollector`. Pass each |
 | `createSandboxPromptBackend` | function | Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call. |
@@ -47,10 +59,13 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `defineConversation` | function | Declarative constructor for a multi-agent `Conversation`. Validates inputs |
 | `defineRuntimeHooks` | function | Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. |
 | `deriveExecutionId` | function | Derive a stable executionId from the run identity. The same |
+| `disposePreparedAgentCandidateExecution` | function | Revoke reservations held by a prepared candidate that will not be executed. |
 | `driverLoopGenerator` | function | Driver→worker `CandidateGenerator`: an LLM driver on the canonical tool-loop authors, observes, rates, and steers coding-harness sessions in the worktree until the verifier passes or the session budge |
 | `enumerateNeighborPolicies` | function | All bounded single-dial neighbors of `policy`, in a fixed priority order: k |
+| `executePreparedAgentCandidate` | function | Executes and finalizes one durably claimed candidate without exposing an unproven result. |
 | `exportEvalRuns` | function | Ship self-improvement eval-run events to Tangle Intelligence. Unlike the |
 | `findingLines` | function | Render findings as the ranked-evidence block every build prompt ends with. |
+| `formatSupervisedKnowledgeTask` | function | Format the supervisor task with the KB root, readiness requirements, current findings, and metadata. |
 | `getModels` | function | Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `improve` | function | Run the held-out-gated self-improvement loop on ONE profile surface. |
@@ -68,11 +83,17 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `normalizeRolloutPolicy` | function | Normalize an untyped policy bag (a parsed surface or a profile extension) into |
 | `notifyRuntimeDecisionPoint` | function | Fire `hooks.onDecisionPoint`, swallowing sync throws and surfacing async failures to `onError`. |
 | `notifyRuntimeHookEvent` | function | Fire `hooks.onEvent`, swallowing sync throws and surfacing async failures to `onError`. |
+| `parseExactAgentProfile` | function | Parse a complete profile without silently discarding unsupported fields. |
+| `parseExactAgentProfileDiff` | function | Parse a profile diff without silently discarding unsupported fields. |
 | `parseLoopRunnerArgv` | function | Parse `--mode X --config Y` from an argv tail (`process.argv.slice(2)`). |
 | `parseRolloutPolicy` | function | Parse a serialized policy surface. Defensive by design — the proposer reads |
+| `persistCandidateOutputArtifact` | function | Persist evaluator evidence, read it back, and bind the returned locator to the exact bytes. |
+| `prepareAgentCandidateExecution` | function | Materializes a verified candidate into one immutable evaluator-owned execution plan. |
+| `profileDiffProposer` | function | Turn exact AgentProfileDiffs from any source into full profile candidates for |
 | `rawTraceDistiller` | function | Build an `analyzeGeneration` producer that feeds the proposer RAW-TRACE |
 | `readDepth` | function | Read the depth counter off an inbound request. Missing → 0 (caller is the |
 | `readinessServerSentEvent` | function | Serialize a `KnowledgeReadinessReport` as a Server-Sent Event string. |
+| `recoverExpiredAgentCandidateExecution` | function | Close an expired crashed attempt from persisted non-secret handles, then record failure. |
 | `reflectiveGenerator` | function | Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edits via the improvement adapter and apply them as one coherent candidate. |
 | `researchLoopRunner` | function | `research` mode — research-in-a-loop with valid-only KB growth. |
 | `resolveAgentBackend` | function | Resolve the `AgentExecutionBackend` for the chosen `kind`. Reuse this instead |
@@ -84,6 +105,7 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `runConversation` | function | Conversation orchestrator. Drives N participants in turn through their own |
 | `runConversationStream` | function | Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers. |
 | `runDelegatedLoop` | function | Dispatch a configured loop by mode. Fails loud (throws `ConfigError`) when no |
+| `runKnowledgeImprovementJob` | function | Produce a frozen KB candidate while leaving live knowledge content unchanged. |
 | `runLoopRunnerCli` | function | Pure CLI core (no process / argv / IO) so it's unit-testable: validate the |
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
@@ -93,6 +115,7 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `sanitizeAgentRuntimeEvent` | function | Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. |
 | `sanitizeKnowledgeReadinessReport` | function | Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry emission. |
 | `sanitizeRuntimeStreamEvent` | function | Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry. |
+| `sealAgentCandidateBundle` | function | Validate and content-address a candidate bundle before it crosses an approval boundary. |
 | `selfImproveLoopRunner` | function | `self-improve` mode — agent-eval's one-call closed improvement loop (held-out gated). |
 | `serializeRolloutPolicy` | function | Stable serialization — dial order is fixed so identical policies produce |
 | `sleep` | function | Resolve after `ms` milliseconds — used for retry backoff in conversation call policy. |
@@ -104,8 +127,15 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `toolBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new tool. |
 | `turnId` | function | Deterministic turn identifier. Stable across retries of the same logical |
 | `validateChatModelId` | function | Validate a caller-supplied chat-model id. Rejects non-strings, malformed |
+| `verifyAgentCandidateBundle` | function | Verifies every digest, resource, workspace, and Git object in a candidate bundle. |
 | `worktreeLoopRunner` | function | `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a |
+| `AGENT_CANDIDATE_EXECUTION_SUPPORT` | const | Surfaces admitted by Runtime's verifier before an environment adapter is selected. |
+| `AGENTIC_PROFILE_RESOURCE_ROOT` | const | Dedicated ephemeral root for generic author-profile files. Every declared |
 | `buildDriverSystem` | const | The driver's stance for `driverLoopGenerator` — the build-domain instance of |
+| `CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV` | const | Environment variable containing the materialized retrieval configuration path. |
+| `CANDIDATE_KNOWLEDGE_ROOT_ENV` | const | Environment variable containing the materialized candidate knowledge root. |
+| `CANDIDATE_TRACE_ENV` | const | Environment keys used to propagate immutable candidate trace identity. |
+| `CANDIDATE_TRACE_TAGS` | const | Protected trace tags that bind a run to one prepared candidate execution. |
 | `DEFAULT_MAX_DEPTH` | const | Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. |
 | `DEFAULT_ROUTER_BASE_URL` | const | Default Tangle Router base URL used when no env override is set. |
 | `defaultIsRetryable` | const | Default retryable classification — network/timeout class errors. Errors |
@@ -125,7 +155,9 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `CircuitOpenError` | class | Thrown when the circuit breaker is open for a participant and no retry is allowed yet. |
 | `ConfigError` | class | Configuration missing or malformed (`HOME` unset, required image not supplied, env var absent). |
 | `DeadlineExceededError` | class | Thrown when a backend call exceeds its per-attempt deadline. |
+| `FileAgentCandidateExecutionClaimStore` | class | Cross-process lifecycle implemented as fsynced, create-if-absent records. |
 | `FileConversationJournal` | class | JSONL on disk. One line per record; first line is the `begin`, subsequent |
+| `InMemoryAgentCandidateExecutionClaimStore` | class | Single-process lifecycle implementation. |
 | `InMemoryConversationJournal` | class | In-memory `ConversationJournal` — suitable for testing and single-process runs. |
 | `InMemoryRuntimeSessionStore` | class | In-memory `RuntimeSessionStore` for single-process use and tests. |
 | `JudgeError` | class | A judge call failed in a way that's not retryable: schema parse failure, bad rubric, conflicting dimensions. |
@@ -134,7 +166,29 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
 | `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
+| `AgentCandidateArtifactPort` | interface | Reads one content-addressed object from the closed S3/IPFS locator set. |
+| `AgentCandidateBenchmarkGraderIdentity` | interface | Immutable grader identity admitted for one benchmark task. |
+| `AgentCandidateBenchmarkGraderPort` | interface | Evaluator-owned executable grader, pinned by immutable implementation bytes. |
+| `AgentCandidateCodeSurfaceSource` | interface | The only accepted path from an agent-eval code candidate to executable bytes. |
+| `AgentCandidateExecutionAttemptRecord` | interface | Persisted state available to a fresh trusted recovery worker after a crash. |
+| `AgentCandidateExecutionClaim` | interface | Immutable signed identity stored for one execution attempt. |
+| `AgentCandidateExecutionClaimStore` | interface | Atomic one-shot store for candidate execution attempts. |
+| `AgentCandidateExecutionCleanupHandles` | interface | Non-secret identities a trusted recovery worker needs to close an abandoned attempt. |
+| `AgentCandidateExecutionLease` | interface | Secret capability required to finish the acquired attempt. |
+| `AgentCandidateExecutionRecoveryEvidence` | interface | Trusted, independently observed closure facts for one expired winning lease. |
+| `AgentCandidateExecutorFinalCapture` | interface | Replayable evaluator result captured only after process death and trace drain. |
+| `AgentCandidateExecutorMemoryCapture` | interface | Raw isolated-memory capture made only after access has been revoked. |
+| `AgentCandidateExecutorPort` | interface | Executes one prepared request inside an evaluator-owned isolation boundary. |
+| `AgentCandidateExecutorProfileFile` | interface | One exact profile file supplied to an evaluator-owned executor. |
+| `AgentCandidateExecutorRequest` | interface | One detached request passed to the trusted environment-specific executor. |
+| `AgentCandidateExecutorStopRequest` | interface | Opaque process identity used for termination without re-exposing launch credentials. |
+| `AgentCandidateModelGrantClient` | interface | Narrow transport contract for a service that owns scoped model credentials |
+| `AgentCandidateOutputArtifactPort` | interface | Durable content-addressed evidence store controlled only by the evaluator. |
+| `AgentCandidateRepositoryPort` | interface | Resolves a declared GitHub repository to an already-present local Git object store. |
+| `AgentCandidateTaskExecution` | interface | Runtime placement for one exact cell from a signed candidate experiment. |
+| `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
 | `BackendErrorDetail` | interface | Typed transport / backend failure detail. Carried on `backend_error` and |
+| `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
 | `CampaignOtlpOptions` | interface | Campaign `spans.jsonl` → OTLP-flat JSONL — the missing converter between |
 | `CandidateGenerator` | interface | The byte-producing seam — the ONE thing that differs between the cheap |
 | `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
@@ -149,6 +203,7 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |
 | `OpenAIChatTool` | interface | OpenAI Chat Completions tool descriptor. The shape mirrors the |
 | `OtelExportConfig` | interface | OTEL span exporter — streams LoopTraceEvents to an OTLP/HTTP collector. |
+| `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
 | `RawTraceDistillerOptions` | interface | `rawTraceDistiller` — the meta-harness `analyzeGeneration` producer. |
 | `ReflectiveGeneratorOptions` | interface | `reflectiveGenerator` — the cheap, no-sandbox `CandidateGenerator`. It drafts |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
@@ -159,8 +214,24 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `ToolLoopCall` | interface | Bounded turn-level tool-dispatch loop. |
 | `VerifyResult` | interface | Outcome of verifying a candidate worktree. `feedback` (compiler errors, |
 | `AgentBackendKind` | type | The transport a chat backend runs on. |
+| `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
+| `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |
+| `AgentCandidateExecutionClaimResult` | type | Result of atomically claiming one execution attempt. |
+| `AgentCandidateExecutionFailureClass` | type | Only the first class is retryable, and only when the closed model ledger has zero calls. |
+| `AgentCandidateExecutionFinishResult` | type | Result of atomically recording an attempt's terminal facts. |
+| `AgentCandidateExecutionPhase` | type | Monotonic durable phase: the second value means candidate code could have started. |
+| `AgentCandidateExecutionPhaseResult` | type | Result of crossing the irreversible candidate-may-run boundary. |
+| `AgentCandidateExecutionStageResult` | type | Result of durably staging the one immutable terminal outbox entry. |
+| `AgentCandidateExecutionTerminalRecord` | type | Durable terminal record for one acquired execution attempt. |
+| `AgentCandidateExecutionTerminalResult` | type | Evaluator-owned terminal facts staged durably before the terminal CAS. |
+| `AgentCandidateExecutorTaskOutcomeCapture` | type | Raw evaluator capture made only after the candidate process is dead. |
+| `AgentCandidateModelGrantReservation` | type | Secret-free response from the service's reservation endpoint. |
+| `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
+| `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 | `AgentEvalErrorCode` | type | Error taxonomy for `@tangle-network/agent-eval`. |
-| `ImproveSurface` | type | The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law |
+| `AgenticGeneratorShotDisposition` | type | Worktree decision emitted before a completed shot is retried, accepted, or |
+| `AgenticGeneratorShotExecution` | type | Frozen exact harness result for an author shot: full streams, process state, |
+| `ImproveSurface` | type | The executable agent lever `improve` optimizes. Profile fields remain |
 | `OpenAIChatResponseFormat` | type | `response_format` parameter for OpenAI-compatible chat endpoints. Use |
 | `OpenAIChatToolChoice` | type | `tool_choice` parameter for OpenAI-compat chat. Same shape as the OpenAI |
 | `PersonaDriver` | type | A persona that drives the conversation: either a full driver `AgentProfile` |
@@ -171,24 +242,23 @@ Import from `@tangle-network/agent-runtime` — 250 exports.
 | `ToolCallOutcome` | type | Outcome of one tool dispatch — structurally compatible with a hub/integration |
 | `ToolLoopMessage` | type | A message in the running conversation the loop sends to `streamTurn`. |
 | `ToolLoopStopReason` | type | Why the loop stopped. `completed` = model finished naturally; `stuck-loop` = |
+| `VerifiedAgentCandidateTaskOutcome` | type | Branded task outcome that has survived independent evaluator verification. |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgentKnowledgeProvider`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `CampaignTraceResolverOptions`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `HaltContext`, `HaltSignal`, `ImprovementDriverOptions`, `ImproveOptions`, `ImproveResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToAnalystFindingsOptions`, `ToolLoopResult`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentCandidateContainerPort`, `AgentCandidateExecutionAttemptRef`, `AgentCandidateExecutionPorts`, `AgentCandidateExecutorWorkspaceFile`, `AgentCandidateExecutorWorkspaceInput`, `AgentCandidateMemoryPort`, `AgentCandidateMemoryResetResult`, `AgentCandidateModelPort`, `AgentCandidatePreparationEvidence`, `AgentCandidateProtectedModelActivation`, `AgentCandidateProtectedModelReservation`, `AgentCandidateProtectedModelSettlement`, `AgentCandidateProtectedRunCapture`, `AgentCandidateVerificationPorts`, `AgentCandidateWorkspaceArchiveLimits`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgenticGeneratorShotReceipt`, `AgentKnowledgeProvider`, `AgentKnowledgeReadinessCheckOptions`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `CampaignTraceResolverOptions`, `CanonicalCandidateDocument`, `CaptureAgentCandidateWorkspaceOptions`, `CapturedAgentCandidateWorkspace`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `CreateAgentCandidateWorkspacePortOptions`, `CreateKnowledgeImprovementActivationExecutorOptions`, `CreateProtectedAgentCandidateModelPortOptions`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `DisposePreparedAgentCandidateOptions`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `ExecutePreparedAgentCandidateOptions`, `FileAgentCandidateExecutionClaimStoreOptions`, `HaltContext`, `HaltSignal`, `ImproveCodeOptions`, `ImprovementCandidate`, `ImprovementDriverOptions`, `ImproveResult`, `ImproveSkillsOptions`, `KnowledgeImprovementActivationExecutor`, `KnowledgeImprovementCandidatePair`, `KnowledgeImprovementExperimentBundles`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `ManagedImprovementDriver`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `PrepareAgentCandidateExecutionOptions`, `PreparedAgentCandidateExecution`, `PreparedAgentCandidateInstruction`, `PreparedAgentCandidateLaunch`, `PreparedAgentCandidateTrace`, `ProfileDiffProposerOptions`, `RecoverExpiredAgentCandidateOptions`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedAgentCandidateContainer`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunKnowledgeImprovementJobOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeEventOtelOptions`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToAnalystFindingsOptions`, `ToolLoopResult`, `VerifiedAgentCandidate`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentCandidateModelGrantActivateInput`, `AgentCandidateModelGrantReserveInput`, `AgentCandidateModelGrantSettleInput`, `AgentCandidateOutputPurpose`, `AgentCandidateRetryRejection`, `AgentCandidateRunFinalization`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `ImproveOptions`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `ProfileDiffProposerContext`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
 
-### Vertical agent — manifest + improvement adapter
+### Vertical agent — manifest + surface proposal source
 
-Import from `@tangle-network/agent-runtime/agent` — 48 exports.
+Import from `@tangle-network/agent-runtime/agent` — 40 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `assertProfileMaterialization` | function | Throw when a candidate changes axes the selected run path cannot carry. |
 | `collectAgentRun` | function | Drain `act`'s `events` into an array AND await its `output`. Useful for |
 | `createSandboxAct` | function | Build an `AgentRuntime.act` implementation backed by a single prod-profile |
-| `createSurfaceImprovementAdapter` | function | The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR. |
-| `createSurfaceKnowledgeAdapter` | function | Wire a surface-based `KnowledgeAdapter` that writes analyst proposals to agent surface files. |
+| `createSurfaceImprovementProposer` | function | Resolve each finding to a real surface and draft a detached patch candidate. |
 | `defineAgent` | function | Construct a validated agent manifest. Throws `AgentManifestError` |
 | `defineProfileMaterializationContract` | function | Define the profile axes a concrete run path actually carries into execution. |
-| `measureOutcome` | function | Run `runAnalystLoop` and stamp an `OutcomeMeasurement` onto the |
 | `renderProfileMaterializationIssues` | function | Format profile-axis drop issues into a concise operator-facing error. |
 | `renderSurfaceIssues` | function | Format a list of surface validation issues into a human-readable error string. |
 | `resolveSubjectPath` | function | Resolve a parsed `FindingSubject` to the file path the substrate |
@@ -203,60 +273,132 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 | `AgentManifest` | interface | The full agent manifest. Each agent ships ONE of these. |
 | `AgentSurfaces` | interface | Surface declarations. Every path is repo-relative (or absolute) at |
 | `AssertProfileMaterializationOptions` | interface | Input for throwing on dropped profile axes. |
-| `CreateSurfaceKnowledgeAdapterOpts` | interface | Substrate-default `KnowledgeAdapter` — wraps agent-knowledge's |
 | `DefineProfileMaterializationContractOptions` | interface | Input for declaring a run path's profile-axis support. |
-| `KnowledgeAdapterDeps` | interface | Build the adapter. We accept the agent-knowledge functions as DI so |
-| `OutcomeMeasurement` | interface | `OutcomeMeasurement` — the missing metric that turns the analyst |
 | `ProfileMaterializationContract` | interface | Declares which AgentProfile axes a concrete run path really carries. |
 | `ProfileMaterializationIssue` | interface | One changed AgentProfile axis that would be dropped by a run path. |
-| `SurfaceImprovementEdit` | interface | Substrate-default `ImprovementAdapter` — surfaces-driven, LLM-drafted |
-| `SurfaceLifecycle` | interface | One profile surface's artifact-lifecycle wiring — the declarative config a |
+| `SurfaceImprovementEdit` | interface | Surface improvement proposer — resolves analyst findings into LLM-drafted |
 | `SurfaceValidationIssue` | interface | Validate that every declared surface exists on disk under `repoRoot`. |
 | `ValidateProfileMaterializationOptions` | interface | Input for checking a candidate diff against a run path. |
 | `AgentProfileMaterializationAxis` | type | AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentRubric`, `AgentRunContext`, `AgentRunInvocation`, `AgentRuntime`, `AnalystConfig`, `AutoApplyPolicy`, `CreateSandboxActOptions`, `CreateSurfaceImprovementAdapterOpts`, `DraftPatchInput`, `DraftPatchOutput`, `JudgeConfig`, `OutcomeMeasurementOpts`, `ResolvedSurface`, `RubricDimension`, `KnownAgentProfileMaterializationAxis`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentRubric`, `AgentRunContext`, `AgentRunInvocation`, `AgentRuntime`, `AnalystConfig`, `CreateSandboxActOptions`, `CreateSurfaceImprovementProposerOptions`, `DraftPatchInput`, `DraftPatchOutput`, `JudgeConfig`, `ResolvedSurface`, `RubricDimension`, `KnownAgentProfileMaterializationAxis`.
 
-### Intelligence SDK — Observe + provable-OFF billing
+### Multi-turn conversations
 
-Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
+Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
+| `computeBackoff` | function | Compute the delay before the next attempt. Default: 250ms exponential with jitter. |
+| `createConversationBackend` | function | Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is |
+| `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
+| `defineConversation` | function | Declarative constructor for a multi-agent `Conversation`. Validates inputs |
+| `isDepthExceeded` | function | Refuse further forwarding when the inbound depth has reached the limit. |
+| `makePerAttemptSignal` | function | Build a per-attempt AbortSignal linked to the parent signal AND fired when |
+| `readDepth` | function | Read the depth counter off an inbound request. Missing → 0 (caller is the |
+| `runConversation` | function | Conversation orchestrator. Drives N participants in turn through their own |
+| `runConversationStream` | function | Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers. |
+| `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
+| `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
+| `sleep` | function | Resolve after `ms` milliseconds — used for retry backoff in conversation call policy. |
+| `slugifySpeaker` | function | Reduce a speaker name to ASCII alphanumerics + dashes. Preserves enough |
+| `turnId` | function | Deterministic turn identifier. Stable across retries of the same logical |
+| `DEFAULT_MAX_DEPTH` | const | Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. |
+| `defaultIsRetryable` | const | Default retryable classification — network/timeout class errors. Errors |
+| `FORWARD_HEADERS` | const | Standard names — lowercased so Headers maps interop on every runtime. |
+| `CircuitBreakerState` | class | Live circuit-breaker state — one instance per (participant, conversation run). |
+| `CircuitOpenError` | class | Thrown when the circuit breaker is open for a participant and no retry is allowed yet. |
+| `DeadlineExceededError` | class | Thrown when a backend call exceeds its per-attempt deadline. |
+| `FileConversationJournal` | class | JSONL on disk. One line per record; first line is the `begin`, subsequent |
+| `InMemoryConversationJournal` | class | In-memory `ConversationJournal` — suitable for testing and single-process runs. |
+| `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
+| `CircuitBreakerConfig` | interface | Circuit-breaker tuning. `failuresToOpen` consecutive failures opens it; closed only after `cooldownMs`. |
+| `ConversationJournalEntry` | interface | Durable conversation transcript — survives a driver process crash mid-run. |
+| `D1DatabaseLike` | interface | Structural type matching the surface of `D1Database` we depend on, so the |
+| `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
+| `PersonaDriver` | type | A persona that drives the conversation: either a full driver `AgentProfile` |
+| `PropagatedHeaders` | type | Header bag carried through `AgentBackendContext.propagatedHeaders` so |
+| `RetryableErrorPredicate` | type | Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors. |
+| `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BackendCallPolicy`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `HaltContext`, `HaltSignal`, `PersonaConversationResult`, `RunConversationOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `AuthSource`, `ConversationStreamEvent`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `TurnOrder`.
+
+### Intelligence SDK — Observe + provable-OFF billing
+
+Import from `@tangle-network/agent-runtime/intelligence` — 132 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `agentImprovementProfileSurfaceDigest` | function | Return the `Sha256Digest` of one profile surface using Runtime's canonical candidate digest. |
+| `agentImprovementProfileSurfaceInput` | function | Return the canonical current-state input for one profile-deliverable improvement target. |
+| `agentImprovementTargetProfileDiffs` | function | Replace one measured profile surface exactly, including array-valued resources. |
+| `buildAgentImprovementActivationTargets` | function | Bind caller-owned target identities to the exact source state Runtime measured. |
 | `compileEffort` | function | Compile resolved `EffortSettings` into the orchestration overrides above. Pure: same |
 | `composeCertifiedProfile` | function | Compose a certified profile into a uniform `ResolvedSurface`. Additive over |
 | `composeCertifiedProfileFromWire` | function | Lower a plane `CertifiedProfile` straight into a `ResolvedSurface` via |
 | `composeCertifiedPrompt` | function | Fold the certified prompt surface (and any certified prompt-folding artifacts: |
+| `createAgentImprovementActivation` | function | Authorize product-owned writes only after the exact candidate was measured and approved. |
+| `createAgentImprovementActivationResult` | function | Create the exact result a product stores in the same transaction as its target write. |
+| `createAgentImprovementMeasuredComparison` | function | Delegate all statistics and promotion checks to agent-eval's receipt-based comparison. |
+| `createAgentImprovementProposal` | function | Create the reviewable record only from a complete, recomputable experiment result. |
 | `createCertifiedPromptSource` | function | Create the cached certified-prompt source — the ONE module-scope-cache + |
-| `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, endpoint, and |
+| `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, the base URL, and |
+| `createSandboxCandidateExperimentExecutor` | function | Execute one signed experiment cell inside a fresh Tangle sandbox. |
 | `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
+| `executeAgentCandidateExperimentCell` | function | Execute one exact arm, task, repetition, seed, and attempt through Runtime. |
+| `executeAgentImprovementActivation` | function | Validate and execute one product-owned activation transition. |
+| `isAgentImprovementProfileSurface` | function | Return whether a measured surface can be delivered through an agent profile. |
 | `isIntelligenceOff` | function | True when these settings admit NO intelligence spawn — the passthrough |
 | `manifestFromProfile` | function | Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`. |
+| `normalizeCertifiedProfile` | function | Deserialize the composed-endpoint response into a `CertifiedProfile`. The |
+| `parseCandidateProfileMaterialization` | function | Parse and check every native file hash plus both canonical document digests. |
+| `prepareAgentImprovementProfileActivation` | function | Compare product-owned profiles with an exact measured transition and prepare |
+| `proposeAgentImprovement` | function | Analyze, search, then remeasure the resulting exact candidate before proposing it. |
 | `pullCertified` | function | Pull the certified composed profile for a target. Fail-closed: a network |
 | `resolveEffort` | function | Compile a named tier (plus optional per-field overrides) into the flat |
+| `resolveIntelligenceBaseUrl` | function | Resolve the ONE Intelligence base URL — the single knob both the send and |
 | `resolveRedactor` | function | Resolve the redactor a client uses. A caller-supplied hook replaces the |
-| `withCertifiedDelivery` | function | Wrap an agent so it (a) Observes each run via the shipped Observe client and |
-| `withTangleIntelligence` | function | Wrap a generic `agent` with best-effort Observe-mode tracing, returning the |
+| `reviewAgentImprovementProposal` | function | Persist a human or tenant-policy decision bound to one exact proposal. |
+| `runAgentCandidateExperiment` | function | Execute both arms of one immutable experiment and derive its paired result. |
+| `verifyAgentImprovementActivation` | function | Validate activation authority against the exact proposal, review, experiment, and base state. |
+| `verifyAgentImprovementActivationResult` | function | Recompute one historical activation result against the exact measured proposal and authority. |
+| `verifyAgentImprovementProposal` | function | Validate a proposal and recompute every binding to its measured experiment. |
+| `verifyAgentImprovementReview` | function | Validate the canonical identity and wire shape of an improvement review. |
+| `verifyCandidateExecutionEvidence` | function | Recheck one Runtime receipt against its exact signed experiment cell. |
+| `withIntelligence` | function | Wrap an agent so it (a) RECEIVES the tenant's certified profile — the prompt |
+| `AGENT_IMPROVEMENT_PROFILE_SURFACES` | const | Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements. |
 | `defaultEffortTier` | const | The default tier when a client declares no effort. `'standard'` turns |
+| `sandboxCandidateExperimentExecutionSupport` | const | Declares the exact candidate surfaces the sandbox executor can run. |
+| `AgentCandidateExperimentCellExecutionError` | class | A failed baseline or candidate cell with its complete Runtime failure result. |
 | `CapabilityNotAdmittedError` | class | A binding kind whose resolver case is typed but not yet admitted (rag-index, |
-| `AppliedIntelligence` | interface | What the delivery wrapper hands the agent each run. |
+| `AgentImprovementActivation` | interface | Authority receipt permitting activation of one already-measured candidate. |
+| `AgentImprovementActivationResult` | interface | Immutable outcome of one idempotent, transaction-wide activation attempt. |
+| `AgentImprovementMeasuredComparison` | interface | Portable paired held-out comparison produced by an evaluation package. |
+| `AgentImprovementReview` | interface | Human or tenant-policy decision bound to one exact proposal. |
+| `AppliedIntelligence` | interface | What the hook hands the agent each run. Additive over the prompt-only |
+| `CandidateExecutionEvidence` | interface | Complete execution of one exact experiment attempt. |
+| `CandidateProfileMaterialization` | interface | Exact native profile files and the canonical plan that activated them. |
 | `CapabilityManifest` | interface | The strict generalization of `CertifiedProfile`. `promptSurface` is kept |
 | `CertifiedArtifact` | interface | A promoted, certified artifact (one entry in the composed profile). |
 | `CertifiedCapability` | interface | One certified unit of agent power. |
+| `CertifiedCapabilitySummary` | interface | The composed endpoint's per-capability summary — the narrow shape on the |
 | `CertifiedProfile` | interface | The composed certified profile — exactly the shape the plane's |
 | `CertifiedPromptSource` | interface | A cached, self-refreshing source of a target's certified prompt additions — |
 | `CertifiedPromptSourceOptions` | interface | Options for {@link createCertifiedPromptSource} — the pull coordinates plus |
 | `CertifiedPromptSurface` | interface | The active promoted prompt surface for a target. |
 | `CertProvenance` | interface | The certify lane's held-out lift travelling WITH delivery. The shipped |
 | `CredentialRef` | interface | A named secret a binding requires — declared, never carried. |
-| `DeliveryConfig` | interface | Delivery config = the Observe config plus the pull target + refresh cadence. |
+| `DiffProvenance` | interface | The held-out provenance the plane's certify step stamps on a promoted diff. |
 | `DoctorReport` | interface | The `doctor()` readiness report — Mode-readiness without any network call. |
 | `EffortOverridesCompiled` | interface | The run-config overrides an `EffortSettings` compiles to — the bridge between the |
 | `EffortSettings` | interface | The flat, resolved settings a tier compiles to. Every field is individually |
 | `HostSpec` | interface | The host a `process-on-infra` binding provisions before its inner binding. |
 | `IntelligenceClient` | interface | The Observe-mode Intelligence client. |
 | `IntelligenceConfig` | interface | Client configuration. `project` + `apiKey` are the Observe minimum; the |
+| `IntelligenceHookConfig` | interface | `withIntelligence` config = the Observe config plus the pull target, refresh |
 | `ModeReadiness` | interface | One mode's readiness verdict. |
+| `ProposedProfileDiff` | interface | A gate-certified profile diff the plane has already promoted, plus the |
 | `ProvisionedHost` | interface | A live, provisioned host the resolver tore up for a `process-on-infra` arm. |
 | `RecordTraceMeta` | interface | Metadata for {@link IntelligenceClient.recordTrace}. |
 | `RepoConfig` | interface | Repo coordinates a product may declare for the (later) Gated-PR mode. The |
@@ -265,32 +407,35 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 | `ResolvedRetrieval` | interface | One retrieval handle. The agent never learns vector vs graph vs index. |
 | `ResolvedSubagent` | interface | One resolved subagent — folded into `AgentProfile.subagents`. |
 | `ResolvedSurface` | interface | What `composeCertifiedProfile` produces. Every binding fans into the same |
+| `RunRecord` | interface | The typed record `withIntelligence` sends per call — serialized through the |
+| `RunReport` | interface | What an agent reports (via `applied.record`) to enrich the {@link RunRecord} |
 | `TraceHandle` | interface | The trace handle a `traceRun` body records into. `recordOutput` captures the |
 | `TraceMeta` | interface | Metadata describing one traced run. `runId`/`traceId` default to fresh ids. |
 | `TraceOutcome` | interface | The resolved outcome of one traced run, surfaced on the export span and |
 | `UsageSplit` | interface | The per-class cost split carried by every trace and outcome. `off` ⇒ |
-| `Agent` | type | A generic agent: one async input → output. The shape `withTangleIntelligence` |
+| `AgentImprovementActivationReconciliation` | type | Target-read-only check for a prior exact write. |
+| `AgentImprovementActivationTransition` | type | Product-owned or Runtime-composed transition. |
 | `CapabilityAuth` | type | How a binding authenticates at resolve time. Declared as a REQUIREMENT in the |
 | `CapabilityInterface` | type | What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each |
 | `CapabilitySurface` | type | Every interface surface tag — the closed set the resolver fans into slots. |
-| `ClientOrConfig` | type | Either a built client or the config to build one. |
 | `ContentRef` | type | Where a capability's bytes live. A leaked manifest carries no live secret and |
 | `CorpusAccess` | type | Corpus access an intelligence tier permits. `'off'` reads and writes |
-| `DeliveredAgent` | type | An agent wrapped by {@link withCertifiedDelivery}: receives the input plus |
 | `DeliveryBinding` | type | How a capability is backed. OPEN tagged union — THE extension point. All arms |
 | `DeliveryBindingKind` | type | Every binding kind — the open set the resolver dispatches over. |
 | `EffortOverrides` | type | Per-field overrides applied on top of a tier preset. Any subset of the |
 | `EffortTier` | type | The named effort tiers, lowest to highest. `'off'` is the honest floor |
+| `IntelligenceAgent` | type | An agent wrapped by {@link withIntelligence}: receives the input plus the |
+| `IntelligenceWrapped` | type | The wrapped agent — same `(input) => Promise<output>` shape, plus a manual |
 | `JsonSchema` | type | A JSON Schema object describing a tool's parameters. Kept structural — the |
 | `PullOutcome` | type | Typed outcome for the pull — inspect `succeeded` before `value`. A 404 |
 | `Redactor` | type | A redactor maps an arbitrary trace value to a safe-to-export value. Pure; |
 | `UsageClass` | type | Usage class for billing. Base-stream tokens bill `'inference'`; every |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `PullCertifiedOptions`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementActivationTransitionInput`, `AgentImprovementProfileReplacement`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateSandboxCandidateExperimentExecutorOptions`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SandboxCandidateExperimentExecution`, `SandboxCandidateExperimentExecutor`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 472 exports.
+Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -534,7 +679,7 @@ Import from `@tangle-network/agent-runtime/loops` — 472 exports.
 | `LoopLineageOptions` | interface | Opt-in box-lineage controls for `runLoop`. Default OFF — with both flags |
 | `LoopPlanPayload` | interface | Emitted once per `plan()` round, immediately after the driver plans. Carries |
 | `LoopTeardownFailedPayload` | interface | Emitted when a box's `delete()` throws or times out during teardown — the |
-| `LoopTokenUsage` | interface | LLM token usage. Structurally matches agent-eval's `RunTokenUsage` / |
+| `LoopTokenUsage` | interface | LLM token usage. Structurally maps into agent-eval's paid-call receipt so a |
 | `LoopUntilSpec` | interface | `loopUntil({ until, step })` — iterative deepening inside the conserved pool: spawn one `step` |
 | `LoopUntilState` | interface | The accumulated state `loopUntil` threads across rounds — the running candidate + the round |
 | `McpEndpoint` | interface | Where a handle's MCP server lives; headers carry per-artifact scoping. |
@@ -612,6 +757,7 @@ Import from `@tangle-network/agent-runtime/loops` — 472 exports.
 | `WidenLineage` | interface | A lineage the gate may widen toward — the settled child that looked promising + the findings |
 | `WidenSpec` | interface | `widen({ gate })` (G5) — the STREAMING spawn-on-completion driver. Unlike the static-fanout |
 | `WorktreeCommandResult` | interface | Outcome of one verification command run in the worktree (test or typecheck). |
+| `WorktreeProfileMaterializationReceipt` | interface | Proof of the profile inputs delivered before the worker process started. |
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
 | `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
 | `AgentTurnBackend` | type | The execution substrate one turn runs on — a closed discriminated union over |
@@ -680,7 +826,7 @@ Import from `@tangle-network/agent-runtime/environment-provider` — 32 exports.
 
 ### Analyst loop — trace findings on a running loop
 
-Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
+Import from `@tangle-network/agent-runtime/analyst-loop` — 14 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -688,112 +834,30 @@ Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
 | `runAnalystLoop` | function | `runAnalystLoop` — the one call agent apps reach for to close the |
 | `AnalystRegistryLike` | interface | Narrowed shape we accept for `AnalystRegistry` so the orchestrator |
 | `AnalystRegistryStreamingLike` | interface | Narrow the `AnalystRegistryLike` further when we need streaming: the |
-| `AutoApplyPolicy` | interface | Tunable safety rails for auto-apply. |
 | `FindingsStoreLike` | interface | Narrowed shape we accept for `FindingsStore`. |
-| `ImprovementAdapter` | interface | Improvement-side bridge — proposes / applies prompt + tool + scaffolding edits. |
-| `KnowledgeAdapter` | interface | Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge. |
+| `ImprovementProposalSource` | interface | Agent-surface bridge — proposes prompt, skill, tool, and scaffolding edits. |
+| `KnowledgeProposalSource` | interface | Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge. |
 | `AnalystLoopEvent` | type | Events emitted by `runAnalystLoop` via `opts.onEvent`. UIs and |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `ImprovementEditBatch`, `ImprovementReport`, `KnowledgeProposalBatch`, `KnowledgeReport`, `RunAnalystLoopOpts`, `RunAnalystLoopResult`.
 
-### Artifact lifecycle — generate → measure → promote → compose
-
-Import from `@tangle-network/agent-runtime/lifecycle` — 94 exports.
-
-| Symbol | Kind | Summary |
-|---|---|---|
-| `applyArtifact` | function | Return a new profile with `artifact` merged onto `base`. Keyed kinds |
-| `applyArtifacts` | function | Apply many artifacts left-to-right; later artifacts win on key conflicts. |
-| `authorDiverseSweSeeds` | function | DIVERSE SEEDS — a `promptGenerator` `authorDiverseSeeds(ctx, count)` seam. Same |
-| `autopsySweFailures` | function | AUTOPSY — classify the FAILING rows into ranked mechanism findings. |
-| `buildableGenerator` | function | Build a `CandidateGenerator` for a buildable surface (`tool` / `mcp`). Each |
-| `composeProfile` | function | Return a new profile with the top-`k` active artifacts (highest measured lift |
-| `connectionArtifact` | function | Build a `connection` `ArtifactInput` from a grant — the one-step adapter for |
-| `connectionMcpServer` | function | The `AgentProfileMcpServer` entry a grant promotes into `profile.mcp` — the |
-| `createArtifactRegistry` | function | Construct an empty `ArtifactRegistry`. |
-| `dedupeArtifacts` | function | Pairwise stack-test the `active` artifacts and retire the redundant half of |
-| `driftWatch` | function | Re-measure every `active` artifact and demote those whose held-back lift |
-| `gepaRefine` | function | Wrap `gepaProposer` as a `RefinePrompt`. The proposer reflects on the |
-| `heldOutPromotionGate` | function | The paper-grade promotion gate: delegate to agent-eval's `HeldOutGate`, which |
-| `lessonsFromCuratedSurface` | function | Extract the lesson lines from a surface carrying a curated-memory block. |
-| `measureMarginalLift` | function | Run the with/without ablation for `candidate` over `baseline` and return its |
-| `memoryArtifactFromCuratedSurface` | function | Parse a proposer surface and build the artifact in one step. Returns |
-| `memoryArtifactFromLessons` | function | The curated-lessons → memory-artifact adapter (the seam that gives |
-| `memoryGenerator` | function | The `memory` surface's `CandidateGenerator` — the native lifecycle path for |
-| `memoryMcpServer` | function | The `AgentProfileMcpServer` entry that SERVES a memory spec — what the |
-| `memoryOfProfile` | function | Read (and validate) the memory spec a profile carries, if any. Malformed |
-| `productionPromptGenerator` | function | Production `promptGenerator`: refine via `gepaProposer`, seed via a |
-| `promptGenerator` | function | Build a `CandidateGenerator` for the prompt surface. Each generation it pools |
-| `readMemoryItemsFile` | function | Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line). |
-| `reflectiveSweRefine` | function | REFLECTIVE REFINE — a `promptGenerator` `refine(ctx)` seam. Reads the autopsy |
-| `routerSeedAuthor` | function | A router-backed `AuthorDiverseSeeds`: one structured LLM call that authors |
-| `runLifecycle` | function | Run ONE generation of the artifact lifecycle. |
-| `skillGenerator` | function | Build a `CandidateGenerator` for the skill surface that distills new skills |
-| `sweEvalRunner` | function | Build the `EvalRunner` closed over one fixed SWE exam. `runLifecycle` calls |
-| `thresholdPromotionGate` | function | The simplest honest gate: promote iff the candidate's marginal lift on the |
-| `validateExternalMcpGrant` | function | Assert an `ExternalMcpGrant` is well-formed. Fail-closed: a malformed grant |
-| `validateMemorySpec` | function | Assert an `AgentMemorySpec` is well-formed and servable. |
-| `worktreeBuildCandidate` | function | Build the production per-candidate seam for `buildableGenerator`. Each call to |
-| `writeMemoryStore` | function | Write a durable JSONL memory store (one `MemoryItem` per line). |
-| `CURATED_MEMORY_BLOCK_END` | const | The closing delimiter of the proposer's curated block (see |
-| `CURATED_MEMORY_BLOCK_START` | const | The opening delimiter agent-eval's `memoryCurationProposer` writes its |
-| `FAILURE_MECHANISMS` | const | The concrete failure mechanisms the analyst classifies a lost task into. A |
-| `lifecycleReasonKey` | const | The metadata key under which the registry records WHY an artifact left the |
-| `liftMetadataKey` | const | The metadata key under which the registry stores an artifact's measured held- |
-| `profileMemoryMetadataKey` | const | The `profile.metadata` key the typed memory spec rides under (the local |
-| `ArtifactRegistry` | class | A typed, in-memory registry of `ProfileArtifact`s with stable ids. |
-| `AgentMemorySpec` | interface | The `memory` artifact payload — HOW a profile's memory is stored and served: |
-| `ArtifactPayloads` | interface | The payload for each `ArtifactKind`. The shapes are the SAME types the |
-| `ArtifactQuery` | interface | Filter for `list`. Omit a field to leave that dimension unconstrained. |
-| `BuiltCandidate` | interface | The result of building ONE candidate in its own worktree. A build either |
-| `CandidateGenerator` | interface | Produces fresh, UNMEASURED candidate artifacts for ONE profile surface. |
-| `CandidateOutcome` | interface | The per-candidate record of what the loop decided and why. |
-| `ComposeProfileOptions` | interface | `composeProfile` — fold the top-k active artifacts back into a profile. |
-| `DedupeOptions` | interface | `dedupeArtifacts` — retire the redundant half of a non-stacking pair. |
-| `DriftCheck` | interface | Per-artifact record of what the re-measure found and decided. |
-| `DriftWatchOptions` | interface | `driftWatch` — the scheduled re-measure that DEMOTES decayed artifacts. |
-| `EvalResult` | interface | The result of running an eval over ONE profile: a composite score and the cost |
-| `ExternalMcpGrant` | interface | An external MCP grant — the ADOPT-not-build candidate payload. `http` names |
-| `GenerateContext` | interface | The read-only context a generator sees when proposing candidates. It is the |
-| `MarginalLift` | interface | The marginal lift of one artifact: the with/without ablation. |
-| `MemoryItem` | interface | One row of agent memory: a crisp lesson/fact with provenance. |
-| `PairStackCheck` | interface | The stacking verdict for one pair of active artifacts. |
-| `ProfileArtifact` | interface | A discrete, individually-promotable piece of an agent profile. |
-| `ProfileWithMemory` | interface | The local profile extension: `AgentProfile` plus the memory spec under |
-| `PromotionGate` | interface | Decides whether ONE measured candidate is promoted. The lifecycle calls this |
-| `PromotionVerdict` | interface | The verdict a gate returns for one candidate. |
-| `PromptDraft` | interface | A proposed prompt instruction line plus the WHY behind it. The `rationale` |
-| `RunLifecycleOptions` | interface | `runLifecycle` — the ONE closed-loop orchestrator: generate → measure → |
-| `SkillDraft` | interface | A distilled skill draft: a name + the `SKILL.md` body. |
-| `SweEvalTask` | interface | The minimal shape of a held-out SWE instance the runner needs. The bench |
-| `SweEvalTaskResult` | interface | Per-instance audit row surfaced through `EvalResult.details`. |
-| `SweFailureRow` | interface | One failing (or passing) instance row the autopsy reads. Structurally a |
-| `WorktreeBuildOptions` | interface | `worktreeBuildCandidate` — the PRODUCTION `BuildCandidate`: one fan-out leaf |
-| `ArtifactInput` | type | The input to `register` — everything on `ProfileArtifact` except the |
-| `ArtifactKind` | type | The profile levers an artifact can target. One-to-one with the §1.5 profile |
-| `ArtifactStatus` | type | The artifact lifecycle states. `active` is the load-bearing one — it is the |
-| `AuthorDiverseSeeds` | type | SEED — author N genuinely DIVERSE fresh instruction lines from the task spec, |
-| `BuildableKind` | type | The buildable surfaces — the kinds whose candidate IS code that must compile |
-| `BuildCandidate` | type | BUILD ONE candidate. Given the lifecycle context and the index in the fan-out, |
-| `DistillSkills` | type | DISTILL — create new skill drafts from the agent's history. Returns zero or |
-| `EvalRunner` | type | Scores a profile. The caller wires this to whatever eval they run — a |
-| `RefinePrompt` | type | REFINE — incumbent-grounded rewrites. Given the lifecycle context, return |
-| `RefineSkill` | type | REFINE — improve ONE distilled draft (wording, structure, examples). The |
-
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AutopsyOptions`, `BuildableGeneratorOptions`, `ConnectionArtifactOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `MemoryArtifactOptions`, `MemoryGeneratorOptions`, `MemoryMcpServerOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `ReflectiveSweOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`, `SweEvalRunnerOptions`, `FailureMechanism`.
-
 ### Knowledge orchestration — supervised KB updates
 
-Import from `@tangle-network/agent-runtime/knowledge` — 11 exports.
+Import from `@tangle-network/agent-runtime/knowledge` — 24 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `buildKnowledgeImprovementExperimentBundles` | function | Attach both frozen knowledge inputs to one otherwise-identical bundle pair. |
+| `createAgentKnowledgeReadinessCheck` | function | Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring. |
+| `createKnowledgeImprovementActivationExecutor` | function | Apply or restore one local knowledge candidate through the shared activation contract. |
 | `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
+| `formatSupervisedKnowledgeTask` | function | Format the supervisor task with the KB root, readiness requirements, current findings, and metadata. |
 | `knowledgeReadinessDeliverable` | function | Build the completion check a supervised KB update uses to stop only when the KB is ready. |
+| `runKnowledgeImprovementJob` | function | Produce a frozen KB candidate while leaving live knowledge content unchanged. |
 | `runSupervisedKnowledgeUpdate` | function | Run a runtime supervisor that updates one candidate knowledge base and stops on readiness. |
 | `RESEARCH_SUPERVISOR_SYSTEM_PROMPT` | const | Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `KnowledgeReadinessCheckInput`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `SupervisedKnowledgeUpdater`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKnowledgeReadinessCheckOptions`, `CreateKnowledgeImprovementActivationExecutorOptions`, `KnowledgeImprovementActivationExecutor`, `KnowledgeImprovementCandidatePair`, `KnowledgeImprovementExperimentBundles`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `RunKnowledgeImprovementJobOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `SupervisedKnowledgeUpdater`.
 
 ### Built-in agent profiles
 
@@ -856,15 +920,114 @@ Import from `@tangle-network/agent-runtime/platform` — 20 exports.
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `PlatformHubStatus`, `StartAuthInput`, `StartAuthResult`.
 
+### PrimeIntellect: Verifiers v1 package and trace adapter
+
+Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `createPrimeIntellectBackend` | function | Build the existing runtime backend against Prime's intercepted model endpoint. |
+| `createPrimeIntellectPackage` | function | Build a complete PrimeIntellect Verifiers v1 package without writing to disk. |
+| `importPrimeIntellectTraces` | function | Convert all Prime traces to agent-eval RunRecords while retaining one shared run config. |
+| `parsePrimeIntellectTraces` | function | Parse Prime's durable `traces.jsonl` and reject malformed rows with a line number. |
+| `primeIntellectTraceToRunRecord` | function | Project one complete Prime trace into the common agent-eval analysis row. |
+| `readPrimeIntellectEpisodeContext` | function | Read and validate the private process contract installed by the generated Prime harness. |
+| `runPrimeIntellectProgram` | function | Execute the caller's canonical runtime program inside a Prime rollout. |
+| `writePrimeIntellectPackage` | function | Write a bundle through a sibling temporary directory, then rename it into place. |
+| `PrimeIntellectPublicTask` | interface | The answer-free task exposed to the caller's runtime program. |
+| `PrimeIntellectRunner` | interface | Files and commands that make the caller's real agent program runnable. |
+| `PrimeIntellectTask` | interface | One immutable problem. References stay inside Prime's task process. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `PrimeIntellectEpisodeContext`, `PrimeIntellectPackageBundle`, `PrimeIntellectPackageManifest`, `PrimeIntellectPackageOptions`, `PrimeIntellectTrace`, `PrimeIntellectTraceImportOptions`, `RunPrimeIntellectProgramOptions`, `WritePrimeIntellectPackageOptions`, `PrimeIntellectBackendOptions`, `PrimeIntellectContent`, `PrimeIntellectImportDefaults`, `PrimeIntellectJson`, `PrimeIntellectMessage`, `PrimeIntellectScoring`, `PrimeIntellectSetupCommand`, `PrimeIntellectSplit`.
+
+### Candidate execution — immutable prepare, run, grade, and receipt
+
+Import from `@tangle-network/agent-runtime/candidate-execution` — 99 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
+| `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
+| `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
+| `candidateKnowledgeExecutionPaths` | function | Deterministic, signed locations used by every candidate executor. |
+| `captureAgentCandidateWorkspace` | function | Capture one exact regular-file workspace for immutable candidate execution. |
+| `captureAgentCandidateWorkspaceFiles` | function | Capture detached files returned by a remote executor into the standard archive. |
+| `createAgentCandidateWorkspacePort` | function | Create the standard bounded materializer for candidate execution ports. |
+| `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
+| `disposePreparedAgentCandidateExecution` | function | Revoke reservations held by a prepared candidate that will not be executed. |
+| `executePreparedAgentCandidate` | function | Executes and finalizes one durably claimed candidate without exposing an unproven result. |
+| `parseExactAgentProfile` | function | Parse a complete profile without silently discarding unsupported fields. |
+| `parseExactAgentProfileDiff` | function | Parse a profile diff without silently discarding unsupported fields. |
+| `persistCandidateOutputArtifact` | function | Persist evaluator evidence, read it back, and bind the returned locator to the exact bytes. |
+| `prepareAgentCandidateExecution` | function | Materializes a verified candidate into one immutable evaluator-owned execution plan. |
+| `recoverExpiredAgentCandidateExecution` | function | Close an expired crashed attempt from persisted non-secret handles, then record failure. |
+| `sealAgentCandidateBundle` | function | Validate and content-address a candidate bundle before it crosses an approval boundary. |
+| `verifyAgentCandidateBundle` | function | Verifies every digest, resource, workspace, and Git object in a candidate bundle. |
+| `AGENT_CANDIDATE_EXECUTION_SUPPORT` | const | Surfaces admitted by Runtime's verifier before an environment adapter is selected. |
+| `CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV` | const | Environment variable containing the materialized retrieval configuration path. |
+| `CANDIDATE_KNOWLEDGE_ROOT_ENV` | const | Environment variable containing the materialized candidate knowledge root. |
+| `CANDIDATE_TRACE_ENV` | const | Environment keys used to propagate immutable candidate trace identity. |
+| `CANDIDATE_TRACE_TAGS` | const | Protected trace tags that bind a run to one prepared candidate execution. |
+| `FileAgentCandidateExecutionClaimStore` | class | Cross-process lifecycle implemented as fsynced, create-if-absent records. |
+| `InMemoryAgentCandidateExecutionClaimStore` | class | Single-process lifecycle implementation. |
+| `AgentCandidateArtifactPort` | interface | Reads one content-addressed object from the closed S3/IPFS locator set. |
+| `AgentCandidateBenchmarkGraderIdentity` | interface | Immutable grader identity admitted for one benchmark task. |
+| `AgentCandidateBenchmarkGraderPort` | interface | Evaluator-owned executable grader, pinned by immutable implementation bytes. |
+| `AgentCandidateCodeSurfaceSource` | interface | The only accepted path from an agent-eval code candidate to executable bytes. |
+| `AgentCandidateExecutionAttemptRecord` | interface | Persisted state available to a fresh trusted recovery worker after a crash. |
+| `AgentCandidateExecutionClaim` | interface | Immutable signed identity stored for one execution attempt. |
+| `AgentCandidateExecutionClaimStore` | interface | Atomic one-shot store for candidate execution attempts. |
+| `AgentCandidateExecutionCleanupHandles` | interface | Non-secret identities a trusted recovery worker needs to close an abandoned attempt. |
+| `AgentCandidateExecutionLease` | interface | Secret capability required to finish the acquired attempt. |
+| `AgentCandidateExecutionRecoveryEvidence` | interface | Trusted, independently observed closure facts for one expired winning lease. |
+| `AgentCandidateExecutorFinalCapture` | interface | Replayable evaluator result captured only after process death and trace drain. |
+| `AgentCandidateExecutorMemoryCapture` | interface | Raw isolated-memory capture made only after access has been revoked. |
+| `AgentCandidateExecutorPort` | interface | Executes one prepared request inside an evaluator-owned isolation boundary. |
+| `AgentCandidateExecutorProfileFile` | interface | One exact profile file supplied to an evaluator-owned executor. |
+| `AgentCandidateExecutorRequest` | interface | One detached request passed to the trusted environment-specific executor. |
+| `AgentCandidateExecutorStopRequest` | interface | Opaque process identity used for termination without re-exposing launch credentials. |
+| `AgentCandidateModelGrantClient` | interface | Narrow transport contract for a service that owns scoped model credentials |
+| `AgentCandidateOutputArtifactPort` | interface | Durable content-addressed evidence store controlled only by the evaluator. |
+| `AgentCandidateRepositoryPort` | interface | Resolves a declared GitHub repository to an already-present local Git object store. |
+| `AgentCandidateTaskExecution` | interface | Runtime placement for one exact cell from a signed candidate experiment. |
+| `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
+| `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
+| `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
+| `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
+| `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |
+| `AgentCandidateExecutionClaimResult` | type | Result of atomically claiming one execution attempt. |
+| `AgentCandidateExecutionFailureClass` | type | Only the first class is retryable, and only when the closed model ledger has zero calls. |
+| `AgentCandidateExecutionFinishResult` | type | Result of atomically recording an attempt's terminal facts. |
+| `AgentCandidateExecutionPhase` | type | Monotonic durable phase: the second value means candidate code could have started. |
+| `AgentCandidateExecutionPhaseResult` | type | Result of crossing the irreversible candidate-may-run boundary. |
+| `AgentCandidateExecutionStageResult` | type | Result of durably staging the one immutable terminal outbox entry. |
+| `AgentCandidateExecutionTerminalRecord` | type | Durable terminal record for one acquired execution attempt. |
+| `AgentCandidateExecutionTerminalResult` | type | Evaluator-owned terminal facts staged durably before the terminal CAS. |
+| `AgentCandidateExecutorTaskOutcomeCapture` | type | Raw evaluator capture made only after the candidate process is dead. |
+| `AgentCandidateModelGrantReservation` | type | Secret-free response from the service's reservation endpoint. |
+| `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
+| `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
+| `VerifiedAgentCandidateTaskOutcome` | type | Branded task outcome that has survived independent evaluator verification. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateContainerPort`, `AgentCandidateExecutionAttemptRef`, `AgentCandidateExecutionPorts`, `AgentCandidateExecutorWorkspaceFile`, `AgentCandidateExecutorWorkspaceInput`, `AgentCandidateMemoryPort`, `AgentCandidateMemoryResetResult`, `AgentCandidateModelPort`, `AgentCandidatePreparationEvidence`, `AgentCandidateProtectedModelActivation`, `AgentCandidateProtectedModelReservation`, `AgentCandidateProtectedModelSettlement`, `AgentCandidateProtectedRunCapture`, `AgentCandidateVerificationPorts`, `AgentCandidateWorkspaceArchiveLimits`, `CanonicalCandidateDocument`, `CaptureAgentCandidateWorkspaceOptions`, `CapturedAgentCandidateWorkspace`, `CreateAgentCandidateWorkspacePortOptions`, `CreateProtectedAgentCandidateModelPortOptions`, `DisposePreparedAgentCandidateOptions`, `ExecutePreparedAgentCandidateOptions`, `FileAgentCandidateExecutionClaimStoreOptions`, `PrepareAgentCandidateExecutionOptions`, `PreparedAgentCandidateExecution`, `PreparedAgentCandidateInstruction`, `PreparedAgentCandidateLaunch`, `PreparedAgentCandidateTrace`, `RecoverExpiredAgentCandidateOptions`, `ResolvedAgentCandidateContainer`, `VerifiedAgentCandidate`, `AgentCandidateModelGrantActivateInput`, `AgentCandidateModelGrantReserveInput`, `AgentCandidateModelGrantSettleInput`, `AgentCandidateOutputPurpose`, `AgentCandidateRetryRejection`, `AgentCandidateRunFinalization`.
+
+### Testing fixtures — validated Runtime wire records
+
+Import from `@tangle-network/agent-runtime/testing` — 1 export.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `loadAgentImprovementProposalFixture` | function | Load an isolated, production-validated Runtime proposal for consumer tests. |
+
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 186 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 192 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `buildDelegationTraceSpans` | function | Derive the compact span tree for ONE loop run from its buffered |
 | `capDelegationTrace` | function | Enforce the trace caps over an ordered (oldest-first) span list. Drops the |
-| `captureWorktreeDiff` | function | Stage all changes in a worktree and return the diff patch + shortstat against the base ref. |
+| `captureWorktreeDiff` | function | Stage worker changes and return the diff + shortstat, excluding declared input paths. |
 | `coderTaskFromArgs` | function | Canonical `DelegateCodeArgs` → `CoderTask` mapping — the single source for |
 | `composeLoopTraceEmitters` | function | Fan one `LoopTraceEvent` stream into several emitters — e.g. the |
 | `createCoordinationTools` | function | Build the driver's MCP tools over a live scope. |
@@ -895,11 +1058,12 @@ Import from `@tangle-network/agent-runtime/mcp` — 186 exports.
 | `makeCheckRunner` | function | Build a `run_analyst` runner over a kind directory. |
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
+| `parseCodexTokenUsage` | function | Parse and validate the one terminal usage event emitted by `codex exec --json`. |
 | `parseDetachedSessionRef` | function | Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input. |
 | `parseMemoryItems` | function | Coerce an untrusted JSON array into validated `MemoryItem` rows. |
 | `readMemoryItemsFile` | function | Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line). |
 | `readTraceContextFromEnv` | function | Read trace context from the process environment. |
-| `removeWorktree` | function | Remove a git worktree and delete its branch; tolerates already-removed paths. |
+| `removeWorktree` | function | Remove a git worktree and delete its branch. Already-removed paths are harmless; every other |
 | `renderTrace` | function | Render a worker's trace (tool calls + results) into the text an analyst lens reads. Generic over |
 | `resolveMemoryFromEnv` | function | Resolve the bin's memory from `AGENT_MEMORY_FILE` (durable store) and/or |
 | `runCheck` | function | Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval |
@@ -934,6 +1098,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 186 exports.
 | `MEMORY_ITEMS_ENV` | const | Env var carrying inline JSON `MemoryItem` rows (win over file rows on id). |
 | `MEMORY_LOG_ENV` | const | Env var naming the JSONL retrieval log (one row per `memory_search`). |
 | `MEMORY_NAME_ENV` | const | Env var overriding the served display name (default 'agent-memory'). |
+| `CodexExecutionDiagnosticError` | class | Thrown when reproducible Codex exits without one valid terminal usage event. |
 | `DelegationPersistenceError` | class | A delegation-store read or write failed (filesystem error, store |
 | `DelegationStateCorruptError` | class | The persisted delegation state exists but cannot be parsed into |
 | `DelegationTaskQueue` | class | In-process queue for async delegation tasks — submit, cancel, poll status, and read history. |
@@ -942,6 +1107,10 @@ Import from `@tangle-network/agent-runtime/mcp` — 186 exports.
 | `InMemoryFeedbackStore` | class | In-memory `FeedbackStore` — suitable for single-process use and tests. |
 | `AgentMemorySpec` | interface | The `memory` artifact payload — HOW a profile's memory is stored and served: |
 | `Check` | interface | One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is |
+| `CodexExecutionEvidence` | interface | Zero-model-call evidence for the exact Codex process about to run. |
+| `CodexExecutionFailureDiagnostic` | interface | Bounded, credential-redacted process context attached when reproducible Codex output fails |
+| `CodexExecutionPolicy` | interface | Isolation settings asserted before a reproducible Codex run is allowed to start. |
+| `CodexTokenUsage` | interface | Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event. |
 | `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool |
 | `DelegateArgs` | interface | Parsed `delegate` tool arguments. |
 | `DelegateCodeConfig` | interface | Minimal `CoderTask` overrides exposed over the MCP wire. The full |
@@ -954,7 +1123,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 186 exports.
 | `DriveTurnCapableBox` | interface | The box surface detached turns need. `SandboxInstance` |
 | `FleetHandle` | interface | Minimal `SandboxFleet` surface the fleet executor calls. Declared |
 | `MemoryItem` | interface | One row of agent memory: a crisp lesson/fact with provenance. |
-| `ResearchOutputShape` | interface | Loose shape of a research output over the wire — the substrate cannot |
+| `ResearchOutputShape` | interface | Provider-neutral research output carried over the MCP boundary. The MCP |
 | `ResolvedMemoryEnv` | interface | What the memory bin resolved from its environment. |
 | `SettledWorker` | interface | A worker the driver has drained via `await_event`. |
 | `TraceContext` | interface | Trace context propagation for MCP subprocess. |
@@ -977,7 +1146,7 @@ The scoring/measurement/judge substrate. **Do NOT re-implement a judge, an authe
 
 ### JUDGE — LLM-as-judge, panels, calibration
 
-Import from `@tangle-network/agent-eval` — 30 exports.
+Import from `@tangle-network/agent-eval` — 32 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -990,6 +1159,7 @@ Import from `@tangle-network/agent-eval` — 30 exports.
 | `createCustomJudge` | function | Create a custom judge with a fully custom prompt. |
 | `createDomainExpertJudge` | function | Create a domain expert judge with a configurable domain. |
 | `createIntentMatchJudge` | function | Factory: pin LLM options once, return a closure. |
+| `createReferenceEquivalenceJudge` | function | Build the campaign-native expected-answer judge. |
 | `createSemanticConceptJudge` | function | Factory: pin LLM options once, return a closure that accepts inputs. |
 | `ensembleJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` runs every panel |
 | `judgeFamily` | function | Classify a model id into its provider family. Strips a `@snapshot` suffix |
@@ -1000,6 +1170,7 @@ Import from `@tangle-network/agent-eval` — 30 exports.
 | `replayTraceThroughJudge` | function | Apply a judge function to every LLM span in a run and record the |
 | `runIntentMatchJudge` | function | Run the intent-match judge. Soft-fails to available=false on error. |
 | `runKeywordCoverageJudge` | function | Score expected concepts against an already-fetched HTML payload + any |
+| `runReferenceEquivalenceJudge` | function | Direct-call adapter over the campaign judge for product callers. |
 | `runSemanticConceptJudge` | function | Run the semantic concept judge. Soft-fails to available=false on |
 | `securityJudge` | function | Build a `SandboxJudgeSpec` that scores the harness output for security issues via a security scanner. |
 | `testJudge` | function | Build a `SandboxJudgeSpec` that scores the harness by its test-suite pass rate. |
@@ -1046,7 +1217,7 @@ Import from `@tangle-network/agent-eval` — 10 exports.
 
 ### STATISTICS — significance, intervals, effect size
 
-Import from `@tangle-network/agent-eval` — 49 exports.
+Import from `@tangle-network/agent-eval` — 51 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1069,6 +1240,7 @@ Import from `@tangle-network/agent-eval` — 49 exports.
 | `pairedEvalueSequence` | function | Run the paired e-value sequence over an in-order delta stream. |
 | `pairedMde` | function | Minimum detectable paired effect (standardised units) for a target paired |
 | `pairedRiskDifference` | function | Paired risk difference (the effect-size companion to {@link mcnemar}): the |
+| `pairedSignTest` | function | Exact one-sided sign test over paired differences. |
 | `pairedTTest` | function | Paired t-test — before/after measurements on the SAME items. |
 | `partialCredit` | function | Partial credit: returns 0-1 ratio of current toward target |
 | `passAtK` | function | Unbiased pass@k for code generation (Chen et al. 2021, "Evaluating Large |
@@ -1085,27 +1257,43 @@ Import from `@tangle-network/agent-eval` — 49 exports.
 | `ProportionInterval` | interface | A binomial proportion estimate with a confidence interval. |
 | `RiskDifferenceResult` | interface | A paired binary effect size (treatment rate − control rate) with a CI. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BootstrapOptions`, `BootstrapResult`, `CorpusAgreementOptions`, `CorpusAgreementPerDimension`, `CorpusAgreementReport`, `CorpusScoreRecord`, `EProcess`, `EProcessOptions`, `EProcessState`, `EProcessStep`, `PairedBootstrapOptions`, `PairedBootstrapResult`, `WeightedCompositeInput`, `WeightedCompositeResult`, `CliffsMagnitude`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BootstrapOptions`, `BootstrapResult`, `ClusterBootstrapInterval`, `CorpusAgreementOptions`, `CorpusAgreementPerDimension`, `CorpusAgreementReport`, `CorpusScoreRecord`, `EProcess`, `EProcessOptions`, `EProcessState`, `EProcessStep`, `PairedBootstrapOptions`, `PairedBootstrapResult`, `WeightedCompositeInput`, `WeightedCompositeResult`, `CliffsMagnitude`.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 261 exports.
+Import from `@tangle-network/agent-eval/campaign` — 397 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `aceProposer` | function | Append-only context engineering proposer: grows a skill playbook by appending generation-tagged lessons without merging or overwriting prior entries. |
+| `acquireSingleRunLock` | function | Acquire the lock or throw naming the live holder. A stale lock (holder pid |
+| `analyzeCrossSurfaceInteractions` | function | Build the complete cross-surface evidence matrix and derive all three frozen |
 | `applySkillPatch` | function | Apply a SkillOpt patch to a text surface. Ops apply in array order against |
+| `assertCampaignDesign` | function | Reject campaign designs whose denominator cannot be identified exactly. |
+| `assertCampaignSplitIdentity` | function | Refuse a campaign whose retained task identities contradict its split digest. |
+| `assertCodeSurfaceIdentity` | function | Validate the immutable identity shape; the owning executor verifies the Git objects and patch. |
+| `assertPolicyEditAuthorContextBudget` | function | Serialize once and fail before dispatch when author context exceeds its budget. |
 | `buildAnalystSurfaceDispatch` | function | Build the `dispatchWithSurface(surface, scenario, ctx)` the improvement loop |
 | `buildEvidenceVector` | function | The Evidence Bus. For each objective, pair candidate vs baseline by full |
 | `buildLoopProvenanceRecord` | function | Build the durable provenance record from a completed loop result. |
 | `callbackGovernor` | function | The LLM-supervisor slot: a governor whose `decide` defers to a caller-supplied |
 | `campaignBreakdown` | function | Per-candidate evidence a reflective/patch proposer grounds its next proposal |
-| `campaignMeanComposite` | function | Mean composite across a campaign: per cell, the mean of its judges' |
+| `campaignLineageStore` | function | Store a lineage through CampaignStorage. Appends use its compare-and-append |
+| `campaignMeanComposite` | function | Mean composite across a campaign: per cell, the mean of its finite, |
+| `campaignMeasurementDigest` | function | Digest the exact campaign fields that can affect a measured comparison. |
+| `campaignScenarioIdentity` | function | Redacted but independently verifiable identity of one complete scenario. |
+| `campaignSplitDigest` | function | Canonical identity of the exact scenario payloads and replicate count. |
+| `campaignSplitDigestFromIdentities` | function | Canonical split identity reconstructed from redacted scenario identities. |
+| `canonicalDigest` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `classifyUngroundedLiterals` | function | Scan revised artifact text for single-quoted single-word literals (the |
+| `codeSurfaceIdentityMaterial` | function | Canonical, location-independent identity of a finalized code candidate. |
 | `compareProposers` | function | Run a head-to-head lift benchmark across surface proposers on a shared holdout, returning per-proposer lift CIs and pairwise "who wins" verdicts. |
 | `composeGate` | function | Compose gates — all must `ship` for the composite to `ship`. First |
+| `compositeProposer` | function | Fan the population budget across N proposers and merge their candidates into |
 | `countSentenceEdits` | function | Sentence-level edit distance — count distinct add/remove ops between |
+| `createReferenceEquivalenceJudge` | function | Build the campaign-native expected-answer judge. |
+| `createRunCostLedger` | function | Open the durable spend account stored beside a logical run. |
 | `defaultProductionGate` | function | Opinionated production gate composing held-out significance, red-team, reward-hacking, and canary checks into a single `Gate.decide` decision. |
-| `defaultRenderDiff` | function | Default surface diff renderer: produces a unified baseline/winner text diff for prompt surfaces or a worktree-ref summary for code surfaces. |
 | `detectScale` | function | Detect the native scale of a set of scores: 0-100 when any magnitude clears |
 | `dimensionRegressions` | function | Per-critical-dimension regression guard. For each dimension, pair the |
 | `discoverEvalFixtures` | function | Walk `evalsDir` and return the relative name of every fixture directory (one containing an exact-case `PROMPT.md`). |
@@ -1117,7 +1305,7 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `fapoEscalationEntry` | function | Build a `ProposerEntry` that runs the full FAPO escalation policy (prompt → parameter → structural) as a single comparable optimizer entry. |
 | `fapoProposer` | function | Build a FAPO policy proposer from level-specific candidate generators. |
 | `fsCampaignStorage` | function | Node-filesystem storage — the default. Lazily requires `node:fs` so the |
-| `fsLineageStore` | function | JSONL-file store: append-only durability, snapshot via rewrite, `load` parses |
+| `fsLineageStore` | function | Filesystem convenience over the conflict-safe CampaignStorage implementation. |
 | `gepaParetoEntry` | function | GEPA with the Pareto frontier + combine-complementary-lessons. |
 | `gepaProposer` | function | GEPA reflective proposer: each generation reflects on the weakest scenarios and dimensions to produce targeted prompt rewrites, optionally combining Pareto-frontier parents. |
 | `gepaReflectionEntry` | function | GEPA, reflection-only (single-parent, no Pareto combine). |
@@ -1128,11 +1316,14 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `heuristicGovernor` | function | The reference deterministic policy an agent {@link Governor} can replace. |
 | `inMemoryCampaignStorage` | function | In-memory storage for filesystem-less runtimes. Artifacts + trace spans |
 | `isProposedCandidate` | function | Type guard: a proposal carrying its rationale vs a bare |
+| `isTransientTransportFailure` | function | True when the error text describes an infrastructure hiccup that should be |
 | `labelTrustRank` | function | Ordinal rank for a label-trust tier; absent ⇒ `unverified` (rank 0). |
 | `lineageNodeId` | function | Deterministic node id: a hash of the node's lineage + content + proposer. |
 | `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
+| `llmPolicyEditProposer` | function | LLM-backed PolicyEdit author. It reads only the current JSON surface, |
 | `loadEvalFixture` | function | Load ONE fixture by name: reads `PROMPT.md` (plus `EVAL.ts`/`EVAL.tsx` and `package.json` under |
 | `loadEvalFixtureScenarios` | function | Load fixtures (all discovered, or just `names`) as campaign `Scenario`s tagged `eval-fixture`. |
+| `loopProvenanceArgsFromResult` | function | One translation from a completed improvement loop into durable evidence. |
 | `loopProvenanceSpans` | function | Build the loop's OTLP-ingestable spans from a provenance record. One root |
 | `makePlaybackDispatch` | function | Adapt a `PlaybackDriver` into a `runProfileMatrix` dispatch. The artifact the |
 | `memLineageStore` | function | In-memory store (default; for tests and ephemeral runs). |
@@ -1140,6 +1331,7 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `neutralizationGate` | function | Composable placebo gate: ships only when the candidate's held-out lift is NOT |
 | `neutralizeText` | function | Blank every non-whitespace character to a 1-byte filler while preserving all |
 | `openAutoPr` | function | Open a GitHub PR for a gate-approved surface promotion, attaching the manifest hash, gate verdict, and diff as the PR body. |
+| `openSearchLedger` | function | Open a durable filesystem search ledger. Construction performs no I/O; the |
 | `pairHoldout` | function | Pair candidate vs baseline holdout observations by FULL cellId. `select` |
 | `parameterSweepProposer` | function | Config/parameter-level proposer for FAPO's middle escalation level. |
 | `paretoSignificanceGate` | function | Wrap the bus + a policy as a `Gate`. Plugs into the existing |
@@ -1149,47 +1341,71 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `planEvalFixtureRun` | function | Dry-run planner for a fixture campaign: loads the scenarios, delegates to `planCampaignRun`, |
 | `policyEditProposer` | function | `SurfaceProposer` that admission-checks typed analyst `PolicyEdit`s and applies each |
 | `powerPreflight` | function | Estimate the minimum detectable lift a paired-holdout improvement run can |
+| `projectPolicyEditHistory` | function | Projects scored history into the only fields a policy author may consume. |
 | `provenanceRecordPath` | function | Canonical durable paths under the run dir. |
 | `provenanceSpansPath` | function | Canonical path for the durable OTLP spans JSONL file under a loop run directory. |
 | `renderScoreboardMarkdown` | function | Render the scoreboard as a launch-readiness Markdown document — the literal |
+| `renderSurfaceDiff` | function | Canonical customer-visible description of the exact before/after surfaces. |
 | `resolveRunDir` | function | Resolve a campaign `runDir`. An absolute path is honored as-is (the caller |
-| `resolveWorktreePath` | function | Resolve a `CodeSurface`'s worktreeRef to a directory the measurement can |
+| `resolveWorktreePath` | function | Resolve a code candidate for evaluation only after verifying its immutable |
+| `rolloutArgumentDiff` | function | Deterministic per-field diff of call arguments between passing and failing |
 | `runCampaign` | function | Core campaign orchestrator: fan scenarios through dispatch, score with judges, aggregate bootstrap CIs, and persist reproducible `CampaignResult` records. |
 | `runEval` | function | Simplest evaluation preset: run scenarios through dispatch, score with judges, and return a `CampaignResult` — no optimizer, no gate, no PR. |
 | `runImprovementLoop` | function | Gated-promotion shell over `runOptimization`: scores the winner against the baseline on a holdout set, runs the release gate, and optionally opens a PR. |
 | `runLineage` | function | Drive a multi-track improvement DAG under an agent-managed governor. Seeds each |
 | `runLineageLoop` | function | Wire the {@link runLineage} DAG's `step`/`merge` seams to a real |
-| `runOptimization` | function | Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and promoting the top-scoring candidates to the next generation. |
+| `runOptimization` | function | Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and one global incumbent across generations. |
 | `runProfileMatrix` | function | Profile × scenario matrix runner: fan N agent profiles across M scenarios, project each cell to a validated `RunRecord` with real token usage, and enforce the backend-integrity guard before returning. |
 | `runSkillOpt` | function | SkillOpt sequential hill-climb: each epoch reflects on train-scenario weaknesses, proposes bounded patches, accepts the first patch that strictly improves the held-out composite, and anneals the edit  |
 | `scoreboardSummary` | function | Roll the per-requirement rows up into the launch headline counts. |
 | `scoreDiscrimination` | function | Rank scenarios by how well they DISCRIMINATE candidates. |
 | `scoreUserStory` | function | Score one story's produced state against its requirements. Thin wrapper over |
 | `selectDiscriminative` | function | Select the top-`k` most discriminative scenario ids for a holdout, EXCLUDING |
+| `selectPolicyEditAuthorRows` | function | Select a bounded, deterministic evidence slice for a PolicyEdit author. |
 | `sequentialDecide` | function | `SurfaceProposer.decide` adapter — stops the optimization loop the moment |
 | `sequentialPairedGate` | function | Anytime-valid sequential paired gate. Conforms to the existing `Gate` |
 | `skillOptEntry` | function | SkillOpt patch-mode hill-climb. Runs findings-BLIND: `runSkillOpt` owns its |
 | `skillOptProposer` | function | SkillOpt proposer: proposes bounded, anchored patch operations (add/delete/replace) on a skill document, conforming to both the patch-native `SkillOptProposer` and the generic `SurfaceProposer` interf |
-| `surfaceContentHash` | function | Stable sha256 (full hex) of a surface's effective text. Code surfaces hash |
-| `surfaceHash` | function | Short (16-char) sha256 fingerprint of a `MutableSurface`: hashes text content for prompt surfaces, or the worktree + base ref pair for code surfaces. |
+| `surfaceContentHash` | function | Full SHA-256 content identity for a prompt or finalized code surface. |
+| `surfaceHash` | function | Short loop key derived from the same content identity as provenance. |
 | `tangleTracesRoot` | function | The shared, out-of-repo root for campaign/benchmark run bundles. Keeping run |
 | `traceAnalystProposer` | function | Wrap agent-eval's trace-analyst registry as a SurfaceProposer (prompt-tier). |
 | `userStoryScoreboard` | function | Flatten story verdicts into the per-requirement scoreboard — the literal |
+| `validatePolicyEditCandidateRecord` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `validateSearchLedgerEvent` | function | Validate and return a canonical copy. Arrays whose order is not semantic are |
+| `verifyCodeSurface` | function | Verify a finalized code surface against its current checkout. This rejects |
+| `verifyLoopProvenanceRecord` | function | Recompute and validate the self-addressed durable record. |
+| `DEFAULT_POLICY_EDIT_HISTORY_LIMITS` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `paretoPolicy` | const | The default strategy: symmetric multi-objective Pareto significance. Ship iff |
+| `POLICY_EDIT_CANDIDATE_RECORD_SCHEMA` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `SEARCH_LEDGER_SCHEMA` | const | Durable append-only audit log for improvement searches. |
+| `FileSearchLedger` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `FsLabeledScenarioStore` | class | Filesystem `LabeledScenarioStore`: appends one JSONL file per source with provenance and |
 | `LabeledScenarioStoreError` | class | Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. |
-| `Lineage` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `Lineage` | class | Deterministic improvement-candidate graph with mutation, merge, frontier, and persistence helpers. |
+| `LineageStoreConflictError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, a profile whose model |
+| `SearchLedgerConflictError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `SearchLedgerError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `SearchLedgerIntegrityError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `SkillPatchParseError` | class | Parse + validate the patch response. Throws `SkillPatchParseError` when the |
 | `WorktreeAdapterError` | class | Typed failure from a `WorktreeAdapter` operation (create/finalize/discard) — wraps the underlying git error as `cause`. |
 | `AceProposerOptions` | interface | `aceProposer` — Agentic Context Engineering: an APPEND-MOSTLY curator, the |
 | `AnalystArtifact` | interface | The analyst's output for one scenario — the artifact the judge scores. |
 | `AnalystScenario` | interface | A labeled trace scenario: a FIXED trace corpus plus the failure modes a |
 | `CampaignArtifactWriter` | interface | Scoped artifact writer — `write(path, content)` lands under |
-| `CampaignCostMeter` | interface | Cell-scoped cost meter. NOTHING is captured automatically — |
+| `CampaignCostMeter` | interface | Cell-scoped paid-call entry point. The dispatch places every paid operation |
+| `CampaignScenarioIdentity` | interface | Redacted identity of a complete scenario payload retained in campaign results. |
 | `CampaignStorage` | interface | `CampaignStorage` — the filesystem seam `runCampaign` writes through |
 | `CampaignTraceWriter` | interface | Scoped trace writer handed to each dispatch — every span |
-| `CodeSurface` | interface | A tier-4 code surface — a candidate change to the agent's |
+| `CodeSurface` | interface | A tier-4 code surface — a finalized candidate change to the agent's |
+| `CompositeProposerOptions` | interface | `compositeProposer` — run N proposers TOGETHER on the same surface. |
+| `CrossSurfaceCandidate` | interface | Immutable identity for a single candidate or a materialized composition. |
+| `CrossSurfaceComponent` | interface | One independently proposed change on one caller-defined surface. |
+| `CrossSurfaceComponentEvidence` | interface | Per-component trace evidence captured during one task attempt. |
+| `CrossSurfaceInteractionPath` | interface | One deterministic growth path starting from a compatible two-surface seed. |
+| `CrossSurfaceSelectionPolicy` | interface | Predeclared candidate eligibility and composition policy. |
+| `CrossSurfaceTaskRow` | interface | Canonical per-task input row. Consumers may extend this interface with |
 | `DefaultProductionGateOptions` | interface | `defaultProductionGate` — composes the substrate's existing safety |
 | `DispatchContext` | interface | Context handed to every dispatch invocation. Scoped — every |
 | `EvolutionaryProposerOptions` | interface | `evolutionaryProposer` — adapts a stateless `Mutator` (population mutation: |
@@ -1203,6 +1419,7 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `JudgeScore` | interface | The canonical judge verdict shape — one declaration, shared by campaign |
 | `LabeledScenarioWrite` | interface | Required-provenance write. The store rejects writes that |
 | `LineageNode` | interface | Lineage DAG — a git-graph of improvement candidates. |
+| `LoopProvenanceCandidate` | interface | Loop provenance — the durable, queryable record of WHAT a self-improvement |
 | `LoopProvenanceRecord` | interface | The durable provenance record. Aligns to the hosted `EvalRunEvent` path but |
 | `MemoryCurationProposerOptions` | interface | `memoryCurationProposer` — a CURATOR `SurfaceProposer`, the complement to the |
 | `Mutator` | interface | Stateless surface mutation — given findings + current |
@@ -1213,12 +1430,18 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `PlaybackContext` | interface | Dispatch context plus the profile under test (which cheap model, etc.). |
 | `PlaybackDriver` | interface | Drives the real product through a story and returns the runtime event stream |
 | `PlaybackStep` | interface | One step of a user story — what the user does. The driver interprets |
+| `PolicyEditAuthorScenarioRow` | interface | One measured scenario row eligible for PolicyEdit author context. |
+| `PolicyEditCandidateRecord` | interface | JSON-safe attribution carried with a measured candidate and its scores. |
+| `PolicyEditFindingInput` | interface | Trace-derived findings must name the measured profile that produced them. |
 | `PolicyEditProposerOptions` | interface | `policyEditProposer` turns typed analyst policy edits into measured candidate |
 | `PowerPreflightOptions` | interface | Power preflight — "can this budget detect the effect you are hunting?" |
+| `PremeasuredOptimizationBaseline` | interface | `runOptimization` — the improvement loop body. Runs N generations: the |
+| `ProposalTrackContext` | interface | The lineage track that requested a proposal. |
 | `ProposeContext` | interface | Everything a proposer may read to plan the next |
 | `ProposedCandidate` | interface | A proposer output carrying the surface AND the WHY behind |
 | `ProposerEntry` | interface | What an optimizer produced: the surface it promoted + what it cost to get |
 | `RejectedEdit` | interface | A patch that was tried and not accepted — fed back to the model so it does |
+| `RolloutCall` | interface | One tool/action call observed in a rollout: a name plus its arguments. |
 | `RunCampaignOptions` | interface | `runCampaign` — Pass A substrate primitive. ONE function that orchestrates |
 | `RunEvalOptions` | interface | `runEval` — the simplest preset over `runCampaign`. No optimizer, no |
 | `RunLineageLoopSeed` | interface | A seed track: the initial surface + track identity. Unlike |
@@ -1227,17 +1450,25 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `ScenarioSignal` | interface | Per-scenario observation: the composite scores each candidate earned on it. |
 | `ScoreboardRow` | interface | One row of the launch scoreboard — story × requirement → PASS/FAIL. |
 | `ScoreboardSummary` | interface | Launch-readiness headline counts rolled up from the per-requirement rows. |
+| `ScoredRollout` | interface | A scored rollout: its calls plus the scalar outcome used to split pass/fail. |
+| `ScoredSurfaceOutcome` | interface | Exact measured state for the surface an optimizer is learning from. |
+| `SearchArtifactRef` | interface | Content-addressed artifact or receipt. Mutable paths are locators only; the |
+| `SearchSourceRef` | interface | Repository, dataset, or package source pinned to an immutable commit or |
+| `SearchSurfaceEvidence` | interface | Per-attempt proof that a declared candidate surface was or was not active, |
 | `SessionScript` | interface | One session within a multi-session journey. Dispatch is |
+| `SingleRunLockOptions` | interface | Single-run lock for evaluations that share one mutable environment. |
 | `SkillOptEvidence` | interface | Evidence the optimizer reflects on: where the current surface is weakest. |
 | `SkillPatch` | interface | A named, attributable bundle of ops the optimizer proposes as one edit. |
 | `SurfaceProposer` | interface | A surface-improvement strategy. Given the current best |
 | `SurfaceScore` | interface | The measured fitness of one surface — the value recorded on a DAG node. |
 | `TraceAnalystProposerOptions` | interface | `traceAnalystProposer` — wraps agent-eval's OWN trace-analyst engine |
+| `TransientFailureOptions` | interface | Transient-transport-failure classification for dispatch retry policies. |
 | `UserStory` | interface | A user story = a runnable product journey plus the requirements that define |
 | `UserStoryVerdict` | interface | A scored user story — the completion verdict plus its human title. |
-| `Worktree` | interface | VCS-pluggable worktree adapter. One improvement = one worktree, PR-like |
 | `AxisVerdict` | type | Per-axis verdict from the good-direction paired bootstrap. |
 | `CampaignTokenUsage` | type | Token usage accumulated for a cell. Aliased to the canonical `RunTokenUsage` |
+| `CostLedgerHandle` | type | Public callback surface for a shared cost ledger. |
+| `CrossSurfaceAttemptCompleteness` | type | Whether one candidate attempt produced a usable executable outcome. |
 | `DispatchFn` | type | One function: scenario + ctx → artifact. Dispatcher chooses |
 | `FapoOptimizationLevel` | type | FAPO (Fully Autonomous Prompt Optimization) is an orchestration policy, not |
 | `GateDecision` | type | Five-valued verdict taxonomy (MOSS-paper alignment). |
@@ -1254,7 +1485,7 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `SequentialDecision` | type | Anytime-valid sequential promotion gate — an e-process (betting |
 | `SkillPatchOp` | type | A single bounded edit against a skill surface. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcceptedEdit`, `ApplySkillPatchResult`, `AxisEvidence`, `BuildAnalystSurfaceDispatchOptions`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CampaignRunPlan`, `CampaignRunPlanCell`, `CompareProposersOptions`, `DimensionRegression`, `DiscriminationScore`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EvalFixture`, `EvalFixtureFile`, `EvalFixtureLoadOptions`, `EvalFixtureScenario`, `EvidenceVector`, `FailureModeRecallJudgeOptions`, `FapoAttributionSignals`, `FapoFailureCluster`, `FapoProposerOptions`, `FapoReviewInput`, `FapoReviewIssue`, `FapoReviewResult`, `FapoScopeContract`, `GateContext`, `GateResult`, `GenerationRecord`, `GepaProposerOptions`, `GitWorktreeAdapterOptions`, `Governor`, `GovernorContext`, `HeldOutGateOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `HeuristicGovernorOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LineageEdge`, `LineageGraph`, `LineageStore`, `LlmJudgeOptions`, `LoadEvalFixtureScenariosOptions`, `LoopProvenanceBackend`, `LoopProvenanceCandidate`, `NeutralizationGateOptions`, `OpenAutoPrResult`, `OptimizerConfig`, `ParameterCandidate`, `ParameterChange`, `ParameterSweepProposerOptions`, `ParetoSignificanceGateOptions`, `PlanCampaignRunOptions`, `PlanEvalFixtureRunOptions`, `PowerPreflight`, `ProfileSummary`, `PromotionObjective`, `ProposePatchesArgs`, `ProposerComparison`, `ProposerPairwise`, `ProposerScore`, `RunImprovementLoopResult`, `RunLineageLoopOptions`, `RunLineageLoopResult`, `RunLineageOptions`, `RunLineageResult`, `RunLineageSeed`, `RunLineageStepResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunSkillOptResult`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SkillOptEpochRecord`, `SkillOptProposer`, `SkillOptProposerOptions`, `SkillPatchRejection`, `TraceSpan`, `WorktreeAdapter`, `EvalFixtureRunPlan`, `EvalFixtureValidationMode`, `GovernorOp`, `JsonPrimitive`, `JsonValue`, `RedactionStatus`, `RunOptimizationOptions`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcceptedEdit`, `AnalyzeCrossSurfaceInteractionsInput`, `ApplySkillPatchResult`, `AxisEvidence`, `BuildAnalystSurfaceDispatchOptions`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CampaignRunPlan`, `CampaignRunPlanCell`, `CodeSurfaceVerification`, `CompareProposersOptions`, `CrossSurfaceAdditionDecision`, `CrossSurfaceBestSingleSelection`, `CrossSurfaceBootstrapPolicy`, `CrossSurfaceCandidateComparison`, `CrossSurfaceCandidateEvidence`, `CrossSurfaceCandidateOutcome`, `CrossSurfaceCandidateSummary`, `CrossSurfaceCompositionStep`, `CrossSurfaceDistribution`, `CrossSurfaceEligibility`, `CrossSurfaceEvidenceBreakdown`, `CrossSurfaceInteractionAwareSelection`, `CrossSurfaceInteractionEffect`, `CrossSurfaceInteractionReport`, `CrossSurfaceInteractionTask`, `CrossSurfaceNaiveStackSelection`, `CrossSurfacePairCompatibility`, `CrossSurfacePairEvidence`, `CrossSurfacePairwiseEntry`, `CrossSurfaceRankedSingle`, `CrossSurfaceRelativeCost`, `CrossSurfaceSelections`, `DimensionRegression`, `DiscriminationScore`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EvalFixture`, `EvalFixtureFile`, `EvalFixtureLoadOptions`, `EvalFixtureScenario`, `EvidenceVector`, `FailureModeRecallJudgeOptions`, `FapoAttributionSignals`, `FapoFailureCluster`, `FapoProposerOptions`, `FapoReviewInput`, `FapoReviewIssue`, `FapoReviewResult`, `FapoScopeContract`, `GateContext`, `GateResult`, `GenerationRecord`, `GepaProposerOptions`, `GitWorktreeAdapterOptions`, `Governor`, `GovernorContext`, `HeldOutGateOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `HeuristicGovernorOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LineageEdge`, `LineageGraph`, `LineageStore`, `LlmJudgeOptions`, `LlmPolicyEditProposerOptions`, `LoadEvalFixtureScenariosOptions`, `LoopProvenanceArgsFromResult`, `LoopProvenanceBackend`, `LoopProvenanceEvidence`, `NeutralizationGateOptions`, `OpenAutoPrResult`, `OpenSearchLedgerOptions`, `OptimizerConfig`, `ParameterCandidate`, `ParameterChange`, `ParameterSweepProposerOptions`, `ParetoSignificanceGateOptions`, `PendingCostCallView`, `PlanCampaignRunOptions`, `PlanEvalFixtureRunOptions`, `PolicyEditCandidateSummary`, `PolicyEditHistoryCandidateContext`, `PolicyEditHistoryGenerationContext`, `PolicyEditHistoryProjectionOptions`, `PolicyEditObjective`, `PolicyEditOutcomeContext`, `PowerPreflight`, `ProfileSummary`, `PromotionObjective`, `ProposePatchesArgs`, `ProposerComparison`, `ProposerPairwise`, `ProposerScore`, `ReferenceEquivalenceJudgeOptions`, `ReferenceEquivalenceScenario`, `RolloutArgumentDiff`, `RolloutArgumentDiffOptions`, `RunImprovementLoopResult`, `RunLineageLoopOptions`, `RunLineageLoopResult`, `RunLineageOptions`, `RunLineageResult`, `RunLineageSeed`, `RunLineageStepResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunSkillOptResult`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SearchAttemptAccounting`, `SearchCandidateDecidedEvent`, `SearchCandidateLineage`, `SearchCandidateRegisteredEvent`, `SearchCandidateSlot`, `SearchCandidateSlotClosedEvent`, `SearchCandidateSurface`, `SearchCompletedEvent`, `SearchFailureReason`, `SearchLedger`, `SearchLedgerAppendResult`, `SearchLedgerEntry`, `SearchLedgerReplay`, `SearchModelIdentity`, `SearchOperationRecordedEvent`, `SearchPlan`, `SearchPlannedEvent`, `SearchPlannedOperation`, `SearchPlannedTask`, `SearchTaskAttemptedEvent`, `SelectPolicyEditAuthorRowsOptions`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SerializedJsonBudget`, `SingleRunLock`, `SkillOptEpochRecord`, `SkillOptProposer`, `SkillOptProposerOptions`, `SkillPatchRejection`, `TraceSpan`, `UngroundedLiteralReport`, `Worktree`, `WorktreeAdapter`, `CrossSurfaceAdditionRejectionReason`, `CrossSurfaceIneligibilityReason`, `CrossSurfacePairIncompatibilityReason`, `EvalFixtureRunPlan`, `EvalFixtureValidationMode`, `GovernorOp`, `JsonPolicyEditTargetSurface`, `JsonPrimitive`, `JsonValue`, `PolicyEditFindingSource`, `RedactionStatus`, `RunOptimizationOptions`, `SearchAccountingAudit`, `SearchCostAccounting`, `SearchLedgerEvent`, `SearchLedgerHash`, `SearchOperationKind`, `SearchSurfaceEffect`, `SearchSurfaceKind`, `SearchTaskOutcome`, `SearchTokenAccounting`.
 
 ### TOKEN / USAGE — usage extraction + run-record usage types
 
@@ -1262,8 +1493,8 @@ Import from `@tangle-network/agent-eval` — 5 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `extractUsage` | function | Pull `{ input, output, cached? }` from a parsed chat-completions response |
+| `extractUsage` | function | Pull `{ input, output, cached?, cacheWrite? }` from a parsed response |
 | `extractUsageFromResponse` | function | Extract usage from an HTTP `Response` without consuming the caller's body: |
-| `extractUsageFromSse` | function | Sum token usage across an SSE response body. Each `data:` line is parsed and |
+| `extractUsageFromSse` | function | Extract token usage from a complete SSE response body using the shared SSE |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `LlmUsage`, `RunTokenUsage`.

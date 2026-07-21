@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createSupervisedKnowledgeUpdater,
+  formatSupervisedKnowledgeTask,
   knowledgeReadinessDeliverable,
   runSupervisedKnowledgeUpdate,
 } from '../src/knowledge'
@@ -71,11 +72,28 @@ describe('knowledge supervisor integration', () => {
 
     expect(result.applied).toBe(true)
     expect(result.metadata.root).toBe('/kb/candidate')
-    expect(captured?.task).toBe('candidate goal')
+    expect(captured?.task).toContain('Goal: candidate goal')
+    expect(captured?.task).toContain('Knowledge base root: /kb/candidate')
     expect(captured?.profile.name).toBe('knowledge-research-supervisor')
     expect(captured?.profile.systemPrompt).toContain(
       'Each researcher worker you spawn follows this contract',
     )
+  })
+
+  it('formats supervisor tasks with the KB root, findings, and metadata', () => {
+    const task = formatSupervisedKnowledgeTask({
+      root: '/kb/candidate',
+      goal: 'fill support gaps',
+      readinessTaskId: 'support-agent',
+      readinessSpecs: [{ id: 'refunds' }],
+      findings: [{ id: 'gap-1', message: 'missing refunds page' }],
+      metadata: { runId: 'run-1' },
+    })
+
+    expect(task).toContain('Knowledge base root: /kb/candidate')
+    expect(task).toContain('missing refunds page')
+    expect(task).toContain('"runId": "run-1"')
+    expect(task).toContain('Update files under the knowledge base root only')
   })
 
   it('reports a stopped supervisor as an unapplied KB update', async () => {

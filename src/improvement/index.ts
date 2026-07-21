@@ -2,21 +2,22 @@
  * `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
  * agent-eval's improvement loop.
  *
- * The ONE entry point for optimization is agent-eval's `selfImprove`
- * (`@tangle-network/agent-eval/contract`) — text/config surfaces, held-out gated,
- * with `analyzeGeneration` for analyst-fed reflection and `analyzeRuns` /
- * `fromOtelSpans` / `partitionRunsByAuthoringModel` for production intake +
- * cohorting. This module supplies only the one genuinely runtime-specific piece:
- * a CODE-surface `SurfaceProposer` you pass to `selfImprove` as `proposer`, which
- * mutates a git worktree via a pluggable `CandidateGenerator`:
- *   - `reflectiveGenerator`  — cheap, no sandbox, applies pre-drafted patches
+ * The public entry point is `improve()`, a profile-aware facade over agent-eval's
+ * `selfImprove`. This module also supplies the runtime-specific code candidate
+ * producer, which mutates an isolated git worktree via a pluggable
+ * `CandidateGenerator`:
+ *   - `reflectiveGenerator` — cheap, no sandbox, applies pre-drafted patches
  *   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
  *   - `driverLoopGenerator`  — the driver→worker atom: an LLM driver authors,
  *     observes, rates, and steers the harness sessions (default for tool/mcp)
  */
 
 export {
+  AGENTIC_PROFILE_RESOURCE_ROOT,
   type AgenticGeneratorOptions,
+  type AgenticGeneratorShotDisposition,
+  type AgenticGeneratorShotExecution,
+  type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
   defaultBuildPrompt,
@@ -42,8 +43,11 @@ export {
   toAnalystFindings,
 } from './findings'
 export {
+  type ImproveCodeOptions,
+  type ImprovementCandidate,
   type ImproveOptions,
   type ImproveResult,
+  type ImproveSkillsOptions,
   type ImproveSurface,
   improve,
 } from './improve'
@@ -51,6 +55,7 @@ export {
   type CandidateGenerator,
   type ImprovementDriverOptions,
   improvementDriver,
+  type ManagedImprovementDriver,
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
 export {
@@ -59,6 +64,11 @@ export {
   researchDriverNote,
   strategyAuthorMethod,
 } from './optimizer-prompt'
+export {
+  type ProfileDiffProposerContext,
+  type ProfileDiffProposerOptions,
+  profileDiffProposer,
+} from './profile-diff-proposer'
 export {
   type RawTraceDistillerOptions,
   rawTraceDistiller,

@@ -28,6 +28,11 @@ export {
   createOpenAICompatibleBackend,
   createSandboxPromptBackend,
 } from './backends'
+// ── Immutable candidate execution ─────────────────────────────────────
+// One verified bundle → one exact per-task plan → one protected run receipt.
+// This composes the shared profile materializer and agent-eval trace store;
+// benchmark adapters supply only environment-specific artifact/container ports.
+export * from './candidate-execution'
 export type {
   AuthSource,
   BackendCallPolicy,
@@ -171,11 +176,13 @@ export type {
   OtelExportConfig,
   OtelExporter,
   OtelSpan,
+  RuntimeEventOtelOptions,
 } from './otel-export'
 // ── OTEL export + trace propagation + eval-run provenance ────────────
 export {
   buildLoopOtelSpans,
   buildLoopSpanNodes,
+  buildRuntimeEventOtelSpans,
   createOtelExporter,
   exportEvalRuns,
   INTELLIGENCE_WIRE_VERSION,

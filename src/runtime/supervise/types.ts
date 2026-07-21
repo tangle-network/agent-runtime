@@ -209,6 +209,9 @@ export interface Budget {
 export interface Spend {
   iterations: number
   tokens: LoopTokenUsage
+  /** Dollar accounting is known unless explicitly false. A false value must not be treated as $0
+   *  when enforcing a dollar-denominated comparison or limit. */
+  usdKnown?: boolean
   usd: number
   ms: number
 }
@@ -408,8 +411,8 @@ export type SpawnEvent =
 
 /**
  * The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape).
- * `loadTree` replays the full ordered event list for resume/replay; `appendEvent` is
- * called only AFTER the event is observed-committed (never speculative).
+ * `loadTree` returns events for inspection and completed-settlement replay, not live process
+ * recovery; `appendEvent` runs only AFTER the event is observed-committed (never speculative).
  */
 export interface SpawnJournal {
   loadTree(root: NodeId): Promise<SpawnEvent[] | undefined>

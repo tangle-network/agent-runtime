@@ -1,31 +1,32 @@
 /**
  *
- * Tangle Intelligence — the DELIVERY half of the loop (pull-by-default).
+ * Tangle Intelligence — the RECEIVE half of the loop (pull-by-default).
  *
- * The sibling Observe layer (`./index`) sends traces UP to the plane. This
+ * The sibling Observe path (`./index`) sends run records UP to the plane. This
  * module pulls certified artifacts DOWN: it reads the tenant's promoted,
- * gate-certified profile from the deployed Intelligence plane and folds it into
- * the running agent's prompt — so an approved improvement actually reaches the
- * agent. This is "shipping intelligence to people's agents", pull-by-default;
- * the push/Gated-PR opt-in composes on top of this.
+ * gate-certified profile from the deployed Intelligence plane so an approved
+ * improvement actually reaches the running agent. The pull carries three things
+ * the plane already composes:
+ *   - the certified PROMPT surface + prompt-folding artifacts (delivered into the
+ *     system prompt via {@link composeCertifiedPrompt} — the promoted prompt);
+ *   - the typed profile DIFFS the plane has promoted, each with its held-out
+ *     provenance (surfaced as PROPOSALS — never auto-applied at runtime);
+ *   - the composed `agentProfile` those diffs fold to, for inspection.
  *
  * Pull contract (deployed plane): GET /v1/profiles/:target/composed →
- *   { target, generatedAt, promptSurface: {surface,surfaceHash,version,lift}|null,
- *     artifacts: { <artifactType>: [{path,content,contentHash,version,lift,promotedAt}] } }
+ *   { target, generatedAt,
+ *     promptSurface: {surface,surfaceHash,version,lift}|null,
+ *     artifacts: { <artifactType>: [{path,content,contentHash,version,lift,promotedAt}] },
+ *     capabilities: [{id,iface:{surface},binding:{path,content},provenance}],
+ *     agentProfileDiffs: [{diff, provenance:{version,lift,contentHash,promotedAt}}],
+ *     agentProfile: AgentProfile|null }
  * Auth: Bearer <apiKey> (the one TANGLE_API_KEY shared by router + sandbox +
  * intelligence), resolved to a tenant by platform-api's key-verify S2S contract.
- *
- *   import { withCertifiedDelivery } from '@tangle-network/agent-runtime/intelligence'
- *
- *   export const agent = withCertifiedDelivery(
- *     async (input, applied) => myAgent(input, { systemPrompt: applied.composePrompt(BASE) }),
- *     { project: 'support-agent', target: 'support-agent' },
- *   )
  *
  * @experimental
  */
 
-import { createIntelligenceClient, type IntelligenceConfig } from './index'
+import type { AgentProfile, AgentProfileDiff } from '@tangle-network/agent-interface'
 
 const defaultPlaneBaseUrl = 'https://intelligence.tangle.tools'
 const defaultRefreshMs = 300_000
@@ -50,6 +51,37 @@ export interface CertifiedPromptSurface {
   lift: string | null
 }
 
+/** The held-out provenance the plane's certify step stamps on a promoted diff.
+ *  `lift` is the held-out gate lift (e.g. "+3.1pp"), never a within-run claim. */
+export interface DiffProvenance {
+  version: number | null
+  lift: string | null
+  contentHash: string
+  promotedAt: string
+}
+
+/**
+ * A gate-certified profile diff the plane has already promoted, plus the
+ * held-out provenance it carries. This is the previously-DROPPED typed diff the
+ * composed endpoint returns; `withIntelligence` deserializes it and surfaces it
+ * as a PROPOSAL — a human, or the gated local `improve()` loop, turns a proposal
+ * into a shipped profile. It is NEVER auto-applied at runtime.
+ */
+export interface ProposedProfileDiff {
+  diff: AgentProfileDiff
+  provenance: DiffProvenance
+}
+
+/** The composed endpoint's per-capability summary — the narrow shape on the
+ *  wire (id + surface + path/content + provenance). Distinct from the richer
+ *  `CertifiedCapability` the capability resolver lowers a manifest into. */
+export interface CertifiedCapabilitySummary {
+  id: string
+  iface: { surface: string }
+  binding: { path: string | null; content: string }
+  provenance: DiffProvenance
+}
+
 /** The composed certified profile — exactly the shape the plane's
  *  `GET /v1/profiles/:target/composed` returns. */
 export interface CertifiedProfile {
@@ -57,6 +89,14 @@ export interface CertifiedProfile {
   generatedAt: string
   promptSurface: CertifiedPromptSurface | null
   artifacts: Record<string, CertifiedArtifact[]>
+  /** The typed profile diffs the plane has promoted, each with held-out
+   *  provenance. Surfaced as proposals; never auto-applied. Empty when none. */
+  agentProfileDiffs: ProposedProfileDiff[]
+  /** The composed capability summaries the plane returns. Empty when none. */
+  capabilities: CertifiedCapabilitySummary[]
+  /** The composed profile the promoted diffs fold to, for inspection. `null`
+   *  when no diffs are promoted. */
+  agentProfile: AgentProfile | null
 }
 
 /** Typed outcome for the pull — inspect `succeeded` before `value`. A 404
@@ -83,7 +123,9 @@ export interface PullCertifiedOptions {
 
 const defaultPullTimeoutMs = 10_000
 
-function resolvePlaneBaseUrl(baseUrl: string | undefined): string {
+/** Resolve the ONE Intelligence base URL — the single knob both the send and
+ *  receive paths derive from. Env fallback: `TANGLE_INTELLIGENCE_URL`. */
+export function resolveIntelligenceBaseUrl(baseUrl: string | undefined): string {
   if (baseUrl) return baseUrl.replace(/\/+$/, '')
   if (typeof process !== 'undefined' && process.env.TANGLE_INTELLIGENCE_URL) {
     return process.env.TANGLE_INTELLIGENCE_URL.replace(/\/+$/, '')
@@ -98,6 +140,50 @@ function resolveApiKey(apiKey: string | undefined): string {
   return ''
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+}
+
+function toDiffProvenance(value: unknown): DiffProvenance {
+  const p = asRecord(value)
+  return {
+    version: typeof p.version === 'number' ? p.version : null,
+    lift: typeof p.lift === 'string' ? p.lift : null,
+    contentHash: typeof p.contentHash === 'string' ? p.contentHash : '',
+    promotedAt: typeof p.promotedAt === 'string' ? p.promotedAt : '',
+  }
+}
+
+/**
+ * Deserialize the composed-endpoint response into a `CertifiedProfile`. The
+ * previously-dropped `agentProfileDiffs`/`capabilities`/`agentProfile` are read
+ * here so they round-trip to the consumer; a plane that has not yet promoted any
+ * diffs simply yields empty arrays / a null profile (fail-closed, never a crash).
+ */
+export function normalizeCertifiedProfile(raw: unknown): CertifiedProfile {
+  const r = asRecord(raw)
+  const promptSurface = r.promptSurface ? (r.promptSurface as CertifiedPromptSurface) : null
+  const artifacts = (r.artifacts as Record<string, CertifiedArtifact[]> | undefined) ?? {}
+  const agentProfileDiffs: ProposedProfileDiff[] = Array.isArray(r.agentProfileDiffs)
+    ? r.agentProfileDiffs.map((entry) => {
+        const e = asRecord(entry)
+        return { diff: e.diff as AgentProfileDiff, provenance: toDiffProvenance(e.provenance) }
+      })
+    : []
+  const capabilities: CertifiedCapabilitySummary[] = Array.isArray(r.capabilities)
+    ? (r.capabilities as CertifiedCapabilitySummary[])
+    : []
+  return {
+    target: typeof r.target === 'string' ? r.target : '',
+    generatedAt: typeof r.generatedAt === 'string' ? r.generatedAt : '',
+    promptSurface,
+    artifacts,
+    agentProfileDiffs,
+    capabilities,
+    agentProfile: (r.agentProfile as AgentProfile | null | undefined) ?? null,
+  }
+}
+
 /**
  * Pull the certified composed profile for a target. Fail-closed: a network
  * error or a non-2xx returns a typed `succeeded: false` (never throws), so a
@@ -109,7 +195,7 @@ export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOut
   if (!doFetch) return { succeeded: false, error: 'no fetch implementation available' }
   const apiKey = resolveApiKey(opts.apiKey)
   if (!apiKey) return { succeeded: false, error: 'no apiKey (set TANGLE_API_KEY or opts.apiKey)' }
-  const baseUrl = resolvePlaneBaseUrl(opts.baseUrl)
+  const baseUrl = resolveIntelligenceBaseUrl(opts.baseUrl)
   const url = `${baseUrl}/v1/profiles/${encodeURIComponent(opts.target)}/composed`
   let res: Response
   try {
@@ -139,7 +225,7 @@ export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOut
     }
   }
   try {
-    return { succeeded: true, value: (await res.json()) as CertifiedProfile }
+    return { succeeded: true, value: normalizeCertifiedProfile(await res.json()) }
   } catch (err) {
     return {
       succeeded: false,
@@ -162,9 +248,12 @@ export const promptFoldTypes = ['prompt-surface', 'skill', 'instructions'] as co
  * additions. Order is stable (prompt surface first, then artifact buckets in
  * `promptFoldTypes` order, then by path within a bucket) so the same profile
  * renders byte-identically each call. Returns `base` unchanged when there is no
- * usable certified content.
+ * usable certified content. Reads only the prompt-folding slice of a profile.
  */
-export function composeCertifiedPrompt(base: string, certified: CertifiedProfile | null): string {
+export function composeCertifiedPrompt(
+  base: string,
+  certified: Pick<CertifiedProfile, 'promptSurface' | 'artifacts'> | null,
+): string {
   if (!certified) return base
   const parts: string[] = []
   if (certified.promptSurface?.surface.trim()) parts.push(certified.promptSurface.surface.trim())
@@ -181,7 +270,7 @@ export function composeCertifiedPrompt(base: string, certified: CertifiedProfile
 /** A cached, self-refreshing source of a target's certified prompt additions —
  *  the prompt-only delivery lane for callers that assemble their OWN system
  *  prompt (product chat routes) rather than wrapping an agent fn. Same
- *  fail-closed semantics as {@link withCertifiedDelivery}: pulls at most every
+ *  fail-closed semantics as {@link pullCertified}: pulls at most every
  *  `refreshMs`, coalesces concurrent pulls, keeps the last-known profile on a
  *  failed/404 pull, never throws, never blocks past the pull timeout. */
 export interface CertifiedPromptSource {
@@ -204,8 +293,8 @@ export interface CertifiedPromptSourceOptions extends PullCertifiedOptions {
 /**
  * Create the cached certified-prompt source — the ONE module-scope-cache +
  * coalesced-refresh + keep-last-known implementation. Product wiring uses this
- * rather than hand-rolling the same lines around `pullCertified`, and
- * {@link withCertifiedDelivery} is built on it.
+ * rather than hand-rolling the same lines around `pullCertified`. The
+ * `withIntelligence` hook rides this same source for its prompt delivery.
  */
 export function createCertifiedPromptSource(
   opts: CertifiedPromptSourceOptions,
@@ -240,74 +329,4 @@ export function createCertifiedPromptSource(
       return composeCertifiedPrompt(base, certified)
     },
   }
-}
-
-/** What the delivery wrapper hands the agent each run. */
-export interface AppliedIntelligence {
-  /** The certified profile in effect (null when none promoted / pull failed —
-   *  fail-closed: the agent runs on its base surface). */
-  certified: CertifiedProfile | null
-  /** Fold the certified prompt surface into a base system prompt. */
-  composePrompt(base: string): string
-}
-
-/** An agent wrapped by {@link withCertifiedDelivery}: receives the input plus
- *  the certified intelligence delivered for this run. */
-export type DeliveredAgent<I, O> = (input: I, applied: AppliedIntelligence) => Promise<O>
-
-/** Delivery config = the Observe config plus the pull target + refresh cadence. */
-export interface DeliveryConfig extends IntelligenceConfig {
-  /** Pull target. Defaults to `project`. */
-  target?: string
-  /** Plane base URL for the pull (NOT the OTLP `endpoint`). Defaults to
-   *  `TANGLE_INTELLIGENCE_URL` then `https://intelligence.tangle.tools`. */
-  baseUrl?: string
-  /** Min interval between certified-profile pulls. Default 5m. */
-  refreshMs?: number
-  /** Per-pull timeout in ms (fail-closed on a hung plane). Default 10000. */
-  timeoutMs?: number
-  /** fetch impl for the pull (tests). Defaults to global fetch. */
-  fetchImpl?: typeof fetch
-}
-
-/**
- * Wrap an agent so it (a) Observes each run via the shipped Observe client and
- * (b) RECEIVES the tenant's certified artifacts pulled from the deployed plane.
- * The certified profile is cached and refreshed at most every `refreshMs`; a
- * failed pull is fail-closed — the agent runs on its base surface and never
- * breaks because Intelligence is unreachable. When the plane promotes a new
- * gate-certified surface, the next refresh delivers it to the running agent.
- */
-export function withCertifiedDelivery<I, O>(
-  agent: DeliveredAgent<I, O>,
-  config: DeliveryConfig,
-): ((input: I) => Promise<O>) & { refresh(): Promise<void> } {
-  const client = createIntelligenceClient(config)
-  const source = createCertifiedPromptSource({
-    target: config.target ?? config.project,
-    ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
-    ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
-    ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
-    ...(config.fetchImpl !== undefined ? { fetchImpl: config.fetchImpl } : {}),
-    ...(config.refreshMs !== undefined ? { refreshMs: config.refreshMs } : {}),
-  })
-
-  const wrapped = (async (input: I): Promise<O> => {
-    await source.refresh()
-    const certified = source.current()
-    const applied: AppliedIntelligence = {
-      certified,
-      composePrompt: (base: string) => composeCertifiedPrompt(base, certified),
-    }
-    return client.traceRun(
-      { input, labels: { 'tangle.certified_version': certified?.promptSurface?.version ?? -1 } },
-      async (trace) => {
-        const out = await agent(input, applied)
-        trace.recordOutput(out)
-        return out
-      },
-    )
-  }) as ((input: I) => Promise<O>) & { refresh(): Promise<void> }
-  wrapped.refresh = source.refresh
-  return wrapped
 }

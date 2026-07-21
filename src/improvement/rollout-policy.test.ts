@@ -198,9 +198,21 @@ async function policyAgent(
   _scenario: Scenario,
   ctx: DispatchContext,
 ): Promise<{ policy: StructuralRolloutPolicy | undefined }> {
-  ctx.cost.observe(0.0001, 'stub-agent')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return { policy: parseRolloutPolicy(String(surface)) }
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'stub-agent',
+    model: 'deterministic-test',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => ({ policy: parseRolloutPolicy(String(surface)) }),
+    receipt: () => ({
+      model: 'deterministic-test',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 const kJudge: JudgeConfig<{ policy: StructuralRolloutPolicy | undefined }, Scenario> = {
@@ -228,11 +240,12 @@ describe("improve() surface 'rollout-policy'", () => {
       budget: { generations: 1, populationSize: 4, holdoutFraction: 0.5 },
     })
 
-    expect(result.gateDecision).toBe('ship')
-    expect(result.shipped).toBe(true)
+    expect(result.decision).toBe('ship')
     expect(result.lift).toBeCloseTo(0.2, 5)
     // The k=7 neighbor won and was written back where the runtime reads it.
-    expect(structuralRolloutPolicyFromProfile(result.profile)).toEqual({
+    const candidateProfile = result.candidate.profile
+    if (!candidateProfile) throw new Error('expected a rollout-policy profile candidate')
+    expect(structuralRolloutPolicyFromProfile(candidateProfile)).toEqual({
       k: 7,
       repairRounds: 2,
       testgen: 6,
@@ -255,11 +268,10 @@ describe("improve() surface 'rollout-policy'", () => {
       budget: { generations: 1, populationSize: 4, holdoutFraction: 0.5 },
     })
 
-    // The proposer proposed nothing, so nothing could ship; the exact same
-    // profile object comes back (no fabricated extension, no dial changes).
-    expect(result.shipped).toBe(false)
-    expect(result.gateDecision).toBe('hold')
-    expect(result.profile).toBe(profile)
-    expect(structuralRolloutPolicyFromProfile(result.profile)).toBeUndefined()
+    // The proposer proposed nothing, so nothing could ship; the winning surface
+    // is the (empty) baseline, so no fabricated extension and no dial changes.
+    expect(result.decision).toBe('hold')
+    const heldProfile = result.candidate.profile ?? profile
+    expect(structuralRolloutPolicyFromProfile(heldProfile)).toBeUndefined()
   })
 })

@@ -20,12 +20,40 @@ export interface BenchTask {
   metadata?: Record<string, unknown>
 }
 
+export interface JudgeArtifactFileReceipt {
+  /** POSIX path relative to the capture directory. */
+  path: string
+  /** Exact byte length of the retained file or symbolic-link target. */
+  byteLength: number
+  /** SHA-256 over the retained file bytes or UTF-8 symbolic-link target. */
+  sha256: `sha256:${string}`
+  kind: 'file' | 'symlink'
+}
+
+/** Durable evidence written before a staged evaluator's temporary directory is removed. */
+export interface JudgeArtifactReceipt {
+  schema: 'agent-bench/judge-artifacts/v1'
+  /** Absolute directory containing `evaluator/`, `process/`, and `receipt.json`. */
+  directory: string
+  /** Exact copy of the evaluator working directory. */
+  evaluatorDirectory: string
+  manifestPath: string
+  evaluatorSucceeded: boolean
+  files: JudgeArtifactFileReceipt[]
+  fileCount: number
+  byteLength: number
+  /** SHA-256 over every sorted path, kind, byte length, and content hash. */
+  treeSha256: `sha256:${string}`
+}
+
 export interface BenchScore {
   /** Did the deterministic judge pass (tests resolved / state correct)? */
   resolved: boolean
   /** 0..1 — 1 = fully resolved; partial credit where the harness supports it. */
   score: number
   detail?: string
+  /** Present only when the caller explicitly requested durable judge evidence. */
+  judgeArtifacts?: JudgeArtifactReceipt
 }
 
 export interface LoadOptions {

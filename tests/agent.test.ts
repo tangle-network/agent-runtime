@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentManifestError,
   collectAgentRun,
@@ -9,11 +9,10 @@ import {
   unimplementedAgentRun,
 } from '../src/agent/define-agent'
 import {
-  createSurfaceImprovementAdapter,
+  createSurfaceImprovementProposer,
   type DraftPatchInput,
   type DraftPatchOutput,
 } from '../src/agent/improvement-adapter'
-import { measureOutcome } from '../src/agent/outcome'
 import { resolveSubjectPath, validateSurfaces } from '../src/agent/surfaces'
 
 // ── helpers ─────────────────────────────────────────────────────────
@@ -167,6 +166,14 @@ describe('resolveSubjectPath', () => {
     knowledge: '.agent-knowledge',
     personas: 'personas',
     rag: 'rag',
+    skills: 'skills',
+    mcp: 'mcp',
+    hooks: 'hooks',
+    subagents: 'agents',
+    workflows: 'workflows',
+    rolloutPolicy: 'rollout-policy.json',
+    agentProfile: 'agent-profile.json',
+    code: 'src',
   }
 
   it('routes system-prompt subject to <surfaces.systemPrompt>/<section>.md', () => {
@@ -195,6 +202,54 @@ describe('resolveSubjectPath', () => {
     expect(r?.repoRelativePath).toBe('tools/list_invoices/examples.md')
   })
 
+  it.each([
+    [{ kind: 'skill', name: 'linear-close' } as const, 'skills/linear-close/SKILL.md'],
+    [
+      { kind: 'mcp', server: 'linear', tool: 'update_issue' } as const,
+      'mcp/linear/update_issue.md',
+    ],
+    [{ kind: 'hook', name: 'pre-dispatch' } as const, 'hooks/pre-dispatch.md'],
+    [{ kind: 'subagent', name: 'reviewer' } as const, 'agents/reviewer.md'],
+    [{ kind: 'workflow', name: 'linear-task' } as const, 'workflows/linear-task.md'],
+    [{ kind: 'rollout-policy', field: 'k' } as const, 'rollout-policy.json'],
+    [{ kind: 'agent-profile', field: 'prompt.systemPrompt' } as const, 'agent-profile.json'],
+    [{ kind: 'code', path: 'workers/dispatch.ts' } as const, 'src/workers/dispatch.ts'],
+  ])('routes the %s finding to its declared surface', (subject, expected) => {
+    expect(resolveSubjectPath(subject, surfaces, tmpRoot)?.repoRelativePath).toBe(expected)
+  })
+
+  it('rejects a code finding that escapes its declared source root', () => {
+    expect(
+      resolveSubjectPath({ kind: 'code', path: '../../secrets.env' }, surfaces, tmpRoot),
+    ).toBeNull()
+  })
+
+  it('rejects raw-knowledge and RAG findings that escape their declared roots', () => {
+    expect(
+      resolveSubjectPath({ kind: 'knowledge.raw', sourceId: '../../secrets' }, surfaces, tmpRoot),
+    ).toBeNull()
+    expect(
+      resolveSubjectPath({ kind: 'rag', corpus: 'irs', docId: '../../secrets' }, surfaces, tmpRoot),
+    ).toBeNull()
+  })
+
+  it('rejects traversal in every profile surface derived from findings', () => {
+    const escaped = [
+      { kind: 'skill', name: '../secrets' } as const,
+      { kind: 'tool-doc', tool: '../secrets' } as const,
+      { kind: 'new-tool', name: '../secrets' } as const,
+      { kind: 'mcp', server: '../secrets' } as const,
+      { kind: 'mcp', server: 'safe', tool: '../../secrets' } as const,
+      { kind: 'hook', name: '../secrets' } as const,
+      { kind: 'subagent', name: '../secrets' } as const,
+      { kind: 'workflow', name: '../secrets' } as const,
+      { kind: 'rag', corpus: '../../secrets', docId: 'entry' } as const,
+    ]
+    for (const subject of escaped) {
+      expect(resolveSubjectPath(subject, surfaces, tmpRoot)).toBeNull()
+    }
+  })
+
   it('returns null when subject targets an undeclared optional surface', () => {
     const noRag = { ...surfaces, rag: undefined }
     const r = resolveSubjectPath({ kind: 'rag', corpus: 'irs', docId: 'foo' }, noRag, tmpRoot)
@@ -216,9 +271,9 @@ describe('resolveSubjectPath', () => {
   })
 })
 
-// ── createSurfaceImprovementAdapter — proposeFromFindings ───────────
+// ── createSurfaceImprovementProposer — proposeFromFindings ───────────
 
-describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
+describe('createSurfaceImprovementProposer — proposeFromFindings', () => {
   const baseSurfaces = {
     systemPrompt: 'prompts',
     tools: 'tools',
@@ -247,7 +302,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
 
   it('proposes an edit when subject + surface resolve cleanly', async () => {
     const { fn, calls } = mkDraft()
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: fn,
@@ -264,7 +319,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
 
   it('records an error when subject does not parse', async () => {
     const { fn } = mkDraft()
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: fn,
@@ -277,7 +332,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
 
   it('skips findings without a subject (descriptive findings)', async () => {
     const { fn } = mkDraft()
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: fn,
@@ -290,7 +345,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
 
   it('skips cluster findings (failure-mode evidence)', async () => {
     const { fn } = mkDraft()
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: fn,
@@ -300,9 +355,9 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
     expect(skipped).toBe(1)
   })
 
-  it('skips agent-knowledge:* subjects (they route to the KnowledgeAdapter)', async () => {
+  it('skips agent-knowledge:* subjects (they route to the KnowledgeProposalSource)', async () => {
     const { fn } = mkDraft()
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: fn,
@@ -316,7 +371,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
 
   it('records an error when subject targets an undeclared surface', async () => {
     const { fn } = mkDraft()
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces, // no `rag` declared
       repoRoot: tmpRoot,
       draftPatch: fn,
@@ -331,7 +386,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
 
   it('records an error when target does not exist for a non-create kind', async () => {
     const { fn } = mkDraft()
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: fn,
@@ -345,9 +400,9 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
     expect(errors[0]!.message).toMatch(/does not exist/)
   })
 
-  it('passes baseSha256 of current content so apply can race-check', async () => {
+  it('binds each patch to the source content for later activation checks', async () => {
     const { fn } = mkDraft()
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: fn,
@@ -357,7 +412,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
   })
 
   it('records an error when draftPatch throws (no silent skip)', async () => {
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: async () => {
@@ -370,7 +425,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
   })
 
   it('skips when draftPatch returns an empty patch', async () => {
-    const adapter = createSurfaceImprovementAdapter({
+    const adapter = createSurfaceImprovementProposer({
       surfaces: baseSurfaces,
       repoRoot: tmpRoot,
       draftPatch: async () => ({ patch: '', summary: 'no-op', rationale: '' }),
@@ -378,156 +433,6 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
     const { edits, skipped } = await adapter.proposeFromFindings([f('np', 'system-prompt:intake')])
     expect(edits).toEqual([])
     expect(skipped).toBe(1)
-  })
-})
-
-// ── createSurfaceImprovementAdapter — apply (mode=none) ─────────────
-
-describe('createSurfaceImprovementAdapter — apply', () => {
-  const surfaces = {
-    systemPrompt: 'prompts',
-    tools: 'tools',
-    rubric: 'rubric.ts',
-    knowledge: '.agent-knowledge',
-    personas: 'personas',
-  }
-
-  it('mode=none returns a warning and applies nothing', async () => {
-    const adapter = createSurfaceImprovementAdapter({
-      surfaces,
-      repoRoot: tmpRoot,
-      draftPatch: async () => ({ patch: 'x', summary: 'y', rationale: 'z' }),
-      mode: 'none',
-    })
-    const r = await adapter.apply!([])
-    expect(r.applied).toEqual([])
-    expect(r.warnings.join(' ')).toMatch(/mode=none/)
-  })
-
-  it('mode=open-pr without ghRepo fails loud (no silent fallback)', async () => {
-    const adapter = createSurfaceImprovementAdapter({
-      surfaces,
-      repoRoot: tmpRoot,
-      draftPatch: async () => ({ patch: 'x', summary: 'y', rationale: 'z' }),
-      mode: 'open-pr',
-    })
-    const r = await adapter.apply!([])
-    expect(r.applied).toEqual([])
-    expect(r.warnings.join(' ')).toMatch(/requires `ghRepo`/)
-  })
-})
-
-// ── outcome.measureOutcome ──────────────────────────────────────────
-
-describe('measureOutcome', () => {
-  it('returns a zero-delta outcome when nothing was applied', async () => {
-    const reRun = vi.fn(async () => [{ personaId: 'p1', composite: 0.9 }])
-    const enriched = await measureOutcome(
-      {
-        runId: 'r',
-        baselineRunId: null,
-        analystResult: {
-          run_id: 'r',
-          correlation_id: 'c',
-          started_at: '',
-          ended_at: '',
-          findings: [],
-          per_analyst: [],
-          total_cost_usd: 0,
-        },
-        diff: null,
-        knowledge: null,
-        improvement: null,
-      },
-      {
-        baseline: [{ personaId: 'p1', composite: 0.7 }],
-        reRunCohort: reRun,
-      },
-    )
-    expect(enriched.outcome.delta).toBe(0)
-    expect(reRun).not.toHaveBeenCalled()
-  })
-
-  it('re-runs the cohort and computes the score delta when applies occurred', async () => {
-    const reRun = vi.fn(async () => [
-      { personaId: 'p1', composite: 0.85 },
-      { personaId: 'p2', composite: 0.95 },
-    ])
-    const enriched = await measureOutcome(
-      {
-        runId: 'r',
-        baselineRunId: null,
-        analystResult: {
-          run_id: 'r',
-          correlation_id: 'c',
-          started_at: '',
-          ended_at: '',
-          findings: [],
-          per_analyst: [],
-          total_cost_usd: 0,
-        },
-        diff: null,
-        knowledge: {
-          proposals: [],
-          applied: ['knowledge/foo.md'],
-          skipped: 0,
-          errors: [],
-          withheld_for_review: 0,
-        },
-        improvement: null,
-      },
-      {
-        baseline: [
-          { personaId: 'p1', composite: 0.7 },
-          { personaId: 'p2', composite: 0.8 },
-        ],
-        reRunCohort: reRun,
-      },
-    )
-    expect(reRun).toHaveBeenCalledOnce()
-    expect(enriched.outcome.baselineComposite).toBeCloseTo(0.75)
-    expect(enriched.outcome.afterComposite).toBeCloseTo(0.9)
-    expect(enriched.outcome.delta).toBeCloseTo(0.15)
-    expect(enriched.outcome.perPersona).toHaveLength(2)
-    expect(enriched.outcome.rolledBackPaths).toEqual([])
-  })
-
-  it('rolls back applied paths on regression when rollbackOnRegression is set', async () => {
-    const reRun = async () => [{ personaId: 'p1', composite: 0.5 }]
-    const revert = vi.fn(async () => {})
-    const enriched = await measureOutcome(
-      {
-        runId: 'r',
-        baselineRunId: null,
-        analystResult: {
-          run_id: 'r',
-          correlation_id: 'c',
-          started_at: '',
-          ended_at: '',
-          findings: [],
-          per_analyst: [],
-          total_cost_usd: 0,
-        },
-        diff: null,
-        knowledge: {
-          proposals: [],
-          applied: ['knowledge/foo.md'],
-          skipped: 0,
-          errors: [],
-          withheld_for_review: 0,
-        },
-        improvement: null,
-      },
-      {
-        baseline: [{ personaId: 'p1', composite: 0.8 }],
-        reRunCohort: reRun,
-        rollbackOnRegression: true,
-        revert,
-      },
-    )
-    expect(enriched.outcome.delta).toBeLessThan(0)
-    expect(revert).toHaveBeenCalledWith(['knowledge/foo.md'])
-    expect(enriched.outcome.rolledBackPaths).toEqual(['knowledge/foo.md'])
   })
 })
 
@@ -575,6 +480,25 @@ describe('validateSurfaces', () => {
     )
     expect(flagged).toHaveLength(1)
     expect(flagged[0]!.surface).toBe('rag')
+  })
+
+  it('distinguishes files from directories instead of treating existence as valid', () => {
+    writeFileSync(join(tmpRoot, 'not-a-directory'), 'file\n')
+    mkdirSync(join(tmpRoot, 'not-a-file'))
+    const issues = validateSurfaces(
+      {
+        systemPrompt: 'prompts',
+        tools: 'not-a-directory',
+        rubric: 'not-a-file',
+        knowledge: '.agent-knowledge',
+        personas: 'personas',
+      },
+      tmpRoot,
+    )
+    expect(issues).toEqual([
+      { surface: 'tools', path: 'not-a-directory', reason: 'not-directory' },
+      { surface: 'rubric', path: 'not-a-file', reason: 'not-file' },
+    ])
   })
 })
 

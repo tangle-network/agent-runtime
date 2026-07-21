@@ -89,8 +89,20 @@ export {
   type FactJudgeVerdict,
   type KbGateResult,
 } from './kb-gate'
-export type { LocalHarness, LocalHarnessResult, RunLocalHarnessOptions } from './local-harness'
-export { runLocalHarness } from './local-harness'
+export type {
+  CodexExecutionEvidence,
+  CodexExecutionFailureDiagnostic,
+  CodexExecutionPolicy,
+  CodexTokenUsage,
+  LocalHarness,
+  LocalHarnessResult,
+  RunLocalHarnessOptions,
+} from './local-harness'
+export {
+  CodexExecutionDiagnosticError,
+  parseCodexTokenUsage,
+  runLocalHarness,
+} from './local-harness'
 export {
   type AgentMemorySpec,
   type CreateMemoryToolServerOptions,

@@ -70,9 +70,21 @@ async function promptAgent(
   _scenario: ProfileScenario,
   ctx: DispatchContext,
 ): Promise<{ prompt: string }> {
-  ctx.cost.observe(0.0001, 'profile-stack-test')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return { prompt: String(surface) }
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'profile-stack-test',
+    model: 'deterministic-test',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => ({ prompt: String(surface) }),
+    receipt: () => ({
+      model: 'deterministic-test',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 interface LoopTask {
@@ -164,7 +176,7 @@ describe('profile improvement stack — agent-eval optimizer plus runtime loop',
     expect(typeof runImprovementLoop).toBe('function')
   })
 
-  it('promotes a profile surface through improve(), then runs the promoted profile through loopUntil()', async () => {
+  it('runs a detached profile candidate through loopUntil()', async () => {
     const improved = await improve(baseProfile(), [{ failure: 'single draft gets stuck' }], {
       surface: 'prompt',
       scenarios,
@@ -174,13 +186,16 @@ describe('profile improvement stack — agent-eval optimizer plus runtime loop',
       budget: { generations: 1, populationSize: 1, reps: 3, holdoutFraction: 0.5 },
     })
 
-    expect(improved.shipped).toBe(true)
-    expect(improved.profile.prompt?.systemPrompt).toContain('REPAIR_ON_FAILURE')
+    expect(improved.decision).toBe('ship')
+    const candidateProfile = improved.candidate.profile
+    if (!candidateProfile) throw new Error('expected a profile candidate')
+    expect(candidateProfile.prompt?.systemPrompt).toContain('REPAIR_ON_FAILURE')
+    expect(baseProfile().prompt?.systemPrompt).not.toContain('REPAIR_ON_FAILURE')
 
     const seen: SpawnSeen[] = []
     const persona = definePersona<LoopDeliverable>({
       name: 'profile-loop-proof',
-      root: { profile: improved.profile, harness: null },
+      root: { profile: candidateProfile, harness: null },
       directive: 'Run the authored incident-response profile until the issue is fixed.',
       context: { role: 'incident responder' },
       executors: { registry: profileAwareRegistry(seen) },

@@ -275,6 +275,7 @@ function addNodeSpend(a: Spend, b: Spend): Spend {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
     usd: a.usd + b.usd,
+    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
 }
@@ -284,6 +285,7 @@ function cloneSpend(spend: Spend): Spend {
     iterations: spend.iterations,
     tokens: { input: spend.tokens.input, output: spend.tokens.output },
     usd: spend.usd,
+    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
     ms: spend.ms,
   }
 }
@@ -293,6 +295,7 @@ function addSpend(acc: Spend, delta: Spend): void {
   acc.iterations += delta.iterations
   addTokenUsage(acc.tokens, delta.tokens)
   acc.usd += delta.usd
+  if (delta.usdKnown === false) acc.usdKnown = false
   acc.ms += delta.ms
 }
 
