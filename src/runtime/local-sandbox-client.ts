@@ -4,24 +4,27 @@
  * processes (`materializeLocalMcp`) and whose `streamPrompt` drives a real
  * tool loop (`runBrainLoop` over the router brain) with those live tools.
  *
- * This is the backend between `inlineSandboxClient` (off-box, ZERO tools) and
- * a real sandbox (in-box, remote): a locally-BUILT MCP server (its cwd is a
- * host worktree) is unreachable from a remote box and invisible to the
- * one-shot inline executors — here it is spawned next to the worker and its
- * tools are live for the whole session. `delete()` kills the children.
+ * Despite the interface name, this does NOT isolate processes. It is only for
+ * author-controlled profiles whose local MCP commands a caller explicitly
+ * trusts; user- or model-authored code belongs in a real sandbox. `delete()`
+ * kills the children.
  *
- * The profile arrives per-create on `options.backend.profile` — exactly what
- * the kernel's `createSandboxForSpec` sets via `buildBackendOptions` — so the
- * same client materializes a different candidate profile per box. The
- * profile's prompt surface (systemPrompt + instructions) becomes the system
- * message, so BOTH optimizable surfaces are live here.
+ * A per-create profile may change the prompt surface. Permission to start a
+ * local MCP process applies only when its full canonical bytes match the fixed
+ * constructor profile; a different generated profile is refused.
  *
  * Event protocol matches `inlineSandboxClient`: one `llm_call` metering event
  * + one terminal `result` event with finalText/tokenUsage/costUsd.
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type AgentProfileSecurityPolicy,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { ValidationError } from '../errors'
+import type { KeyProvider } from './key-provider'
 import { routerBrain } from './router-client'
 import { materializeLocalMcp } from './stdio-mcp-client'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
@@ -36,20 +39,44 @@ export interface LocalSandboxClientOptions {
   temperature?: number
   /** Fallback profile when `create(options)` carries none on `backend.profile`. */
   profile?: AgentProfile
+  /** Resolves profile-declared MCP secret names at child-process spawn time. */
+  keys?: KeyProvider
+  /** Explicit trust decision for the exact `profile` bytes supplied here.
+   * Omit to refuse local processes. A permissive policy never transfers to a
+   * different per-create profile and provides no host isolation. */
+  profileSecurityPolicy?: AgentProfileSecurityPolicy
 }
 
-/** A `SandboxClient` that runs the worker same-host with the profile's stdio MCP servers live. */
+/** A same-host `SandboxClient` adapter with no process isolation. Local MCP is
+ * refused unless the caller explicitly supplies a policy that allows it. */
 export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClient {
+  if (opts.profileSecurityPolicy?.allowLocalMcp && opts.profile === undefined) {
+    throw new ValidationError(
+      'localSandboxClient: allowLocalMcp requires a fixed author-controlled profile; dynamic profiles need a real sandbox',
+    )
+  }
+  const trustedProfileDigest =
+    opts.profileSecurityPolicy?.allowLocalMcp && opts.profile !== undefined
+      ? canonicalCandidateDigest(opts.profile)
+      : undefined
   const maxTurns = opts.maxTurns ?? 8
   let seq = 0
   return {
     async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
       const profile =
         (options?.backend as { profile?: AgentProfile } | undefined)?.profile ?? opts.profile ?? {}
+      const policyApplies =
+        opts.profileSecurityPolicy !== undefined &&
+        (!opts.profileSecurityPolicy.allowLocalMcp ||
+          (trustedProfileDigest !== undefined &&
+            canonicalCandidateDigest(profile) === trustedProfileDigest))
       // Materialize NOW: a declared server that cannot boot fails the create,
       // not the first prompt — matching the real sandbox backend, where a box
       // whose MCP cannot start never comes up.
-      const mcp = await materializeLocalMcp(profile)
+      const mcp = await materializeLocalMcp(profile, {
+        ...(opts.keys ? { keys: opts.keys } : {}),
+        ...(policyApplies ? { profileSecurityPolicy: opts.profileSecurityPolicy } : {}),
+      })
       const brain: ToolLoopChat = routerBrain(
         {
           routerBaseUrl: opts.router.baseUrl,

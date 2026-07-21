@@ -6377,19 +6377,21 @@ Defined in: [src/improvement/improve.ts:197](https://github.com/tangle-network/a
 
 Held-out decision for this search result.
 
-##### lift
+##### lift?
 
-> **lift**: `number`
+> `optional` **lift?**: `number`
 
-Defined in: [src/improvement/improve.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L199)
+Defined in: [src/improvement/improve.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L201)
 
-Held-out lift (`winner − baseline` composite).
+Held-out lift (`winner − baseline` composite). Absent iff
+ `budget.holdout === 'deferred'` — no held-out measurement ran, so there
+ is no lift to report (never a fabricated 0).
 
 ##### raw
 
 > **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
 
-Defined in: [src/improvement/improve.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L203)
+Defined in: [src/improvement/improve.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L205)
 
 Full `selfImprove` result for advanced inspection. For code runs,
  `raw.winner.surface.worktreeRef` remains live after return whether the
@@ -6401,7 +6403,7 @@ Full `selfImprove` result for advanced inspection. For code runs,
 
 > **dispose**(): `Promise`\<`void`\>
 
-Defined in: [src/improvement/improve.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L206)
+Defined in: [src/improvement/improve.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L208)
 
 Release resources owned by this result. Idempotent; currently disposes
  the returned code worktree and is a no-op for profile-only surfaces.
@@ -13955,7 +13957,7 @@ readonly `unknown`[]
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [src/improvement/improve.ts:661](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L661)
+Defined in: [src/improvement/improve.ts:663](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L663)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 

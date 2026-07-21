@@ -15,18 +15,19 @@
  * (what you can DO) dominates the improver (how cleverly you rewrite) — the
  * finding the prompt-only self-improvement runs kept nulling on.
  *
- * Fast by construction: HumanEval tasks are tiny, graded by a local Python
- * subprocess with a hard timeout (no Docker clone) — seconds per task. Paired
+ * Fast by construction: HumanEval tasks are tiny, graded in an isolated Python
+ * container with a hard timeout — seconds per task. Paired
  * McNemar over the per-task pass/fail difference gives the significance.
  *
  * Run from cwd=bench:  env WORKER_MODEL=google/gemini-2.5-flash-lite N=60 K=3 \
  *   REPS=2 node_modules/.bin/tsx src/humaneval-object-ablation.mts
  */
-import { execFile } from 'node:child_process'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { loadHumanEval, extractCode, type HumanEvalTask } from './benchmarks/humaneval'
+import {
+  loadHumanEval,
+  extractCode,
+  runPythonProgram,
+  type HumanEvalTask,
+} from './benchmarks/humaneval'
 
 const ROUTER = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
 const KEY = process.env.TANGLE_API_KEY
@@ -59,19 +60,14 @@ async function router(messages: ChatMsg[], tools?: Tool[]): Promise<{ content: s
   }
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const exec = (file: string, args: string[], opts: object) => new Promise<{ stdout: string; stderr: string; code: number | null }>((resolve) => {
-  execFile(file, args, { ...opts, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => resolve({ stdout: String(stdout), stderr: String(stderr), code: (err as { code?: number } | null)?.code ?? (err ? 1 : 0) }))
-})
-
-/** Run a Python program locally with a hard timeout. Returns stdout/stderr/exit. */
+/** Run model-written Python in the shared networkless, resource-capped container. */
 async function runPython(program: string): Promise<{ stdout: string; stderr: string; ok: boolean }> {
-  const dir = mkdtempSync(join(tmpdir(), 'he-'))
-  try {
-    const f = join(dir, 'p.py')
-    writeFileSync(f, program)
-    const r = await exec('python3', [f], { cwd: dir, timeout: EXEC_TIMEOUT })
-    return { stdout: r.stdout.slice(0, 2000), stderr: r.stderr.slice(0, 2000), ok: r.code === 0 }
-  } finally { rmSync(dir, { recursive: true, force: true }) }
+  const result = await runPythonProgram(program, EXEC_TIMEOUT)
+  return {
+    stdout: result.stdout.slice(0, 2000),
+    stderr: result.stderr.slice(0, 2000),
+    ok: result.exitCode === 0,
+  }
 }
 
 /** The HIDDEN judge: candidate full function + the task's own check. Never shown. */
