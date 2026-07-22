@@ -249,7 +249,11 @@ describe('arms: per-cell host isolation', () => {
       join(binDir, 'dotenvx'),
       '#!/usr/bin/env bash\nwhile [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n',
     )
-    await chmod(join(binDir, 'dotenvx'), 0o755)
+    await writeFile(
+      join(binDir, 'opencode'),
+      '#!/usr/bin/env bash\nif [ "$1" = "db" ] && [ "$2" = "path" ]; then printf "%s\\n" "$OPENCODE_DB"; exit 0; fi\nexit 64\n',
+    )
+    await Promise.all(['dotenvx', 'opencode'].map((name) => chmod(join(binDir, name), 0o755)))
 
     const ambientEnv: NodeJS.ProcessEnv = {
       ...process.env,
