@@ -1,10 +1,18 @@
 /**
  * QUANT-ARENA campaign loop — the improvement loop embodied for trading
  * strategies. One command runs: strategy authors (Claude, profile-pinned)
- * propose candidate strategies -> every candidate passes a two-stage leak
- * audit -> survivors are scored on K bootstrap in-sample windows against the
- * pinned baselines -> a multiplicity-adjusted acceptance rule decides -> every
- * try becomes a permanent lab-notebook row (notebook.jsonl).
+ * propose candidate strategies (v2 `onBar` contract, driven incrementally by
+ * driver.ts) -> every candidate passes a two-stage leak audit -> survivors
+ * are scored on K bootstrap in-sample windows against the pinned baselines
+ * -> a multiplicity-adjusted acceptance rule decides -> every try becomes a
+ * permanent lab-notebook row (notebook.jsonl).
+ *
+ * Scoring engines: the OFFICIAL per-window scores come from the vectorbt
+ * worker (vbt-client.ts -> python/vbt-worker.py). The TS engine
+ * (backtest.ts) runs first as contract prefilter + leak-audit substrate
+ * only — it throws on shorting/leverage violations and supplies turnover
+ * (which the worker protocol does not carry), but its Sharpe/return numbers
+ * are never the acceptance currency.
  *
  *   tsx src/quant-arena/quant-loop.mts --out <dir> [--candidates 2] [--seed 20260722]
  *        [--author-model sonnet] [--audit-model haiku] [--skip-llm-audit]
@@ -36,12 +44,14 @@ import { loadLedgerReceipts } from '../swe-arena/manifest.mts'
 import { loadAuthorProfile, type ProposerSpec } from '../swe-arena/proposer-fanout.mts'
 import { proposerShotEnv } from '../swe-arena/outer-loop.mts'
 import { run } from '../swe-arena/proc.ts'
-import { runBacktest, statsForRange, type BacktestConfig, type BacktestResult, type RangeStats } from './backtest.ts'
+import { runBacktest, statsForRange, type BacktestConfig, type RangeStats } from './backtest.ts'
 import { loadInSample, type AlignedBars } from './data.ts'
+import { loadStrategyFile } from './driver.ts'
 import { truncationInvariance, type TruncationReport } from './leak-audit.ts'
 import { decideAcceptance, requiredExcessSharpe, type AcceptanceDecision } from './multiplicity.ts'
+import { scoreSignals, VbtWorker, type VbtWindowStats } from './vbt-client.ts'
 import { bootstrapWindows, type EvalWindow } from './windows.ts'
-import type { GenerateSignals } from './types.ts'
+import type { GenerateSignals, Signal } from './types.ts'
 import * as buyHoldIndex from './strategies/buy-hold-index/strategy.ts'
 import * as equalWeight from './strategies/equal-weight/strategy.ts'
 import * as smaCrossover from './strategies/sma-crossover/strategy.ts'
@@ -261,18 +271,25 @@ async function meteredClaudeShot(
 // Authoring: prompt, extraction, hermeticity guard.
 // ---------------------------------------------------------------------------
 
-const CONTRACT_TEXT = `THE STRATEGY CONTRACT
+const CONTRACT_TEXT = `THE STRATEGY CONTRACT (v2 — incremental)
 - Write ONE self-contained TypeScript module. NO import/require/fs/network/process — declare any types you need locally.
-- Export exactly: export function generateSignals(bars: Bar[][]): Signal[]
-  where Bar = { date: string; open: number; high: number; low: number; close: number; volume: number }
-  and Signal = { t: number; weights: number[] } (t = day index, weights[k] = target fraction of equity in ticker k).
-- bars[k] is ticker k's daily bars; all tickers share one date axis. bars[0] is the benchmark index.
-- NO LOOK-AHEAD: the signal at index t may use ONLY bars[k][0..t]. The lab re-runs your code on truncated data;
-  if any signal up to the cutoff changes, the candidate is killed. No whole-series statistics in per-day decisions,
-  no hardcoded calendar dates, no indexing past t.
-- No shorting, no leverage: weights >= 0 and sum(weights) <= 1 (rest is cash at 0%). Violations kill the backtest.
-- A rebalance happens ONLY when you emit a signal: it fills at the NEXT day's open, then positions drift until your
-  next signal. Every fill pays 15bps one-way (cost + slippage) on traded dollars — churn is expensive.`
+- Export exactly: export function onBar(ctx: StrategyContext): TargetPosition[] | null
+  where StrategyContext = { symbols: string[]; t: number; history: Bar[][]; weights: number[]; equity: number },
+  Bar = { date: string; open: number; high: number; low: number; close: number; volume: number },
+  and TargetPosition = { symbol: string; weight: number }.
+- The lab calls onBar once per trading day, in order. ctx.history[k] holds the daily bars of ctx.symbols[k] from
+  day 0 THROUGH TODAY ONLY (ctx.history[k].length === ctx.t + 1) — bars after today do not exist in the array.
+  ctx.history[0] / ctx.symbols[0] is the benchmark index. ctx.weights and ctx.equity are your current drifted
+  portfolio state (equity starts at 1).
+- Return TargetPosition[] to rebalance: weight = target fraction of equity per symbol; any symbol you omit is
+  sold to 0. Return null to hold (positions drift with prices). A rebalance fills at the NEXT day's open.
+- You never construct orders — the lab's shared rebalancer turns your target weights into orders.
+- No shorting, no leverage: every weight >= 0 and the weights sum to <= 1 (rest is cash at 0%). Violations kill
+  the candidate — fail-closed, not clamped.
+- DETERMINISM / NO LOOK-AHEAD: onBar must be a pure function of ctx (no RNG, no clock, no hidden state). The lab
+  re-runs your code on truncated data; if any decision up to the cutoff changes, the candidate is killed. No
+  hardcoded calendar dates that memorize this dataset.
+- Every fill pays 15bps one-way (cost + slippage) on traded dollars — churn is expensive.`
 
 export function buildAuthorPrompt(args: {
   universe: AlignedBars
@@ -308,9 +325,9 @@ export function buildAuthorPrompt(args: {
  *  self-contained rule. Fail-closed: anything ambiguous is a rejection. */
 export function extractStrategySource(text: string): { ok: true; code: string } | { ok: false; reason: string } {
   const blocks = [...text.matchAll(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/g)].map((m) => m[1]!)
-  const withExport = blocks.filter((b) => /export\s+function\s+generateSignals\s*\(/.test(b))
+  const withExport = blocks.filter((b) => /export\s+function\s+onBar\s*\(/.test(b))
   if (withExport.length === 0) {
-    return { ok: false, reason: 'no fenced code block exporting `generateSignals` in the reply' }
+    return { ok: false, reason: 'no fenced code block exporting `onBar` in the reply (v2 contract)' }
   }
   const code = withExport[withExport.length - 1]!
   const stripped = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
@@ -326,14 +343,16 @@ export function extractStrategySource(text: string): { ok: true; code: string } 
 // leak-audit.ts; both must pass).
 // ---------------------------------------------------------------------------
 
-const AUDIT_PROMPT_HEADER = `You are an adversarial reviewer with ONE job: find look-ahead bias in the trading
-strategy below. The contract: generateSignals(bars) returns targets where the signal at day index t may use ONLY
-bars[k][0..t] (inclusive); fills happen at the next day's open. Hunt for:
-- indexing past t (bars[k][t+1], end-anchored slices, series.length-based anchors used per-day),
-- whole-series statistics (mean/max/sort over the FULL array) feeding per-day decisions,
-- decisions that change when the future is truncated,
-- hardcoded calendar dates or magic day indexes that smell like memorizing this dataset.
-Deciding at close of t and being filled at t+1's open is LEGAL — do not flag it.
+const AUDIT_PROMPT_HEADER = `You are an adversarial reviewer with ONE job: find look-ahead bias or nondeterminism
+in the trading strategy below. The contract: onBar(ctx) is called once per day; ctx.history[k] holds ONLY bars
+0..ctx.t (the harness slices the arrays), decisions must be pure functions of ctx, and fills happen at the next
+day's open. Hunt for:
+- hardcoded calendar dates or magic day indexes that smell like memorizing this dataset,
+- nondeterminism: Math.random, Date.now, or state carried between onBar calls that a re-run would not rebuild,
+- decisions that would change when the future is truncated,
+- any attempt to reach data beyond ctx.history (indexing past the array end, reconstructing future prices).
+Deciding at close of ctx.t and being filled at t+1's open is LEGAL — do not flag it. Whole-history statistics over
+ctx.history are LEGAL (the array ends at today) — do not flag them.
 Reply with JSON ONLY: {"verdict":"clean"} or {"verdict":"leak","evidence":"<quote the offending code and why>"}.
 
 STRATEGY SOURCE:
@@ -458,27 +477,75 @@ export async function writeQuantRolloutManifest(outDir: string): Promise<string>
 // The campaign.
 // ---------------------------------------------------------------------------
 
+/** RangeStats assembled from the official (vectorbt) numbers plus turnover,
+ *  which only the TS prefilter tracks — labeled at the one place it mixes. */
+function rangeStatsFromVbt(stats: VbtWindowStats, start: number, end: number, turnover: number): RangeStats {
+  return {
+    start,
+    end,
+    days: end - start,
+    totalReturn: stats.totalReturn,
+    maxDrawdown: stats.maxDD,
+    sharpe: stats.sharpe,
+    tradeCount: stats.trades,
+    turnover,
+  }
+}
+
+interface ScoredStrategy {
+  signals: Signal[]
+  /** Official per-window stats (vectorbt; turnover from the TS prefilter). */
+  perWindow: RangeStats[]
+  /** Official full-range stats. */
+  full: RangeStats
+}
+
+/** Score one decision record: TS engine first as fail-closed contract
+ *  prefilter (throws on shorting/leverage/malformed signals), then the
+ *  vectorbt worker for the official numbers. */
+async function scoreStrategySignals(
+  worker: VbtWorker,
+  universe: AlignedBars,
+  signals: Signal[],
+  windows: EvalWindow[],
+  btConfig: BacktestConfig,
+): Promise<ScoredStrategy> {
+  const prefilter = runBacktest(universe.bars, signals, btConfig)
+  const ranges = windows.map((w) => [w.start, w.end] as [number, number])
+  const vbt = await scoreSignals(worker, universe.bars, signals, btConfig, ranges)
+  const perWindow = windows.map((w, i) =>
+    rangeStatsFromVbt(vbt.windows[i]!, w.start, w.end, statsForRange(prefilter, w.start, w.end).turnover),
+  )
+  const full = rangeStatsFromVbt(vbt.full, 0, universe.dates.length, prefilter.stats.turnover)
+  return { signals, perWindow, full }
+}
+
 interface BaselineEvidence {
   perWindowSharpe: Record<string, number[]>
   bestPerWindow: number[]
   fullSample: Record<string, RangeStats>
+  perWindowStats: Record<string, RangeStats[]>
 }
 
-function evaluateBaselines(universe: AlignedBars, windows: EvalWindow[], btConfig: BacktestConfig): BaselineEvidence {
+async function evaluateBaselines(
+  worker: VbtWorker,
+  universe: AlignedBars,
+  windows: EvalWindow[],
+  btConfig: BacktestConfig,
+): Promise<BaselineEvidence> {
   const perWindowSharpe: Record<string, number[]> = {}
   const fullSample: Record<string, RangeStats> = {}
-  const results: Record<string, BacktestResult> = {}
+  const perWindowStats: Record<string, RangeStats[]> = {}
   for (const [name, strategy] of Object.entries(PINNED_BASELINES)) {
-    const result = runBacktest(universe.bars, strategy(universe.bars), btConfig)
-    results[name] = result
-    fullSample[name] = result.stats
-    perWindowSharpe[name] = windows.map((w) => statsForRange(result, w.start, w.end).sharpe)
+    const scored = await scoreStrategySignals(worker, universe, strategy(universe.bars), windows, btConfig)
+    fullSample[name] = scored.full
+    perWindowStats[name] = scored.perWindow
+    perWindowSharpe[name] = scored.perWindow.map((s) => s.sharpe)
   }
   const bestPerWindow = windows.map((_, i) =>
     Math.max(...Object.values(perWindowSharpe).map((sharpes) => sharpes[i]!)),
   )
-  void results
-  return { perWindowSharpe, bestPerWindow, fullSample }
+  return { perWindowSharpe, bestPerWindow, fullSample, perWindowStats }
 }
 
 function baselineTable(evidence: BaselineEvidence): string {
@@ -491,6 +558,22 @@ function baselineTable(evidence: BaselineEvidence): string {
 }
 
 export async function runQuantCampaign(config: QuantLoopConfig): Promise<CandidateRow[]> {
+  if (!VbtWorker.isAvailable()) {
+    throw new Error(
+      'quant-arena: the official scorer is the vectorbt worker, which needs `uv` on PATH ' +
+        '(src/quant-arena/python/uv.lock pins the environment). The TS engine is a prefilter ' +
+        'only and cannot stand in — install uv, there is no fallback scorer.',
+    )
+  }
+  const worker = new VbtWorker()
+  try {
+    return await runQuantCampaignWithWorker(worker, config)
+  } finally {
+    await worker.close()
+  }
+}
+
+async function runQuantCampaignWithWorker(worker: VbtWorker, config: QuantLoopConfig): Promise<CandidateRow[]> {
   await mkdir(config.outDir, { recursive: true })
   const notebookPath = join(config.outDir, 'notebook.jsonl')
   const reconciled = reconcileCrashOrphansOnDisk(config.outDir)
@@ -507,8 +590,9 @@ export async function runQuantCampaign(config: QuantLoopConfig): Promise<Candida
   })
   const btConfig: BacktestConfig = { costBps: config.costBps, slippageBps: config.slippageBps }
   log(`in-sample: ${T} days x ${universe.tickers.length} tickers; ${windows.length} windows of ${config.windowDays}d (seed ${config.seed})`)
+  log(`scoring engine: vectorbt ${await worker.ping()} (persistent worker, numba warm)`)
 
-  const baselines = evaluateBaselines(universe, windows, btConfig)
+  const baselines = await evaluateBaselines(worker, universe, windows, btConfig)
   await appendFile(
     notebookPath,
     JSON.stringify({
@@ -529,12 +613,15 @@ export async function runQuantCampaign(config: QuantLoopConfig): Promise<Candida
     }) + '\n',
   )
   const campaignRoot = join(config.outDir, 'campaign')
-  for (const [name, strategy] of Object.entries(PINNED_BASELINES)) {
-    const result = runBacktest(universe.bars, strategy(universe.bars), btConfig)
+  for (const name of Object.keys(PINNED_BASELINES)) {
     await writeWindowCells(
       campaignRoot,
       `baseline-${name}`,
-      windows.map((w, i) => ({ window: w, stats: statsForRange(result, w.start, w.end), bestBaselineSharpe: baselines.bestPerWindow[i]! })),
+      windows.map((w, i) => ({
+        window: w,
+        stats: baselines.perWindowStats[name]![i]!,
+        bestBaselineSharpe: baselines.bestPerWindow[i]!,
+      })),
     )
   }
 
@@ -601,12 +688,21 @@ export async function runQuantCampaign(config: QuantLoopConfig): Promise<Candida
           row.strategyPath = strategyPath
           row.sha256 = `sha256:${createHash('sha256').update(extracted.code).digest('hex')}`
 
-          const mod = (await import(pathToFileURL(strategyPath).href)) as { generateSignals?: GenerateSignals }
-          if (typeof mod.generateSignals !== 'function') {
+          let strategy: GenerateSignals | null = null
+          try {
+            // v2 (`onBar`) modules are wrapped through the incremental
+            // driver, which structurally truncates history per bar.
+            const loaded = await loadStrategyFile(strategyPath, {
+              symbols: universe.tickers,
+              costBps: config.costBps,
+              slippageBps: config.slippageBps,
+            })
+            strategy = loaded.generateSignals
+          } catch (cause) {
             row.verdict = 'rejected-contract'
-            row.reasons = ['module does not export generateSignals(bars)']
-          } else {
-            const strategy = mod.generateSignals
+            row.reasons = [(cause as Error).message.slice(0, 300)]
+          }
+          if (strategy !== null) {
             // Leak audit stage 1: deterministic truncation invariance.
             const truncation = truncationInvariance(strategy, universe.bars, { warmupDays: config.warmupDays })
             row.leakAudit.truncation = truncation
@@ -625,11 +721,12 @@ export async function runQuantCampaign(config: QuantLoopConfig): Promise<Candida
                 ...(llmBad ? [`adversarial audit: ${(llm as { verdict: string; evidence: string }).evidence || (llm as { verdict: string }).verdict}`] : []),
               ]
             } else {
-              // Eval: one backtest, scored per window against the pinned bar.
-              const result = runBacktest(universe.bars, strategy(universe.bars), btConfig)
-              row.inSampleFull = result.stats
+              // Eval: TS prefilter (contract enforcement) + official
+              // vectorbt scores, per window against the pinned bar.
+              const scored = await scoreStrategySignals(worker, universe, strategy(universe.bars), windows, btConfig)
+              row.inSampleFull = scored.full
               const perWindow: WindowScore[] = windows.map((w, i) => {
-                const stats = statsForRange(result, w.start, w.end)
+                const stats = scored.perWindow[i]!
                 return {
                   start: w.start,
                   end: w.end,
@@ -645,7 +742,7 @@ export async function runQuantCampaign(config: QuantLoopConfig): Promise<Candida
                 candidateId,
                 windows.map((w, i) => ({
                   window: w,
-                  stats: statsForRange(result, w.start, w.end),
+                  stats: scored.perWindow[i]!,
                   bestBaselineSharpe: baselines.bestPerWindow[i]!,
                 })),
               )
