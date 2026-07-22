@@ -257,7 +257,8 @@ while (true) {
   const stamp = `${((Date.now() - t0) / 1000).toFixed(0)}s status=${status} progress="${progress}" journal(spawned=${spawned},settled=${settled})`
   if (stamp !== last) { console.log(`[watch] ${stamp}`); last = stamp }
   if (st && ['completed', 'failed', 'cancelled'].includes(st.status)) {
-    let settlement
+    const terminalStatus = st.status
+    let settlement = workerSettlement(id)
     if (st.status === 'completed') {
       try {
         settlement = await waitForCompletedSettlement()
@@ -266,13 +267,21 @@ while (true) {
         process.exit(4)
       }
       if (settlement.status !== 'completed') continue
+    } else if (!hasTerminalWorkerEvidence(settlement)) {
+      try {
+        settlement = await cancelAndSettle(
+          id,
+          `supervisor entered ${terminalStatus} before its workers settled`,
+        )
+      } catch (err) {
+        console.error(`[driver] terminal supervisor cleanup failed: ${err instanceof Error ? err.message : String(err)}`)
+        process.exit(4)
+      }
     }
-    console.log(`\n[done] id=${id} status=${st.status} verdict=${st.verdict ?? ''} result=${JSON.stringify(st.result ?? {})} error=${st.error ?? ''}`)
-    if (settlement) {
-      console.log(`[done] worker settlement: workers=${settlement.workers}, terminal=${settlement.terminal}`)
-    }
+    console.log(`\n[done] id=${id} status=${terminalStatus} verdict=${st.verdict ?? ''} result=${JSON.stringify(st.result ?? {})} error=${st.error ?? ''}`)
+    console.log(`[done] worker settlement: workers=${settlement.workers}, terminal=${settlement.terminal}`)
     console.log(`[done] runDir=${runDir}`)
-    process.exit(st.status === 'completed' ? 0 : 1)
+    process.exit(terminalStatus === 'completed' ? 0 : 1)
   }
   if (Date.now() - t0 > deadlineMs) {
     console.error(`[driver] deadline exceeded (${deadlineMs}ms) — supervisor still ${status}. runDir=${runDir}`)
