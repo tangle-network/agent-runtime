@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { type AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
 import {
   gitWorktreeAdapter,
@@ -27,6 +28,14 @@ import type { LocalHarnessResult } from '../src/mcp/local-harness'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
+}
+
+async function waitForPath(path: string, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`)
+    await delay(10)
+  }
 }
 
 let repoRoot: string
@@ -704,6 +713,100 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     ])
   })
 
+  it('rejects partial edits when caller cancellation exits the author process zero', async () => {
+    const receipts: AgenticGeneratorShotReceipt[] = []
+    // Process boundary only; local-harness.test.ts proves this result with a real TERM-aware tree.
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      writeFileSync(join(cwd, 'app.ts'), 'export const cancelledPartial = true\n')
+      return { ...HARNESS_OK, aborted: true }
+    })
+    const gen = agenticGenerator({
+      runHarness: runHarness as never,
+      onShotCompleted: (receipt) => receipts.push(receipt),
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'cancelled-partial-edit',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/cancelled by the caller/)
+    expect(runHarness).toHaveBeenCalledTimes(1)
+    expect(git(['status', '--short'], wt.path)).toBe('M app.ts')
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        exitCode: 0,
+        timedOut: false,
+        aborted: true,
+        killedBySignal: null,
+        error: expect.objectContaining({
+          message: expect.stringMatching(/cancelled by the caller/),
+        }),
+      }),
+    ])
+  })
+
+  it('rejects a partial edit when the caller aborts after a normal author result', async () => {
+    const controller = new AbortController()
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      writeFileSync(join(cwd, 'app.ts'), 'export const cancelledAfterRun = true\n')
+      controller.abort(new Error('cancelled after author settlement'))
+      return HARNESS_OK
+    })
+    const gen = agenticGenerator({ runHarness: runHarness as never })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'cancelled-after-author-result',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/cancelled after author settlement/)
+    expect(git(['status', '--short'], wt.path)).toBe('M app.ts')
+  })
+
+  it('rejects a candidate when cancellation arrives during verification', async () => {
+    const controller = new AbortController()
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      writeFileSync(join(cwd, 'app.ts'), 'export const cancelledDuringVerify = true\n')
+      return HARNESS_OK
+    })
+    const verify = vi.fn(async (_path: string, signal?: AbortSignal) => {
+      expect(signal).toBe(controller.signal)
+      controller.abort(new Error('cancelled during verification'))
+      return { ok: true }
+    })
+    const gen = agenticGenerator({ runHarness: runHarness as never, verify })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'cancelled-during-verification',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/cancelled during verification/)
+    expect(verify).toHaveBeenCalledTimes(1)
+  })
+
   it('returns applied when the harness changes the worktree', async () => {
     const dispositions: AgenticGeneratorShotDisposition[] = []
     // The harness "edits" by writing into its cwd (the worktree). We stub the
@@ -955,7 +1058,49 @@ describe('agenticGenerator — verify-in-session loop', () => {
   it('commandVerifier: a missing binary throws (setup bug, not a failed candidate)', async () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cmdmiss' })
     const v = commandVerifier('definitely-not-a-real-binary-xyz')
-    expect(() => v(wt.path)).toThrow(/not found in PATH/)
+    await expect(v(wt.path)).rejects.toThrow(/not found in PATH/)
+  })
+
+  it('commandVerifier: rejects pre-abort before executing the command', async () => {
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cmdabort' })
+    const marker = join(wt.path, 'must-not-exist')
+    const controller = new AbortController()
+    controller.abort(new Error('verifier pre-aborted'))
+    const v = commandVerifier(process.execPath, [
+      '-e',
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`,
+    ])
+
+    await expect(v(wt.path, controller.signal)).rejects.toThrow(/verifier pre-aborted/)
+    expect(existsSync(marker)).toBe(false)
+  })
+
+  it('commandVerifier: settles a TERM-ignoring descendant before rejecting abort', async () => {
+    if (process.platform === 'win32') return
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cmdtree' })
+    const pidPath = join(wt.path, 'verifier-descendant.pid')
+    const lateWrite = join(wt.path, 'verifier-late-write')
+    const controller = new AbortController()
+    const childScript = [
+      "const fs=require('node:fs')",
+      'fs.writeFileSync(process.argv[1],String(process.pid))',
+      "process.on('SIGTERM',()=>{})",
+      "setTimeout(()=>fs.writeFileSync(process.argv[2],'late'),700)",
+      'setInterval(()=>{},1000)',
+    ].join(';')
+    const v = commandVerifier('sh', [
+      '-c',
+      `${JSON.stringify(process.execPath)} -e ${JSON.stringify(childScript)} ${JSON.stringify(pidPath)} ${JSON.stringify(lateWrite)} & wait`,
+    ])
+    const running = v(wt.path, controller.signal)
+    await waitForPath(pidPath)
+    const descendantPid = Number(readFileSync(pidPath, 'utf8'))
+    controller.abort(new Error('cancel verifier tree'))
+
+    await expect(running).rejects.toThrow(/cancel verifier tree/)
+    await delay(500)
+    expect(existsSync(lateWrite)).toBe(false)
+    expect(existsSync(`/proc/${descendantPid}`)).toBe(false)
   })
 })
 

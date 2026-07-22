@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { runOk } from './proc.ts'
 import {
   addEvalWorktree,
+  DISPATCH_CLEANUP_GRACE_MS,
   DEFAULT_GATE_WAIT_CEILING_MS,
   FIXTURES_VERIFY_DIR,
   FROZEN_ARM,
@@ -32,6 +33,7 @@ import {
   defaultRound4Config,
   instanceVerdictsFromCells,
   isPidAlive,
+  loopsCandidateVerifier,
   normalizeRepoPath,
   parseStaircaseRow,
   porcelainChangedPaths,
@@ -282,12 +284,57 @@ describe('frozen arm + default config', () => {
 })
 
 describe('dispatch clocks (gate holds are never billed to the cell)', () => {
-  it('campaignDispatchCeilingMs = work budget + worst-case sequential gate holds', () => {
+  it('starts neither capacity checks nor work for an already-aborted caller', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('cancelled before cell'))
+    let gates = 0
+    let work = 0
+    await expect(runWithPostGateClock({
+      awaitGates: async () => { gates += 1 },
+      work: async () => { work += 1; return 'x' },
+      timeoutMs: 1_000,
+      signal: controller.signal,
+    })).rejects.toThrow('cancelled before cell')
+    expect(gates).toBe(0)
+    expect(work).toBe(0)
+  })
+
+  it('passes parent cancellation through work and waits for its cleanup', async () => {
+    const controller = new AbortController()
+    let cleanupFinished = false
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const running = runWithPostGateClock({
+      awaitGates: async (signal) => signal?.throwIfAborted(),
+      work: (signal) => new Promise<string>((resolve) => {
+        markStarted()
+        signal.addEventListener('abort', () => {
+          setTimeout(() => {
+            cleanupFinished = true
+            resolve('settled')
+          }, 25)
+        }, { once: true })
+      }),
+      timeoutMs: 1_000,
+      signal: controller.signal,
+    })
+    await started
+    controller.abort(new Error('operator interrupted'))
+    await expect(running).rejects.toThrow('operator interrupted')
+    expect(cleanupFinished).toBe(true)
+  })
+
+  it('campaignDispatchCeilingMs includes gate holds, both judge attempts, and cleanup', () => {
     expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 7_200_000 })).toBe(
-      7_200_000 + SUPERVISOR_GATE_COUNT * DEFAULT_GATE_WAIT_CEILING_MS,
+      7_200_000 + SUPERVISOR_GATE_COUNT * DEFAULT_GATE_WAIT_CEILING_MS + 2 * 1_800_000 + DISPATCH_CLEANUP_GRACE_MS,
     )
-    expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 1_000, gateWaitCeilingMs: 500 })).toBe(1_000 + 2 * 500)
-    expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 1_000, gateWaitCeilingMs: 500 }, 1)).toBe(1_500)
+    expect(campaignDispatchCeilingMs({
+      dispatchTimeoutMs: 1_000,
+      gateWaitCeilingMs: 500,
+      judgeTimeoutMs: 2_000,
+    })).toBe(
+      1_000 + 2 * 500 + 2 * 2_000 + DISPATCH_CLEANUP_GRACE_MS,
+    )
   })
 
   it('a gate hold LONGER than the work clock does not abort the cell (the pre-crash bug)', async () => {
@@ -310,6 +357,43 @@ describe('dispatch clocks (gate holds are never billed to the cell)', () => {
         label: 'R4 deadbeef00 astropy__astropy-13033 r0',
       }),
     ).rejects.toThrow(/post-gate dispatch exceeded 30ms .*astropy__astropy-13033/)
+  })
+
+  it('waits for abort cleanup before reporting a post-gate timeout', async () => {
+    let cleanupFinished = false
+    const started = Date.now()
+    await expect(
+      runWithPostGateClock({
+        awaitGates: () => Promise.resolve(),
+        work: (signal) => new Promise<string>((resolve) => {
+          signal.addEventListener('abort', () => {
+            setTimeout(() => {
+              cleanupFinished = true
+              resolve('settled after cleanup')
+            }, 30)
+          }, { once: true })
+        }),
+        timeoutMs: 20,
+        label: 'cleanup proof',
+      }),
+    ).rejects.toThrow(/post-gate dispatch exceeded 20ms .*cleanup proof/)
+    expect(cleanupFinished).toBe(true)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(45)
+  })
+
+  it('preserves a process-cleanup failure after the dispatch clock expires', async () => {
+    await expect(
+      runWithPostGateClock({
+        awaitGates: () => Promise.resolve(),
+        work: (signal) => new Promise<never>((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(new Error('process group 123 survived SIGKILL'))
+          }, { once: true })
+        }),
+        timeoutMs: 20,
+        label: 'cleanup failure proof',
+      }),
+    ).rejects.toThrow(/post-gate dispatch exceeded 20ms .*process group 123 survived SIGKILL/)
   })
 
   it('a gate failure rejects before the work clock ever starts', async () => {
@@ -561,6 +645,21 @@ describe('candidate worktree hygiene (finalize precondition + eval isolation)', 
       // The exact finalize precondition the substrate enforces: zero ignored extras.
       const ignored = await git(wt, 'ls-files', '--others', '--ignored', '--exclude-standard')
       expect(ignored.stdout.trim()).toBe('')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('a pre-aborted candidate verifier does not purge or inspect the worktree', async () => {
+    const { wt, root } = await makeRepoWithDirtyCandidate()
+    const controller = new AbortController()
+    controller.abort(new Error('candidate verification cancelled'))
+    try {
+      await expect(
+        loopsCandidateVerifier(root)(wt, controller.signal),
+      ).rejects.toThrow(/candidate verification cancelled/)
+      expect(existsSync(join(wt, 'node_modules'))).toBe(true)
+      expect(existsSync(join(wt, 'debug.log'))).toBe(true)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

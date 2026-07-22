@@ -507,7 +507,7 @@ Defined in: [src/mcp/tools/coordination.ts:65](https://github.com/tangle-network
 
 ### WorktreeCommandResult
 
-Defined in: [src/mcp/worktree-harness.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L48)
+Defined in: [src/mcp/worktree-harness.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L49)
 
 Outcome of one verification command run in the worktree (test or typecheck).
 
@@ -517,7 +517,7 @@ Outcome of one verification command run in the worktree (test or typecheck).
 
 > **command**: `string`
 
-Defined in: [src/mcp/worktree-harness.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L50)
+Defined in: [src/mcp/worktree-harness.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L51)
 
 The shell command line that was run.
 
@@ -525,7 +525,7 @@ The shell command line that was run.
 
 > **passed**: `boolean`
 
-Defined in: [src/mcp/worktree-harness.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L52)
+Defined in: [src/mcp/worktree-harness.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L53)
 
 Did the command exit 0? The PASS signal a deliverable gate / coder output reads.
 
@@ -533,7 +533,7 @@ Did the command exit 0? The PASS signal a deliverable gate / coder output reads.
 
 > **exitCode**: `number` \| `null`
 
-Defined in: [src/mcp/worktree-harness.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L54)
+Defined in: [src/mcp/worktree-harness.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L55)
 
 OS exit code, or `null` when killed before exit.
 
@@ -541,7 +541,7 @@ OS exit code, or `null` when killed before exit.
 
 > **output**: `string`
 
-Defined in: [src/mcp/worktree-harness.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L56)
+Defined in: [src/mcp/worktree-harness.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L57)
 
 Combined stdout+stderr (capped) — surfaced in traces for diagnosis.
 
@@ -549,7 +549,7 @@ Combined stdout+stderr (capped) — surfaced in traces for diagnosis.
 
 ### WorktreeProfileMaterializationReceipt
 
-Defined in: [src/mcp/worktree-harness.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L60)
+Defined in: [src/mcp/worktree-harness.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L61)
 
 Proof of the profile inputs delivered before the worker process started.
 
@@ -559,7 +559,7 @@ Proof of the profile inputs delivered before the worker process started.
 
 > **workspacePlanDigest**: `string`
 
-Defined in: [src/mcp/worktree-harness.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L62)
+Defined in: [src/mcp/worktree-harness.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L63)
 
 Digest of the exact materializer plan: files, modes, environment, flags, and unsupported rows.
 
@@ -567,7 +567,7 @@ Digest of the exact materializer plan: files, modes, environment, flags, and uns
 
 > **writtenPaths**: `string`[]
 
-Defined in: [src/mcp/worktree-harness.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L64)
+Defined in: [src/mcp/worktree-harness.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L65)
 
 Repository-relative profile input files written into the worker worktree.
 
@@ -575,7 +575,7 @@ Repository-relative profile input files written into the worker worktree.
 
 > **unsupported**: `Unsupported`[]
 
-Defined in: [src/mcp/worktree-harness.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L66)
+Defined in: [src/mcp/worktree-harness.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L67)
 
 Must be empty on a successful run because this path fails closed.
 
@@ -583,7 +583,7 @@ Must be empty on a successful run because this path fails closed.
 
 > **environmentNames**: `string`[]
 
-Defined in: [src/mcp/worktree-harness.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L68)
+Defined in: [src/mcp/worktree-harness.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L69)
 
 Environment variable names added to the worker process. Values remain out of telemetry.
 
@@ -591,7 +591,7 @@ Environment variable names added to the worker process. Values remain out of tel
 
 > **flags**: `string`[]
 
-Defined in: [src/mcp/worktree-harness.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L70)
+Defined in: [src/mcp/worktree-harness.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L71)
 
 Exact additional CLI arguments emitted by the materializer.
 
@@ -599,7 +599,7 @@ Exact additional CLI arguments emitted by the materializer.
 
 > **resourceInstructions**: `object`
 
-Defined in: [src/mcp/worktree-harness.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L72)
+Defined in: [src/mcp/worktree-harness.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L73)
 
 `resources.instructions` bypasses native project files so reproducible Codex cannot drop it.
 
@@ -12778,11 +12778,16 @@ spawn, wait, capture, return.
 Fails loud — throws when:
   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
   - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
 
 Does NOT throw when:
   - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - the subprocess is aborted / timed out (`result.killedBySignal` /
-    `result.timedOut` carries the reason)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
 
 ###### Parameters
 
@@ -13050,11 +13055,16 @@ spawn, wait, capture, return.
 Fails loud — throws when:
   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
   - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
 
 Does NOT throw when:
   - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - the subprocess is aborted / timed out (`result.killedBySignal` /
-    `result.timedOut` carries the reason)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
 
 ###### Parameters
 

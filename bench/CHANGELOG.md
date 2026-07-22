@@ -4,6 +4,8 @@
 
 - Declare the public executable search path for Pier candidate entrypoints so the exact process contract can replay them against `@tangle-network/agent-runtime@0.102.0`.
 - Align the portable agent contract with `@tangle-network/agent-interface@0.32.0`.
+- Add the trace-driven SWE supervisor improvement loop with measured candidate worktrees and official Docker judging.
+- Settle cancelled worker trees, isolate each cell's state, serialize judges with a kernel lock, and reject unfinished processes before patch extraction or scoring.
 
 ## 0.3.6
 
