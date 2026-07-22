@@ -239,14 +239,22 @@ describe('arms: per-cell host isolation', () => {
     const ambient = await scratch('swe-arena-ambient-')
     const ambientConfigDir = join(ambient, '.config', 'opencode')
     const ambientDataDir = join(ambient, '.local', 'share', 'opencode')
+    const binDir = join(ambient, 'bin')
     await mkdir(ambientConfigDir, { recursive: true })
     await mkdir(ambientDataDir, { recursive: true })
+    await mkdir(binDir, { recursive: true })
     await writeFile(join(ambientConfigDir, 'opencode.json'), '{"small_model":"opencode/gpt-5-nano"}\n')
     await writeFile(join(ambientDataDir, 'auth.json'), '{"fake":"credential"}\n')
+    await writeFile(
+      join(binDir, 'dotenvx'),
+      '#!/usr/bin/env bash\nwhile [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n',
+    )
+    await chmod(join(binDir, 'dotenvx'), 0o755)
 
     const ambientEnv: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: ambient,
+      PATH: `${binDir}:${process.env.PATH ?? ''}`,
       XDG_CONFIG_HOME: undefined,
       XDG_DATA_HOME: undefined,
       OPENCODE_CONFIG: undefined,
