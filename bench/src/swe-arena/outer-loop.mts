@@ -129,6 +129,7 @@ import {
   type SmokeRunner,
   type SmokeVerdict,
 } from './proposer-fanout.mts'
+import { CRASH_ORPHAN_REASON, reconcileCrashOrphansOnDisk } from './ledger-orphans.mts'
 import { run, runOk } from './proc.ts'
 import { loadInstanceImages } from './run-experiment.mts'
 import { createSerializedJudge, type SerializedJudge } from './serialized-judge.ts'
@@ -1505,6 +1506,20 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     'fail-closed protocol (same-protocol parent comparison): ' +
     'tsx src/swe-arena/holdout-certify.mts <config.json> --candidate <winner-loops-commit>'
   const improveRunDir = join(config.outDir, 'improve-run')
+
+  // ── crash recovery: a killed run leaves its in-flight paid call 'pending'
+  // in the durable cost ledger, and the ledger's fail-closed guard then
+  // refuses ALL new paid work on resume. Under the outDir instance lock
+  // (sole runner), every pending call restored from disk is provably from a
+  // dead process — settle each as a $0 failure receipt (reason
+  // 'process-crash-orphan') so the guard passes without erasing the crash
+  // from the durable record. ───────────────────────────────────────────
+  for (const receipt of reconcileCrashOrphansOnDisk(improveRunDir)) {
+    log(
+      `cost-ledger: reconciled crash-orphaned call '${receipt.callId}' ` +
+        `(${receipt.actor}, ${receipt.phase}) as ${CRASH_ORPHAN_REASON}`,
+    )
+  }
 
   // ── generator: the gen-3 proposer fan-out (parallel AgentProfile-pinned
   // authors + pre-filter) when `proposers` is configured; the legacy
