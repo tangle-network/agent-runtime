@@ -244,16 +244,22 @@ describe('arms: per-cell host isolation', () => {
     await writeFile(join(ambientConfigDir, 'opencode.json'), '{"small_model":"opencode/gpt-5-nano"}\n')
     await writeFile(join(ambientDataDir, 'auth.json'), '{"fake":"credential"}\n')
 
-    const cellA = await prepareIsolatedCellEnvironment(join(await scratch('swe-arena-cell-a-'), 'run'), {
+    const ambientEnv: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: ambient,
+      XDG_CONFIG_HOME: undefined,
+      XDG_DATA_HOME: undefined,
+      OPENCODE_CONFIG: undefined,
+      OPENCODE_CONFIG_CONTENT: undefined,
+      SWE_ARENA_OPENCODE_AUTH_FILE: undefined,
+    }
+
+    const cellA = await prepareIsolatedCellEnvironment(join(await scratch('swe-arena-cell-a-'), 'run'), {
+      ...ambientEnv,
       PYTHONHOME: '/tmp/ambient-python-home',
       PYTHONPATH: '/tmp/ambient-python-path',
     })
-    const cellB = await prepareIsolatedCellEnvironment(join(await scratch('swe-arena-cell-b-'), 'run'), {
-      ...process.env,
-      HOME: ambient,
-    })
+    const cellB = await prepareIsolatedCellEnvironment(join(await scratch('swe-arena-cell-b-'), 'run'), ambientEnv)
 
     expect(cellA.env.HOME).not.toBe(ambient)
     expect(cellA.env.XDG_DATA_HOME).not.toBe(cellB.env.XDG_DATA_HOME)
