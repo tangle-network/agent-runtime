@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import { type ChildProcess, spawn as spawnChild } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import {
@@ -966,6 +966,89 @@ describe('runLocalHarness', () => {
       expect(confirmedGone).toBe(true)
     } finally {
       processKill.mockRestore()
+      rmSync(cwd, { recursive: true, force: true })
+      rmSync(authHome, { recursive: true, force: true })
+    }
+  })
+
+  it('cleans up same-group descendants after a Codex probe exits normally', async () => {
+    if (process.platform === 'win32') return
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-probe-normal-exit-'))
+    const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
+    const pidFile = join(cwd, 'probe-grandchild.pid')
+    writeFileSync(join(authHome, 'auth.json'), '{}')
+    const staticCodex = makeStaticElfFixture(cwd)
+    const invocation = harnessInvocation(
+      'codex',
+      { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
+      'task',
+      { codexReproducible: true },
+    )
+    const grandchildScript = [
+      `const fs=require('node:fs')`,
+      `process.on('SIGTERM',()=>{})`,
+      `fs.writeFileSync(process.argv[1],String(process.pid))`,
+      `setInterval(()=>{},1000)`,
+    ].join(';')
+    const probeScript = [
+      `const {spawn}=require('node:child_process')`,
+      `const fs=require('node:fs')`,
+      `spawn(process.execPath,['-e',${JSON.stringify(grandchildScript)},process.argv[1]],{stdio:'ignore'})`,
+      `const ready=setInterval(()=>{if(fs.existsSync(process.argv[1])){clearInterval(ready);console.log('codex-cli 0.144.1');process.exit(0)}},5)`,
+    ].join(';')
+    let grandchildPid: number | undefined
+
+    try {
+      const result = await runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        invocation,
+        codexReproducible: true,
+        env: { CODEX_HOME: authHome },
+        resolveCodexExecutable: async () => staticCodex,
+        spawn: (_command, args, opts) => {
+          if (args[0] === '--version') {
+            return spawnChild(process.execPath, ['-e', probeScript, pidFile], opts)
+          }
+          if (args[0] === 'sandbox') return makeFakeChild({ exitCode: 0 })
+          if (args[0] === 'debug') {
+            return makeFakeChild({
+              stdoutChunks: [
+                JSON.stringify([
+                  {
+                    content: [
+                      {
+                        text: '<permissions instructions>x</permissions instructions><environment_context>x</environment_context>',
+                      },
+                    ],
+                  },
+                  { content: [{ text: args.at(-1) }] },
+                ]),
+              ],
+            })
+          }
+          return makeFakeChild({
+            stdoutChunks: [
+              '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}\n',
+            ],
+          })
+        },
+      })
+      grandchildPid = Number(readFileSync(pidFile, 'utf8'))
+
+      expect(result.exitCode).toBe(0)
+      expect(() => process.kill(grandchildPid!, 0)).toThrow(
+        expect.objectContaining({ code: 'ESRCH' }),
+      )
+    } finally {
+      if (grandchildPid !== undefined) {
+        try {
+          process.kill(grandchildPid, 'SIGKILL')
+        } catch {
+          // The expected path already reaped it.
+        }
+      }
       rmSync(cwd, { recursive: true, force: true })
       rmSync(authHome, { recursive: true, force: true })
     }

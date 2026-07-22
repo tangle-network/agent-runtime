@@ -395,6 +395,7 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const wall_s = Math.round((Date.now() - t0) / 1000)
   await writeFile(join(runDir, 'oc.jsonl'), oc.stdout)
   await writeFile(join(runDir, 'oc.err'), oc.stderr)
+  if (ctx.signal?.aborted) throw ctx.signal.reason
 
   const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes)
   const patchPath = join(ctx.outDir, 'patches', `${ctx.instanceId}.${spec.name.toLowerCase()}.patch`)
@@ -549,6 +550,7 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   await writeFile(join(runDir, 'driver.log'), driver.stdout + driver.stderr)
 
   const artifacts = await parseSupervisorArtifacts(ws)
+  if (ctx.signal?.aborted) throw ctx.signal.reason
 
   const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes)
   const patchPath = join(ctx.outDir, 'patches', `${ctx.instanceId}.${spec.name.toLowerCase()}.patch`)

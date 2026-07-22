@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { runOk } from './proc.ts'
 import {
   addEvalWorktree,
+  DISPATCH_CLEANUP_GRACE_MS,
   DEFAULT_GATE_WAIT_CEILING_MS,
   FIXTURES_VERIFY_DIR,
   FROZEN_ARM,
@@ -282,12 +283,17 @@ describe('frozen arm + default config', () => {
 })
 
 describe('dispatch clocks (gate holds are never billed to the cell)', () => {
-  it('campaignDispatchCeilingMs = work budget + worst-case sequential gate holds', () => {
+  it('campaignDispatchCeilingMs includes gate holds, an in-flight judge, and cleanup', () => {
     expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 7_200_000 })).toBe(
-      7_200_000 + SUPERVISOR_GATE_COUNT * DEFAULT_GATE_WAIT_CEILING_MS,
+      7_200_000 + SUPERVISOR_GATE_COUNT * DEFAULT_GATE_WAIT_CEILING_MS + 1_800_000 + DISPATCH_CLEANUP_GRACE_MS,
     )
-    expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 1_000, gateWaitCeilingMs: 500 })).toBe(1_000 + 2 * 500)
-    expect(campaignDispatchCeilingMs({ dispatchTimeoutMs: 1_000, gateWaitCeilingMs: 500 }, 1)).toBe(1_500)
+    expect(campaignDispatchCeilingMs({
+      dispatchTimeoutMs: 1_000,
+      gateWaitCeilingMs: 500,
+      judgeTimeoutMs: 2_000,
+    })).toBe(
+      1_000 + 2 * 500 + 2_000 + DISPATCH_CLEANUP_GRACE_MS,
+    )
   })
 
   it('a gate hold LONGER than the work clock does not abort the cell (the pre-crash bug)', async () => {
@@ -332,6 +338,21 @@ describe('dispatch clocks (gate holds are never billed to the cell)', () => {
     ).rejects.toThrow(/post-gate dispatch exceeded 20ms .*cleanup proof/)
     expect(cleanupFinished).toBe(true)
     expect(Date.now() - started).toBeGreaterThanOrEqual(45)
+  })
+
+  it('preserves a process-cleanup failure after the dispatch clock expires', async () => {
+    await expect(
+      runWithPostGateClock({
+        awaitGates: () => Promise.resolve(),
+        work: (signal) => new Promise<never>((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(new Error('process group 123 survived SIGKILL'))
+          }, { once: true })
+        }),
+        timeoutMs: 20,
+        label: 'cleanup failure proof',
+      }),
+    ).rejects.toThrow(/post-gate dispatch exceeded 20ms .*process group 123 survived SIGKILL/)
   })
 
   it('a gate failure rejects before the work clock ever starts', async () => {

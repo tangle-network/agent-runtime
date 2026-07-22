@@ -131,7 +131,11 @@ import {
 } from './proposer-fanout.mts'
 import { run, runOk } from './proc.ts'
 import { loadInstanceImages } from './run-experiment.mts'
-import { createSerializedJudge, type SerializedJudge } from './serialized-judge.ts'
+import {
+  createSerializedJudge,
+  JUDGE_TIMEOUT_FLOOR_MS,
+  type SerializedJudge,
+} from './serialized-judge.ts'
 
 // ---------------------------------------------------------------------------
 // The DECLARED CHANGE-SPACE (protocol_v2). Pure + unit-tested.
@@ -222,16 +226,26 @@ export const SUPERVISOR_GATE_COUNT = 2
 /** capacity.ts's default waitCeilingMs (orchestrate.sh: 300 min/gate). */
 export const DEFAULT_GATE_WAIT_CEILING_MS = 300 * 60_000
 
+/** Extra time for an already-running judge plus process/worktree cleanup after
+ * the post-gate clock aborts. The campaign must not abandon that settlement. */
+export const DISPATCH_CLEANUP_GRACE_MS = 5 * 60_000
+
 /** The widened ceiling handed to the campaign: per-cell work budget PLUS the
  *  worst-case capacity-gate holds (gates run sequentially, each with its own
  *  ceiling). The campaign clock starts at dispatch entry — before the gates —
  *  so it must cover them; `waitForCapacity` itself fails the cell at each
  *  gate's own ceiling, so total cell time stays bounded. */
 export function campaignDispatchCeilingMs(
-  config: Pick<OuterLoopConfig, 'dispatchTimeoutMs' | 'gateWaitCeilingMs'>,
+  config: Pick<OuterLoopConfig, 'dispatchTimeoutMs' | 'gateWaitCeilingMs' | 'judgeTimeoutMs'>,
   gateCount = SUPERVISOR_GATE_COUNT,
 ): number {
-  return config.dispatchTimeoutMs + gateCount * (config.gateWaitCeilingMs ?? DEFAULT_GATE_WAIT_CEILING_MS)
+  const judgeSettlementMs = config.judgeTimeoutMs ?? JUDGE_TIMEOUT_FLOOR_MS
+  return (
+    config.dispatchTimeoutMs +
+    gateCount * (config.gateWaitCeilingMs ?? DEFAULT_GATE_WAIT_CEILING_MS) +
+    judgeSettlementMs +
+    DISPATCH_CLEANUP_GRACE_MS
+  )
 }
 
 /** Run `work` under `timeoutMs`, with the clock started AFTER `awaitGates`
@@ -261,6 +275,10 @@ export async function runWithPostGateClock<T>(opts: {
     if (timedOut) throw timeoutError
     return result
   } catch (err) {
+    if (timedOut && err !== timeoutError) {
+      const cleanupFailure = err instanceof Error ? err.message : String(err)
+      throw new Error(`${timeoutError.message}; cleanup failed: ${cleanupFailure}`, { cause: err })
+    }
     if (timedOut) throw timeoutError
     throw err
   } finally {
@@ -811,10 +829,10 @@ class RoundRecorder {
 // ---------------------------------------------------------------------------
 
 export async function addEvalWorktree(loopsRepo: string, commit: string, dest: string): Promise<void> {
-  await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest])
+  await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest], { timeoutMs: 60_000 })
   await rm(dest, { recursive: true, force: true })
-  await run('git', ['-C', loopsRepo, 'worktree', 'prune'])
-  await runOk('git', ['-C', loopsRepo, 'worktree', 'add', '--detach', dest, commit])
+  await run('git', ['-C', loopsRepo, 'worktree', 'prune'], { timeoutMs: 60_000 })
+  await runOk('git', ['-C', loopsRepo, 'worktree', 'add', '--detach', dest, commit], { timeoutMs: 60_000 })
   // The loops driver needs deps; a worktree has none. Shared install is safe:
   // arms never write into the loops checkout (state goes to ws/.loops + runDir).
   await symlink(join(loopsRepo, 'node_modules'), join(dest, 'node_modules'), 'dir')
@@ -822,10 +840,10 @@ export async function addEvalWorktree(loopsRepo: string, commit: string, dest: s
 
 export async function removeEvalWorktree(loopsRepo: string, dest: string): Promise<void> {
   await unlink(join(dest, 'node_modules')).catch(() => {})
-  const res = await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest])
+  const res = await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest], { timeoutMs: 60_000 })
   if (res.code !== 0) {
     await rm(dest, { recursive: true, force: true })
-    await run('git', ['-C', loopsRepo, 'worktree', 'prune'])
+    await run('git', ['-C', loopsRepo, 'worktree', 'prune'], { timeoutMs: 60_000 })
   }
 }
 
@@ -1174,6 +1192,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
                 excludes,
                 signal,
               })
+              if (signal.aborted) throw signal.reason
               const verdict = await judge.judge(iid, armRes.patchPath, `prefilter-g${generation}-${proposer.name}`)
               return { armRes, resolved: verdict.resolved }
             }
@@ -1293,6 +1312,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           excludes,
           signal,
         })
+        if (signal.aborted) throw signal.reason
         const runDir = join(armOutDir, 'runs', iid, config.armName)
         const { ws: _ws, ...armSummary } = armRes
         await writeFile(join(runDir, 'result.json'), JSON.stringify(armSummary, null, 1))

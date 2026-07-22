@@ -8085,7 +8085,7 @@ Does NOT throw when:
 
 > **parseCodexTokenUsage**(`stdout`): [`CodexTokenUsage`](#codextokenusage)
 
-Defined in: [src/mcp/local-harness.ts:1491](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L1491)
+Defined in: [src/mcp/local-harness.ts:1496](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L1496)
 
 Parse and validate the one terminal usage event emitted by `codex exec --json`.
 

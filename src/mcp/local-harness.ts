@@ -929,8 +929,8 @@ function runCodexProbe(
       clearLifecycle()
       reject(err instanceof Error ? err : new Error(String(err)))
     }
-    const terminate = (reason: 'aborted' | 'timed out'): Promise<void> => {
-      terminationReason ??= reason
+    const terminate = (reason?: 'aborted' | 'timed out'): Promise<void> => {
+      if (reason) terminationReason ??= reason
       if (!termination) {
         termination = terminateProcessTreeAndConfirm(child, () => leaderClosed)
         void termination.catch(rejectOnce)
@@ -971,6 +971,14 @@ function runCodexProbe(
       clearTimeout(timer)
       void (async () => {
         try {
+          if (
+            !termination &&
+            process.platform !== 'win32' &&
+            typeof child.pid === 'number' &&
+            processGroupExists(child.pid)
+          ) {
+            await terminate()
+          }
           if (termination) await termination
           if (settled) return
           settled = true
