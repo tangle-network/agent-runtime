@@ -1,0 +1,171 @@
+{
+  "schema": "quant-arena.rollout.v1",
+  "outDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/qa-demo",
+  "at": "2026-07-22T21:05:12.016Z",
+  "notebookRows": 5,
+  "strategies": [
+    {
+      "label": "baseline-buy-hold-index",
+      "campaignDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/qa-demo/campaign/baseline-buy-hold-index",
+      "cells": 8,
+      "scenarios": [
+        "window-1014-1518",
+        "window-1057-1561",
+        "window-1449-1953",
+        "window-199-703",
+        "window-468-972",
+        "window-546-1050",
+        "window-594-1098",
+        "window-680-1184"
+      ]
+    },
+    {
+      "label": "baseline-equal-weight",
+      "campaignDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/qa-demo/campaign/baseline-equal-weight",
+      "cells": 8,
+      "scenarios": [
+        "window-1014-1518",
+        "window-1057-1561",
+        "window-1449-1953",
+        "window-199-703",
+        "window-468-972",
+        "window-546-1050",
+        "window-594-1098",
+        "window-680-1184"
+      ]
+    },
+    {
+      "label": "baseline-sma-crossover",
+      "campaignDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/qa-demo/campaign/baseline-sma-crossover",
+      "cells": 8,
+      "scenarios": [
+        "window-1014-1518",
+        "window-1057-1561",
+        "window-1449-1953",
+        "window-199-703",
+        "window-468-972",
+        "window-546-1050",
+        "window-594-1098",
+        "window-680-1184"
+      ]
+    },
+    {
+      "label": "cand-001-default-author",
+      "campaignDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/qa-demo/campaign/cand-001-default-author",
+      "cells": 8,
+      "scenarios": [
+        "window-1014-1518",
+        "window-1057-1561",
+        "window-1449-1953",
+        "window-199-703",
+        "window-468-972",
+        "window-546-1050",
+        "window-594-1098",
+        "window-680-1184"
+      ]
+    },
+    {
+      "label": "cand-002-default-author",
+      "campaignDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/qa-demo/campaign/cand-002-default-author",
+      "cells": 8,
+      "scenarios": [
+        "window-1014-1518",
+        "window-1057-1561",
+        "window-1449-1953",
+        "window-199-703",
+        "window-468-972",
+        "window-546-1050",
+        "window-594-1098",
+        "window-680-1184"
+      ]
+    },
+    {
+      "label": "cand-003-quant-researcher",
+      "campaignDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/qa-demo/campaign/cand-003-quant-researcher",
+      "cells": 8,
+      "scenarios": [
+        "window-1014-1518",
+        "window-1057-1561",
+        "window-1449-1953",
+        "window-199-703",
+        "window-468-972",
+        "window-546-1050",
+        "window-594-1098",
+        "window-680-1184"
+      ]
+    },
+    {
+      "label": "cand-004-quant-researcher",
+      "campaignDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/qa-demo/campaign/cand-004-quant-researcher",
+      "cells": 8,
+      "scenarios": [
+        "window-1014-1518",
+        "window-1057-1561",
+        "window-1449-1953",
+        "window-199-703",
+        "window-468-972",
+        "window-546-1050",
+        "window-594-1098",
+        "window-680-1184"
+      ]
+    }
+  ],
+  "receipts": [
+    {
+      "callId": "f0af6aca-8e22-4264-91d0-81f1a391e345",
+      "phase": "search.proposal",
+      "actor": "proposer-shot:default-author",
+      "model": "sonnet",
+      "costUsd": 0.36238919999999997
+    },
+    {
+      "callId": "cc0c7780-83e5-4f6b-8cff-42ce8fcee086",
+      "phase": "audit.leak",
+      "actor": "leak-auditor:claude",
+      "model": "haiku",
+      "costUsd": 0.0626702
+    },
+    {
+      "callId": "15f76357-12e9-4164-a575-609ea19d6caf",
+      "phase": "search.proposal",
+      "actor": "proposer-shot:default-author",
+      "model": "sonnet",
+      "costUsd": 0.3580005
+    },
+    {
+      "callId": "544ff960-2698-4b41-a86e-4a43da853e15",
+      "phase": "audit.leak",
+      "actor": "leak-auditor:claude",
+      "model": "haiku",
+      "costUsd": 0.0432539
+    },
+    {
+      "callId": "7c240191-60d7-4322-868f-86dee8a8356b",
+      "phase": "search.proposal",
+      "actor": "proposer-shot:quant-researcher",
+      "model": "sonnet",
+      "costUsd": 0.4205679
+    },
+    {
+      "callId": "5492fe01-633d-4513-800b-194834546a77",
+      "phase": "audit.leak",
+      "actor": "leak-auditor:claude",
+      "model": "haiku",
+      "costUsd": 0.0799569
+    },
+    {
+      "callId": "d5f20214-c3f3-472a-ada6-130aeec8e76b",
+      "phase": "search.proposal",
+      "actor": "proposer-shot:quant-researcher",
+      "model": "sonnet",
+      "costUsd": 0.2651307
+    },
+    {
+      "callId": "a9f6a64b-2c17-4100-b1a1-cca2ce406ab7",
+      "phase": "audit.leak",
+      "actor": "leak-auditor:claude",
+      "model": "haiku",
+      "costUsd": 0.0571829
+    }
+  ]
+}
