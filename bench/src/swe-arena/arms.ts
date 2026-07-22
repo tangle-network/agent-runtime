@@ -13,8 +13,8 @@
  * and invokes `spawn_supervisor` — no supervisor logic is reimplemented here.
  */
 
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { chmod, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { run, runOk, shq } from './proc'
@@ -74,14 +74,99 @@ export interface SecretsEnv {
 export function dotenvxBash(
   secrets: SecretsEnv,
   script: string,
-  opts: { timeoutMs?: number; extraEnv?: NodeJS.ProcessEnv } = {},
+  opts: { timeoutMs?: number; killGraceMs?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {},
 ): ReturnType<typeof run> {
-  const argv = ['run', ...secrets.envFiles.flatMap((f) => ['-f', f]), '--', 'bash', '-c', script]
+  const authBootstrap = [
+    'if [ -n "${SWE_ARENA_OPENCODE_AUTH_FILE:-}" ] && [ -r "$SWE_ARENA_OPENCODE_AUTH_FILE" ]; then',
+    '  export OPENCODE_AUTH_CONTENT="$(cat -- "$SWE_ARENA_OPENCODE_AUTH_FILE")"',
+    'fi',
+  ].join('\n')
+  const argv = [
+    'run',
+    ...secrets.envFiles.flatMap((f) => ['-f', f]),
+    '--',
+    'bash',
+    '-c',
+    `${authBootstrap}\n${script}`,
+  ]
   return run('dotenvx', argv, {
     cwd: secrets.secretsDir,
     timeoutMs: opts.timeoutMs,
-    env: opts.extraEnv ? { ...process.env, ...opts.extraEnv } : process.env,
+    killGraceMs: opts.killGraceMs,
+    env: opts.env ?? process.env,
+    signal: opts.signal,
   })
+}
+
+export interface IsolatedCellEnvironment {
+  env: NodeJS.ProcessEnv
+  opencodeDb: string
+}
+
+/** Give one cell private CLI state, caches, temp files, and Python installs. */
+export async function prepareIsolatedCellEnvironment(
+  runDir: string,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): Promise<IsolatedCellEnvironment> {
+  const ambientHome = baseEnv.HOME?.trim() || homedir()
+  const cellRoot = resolve(runDir)
+  const home = join(cellRoot, 'home')
+  const xdgRoot = join(cellRoot, 'xdg')
+  const configHome = join(xdgRoot, 'config')
+  const dataHome = join(xdgRoot, 'data')
+  const cacheHome = join(xdgRoot, 'cache')
+  const stateHome = join(xdgRoot, 'state')
+  const runtimeDir = join(xdgRoot, 'runtime')
+  const tmp = join(cellRoot, 'tmp')
+  const pythonUserBase = join(cellRoot, 'python-user')
+  const opencodeConfigDir = join(configHome, 'opencode')
+  const opencodeConfig = join(opencodeConfigDir, 'opencode.json')
+  const opencodeDb = join(dataHome, 'opencode', 'opencode.db')
+  const managedRoots = [home, xdgRoot, tmp, pythonUserBase]
+  await Promise.all(managedRoots.map((dir) => rm(dir, { recursive: true, force: true })))
+
+  const privateDirs = [home, configHome, dataHome, cacheHome, stateHome, runtimeDir, tmp, pythonUserBase, opencodeConfigDir]
+  await Promise.all(privateDirs.map((dir) => mkdir(dir, { recursive: true })))
+  await Promise.all(privateDirs.map((dir) => chmod(dir, 0o700)))
+
+  const ambientConfigHome = baseEnv.XDG_CONFIG_HOME?.trim() || join(ambientHome, '.config')
+  const configCandidates = [
+    baseEnv.OPENCODE_CONFIG?.trim(),
+    join(ambientConfigHome, 'opencode', 'opencode.json'),
+    join(ambientConfigHome, 'opencode', 'opencode.jsonc'),
+  ].filter((path): path is string => Boolean(path))
+  let configText = baseEnv.OPENCODE_CONFIG_CONTENT
+  if (configText === undefined) {
+    for (const candidate of configCandidates) {
+      configText = await readFile(candidate, 'utf8').catch(() => undefined)
+      if (configText !== undefined) break
+    }
+  }
+  await writeFile(opencodeConfig, configText ?? '{}\n', { mode: 0o600 })
+
+  const env: NodeJS.ProcessEnv = {
+    ...baseEnv,
+    HOME: home,
+    XDG_CONFIG_HOME: configHome,
+    XDG_DATA_HOME: dataHome,
+    XDG_CACHE_HOME: cacheHome,
+    XDG_STATE_HOME: stateHome,
+    XDG_RUNTIME_DIR: runtimeDir,
+    TMPDIR: tmp,
+    OPENCODE_CONFIG_DIR: opencodeConfigDir,
+    OPENCODE_CONFIG: opencodeConfig,
+    OPENCODE_DB: opencodeDb,
+    SWE_ARENA_OPENCODE_AUTH_FILE:
+      baseEnv.SWE_ARENA_OPENCODE_AUTH_FILE?.trim() ||
+      join(baseEnv.XDG_DATA_HOME?.trim() || join(ambientHome, '.local', 'share'), 'opencode', 'auth.json'),
+    PYTHONUSERBASE: pythonUserBase,
+  }
+  delete env.OPENCODE_CONFIG_CONTENT
+  delete env.OPENCODE_AUTH_CONTENT
+  delete env.PYTHONHOME
+  delete env.PYTHONPATH
+  delete env.PYTHONNOUSERSITE
+  return { env, opencodeDb }
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +322,7 @@ export interface ArmRunContext {
   outDir: string
   secrets: SecretsEnv
   excludes: string[]
+  signal?: AbortSignal
 }
 
 export interface SoloArmResult {
@@ -277,8 +363,14 @@ export interface SupervisorArmResult {
 
 const patchLineCount = (patch: string): number => (patch.length === 0 ? 0 : patch.split('\n').length - (patch.endsWith('\n') ? 1 : 0))
 
-async function verifyWorkspace(verifyCmd: string, ws: string, logPath: string): Promise<number> {
-  const res = await run('bash', ['-c', verifyCmd], { cwd: ws, timeoutMs: 600_000 })
+async function verifyWorkspace(
+  verifyCmd: string,
+  ws: string,
+  logPath: string,
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
+): Promise<number> {
+  const res = await run('bash', ['-c', verifyCmd], { cwd: ws, timeoutMs: 600_000, env, signal })
   await writeFile(logPath, res.stdout + res.stderr)
   return res.code
 }
@@ -288,6 +380,7 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const runDir = join(ctx.outDir, 'runs', ctx.instanceId, spec.name)
   const ws = join(runDir, 'ws')
   await mkdir(runDir, { recursive: true })
+  const cell = await prepareIsolatedCellEnvironment(runDir)
   await materializeWorkspace({ instanceId: ctx.instanceId, image: ctx.image, baseCommit: ctx.baseCommit, dest: ws })
 
   const promptFile = join(runDir, 'prompt.txt')
@@ -297,7 +390,7 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const oc = await dotenvxBash(
     ctx.secrets,
     `cd ${shq(ws)} && opencode run "$(cat ${shq(promptFile)})" -m ${shq(spec.model)} --format json`,
-    { timeoutMs: spec.timeoutMs ?? 1_000_000 },
+    { timeoutMs: spec.timeoutMs ?? 1_000_000, env: cell.env, signal: ctx.signal },
   )
   const wall_s = Math.round((Date.now() - t0) / 1000)
   await writeFile(join(runDir, 'oc.jsonl'), oc.stdout)
@@ -308,7 +401,7 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   await mkdir(join(ctx.outDir, 'patches'), { recursive: true })
   await writeFile(patchPath, patch)
 
-  const verify_rc = await verifyWorkspace(ctx.verifyCmd, ws, join(runDir, 'verify.log'))
+  const verify_rc = await verifyWorkspace(ctx.verifyCmd, ws, join(runDir, 'verify.log'), cell.env, ctx.signal)
   return {
     arm: spec.name,
     iid: ctx.instanceId,
@@ -409,6 +502,7 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   const runDir = join(ctx.outDir, 'runs', ctx.instanceId, spec.name)
   const ws = join(runDir, 'ws')
   await mkdir(runDir, { recursive: true })
+  const cell = await prepareIsolatedCellEnvironment(runDir)
   await materializeWorkspace({ instanceId: ctx.instanceId, image: ctx.image, baseCommit: ctx.baseCommit, dest: ws })
 
   const paramsFile = join(runDir, 'params.json')
@@ -445,7 +539,12 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   ].join('\n')
 
   const t0 = Date.now()
-  const driver = await dotenvxBash(ctx.secrets, script, { timeoutMs: spec.timeoutMs ?? 2_800_000 })
+  const driver = await dotenvxBash(ctx.secrets, script, {
+    timeoutMs: spec.timeoutMs ?? 2_800_000,
+    killGraceMs: 30_000,
+    env: cell.env,
+    signal: ctx.signal,
+  })
   const wall_s = Math.round((Date.now() - t0) / 1000)
   await writeFile(join(runDir, 'driver.log'), driver.stdout + driver.stderr)
 
@@ -456,9 +555,11 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   await mkdir(join(ctx.outDir, 'patches'), { recursive: true })
   await writeFile(patchPath, patch)
 
-  const verify_rc = await verifyWorkspace(ctx.verifyCmd, ws, join(runDir, 'verify.log'))
+  const verify_rc = await verifyWorkspace(ctx.verifyCmd, ws, join(runDir, 'verify.log'), cell.env, ctx.signal)
 
-  const recoveredSpend = artifacts.supRunDir ? await recoverSupSpend(artifacts.supRunDir).catch(() => null) : null
+  const recoveredSpend = artifacts.supRunDir
+    ? await recoverSupSpend(artifacts.supRunDir, { opencodeDb: cell.opencodeDb }).catch(() => null)
+    : null
 
   return {
     arm: spec.name,

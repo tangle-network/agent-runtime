@@ -312,6 +312,28 @@ describe('dispatch clocks (gate holds are never billed to the cell)', () => {
     ).rejects.toThrow(/post-gate dispatch exceeded 30ms .*astropy__astropy-13033/)
   })
 
+  it('waits for abort cleanup before reporting a post-gate timeout', async () => {
+    let cleanupFinished = false
+    const started = Date.now()
+    await expect(
+      runWithPostGateClock({
+        awaitGates: () => Promise.resolve(),
+        work: (signal) => new Promise<string>((resolve) => {
+          signal.addEventListener('abort', () => {
+            setTimeout(() => {
+              cleanupFinished = true
+              resolve('settled after cleanup')
+            }, 30)
+          }, { once: true })
+        }),
+        timeoutMs: 20,
+        label: 'cleanup proof',
+      }),
+    ).rejects.toThrow(/post-gate dispatch exceeded 20ms .*cleanup proof/)
+    expect(cleanupFinished).toBe(true)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(45)
+  })
+
   it('a gate failure rejects before the work clock ever starts', async () => {
     let workStarted = false
     await expect(

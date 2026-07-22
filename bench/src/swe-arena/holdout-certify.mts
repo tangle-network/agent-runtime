@@ -240,7 +240,7 @@ export async function runHoldoutCertification(
             const entry = images[iid]!
             const armRes = await runWithPostGateClock({
               awaitGates,
-              work: () =>
+              work: (signal) =>
                 runSupervisorArm(spec, {
                   instanceId: iid,
                   image: entry.image,
@@ -250,6 +250,7 @@ export async function runHoldoutCertification(
                   outDir: armOutDir,
                   secrets,
                   excludes,
+                  signal,
                 }),
               timeoutMs: config.dispatchTimeoutMs,
               label: `holdout ${side} ${iid} r${rep}`,

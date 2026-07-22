@@ -239,29 +239,30 @@ export function campaignDispatchCeilingMs(
  *  Gate failures (no capacity within a gate's own ceiling) still reject. */
 export async function runWithPostGateClock<T>(opts: {
   awaitGates: () => Promise<void>
-  work: () => Promise<T>
+  work: (signal: AbortSignal) => Promise<T>
   timeoutMs: number
   label?: string
 }): Promise<T> {
   await opts.awaitGates()
-  if (!(opts.timeoutMs > 0)) return opts.work()
+  const abort = new AbortController()
+  if (!(opts.timeoutMs > 0)) return opts.work(abort.signal)
   let timer: NodeJS.Timeout | undefined
+  let timedOut = false
+  const timeoutError = new Error(
+    `post-gate dispatch exceeded ${opts.timeoutMs}ms${opts.label ? ` (${opts.label})` : ''} — failed loud, gate wait unbilled`,
+  )
   try {
-    return await Promise.race([
-      opts.work(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `post-gate dispatch exceeded ${opts.timeoutMs}ms${opts.label ? ` (${opts.label})` : ''} — failed loud, gate wait unbilled`,
-              ),
-            ),
-          opts.timeoutMs,
-        )
-        timer.unref?.()
-      }),
-    ])
+    timer = setTimeout(() => {
+      timedOut = true
+      abort.abort(timeoutError)
+    }, opts.timeoutMs)
+    timer.unref?.()
+    const result = await opts.work(abort.signal)
+    if (timedOut) throw timeoutError
+    return result
+  } catch (err) {
+    if (timedOut) throw timeoutError
+    throw err
   } finally {
     if (timer) clearTimeout(timer)
   }
@@ -1146,7 +1147,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
               await symlink(join(config.loopsRepo, 'node_modules'), nm, 'dir')
               linked = true
             }
-            const work = async (): Promise<{ armRes: SupervisorArmResult; resolved: boolean | null }> => {
+            const work = async (signal: AbortSignal): Promise<{ armRes: SupervisorArmResult; resolved: boolean | null }> => {
               const spec: SupervisorArmSpec = {
                 kind: 'supervisor',
                 name: config.armName,
@@ -1171,6 +1172,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
                 outDir: armOutDir,
                 secrets,
                 excludes,
+                signal,
               })
               const verdict = await judge.judge(iid, armRes.patchPath, `prefilter-g${generation}-${proposer.name}`)
               return { armRes, resolved: verdict.resolved }
@@ -1259,7 +1261,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       throw new Error(`change-space violation (${rec.violations.length} path(s)): ${rec.violations.join(', ')}`)
     }
 
-    const runCell = async (): Promise<R4Artifact> => {
+    const runCell = async (signal: AbortSignal): Promise<R4Artifact> => {
       const entry = images[iid]!
       const evalWt = join(config.outDir, 'eval-wt', `${rec.tag}-${iid}-r${ctx.rep}`)
       const armOutDir = join(config.outDir, 'arm-runs', rec.tag, `rep-${ctx.rep}`)
@@ -1289,6 +1291,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           outDir: armOutDir,
           secrets,
           excludes,
+          signal,
         })
         const runDir = join(armOutDir, 'runs', iid, config.armName)
         const { ws: _ws, ...armSummary } = armRes

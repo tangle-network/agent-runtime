@@ -14,9 +14,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   loadExcludes,
+  dotenvxBash,
   extractPatch,
   parseOcUsage,
   parseSupervisorArtifacts,
+  prepareIsolatedCellEnvironment,
   recoverSupSpend,
   toArmIdentity,
   SUP_DEFAULT_ENV_KNOBS,
@@ -26,7 +28,7 @@ import {
 } from './arms.ts'
 import { containerName } from './materialize.ts'
 import { gatesForArmKind, probeBody, probeWindow, waitForCapacity, httpCapacityProbe } from './capacity.ts'
-import { runOk } from './proc.ts'
+import { run, runOk } from './proc.ts'
 import {
   createSerializedJudge,
   instanceShortName,
@@ -98,6 +100,88 @@ describe('materialize: container naming', () => {
     expect(a).toMatch(/^ext-pallets--flask-5014-\d+-\d+$/)
     expect(containerName('a_b/c')).toMatch(/^ext-a-b-c-/)
     expect(containerName('x')).not.toBe(containerName('x'))
+  })
+})
+
+describe('arms: per-cell host isolation', () => {
+  it('separates OpenCode state, auth injection, temp files, and Python imports', async () => {
+    const ambient = await scratch('swe-arena-ambient-')
+    const ambientConfigDir = join(ambient, '.config', 'opencode')
+    const ambientDataDir = join(ambient, '.local', 'share', 'opencode')
+    await mkdir(ambientConfigDir, { recursive: true })
+    await mkdir(ambientDataDir, { recursive: true })
+    await writeFile(join(ambientConfigDir, 'opencode.json'), '{"small_model":"opencode/gpt-5-nano"}\n')
+    await writeFile(join(ambientDataDir, 'auth.json'), '{"fake":"credential"}\n')
+
+    const cellA = await prepareIsolatedCellEnvironment(join(await scratch('swe-arena-cell-a-'), 'run'), {
+      ...process.env,
+      HOME: ambient,
+      PYTHONHOME: '/tmp/ambient-python-home',
+      PYTHONPATH: '/tmp/ambient-python-path',
+    })
+    const cellB = await prepareIsolatedCellEnvironment(join(await scratch('swe-arena-cell-b-'), 'run'), {
+      ...process.env,
+      HOME: ambient,
+    })
+
+    expect(cellA.env.HOME).not.toBe(ambient)
+    expect(cellA.env.XDG_DATA_HOME).not.toBe(cellB.env.XDG_DATA_HOME)
+    expect(cellA.env.OPENCODE_DB).toBe(cellA.opencodeDb)
+    expect(cellA.env.PYTHONHOME).toBeUndefined()
+    expect(cellA.env.PYTHONPATH).toBeUndefined()
+    expect(await readFile(cellA.env.OPENCODE_CONFIG!, 'utf8')).toBe('{"small_model":"opencode/gpt-5-nano"}\n')
+
+    const authCheck = await dotenvxBash(
+      { secretsDir: ambient, envFiles: [] },
+      `test "$OPENCODE_AUTH_CONTENT" = '{"fake":"credential"}'`,
+      { env: cellA.env, timeoutMs: 5_000 },
+    )
+    expect(authCheck.code, authCheck.stderr).toBe(0)
+
+    const dbPath = await runOk('opencode', ['db', 'path'], { env: cellA.env, timeoutMs: 10_000 })
+    expect(dbPath.stdout.trim()).toBe(cellA.opencodeDb)
+
+    const siteProbe = await runOk('python3', [
+      '-c',
+      'import json,site,sys; print(json.dumps({"enabled":site.ENABLE_USER_SITE,"user":site.getusersitepackages(),"path":sys.path}))',
+    ], { env: cellA.env })
+    const site = JSON.parse(siteProbe.stdout) as { enabled: boolean; user: string; path: string[] }
+    expect(site.enabled).toBe(true)
+    expect(site.user).toContain(cellA.env.PYTHONUSERBASE!)
+    await mkdir(join(site.user, 'cell_a_canary'), { recursive: true })
+    await writeFile(join(site.user, 'cell_a_canary', '__init__.py'), 'VALUE = 1\n')
+
+    const ownCellImport = await runOk('python3', [
+      '-c',
+      'import cell_a_canary; assert cell_a_canary.VALUE == 1',
+    ], { env: cellA.env })
+    expect(ownCellImport.code).toBe(0)
+
+    const crossCellImport = await run('python3', ['-c', 'import cell_a_canary'], { env: cellB.env })
+    expect(crossCellImport.code).not.toBe(0)
+    expect(crossCellImport.stderr).toContain('ModuleNotFoundError')
+  })
+
+  it('clears every managed directory before retrying the same cell', async () => {
+    const runDir = join(await scratch('swe-arena-cell-retry-'), 'run')
+    const first = await prepareIsolatedCellEnvironment(runDir, { ...process.env })
+    const canaries = [
+      join(first.env.HOME!, 'old-home'),
+      join(first.env.XDG_DATA_HOME!, 'old-data'),
+      join(first.env.XDG_CACHE_HOME!, 'old-cache'),
+      join(first.env.XDG_STATE_HOME!, 'old-state'),
+      join(first.env.XDG_RUNTIME_DIR!, 'old-runtime'),
+      join(first.env.TMPDIR!, 'old-tmp'),
+      join(first.env.PYTHONUSERBASE!, 'old-python'),
+    ]
+    await Promise.all(canaries.map((path) => writeFile(path, 'stale\n')))
+
+    const second = await prepareIsolatedCellEnvironment(runDir, { ...process.env })
+    expect(second.env.HOME).toBe(first.env.HOME)
+    expect(second.opencodeDb).toBe(first.opencodeDb)
+    for (const path of canaries) {
+      await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    }
   })
 })
 
