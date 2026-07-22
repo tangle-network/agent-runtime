@@ -1060,7 +1060,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       for await (const chunk of parseSseChatStream(res.body)) {
         if (chunk.content) {
           turnText += chunk.content
-          yield { kind: 'iteration' }
         }
         if (chunk.toolCall) toolCalls.push(chunk.toolCall)
         if (chunk.usage) {
@@ -1077,6 +1076,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       cleanup()
     }
     turns += 1
+    yield { kind: 'iteration' }
     if (turnText) lastText = turnText
 
     // Before settling, drain once more — the worker can't finish while a steer it
