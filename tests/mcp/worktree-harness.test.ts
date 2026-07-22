@@ -12,11 +12,17 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import type { RunLocalHarnessOptions } from '../../src/mcp/local-harness'
 import { captureWorktreeDiff, type GitRunner } from '../../src/mcp/worktree'
-import { runWorktreeHarness } from '../../src/mcp/worktree-harness'
+import {
+  defaultRunCommand,
+  runWorktreeChecks,
+  runWorktreeHarness,
+  type WorktreeCheckRunner,
+} from '../../src/mcp/worktree-harness'
 import { createWorktreeCliExecutor } from '../../src/runtime/supervise/worktree-cli-executor'
 
 function git(repoRoot: string, args: string[]): string {
@@ -58,6 +64,93 @@ function successfulHarnessResult() {
 function count(text: string, value: string): number {
   return text.split(value).length - 1
 }
+
+async function waitForPath(path: string, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${path}`)
+    await delay(10)
+  }
+}
+
+describe('worktree check cancellation', () => {
+  it('rejects a pre-aborted command before spawning it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worktree-check-pre-abort-'))
+    const marker = join(dir, 'spawned')
+    const controller = new AbortController()
+    controller.abort(new Error('pre-aborted check'))
+    try {
+      await expect(
+        defaultRunCommand({
+          command: `touch ${JSON.stringify(marker)}`,
+          cwd: dir,
+          timeoutMs: 1_000,
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow(/pre-aborted check/)
+      expect(existsSync(marker)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('settles a TERM-ignoring descendant before rejecting cancellation', async () => {
+    if (process.platform === 'win32') return
+    const dir = mkdtempSync(join(tmpdir(), 'worktree-check-tree-abort-'))
+    const pidPath = join(dir, 'descendant.pid')
+    const lateWrite = join(dir, 'late-write')
+    const controller = new AbortController()
+    const childScript = [
+      "const fs=require('node:fs')",
+      'fs.writeFileSync(process.argv[1],String(process.pid))',
+      "process.on('SIGTERM',()=>{})",
+      "setTimeout(()=>fs.writeFileSync(process.argv[2],'late'),700)",
+      'setInterval(()=>{},1000)',
+    ].join(';')
+    const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(childScript)} ${JSON.stringify(pidPath)} ${JSON.stringify(lateWrite)} & wait`
+    try {
+      const running = defaultRunCommand({
+        command,
+        cwd: dir,
+        timeoutMs: 5_000,
+        signal: controller.signal,
+      })
+      await waitForPath(pidPath)
+      const descendantPid = Number(readFileSync(pidPath, 'utf8'))
+      controller.abort(new Error('cancel the process tree'))
+
+      await expect(running).rejects.toThrow(/cancel the process tree/)
+      await delay(500)
+      expect(existsSync(lateWrite)).toBe(false)
+      expect(existsSync(`/proc/${descendantPid}`)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not start typecheck after cancellation settles the test command', async () => {
+    const controller = new AbortController()
+    const commands: string[] = []
+    const runCommand: WorktreeCheckRunner = vi.fn(async ({ command }) => {
+      commands.push(command)
+      controller.abort(new Error('cancel between checks'))
+      return { exitCode: 0, output: 'partial success' }
+    })
+
+    await expect(
+      runWorktreeChecks({
+        worktreePath: '/unused',
+        testCmd: 'test-command',
+        typecheckCmd: 'typecheck-command',
+        timeoutMs: 1_000,
+        cap: 1_000,
+        runCommand,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/cancel between checks/)
+    expect(commands).toEqual(['test-command'])
+  })
+})
 
 describe('runWorktreeHarness profile materialization', () => {
   it('fails instead of fabricating an empty patch when Git diff fails', async () => {
@@ -164,6 +257,48 @@ describe('runWorktreeHarness profile materialization', () => {
         await executor.teardown(0)
       }
 
+      expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
+      expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects caller cancellation before diff capture or verification', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runId = 'cancelled-before-scoring'
+    const gitCommands: string[][] = []
+    const runGit: GitRunner = (args, { cwd }) => {
+      gitCommands.push([...args])
+      const result = spawnSync('git', [...args], { cwd, encoding: 'utf8' })
+      return {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.status ?? -1,
+      }
+    }
+    const runCommand = vi.fn()
+    try {
+      await expect(
+        runWorktreeHarness({
+          repoRoot,
+          profile: {},
+          harness: 'claude',
+          taskPrompt: 'task',
+          runId,
+          testCmd: 'must-not-run',
+          runGit,
+          runCommand,
+          // Process boundary only; local-harness.test.ts covers TERM-aware cancellation with a real tree.
+          runHarness: async ({ cwd }) => {
+            writeFileSync(join(cwd, 'src/value.ts'), 'export const partial = true\n')
+            return { ...successfulHarnessResult(), aborted: true }
+          },
+        }),
+      ).rejects.toThrow(/cancelled by the caller/)
+
+      expect(gitCommands.some(([command]) => command === 'add')).toBe(false)
+      expect(runCommand).not.toHaveBeenCalled()
       expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
       expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
     } finally {

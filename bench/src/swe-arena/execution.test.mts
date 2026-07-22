@@ -7,12 +7,15 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
+  armProvenance,
+  assertSoloProcessCompleted,
+  assertSupervisorProcessCompleted,
   loadExcludes,
   dotenvxBash,
   extractPatch,
@@ -20,13 +23,14 @@ import {
   parseSupervisorArtifacts,
   prepareIsolatedCellEnvironment,
   recoverSupSpend,
+  supervisorDriverKillGraceMs,
   toArmIdentity,
   SUP_DEFAULT_ENV_KNOBS,
   WORKER_PROMPT_SUFFIX,
   type SoloArmResult,
   type SupervisorArmResult,
 } from './arms.ts'
-import { containerName } from './materialize.ts'
+import { containerName, materializeWorkspace } from './materialize.ts'
 import { gatesForArmKind, probeBody, probeWindow, waitForCapacity, httpCapacityProbe } from './capacity.ts'
 import { run, runOk } from './proc.ts'
 import {
@@ -34,6 +38,7 @@ import {
   instanceShortName,
   JUDGE_TIMEOUT_FLOOR_MS,
   type JudgeVerdict,
+  withJudgeLock,
 } from './serialized-judge.ts'
 import { loadLedger, readFixture } from './fixtures.ts'
 import {
@@ -97,9 +102,135 @@ describe('vendored execution fixtures', () => {
 describe('materialize: container naming', () => {
   it('sanitizes iid like setup-ws.sh (tr _/ --) and is collision-resistant', () => {
     const a = containerName('pallets__flask-5014')
-    expect(a).toMatch(/^ext-pallets--flask-5014-\d+-\d+$/)
+    expect(a).toMatch(/^ext-pallets--flask-5014-\d+-[a-f0-9-]{36}$/)
     expect(containerName('a_b/c')).toMatch(/^ext-a-b-c-/)
     expect(containerName('x')).not.toBe(containerName('x'))
+  })
+
+  it('honors a pre-aborted cell before deleting or invoking Docker', async () => {
+    const dest = await scratch('swe-arena-materialize-abort-')
+    const canary = join(dest, 'keep.txt')
+    await writeFile(canary, 'keep\n')
+    const controller = new AbortController()
+    const reason = new Error('cell deadline')
+    controller.abort(reason)
+
+    await expect(materializeWorkspace({
+      instanceId: 'example__repo-1',
+      image: 'unused:latest',
+      baseCommit: 'deadbeef',
+      dest,
+      signal: controller.signal,
+    })).rejects.toBe(reason)
+    expect(await readFile(canary, 'utf8')).toBe('keep\n')
+  })
+
+  it('fails when Docker cannot remove a successfully-created container', async () => {
+    const root = await scratch('swe-arena-materialize-cleanup-')
+    const binDir = join(root, 'bin')
+    const docker = join(binDir, 'docker')
+    const dest = join(root, 'workspace')
+    await mkdir(binDir, { recursive: true })
+    await writeFile(
+      docker,
+      [
+        '#!/usr/bin/env bash',
+        'case "$1" in',
+        '  create) exit 0 ;;',
+        '  cp) mkdir -p "$3/.git"; exit 0 ;;',
+        '  rm) echo "simulated container leak" >&2; exit 9 ;;',
+        'esac',
+      ].join('\n'),
+    )
+    await chmod(docker, 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+    try {
+      await expect(materializeWorkspace({
+        instanceId: 'example__repo-1',
+        image: 'fake:latest',
+        baseCommit: 'deadbeef',
+        dest,
+      })).rejects.toThrow(/cleanup-fail.*exit=9.*simulated container leak/)
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
+  })
+
+  it('preserves both copy and cleanup failures', async () => {
+    const root = await scratch('swe-arena-materialize-double-failure-')
+    const binDir = join(root, 'bin')
+    const docker = join(binDir, 'docker')
+    await mkdir(binDir, { recursive: true })
+    await writeFile(
+      docker,
+      [
+        '#!/usr/bin/env bash',
+        'case "$1" in',
+        '  create) exit 0 ;;',
+        '  cp) echo "simulated copy failure" >&2; exit 7 ;;',
+        '  rm) echo "simulated cleanup failure" >&2; exit 9 ;;',
+        'esac',
+      ].join('\n'),
+    )
+    await chmod(docker, 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+    try {
+      let error: unknown
+      try {
+        await materializeWorkspace({
+          instanceId: 'example__repo-2',
+          image: 'fake:latest',
+          baseCommit: 'deadbeef',
+          dest: join(root, 'workspace'),
+        })
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(AggregateError)
+      const errors = (error as AggregateError).errors as Error[]
+      expect(errors[0]?.message).toMatch(/cp-fail.*simulated copy failure/)
+      expect(errors[1]?.message).toMatch(/cleanup-fail.*simulated cleanup failure/)
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
+  })
+
+  it('attempts idempotent cleanup after an uncertain create result', async () => {
+    const root = await scratch('swe-arena-materialize-create-failure-')
+    const binDir = join(root, 'bin')
+    const docker = join(binDir, 'docker')
+    const calls = join(root, 'docker-calls.log')
+    await mkdir(binDir, { recursive: true })
+    await writeFile(
+      docker,
+      [
+        '#!/usr/bin/env bash',
+        `echo "$1" >> ${JSON.stringify(calls)}`,
+        'case "$1" in',
+        '  create) echo "uncertain create failure" >&2; exit 7 ;;',
+        '  rm) echo "Error response from daemon: No such container: expected" >&2; exit 1 ;;',
+        'esac',
+      ].join('\n'),
+    )
+    await chmod(docker, 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+    try {
+      await expect(materializeWorkspace({
+        instanceId: 'example__repo-3',
+        image: 'fake:latest',
+        baseCommit: 'deadbeef',
+        dest: join(root, 'workspace'),
+      })).rejects.toThrow(/create-fail.*uncertain create failure/)
+      expect((await readFile(calls, 'utf8')).trim().split('\n')).toEqual(['create', 'rm'])
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
   })
 })
 
@@ -212,6 +343,13 @@ describe('arms: patch extraction (real git, no docker)', () => {
     expect(patch).not.toContain('test_lib.py')
     expect(patch).not.toContain('conftest.py')
     expect(patch).not.toContain('.loops')
+  })
+
+  it('honors a pre-aborted cell before spawning git', async () => {
+    const controller = new AbortController()
+    const reason = new Error('cell deadline')
+    controller.abort(reason)
+    await expect(extractPatch('/unused', 'deadbeef', [], controller.signal)).rejects.toBe(reason)
   })
 })
 
@@ -373,6 +511,53 @@ describe('arms: provenance + identity', () => {
     expect(identity.env.LOOPS_BRAIN_RETRIES).toBe('30')
     expect(identity.env.DRIVER_DEADLINE_MS).toBe('2600000')
   })
+
+  it('honors a pre-aborted cell before reading the loops commit', async () => {
+    const controller = new AbortController()
+    const reason = new Error('cell deadline')
+    controller.abort(reason)
+    await expect(armProvenance('/unused', {}, controller.signal)).rejects.toBe(reason)
+  })
+})
+
+describe('arms: failed process outcomes are never scored', () => {
+  it('accepts only a zero-exit, non-cancelled solo process', () => {
+    expect(() => assertSoloProcessCompleted({ code: 0, timedOut: false, aborted: false })).not.toThrow()
+    expect(() => assertSoloProcessCompleted({ code: 124, timedOut: true, aborted: false })).toThrow(/timed out/)
+    expect(() => assertSoloProcessCompleted({ code: 130, timedOut: false, aborted: true })).toThrow(/cancelled/)
+    expect(() => assertSoloProcessCompleted({ code: 2, timedOut: false, aborted: false })).toThrow(/exited 2/)
+  })
+
+  it('requires both a successful driver and completed supervisor state', () => {
+    expect(() => assertSupervisorProcessCompleted(
+      { code: 0, timedOut: false, aborted: false },
+      'completed',
+    )).not.toThrow()
+    expect(() => assertSupervisorProcessCompleted(
+      { code: 124, timedOut: true, aborted: false },
+      'running',
+    )).toThrow(/timed out.*state running/)
+    expect(() => assertSupervisorProcessCompleted(
+      { code: 130, timedOut: false, aborted: true },
+      'cancelled',
+    )).toThrow(/cancelled.*state cancelled/)
+    expect(() => assertSupervisorProcessCompleted(
+      { code: 3, timedOut: false, aborted: false },
+      'completed',
+    )).toThrow(/exited 3.*state completed/)
+    for (const status of [null, 'running', 'failed', 'cancelled']) {
+      expect(() => assertSupervisorProcessCompleted(
+        { code: 0, timedOut: false, aborted: false },
+        status,
+      )).toThrow(/expected completed/)
+    }
+  })
+
+  it('gives outer termination more time than the driver cancellation deadline', () => {
+    expect(supervisorDriverKillGraceMs({})).toBeGreaterThan(30_000)
+    expect(supervisorDriverKillGraceMs({ DRIVER_CANCEL_TIMEOUT_MS: '45000' })).toBeGreaterThan(45_000)
+    expect(() => supervisorDriverKillGraceMs({ DRIVER_CANCEL_TIMEOUT_MS: '0' })).toThrow(/positive number/)
+  })
 })
 
 describe('serialized-judge', () => {
@@ -387,6 +572,39 @@ describe('serialized-judge', () => {
     const p = join(dir, 'x.patch')
     await writeFile(p, content)
     return p
+  }
+
+  async function waitForFile(path: string, timeoutMs = 3_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (await readFile(path, 'utf8').then(() => true, () => false)) return
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    throw new Error(`timed out waiting for ${path}`)
+  }
+
+  async function startExternalFlock(lockFile: string, readyFile: string) {
+    const controller = new AbortController()
+    const done = run(
+      'flock',
+      [
+        '--exclusive',
+        lockFile,
+        'bash',
+        '-c',
+        'touch "$1"; trap "exit 0" TERM; sleep 30',
+        'holder',
+        readyFile,
+      ],
+      { timeoutMs: 10_000, signal: controller.signal },
+    )
+    await waitForFile(readyFile)
+    return {
+      stop: async () => {
+        controller.abort(new Error('release external flock'))
+        await done
+      },
+    }
   }
 
   it('enforces the 1800s ceiling floor on the real judge', () => {
@@ -405,6 +623,41 @@ describe('serialized-judge', () => {
     })
     const verdict = await judge.judge('pallets__flask-5014', await patchFile('   \n'))
     expect(verdict).toEqual({ iid: 'pallets__flask-5014', resolved: false, score: 0, note: 'empty-patch', attempts: 0 })
+    await expect(readFile(marker, 'utf8')).rejects.toThrow()
+  })
+
+  it('rejects a missing patch instead of scoring it as empty', async () => {
+    const dir = await scratch('swe-arena-judge-missing-')
+    const marker = join(dir, 'invoked')
+    const judge = createSerializedJudge({
+      command: fakeCommand(`touch ${marker}; echo JUDGE_RESULT '{"iid":"x","resolved":true}'`),
+      timeoutMs: 5_000,
+      unsafeAllowShortTimeout: true,
+      lockFile: join(dir, 'lock'),
+    })
+
+    await expect(judge.judge('pallets__flask-5014', join(dir, 'missing.patch'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+    await expect(readFile(marker, 'utf8')).rejects.toThrow()
+  })
+
+  it('rejects an unreadable patch instead of scoring it as empty', async () => {
+    const dir = await scratch('swe-arena-judge-unreadable-')
+    const marker = join(dir, 'invoked')
+    const patch = await patchFile('diff --git a/x b/x\n')
+    const judge = createSerializedJudge({
+      command: fakeCommand(`touch ${marker}; echo JUDGE_RESULT '{"iid":"x","resolved":true}'`),
+      timeoutMs: 5_000,
+      unsafeAllowShortTimeout: true,
+      lockFile: join(dir, 'lock'),
+    })
+    await chmod(patch, 0)
+    try {
+      await expect(judge.judge('pallets__flask-5014', patch)).rejects.toMatchObject({ code: 'EACCES' })
+    } finally {
+      await chmod(patch, 0o600)
+    }
     await expect(readFile(marker, 'utf8')).rejects.toThrow()
   })
 
@@ -465,6 +718,34 @@ describe('serialized-judge', () => {
     expect(verdict.raw).toMatch(/timeout/)
   }, 15_000)
 
+  it('rejects a success marker printed before the child times out', async () => {
+    const dir = await scratch('swe-arena-judge-marker-timeout-')
+    const judge = createSerializedJudge({
+      command: fakeCommand(`echo 'JUDGE_RESULT {"iid":"i","resolved":true,"score":1}'; sleep 30`),
+      timeoutMs: 100,
+      unsafeAllowShortTimeout: true,
+      lockFile: join(dir, 'lock'),
+    })
+    const verdict = await judge.judge('i', await patchFile('diff --git a/x b/x\n'))
+    expect(verdict.resolved).toBeNull()
+    expect(verdict.attempts).toBe(2)
+    expect(verdict.raw).toMatch(/timeout/)
+  }, 15_000)
+
+  it('rejects a success marker from a child that exits nonzero', async () => {
+    const dir = await scratch('swe-arena-judge-marker-nonzero-')
+    const judge = createSerializedJudge({
+      command: fakeCommand(`echo 'JUDGE_RESULT {"iid":"i","resolved":true,"score":1}'; exit 7`),
+      timeoutMs: 5_000,
+      unsafeAllowShortTimeout: true,
+      lockFile: join(dir, 'lock'),
+    })
+    const verdict = await judge.judge('i', await patchFile('diff --git a/x b/x\n'))
+    expect(verdict.resolved).toBeNull()
+    expect(verdict.attempts).toBe(2)
+    expect(verdict.raw).toMatch(/exit 7/)
+  })
+
   it('serializes concurrent judges — the flock-race regression test', async () => {
     const dir = await scratch('swe-arena-judge-mutex-')
     const logPath = join(dir, 'order.log')
@@ -487,6 +768,231 @@ describe('serialized-judge', () => {
     expect(events[1]).toMatch(/^end /)
     expect(events[2]).toMatch(/^start /)
     expect(events[3]).toMatch(/^end /)
+  }, 15_000)
+
+  it('aborts an in-process waiter without abandoning or bypassing the live holder', async () => {
+    const dir = await scratch('swe-arena-judge-chain-abort-')
+    const lockFile = join(dir, 'lock')
+    let releaseHolder!: () => void
+    let announceHolder!: () => void
+    const holderRelease = new Promise<void>((resolve) => {
+      releaseHolder = resolve
+    })
+    const holderStarted = new Promise<void>((resolve) => {
+      announceHolder = resolve
+    })
+    const holder = withJudgeLock(lockFile, async () => {
+      announceHolder()
+      await holderRelease
+      return 'holder-finished'
+    })
+    await holderStarted
+
+    let cancelledWaiterRan = false
+    const controller = new AbortController()
+    const waiter = withJudgeLock(
+      lockFile,
+      async () => {
+        cancelledWaiterRan = true
+      },
+      { timeoutMs: 2_000, signal: controller.signal },
+    )
+    controller.abort(new Error('cancelled queued judge'))
+    await expect(waiter).rejects.toThrow('cancelled queued judge')
+    expect(cancelledWaiterRan).toBe(false)
+    const blockedProbe = await run('flock', ['--exclusive', '--nonblock', lockFile, 'true'])
+    expect(blockedProbe.code).toBe(1)
+
+    let successorRan = false
+    const successor = withJudgeLock(
+      lockFile,
+      async () => {
+        successorRan = true
+      },
+      { timeoutMs: 2_000 },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(successorRan).toBe(false)
+
+    releaseHolder()
+    await expect(holder).resolves.toBe('holder-finished')
+    await expect(successor).resolves.toBeUndefined()
+    expect(successorRan).toBe(true)
+    const releasedProbe = await run('flock', ['--exclusive', '--nonblock', lockFile, 'true'])
+    expect(releasedProbe.code).toBe(0)
+  })
+
+  it('bounds and cancels cross-process flock acquisition before the callback runs', async () => {
+    const dir = await scratch('swe-arena-judge-flock-wait-')
+    const timeoutLock = join(dir, 'timeout.lock')
+    const timeoutHolder = await startExternalFlock(timeoutLock, join(dir, 'timeout-ready'))
+    let timedOutCallbackRan = false
+    await expect(
+      withJudgeLock(
+        timeoutLock,
+        async () => {
+          timedOutCallbackRan = true
+        },
+        { timeoutMs: 40 },
+      ),
+    ).rejects.toThrow('lock wait exceeded 40ms')
+    expect(timedOutCallbackRan).toBe(false)
+    await timeoutHolder.stop()
+
+    // A waiter that observed the old holder cannot delete or bypass a newer
+    // holder: kernel ownership follows the open fd, never the lock-file bytes.
+    let releaseSuccessor!: () => void
+    let announceSuccessor!: () => void
+    const successorRelease = new Promise<void>((resolve) => {
+      releaseSuccessor = resolve
+    })
+    const successorStarted = new Promise<void>((resolve) => {
+      announceSuccessor = resolve
+    })
+    const successor = withJudgeLock(timeoutLock, async () => {
+      announceSuccessor()
+      await successorRelease
+    }, { timeoutMs: 2_000 })
+    await successorStarted
+    const successorProbe = await run('flock', ['--exclusive', '--nonblock', timeoutLock, 'true'])
+    expect(successorProbe.code).toBe(1)
+    releaseSuccessor()
+    await successor
+
+    const abortLock = join(dir, 'abort.lock')
+    const abortHolder = await startExternalFlock(abortLock, join(dir, 'abort-ready'))
+    let abortedCallbackRan = false
+    const controller = new AbortController()
+    const waiter = withJudgeLock(
+      abortLock,
+      async () => {
+        abortedCallbackRan = true
+      },
+      { timeoutMs: 2_000, signal: controller.signal },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    controller.abort(new Error('cancelled flock wait'))
+    await expect(waiter).rejects.toThrow('cancelled flock wait')
+    expect(abortedCallbackRan).toBe(false)
+    await abortHolder.stop()
+  })
+
+  it('ignores stale lock-file bytes because ownership is kernel-backed', async () => {
+    const dir = await scratch('swe-arena-judge-flock-stale-bytes-')
+    const lockFile = join(dir, 'lock')
+    await writeFile(lockFile, 'half-written-or-dead-owner\n')
+    await expect(withJudgeLock(lockFile, async () => 'acquired', { timeoutMs: 1_000 })).resolves.toBe('acquired')
+    expect(await readFile(lockFile, 'utf8')).toBe('half-written-or-dead-owner\n')
+  })
+
+  it('cancels the active judge process and never starts its retry', async () => {
+    const dir = await scratch('swe-arena-judge-active-abort-')
+    const attempts = join(dir, 'attempts.log')
+    const lockFile = join(dir, 'lock')
+    const judge = createSerializedJudge({
+      command: fakeCommand(`echo attempt >> ${attempts}; trap 'exit 0' TERM; sleep 30; echo garbled`),
+      timeoutMs: 5_000,
+      lockWaitTimeoutMs: 5_000,
+      unsafeAllowShortTimeout: true,
+      lockFile,
+    })
+    const controller = new AbortController()
+    const result = judge.judge('i', await patchFile('diff --git a/x b/x\n'), 'abort-test', controller.signal)
+    await waitForFile(attempts)
+    controller.abort(new Error('cancelled active judge'))
+
+    await expect(result).rejects.toThrow('cancelled active judge')
+    expect((await readFile(attempts, 'utf8')).trim().split('\n')).toEqual(['attempt'])
+    await expect(withJudgeLock(lockFile, async () => 'released', { timeoutMs: 1_000 })).resolves.toBe('released')
+  }, 15_000)
+
+  it('bounds stale-container cleanup before starting the judge child', async () => {
+    const dir = await scratch('swe-arena-judge-clean-timeout-')
+    const binDir = join(dir, 'bin')
+    const docker = join(binDir, 'docker')
+    const judgeStarted = join(dir, 'judge-started')
+    await mkdir(binDir, { recursive: true })
+    await writeFile(docker, '#!/usr/bin/env bash\nsleep 30\n')
+    await chmod(docker, 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+    try {
+      const judge = createSerializedJudge({
+        command: fakeCommand(`touch ${judgeStarted}; echo 'JUDGE_RESULT {"iid":"i","resolved":true}'`),
+        timeoutMs: 5_000,
+        preCleanTimeoutMs: 100,
+        unsafeAllowShortTimeout: true,
+        lockFile: join(dir, 'lock'),
+      })
+      const startedAt = Date.now()
+      await expect(judge.judge('i', await patchFile('diff --git a/x b/x\n'))).rejects.toThrow(
+        'docker ps pre-clean timed out after 100ms',
+      )
+      expect(Date.now() - startedAt).toBeLessThan(2_000)
+      await expect(readFile(judgeStarted, 'utf8')).rejects.toThrow()
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
+  }, 15_000)
+
+  it('fails closed on nonzero stale-container cleanup before starting the judge child', async () => {
+    const dir = await scratch('swe-arena-judge-clean-nonzero-')
+    const binDir = join(dir, 'bin')
+    const docker = join(binDir, 'docker')
+    const judgeStarted = join(dir, 'judge-started')
+    await mkdir(binDir, { recursive: true })
+    await writeFile(docker, '#!/usr/bin/env bash\necho daemon-unavailable >&2\nexit 7\n')
+    await chmod(docker, 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+    try {
+      const judge = createSerializedJudge({
+        command: fakeCommand(`touch ${judgeStarted}; echo 'JUDGE_RESULT {"iid":"i","resolved":true}'`),
+        timeoutMs: 5_000,
+        preCleanTimeoutMs: 1_000,
+        unsafeAllowShortTimeout: true,
+        lockFile: join(dir, 'lock'),
+      })
+      await expect(judge.judge('i', await patchFile('diff --git a/x b/x\n'))).rejects.toThrow(
+        'docker ps pre-clean exited 7: daemon-unavailable',
+      )
+      await expect(readFile(judgeStarted, 'utf8')).rejects.toThrow()
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
+  })
+
+  it('cancels stale-container cleanup without starting the judge child', async () => {
+    const dir = await scratch('swe-arena-judge-clean-abort-')
+    const binDir = join(dir, 'bin')
+    const docker = join(binDir, 'docker')
+    const cleanStarted = join(dir, 'clean-started')
+    const judgeStarted = join(dir, 'judge-started')
+    await mkdir(binDir, { recursive: true })
+    await writeFile(docker, `#!/usr/bin/env bash\ntouch ${cleanStarted}\ntrap 'exit 0' TERM\nsleep 30\n`)
+    await chmod(docker, 0o755)
+    const originalPath = process.env.PATH
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+    try {
+      const judge = createSerializedJudge({
+        command: fakeCommand(`touch ${judgeStarted}; echo 'JUDGE_RESULT {"iid":"i","resolved":true}'`),
+        timeoutMs: 5_000,
+        preCleanTimeoutMs: 5_000,
+        unsafeAllowShortTimeout: true,
+        lockFile: join(dir, 'lock'),
+      })
+      const controller = new AbortController()
+      const result = judge.judge('i', await patchFile('diff --git a/x b/x\n'), 'clean-abort', controller.signal)
+      await waitForFile(cleanStarted)
+      controller.abort(new Error('cancelled pre-clean'))
+      await expect(result).rejects.toThrow('cancelled pre-clean')
+      await expect(readFile(judgeStarted, 'utf8')).rejects.toThrow()
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+    }
   }, 15_000)
 
   it('instanceShortName mirrors judge.sh (strip through __)', () => {

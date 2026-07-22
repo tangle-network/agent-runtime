@@ -357,6 +357,11 @@ export interface LocalHarnessResult {
   durationMs: number
   /** Set when timeoutMs elapsed before exit. */
   timedOut: boolean
+  /**
+   * Set when the caller's AbortSignal fired before this result settled.
+   * Optional so injected runners and stored results from older releases remain valid.
+   */
+  aborted?: boolean
   /** Present for a reproducible Codex run; parsed from the real terminal JSONL event. */
   usage?: CodexTokenUsage
   /** Present for reproducible Codex runs; generated and checked before model execution. */
@@ -411,11 +416,16 @@ class RollingByteCapture {
  * Fails loud — throws when:
  *   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
  *   - the harness binary is not on PATH (ENOENT)
+ *   - the caller signal was already aborted before process launch
  *
  * Does NOT throw when:
  *   - the subprocess exits non-zero (`result.exitCode` carries the code)
- *   - the subprocess is aborted / timed out (`result.killedBySignal` /
- *     `result.timedOut` carries the reason)
+ *   - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+ *     `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+ *
+ * Reproducible Codex additionally requires a terminal usage event. If cancellation
+ * prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+ * returning an incomplete reproducibility receipt.
  *
  * @experimental
  */
@@ -450,6 +460,7 @@ export async function runLocalHarness(
     ? [...options.invocation.args]
     : buildHarnessArgs(harness, taskPrompt, options)
   if (options.codexReproducible) assertCodexReproducibleInvocation(requestedCommand, args)
+  options.signal?.throwIfAborted()
 
   // We spawn the harness with `cwd`, but a harness that resolves its working
   // directory from `$PWD` rather than `getcwd()` (opencode does; the others may)
@@ -511,6 +522,7 @@ export async function runLocalHarness(
     return await new Promise<LocalHarnessResult>((resolve, reject) => {
       let child: ChildProcess
       try {
+        options.signal?.throwIfAborted()
         child = spawnImpl(command, args, {
           cwd,
           env,
@@ -532,6 +544,7 @@ export async function runLocalHarness(
       const stdoutCapture = new RollingByteCapture(maxOutputBytes)
       const stderrCapture = new RollingByteCapture(maxOutputBytes)
       let timedOut = false
+      let aborted = false
       let settled = false
       let leaderClosed = false
       let timer: ReturnType<typeof setTimeout> | null = null
@@ -567,6 +580,7 @@ export async function runLocalHarness(
       }
 
       const onAbort = () => {
+        aborted = true
         void terminate()
       }
       if (options.signal) {
@@ -626,6 +640,7 @@ export async function runLocalHarness(
               killedBySignal: signal,
               durationMs,
               timedOut,
+              aborted,
               ...(usage ? { usage } : {}),
               ...(evidence ? { evidence } : {}),
             })
@@ -642,6 +657,7 @@ export async function runLocalHarness(
                     exitCode: code,
                     killedBySignal: signal,
                     timedOut,
+                    aborted,
                     durationMs,
                     stdout,
                     stderr,
@@ -1446,9 +1462,10 @@ function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
-async function terminateProcessTreeAndConfirm(
+export async function terminateProcessTreeAndConfirm(
   child: ChildProcess,
   leaderClosed: () => boolean,
+  context = 'runLocalHarness',
 ): Promise<void> {
   signalProcessTree(child, 'SIGTERM')
   if (process.platform === 'win32' || typeof child.pid !== 'number') {
@@ -1466,7 +1483,7 @@ async function terminateProcessTreeAndConfirm(
   signalProcessTree(child, 'SIGKILL')
   const killDeadline = Date.now() + processGroupExitConfirmMs
   if (await waitForProcessGroupExit(processGroupId, killDeadline)) return
-  throw new Error(`runLocalHarness: process group ${processGroupId} survived SIGKILL`)
+  throw new Error(`${context}: process group ${processGroupId} survived SIGKILL`)
 }
 
 async function waitForProcessGroupExit(processGroupId: number, deadline: number): Promise<boolean> {

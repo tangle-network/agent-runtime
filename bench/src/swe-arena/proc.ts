@@ -43,9 +43,69 @@ const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024
 const PROCESS_GROUP_EXIT_CONFIRM_MS = 1_000
 const PROCESS_GROUP_EXIT_POLL_MS = 10
 
+const exitKillGroups = new Set<number>()
+const killRegisteredGroupsOnExit = (): void => {
+  for (const processGroupId of exitKillGroups) {
+    try {
+      process.kill(process.platform === 'win32' ? processGroupId : -processGroupId, 'SIGKILL')
+    } catch {
+      // The group may have settled between its final async check and process exit.
+    }
+  }
+}
+
+function registerExitKill(processGroupId: number | undefined): () => void {
+  if (processGroupId === undefined) return () => {}
+  if (exitKillGroups.size === 0) process.once('exit', killRegisteredGroupsOnExit)
+  exitKillGroups.add(processGroupId)
+  return () => {
+    exitKillGroups.delete(processGroupId)
+    if (exitKillGroups.size === 0) process.removeListener('exit', killRegisteredGroupsOnExit)
+  }
+}
+
 /** coreutils `timeout` exit code — kept so ledger rc columns stay comparable. */
 export const TIMEOUT_RC = 124
 export const ABORT_RC = 130
+
+export interface ProcessSignalAbort {
+  signal: AbortSignal
+  /** First signal received; null until interrupted. */
+  readonly receivedSignal: NodeJS.Signals | null
+  /** Removes handlers after the caller has awaited cleanup. */
+  dispose: () => void
+}
+
+/**
+ * Translate terminal interrupts into cooperative cancellation. The handler
+ * never exits immediately: callers await their normal cleanup in `finally`,
+ * then dispose it. Repeated interrupts remain cooperative rather than
+ * bypassing cleanup.
+ */
+export function installProcessSignalAbort(label: string): ProcessSignalAbort {
+  const controller = new AbortController()
+  let receivedSignal: NodeJS.Signals | null = null
+  const onSignal = (signal: NodeJS.Signals): void => {
+    if (receivedSignal !== null) return
+    receivedSignal = signal
+    process.exitCode = signal === 'SIGINT' ? 130 : 143
+    controller.abort(new Error(`${label} interrupted by ${signal}`))
+  }
+  const onSigint = (): void => onSignal('SIGINT')
+  const onSigterm = (): void => onSignal('SIGTERM')
+  process.on('SIGINT', onSigint)
+  process.on('SIGTERM', onSigterm)
+  return {
+    signal: controller.signal,
+    get receivedSignal() {
+      return receivedSignal
+    },
+    dispose: () => {
+      process.removeListener('SIGINT', onSigint)
+      process.removeListener('SIGTERM', onSigterm)
+    },
+  }
+}
 
 function processGroupExists(processGroupId: number): boolean {
   try {
@@ -65,6 +125,7 @@ async function waitUntil(deadline: number, predicate: () => boolean): Promise<bo
 }
 
 export function run(bin: string, argv: string[], opts: RunOptions = {}): Promise<RunResult> {
+  opts.signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
     const child = spawn(bin, argv, {
       cwd: opts.cwd,
@@ -72,6 +133,7 @@ export function run(bin: string, argv: string[], opts: RunOptions = {}): Promise
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
+    const unregisterExitKill = registerExitKill(child.pid)
     const cap = opts.maxBuffer ?? DEFAULT_MAX_BUFFER
     let stdout = ''
     let stderr = ''
@@ -140,6 +202,7 @@ export function run(bin: string, argv: string[], opts: RunOptions = {}): Promise
       settled = true
       if (timer) clearTimeout(timer)
       opts.signal?.removeEventListener('abort', onAbort)
+      unregisterExitKill()
       reject(err)
     })
     child.on('close', (code, signal) => {
@@ -159,6 +222,7 @@ export function run(bin: string, argv: string[], opts: RunOptions = {}): Promise
           if (termination) await termination
           if (settled) return
           settled = true
+          unregisterExitKill()
           resolve({
             code: timedOut ? TIMEOUT_RC : aborted ? ABORT_RC : (code ?? (signal ? 1 : 0)),
             stdout,
@@ -169,6 +233,7 @@ export function run(bin: string, argv: string[], opts: RunOptions = {}): Promise
         } catch (err) {
           if (settled) return
           settled = true
+          unregisterExitKill()
           reject(err)
         }
       })()
@@ -181,6 +246,7 @@ export function run(bin: string, argv: string[], opts: RunOptions = {}): Promise
 /** `run` that throws (with captured stderr) on nonzero exit — for steps the bash aborted on. */
 export async function runOk(bin: string, argv: string[], opts: RunOptions = {}): Promise<RunResult> {
   const res = await run(bin, argv, opts)
+  opts.signal?.throwIfAborted()
   if (res.code !== 0) {
     const detail = (res.stderr || res.stdout).slice(0, 1500)
     throw new Error(`${bin} ${argv.join(' ')} exited ${res.code}${res.timedOut ? ' (timeout)' : ''}: ${detail}`)

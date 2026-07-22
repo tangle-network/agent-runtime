@@ -221,6 +221,25 @@ describe('runLocalHarness', () => {
     expect(result.stderr).toBe('warn')
     expect(result.killedBySignal).toBeNull()
     expect(result.timedOut).toBe(false)
+    expect(result.aborted).toBe(false)
+  })
+
+  it('rejects a pre-aborted call before spawning a process', async () => {
+    const controller = new AbortController()
+    const reason = new Error('cancelled before launch')
+    controller.abort(reason)
+    const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
+
+    await expect(
+      runLocalHarness({
+        harness: 'claude',
+        cwd: '/tmp/wt',
+        taskPrompt: 'must not launch',
+        signal: controller.signal,
+        spawn: spawnSpy,
+      }),
+    ).rejects.toBe(reason)
+    expect(spawnSpy).not.toHaveBeenCalled()
   })
 
   it('captures non-zero exit code without throwing', async () => {
@@ -779,6 +798,7 @@ describe('runLocalHarness', () => {
 
       expect(result.timedOut).toBe(false)
       expect(result.killedBySignal).toBeNull()
+      expect(result.aborted).toBe(true)
       expect(readFileSync(cleanupMarker, 'utf8')).toBe('clean')
     } finally {
       ctl.abort()
@@ -903,6 +923,7 @@ describe('runLocalHarness', () => {
     setTimeout(() => ctl.abort(), 5)
     const result = await promise
     expect(result.killedBySignal).toBe('SIGTERM')
+    expect(result.aborted).toBe(true)
   })
 
   it('awaits Codex probe SIGKILL confirmation before rejecting an abort', async () => {

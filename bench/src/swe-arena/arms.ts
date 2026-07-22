@@ -17,7 +17,7 @@ import { chmod, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { run, runOk, shq } from './proc'
+import { run, runOk, type RunResult, shq } from './proc'
 import { materializeWorkspace } from './materialize'
 import type { ArmSpec, SoloUsage } from './types'
 
@@ -45,21 +45,35 @@ export async function loadExcludes(): Promise<string[]> {
   return lines
 }
 
+const GIT_COMMAND_TIMEOUT_MS = 2 * 60_000
+
+async function runArenaGitOk(argv: string[], signal?: AbortSignal): Promise<Awaited<ReturnType<typeof runOk>>> {
+  signal?.throwIfAborted()
+  const result = await runOk('git', argv, { signal, timeoutMs: GIT_COMMAND_TIMEOUT_MS })
+  signal?.throwIfAborted()
+  return result
+}
+
 /**
  * Patch extraction — identical git invocation to solo.sh/sup4.sh: stage
  * everything, diff the index against base_commit, excluding test files and the
  * supervisor's own .loops state.
  */
-export async function extractPatch(ws: string, baseCommit: string, excludes: string[]): Promise<string> {
-  await runOk('git', ['-C', ws, 'add', '-A'])
-  const res = await runOk('git', [
+export async function extractPatch(
+  ws: string,
+  baseCommit: string,
+  excludes: string[],
+  signal?: AbortSignal,
+): Promise<string> {
+  await runArenaGitOk(['-C', ws, 'add', '-A'], signal)
+  const res = await runArenaGitOk([
     '-C', ws,
     'diff', '--cached', baseCommit,
     '--', '.',
     ...excludes,
     ':(exclude,glob).loops/**',
     ':(exclude,glob)**/.loops/**',
-  ])
+  ], signal)
   return res.stdout
 }
 
@@ -222,6 +236,19 @@ export const SUP_DEFAULT_ENV_KNOBS: Record<string, string> = {
   DRIVER_DEADLINE_MS: '2600000',
 }
 
+export const DEFAULT_DRIVER_CANCEL_TIMEOUT_MS = 30_000
+export const DRIVER_CANCELLATION_SETTLEMENT_BUFFER_MS = 10_000
+
+/** Leave the driver more time than its own cancellation deadline to settle workers. */
+export function supervisorDriverKillGraceMs(envKnobs: Record<string, string>): number {
+  const raw = envKnobs.DRIVER_CANCEL_TIMEOUT_MS
+  const cancelTimeoutMs = raw === undefined ? DEFAULT_DRIVER_CANCEL_TIMEOUT_MS : Number(raw)
+  if (!Number.isFinite(cancelTimeoutMs) || cancelTimeoutMs <= 0) {
+    throw new Error('DRIVER_CANCEL_TIMEOUT_MS must be a positive number')
+  }
+  return cancelTimeoutMs + DRIVER_CANCELLATION_SETTLEMENT_BUFFER_MS
+}
+
 export interface ArmProvenance {
   repo: string
   commit: string
@@ -229,8 +256,12 @@ export interface ArmProvenance {
 }
 
 /** Runtime provenance: which loops commit actually sat in the supervisor seat. */
-export async function armProvenance(loopsRepo: string, envKnobs: Record<string, string>): Promise<ArmProvenance> {
-  const head = await runOk('git', ['-C', loopsRepo, 'rev-parse', 'HEAD'])
+export async function armProvenance(
+  loopsRepo: string,
+  envKnobs: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<ArmProvenance> {
+  const head = await runArenaGitOk(['-C', loopsRepo, 'rev-parse', 'HEAD'], signal)
   return { repo: loopsRepo, commit: head.stdout.trim(), envKnobs }
 }
 
@@ -363,6 +394,42 @@ export interface SupervisorArmResult {
 
 const patchLineCount = (patch: string): number => (patch.length === 0 ? 0 : patch.split('\n').length - (patch.endsWith('\n') ? 1 : 0))
 
+type ProcessCompletion = Pick<RunResult, 'code' | 'timedOut' | 'aborted'>
+
+/** Reject a solo process outcome before its partial workspace can be scored. */
+export function assertSoloProcessCompleted(result: ProcessCompletion, label = 'runSoloArm'): void {
+  if (result.timedOut) {
+    throw new Error(`${label}: opencode timed out (exit ${result.code})`)
+  }
+  if (result.aborted) {
+    throw new Error(`${label}: opencode was cancelled (exit ${result.code})`)
+  }
+  if (result.code !== 0) {
+    throw new Error(`${label}: opencode exited ${result.code}`)
+  }
+}
+
+/** Reject a driver or unfinished supervisor state before its partial workspace can be scored. */
+export function assertSupervisorProcessCompleted(
+  driver: ProcessCompletion,
+  status: string | null,
+  label = 'runSupervisorArm',
+): void {
+  const state = status ?? 'missing'
+  if (driver.timedOut) {
+    throw new Error(`${label}: driver timed out (exit ${driver.code}, supervisor state ${state})`)
+  }
+  if (driver.aborted) {
+    throw new Error(`${label}: driver was cancelled (exit ${driver.code}, supervisor state ${state})`)
+  }
+  if (driver.code !== 0) {
+    throw new Error(`${label}: driver exited ${driver.code} (supervisor state ${state})`)
+  }
+  if (status !== 'completed') {
+    throw new Error(`${label}: supervisor state ${state}; expected completed`)
+  }
+}
+
 async function verifyWorkspace(
   verifyCmd: string,
   ws: string,
@@ -381,7 +448,13 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const ws = join(runDir, 'ws')
   await mkdir(runDir, { recursive: true })
   const cell = await prepareIsolatedCellEnvironment(runDir)
-  await materializeWorkspace({ instanceId: ctx.instanceId, image: ctx.image, baseCommit: ctx.baseCommit, dest: ws })
+  await materializeWorkspace({
+    instanceId: ctx.instanceId,
+    image: ctx.image,
+    baseCommit: ctx.baseCommit,
+    dest: ws,
+    signal: ctx.signal,
+  })
 
   const promptFile = join(runDir, 'prompt.txt')
   await writeFile(promptFile, ctx.problemStatement + (spec.promptSuffix ?? WORKER_PROMPT_SUFFIX))
@@ -395,9 +468,10 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const wall_s = Math.round((Date.now() - t0) / 1000)
   await writeFile(join(runDir, 'oc.jsonl'), oc.stdout)
   await writeFile(join(runDir, 'oc.err'), oc.stderr)
+  assertSoloProcessCompleted(oc, `runSoloArm ${ctx.instanceId}/${spec.name}`)
   if (ctx.signal?.aborted) throw ctx.signal.reason
 
-  const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes)
+  const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes, ctx.signal)
   const patchPath = join(ctx.outDir, 'patches', `${ctx.instanceId}.${spec.name.toLowerCase()}.patch`)
   await mkdir(join(ctx.outDir, 'patches'), { recursive: true })
   await writeFile(patchPath, patch)
@@ -498,13 +572,19 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   const loopsRepo = spec.loopsRepo ?? DEFAULT_LOOPS_REPO
   const extensionPath = spec.extensionPath ?? join(loopsRepo, 'extensions', 'pi', 'loops.ts')
   const envKnobs = { ...SUP_DEFAULT_ENV_KNOBS, ...spec.envKnobs }
-  const provenance = await armProvenance(loopsRepo, envKnobs)
+  const provenance = await armProvenance(loopsRepo, envKnobs, ctx.signal)
 
   const runDir = join(ctx.outDir, 'runs', ctx.instanceId, spec.name)
   const ws = join(runDir, 'ws')
   await mkdir(runDir, { recursive: true })
   const cell = await prepareIsolatedCellEnvironment(runDir)
-  await materializeWorkspace({ instanceId: ctx.instanceId, image: ctx.image, baseCommit: ctx.baseCommit, dest: ws })
+  await materializeWorkspace({
+    instanceId: ctx.instanceId,
+    image: ctx.image,
+    baseCommit: ctx.baseCommit,
+    dest: ws,
+    signal: ctx.signal,
+  })
 
   const paramsFile = join(runDir, 'params.json')
   await writeFile(
@@ -542,7 +622,7 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   const t0 = Date.now()
   const driver = await dotenvxBash(ctx.secrets, script, {
     timeoutMs: spec.timeoutMs ?? 2_800_000,
-    killGraceMs: 30_000,
+    killGraceMs: supervisorDriverKillGraceMs(envKnobs),
     env: cell.env,
     signal: ctx.signal,
   })
@@ -550,9 +630,14 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   await writeFile(join(runDir, 'driver.log'), driver.stdout + driver.stderr)
 
   const artifacts = await parseSupervisorArtifacts(ws)
+  assertSupervisorProcessCompleted(
+    driver,
+    artifacts.status,
+    `runSupervisorArm ${ctx.instanceId}/${spec.name}`,
+  )
   if (ctx.signal?.aborted) throw ctx.signal.reason
 
-  const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes)
+  const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes, ctx.signal)
   const patchPath = join(ctx.outDir, 'patches', `${ctx.instanceId}.${spec.name.toLowerCase()}.patch`)
   await mkdir(join(ctx.outDir, 'patches'), { recursive: true })
   await writeFile(patchPath, patch)

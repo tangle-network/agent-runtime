@@ -10,7 +10,7 @@
 
 ### CodexExecutionDiagnosticError
 
-Defined in: [src/mcp/codex-diagnostics.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L19)
+Defined in: [src/mcp/codex-diagnostics.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L20)
 
 Thrown when reproducible Codex exits without one valid terminal usage event.
 
@@ -24,7 +24,7 @@ Thrown when reproducible Codex exits without one valid terminal usage event.
 
 > **new CodexExecutionDiagnosticError**(`reason`, `diagnostic`, `cause?`): [`CodexExecutionDiagnosticError`](#codexexecutiondiagnosticerror)
 
-Defined in: [src/mcp/codex-diagnostics.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L22)
+Defined in: [src/mcp/codex-diagnostics.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L23)
 
 ###### Parameters
 
@@ -54,19 +54,19 @@ Defined in: [src/mcp/codex-diagnostics.ts:22](https://github.com/tangle-network/
 
 > `readonly` **code**: `"CODEX_EXECUTION_DIAGNOSTIC"` = `'CODEX_EXECUTION_DIAGNOSTIC'`
 
-Defined in: [src/mcp/codex-diagnostics.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L20)
+Defined in: [src/mcp/codex-diagnostics.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L21)
 
 ##### reason
 
 > `readonly` **reason**: `string`
 
-Defined in: [src/mcp/codex-diagnostics.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L23)
+Defined in: [src/mcp/codex-diagnostics.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L24)
 
 ##### diagnostic
 
 > `readonly` **diagnostic**: [`CodexExecutionFailureDiagnostic`](#codexexecutionfailurediagnostic)
 
-Defined in: [src/mcp/codex-diagnostics.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L24)
+Defined in: [src/mcp/codex-diagnostics.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L25)
 
 ***
 
@@ -816,35 +816,41 @@ Defined in: [src/mcp/codex-diagnostics.ts:9](https://github.com/tangle-network/a
 
 Defined in: [src/mcp/codex-diagnostics.ts:10](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L10)
 
+##### aborted?
+
+> `optional` **aborted?**: `boolean`
+
+Defined in: [src/mcp/codex-diagnostics.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L11)
+
 ##### durationMs
 
 > **durationMs**: `number`
 
-Defined in: [src/mcp/codex-diagnostics.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L11)
+Defined in: [src/mcp/codex-diagnostics.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L12)
 
 ##### stdout
 
 > **stdout**: `string`
 
-Defined in: [src/mcp/codex-diagnostics.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L12)
+Defined in: [src/mcp/codex-diagnostics.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L13)
 
 ##### stderr
 
 > **stderr**: `string`
 
-Defined in: [src/mcp/codex-diagnostics.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L13)
+Defined in: [src/mcp/codex-diagnostics.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L14)
 
 ##### stdoutTruncated
 
 > **stdoutTruncated**: `boolean`
 
-Defined in: [src/mcp/codex-diagnostics.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L14)
+Defined in: [src/mcp/codex-diagnostics.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L15)
 
 ##### stderrTruncated
 
 > **stderrTruncated**: `boolean`
 
-Defined in: [src/mcp/codex-diagnostics.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L15)
+Defined in: [src/mcp/codex-diagnostics.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L16)
 
 ***
 
@@ -2294,11 +2300,16 @@ spawn, wait, capture, return.
 Fails loud — throws when:
   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
   - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
 
 Does NOT throw when:
   - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - the subprocess is aborted / timed out (`result.killedBySignal` /
-    `result.timedOut` carries the reason)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
 
 ###### Parameters
 
@@ -3173,11 +3184,22 @@ Defined in: [src/mcp/local-harness.ts:359](https://github.com/tangle-network/age
 
 Set when timeoutMs elapsed before exit.
 
+##### aborted?
+
+> `optional` **aborted?**: `boolean`
+
+Defined in: [src/mcp/local-harness.ts:364](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L364)
+
+**`Experimental`**
+
+Set when the caller's AbortSignal fired before this result settled.
+Optional so injected runners and stored results from older releases remain valid.
+
 ##### usage?
 
 > `optional` **usage?**: [`CodexTokenUsage`](#codextokenusage)
 
-Defined in: [src/mcp/local-harness.ts:361](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L361)
+Defined in: [src/mcp/local-harness.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L366)
 
 **`Experimental`**
 
@@ -3187,7 +3209,7 @@ Present for a reproducible Codex run; parsed from the real terminal JSONL event.
 
 > `optional` **evidence?**: [`CodexExecutionEvidence`](#codexexecutionevidence)
 
-Defined in: [src/mcp/local-harness.ts:363](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L363)
+Defined in: [src/mcp/local-harness.ts:368](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L368)
 
 **`Experimental`**
 
@@ -8049,7 +8071,7 @@ then any consumer judges, returning on the first veto.
 
 > **runLocalHarness**(`options`): `Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
 
-Defined in: [src/mcp/local-harness.ts:422](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L422)
+Defined in: [src/mcp/local-harness.ts:432](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L432)
 
 **`Experimental`**
 
@@ -8063,11 +8085,16 @@ spawn, wait, capture, return.
 Fails loud — throws when:
   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
   - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
 
 Does NOT throw when:
   - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - the subprocess is aborted / timed out (`result.killedBySignal` /
-    `result.timedOut` carries the reason)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
 
 #### Parameters
 
@@ -8085,7 +8112,7 @@ Does NOT throw when:
 
 > **parseCodexTokenUsage**(`stdout`): [`CodexTokenUsage`](#codextokenusage)
 
-Defined in: [src/mcp/local-harness.ts:1496](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L1496)
+Defined in: [src/mcp/local-harness.ts:1513](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L1513)
 
 Parse and validate the one terminal usage event emitted by `codex exec --json`.
 
