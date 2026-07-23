@@ -62,6 +62,15 @@ describe('skill package check', () => {
     })
   })
 
+  it('rejects a missing skills directory', async () => {
+    const root = await createRoot()
+    await rm(root, { recursive: true })
+
+    await expect(check(root)).rejects.toMatchObject({
+      stderr: expect.stringContaining('skills directory is missing'),
+    })
+  })
+
   it.each([
     ['wrong name', 'name: different', 'frontmatter name'],
     ['long description', `description: ${'x'.repeat(97)}`, 'description has 97 chars'],

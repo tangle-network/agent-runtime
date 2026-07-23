@@ -11,6 +11,11 @@ const errors = []
 let descriptionChars = 0
 let skillCount = 0
 
+if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
+  console.error(`skills directory is missing: ${root}`)
+  process.exit(1)
+}
+
 function frontmatterField(frontmatter, key) {
   const lines = frontmatter.split('\n')
   const index = lines.findIndex((line) => line.startsWith(`${key}:`))

@@ -17,12 +17,13 @@ Do not copy signatures from this skill.
 | One task or bounded multi-turn task | `runAgentTask(...)` or `runAgentTaskStream(...)` |
 | Two or more actors taking turns | `defineConversation(...)` and `runConversation(...)` |
 | A driver coordinating workers | `supervise(...)` or `superviseSurface(...)` |
-| Parallel or fixed composition | `fanout(...)`, `pipeline(...)`, `panel(...)`, or `verify(...)` |
+| Parallel or fixed composition | `fanout(...)`, `pipeline(...)`, `panel(...)`, `verify(...)`, or `loopUntil(...)` |
+| Parallel repository workers with isolated branches | `worktreeFanout(...)` |
 | Repeated work in a graded tool environment | `runAgentic(...)` |
 | Equal-budget comparison over that environment | `runBenchmark(...)` |
 | Low-level round policy with custom planning and stopping | `runLoop(...)` |
 
-If one of the first seven rows fits, use it and stop.
+If an existing row fits, use it and stop.
 Do not create another wrapper solely to rename inputs or results.
 
 ## Custom Loop Contract
