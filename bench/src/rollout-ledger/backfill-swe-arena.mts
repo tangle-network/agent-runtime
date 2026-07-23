@@ -1,5 +1,12 @@
 /**
- * swe-arena → rollout-ledger backfill. Pure READ over one round's outDir
+ * swe-arena → rollout backfill — DOMAIN GLUE ONLY. Bench owns the JOIN
+ * (manifest + cached cells + judge.json + result.json workerCwds + proposer
+ * shot receipts → harness stores); the `tangle.rollout.v1` schema, line
+ * validation, serialization, readers, exporters, and release pipeline are
+ * owned by `@tangle-network/agent-eval/rollout` — bench never writes a
+ * rollout row through anything but that API.
+ *
+ * Pure READ over one round's outDir
  * (the same artifact tree `swe-arena/manifest.mts` joins) plus the harness
  * stores, emitting `tangle.rollout.v1` lines with capture:"backfill":
  *
@@ -28,21 +35,25 @@ import { pathToFileURL } from 'node:url'
 import type { DatabaseSync } from 'node:sqlite'
 import { buildRolloutManifest, type RolloutEntry } from '../swe-arena/manifest.mts'
 import {
+  DEFAULT_CLAUDE_PROJECTS_DIR,
   DEFAULT_OPENCODE_DB,
+  findClaudeTranscripts,
   findOpencodeSessionsByDirectory,
   openOpencodeDb,
-  readOpencodeSessionMessages,
-  type OpencodeSessionRow,
-} from './opencode-reader.mts'
-import {
-  DEFAULT_CLAUDE_PROJECTS_DIR,
-  findClaudeTranscripts,
   readClaudeTranscript,
-} from './claude-reader.mts'
-import { writeRolloutLedger } from './ledger.mts'
-import { ROLLOUT_LEDGER_SCHEMA, type RolloutLine } from './types.ts'
+  readOpencodeSessionMessages,
+  ROLLOUT_SCHEMA,
+  type OpencodeSessionRow,
+  type RolloutLine,
+  writeRolloutLedger,
+} from '@tangle-network/agent-eval/rollout'
 
 const OFFICIAL_JUDGE = 'swe-arena-official-judge'
+
+/** Stable candidate identity from the improvement-loop coordinates. */
+function candidateId(generation: number, candidateIndex: number): string {
+  return candidateIndex === -1 ? 'baseline' : `gen${generation}-cand${candidateIndex}`
+}
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -135,7 +146,7 @@ interface Ctx {
 
 function baseLine(ctx: Ctx): Pick<RolloutLine, 'schema' | 'run_id' | 'provenance'> {
   return {
-    schema: ROLLOUT_LEDGER_SCHEMA,
+    schema: ROLLOUT_SCHEMA,
     run_id: ctx.runId,
     provenance: { captured_at: ctx.capturedAt, capture: 'backfill' },
   }
@@ -182,13 +193,14 @@ async function emitCellLines(
     ...baseLine(ctx),
     rollout_id: supervisorId,
     parent_rollout_id: null,
+    candidate_id: candidateId(entry.state.generation, entry.state.candidateIndex),
     generation: entry.state.generation,
     candidate_index: entry.state.candidateIndex,
     role: 'supervisor',
     task: {
       suite: 'swe-bench-verified',
       instance_id: cell.scenarioId,
-      split: 'train',
+      split: 'search',
       seed: typeof cell.seed === 'number' ? cell.seed : null,
       rep: cell.rep,
     },
@@ -293,13 +305,14 @@ function workerLine(
     ...baseLine(ctx),
     rollout_id: randomUUID(),
     parent_rollout_id: supervisorId,
+    candidate_id: candidateId(entry.state.generation, entry.state.candidateIndex),
     generation: entry.state.generation,
     candidate_index: entry.state.candidateIndex,
     role: 'worker',
     task: {
       suite: 'swe-bench-verified',
       instance_id: cell.scenarioId,
-      split: 'train',
+      split: 'search',
       seed: typeof cell.seed === 'number' ? cell.seed : null,
       rep: cell.rep,
     },
@@ -455,6 +468,7 @@ async function emitProposerLines(ctx: Ctx, lines: RolloutLine[], entries: Rollou
       ...baseLine(ctx),
       rollout_id: randomUUID(),
       parent_rollout_id: null,
+      candidate_id: candidateId(shot.generation, shot.candidateIndex),
       generation: shot.generation,
       candidate_index: shot.candidateIndex,
       role: 'proposer',
@@ -464,7 +478,7 @@ async function emitProposerLines(ctx: Ctx, lines: RolloutLine[], entries: Rollou
           shot.author !== null
             ? `gen${shot.generation}-cand${shot.candidateIndex}-${shot.author}`
             : `gen${shot.generation}-cand${shot.candidateIndex}`,
-        split: 'train',
+        split: 'search',
         seed: null,
         rep: shot.shot,
       },
