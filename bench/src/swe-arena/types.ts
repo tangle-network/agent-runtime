@@ -30,6 +30,57 @@ export interface SweInstance {
   environment_setup_commit: string | null
 }
 
+/**
+ * One factory-bench instance — a merged feature PR from our own repo history
+ * turned into a gradable end-to-end feature-building task (see
+ * supervisor-lab/factory-bench/docs/design.md). The worker sees only the tree
+ * at `base_commit` (archive export, synthetic git history) plus the rewritten
+ * spec; the PR's own added test files are the hidden judge, overlaid from
+ * `judge_ref` at judge time. Field names mirror the instance dirs'
+ * `manifest.json` byte-for-byte, same policy as SweInstance vs task-meta.json.
+ */
+export interface FactoryInstance {
+  /** `factory.<repo>.<pr>` */
+  id: string
+  /** `owner/name` */
+  repo: string
+  /** Judge-side local mirror; NEVER exposed to the worker workspace. */
+  repo_local_mirror: string
+  /** The worker's world — the PR's base commit. */
+  base_commit: string
+  /** Merge commit the judge tests are read from (`git show <judge_ref>:<path>`). */
+  judge_ref: string
+  /** Instance-dir-relative spec file (PM-ticket grade rewrite of the PR body). */
+  spec_md: string
+  /** Hidden judge test files, overlaid at judge time only. */
+  judge_tests: string[]
+  /** Flaky/env-dependent tests excluded at calibration, reasons in calibration.md. */
+  excluded_tests: string[]
+  setup_cmds: string[]
+  judge_cmds: string[]
+  /** e.g. "all 30 judge tests pass; partial score = passed/30" — the /NN is parsed. */
+  resolved_criterion: string
+  timeout_s: number
+  worker_visible_paths_note?: string
+  runtime?: string
+  hermetic?: boolean
+  calibration?: { gold: string; base: string; receipts: string }
+}
+
+/**
+ * Discriminated instance union for the seams that used to assume SweInstance.
+ * A tagged wrapper (not a structural union) because both shapes mirror their
+ * on-disk artifacts byte-for-byte and neither may grow a discriminant field.
+ */
+export type ArenaInstance =
+  | { kind: 'swe'; instance: SweInstance }
+  | { kind: 'factory'; instance: FactoryInstance }
+
+/** The ledger/judge identity: SWE `instance_id` or factory `id`. */
+export function arenaInstanceId(a: ArenaInstance): string {
+  return a.kind === 'swe' ? a.instance.instance_id : a.instance.id
+}
+
 /** Per-run opencode usage breakdown captured on the SOLO arm. */
 export interface SoloUsage {
   steps: number
