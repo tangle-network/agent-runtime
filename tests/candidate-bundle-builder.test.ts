@@ -315,6 +315,7 @@ describe('public agent candidate bundle builder', () => {
       modes: { review: { model: 'provider/model' } },
       confidential: { tee: 'tdx', sealed: true },
     })
+    expect(() => assertCandidateProfileBinding(profile, bundle.profile)).not.toThrow()
   })
 
   it('exports the exact profile binding check for product activation boundaries', () => {
@@ -339,7 +340,7 @@ describe('public agent candidate bundle builder', () => {
         { ...profile, metadata: { tenant: 'tenant-1' } },
         bundle.profile,
       ),
-    ).toThrow(/unsupported by sealed candidates/)
+    ).toThrow(/not representable/)
     expect(() =>
       assertCandidateProfileBinding(
         {
@@ -348,13 +349,22 @@ describe('public agent candidate bundle builder', () => {
         },
         bundle.profile,
       ),
-    ).toThrow(/unsupported by sealed candidates/)
+    ).toThrow(/not representable/)
     expect(() =>
       assertCandidateProfileBinding(
         { ...profile, extensions: { codex: { feature: true } } },
         bundle.profile,
       ),
-    ).toThrow(/unsupported by sealed candidates/)
+    ).toThrow(/not representable/)
+    expect(() =>
+      assertCandidateProfileBinding(
+        {
+          ...profile,
+          model: { ...profile.model, metadata: { routing: 'private' } },
+        },
+        bundle.profile,
+      ),
+    ).toThrow(/model\.metadata.*not representable/)
   })
 
   it('accepts an already closed candidate profile for behavior generic profiles cannot encode', () => {

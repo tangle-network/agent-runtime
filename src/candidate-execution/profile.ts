@@ -129,6 +129,15 @@ const CANDIDATE_PROFILE_DIRECT_FIELDS = [
 /** Convert only behavior-preserving generic profile fields into the closed candidate contract. */
 export function freezeGenericAgentCandidateProfile(input: AgentProfile): AgentCandidateProfile {
   const profile = parseExactAgentProfile(input, 'profile')
+  return candidateProfileFromGenericProfile(profile)
+}
+
+/**
+ * Keep every generic-profile-to-candidate conversion in one place.
+ * Callers use this both when sealing a new bundle and when proving a measured
+ * profile is exactly the profile in an existing candidate.
+ */
+function candidateProfileFromGenericProfile(profile: AgentProfile): AgentCandidateProfile {
   if (profile.connections !== undefined) unsupportedProfileField('connections')
   if (profile.metadata !== undefined) unsupportedProfileField('metadata')
   if (profile.extensions !== undefined) unsupportedProfileField('extensions')
@@ -167,7 +176,6 @@ export function freezeGenericAgentCandidateProfile(input: AgentProfile): AgentCa
     )
   }
   const parsed = parseExactCandidateProfile(candidate)
-  assertCandidateProfileBinding(profile, parsed)
   return parsed
 }
 
@@ -177,11 +185,8 @@ export function assertCandidateProfileBinding(
   bundled: AgentCandidateProfile,
 ): void {
   const measured = parseExactAgentProfile(measuredInput, 'measured agent profile')
-  if (measured.connections || measured.metadata || measured.extensions) {
-    throw new Error('measured agent profile contains fields unsupported by sealed candidates')
-  }
-  const normalized = agentCandidateProfileAsAgentProfile(bundled)
-  if (canonicalCandidateDigest(measured) !== canonicalCandidateDigest(normalized)) {
+  const expected = candidateProfileFromGenericProfile(measured)
+  if (canonicalCandidateDigest(expected) !== canonicalCandidateDigest(bundled)) {
     throw new Error('measured agent profile does not match sealed candidate profile')
   }
 }

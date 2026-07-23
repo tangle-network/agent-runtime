@@ -12986,7 +12986,7 @@ Materializes a verified candidate into one immutable evaluator-owned execution p
 
 > **assertCandidateProfileBinding**(`measuredInput`, `bundled`): `void`
 
-Defined in: [src/candidate-execution/profile.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L175)
+Defined in: [src/candidate-execution/profile.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L183)
 
 Prove the measured generic profile and sealed candidate profile describe the same behavior.
 
@@ -13010,7 +13010,7 @@ Prove the measured generic profile and sealed candidate profile describe the sam
 
 > **parseExactAgentProfile**(`input`, `label`): `AgentProfile`
 
-Defined in: [src/candidate-execution/profile.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L190)
+Defined in: [src/candidate-execution/profile.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L195)
 
 Parse a complete profile without silently discarding unsupported fields.
 
@@ -13034,7 +13034,7 @@ Parse a complete profile without silently discarding unsupported fields.
 
 > **parseExactAgentProfileDiff**(`input`, `label`): `AgentProfileDiff`
 
-Defined in: [src/candidate-execution/profile.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L202)
+Defined in: [src/candidate-execution/profile.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L207)
 
 Parse a profile diff without silently discarding unsupported fields.
 
@@ -13058,7 +13058,7 @@ Parse a profile diff without silently discarding unsupported fields.
 
 > **applyExactAgentProfileDiff**(`baseInput`, `diffInput`, `label`): `AgentProfile`
 
-Defined in: [src/candidate-execution/profile.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L214)
+Defined in: [src/candidate-execution/profile.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L219)
 
 Apply one exact diff and reject any value that cannot be preserved canonically.
 
