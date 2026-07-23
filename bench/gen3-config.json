@@ -1,0 +1,104 @@
+{
+  "round": 4,
+  "instances": [
+    "astropy__astropy-13033",
+    "django__django-11532",
+    "matplotlib__matplotlib-20826",
+    "pydata__xarray-4687",
+    "pytest-dev__pytest-6197",
+    "sphinx-doc__sphinx-9658"
+  ],
+  "holdoutInstances": [
+    "astropy__astropy-14182",
+    "django__django-12774",
+    "django__django-14140",
+    "scikit-learn__scikit-learn-14894",
+    "sympy__sympy-20438",
+    "pytest-dev__pytest-7236"
+  ],
+  "loopsRepo": "/home/drew/code/loops",
+  "loopsBaseRef": "feat/supervisor-evidence-flow",
+  "armName": "R4",
+  "arm": {
+    "workerModel": "zai-coding-plan/glm-5.2",
+    "driverModel": "glm-5.2",
+    "budget": 40,
+    "maxSandboxes": 4,
+    "maxUsd": 8,
+    "maxDepth": 3,
+    "timeoutMs": 2800000
+  },
+  "verifyDir": "/tmp/swe-arena-refactor/bench/src/swe-arena/fixtures/verify",
+  "outDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3",
+  "roundsDir": "/home/drew/code/supervisor-lab/.evolve/rounds",
+  "secretsDir": "/home/drew/company/devops/secrets",
+  "envFiles": [
+    "agent-state.env",
+    "tangle-router.env"
+  ],
+  "generations": 1,
+  "populationSize": 3,
+  "repsPerInstance": 2,
+  "premeasuredBaselinePath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/premeasured-baseline.json",
+  "maxShots": 3,
+  "proposerHarness": "claude",
+  "proposerTimeoutMs": 2400000,
+  "analystModels": [
+    "glm-5.2",
+    "glm-5.2",
+    "glm-5.2"
+  ],
+  "seedArtifactRuns": [
+    {
+      "iid": "astropy__astropy-13033",
+      "arm": "SUP4",
+      "dir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/runs/astropy__astropy-13033/SUP4",
+      "patchPath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/patches/astropy__astropy-13033.sup4.patch",
+      "resolved": false
+    },
+    {
+      "iid": "django__django-11532",
+      "arm": "SUP4",
+      "dir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/runs/django__django-11532/SUP4",
+      "patchPath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/patches/django__django-11532.sup4.patch",
+      "resolved": false
+    },
+    {
+      "iid": "matplotlib__matplotlib-20826",
+      "arm": "SUP4",
+      "dir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/runs/matplotlib__matplotlib-20826/SUP4",
+      "patchPath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/patches/matplotlib__matplotlib-20826.sup4.patch",
+      "resolved": true
+    }
+  ],
+  "costGuardRatio": 1.2,
+  "dispatchTimeoutMs": 7200000,
+  "proposers": [
+    {
+      "name": "default-author",
+      "profile": "default-author.profile.json",
+      "harness": "claude"
+    },
+    {
+      "name": "mechanics-author",
+      "profile": "default-author.profile.json",
+      "harness": "claude",
+      "diagnosisSlice": "mechanics",
+      "lens": "Focus on MECHANICS: worker lifecycle, sandbox/clone contracts, settlement and delivery paths. Prefer code-path fixes over prompt wording."
+    },
+    {
+      "name": "prompts-author",
+      "profile": "default-author.profile.json",
+      "harness": "claude",
+      "diagnosisSlice": "prompts",
+      "lens": "Focus on PROMPTS: worker/brain instruction wording, placement guidance, self-check discipline. Prefer prompt/instruction changes over code-path rewrites."
+    }
+  ],
+  "prefilter": {
+    "enabled": true,
+    "smokeInstance": "cheapest-of-set",
+    "requireResolved": false
+  },
+  "holdoutRepsPerInstance": 2,
+  "holdoutBaseline": "measure"
+}
