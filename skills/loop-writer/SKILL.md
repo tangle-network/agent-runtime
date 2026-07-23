@@ -1,171 +1,102 @@
 ---
 name: loop-writer
-description: Author clean recursive agent loops on @tangle-network/agent-runtime. Use for Scope/supervisor orchestration, runLoop, Pi/sandbox drivers, fanout, trace analysts, verifiers/judges, question escalation, live messages, and self-improving loop recipes.
+description: Write a custom control policy only when current runtime composition APIs cannot express it.
 ---
 
-# loop-writer
+# Loop Writer
 
-Design the smallest loop that can honestly solve the objective. The blessed
-surface is the substrate: `fanout`/`pipeline` for fixed shapes, `runLoop` for
-round-synchronous sandbox loops, and `Scope`/Supervisor for recursive
-driver/worker trees. Do not create a second loop grammar.
+Use this only for a control policy that the shipped high-level APIs cannot express.
+Read `docs/canonical-api.md`, current exports, the implementation, and the nearest test before writing code.
+Do not copy signatures from this skill.
 
-## Mental Model
+## Choose The Existing Path First
 
-```txt
-user -> Pi/root driver -> supervisor -> sandbox driver -> worker -> leaf harness
-```
-
-Each level may spawn below, wait below, analyze below, steer below, and escalate
-questions upward. The substrate owns budget, trace, abort, journal, and replay.
-The driver owns strategy.
-
-## Pick The Primitive
-
-| Objective | Use |
+| Need | Existing path |
 |---|---|
-| Try N attempts, pick best | `fanout` (or the `sample` strategy) |
-| Ordered stages | `pipeline` |
-| Improve until executable check passes | `loopUntil` + verifier |
-| Review from several lenses | `panel` |
-| Simulated user/product eval | `defineConversation` + `runConversation` |
-| Dynamic topology / drivers of drivers | `Scope` or sandbox driver + `createCoordinationTools` |
-| Run N coding workers on isolated worktrees, gate each, pick best patch | `worktreeFanout` |
-| Mutate a shared repo | git branch/clone loop with typed merge outcomes (`gitWorkspace` seam) |
+| One product chat turn | `handleChatTurn(...)` |
+| One task or bounded multi-turn task | `runAgentTask(...)` or `runAgentTaskStream(...)` |
+| Two or more actors taking turns | `defineConversation(...)` and `runConversation(...)` |
+| A driver coordinating workers | `supervise(...)` or `superviseSurface(...)` |
+| Parallel or fixed composition | `fanout(...)`, `pipeline(...)`, `panel(...)`, or `verify(...)` |
+| Repeated work in a graded tool environment | `runAgentic(...)` |
+| Equal-budget comparison over that environment | `runBenchmark(...)` |
+| Low-level round policy with custom planning and stopping | `runLoop(...)` |
 
-If a fixed combinator solves it, do not use a dynamic driver.
+If one of the first seven rows fits, use it and stop.
+Do not create another wrapper solely to rename inputs or results.
 
-## Minimal Sandbox Loop
+## Custom Loop Contract
 
-```ts
-// runLoop takes a caller-supplied Driver directly (plan() → Task[]; decide() → terminal).
-// `[task]` → refine, N copies → fanout, `[]` → stop. Keep it this small or use a Strategy.
-const refineDriver: Driver<Task, Out, 'done' | 'fail'> = {
-  name: 'refine',
-  plan: async (task, history) => (history.at(-1)?.verdict?.valid ? [] : [task]),
-  decide: (history) => (history.at(-1)?.verdict?.valid ? 'done' : 'fail'),
-}
+A custom loop has five explicit parts:
 
-const trace: unknown[] = []
-const result = await runLoop({
-  driver: refineDriver,
-  agentRun: agentRunSpec,
-  output,
-  validator: executableGate,
-  task,
-  ctx: {
-    sandboxClient,
-    traceEmitter: { emit: async (event) => trace.push(event) },
-  },
-})
-
-const observation = await observe(
-  {
-    task: String(task),
-    output: JSON.stringify(result.winner?.output ?? result.decision),
-    trace,
-    outcome: result.winner ? 'passed' : 'failed',
-    runId,
-  },
-  { chat, model, corpus },
-)
+```text
+task -> plan work -> execute attempts -> check outcomes -> continue or stop
 ```
 
-## Minimal Recursive Driver
+Keep ownership separate:
 
-```ts
-const driver: Agent<Task, Output> = {
-  name: 'secure-build-driver',
-  async act(task, scope) {
-    const spawned = scope.spawn(workerAgent, task, { budget: perWorker, label: 'worker-a' })
-    if (!spawned.ok) throw new Error(spawned.reason)
+- The driver chooses work and termination from task plus prior outcomes.
+- Executors run attempts and return observed artifacts.
+- Objective checks determine whether an artifact is usable.
+- Trace emission records plans, attempts, tool effects, checks, spend, and decisions.
+- The caller owns policy, budgets, credentials, persistence, and side-effect authority.
 
-    const settled = await scope.next()
-    const observation = await observe(
-      {
-        task: String(task),
-        output: JSON.stringify(settled),
-        trace: [settled, scope.view],
-        outcome: settled?.kind === 'done' ? 'passed' : 'failed',
-        runId,
-      },
-      { chat, model, corpus },
-    )
+The driver must not mutate product state while planning.
+An LLM score must not override failed builds, tests, missing evidence, denied permissions, or service errors.
 
-    const steer = observation.findings[0]?.recommended_action
-    if (!steer) return synthesize(settled, observation)
+## Required States
 
-    const correction = scope.spawn(workerAgent, { task, prior: settled }, {
-      budget: perWorker,
-      label: 'worker-corrected',
-    })
-    if (!correction.ok) throw new Error(correction.reason)
-    if (!scope.send(correction.handle.id, { steer })) throw new Error('steer delivery failed')
+Model every terminal and resumable state explicitly:
 
-    const fixed = await scope.next()
-    return synthesize(fixed, observation)
-  },
-}
+- succeeded with the accepted artifact;
+- exhausted by rounds, tokens, money, time, or concurrency;
+- cancelled by the caller;
+- blocked on a question or permission;
+- failed before an attempt;
+- failed during execution or checking;
+- interrupted with enough durable state to resume safely.
 
-const result = await createSupervisor<Task, Output>().run(driver, task, supervisorOpts)
-```
+Use stable run, attempt, task, and parent IDs.
+Persist the accepted artifact, every attempted artifact identity, spend, and final reason.
+Resume from durable facts, not an in-memory counter or summary alone.
 
-When the driver lives in a sandbox, expose the same verbs through
-`createCoordinationTools`: `spawn_agent`, `await_event`, `observe_agent`,
-`steer_agent`, `list_questions`, `answer_question`, `ask_parent`, `stop`, and
-optional analyst tools (`list_analysts`, `run_analyst`).
+## Steering And Questions
 
-## Role Boundaries
+Steering is a typed input to a running or replacement attempt.
+Record who sent it, why, which evidence motivated it, whether delivery succeeded, and which attempt consumed it.
 
-- **Verifier**: executable shippability gate; controls accept/reject.
-- **Judge**: held-out score only; never steers the current run.
-- **Analyst**: trace-derived diagnosis over worker, pairwise, subtree, or full
-  loop traces; may emit findings, questions, messages, or blockers.
-- **Driver/reviewer**: consumes evidence and chooses continue, steer, spawn,
-  answer, escalate, or stop.
+Questions are explicit events.
+Route them to the responsible parent or user, preserve unanswered blockers, and fail closed when a required answer is unavailable.
+Do not bury a permission request in free-form worker output.
 
-## Questions And Steering
+## Parallel And Recursive Work
 
-Questions are blockers, not prose hidden in output. A child asks its parent; the
-parent answers when it has evidence, defers when safe, or escalates to Pi/user
-when answering would invent requirements. `failClosed` loops must not stop clean
-with unresolved `blocks-run` questions.
+Give parallel workers isolated state unless shared mutation is the point of the task.
+For repository changes, use one worktree per worker and explicit merge outcomes.
+For external writes, use idempotency keys and product-owned transactions.
 
-Steer sparingly: only when an analyst finds a concrete mistake, a loop is
-duplicating work, a parent/Pi answers a blocker, or a verifier reveals a specific
-fix a running worker can still use. Delivery is through `Scope.send` or
-`steer_agent`; failed delivery means spawn a fresh corrected attempt.
+Recursive supervisors use the same budget, cancellation, trace, question, and completion contracts at every depth.
+Do not grant a child more authority than its parent.
 
-## Workspace Loops
+## Tests
 
-Git is the durable workspace seam:
+Cover:
 
-- one branch/clone per worker
-- `gitWorkspace({ ref })` when host and sandbox need the same clone/commit/push contract
-- explicit commit per worker
-- typed merge result: `merged | conflict | stale-base | rejected | verifier-failed`
-- resume derives completion from git state, not only a side journal
-- conflicts become blockers/questions, not silent overwrite
+- success on the first and later rounds;
+- invalid output followed by a corrected attempt;
+- every budget limit;
+- abort propagation to in-flight work;
+- service and check failures remaining distinct from agent failure;
+- unresolved blocking questions;
+- interrupted run recovery without duplicate side effects;
+- deterministic replay of decisions from saved outcomes where supported.
 
-Proof command (real sandbox, real observe→steer join):
+## Completion
 
-```bash
-TANGLE_API_KEY=... pnpm exec tsx bench/src/cloud-loop.mts
-```
+The change is complete when the public entrypoint is smaller than the policy it replaces, all states above are observable, a real task exercises the custom behavior, and package typecheck, tests, build, docs, and package verification pass.
 
-It proves `openSandboxRun -> observe -> steer -> corrective worker` over a live
-sandbox. The old `observe-steer-workspace-loop.mts` used mock executors and is
-deleted — the live proof is the only valid one.
+## Then consider
 
-## Final Check
-
-- Does every meaningful product land in result blobs, journals, commits,
-  conversation journals, or trace events?
-- Are verifier, judge, analyst, and driver roles separated?
-- Can blocking questions move up the chain?
-- Can Pi/parent steer without bypassing verification?
-- Is workspace mutation transactional if workers edit shared code?
-- Can existing trace/journal views isolate agents, pairs, subtrees, and the full
-  run?
-- Is the loop small enough that an agent can author it without inventing hidden
-  runtime behavior?
+- `critical-audit` when the loop changes a public contract or authority boundary.
+- `eval-engineering` when the loop's stopping condition needs a new evaluation case.
+- `verify` before publishing the package.
