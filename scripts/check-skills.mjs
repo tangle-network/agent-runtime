@@ -1,19 +1,25 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = new URL('../skills/', import.meta.url)
+const root = process.env.AGENT_RUNTIME_SKILLS_ROOT
+  ? resolve(process.env.AGENT_RUNTIME_SKILLS_ROOT)
+  : fileURLToPath(new URL('../skills/', import.meta.url))
 const maxDescriptionChars = 96
 const maxSkillBytes = 20_000
 const errors = []
 let descriptionChars = 0
+let skillCount = 0
 
 for (const entry of readdirSync(root, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue
 
-  const path = join(root.pathname, entry.name, 'SKILL.md')
+  const path = join(root, entry.name, 'SKILL.md')
   if (!statSync(path, { throwIfNoEntry: false })?.isFile()) continue
+  skillCount += 1
 
-  const content = readFileSync(path, 'utf8')
+  const rawContent = readFileSync(path, 'utf8')
+  const content = rawContent.replace(/\r\n?/g, '\n')
   const frontmatter = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)/)?.[1]
   if (!frontmatter) {
     errors.push(`${entry.name}: missing YAML frontmatter`)
@@ -37,9 +43,9 @@ for (const entry of readdirSync(root, { withFileTypes: true })) {
       )
     }
   }
-  if (Buffer.byteLength(content) > maxSkillBytes) {
+  if (Buffer.byteLength(rawContent) > maxSkillBytes) {
     errors.push(
-      `${entry.name}: SKILL.md has ${Buffer.byteLength(content)} bytes; max is ${maxSkillBytes}`,
+      `${entry.name}: SKILL.md has ${Buffer.byteLength(rawContent)} bytes; max is ${maxSkillBytes}`,
     )
   }
 
@@ -48,6 +54,8 @@ for (const entry of readdirSync(root, { withFileTypes: true })) {
     errors.push(`${entry.name}: ## Then consider must be the final level-two section`)
   }
 }
+
+if (skillCount === 0) errors.push('no skills found')
 
 if (errors.length > 0) {
   for (const error of errors) console.error(error)
