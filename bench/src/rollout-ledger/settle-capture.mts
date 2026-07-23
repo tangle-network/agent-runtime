@@ -26,6 +26,13 @@
  *    scores are final.
  */
 
+// TODO(UNIFICATION, https://github.com/tangle-network/agent-runtime/issues/593):
+// tangle.rollout.v1 is now owned by @tangle-network/agent-eval/rollout (schema,
+// ledger, readers, exporters, release). These branch-local imports are the
+// pre-unification copies and MUST be swapped for the agent-eval API the moment
+// agent-eval 0.124.0 is published (blocked today only by publish timing — do
+// not extend the local copies). On swap: emit task.split 'search' (canonical
+// trainable split) and set candidate_id; the LABEL v2 reward logic stays here.
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
