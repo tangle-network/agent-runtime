@@ -11,6 +11,22 @@ const errors = []
 let descriptionChars = 0
 let skillCount = 0
 
+function frontmatterField(frontmatter, key) {
+  const lines = frontmatter.split('\n')
+  const index = lines.findIndex((line) => line.startsWith(`${key}:`))
+  if (index === -1) return undefined
+
+  const value = lines[index].slice(key.length + 1).trim()
+  if (!/^[>|][0-9+-]*$/.test(value)) return value.replace(/^["']|["']$/g, '')
+
+  const continuation = []
+  for (const line of lines.slice(index + 1)) {
+    if (line && !/^\s/.test(line)) break
+    continuation.push(line.trim())
+  }
+  return (value.startsWith('>') ? continuation.join(' ') : continuation.join('\n')).trim()
+}
+
 for (const entry of readdirSync(root, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue
 
@@ -26,9 +42,8 @@ for (const entry of readdirSync(root, { withFileTypes: true })) {
     continue
   }
 
-  const name = frontmatter.match(/^name:\s*["']?([^"'\n]+)["']?$/m)?.[1]
-  const rawDescription = frontmatter.match(/^description:\s*(.+)$/m)?.[1]
-  const description = rawDescription?.replace(/^["']|["']$/g, '')
+  const name = frontmatterField(frontmatter, 'name')
+  const description = frontmatterField(frontmatter, 'description')
 
   if (name !== entry.name) {
     errors.push(`${entry.name}: frontmatter name is ${JSON.stringify(name)}`)

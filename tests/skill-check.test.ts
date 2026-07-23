@@ -65,6 +65,7 @@ describe('skill package check', () => {
   it.each([
     ['wrong name', 'name: different', 'frontmatter name'],
     ['long description', `description: ${'x'.repeat(97)}`, 'description has 97 chars'],
+    ['folded long description', `description: >-\n  ${'x'.repeat(97)}`, 'description has 97 chars'],
     [
       'misplaced footer',
       '## Then consider\n\n- `verify` before release.\n\n## Later',
