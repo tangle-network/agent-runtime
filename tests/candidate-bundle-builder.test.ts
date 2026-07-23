@@ -13,6 +13,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 
+import { assertCandidateProfileBinding } from '../src/candidate-execution'
 import {
   type BuildAgentCandidateBundleInput,
   buildAgentCandidateBundle,
@@ -314,6 +315,31 @@ describe('public agent candidate bundle builder', () => {
       modes: { review: { model: 'provider/model' } },
       confidential: { tee: 'tdx', sealed: true },
     })
+  })
+
+  it('exports the exact profile binding check for product activation boundaries', () => {
+    const fixture = createCandidateExecutionFixture(false)
+    const profile = simpleProfile()
+    const bundle = buildAgentCandidateBundle({
+      profile: { kind: 'profile', profile },
+      code: { kind: 'disabled' },
+      execution: fixture.bundle.execution,
+      memory: { mode: 'disabled' },
+    })
+
+    expect(() => assertCandidateProfileBinding(profile, bundle.profile)).not.toThrow()
+    expect(() =>
+      assertCandidateProfileBinding(
+        { ...profile, prompt: { instructions: ['Use a different instruction.'] } },
+        bundle.profile,
+      ),
+    ).toThrow(/does not match/)
+    expect(() =>
+      assertCandidateProfileBinding(
+        { ...profile, metadata: { tenant: 'tenant-1' } },
+        bundle.profile,
+      ),
+    ).toThrow(/unsupported by sealed candidates/)
   })
 
   it('accepts an already closed candidate profile for behavior generic profiles cannot encode', () => {

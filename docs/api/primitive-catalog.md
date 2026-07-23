@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 377 exports.
+Import from `@tangle-network/agent-runtime` — 378 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -23,6 +23,7 @@ Import from `@tangle-network/agent-runtime` — 377 exports.
 | `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
 | `applyRolloutPolicyToProfile` | function | Persist a policy into the profile's extensions namespace. Shallow copy; never |
 | `applyRunRecordDefaults` | function | Stamp cross-cutting defaults onto adapter-projected RunRecords without |
+| `assertCandidateProfileBinding` | function | Prove the measured generic profile and sealed candidate profile describe the same behavior. |
 | `auditLoopRunner` | function | `audit` mode — analyst loop over captured trace/run data. |
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
@@ -943,11 +944,12 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 101 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 102 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
+| `assertCandidateProfileBinding` | function | Prove the measured generic profile and sealed candidate profile describe the same behavior. |
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
 | `candidateKnowledgeExecutionPaths` | function | Deterministic, signed locations used by every candidate executor. |

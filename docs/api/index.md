@@ -12982,6 +12982,30 @@ Materializes a verified candidate into one immutable evaluator-owned execution p
 
 ***
 
+### assertCandidateProfileBinding()
+
+> **assertCandidateProfileBinding**(`measuredInput`, `bundled`): `void`
+
+Defined in: [src/candidate-execution/profile.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L175)
+
+Prove the measured generic profile and sealed candidate profile describe the same behavior.
+
+#### Parameters
+
+##### measuredInput
+
+`AgentProfile`
+
+##### bundled
+
+`AgentCandidateProfile`
+
+#### Returns
+
+`void`
+
+***
+
 ### parseExactAgentProfile()
 
 > **parseExactAgentProfile**(`input`, `label`): `AgentProfile`

@@ -398,6 +398,7 @@ try {
         const candidates = await import('@tangle-network/agent-runtime/candidate-execution')
         for (const name of [
           'buildAgentCandidateBundle',
+          'assertCandidateProfileBinding',
           'exactProcessProviderAsCandidateExecutor',
           'sealAgentCandidateBundle',
           'verifyAgentCandidateBundle',
@@ -431,6 +432,10 @@ try {
           repositories: { resolve: async () => { throw new Error('unexpected repository read') } },
         })
         if (verified.bundle.digest !== bundle.digest) throw new Error('packed candidate digest drift')
+        candidates.assertCandidateProfileBinding(
+          { name: 'packed-consumer', harness: 'codex' },
+          bundle.profile,
+        )
       `,
     ],
     appDir,
