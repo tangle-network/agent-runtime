@@ -563,7 +563,10 @@ export interface OuterLoopConfig {
    *  an AgentProfile-pinned harness invocation (see proposer-fanout.mts).
    *  When set, `populationSize` MUST equal `proposers.length` (one candidate
    *  slot per proposer — enforced at launch). Unset = the legacy
-   *  single-author generator (`proposerHarness` + bare invocation). */
+   *  single-author generator (`proposerHarness` + bare invocation).
+   *  GEN-6: a spec with `engine` set is a GEPA seat (gepa-seat.mts) — the
+   *  agent-eval external-GEPA adapter optimizes ONE change-space file as a
+   *  string against the pre-filter smoke cell; requires `prefilter.enabled`. */
   proposers?: ProposerSpec[]
   /** GEN-3 cheap pre-filter: per candidate, change-space + tsc (the authoring
    *  verifier) plus ONE smoke arm cell before any full-evaluation spend.
@@ -1516,6 +1519,8 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
               resolved: outcome.resolved,
               patchLines: outcome.armRes.patch_lines,
               wallS,
+              // GEN-6: the GEPA seat's inner-score tiebreak.
+              verifyPass: outcome.armRes.verify_pass,
             }
             await mkdir(armOutDir, { recursive: true })
             await writeFile(join(armOutDir, 'smoke.json'), JSON.stringify(result, null, 2))
@@ -1894,6 +1899,11 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           ...(smokeRunner ? { smokeRunner } : {}),
           ...(paretoParents.length > 0 ? { parents: paretoParents } : {}),
           ...(briefingCtx !== undefined ? { briefing: briefingCtx } : {}),
+          // GEN-6: the GEPA seat's inner evaluator rides the SAME public-only
+          // smoke instance; the split guards the never-surfaced invariant at
+          // the bridge boundary too.
+          ...(smokeIid !== null ? { smokeInstanceId: smokeIid } : {}),
+          scoreSplit: split,
           log,
         })
       : null
@@ -2173,7 +2183,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           parent: premeasured?.surfaceHash ?? 'baseline',
           parentResolvedCount: measuredBaselineCount,
           label: kill.proposer,
-          rationale: `prefilter kill at stage '${kill.stage}' (${kill.harness})`,
+          rationale: `prefilter kill at stage '${kill.stage}' (${kill.harness ?? 'engine'})`,
           changedFiles: [],
           changeSpaceViolations: kill.stage === 'change-space' ? [kill.reason] : [],
           perInstance: [],
