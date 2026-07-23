@@ -71,6 +71,17 @@ export interface ProposerSpec {
    *  `profiles/` directory. Omitted = bare profile (legacy invocation). */
   profile?: string
   harness: 'claude' | 'codex' | 'opencode'
+  /** GEN-4 pinned model id, threaded to the harness CLI as `-m <model>` via
+   *  the author profile's `model.default` (harnessInvocation maps it for all
+   *  three harnesses). Unset = the CLI's own resolved model (its login/settings
+   *  default) — recorded per run by the proposer-provenance capture, so the
+   *  seat identity is pinned in provenance even when the flag is absent. */
+  model?: string
+  /** GEN-4 merge seat: this proposer's task is to MERGE the configured
+   *  Pareto parents' diffs into one coherent surface (see
+   *  `mergeAuthorPrompt`). Requires ≥2 materialized parents — enforced at
+   *  generator construction. */
+  merge?: boolean
   /** Free-text authoring lens appended to the task prompt (e.g. a mechanics
    *  or reviewer stance). Never overrides the protocol change-space text. */
   lens?: string
@@ -153,6 +164,132 @@ export function defaultProposers(): ProposerSpec[] {
   return [{ name: 'default-author', profile: 'default-author.profile.json', harness: 'claude' }]
 }
 
+/** The profile the author shot actually runs: the loaded profile (if any) with
+ *  the spec's PINNED MODEL merged into `model.default` — harnessInvocation
+ *  turns that into the CLI's `-m <model>` flag (claude/codex/opencode all map
+ *  it). Without a pinned model this is byte-identical to `loadAuthorProfile`,
+ *  so gen-3 seats keep their exact invocation. A pinned model with no profile
+ *  path synthesizes a minimal named profile carrying only the pin. */
+export function resolveAuthorProfile(spec: ProposerSpec): AgentProfile | undefined {
+  const profile = loadAuthorProfile(spec)
+  if (!spec.model) return profile
+  const base: AgentProfile = profile ?? { name: `${spec.name}-pinned` }
+  return { ...base, model: { ...base.model, default: spec.model } }
+}
+
+// ---------------------------------------------------------------------------
+// GEN-4 Pareto parents — cross-run seeding at the buildPrompt seam.
+//
+// The LIB's own `ctx.paretoParents` (runOptimization → SurfaceProposer) only
+// accumulates surfaces scored WITHIN one run: the frontier starts from this
+// run's baseline and generations, and a prior campaign's surfaces cannot be
+// injected without replaying that campaign's runDir + cost ledger (the cached
+// cells refuse to load without their ledger receipts). Gen-4 runs in a fresh
+// outDir, so the gen-3 winners are seeded HERE — their diffs + per-instance
+// results enter every author's task prompt, and the merge seat gets both
+// diffs as its explicit merge input. This is our seam, not the lib path;
+// noted in the gen-4 config docs.
+// ---------------------------------------------------------------------------
+
+/** One prior-run frontier member, as configured (commits live in loopsRepo). */
+export interface ParetoParentSeed {
+  /** Loops commit of the parent candidate (must exist in `loopsRepo`). */
+  commit: string
+  /** Staircase label, e.g. 'default-author'. */
+  label: string
+  /** Instances the parent resolved under the fail-closed all-reps rule. */
+  resolvedInstances: string[]
+  /** Free-text evidence note (discordant replicates, mechanism summary). */
+  note?: string
+}
+
+/** A seed materialized against the loops repo: the parent's full diff. */
+export interface ParetoParentContext extends ParetoParentSeed {
+  diff: string
+}
+
+export const PARENT_DIFF_MAX_CHARS = 60_000
+
+/** Materialize parent seeds: verify each commit exists in `loopsRepo` and
+ *  capture its full diff (`git show`). Fails loud on a missing commit — a
+ *  silently absent parent would turn the merge seat into a no-op. */
+export async function materializeParetoParents(
+  loopsRepo: string,
+  seeds: ParetoParentSeed[],
+  maxDiffChars = PARENT_DIFF_MAX_CHARS,
+): Promise<ParetoParentContext[]> {
+  const parents: ParetoParentContext[] = []
+  for (const seed of seeds) {
+    const exists = await run('git', ['-C', loopsRepo, 'cat-file', '-e', `${seed.commit}^{commit}`])
+    if (exists.code !== 0) {
+      throw new Error(`pareto parent ${seed.label}: commit ${seed.commit} not found in ${loopsRepo}`)
+    }
+    const show = await runOk('git', ['-C', loopsRepo, 'show', '--no-color', seed.commit])
+    const diff =
+      show.stdout.length > maxDiffChars
+        ? `${show.stdout.slice(0, maxDiffChars)}\n[... diff truncated at ${maxDiffChars} chars ...]`
+        : show.stdout
+    parents.push({ ...seed, diff })
+  }
+  return parents
+}
+
+function parentEvidenceLine(parent: ParetoParentContext): string {
+  const resolved = parent.resolvedInstances.length > 0 ? parent.resolvedInstances.join(', ') : 'none'
+  return `${parent.label} (${parent.commit.slice(0, 10)}) — resolved: ${resolved}${parent.note ? `; ${parent.note}` : ''}`
+}
+
+/** The parents section appended to every NON-merge author's prompt: measured
+ *  evidence of what worked, never an instruction to copy. */
+export function parentsPromptSection(parents: ParetoParentContext[]): string {
+  const lines: string[] = [
+    'PARETO PARENTS — the prior generation’s frontier candidates, measured on the SAME 6-instance set.',
+    'Each beat the baseline on different instances; treat their diffs as measured evidence of what works.',
+    'You may build on either (or both), but your candidate is measured on the full set — do not blindly copy.',
+  ]
+  for (const parent of parents) {
+    lines.push('', `--- parent: ${parentEvidenceLine(parent)}`, parent.diff.trimEnd())
+  }
+  return lines.join('\n')
+}
+
+/** The merge seat's task prompt: the change-space contract + findings context
+ *  stay (round4BuildPrompt), and the TASK is replaced with an explicit
+ *  coherent-union merge of the parents' diffs. */
+export function mergeAuthorPrompt(
+  args: { report: unknown; findings: Array<Record<string, unknown>> },
+  spec: ProposerSpec,
+  parents: ParetoParentContext[],
+): string {
+  if (parents.length < 2) {
+    throw new Error(`merge proposer ${spec.name}: needs >=2 materialized pareto parents, got ${parents.length}`)
+  }
+  const lines: string[] = [
+    round4BuildPrompt(args),
+    '',
+    `YOUR TASK (${spec.name} — MERGE SEAT):`,
+    'The prior generation produced the frontier candidates below. Each beat the baseline on DIFFERENT',
+    'instances, so their lessons are complementary. Produce ONE coherent surface that is the UNION of the',
+    'parent diffs:',
+    ...parents.map((p) => `  - ${parentEvidenceLine(p)}`),
+    '',
+    'Merge rules:',
+    '- Apply BOTH parents’ behaviors. Where the diffs touch the same file/section (e.g. the supervisor',
+    '  reviewer bullet or the worker self-test rules), resolve the conflict by KEEPING BOTH BEHAVIORS —',
+    '  write one merged passage that carries every constraint from each side, never by dropping one side.',
+    '- Keep each parent’s mechanical changes intact (code paths, exported helpers, threading) alongside the',
+    '  other parent’s prompt/goal-authoring changes.',
+    '- Do NOT invent new mechanisms beyond the union; the smallest coherent merge wins.',
+    '- The merged surface must typecheck and stay inside the declared change-space above.',
+    '',
+    'Parent diffs (full):',
+  ]
+  for (const parent of parents) {
+    lines.push('', `=== parent ${parent.label} (${parent.commit.slice(0, 10)}) ===`, parent.diff.trimEnd())
+  }
+  return lines.join('\n')
+}
+
 // ---------------------------------------------------------------------------
 // Diagnosis slicing + prompt lens.
 // ---------------------------------------------------------------------------
@@ -183,14 +320,19 @@ export function sliceFindings(findings: AnalystFinding[], slice: ProposerSpec['d
 }
 
 /** The proposer's task prompt: the shared round prompt plus this proposer's
- *  authoring lens (appended so the protocol change-space text stays intact). */
+ *  authoring lens (appended so the protocol change-space text stays intact),
+ *  plus the gen-4 Pareto-parents section when parents are seeded. A merge-seat
+ *  spec gets the dedicated merge prompt instead. */
 export function proposerBuildPrompt(
   args: { report: unknown; findings: Array<Record<string, unknown>> },
   spec: ProposerSpec,
+  parents: ParetoParentContext[] = [],
 ): string {
-  const base = round4BuildPrompt(args)
-  if (!spec.lens) return base
-  return `${base}\n\nYOUR AUTHORING LENS (${spec.name}):\n${spec.lens}`
+  if (spec.merge) return mergeAuthorPrompt(args, spec, parents)
+  let prompt = round4BuildPrompt(args)
+  if (spec.lens) prompt = `${prompt}\n\nYOUR AUTHORING LENS (${spec.name}):\n${spec.lens}`
+  if (parents.length > 0) prompt = `${prompt}\n\n${parentsPromptSection(parents)}`
+  return prompt
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +434,9 @@ export type AuthorFn = (
 export interface FanOutDeps {
   author?: AuthorFn
   smokeRunner?: SmokeRunner
+  /** GEN-4: materialized Pareto parents seeded into every author's prompt (and
+   *  the merge seat's explicit merge input). Empty/omitted = gen-3 behavior. */
+  parents?: ParetoParentContext[]
   log?: (msg: string) => void
 }
 
@@ -311,13 +456,19 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
     const slot = ledgers.get(proposer.name) ?? {}
     ledgers.set(proposer.name, slot)
     if (!inner) {
-      const profile = loadAuthorProfile(proposer)
+      // GEN-4: the resolved profile carries the spec's pinned model
+      // (`model.default` → the harness CLI's `-m` flag).
+      const profile = resolveAuthorProfile(proposer)
       inner = agenticGenerator({
         harness: proposer.harness,
         ...(profile ? { profile } : {}),
         timeoutMs: config.proposerTimeoutMs,
         buildPrompt: (a) =>
-          proposerBuildPrompt(a as unknown as { report: unknown; findings: Array<Record<string, unknown>> }, proposer),
+          proposerBuildPrompt(
+            a as unknown as { report: unknown; findings: Array<Record<string, unknown>> },
+            proposer,
+            deps.parents ?? [],
+          ),
         verify: loopsCandidateVerifier(config.loopsRepo),
         runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(proposer.harness) }),
         onShotCompleted: proposerShotHooks({
@@ -348,6 +499,13 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
   if (proposers.length === 0) throw new Error('fanOutLoopsGenerator: config.proposers is empty')
   const names = new Set(proposers.map((p) => p.name))
   if (names.size !== proposers.length) throw new Error('fanOutLoopsGenerator: duplicate proposer names')
+  const mergeSeats = proposers.filter((p) => p.merge === true)
+  if (mergeSeats.length > 0 && (deps.parents ?? []).length < 2) {
+    throw new Error(
+      `fanOutLoopsGenerator: merge proposer(s) ${mergeSeats.map((p) => p.name).join(', ')} configured but ` +
+        `only ${(deps.parents ?? []).length} pareto parent(s) materialized — a merge seat needs >=2`,
+    )
+  }
   const author = deps.author ?? defaultAuthor(config, deps)
   const log = deps.log ?? (() => {})
   const kills: PrefilterKill[] = []
@@ -445,7 +603,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
   }
 
   return {
-    kind: `gen3-fanout:${proposers.map((p) => `${p.name}@${p.harness}`).join('+')}`,
+    kind: `gen3-fanout:${proposers.map((p) => `${p.name}@${p.harness}${p.model ? `:${p.model}` : ''}${p.merge ? ':merge' : ''}`).join('+')}`,
     proposesWithoutFindings: true,
     drainPrefilterKills() {
       return kills.splice(0, kills.length)

@@ -6,8 +6,10 @@ import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   defaultGen3Config,
+  defaultGen4Config,
   defaultRound4Config,
   GEN3_IMPROVEMENT_SET,
+  GEN3_PARETO_PARENTS,
   GEN3_SPARE_POOL,
   resolveSmokeInstance,
   type OuterLoopConfig,
@@ -17,9 +19,14 @@ import {
   defaultProposers,
   fanOutLoopsGenerator,
   loadAuthorProfile,
+  materializeParetoParents,
+  mergeAuthorPrompt,
+  parentsPromptSection,
   PROFILES_DIR,
   proposerBuildPrompt,
+  resolveAuthorProfile,
   sliceFindings,
+  type ParetoParentContext,
   type ProposerSpec,
   type SmokeRunner,
 } from './proposer-fanout.mts'
@@ -74,6 +81,134 @@ describe('proposerBuildPrompt', () => {
   it('is the bare round prompt without a lens', () => {
     const spec: ProposerSpec = { name: 'x', harness: 'claude' }
     expect(proposerBuildPrompt({ report: undefined, findings: [] }, spec)).not.toContain('AUTHORING LENS')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GEN-4: pinned models, Pareto-parent seeding, and the merge seat.
+// ---------------------------------------------------------------------------
+
+const PARENTS: ParetoParentContext[] = [
+  {
+    commit: 'aaaa111122223333aaaa111122223333aaaa1111',
+    label: 'parent-a',
+    resolvedInstances: ['pydata__xarray-4687', 'sphinx-doc__sphinx-9658'],
+    note: 'mechanical risk scan',
+    diff: 'diff --git a/src/worker-evidence.ts b/src/worker-evidence.ts\n+scan',
+  },
+  {
+    commit: 'bbbb111122223333bbbb111122223333bbbb1111',
+    label: 'parent-b',
+    resolvedInstances: ['django__django-11532'],
+    diff: 'diff --git a/extensions/pi/prompts/supervisor-system.md b/...\n+hidden suite',
+  },
+]
+
+describe('resolveAuthorProfile (pinned models)', () => {
+  it('merges the spec model into the loaded profile as model.default', () => {
+    const spec: ProposerSpec = {
+      name: 'x',
+      profile: 'default-author.profile.json',
+      harness: 'claude',
+      model: 'claude-fable-5',
+    }
+    const profile = resolveAuthorProfile(spec)
+    expect(profile?.name).toBe('swe-arena-default-author')
+    expect(profile?.model?.default).toBe('claude-fable-5')
+  })
+
+  it('synthesizes a minimal named profile for a pinned model without a profile path', () => {
+    const profile = resolveAuthorProfile({ name: 'glm-author', harness: 'opencode', model: 'zai-coding-plan/glm-5.2' })
+    expect(profile?.name).toBe('glm-author-pinned')
+    expect(profile?.model?.default).toBe('zai-coding-plan/glm-5.2')
+  })
+
+  it('is byte-identical to loadAuthorProfile without a pin (gen-3 seats unchanged)', () => {
+    const spec: ProposerSpec = { name: 'x', profile: 'default-author.profile.json', harness: 'claude' }
+    expect(resolveAuthorProfile(spec)).toEqual(loadAuthorProfile(spec))
+    expect(resolveAuthorProfile({ name: 'bare', harness: 'claude' })).toBeUndefined()
+  })
+})
+
+describe('proposerBuildPrompt with pareto parents', () => {
+  it('appends the parents section (evidence + diffs) after the protocol prompt and lens', () => {
+    const spec: ProposerSpec = { name: 'x', harness: 'claude', lens: 'Prefer code-path fixes.' }
+    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS)
+    expect(prompt).toContain('DECLARED CHANGE-SPACE')
+    expect(prompt).toContain('PARETO PARENTS')
+    expect(prompt.indexOf('YOUR AUTHORING LENS')).toBeLessThan(prompt.indexOf('PARETO PARENTS'))
+    expect(prompt).toContain('parent-a (aaaa111122) — resolved: pydata__xarray-4687, sphinx-doc__sphinx-9658')
+    expect(prompt).toContain('mechanical risk scan')
+    expect(prompt).toContain('+scan')
+    expect(prompt).toContain('+hidden suite')
+  })
+
+  it('leaves the prompt untouched when no parents are seeded (gen-3 behavior)', () => {
+    const spec: ProposerSpec = { name: 'x', harness: 'claude' }
+    expect(proposerBuildPrompt({ report: undefined, findings: [] }, spec)).not.toContain('PARETO PARENTS')
+    expect(parentsPromptSection(PARENTS)).toContain('measured evidence')
+  })
+})
+
+describe('mergeAuthorPrompt', () => {
+  const spec: ProposerSpec = { name: 'merge-author', harness: 'claude', merge: true }
+
+  it('keeps the change-space contract and presents BOTH parent diffs with the coherent-union task', () => {
+    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS)
+    expect(prompt).toContain('DECLARED CHANGE-SPACE')
+    expect(prompt).toContain('MERGE SEAT')
+    expect(prompt).toContain('UNION of the')
+    expect(prompt).toContain('KEEPING BOTH BEHAVIORS')
+    expect(prompt).toContain('=== parent parent-a (aaaa111122) ===')
+    expect(prompt).toContain('=== parent parent-b (bbbb111122) ===')
+    expect(prompt).toContain('+scan')
+    expect(prompt).toContain('+hidden suite')
+    // Per-instance evidence rides along for both parents.
+    expect(prompt).toContain('resolved: django__django-11532')
+  })
+
+  it('fails loud with fewer than two parents', () => {
+    expect(() => mergeAuthorPrompt({ report: undefined, findings: [] }, spec, [PARENTS[0]!])).toThrow(/>=2/)
+    expect(() => proposerBuildPrompt({ report: undefined, findings: [] }, spec, [])).toThrow(/>=2/)
+  })
+})
+
+describe('defaultGen4Config', () => {
+  const config = defaultGen4Config()
+
+  it('seats four proposers (one candidate slot each) with the pinned glm model and the merge seat', () => {
+    expect(config.proposers).toHaveLength(4)
+    expect(config.populationSize).toBe(4)
+    const byName = Object.fromEntries(config.proposers!.map((p) => [p.name, p]))
+    expect(byName['claude-author']).toMatchObject({ harness: 'claude', profile: 'default-author.profile.json' })
+    expect(byName['claude-author']!.model).toBeUndefined()
+    expect(byName['glm-author']).toMatchObject({ harness: 'opencode', model: 'zai-coding-plan/glm-5.2' })
+    expect(byName['codex-author']).toMatchObject({ harness: 'codex' })
+    expect(byName['merge-author']).toMatchObject({ harness: 'claude', merge: true })
+  })
+
+  it('drops the codex seat (and shrinks the population) when includeCodex is false', () => {
+    const noCodex = defaultGen4Config(undefined, { includeCodex: false })
+    expect(noCodex.proposers!.map((p) => p.name)).toEqual(['claude-author', 'glm-author', 'merge-author'])
+    expect(noCodex.populationSize).toBe(3)
+  })
+
+  it('seeds the gen-3 frontier as pareto parents and points at a fresh gen4 outDir + baseline artifact', () => {
+    expect(config.paretoParents).toEqual(GEN3_PARETO_PARENTS)
+    expect(config.paretoParents!.map((p) => p.commit.slice(0, 10))).toEqual(['cc0d95584c', 'a7a2a982e5'])
+    expect(config.outDir).toContain('gen4')
+    expect(config.premeasuredBaselinePath).toContain('gen4')
+    expect(config.premeasuredBaselinePath).not.toBe(defaultGen3Config().premeasuredBaselinePath)
+  })
+
+  it('keeps the gen-3 protocol frame: 6-instance set, 2 reps, 1 generation, prefilter, 2-rep holdout', () => {
+    expect(config.instances).toEqual([...GEN3_IMPROVEMENT_SET])
+    expect(config.repsPerInstance).toBe(2)
+    expect(config.generations).toBe(1)
+    expect(config.prefilter).toEqual({ enabled: true, smokeInstance: 'cheapest-of-set', requireResolved: false })
+    expect(config.holdoutRepsPerInstance).toBe(2)
+    expect(config.holdoutBaseline).toBe('measure')
+    for (const iid of config.instances) expect(config.holdoutInstances).not.toContain(iid)
   })
 })
 
@@ -358,6 +493,40 @@ describe('fanOutLoopsGenerator', () => {
       author: async () => ({ applied: false, summary: '' }),
     })
     await expect(gen.generate(generatorArgs(1))).rejects.toThrow(/populationSize must equal/)
+  })
+
+  it('materializes pareto parents from real commits (full diff, truncation, missing-commit fail-loud)', async () => {
+    await writeFile(join(loopsRepo, 'src.ts'), 'base\nchanged\n')
+    await git(['add', '-A'], loopsRepo)
+    await git(['commit', '-q', '-m', 'parent change'], loopsRepo)
+    const commit = await git(['rev-parse', 'HEAD'], loopsRepo)
+    const seed = { commit, label: 'p1', resolvedInstances: ['inst-a'] }
+    const [parent] = await materializeParetoParents(loopsRepo, [seed])
+    expect(parent).toMatchObject(seed)
+    expect(parent!.diff).toContain('parent change')
+    expect(parent!.diff).toContain('+changed')
+    const [truncated] = await materializeParetoParents(loopsRepo, [seed], 40)
+    expect(truncated!.diff).toContain('[... diff truncated at 40 chars ...]')
+    await expect(
+      materializeParetoParents(loopsRepo, [{ commit: 'deadbeef'.repeat(5), label: 'ghost', resolvedInstances: [] }]),
+    ).rejects.toThrow(/not found/)
+  })
+
+  it('refuses a merge seat without >=2 materialized parents', () => {
+    const config = baseConfig([{ name: 'merge-author', harness: 'claude', merge: true }])
+    expect(() => fanOutLoopsGenerator(config, { author: async () => ({ applied: false, summary: '' }) })).toThrow(
+      /merge proposer/,
+    )
+    expect(() =>
+      fanOutLoopsGenerator(config, {
+        author: async () => ({ applied: false, summary: '' }),
+        parents: [PARENTS[0]!],
+      }),
+    ).toThrow(/needs >=2|merge proposer/)
+    // With two parents the generator constructs.
+    expect(() =>
+      fanOutLoopsGenerator(config, { author: async () => ({ applied: false, summary: '' }), parents: PARENTS }),
+    ).not.toThrow()
   })
 
   it('rejects duplicate proposer names and empty proposer lists', () => {
