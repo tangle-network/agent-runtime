@@ -176,13 +176,13 @@ export function assertCandidateProfileBinding(
   measuredInput: AgentProfile,
   bundled: AgentCandidateProfile,
 ): void {
-  const measured = parseExactAgentProfile(measuredInput, 'proposal candidate profile')
+  const measured = parseExactAgentProfile(measuredInput, 'measured agent profile')
   if (measured.connections || measured.metadata || measured.extensions) {
-    throw new Error('proposal candidate profile contains fields unsupported by sealed candidates')
+    throw new Error('measured agent profile contains fields unsupported by sealed candidates')
   }
   const normalized = agentCandidateProfileAsAgentProfile(bundled)
   if (canonicalCandidateDigest(measured) !== canonicalCandidateDigest(normalized)) {
-    throw new Error('proposal candidateProfile does not match candidateBundle.profile')
+    throw new Error('measured agent profile does not match sealed candidate profile')
   }
 }
 
@@ -273,7 +273,7 @@ export function agentCandidateProfileAsAgentProfile(
   }
   if (candidate.resources) {
     if (candidate.resources.failOnError !== true) {
-      throw new Error('proposal candidate profile contains fields unsupported by sealed candidates')
+      throw new Error('sealed candidate profile contains fields unsupported by generic profiles')
     }
     output.resources = {
       failOnError: true,
