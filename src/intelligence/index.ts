@@ -132,6 +132,7 @@ export {
 } from './exact-process-candidate'
 export type {
   AgentCandidateExperimentCellPlacement,
+  AgentImprovementExperimentMaterial,
   CreateAgentImprovementActivationOptions,
   CreateAgentImprovementProposalOptions,
   ExecuteAgentCandidateExperimentCellOptions,

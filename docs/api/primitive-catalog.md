@@ -327,7 +327,7 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 132 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 133 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -416,6 +416,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 132 exports.
 | `UsageSplit` | interface | The per-class cost split carried by every trace and outcome. `off` ⇒ |
 | `AgentImprovementActivationReconciliation` | type | Target-read-only check for a prior exact write. |
 | `AgentImprovementActivationTransition` | type | Product-owned or Runtime-composed transition. |
+| `AgentImprovementExperimentMaterial` | type | Product-supplied experiment material. Runtime supplies optimizer ancestry and the final digest. |
 | `CapabilityAuth` | type | How a binding authenticates at resolve time. Declared as a REQUIREMENT in the |
 | `CapabilityInterface` | type | What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each |
 | `CapabilitySurface` | type | Every interface surface tag — the closed set the resolver fans into slots. |

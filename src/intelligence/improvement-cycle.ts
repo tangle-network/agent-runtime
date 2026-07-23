@@ -5,6 +5,7 @@ import {
   measuredComparisonFromCandidateExperiment,
   runCandidateExperiment,
   type Scenario,
+  sealCandidateExperiment,
   verifyCandidateExperiment,
   verifyCandidateExperimentComparison,
 } from '@tangle-network/agent-eval/contract'
@@ -12,7 +13,9 @@ import type {
   AgentCandidateBenchmarkCellRef,
   AgentCandidateBundle,
   AgentCandidateExperiment,
+  AgentCandidateExperimentMaterial,
   AgentCandidateExperimentMeasurement,
+  AgentCandidateLineage,
   AgentCandidateRunCell,
   AgentImprovementActivation,
   AgentImprovementActivationIntent,
@@ -170,7 +173,7 @@ export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArt
   buildExperiment: (input: {
     analysis: RunAnalystLoopResult
     improvement: ImproveResult<TScenario, TArtifact>
-  }) => AgentCandidateExperiment | Promise<AgentCandidateExperiment>
+  }) => AgentImprovementExperimentMaterial | Promise<AgentImprovementExperimentMaterial>
   placeCell: RunAgentCandidateExperimentOptions['placeCell']
   maxConcurrency?: number
   signal?: AbortSignal
@@ -179,12 +182,47 @@ export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArt
   now?: () => Date
 }
 
+/** Product-supplied experiment material. Runtime supplies optimizer ancestry and the final digest. */
+export type AgentImprovementExperimentMaterial = Omit<
+  AgentCandidateExperimentMaterial,
+  'candidateLineage'
+>
+
 export interface ProposeAgentImprovementResult<TScenario extends Scenario, TArtifact> {
   analysis: RunAnalystLoopResult
   improvement: ImproveResult<TScenario, TArtifact>
   experiment: AgentCandidateExperiment
   measurements: AgentCandidateExperimentMeasurement[]
   proposal: AgentImprovementProposal
+}
+
+function sealAgentImprovementExperiment<TScenario extends Scenario, TArtifact>(
+  material: AgentImprovementExperimentMaterial,
+  improvement: ImproveResult<TScenario, TArtifact>,
+): AgentCandidateExperiment {
+  assertRuntimeOwnedExperimentFieldsAbsent(material)
+  // Bundle ancestry names the frozen proposal baseline; the optimizer run identifies its full search history.
+  const candidateLineage: AgentCandidateLineage = {
+    source: 'optimizer',
+    parentDigests: [material.baseline.digest],
+    runIds: [improvement.raw.provenance.runId],
+    developmentSplitDigest: improvement.raw.provenance.evidence.search.splitDigest,
+  }
+  return sealCandidateExperiment({ ...material, candidateLineage })
+}
+
+function assertRuntimeOwnedExperimentFieldsAbsent(
+  material: AgentImprovementExperimentMaterial,
+): void {
+  if (material === null || typeof material !== 'object' || Array.isArray(material)) {
+    throw new Error('agent improvement experiment material must be an object')
+  }
+  const supplied = ['candidateLineage', 'digest'].filter((field) => Object.hasOwn(material, field))
+  if (supplied.length > 0) {
+    throw new Error(
+      `agent improvement experiment material must not supply Runtime-owned fields: ${supplied.join(', ')}`,
+    )
+  }
 }
 
 type AnalystImprovementProposal = Omit<AgentImprovementProposal, 'findings'> & {
@@ -299,8 +337,9 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
     if (improvement.decision !== 'ship') {
       throw new Error('agent improvement search did not produce a promotable candidate')
     }
-    const experiment = verifyCandidateExperiment(
+    const experiment = sealAgentImprovementExperiment(
       await options.buildExperiment({ analysis, improvement }),
+      improvement,
     )
     assertCandidateProfileBinding(options.profile, experiment.baseline.profile)
     assertImprovementCandidateBinding(improvement, experiment)

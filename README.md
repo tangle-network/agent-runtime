@@ -150,12 +150,19 @@ import {
   reviewAgentImprovementProposal,
 } from '@tangle-network/agent-runtime/intelligence'
 
+const baseline = freezeBaseline(liveProfile)
 const result = await proposeAgentImprovement({
   runId,
   profile: liveProfile,
   analysis,
   improvement: { surface: 'prompt', scenarios, judge, agent },
-  buildExperiment: ({ improvement }) => freezeExperiment(liveProfile, improvement.candidate),
+  buildExperiment: ({ improvement }) =>
+    buildExperimentMaterial({
+      baseline,
+      candidate: compileCandidateBundle({ baseline, improvement: improvement.candidate }),
+      benchmark: heldOutBenchmark,
+      policy: comparisonPolicy,
+    }),
   placeCell,
 })
 
@@ -177,7 +184,8 @@ const outcome = await executeAgentImprovementActivation(
 )
 ```
 
-`freezeExperiment`, `placeCell`, and the transaction functions are application ports because storage and compute differ by product.
+`buildExperimentMaterial`, `placeCell`, and the transaction functions are application ports because storage and compute differ by product.
+The builder returns only baseline, candidate, tasks, and policy; Runtime adds the search ancestry and seals the final experiment.
 Runtime owns candidate identity, measurement, review binding, expiry, retry identity, and result validation; the application owns its atomic write.
 
 ### Improve a knowledge base
