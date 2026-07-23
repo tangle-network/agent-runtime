@@ -340,6 +340,21 @@ describe('public agent candidate bundle builder', () => {
         bundle.profile,
       ),
     ).toThrow(/unsupported by sealed candidates/)
+    expect(() =>
+      assertCandidateProfileBinding(
+        {
+          ...profile,
+          connections: [{ connectionId: 'connection-1', capabilities: ['read'] }],
+        },
+        bundle.profile,
+      ),
+    ).toThrow(/unsupported by sealed candidates/)
+    expect(() =>
+      assertCandidateProfileBinding(
+        { ...profile, extensions: { codex: { feature: true } } },
+        bundle.profile,
+      ),
+    ).toThrow(/unsupported by sealed candidates/)
   })
 
   it('accepts an already closed candidate profile for behavior generic profiles cannot encode', () => {
