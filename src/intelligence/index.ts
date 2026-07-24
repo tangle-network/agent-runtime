@@ -90,6 +90,7 @@ export type {
 } from './capability'
 export { CapabilityNotAdmittedError, manifestFromProfile } from './capability'
 export type {
+  AgentImprovementProposalSubmissionState,
   CertifiedArtifact,
   CertifiedCapabilitySummary,
   CertifiedProfile,
@@ -100,6 +101,8 @@ export type {
   ProposedProfileDiff,
   PullCertifiedOptions,
   PullOutcome,
+  SubmitAgentImprovementProposalOptions,
+  SubmitAgentImprovementProposalOutcome,
 } from './delivery'
 export {
   composeCertifiedPrompt,
@@ -107,6 +110,7 @@ export {
   normalizeCertifiedProfile,
   pullCertified,
   resolveIntelligenceBaseUrl,
+  submitAgentImprovementProposal,
 } from './delivery'
 export type {
   CorpusAccess,
