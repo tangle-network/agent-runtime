@@ -181,7 +181,6 @@ function mergeInto(target: TokenBag, source: TokenBag): void {
 }
 
 interface BlockRecord {
-  call: ts.CallExpression
   title: string
   isTest: boolean
   parent: BlockRecord | undefined
@@ -294,7 +293,6 @@ export function extractTestRequirements(source: string, file: string): TestRequi
       const title = literalTitle(node.arguments[0])
       if (root !== undefined && title !== undefined && (BLOCK_FNS.has(root) || TEST_FNS.has(root))) {
         const rec: BlockRecord = {
-          call: node,
           title,
           isTest: TEST_FNS.has(root),
           parent: blockFor(node),
