@@ -28,7 +28,8 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { createSweBenchAdapter } from '../benchmarks/swe-bench.ts'
-import { exportBaseTree, prepareJudgeCmdEnv } from './factory-judge-child.mts'
+import { exportBaseTree } from './factory-judge-child.mts'
+import { runFactoryCommand } from './factory-command-container.ts'
 import { loadFactoryInstances, type LoadedFactoryInstance } from './fixtures.ts'
 import { run, runOk } from './proc.ts'
 import {
@@ -409,22 +410,17 @@ export async function materializeFactoryWorkspace(
   }
 
   if (opts.setup !== false && inst.setup_cmds.length > 0) {
-    const commandEnvironment = await prepareJudgeCmdEnv()
-    try {
-      for (const cmd of inst.setup_cmds) {
-        const res = await run('bash', ['-c', cmd], {
-          cwd: dest,
-          timeoutMs: inst.timeout_s * 1000,
-          env: commandEnvironment.env,
-        })
-        if (res.code !== 0) {
-          throw new Error(
-            `factory workspace ${inst.id}: setup_cmd failed (rc=${res.code}): ${cmd}\n${(res.stderr || res.stdout).slice(-2000)}`,
-          )
-        }
+    for (const cmd of inst.setup_cmds) {
+      const res = await runFactoryCommand(dest, cmd, {
+        image: inst.command_image,
+        network: 'enabled',
+        timeoutMs: inst.timeout_s * 1000,
+      })
+      if (res.code !== 0) {
+        throw new Error(
+          `factory workspace ${inst.id}: setup_cmd failed (rc=${res.code}): ${cmd}\n${(res.stderr || res.stdout).slice(-2000)}`,
+        )
       }
-    } finally {
-      await commandEnvironment.dispose()
     }
   }
   return { syntheticBase }

@@ -2,13 +2,14 @@
  * Factory judge child — the factory-bench equivalent of `judge-child.mts`.
  * One candidate patch, one hidden-test verdict, printed as a single
  * `JUDGE_RESULT {...}` line so serialized-judge.ts (queue, retry, SIGKILL
- * ceiling) carries over unchanged. No docker, no Python venv: the judge
- * workspace is a `git archive` export of the instance's base commit from the
- * local mirror, with the PR's own added test files overlaid from the merge
- * commit — the tests the builder never saw.
+ * ceiling) carries over unchanged. The judge workspace is a `git archive`
+ * export of the instance's base commit from the local mirror. Setup and judge
+ * commands run in separate containers, and the PR's added test files are
+ * overlaid from the merge commit only after setup completes.
  *
- * Steps: export base tree → apply candidate patch → overlay judge tests from
- * `judge_ref` → run `setup_cmds` (shared pnpm store) → run `judge_cmds` →
+ * Steps: export base tree → apply candidate patch → run `setup_cmds` in a
+ * fresh container → overlay judge tests from `judge_ref` → run `judge_cmds`
+ * in a second network-disabled container →
  * parse vitest's pass/fail counts → JUDGE_RESULT with partial credit.
  *
  * Verdict semantics:
@@ -26,16 +27,12 @@
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, isAbsolute, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { applyPatchWithFallback } from './calibrate.ts'
+import { runFactoryCommand } from './factory-command-container.ts'
 import { loadFactoryInstance, type LoadedFactoryInstance } from './fixtures.ts'
-import { run, runOk, shq } from './proc.ts'
-
-/** Warm installs across judge/calibration runs (design: `--config.store-dir`). */
-export const SHARED_PNPM_STORE = join(tmpdir(), 'factory-bench-pnpm-store')
-/** Corepack downloads public package-manager binaries here, never under operator HOME. */
-export const SHARED_COREPACK_HOME = join(tmpdir(), 'factory-bench-corepack')
+import { runOk, shq } from './proc.ts'
 
 export interface VitestSummary {
   passed: number
@@ -113,99 +110,6 @@ export async function overlayJudgeTests(inst: LoadedFactoryInstance, ws: string)
   }
 }
 
-export interface FactoryCommandEnvironment {
-  env: NodeJS.ProcessEnv
-  rootDir: string
-  dispose: () => Promise<void>
-}
-
-/**
- * Build a disposable environment for candidate-controlled setup and judge commands.
- * Only PATH crosses from the operator process. Credentials, auth sockets, package
- * manager settings, and user config cannot enter through an unrecognized env name.
- */
-export async function prepareJudgeCmdEnv(
-  baseEnv: NodeJS.ProcessEnv = process.env,
-): Promise<FactoryCommandEnvironment> {
-  const path = (baseEnv.PATH ?? '')
-    .split(delimiter)
-    .filter((entry) => entry.length > 0 && isAbsolute(entry))
-    .join(delimiter)
-  if (!path) throw new Error('factory command environment requires PATH')
-
-  const rootDir = await mkdtemp(join(tmpdir(), 'factory-command-env-'))
-  const home = join(rootDir, 'home')
-  const xdgConfig = join(rootDir, 'xdg', 'config')
-  const xdgData = join(rootDir, 'xdg', 'data')
-  const xdgCache = join(rootDir, 'xdg', 'cache')
-  const xdgState = join(rootDir, 'xdg', 'state')
-  const xdgRuntime = join(rootDir, 'xdg', 'runtime')
-  const temp = join(rootDir, 'tmp')
-  const npmUserConfig = join(rootDir, 'npm', 'user.npmrc')
-  const npmGlobalConfig = join(rootDir, 'npm', 'global.npmrc')
-  const gitGlobalConfig = join(rootDir, 'git', 'global.config')
-  const gitSystemConfig = join(rootDir, 'git', 'system.config')
-
-  try {
-    await Promise.all(
-      [
-        home,
-        xdgConfig,
-        xdgData,
-        xdgCache,
-        xdgState,
-        xdgRuntime,
-        temp,
-        dirname(npmUserConfig),
-        dirname(gitGlobalConfig),
-      ].map((dir) => mkdir(dir, { recursive: true, mode: 0o700 })),
-    )
-    await Promise.all(
-      [npmUserConfig, npmGlobalConfig, gitGlobalConfig, gitSystemConfig].map((file) =>
-        writeFile(file, '', { mode: 0o600 }),
-      ),
-    )
-
-    let disposal: Promise<void> | undefined
-    return {
-      rootDir,
-      env: {
-        PATH: path,
-        HOME: home,
-        XDG_CONFIG_HOME: xdgConfig,
-        XDG_DATA_HOME: xdgData,
-        XDG_CACHE_HOME: xdgCache,
-        XDG_STATE_HOME: xdgState,
-        XDG_RUNTIME_DIR: xdgRuntime,
-        TMPDIR: temp,
-        TMP: temp,
-        TEMP: temp,
-        LANG: 'C',
-        LC_ALL: 'C',
-        TZ: 'UTC',
-        // Keep pnpm out of frozen-lockfile mode because a candidate may edit package.json.
-        CI: 'false',
-        npm_config_store_dir: SHARED_PNPM_STORE,
-        COREPACK_HOME: SHARED_COREPACK_HOME,
-        COREPACK_DEFAULT_TO_LATEST: '0',
-        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
-        NPM_CONFIG_USERCONFIG: npmUserConfig,
-        NPM_CONFIG_GLOBALCONFIG: npmGlobalConfig,
-        NPM_CONFIG_CACHE: join(xdgCache, 'npm'),
-        GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_GLOBAL: gitGlobalConfig,
-        GIT_CONFIG_SYSTEM: gitSystemConfig,
-        GIT_TERMINAL_PROMPT: '0',
-        GCM_INTERACTIVE: 'Never',
-      },
-      dispose: () => (disposal ??= rm(rootDir, { recursive: true, force: true })),
-    }
-  } catch (error) {
-    await rm(rootDir, { recursive: true, force: true })
-    throw error
-  }
-}
-
 export interface FactoryJudgeOutcome {
   result: FactoryJudgeResult
   /** Raw judge_cmds output, for post-mortem. */
@@ -224,7 +128,6 @@ export async function judgeFactoryPatch(
   const t0 = Date.now()
   const ws = opts.workDir ?? (await mkdtemp(join(tmpdir(), `factory-judge-${inst.id.replace(/[^a-zA-Z0-9.-]/g, '-')}-`)))
   const cmdTimeoutMs = inst.timeout_s * 1000
-  let commandEnvironment: FactoryCommandEnvironment | undefined
   try {
     await exportBaseTree(inst.repo_local_mirror, inst.base_commit, ws)
     // A git repo (fresh, historyless) so `git apply` and repo tooling behave;
@@ -253,12 +156,12 @@ export async function judgeFactoryPatch(
       }
     }
 
-    await overlayJudgeTests(inst, ws)
-
-    commandEnvironment = await prepareJudgeCmdEnv()
-    const env = commandEnvironment.env
     for (const cmd of inst.setup_cmds) {
-      const res = await run('bash', ['-c', cmd], { cwd: ws, timeoutMs: cmdTimeoutMs, env })
+      const res = await runFactoryCommand(ws, cmd, {
+        image: inst.command_image,
+        network: 'enabled',
+        timeoutMs: cmdTimeoutMs,
+      })
       if (res.code !== 0) {
         throw new Error(
           `setup_cmd failed (rc=${res.code}${res.timedOut ? ', timeout' : ''}): ${cmd}\n${(res.stderr || res.stdout).slice(-2000)}`,
@@ -266,11 +169,17 @@ export async function judgeFactoryPatch(
       }
     }
 
+    await overlayJudgeTests(inst, ws)
+
     let passed = 0
     let failed = 0
     let output = ''
     for (const cmd of inst.judge_cmds) {
-      const res = await run('bash', ['-c', cmd], { cwd: ws, timeoutMs: cmdTimeoutMs, env })
+      const res = await runFactoryCommand(ws, cmd, {
+        image: inst.command_image,
+        network: 'none',
+        timeoutMs: cmdTimeoutMs,
+      })
       const combined = res.stdout + res.stderr
       output += combined
       if (res.timedOut) throw new Error(`judge_cmd timed out after ${cmdTimeoutMs}ms: ${cmd}`)
@@ -296,10 +205,7 @@ export async function judgeFactoryPatch(
       output,
     }
   } finally {
-    await Promise.all([
-      commandEnvironment?.dispose() ?? Promise.resolve(),
-      opts.keepWorkspace ? Promise.resolve() : rm(ws, { recursive: true, force: true }),
-    ])
+    if (!opts.keepWorkspace) await rm(ws, { recursive: true, force: true })
   }
 }
 

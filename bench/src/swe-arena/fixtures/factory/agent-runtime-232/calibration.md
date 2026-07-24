@@ -42,7 +42,7 @@ Both files fail at collection: `src/mcp/delegation-store` does not exist and `ta
 
 ## Judge-set notes
 
-- Hermetic: tmpdir round-trips and fake in-process drivers only; no network, no env keys, no docker. One test uses fake timers (`vi`) — deterministic. **Excluded: none.**
+- Test bodies use temporary-directory round trips and fake in-process drivers. The judge runs in the pinned factory container with network disabled and no operator environment. One test uses deterministic fake timers (`vi`). **Excluded: none.**
 - The judge asserts **typed error classes** (`DelegationPersistenceError`, `DelegationStateCorruptError`) and one error `kind` string (`'DriverRestartError'`), not message prose — clean behavioral contract; all named in `spec.md`.
 - `DelegationRecord`, `DelegationTaskQueue`, `hashIdempotencyInput`, and `DelegateCodeArgs` pre-exist at base; the judge extends them rather than asserting incidental internals.
 - The PR also touched `README.md` — excluded from the impl patch definition of "the feature" for grading purposes (docs churn, no behavioral content). It applies cleanly either way since the impl patch used `':(exclude)tests/'` only.

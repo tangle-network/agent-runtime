@@ -11,6 +11,7 @@
   ],
   "excluded_tests": [],
   "worker_visible_paths_note": "worker gets the base tree only (git archive of base_commit, no refs); judge tests overlaid at judge time",
+  "command_image": "node:24-bookworm@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059",
   "setup_cmds": [
     "pnpm install"
   ],
@@ -20,7 +21,6 @@
   "resolved_criterion": "all 30 judge tests pass; partial score = passed/30",
   "timeout_s": 600,
   "runtime": "node>=20, pnpm 11, vitest 3 (repo devDependency)",
-  "hermetic": true,
   "calibration": {
     "gold": "PASS 30/30 (twice, deterministic)",
     "base": "FAIL 2/2 test files (unresolvable imports: modules do not exist at base)",
