@@ -17,10 +17,10 @@
  *   into a `Corpus`.
  *
  * Which primitive plays each part (read `docs/canonical-api.md` before reaching for a new one):
- *   • the challenger refine/FOLD loop ....... `runLoop` + a refine `Driver`      (examples/driver-loop)
- *   • the N× solver sampling ................. `runLoop` + an inline FANOUT driver (examples/researcher-loop)
+ *   • the challenger refine/FOLD loop ....... `runAgentRounds` + a refine `Driver`      (examples/driver-loop)
+ *   • the N× solver sampling ................. `runAgentRounds` + an inline FANOUT driver (examples/researcher-loop)
  *   • scoring an answer against a rubric ..... `llmJudge` (agent-eval)            as the loop `Validator`
- *   • cost accounting ........................ `runLoop.costUsd` rolled into a `CostLedger` (agent-eval)
+ *   • cost accounting ........................ `runAgentRounds.costUsd` rolled into a `CostLedger` (agent-eval)
  *   • the store of accepted examples ......... `InMemoryCorpus` (agent-runtime)
  *
  * The ONE genuinely new piece is `discriminativeAcceptRule` — the paper's reward, written as a
@@ -43,7 +43,7 @@ import {
   type Driver,
   InMemoryCorpus,
   type OutputAdapter,
-  runLoop,
+  runAgentRounds,
   type SandboxClient,
   type Validator,
 } from '@tangle-network/agent-runtime/loops'
@@ -181,11 +181,11 @@ const solverOutput: OutputAdapter<{ answer: string }> = {
   },
 }
 
-// ── N× solver sampling = an inline FANOUT driver over runLoop (researcher-loop idiom) ───────
+// ── N× solver sampling = an inline FANOUT driver over runAgentRounds (researcher-loop idiom) ───────
 //
 // A "round" returns N independent solver tasks (no fold between them) → the kernel runs all N,
 // the `llmJudge`-as-validator scores each against the rubric, and we AVERAGE the N scores (the
-// variance-reduced estimate the accept rule compares — not argmax). runLoop already aggregated
+// variance-reduced estimate the accept rule compares — not argmax). runAgentRounds already aggregated
 // the N calls' cost, so we just roll its total into the ledger under this solver's channel.
 async function sampleSolverScore(args: {
   solver: SandboxClient
@@ -228,7 +228,7 @@ async function sampleSolverScore(args: {
     tags: { role: channel },
     signal: args.signal,
     execute: (signal) =>
-      runLoop<SolverTask, { answer: string }, 'done'>({
+      runAgentRounds<SolverTask, { answer: string }, 'done'>({
         driver: fanout,
         agentRun: solverSpec,
         output: solverOutput,
@@ -435,7 +435,7 @@ export async function createDataCreationLoop(
       tags: { role: 'challenger' },
       signal: config.signal,
       execute: (signal) =>
-        runLoop<ChallengerTask, DataExample, ChallengerDecision>({
+        runAgentRounds<ChallengerTask, DataExample, ChallengerDecision>({
           driver: challengerDriver(maxRetries, config.baseInstruction),
           agentRun: challengerSpec,
           output: challengerOutput,

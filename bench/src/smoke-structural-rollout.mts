@@ -199,14 +199,25 @@ async function runTask(t: HumanEvalTask): Promise<TaskRow> {
       `${t.taskId}: ${result.selection.length} receipts vs ${scored.length} scored candidates`,
     )
   }
-  for (const r of result.selection) {
+  const receipts = result.selection.map((receipt) => {
+    if (receipt.score === undefined || receipt.reason === undefined) {
+      throw new Error(`${t.taskId}: receipt #${receipt.candidateIndex} is missing score or reason`)
+    }
+    return {
+      candidateIndex: receipt.candidateIndex,
+      selected: receipt.selected,
+      score: receipt.score,
+      reason: receipt.reason,
+    }
+  })
+  for (const r of receipts) {
     const rec = scored[r.candidateIndex]
     if (!rec || Math.abs(r.score - visibleCheckScore(rec.outcome)) > 1e-9) {
       throw new Error(`${t.taskId}: receipt #${r.candidateIndex} score ${r.score} does not match the recorded outcome`)
     }
   }
 
-  const sampleCount = result.selection.filter((r) => r.reason.startsWith('sample')).length
+  const sampleCount = receipts.filter((r) => r.reason.startsWith('sample')).length
   const samples = scored.slice(0, sampleCount)
   if (samples.length === 0) throw new Error(`${t.taskId}: no sample candidates settled`)
 
@@ -223,7 +234,7 @@ async function runTask(t: HumanEvalTask): Promise<TaskRow> {
   const sampleHidden = await Promise.all(samples.map((s) => grade(s.candidate)))
   const selectedIdx = selectBestIndex(samples.map((s) => s.outcome))
   const selectedHidden = sampleHidden[selectedIdx] as number
-  const winner = result.selection.find((r) => r.selected)
+  const winner = receipts.find((r) => r.selected)
   if (!winner) throw new Error(`${t.taskId}: no receipt marked selected`)
   const finalIdx = winner.candidateIndex
   const finalHidden = await grade((scored[finalIdx] as ScoredCandidate).candidate)
@@ -241,12 +252,7 @@ async function runTask(t: HumanEvalTask): Promise<TaskRow> {
     finalIdx,
     finalHidden,
     selectedVisible: visibleCheckScore((samples[selectedIdx] as ScoredCandidate).outcome),
-    receipts: result.selection.map((r) => ({
-      candidateIndex: r.candidateIndex,
-      selected: r.selected,
-      score: r.score,
-      reason: r.reason,
-    })),
+    receipts,
     tokens: result.tokens,
     usd: result.usd,
     ms: result.ms,

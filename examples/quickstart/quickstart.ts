@@ -10,7 +10,7 @@
  * Run:  pnpm build && pnpm tsx examples/quickstart/quickstart.ts
  */
 
-import { inProcessSandboxClient, runLoop } from '@tangle-network/agent-runtime/loops'
+import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/loops'
 import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
 
 type Task = { prompt: string }
@@ -32,7 +32,7 @@ const worker = inProcessSandboxClient({
   ],
 })
 
-const result = await runLoop<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
+const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
   task: { prompt: 'Write a one-line release note for one-click restore.' },
   driver: {
     name: 'refine',

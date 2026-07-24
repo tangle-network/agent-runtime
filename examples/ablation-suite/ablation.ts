@@ -60,9 +60,8 @@ export interface AblationKnobs {
    *  each settled round → a `finding` the driver pulls and composes the next prompt from. (NOT the
    *  refine analyst-steerer — that's the degenerate inline version; this is a driver brain in the loop.) */
   driverSteer?: boolean // supervise(driverProfile,{backend,analyzeOnSettle}) + steer_agent
-  /** GEPA-optimize the DRIVER's compose-next-prompt system prompt on TRAIN (executable-graded via the
-   *  surface score), frozen, then run — selfImprove() with an executable JudgeConfig (NOT improve(): the
-   *  steerer prompt is not a profile field). */
+  /** Optimize the driver's standing prompt with official GEPA, explicit train,
+   *  selection, and final-test partitions, and an executable judge. */
   optimize?: 'off' | 'gepa'
   halo?: boolean // HALO analyst option
   persistentArtifact?: boolean // multi-round persistent artifact (openSandboxRun resume)
@@ -188,7 +187,7 @@ export async function runAblation(opts: {
       driverPrompt = opt.systemPrompt
       gepaUsd = opt.usd // the TRAIN-side GEPA cost, counted into this arm's $ (the fair-cost invariant)
       console.log(
-        `ablation: arm "${arm.name}" GEPA driver-prompt ${opt.shipped ? 'SHIPPED' : 'kept-baseline'} (train lift ${opt.lift === undefined ? 'deferred' : `${(100 * opt.lift).toFixed(0)}pp`})`,
+        `ablation: arm "${arm.name}" GEPA driver-prompt ${opt.shipped ? 'SHIPPED' : 'kept-baseline'} (final-test lift ${opt.lift === undefined ? 'deferred' : `${(100 * opt.lift).toFixed(0)}pp`})`,
       )
     }
 

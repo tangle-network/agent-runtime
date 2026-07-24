@@ -27,6 +27,7 @@ async function complete(base: string, key: string, model: string, prompt: string
 async function main(): Promise<void> {
   const key = process.env.TANGLE_API_KEY
   if (!key) throw new Error('TANGLE_API_KEY required')
+  const apiKey: string = key
   const base = process.env.ROUTER_BASE ?? 'https://api.together.xyz/v1'
   const model = process.env.WORKER_MODEL ?? 'meta-llama/Meta-Llama-3-8B-Instruct-Lite'
   const instruction = process.env.INSTRUCTION_FILE
@@ -51,8 +52,10 @@ async function main(): Promise<void> {
   let i = 0
   async function worker(): Promise<void> {
     while (i < tasks.length) {
-      const t = tasks[i++]
-      const reply = await complete(base, key, model, `${instruction}\n\n\`\`\`python\n${t.prompt}\`\`\``, maxTokens)
+      const t = tasks[i]
+      i += 1
+      if (!t) continue
+      const reply = await complete(base, apiKey, model, `${instruction}\n\n\`\`\`python\n${t.prompt}\`\`\``, maxTokens)
       const { pass: p } = await runChecker(t, extractCode(reply))
       if (p === 1) pass += 1
       else fails.push(t.taskId)

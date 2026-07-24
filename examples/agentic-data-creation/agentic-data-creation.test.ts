@@ -107,7 +107,7 @@ describe('createDataCreationLoop (offline)', () => {
   })
 
   it('never force-accepts a rejected example (the null case yields zero accepted)', async () => {
-    // `runLoop`'s winner is best-SCORING, and falls back to the best score even when nothing passed
+    // `runAgentRounds`'s winner is best-SCORING, and falls back to the best score even when nothing passed
     // the accept rule. With an accept rule that always rejects, NO example should be accepted — the
     // loop must report an honest empty set, not the least-bad reject pushed through as a "winner".
     const result = await createDataCreationLoop({

@@ -64,9 +64,20 @@ import {
   parseActivationPredicate,
 } from './activation.mts'
 import { briefingPromptSection, type BriefingContext } from './briefing.mts'
-import { gepaSeatAuthor, isGepaSeat, validateGepaSeat, type GepaMethodFactory } from './gepa-seat.mts'
+import {
+  gepaSeatAuthor,
+  isGepaSeat,
+  validateGepaSeat,
+  type GepaMethodFactory,
+  type GepaSeatDeps,
+} from './gepa-seat.mts'
 import type { ScoreSplit } from './score-split.mts'
 import { run, runOk } from './proc.ts'
+import {
+  createDetachedWorktree,
+  pruneDetachedWorktrees,
+  removeDetachedWorktree,
+} from './scratch-worktree.ts'
 
 // ---------------------------------------------------------------------------
 // Config types.
@@ -78,7 +89,7 @@ export interface ProposerSpec {
   /** Path to an `AgentProfile` JSON. Absolute, or relative to this module's
    *  `profiles/` directory. Omitted = bare profile (legacy invocation). */
   profile?: string
-  /** Required for harness-authored seats. ABSENT on a GEN-6 engine seat
+  /** Required for harness-authored seats. Absent on an engine seat
    *  (`engine` set) — enforced both ways at generator construction. */
   harness?: 'claude' | 'codex' | 'opencode'
   /** GEN-4 pinned model id, threaded to the harness CLI as `-m <model>` via
@@ -98,21 +109,20 @@ export interface ProposerSpec {
   /** Which diagnosis findings this proposer sees. Protocol/steering and
    *  raw-trace-context findings always pass through. Default 'all'. */
   diagnosisSlice?: 'all' | 'mechanics' | 'prompts'
-  /** GEN-6 GEPA seat: this seat is an ENGINE invocation (agent-eval's
+  /** GEPA seat: this seat is an engine invocation (agent-eval's
    *  external-GEPA adapter), not a harness CLI. `gepa` = one bounded engine
-   *  run; `omni` = GEPA's published best-of-then-continue shape. Validation +
+   *  run; `omni` = GEPA's official Omni recipe. Validation +
    *  authoring live in gepa-seat.mts. */
   engine?: 'gepa' | 'omni'
-  /** GEN-6 GEPA seat: the ONE repo-relative change-space file GEPA optimizes
+  /** GEPA seat: the one repo-relative change-space file GEPA optimizes
    *  as a string; the rest of the loops repo stays at the incumbent commit. */
   surface?: string
-  /** GEN-6 GEPA seat: total inner-evaluation budget (each inner call is one
+  /** GEPA seat: total inner-evaluation budget (each inner call is one
    *  real smoke arm cell). Default 10. */
   maxMetricCalls?: number
-  /** GEN-6 GEPA seat: requested GEPA proposer spend cap in USD (the adapter
-   *  reports GEPA's own model/CLI spend without an agent-eval receipt). */
+  /** GEPA seat: hard cap for metered optimizer-model spend. */
   maxProposerCostUsd?: number
-  /** GEN-6 GEPA seat: python executable for the bridge. Default 'python3'. */
+  /** GEPA seat: Python executable for the bridge. Default 'python3'. */
   python?: string
 }
 
@@ -137,8 +147,8 @@ export interface SmokeVerdict {
   resolved: boolean | null
   patchLines: number
   wallS: number
-  /** Committed verify fixture passed (GEN-6: the GEPA seat's inner-score
-   *  tiebreak). Absent on errored smokes and pre-gen-6 records. */
+  /** Committed verify fixture passed, used as the GEPA seat's inner-score
+   *  tiebreak. Absent on errored smokes and older records. */
   verifyPass?: boolean
 }
 
@@ -146,6 +156,7 @@ export type SmokeRunner = (args: {
   scratchPath: string
   generation: number
   proposer: ProposerSpec
+  evaluationKey: string
   costLedger?: CostLedgerHandle
 }) => Promise<SmokeVerdict>
 
@@ -437,21 +448,6 @@ export function proposerShotHooks(opts: {
 // smoke runner link one in temporarily when they need it).
 // ---------------------------------------------------------------------------
 
-async function addAuthoringWorktree(loopsRepo: string, commit: string, dest: string): Promise<void> {
-  await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest])
-  await rm(dest, { recursive: true, force: true })
-  await run('git', ['-C', loopsRepo, 'worktree', 'prune'])
-  await runOk('git', ['-C', loopsRepo, 'worktree', 'add', '--detach', dest, commit])
-}
-
-async function removeAuthoringWorktree(loopsRepo: string, dest: string): Promise<void> {
-  const res = await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest])
-  if (res.code !== 0) {
-    await rm(dest, { recursive: true, force: true })
-    await run('git', ['-C', loopsRepo, 'worktree', 'prune'])
-  }
-}
-
 const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_')
 
 // ---------------------------------------------------------------------------
@@ -480,21 +476,26 @@ export type AuthorFn = (
 export interface FanOutDeps {
   author?: AuthorFn
   smokeRunner?: SmokeRunner
+  /** Immutable digest of the smoke runner plus every captured execution input. */
+  runnerImplementationRef?: string
+  /** Immutable digest of the official judge implementation and configuration. */
+  judgeImplementationRef?: string
   /** GEN-4: materialized Pareto parents seeded into every author's prompt (and
    *  the merge seat's explicit merge input). Empty/omitted = gen-3 behavior. */
   parents?: ParetoParentContext[]
   /** GEN-5: MAP+TOOLBOX briefing context threaded into every author prompt. */
   briefing?: BriefingContext
-  /** GEN-6: the resolved PUBLIC smoke instance — the GEPA seat's inner
+  /** The resolved public smoke instance used by the GEPA seat's inner
    *  evaluator target. Required (with `smokeRunner`) when a gepa seat is
    *  configured and no custom `author` is injected. */
   smokeInstanceId?: string
-  /** GEN-6: the gen-5 score split; private instance ids never reach the GEPA
+  /** The score split; private instance ids never reach the GEPA
    *  bridge (gepa-seat.mts asserts, fail-closed). Null/omitted = no split. */
   scoreSplit?: Pick<ScoreSplit, 'privateInstances'> | null
-  /** GEN-6 test seam: the adapter factory (default: checked dynamic import of
-   *  agent-eval's gepaOptimizationMethod, loud when the install predates it). */
+  /** GEPA method override for tests. Default: agent-eval's official GEPA method. */
   gepaMethodFactory?: GepaMethodFactory
+  /** Explicit GEPA optimizer model override, primarily for isolated tests. */
+  gepaOptimizer?: GepaSeatDeps['optimizer']
   log?: (msg: string) => void
 }
 
@@ -509,7 +510,7 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
   // its own profile, lens prompt, and shot-receipt home.
   const inners = new Map<string, CandidateGenerator>()
   const ledgers = new Map<string, { ledger?: CostLedgerHandle; phase?: string }>()
-  // GEN-6: the GEPA seat authors through the agent-eval adapter, not a
+  // The GEPA seat authors through the agent-eval adapter, not a
   // harness CLI. Its inner evaluator is the SAME injected smoke runner the
   // pre-filter uses (presence enforced at generator construction).
   let gepaAuthor: AuthorFn | undefined
@@ -517,9 +518,12 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
     if (isGepaSeat(proposer)) {
       gepaAuthor ??= gepaSeatAuthor(config, {
         smokeRunner: deps.smokeRunner!,
+        runnerImplementationRef: deps.runnerImplementationRef!,
+        judgeImplementationRef: deps.judgeImplementationRef!,
         smokeInstanceId: deps.smokeInstanceId!,
         scoreSplit: deps.scoreSplit ?? null,
         ...(deps.gepaMethodFactory ? { methodFactory: deps.gepaMethodFactory } : {}),
+        ...(deps.gepaOptimizer ? { optimizer: deps.gepaOptimizer } : {}),
         ...(deps.log ? { log: deps.log } : {}),
       })
       return gepaAuthor(proposer, args)
@@ -586,7 +590,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
         `only ${(deps.parents ?? []).length} pareto parent(s) materialized — a merge seat needs >=2`,
     )
   }
-  // GEN-6: engine seats are validated fail-closed at construction, and the
+  // Engine seats are validated at construction, and the
   // default author path requires the pre-filter smoke runner — it IS the GEPA
   // seat's inner evaluator (spec: score = smoke resolve + verify-pass
   // tiebreak). A custom injected `author` owns its own evaluator.
@@ -597,10 +601,19 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
       throw new Error(`fanOutLoopsGenerator: proposer ${seat.name} has neither a harness nor an engine`)
     }
   }
-  if (gepaSeats.length > 0 && deps.author === undefined && (deps.smokeRunner === undefined || deps.smokeInstanceId === undefined)) {
+  if (
+    gepaSeats.length > 0 &&
+    deps.author === undefined &&
+    (
+      deps.smokeRunner === undefined ||
+      deps.smokeInstanceId === undefined ||
+      deps.runnerImplementationRef === undefined ||
+      deps.judgeImplementationRef === undefined
+    )
+  ) {
     throw new Error(
       `fanOutLoopsGenerator: gepa seat(s) ${gepaSeats.map((p) => p.name).join(', ')} need the pre-filter smoke ` +
-        'cell as their inner evaluator — enable config.prefilter and provide smokeRunner + smokeInstanceId',
+        'cell plus immutable runner and judge references as their inner evaluator',
     )
   }
   const author = deps.author ?? defaultAuthor(config, deps)
@@ -616,11 +629,12 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
     const baseCommit = head.stdout.trim()
     const patchesDir = join(config.outDir, 'proposer-patches')
     await mkdir(patchesDir, { recursive: true })
+    await pruneDetachedWorktrees(config.loopsRepo)
     log(`fan-out gen ${generation}: ${proposers.length} proposer(s) authoring in parallel from ${baseCommit.slice(0, 10)}`)
     return Promise.all(
       proposers.map(async (proposer, index): Promise<AuthorOutcome> => {
         const scratch = join(config.outDir, 'proposer-wt', `gen${generation}-cand${index}-${sanitize(proposer.name)}`)
-        await addAuthoringWorktree(config.loopsRepo, baseCommit, scratch)
+        await createDetachedWorktree(config.loopsRepo, baseCommit, scratch)
         try {
           const authored = await author(proposer, {
             ...args,
@@ -697,6 +711,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
               scratchPath: scratch,
               generation,
               proposer,
+              evaluationKey: `candidate-${index}`,
               ...(args.costLedger ? { costLedger: args.costLedger } : {}),
             })
             if (!smoke.pass) {
@@ -719,7 +734,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
           }
           return { proposer, applied: true, summary: authored.summary, patch: diff, kill: null }
         } finally {
-          await removeAuthoringWorktree(config.loopsRepo, scratch)
+          await removeDetachedWorktree(config.loopsRepo, scratch)
         }
       }),
     )

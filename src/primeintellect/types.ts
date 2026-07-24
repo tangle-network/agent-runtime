@@ -86,7 +86,7 @@ export interface PrimeIntellectPackageOptions {
 }
 
 export interface PrimeIntellectPackageManifest {
-  schema: 'tangle.primeintellect.package/v1'
+  kind: 'tangle.primeintellect.package'
   name: string
   moduleName: string
   version: string
@@ -113,7 +113,6 @@ export interface PrimeIntellectPublicTask {
 }
 
 export interface PrimeIntellectEpisodeContext {
-  protocol: 'tangle.primeintellect.episode/v1'
   task: PrimeIntellectPublicTask
   model: {
     name: string

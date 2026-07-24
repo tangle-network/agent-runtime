@@ -10,8 +10,7 @@
  *
  * Retrieval is DETERMINISTIC lexical overlap (no vectors, no LLM): a lift
  * measured with this memory mounted is attributable to the lessons
- * themselves, never to retrieval-model noise — the same discipline as
- * agent-eval's `memoryCurationProposer` (deterministic curation). Every
+ * themselves, never to retrieval-model noise. Every
  * `memory_search` can append one JSONL row to a retrieval log (`logPath`) —
  * the per-query record an off-policy retrieval estimator (agent-knowledge's
  * `RetrievalHoldout`) consumes. agent-knowledge is NOT a dependency of this

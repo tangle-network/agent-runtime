@@ -228,8 +228,8 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
   reported contrast is **Benjamini-Hochberg corrected within its family** (`corpus-report.mts`),
   and a result counts only if it clears the family FDR — never on its own CI. Separate a reusable
   **exploration** set (rank candidates freely, BH-corrected) from a **frozen confirmation holdout**
-  spent once per *locked* candidate; this is what `runImprovementLoop` enforces by refusing
-  train ∩ holdout overlap (memorization read as generalization is the default failure otherwise).
+  spent once per *locked* candidate; this is what `compareOptimizationMethods` enforces by keeping
+  the final-test partition out of the optimization method (memorization read as generalization is the default failure otherwise).
 - **"Validates the concept" ≠ "validates the product."** A hand-rolled refine loop proves
   refinement helps, NOT that `runLoop`/the controller does. Route through the real kernel.
 - **Eval economics is the moonshot bottleneck, not controller cleverness.** Build the offline
@@ -332,5 +332,6 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
   `terminal-compare.ts`, `corpus-report.mts`). The gen0 → `authorStrategy` → gen1 →
   rotating-disjoint-holdout runner (the minimal single-objective Gate-B form) over
   `authorStrategy` (`src/runtime/strategy-author.ts`) + the seeded `promotionGate` is open work.
-- Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`selfImprove`,
-  `runImprovementLoop`, `heldoutSignificance`, `RunRecord`/trace-store, `./rl`).
+- Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`OptimizationMethod`,
+  `compareOptimizationMethods`, `gepaOptimizationMethod`, `skillOptOptimizationMethod`,
+  `heldoutSignificance`, `RunRecord`/trace-store, `./rl`).

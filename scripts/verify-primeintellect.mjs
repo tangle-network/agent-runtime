@@ -7,14 +7,14 @@ import {
   writePrimeIntellectPackage,
 } from '../dist/primeintellect/index.js'
 
-const root = mkdtempSync(join(tmpdir(), 'agent-runtime-primeintellect-v1-'))
-const output = join(root, 'strict-exact-v1')
-const referenceOutput = join(root, 'reference-v1')
-const commandOutput = join(root, 'command-v1')
+const root = mkdtempSync(join(tmpdir(), 'agent-runtime-primeintellect-'))
+const output = join(root, 'strict-exact')
+const referenceOutput = join(root, 'reference')
+const commandOutput = join(root, 'command')
 
 try {
   const bundle = createPrimeIntellectPackage({
-    name: 'strict-exact-v1',
+    name: 'strict-exact',
     version: '1.0.0',
     tasks: [
       { id: 'train', split: 'train', prompt: 'Is a subscription refundable?', answer: 'No' },
@@ -30,7 +30,7 @@ try {
   await writePrimeIntellectPackage(bundle, output)
   await writePrimeIntellectPackage(
     createPrimeIntellectPackage({
-      name: 'reference-v1',
+      name: 'reference',
       version: '1.0.0',
       tasks: [
         { id: 'train-ref', split: 'train', prompt: 'Practice reference?', answer: 'No' },
@@ -47,7 +47,7 @@ try {
   )
   await writePrimeIntellectPackage(
     createPrimeIntellectPackage({
-      name: 'command-v1',
+      name: 'command',
       version: '1.0.0',
       tasks: [
         { id: 'train-command', split: 'train', prompt: 'Practice command?' },
@@ -58,7 +58,7 @@ try {
         command: ['python', 'scoring/score.py'],
         files: {
           'score.py':
-            'import json, sys\nrequest = json.load(sys.stdin)\nassert request["protocol"] == "tangle.primeintellect.score/v1"\nprint(json.dumps({"reward": 0.25, "metrics": {"custom": 0.75}}))\n',
+            'import json, sys\nrequest = json.load(sys.stdin)\nassert request["kind"] == "tangle.primeintellect.score"\nprint(json.dumps({"reward": 0.25, "metrics": {"custom": 0.75}}))\n',
         },
       },
       runner: {
@@ -78,18 +78,18 @@ from types import SimpleNamespace
 
 import verifiers.v1 as vf
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "reference-v1"))
-sys.path.insert(0, str(ROOT / "command-v1"))
-from command_v1 import TangleTaskset as CommandTaskset
-from command_v1.taskset import TangleTasksetConfig as CommandTasksetConfig
-from reference_v1 import TangleTaskset as ReferenceTaskset
-from reference_v1.taskset import TangleTasksetConfig as ReferenceTasksetConfig
-from strict_exact_v1 import TangleRuntimeHarness, TangleTaskset
-from strict_exact_v1.harness import TangleRuntimeHarnessConfig
-from strict_exact_v1.taskset import TangleTasksetConfig
+sys.path.insert(0, str(ROOT / "reference"))
+sys.path.insert(0, str(ROOT / "command"))
+from command import TangleTaskset as CommandTaskset
+from command.taskset import TangleTasksetConfig as CommandTasksetConfig
+from reference import TangleTaskset as ReferenceTaskset
+from reference.taskset import TangleTasksetConfig as ReferenceTasksetConfig
+from strict_exact import TangleRuntimeHarness, TangleTaskset
+from strict_exact.harness import TangleRuntimeHarnessConfig
+from strict_exact.taskset import TangleTasksetConfig
 
-train = TangleTaskset(TangleTasksetConfig(id="strict-exact-v1", split="train")).load()
-heldout = TangleTaskset(TangleTasksetConfig(id="strict-exact-v1", split="eval")).load()
+train = TangleTaskset(TangleTasksetConfig(id="strict-exact", split="train")).load()
+heldout = TangleTaskset(TangleTasksetConfig(id="strict-exact", split="eval")).load()
 assert [task.data.name for task in train] == ["train"]
 assert [task.data.name for task in heldout] == ["eval"]
 
@@ -103,7 +103,7 @@ assert asyncio.run(task.task_reward(ScoreTrace("No, but the policy allows it")))
 assert asyncio.run(task.task_reward(ScoreTrace("Yes, it is allowed"))) == 0.0
 
 reference_task = ReferenceTaskset(
-    ReferenceTasksetConfig(id="reference-v1", split="eval")
+    ReferenceTasksetConfig(id="reference", split="eval")
 ).load()[0]
 reference_trace = SimpleNamespace(last_reply="", transcript="")
 assert asyncio.run(reference_task.task_reward(reference_trace)) == 0.0
@@ -117,7 +117,7 @@ class CommandTrace:
         self.recorded.update(metrics)
 
 command_task = CommandTaskset(
-    CommandTasksetConfig(id="command-v1", split="eval")
+    CommandTasksetConfig(id="command", split="eval")
 ).load()[0]
 command_trace = CommandTrace()
 assert asyncio.run(command_task.task_reward(command_trace)) == 0.25
@@ -136,7 +136,7 @@ class Runtime:
         return vf.ProgramResult(exit_code=0, stdout="", stderr="")
 
 runtime = Runtime()
-harness = TangleRuntimeHarness(TangleRuntimeHarnessConfig(id="strict-exact-v1"))
+harness = TangleRuntimeHarness(TangleRuntimeHarnessConfig(id="strict-exact"))
 asyncio.run(harness.setup(runtime))
 asyncio.run(harness.launch(
     SimpleNamespace(model="openai/gpt-5.4-20260601"),

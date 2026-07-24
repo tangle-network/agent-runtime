@@ -130,7 +130,7 @@ The same `Agent` loop runs at two timescales.
 | Steer output | ephemeral next-shot context | a persisted candidate surface |
 | Anchored by | the judge scores the answer | `heldOutGate` on a holdout set → PR |
 | `act → Program` is | a steer over the worker's next shot | a candidate generator (worktree) |
-| Where it lives today | the agent-driver over the `Scope`/`Supervisor` (`createCoordinationTools`) + `runAgentic`/`defineStrategy`; the `runAgentRounds` kernel is one leaf backend | `runOptimization`/`runImprovementLoop` + `propose()` (**this is built**) |
+| Where it lives today | the agent-driver over the `Scope`/`Supervisor` (`createCoordinationTools`) + `runAgentic`/`defineStrategy`; the `runAgentRounds` kernel is one leaf backend | `improve()` + a complete agent-eval `OptimizationMethod`; code candidates use Runtime-owned worktrees |
 
 Both are *"a loop whose step contains a loop"* — `driver↔worker + analyze +
 propose`. The recursive `Agent` makes them the **same node** at different
@@ -188,8 +188,9 @@ the enforcing code, in §13.3 (`assertTraceDerivedFindings`).
 ## 5. GEPA at every level
 
 The optimizer `O` improves any `Agent`'s `context`+prompt and the program shape,
-from the shared corpus, **held-out gated** (train ∩ holdout = ∅, enforced in
-`runImprovementLoop`). This is the **outer flywheel**: the controller is learned,
+from the shared corpus, **held-out gated** (train ∩ selection ∩ final test = ∅, enforced by
+`compareOptimizationMethods`). Official GEPA runs through `officialGepa(...)` with an explicit
+recipe and evaluation ID. This is the **outer flywheel**: the controller is learned,
 not hand-written. Optimize against the **multi-objective vector** (§0.5.2) — *correct,
 fast, secure, cheap* — Pareto, **not** a pre-collapsed scalar; each component is graded
 by its own deployable checker (tests · clock · scanner · cost meter), with the external

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defaultRedactorIdentityMaterial } from '../redact'
 import type { LoopTraceEvent } from '../runtime/types'
 import {
   compileEffort,
@@ -131,6 +132,28 @@ describe('resolveEffort', () => {
 })
 
 describe('defaultRedactor', () => {
+  it('exposes every built-in behavior input used to identify saved optimizer work', () => {
+    const identity = defaultRedactorIdentityMaterial() as {
+      marker: string
+      maxDepth: number
+      valuePatterns: unknown[]
+      secretKeyPattern: { source: string; flags: string }
+      secretAssignmentPattern: { source: string; flags: string }
+      scrubString: string
+      walk: string
+      defaultRedactor: string
+    }
+
+    expect(identity.marker).toBe('[redacted]')
+    expect(identity.maxDepth).toBe(32)
+    expect(identity.valuePatterns).toHaveLength(6)
+    expect(identity.secretKeyPattern.source).toContain('api[-_]?key')
+    expect(identity.secretAssignmentPattern.flags).toContain('g')
+    expect(identity.scrubString).toContain('secretAssignmentPattern')
+    expect(identity.walk).toContain('maxDepth')
+    expect(identity.defaultRedactor).toContain('walk')
+  })
+
   it('strips api keys, bearer tokens, emails, and secret-keyed values', () => {
     const redacted = defaultRedactor({
       message: 'contact me at alice@acme.com',
@@ -151,6 +174,16 @@ describe('defaultRedactor', () => {
     const cyclic: Record<string, unknown> = { a: 1 }
     cyclic.self = cyclic
     expect(() => defaultRedactor(cyclic)).not.toThrow()
+  })
+
+  it('redacts secret assignments embedded in serialized text', () => {
+    const redacted = defaultRedactor('judge note: {"password":"hunter2"} token=plain-secret')
+    expect(redacted).toBe('judge note: {"password":[redacted]} token=[redacted]')
+  })
+
+  it('redacts a complete bearer token after an authorization label', () => {
+    const redacted = defaultRedactor('Authorization: Bearer abcdefghijklmnop')
+    expect(redacted).toBe('Authorization: [redacted]')
   })
 })
 

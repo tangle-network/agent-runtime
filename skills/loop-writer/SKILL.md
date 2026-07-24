@@ -21,7 +21,7 @@ Do not copy signatures from this skill.
 | Parallel repository workers with isolated branches | `worktreeFanout(...)` |
 | Repeated work in a graded tool environment | `runAgentic(...)` |
 | Equal-budget comparison over that environment | `runBenchmark(...)` |
-| Low-level round policy with custom planning and stopping | `runLoop(...)` |
+| Low-level round policy with custom planning and stopping | `runAgentRounds(...)` |
 
 If an existing row fits, use it and stop.
 Do not create another wrapper solely to rename inputs or results.

@@ -2,7 +2,7 @@
  * The offline fixture for researcher-loop — the task and a synthetic `sandboxClient` that
  * dispatches two hand-written `ResearchOutput`s.
  *
- * It lives in this sibling so `researcher-loop.ts` leads with its SUBJECT (the `runLoop` +
+ * It lives in this sibling so `researcher-loop.ts` leads with its SUBJECT (the `runAgentRounds` +
  * inline-fanout wiring) instead of ~100 lines of fixture data. The two candidates are crafted to
  * exercise the validator's namespace firewall:
  *

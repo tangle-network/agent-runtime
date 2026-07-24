@@ -17,7 +17,7 @@
  *      `rawTraceDistiller` path-context so the coding agent also greps the raw
  *      traces itself (`rawTraceContext: true` names the mechanism; an explicit
  *      `analyzeGeneration` wins, so the distiller is composed in directly).
- *  (b) PROPOSE — `improvementDriver` + a change-space-constrained
+ *  (b) PROPOSE — Runtime's code candidate driver + a change-space-constrained
  *      `agenticGenerator` edit an isolated git worktree of loops. The DECLARED
  *      CHANGE-SPACE is enforced twice: in the generator's verifier (feedback →
  *      next shot) and fail-closed in the dispatch below (an out-of-space
@@ -72,6 +72,7 @@ import {
   type Verifier,
 } from '@tangle-network/agent-runtime'
 import { runLocalHarness } from '@tangle-network/agent-runtime/mcp'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { makeFinding } from '@tangle-network/agent-eval'
 import {
   FsLabeledScenarioStore,
@@ -85,7 +86,12 @@ import {
   type Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import type { CostLedgerHandle } from '@tangle-network/agent-eval'
+import { runVenvPython } from '../benchmarks/_harness.ts'
 import { createSweBenchAdapter } from '../benchmarks/swe-bench.ts'
+import {
+  fileTreeImplementationRef,
+  pythonDistributionImplementationRef,
+} from './implementation-ref.ts'
 import {
   baselineDriftWarnings,
   cellsFromCampaign,
@@ -152,7 +158,6 @@ import {
   type ScoreSplit,
   type ScoreSplitConfig,
 } from './score-split.mts'
-import { recordLineageGeneration, type LineageCandidateInput } from './lineage-record.mts'
 import {
   reportSupervisorRound,
   writeSupervisorRunReportSafe,
@@ -644,7 +649,7 @@ export interface OuterLoopConfig {
    *  When set, `populationSize` MUST equal `proposers.length` (one candidate
    *  slot per proposer — enforced at launch). Unset = the legacy
    *  single-author generator (`proposerHarness` + bare invocation).
-   *  GEN-6: a spec with `engine` set is a GEPA seat (gepa-seat.mts) — the
+   *  A spec with `engine` set is a GEPA seat (gepa-seat.mts); the
    *  agent-eval external-GEPA adapter optimizes ONE change-space file as a
    *  string against the pre-filter smoke cell; requires `prefilter.enabled`. */
   proposers?: ProposerSpec[]
@@ -685,10 +690,6 @@ export interface OuterLoopConfig {
    *  emit tangle.rollout.v1 lines live after each cell judges, with label-v2
    *  rewards. Default path: <outDir>/rollout-ledger.jsonl. */
   rolloutLedger?: { enabled: boolean; path?: string; opencodeDb?: string }
-  /** GEN-5 lineage DAG (lineage-record.mts): record every candidate as a
-   *  LineageNode at <outDir>/.evolve/lineage.jsonl and put the governor's
-   *  continuation decision in the round summary. */
-  lineage?: boolean
   /** GEN-5 evidence map: prior run outDirs whose arm-runs/judge/candidate
    *  evidence the authors may mine (rendered into the evidence index). */
   priorEvidenceDirs?: string[]
@@ -970,9 +971,6 @@ export function defaultGen4Config(
 //     never-fired mechanisms are quarantined even on an improved score.
 //  4. SETTLE-TIME ROLLOUT LEDGER — tangle.rollout.v1 lines live per cell,
 //     label v2 (contribution-aware workers, baseline-relative proposers).
-//  5. LINEAGE DAG — agent-eval Lineage at <outDir>/.evolve/lineage.jsonl +
-//     governor continuation decision in the round summary; staircase rows
-//     unchanged (observatory contract).
 // ---------------------------------------------------------------------------
 
 export function defaultGen5Config(
@@ -989,7 +987,6 @@ export function defaultGen5Config(
     briefing: AUTHOR_BRIEFING_VERSION,
     activationGate: true,
     rolloutLedger: { enabled: true },
-    lineage: true,
     priorEvidenceDirs: [join(hh, 'gen4'), join(hh, 'gen3')],
   }
 }
@@ -1537,11 +1534,24 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
   const smokeRunner: SmokeRunner | undefined =
     smokeIid === null
       ? undefined
-      : async ({ scratchPath, generation, proposer, costLedger }): Promise<SmokeVerdict> => {
+      : async ({
+          scratchPath,
+          generation,
+          proposer,
+          evaluationKey,
+          costLedger,
+        }): Promise<SmokeVerdict> => {
           const iid = smokeIid
+          if (!/^[a-zA-Z0-9_-]+$/.test(evaluationKey)) {
+            throw new Error(`outer-loop: invalid smoke evaluation key ${JSON.stringify(evaluationKey)}`)
+          }
           const requireResolved = config.prefilter?.requireResolved === true
           const entry = images[iid]!
-          const armOutDir = join(config.outDir, 'prefilter-smoke', `gen${generation}-${proposer.name}`)
+          const armOutDir = join(
+            config.outDir,
+            'prefilter-smoke',
+            `gen${generation}-${proposer.name}-${evaluationKey}`,
+          )
           const nm = join(scratchPath, 'node_modules')
           let linked = false
           const t0 = Date.now()
@@ -1600,7 +1610,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
               const paid = await costLedger.runPaidCall({
                 channel: 'agent',
                 phase: 'search.prefilter',
-                actor: `prefilter-smoke:${iid}:g${generation}:${proposer.name}`,
+                actor: `prefilter-smoke:${iid}:g${generation}:${proposer.name}:${evaluationKey}`,
                 model: config.arm.workerModel,
                 execute: runWork,
                 receipt: ({ armRes }) => {
@@ -1636,7 +1646,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
               resolved: outcome.resolved,
               patchLines: outcome.armRes.patch_lines,
               wallS,
-              // GEN-6: the GEPA seat's inner-score tiebreak.
+              // The GEPA seat's inner-score tiebreak.
               verifyPass: outcome.armRes.verify_pass,
             }
             await mkdir(armOutDir, { recursive: true })
@@ -1660,6 +1670,79 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
             if (linked) await unlink(nm).catch(() => {})
           }
         }
+
+  let runnerImplementationRef: string | undefined
+  let judgeImplementationRef: string | undefined
+  const hasGepaSeat = config.proposers?.some((proposer) => proposer.engine !== undefined) === true
+  if (hasGepaSeat && smokeIid !== null && smokeRunner !== undefined) {
+    const runtimeRoot = fileURLToPath(new URL('../../..', import.meta.url))
+    const benchRoot = fileURLToPath(new URL('../..', import.meta.url))
+    const sourceCommit = (
+      await runOk('git', ['-C', config.loopsRepo, 'rev-parse', 'HEAD'])
+    ).stdout.trim()
+    const entry = images[smokeIid]!
+    const verifyScript = await readFile(join(config.verifyDir, `${smokeIid}.sh`), 'utf8')
+    const implementationArtifacts = {
+      benchSource: await fileTreeImplementationRef(join(benchRoot, 'src')),
+      runtimeSource: await fileTreeImplementationRef(join(runtimeRoot, 'src')),
+      runtimeDist: await fileTreeImplementationRef(join(runtimeRoot, 'dist')),
+      packageFiles: canonicalCandidateDigest({
+        runtimePackage: await readFile(join(runtimeRoot, 'package.json'), 'utf8'),
+        benchPackage: await readFile(join(benchRoot, 'package.json'), 'utf8'),
+        lockfile: await readFile(join(runtimeRoot, 'pnpm-lock.yaml'), 'utf8'),
+      }),
+      swebench: await pythonDistributionImplementationRef(
+        'swebench',
+        (script, args) => runVenvPython(script, args),
+      ),
+    }
+    const runnerSourceRef = canonicalCandidateDigest({
+      benchSource: implementationArtifacts.benchSource,
+      runtimeSource: implementationArtifacts.runtimeSource,
+      runtimeDist: implementationArtifacts.runtimeDist,
+      packageFiles: implementationArtifacts.packageFiles,
+    })
+    const judgeSourceRef = canonicalCandidateDigest({
+      benchSource: implementationArtifacts.benchSource,
+      packageFiles: implementationArtifacts.packageFiles,
+      swebench: implementationArtifacts.swebench,
+    })
+    runnerImplementationRef = canonicalCandidateDigest({
+      implementation: 'swe-arena-smoke-runner',
+      sourceCommit,
+      sourceRef: runnerSourceRef,
+      smoke: {
+        iid: smokeIid,
+        image: entry.image,
+        baseCommit: entry.base_commit,
+        problemStatement: problemById.get(smokeIid)!,
+        verifyScript,
+        requireResolved: config.prefilter?.requireResolved === true,
+      },
+      arm: {
+        name: config.armName,
+        workerModel: config.arm.workerModel,
+        driverModel: config.arm.driverModel,
+        budget: config.arm.budget,
+        maxSandboxes: config.arm.maxSandboxes,
+        maxUsd: config.arm.maxUsd,
+        maxDepth: config.arm.maxDepth,
+        timeoutMs: config.arm.timeoutMs,
+        envKnobs: config.arm.envKnobs ?? null,
+      },
+      dispatchTimeoutMs: config.dispatchTimeoutMs,
+      capacityModel: config.capacityModel ?? null,
+      gateWaitCeilingMs: config.gateWaitCeilingMs ?? null,
+      excludes,
+    })
+    judgeImplementationRef = canonicalCandidateDigest({
+      implementation: 'serialized-swebench-judge',
+      sourceCommit,
+      sourceRef: judgeSourceRef,
+      timeoutMs: config.judgeTimeoutMs ?? JUDGE_TIMEOUT_FLOOR_MS,
+      cacheLevel: 'instance',
+    })
+  }
 
   // ── dispatch: one (surface × scenario) cell ──────────────────────────
   const agent = async (surface: MutableSurface, scenario: Scenario, ctx: DispatchContext): Promise<R4Artifact> => {
@@ -2041,9 +2124,11 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     config.proposers !== undefined
       ? fanOutLoopsGenerator(config, {
           ...(smokeRunner ? { smokeRunner } : {}),
+          ...(runnerImplementationRef ? { runnerImplementationRef } : {}),
+          ...(judgeImplementationRef ? { judgeImplementationRef } : {}),
           ...(paretoParents.length > 0 ? { parents: paretoParents } : {}),
           ...(briefingCtx !== undefined ? { briefing: briefingCtx } : {}),
-          // GEN-6: the GEPA seat's inner evaluator rides the SAME public-only
+          // The GEPA seat's inner evaluator uses the same public-only
           // smoke instance; the split guards the never-surfaced invariant at
           // the bridge boundary too.
           ...(smokeIid !== null ? { smokeInstanceId: smokeIid } : {}),
@@ -2056,10 +2141,9 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
   // ── the improve() call: the optimizer seat ───────────────────────────
   // Typed from improve()'s own parameter: the monorepo hoists two
   // agent-interface majors, so a nominal import can resolve to the wrong one.
-  const profile = { name: 'loops-pi-supervisor' } as Parameters<typeof improve>[0]
   signal?.throwIfAborted()
   log(`round ${config.round} runId=${runId}: improve(surface:'code') over ${config.loopsRepo}@${config.loopsBaseRef}`)
-  const result = await improve<Scenario, R4Artifact>(profile, [], {
+  const result = await improve<Scenario, R4Artifact>({
     surface: 'code',
     // analyzeGeneration wins over this flag; the composite above embeds
     // rawTraceDistiller directly so the raw-trace mechanism stays active.
@@ -2143,10 +2227,8 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       }
     }
 
-    // Collected per-candidate facts for the gen-5 machinery (activation by
-    // surface hash for the winner brief, lineage nodes, proposer v2 rewards).
+    // Collected per-candidate facts for activation and proposer rewards.
     const activationBySurface = new Map<string, ActivationRecord>()
-    const lineageCandidates: LineageCandidateInput[] = []
     interface ProposerOutcomeFact {
       generation: number
       candidateIndex: number
@@ -2290,14 +2372,6 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         })
 
         const label = cand.label ?? cs?.candidateCommit?.slice(0, 10) ?? cand.surfaceHash.slice(0, 10)
-        lineageCandidates.push({
-          label,
-          commit: cs?.candidateCommit ?? null,
-          resolvedCount: candResolved,
-          verdicts,
-          merge: config.proposers?.find((p) => p.name === cand.label)?.merge === true,
-          verdict,
-        })
         proposerFacts.push({
           generation: g,
           candidateIndex: candIndex,
@@ -2383,42 +2457,6 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         } catch (cause) {
           log(`rollout-ledger: proposer capture FAILED for ${fact.label}: ${(cause as Error).message}`)
         }
-      }
-    }
-
-    // GEN-5 lineage DAG: record baseline root + pareto parents + every
-    // evaluated candidate (multi-parent for the merge seat) at the
-    // .evolve-compatible store, and ask the governor for the continuation
-    // decision (recorded below — never acted on inside this run).
-    let lineageResult: Awaited<ReturnType<typeof recordLineageGeneration>> | null = null
-    if (config.lineage === true) {
-      try {
-        const baselineCommit =
-          baselineCells.find((c) => c.artifact !== null && c.artifact.kind === 'swe-arm')?.artifact?.commit ??
-          config.loopsBaseRef
-        lineageResult = await recordLineageGeneration({
-          outDir: config.outDir,
-          runId,
-          instances: config.instances,
-          baseline: {
-            commit: baselineCommit,
-            resolvedCount: measuredBaselineCount,
-            verdicts: instanceVerdictsFromCells(baselineCells, config.instances, reps),
-          },
-          paretoParents: (config.paretoParents ?? []).map((p) => ({
-            label: p.label,
-            commit: p.commit,
-            resolvedInstances: p.resolvedInstances,
-          })),
-          candidates: lineageCandidates,
-        })
-        log(
-          `lineage: ${lineageResult.appended.length} node(s) appended (total ${lineageResult.nodesTotal}) → ` +
-            `${lineageResult.path}; governor decision: ${JSON.stringify(lineageResult.governor)}` +
-            `${lineageResult.skipped.length > 0 ? `; skipped (no commit): ${lineageResult.skipped.join(', ')}` : ''}`,
-        )
-      } catch (cause) {
-        log(`lineage: recording FAILED: ${(cause as Error).message}`)
       }
     }
 
@@ -2547,17 +2585,6 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
           : { version: AUTHOR_BRIEFING_VERSION, indexPath: briefingCtx.indexPath, textSource: briefingCtx.briefingSource },
       // GEN-5: settle-time rollout ledger location (tangle.rollout.v1, label v2).
       rolloutLedger: settleCapture === null ? null : { path: settleCapture.path, capture: 'settle-time', labels: 'v2' },
-      // GEN-5: lineage DAG + the governor's recorded continuation decision.
-      lineage:
-        lineageResult === null
-          ? null
-          : {
-              path: lineageResult.path,
-              nodesTotal: lineageResult.nodesTotal,
-              appended: lineageResult.appended.length,
-              skipped: lineageResult.skipped,
-              governor: lineageResult.governor,
-            },
       // Honest run-wide spend from the lib's CostLedger: per-channel rollups
       // (agent = arm cells, judge = official-judge calls, driver = proposer
       // shots), token totals, and accounting-completeness flags.

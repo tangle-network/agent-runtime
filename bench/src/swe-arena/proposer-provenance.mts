@@ -27,21 +27,19 @@ import { join } from 'node:path'
 import {
   DEFAULT_GEPA_PYTHON,
   isGepaSeat,
-  loadGepaMethodFactory,
   probeGepaRuntime,
-  type CampaignModuleImport,
 } from './gepa-seat.mts'
 import { run } from './proc.ts'
 import type { ProposerSpec } from './proposer-fanout.mts'
 
 export interface ProposerModelProvenance {
   name: string
-  /** Absent on a GEN-6 engine seat (see `engine`). */
+  /** Absent on an engine seat (see `engine`). */
   harness: ProposerSpec['harness']
   /** Explicit model pin from the spec (threaded as `-m`), or null when the
    *  seat runs the CLI's own resolved default. */
   pinnedModel: string | null
-  /** `<harness> --version` stdout (trimmed). For a GEN-6 gepa seat this is
+  /** `<harness> --version` stdout (trimmed). For a GEPA seat this is
    *  the bridge python's `--version` output — the runtime that authors. */
   harnessVersion: string
   /** claude seats only: the settings default model the logged-in CLI resolves
@@ -51,13 +49,13 @@ export interface ProposerModelProvenance {
   /** codex seats only: `codex login status` stdout (trimmed). */
   authStatus: string | null
   merge: boolean
-  /** GEN-6 gepa seat: the engine name from the spec. */
+  /** GEPA seat: the engine name from the spec. */
   engine?: 'gepa' | 'omni'
-  /** GEN-6 gepa seat: the ONE change-space file GEPA optimizes. */
+  /** GEPA seat: the one change-space file GEPA optimizes. */
   surface?: string
-  /** GEN-6 gepa seat: installed gepa version ('source' for a source pin). */
+  /** GEPA seat: installed GEPA version ('source' for a source pin). */
   gepaVersion?: string
-  /** GEN-6 gepa seat: the Python bridge module the seat runs. */
+  /** GEPA seat: the Python bridge module the seat runs. */
   bridge?: string
 }
 
@@ -92,17 +90,16 @@ export function claudeSettingsModel(
 }
 
 /** Capture per-proposer model provenance. Throws when any configured harness
- *  binary is missing/broken, when a codex seat is not logged in, or — GEN-6 —
- *  when a gepa seat's runtime is incomplete: the installed agent-eval must
- *  export `gepaOptimizationMethod` and the Python bridge + GEPA engine must
- *  import (probeGepaRuntime carries the exact install instructions). A dead
- *  seat fails the launch at t=0, never a mid-run candidate slot. */
+ *  binary is missing/broken, when a codex seat is not logged in, or when
+ *  a GEPA seat's Python bridge or engine cannot import
+ *  (`probeGepaRuntime` carries the exact install instructions). A dead seat
+ *  fails the launch at t=0, never a mid-run candidate slot. The TypeScript
+ *  adapter is a pinned package dependency and therefore checked at install. */
 export async function captureProposerProvenance(
   proposers: ProposerSpec[],
   deps: {
     exec?: VersionExec
     readSettingsModel?: () => string | null
-    importCampaign?: CampaignModuleImport
   } = {},
 ): Promise<ProvenanceCaptureRecord> {
   const exec = deps.exec ?? defaultExec
@@ -112,8 +109,6 @@ export async function captureProposerProvenance(
   const gepaBySeat = new Map<string, { pythonVersion: string; gepaVersion: string }>()
   const gepaSeats = proposers.filter(isGepaSeat)
   if (gepaSeats.length > 0) {
-    // Node side first: the adapter export (fails loud with upgrade hint).
-    await loadGepaMethodFactory(...(deps.importCampaign ? [deps.importCampaign] : []))
     for (const seat of gepaSeats) {
       gepaBySeat.set(seat.name, await probeGepaRuntime(seat.python ?? DEFAULT_GEPA_PYTHON, exec, seat.name))
     }

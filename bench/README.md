@@ -26,6 +26,13 @@ pnpm install                                              # tsx + link parent
 
 The judge needs only Docker; workers need a model key (Tangle router `TANGLE_API_KEY`, or a direct provider).
 
+Live optimizer scripts require explicit token prices so cost records cannot be guessed.
+Use the `REFLECT_` prefix for the general benchmark scripts and `GEPA_OPTIMIZER_` for the SWE arena seat.
+For either prefix, set `INPUT_USD_PER_MILLION`, `CACHED_INPUT_USD_PER_MILLION`, `CACHE_WRITE_USD_PER_MILLION`, and `OUTPUT_USD_PER_MILLION`.
+The SWE arena seat reads its model from `GEPA_OPTIMIZER_MODEL`, its URL from `GEPA_OPTIMIZER_BASE_URL`, and its key from `GEPA_OPTIMIZER_API_KEY`.
+It falls back to the configured driver model, `ROUTER_BASE`, and `TANGLE_API_KEY`.
+Missing prices fail before an optimizer model call.
+
 Retain every official per-test log and report before the temporary evaluator directory is removed:
 
 ```ts

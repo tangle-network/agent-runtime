@@ -16,8 +16,8 @@
 //
 // The finding type and the gate statistic are the real substrate primitives (not a local one-off);
 // the analyst body, the proposer, and the LLM are scripted ONLY so the demo runs offline and
-// deterministically. The production path is `improve()` over `selfImprove` (see examples/improve/)
-// or `runStrategyEvolution` + `promotionGate`. See README.md for the conceptual map.
+// deterministically. The production profile path is `improve()` with a complete
+// OptimizationMethod and explicit train, selection, and final-test partitions.
 
 import { type AnalystFinding, makeFinding, pairedBootstrap } from '@tangle-network/agent-eval'
 import {
@@ -119,10 +119,11 @@ const conversationJudge: JudgeConfig<{ transcript: MultishotMessage[]; persona: 
   }
 
 // ── 5. Analyst — reads v0 transcripts + scores, emits a canonical AnalystFinding ──
-// The reflective step a production analyst-loop runs (@tangle-network/agent-runtime/analyst-loop /
-// improvementDriver). The finding type is the canonical `AnalystFinding` from agent-eval — stamped via
+// The reflective step a production analyst loop runs before a complete optimization method.
+// The finding type is the canonical `AnalystFinding` from agent-eval — stamped via
 // `makeFinding` (schema-version / finding-id / timestamp) — NOT a local one-off interface; that is the
-// exact shape `improve(profile, findings, opts)` reflects on. The proposed mutation rides
+// exact finding shape a method factory receives through `improve(profile, { findings, ... })`.
+// The proposed mutation rides
 // `recommended_action`. Offline we derive it deterministically so the demo stays reproducible.
 
 async function runAnalyst(
@@ -153,9 +154,8 @@ function applyMutation(base: AgentProfile, mutation: string): AgentProfile {
 }
 
 // ── 6. Gate — promote v1 only if the PAIRED-bootstrap CI lower bound clears 0 ──
-// This shows the STATISTICAL CORE of the production held-out gate (`HeldOutGate` / `improve()` over
-// `selfImprove`, `agent-eval/contract`): pair v1 against v0 per scenario, bootstrap a CI on the median
-// paired delta, and ship only if the CI's lower bound beats 0 — i.e. the lift is unlikely to be luck.
+// This shows the statistical core of `improve()` final-test scoring: pair v1 against v0 per scenario,
+// bootstrap a CI on the median paired delta, and ship only if the CI's lower bound beats 0.
 // `pairedBootstrap` (the same statistics primitive the real gate is built on) does exactly this; the
 // `seed` keeps it deterministic offline.
 //

@@ -24,7 +24,7 @@ Competing topologies draw from one shared compute budget, so "smarter coordinati
 
 The internal one-sentence statement of the whole system, preserved from the API reference (each bolded term is defined there in plain words):
 
-> A **genome** (an `AgentProfile`: `systemPrompt + skills + tools + mcp + knowledge + memory + rag` — one combined surface) is run as a **driver⟷worker conversation** (`runPersonified` composing a combinator like `loopUntil`/`fanout` over the keystone `Supervisor` — K rounds spent against one persistent, journaled artifact on a *conserved budget pool* so equal-compute holds by construction) over a **benchmark** (the `ADAPTERS` registry driven by `runGate` over the Supervisor, or an `AgenticSurface` driven by `runBenchmark`/`runAgentic`), then **optimized by a gated loop** (`selfImprove`/`runImprovementLoop` + `gepaProposer`, certified by `defaultProductionGate`/`heldOutGate`/`promotionGate`, or the full multi-generation `runStrategyEvolution`) that evolves the genome and **certifies wins on a frozen holdout** — never on the training composite.
+> An `AgentProfile` defines the agent. Runtime executes it. Agent-eval measures it and runs a complete optimization method on train and selection cases. Runtime then compares the selected candidate with the baseline on an untouched final test. Repository code follows the same rule but uses isolated worktrees.
 
 ## The internal design and research docs
 

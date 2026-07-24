@@ -1,18 +1,16 @@
 /**
- * GEN-6 GEPA proposer seat — agent-eval's external-GEPA adapter
- * (`gepaOptimizationMethod`, tangle-network/agent-eval PRs #408/#409,
- * main@58a28aa) wired as ONE seat in the swe-arena proposer fan-out.
+ * GEPA proposer seat using agent-eval's official
+ * `gepaOptimizationMethod` as one author in the swe-arena fan-out.
  *
  * Two-tier evaluator, the critical shape:
  *
  *   INNER (what GEPA's own loop calls, many times, budget-capped): the
  *   candidate is ONE change-space file's content as a string. Each inner call
- *   materializes the candidate string into the seat's scratch loops worktree
- *   (the rest of the repo stays at the incumbent commit) and runs the EXISTING
- *   pre-filter smoke cell — one PUBLIC instance, the cheap path — through the
- *   injected `SmokeRunner`. Score = smoke resolve (1/0) + verify-pass fraction
- *   as a bounded tiebreak. Inner calls are capped by `maxMetricCalls`
- *   (default 10; each smoke costs minutes of arm time).
+ *   gets a detached worktree at the incumbent commit, writes its own candidate,
+ *   and runs the existing pre-filter smoke cell on one PUBLIC instance through
+ *   the injected `SmokeRunner`. Score = smoke resolve (1/0) + verify-pass
+ *   fraction as a bounded tiebreak. Inner calls are capped by
+ *   `maxMetricCalls` (default 10; each smoke costs minutes of arm time).
  *
  *   OUTER: GEPA's best candidate is written back to the surface file in the
  *   scratch worktree and the seat returns `applied: true` — from there the
@@ -31,30 +29,40 @@
  *     (`gepa_bridge.py` `_validate_input`: `if "testSet" in value ... raise`).
  *     This module never mentions holdout instances to begin with.
  *
- * RUNTIME SEAMS (both fail LOUD at provenance time, t=0, mirroring the codex
- * seat's auth check — a dead seat cannot be silently skipped mid-run):
- *   - Node: the installed @tangle-network/agent-eval must export
- *     `gepaOptimizationMethod` (0.123.x predates it) — `loadGepaMethodFactory`
- *     throws with the exact upgrade instruction otherwise.
+ * OPTIONAL RUNTIME (fails at provenance time, before a candidate slot is used):
  *   - Python: `agent_eval_rpc.gepa_bridge` + a GEPA build with
  *     `optimize_anything`/`OptimizeAnythingConfig` must import —
  *     `probeGepaRuntime` throws with the pip install instruction otherwise.
+ * The TypeScript adapter is a pinned package dependency and imported directly.
  */
 
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  OptimizationMethod,
-  OptimizationMethodInput,
-  Scenario,
+import {
+  type DispatchContext,
+  createRunCostLedger,
+  fsCampaignStorage,
+  type GepaOptimizationMethodConfig,
+  type GepaOptimizationRecipe,
+  gepaOptimizationMethod,
+  type JudgeConfig,
+  type MutableSurface,
+  type OptimizationMethod,
+  type OptimizationMethodInput,
+  type OptimizationMethodProvenance,
+  type Scenario,
 } from '@tangle-network/agent-eval/campaign'
+import { officialOptimizerModel } from '../official-optimizer-config.mts'
 import { ACTIVATION_PREDICATE_RELPATH, type ActivationPredicate } from './activation.mts'
 import { changeSpaceViolations, type OuterLoopConfig } from './outer-loop.mts'
 import type { AuthorFn, ProposerSpec, SmokeRunner, SmokeVerdict } from './proposer-fanout.mts'
+import { runOk } from './proc.ts'
+import {
+  createDetachedWorktree,
+  pruneDetachedWorktrees,
+  removeDetachedWorktree,
+} from './scratch-worktree.ts'
 import type { ScoreSplit } from './score-split.mts'
 
 // ---------------------------------------------------------------------------
@@ -110,25 +118,18 @@ export function validateGepaSeat(spec: ProposerSpec): asserts spec is GepaSeatSp
 }
 
 // ---------------------------------------------------------------------------
-// Recipe — the adapter's own shape, mirrored structurally (the installed
-// agent-eval may predate the export; see loadGepaMethodFactory).
+// Recipe.
 // ---------------------------------------------------------------------------
 
-export interface GepaEngineRun {
-  engine: string
-  maxEvaluations: number
-  maxProposerCostUsd: number
-  engineConfig?: Record<string, unknown>
-}
-
-export type GepaOptimizationRecipe =
-  | { kind: 'engine'; run: GepaEngineRun }
-  | { kind: 'best-of-then-continue'; explore: readonly GepaEngineRun[]; continueWith: GepaEngineRun }
+export type GepaSeatRecipe = Extract<
+  GepaOptimizationRecipe,
+  { kind: 'engine' | 'omni' }
+>
 
 /** Build the bounded recipe for a seat. The TOTAL inner-evaluation budget is
- *  exactly `maxMetricCalls` — the adapter's local callback enforces the sum
+ *  exactly `maxMetricCalls`. The adapter's local callback enforces the sum
  *  of per-run limits, and the seat's own dispatch wrapper re-enforces it. */
-export function recipeForSeat(spec: GepaSeatSpec): GepaOptimizationRecipe {
+export function recipeForSeat(spec: GepaSeatSpec): GepaSeatRecipe {
   const calls = spec.maxMetricCalls ?? DEFAULT_MAX_METRIC_CALLS
   const cost = spec.maxProposerCostUsd ?? DEFAULT_MAX_PROPOSER_COST_USD
   if (spec.engine === 'gepa') {
@@ -145,13 +146,13 @@ export function recipeForSeat(spec: GepaSeatSpec): GepaOptimizationRecipe {
     maxProposerCostUsd: perRunCost,
   }))
   return {
-    kind: 'best-of-then-continue',
+    kind: 'omni',
     explore,
     continueWith: { engine: 'gepa', maxEvaluations: continueCalls, maxProposerCostUsd: perRunCost },
   }
 }
 
-export function recipeEvaluationBudget(recipe: GepaOptimizationRecipe): number {
+export function recipeEvaluationBudget(recipe: GepaSeatRecipe): number {
   const runs = recipe.kind === 'engine' ? [recipe.run] : [...recipe.explore, recipe.continueWith]
   return runs.reduce((sum, run) => sum + run.maxEvaluations, 0)
 }
@@ -211,7 +212,7 @@ export function innerSmokeComposite(verdict: Pick<SmokeVerdict, 'resolved' | 've
 export function innerSmokeJudge(): JudgeConfig<SmokeVerdict, GepaSeatScenario> {
   return {
     name: 'gepa-inner-smoke',
-    judgeVersion: 'gepa-inner-smoke.v1',
+    judgeVersion: 'gepa-inner-smoke',
     dimensions: [
       { key: 'resolved', description: 'Official SWE-bench judge verdict for the smoke cell (1 resolved / 0 not).' },
       { key: 'verifyPass', description: 'Committed verify fixture passed for the smoke cell (tiebreak).' },
@@ -228,54 +229,16 @@ export function innerSmokeJudge(): JudgeConfig<SmokeVerdict, GepaSeatScenario> {
 }
 
 // ---------------------------------------------------------------------------
-// Runtime seams — Node adapter export + Python bridge, both loud.
+// Optional Python runtime.
 // ---------------------------------------------------------------------------
 
-export const GEPA_ADAPTER_UPGRADE_HINT =
-  "the installed @tangle-network/agent-eval does not export gepaOptimizationMethod — " +
-  'upgrade to a release containing tangle-network/agent-eval PRs #408/#409 (merged at main@58a28aa; ' +
-  'first release after 0.123.5), then reinstall bench deps'
-
 export const GEPA_PYTHON_INSTALL_HINT =
-  "install the optional Python bridge: pip install 'agent-eval-rpc[gepa]' " +
-  '(the extra pins the GEPA source commit providing optimize_anything/OptimizeAnythingConfig; ' +
-  'published gepa<=0.1.4 does not contain the multi-engine API — see agent-eval docs/campaign-proposers.md)'
-
-/** Adapter config, mirrored structurally from agent-eval's
- *  `GepaOptimizationMethodConfig` (src/campaign/gepa-optimization-method.ts). */
-export interface GepaMethodConfig {
-  name?: string
-  recipe: GepaOptimizationRecipe
-  objective: string
-  background?: string
-  maxCandidateChars?: number
-  timeoutMs?: number
-  describeScenario?: (scenario: GepaSeatScenario) => unknown
-  runner?: { command?: string; args?: readonly string[]; cwd?: string; env?: NodeJS.ProcessEnv }
-}
+  'install `agent-eval-rpc==0.126.6`, then install ' +
+  '`gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f`'
 
 export type GepaMethodFactory = (
-  config: GepaMethodConfig,
+  config: GepaOptimizationMethodConfig<GepaSeatScenario, SmokeVerdict>,
 ) => OptimizationMethod<GepaSeatScenario, SmokeVerdict>
-
-export type CampaignModuleImport = () => Promise<Record<string, unknown>>
-
-const defaultImportCampaign: CampaignModuleImport = () =>
-  import('@tangle-network/agent-eval/campaign') as Promise<Record<string, unknown>>
-
-/** Resolve the adapter factory from the installed agent-eval, or throw the
- *  exact upgrade instruction. Checked at provenance time (t=0) AND at author
- *  time, so a stale install can never silently skip the seat. */
-export async function loadGepaMethodFactory(
-  importCampaign: CampaignModuleImport = defaultImportCampaign,
-): Promise<GepaMethodFactory> {
-  const mod = await importCampaign()
-  const factory = mod['gepaOptimizationMethod']
-  if (typeof factory !== 'function') {
-    throw new Error(`gepa seat: ${GEPA_ADAPTER_UPGRADE_HINT}`)
-  }
-  return factory as GepaMethodFactory
-}
 
 export type ProbeExec = (
   command: string,
@@ -338,6 +301,11 @@ export interface GepaInnerCall {
   wallS: number
 }
 
+type OptimizationPackageSource = OptimizationMethodProvenance['source']
+type OptimizationModuleSource = NonNullable<OptimizationMethodProvenance['modules']>[number]
+type OptimizationPythonRuntime = NonNullable<OptimizationMethodProvenance['python']>
+type OptimizationTokenUsage = NonNullable<OptimizationMethodProvenance['tokenUsage']>
+
 export interface GepaSeatInnerRun {
   seat: string
   engine: GepaEngineName
@@ -347,32 +315,250 @@ export interface GepaSeatInnerRun {
   innerCallCount: number
   innerScores: GepaInnerCall[]
   bestComposite: number | null
-  adapterReportedCostUsd: number | null
-  adapterCostAccountingComplete: boolean
+  source: OptimizationPackageSource & { revision: string; sourceSha256: string }
+  bridge: OptimizationPackageSource & { sourceSha256: string }
+  modules: OptimizationModuleSource[]
+  python: OptimizationPythonRuntime
+  runId: string
+  compatibleRunId: string
+  resumed: boolean
+  evaluationCount: number
+  tokenUsage: OptimizationTokenUsage
+  artifactDir: string
+  totalCostUsd: number
+  accountingComplete: boolean
+  incompleteReasons: string[]
   durationMs: number
 }
 
 export const PROPOSER_PROVENANCE_FILENAME = 'proposer-provenance.json'
+export const GEPA_INNER_RUNS_DIRNAME = 'gepa-inner-runs'
 
-/** Merge one seat run's inner-call record into `proposer-provenance.json`
- *  under `gepaInnerRuns` (additive; the t=0 capture record is preserved). */
-export async function recordGepaSeatInnerRun(outDir: string, run: GepaSeatInnerRun): Promise<void> {
-  const path = join(outDir, PROPOSER_PROVENANCE_FILENAME)
-  let record: Record<string, unknown> = {}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function errorCode(error: unknown): string | undefined {
+  return isRecord(error) && typeof error.code === 'string' ? error.code : undefined
+}
+
+async function readJsonObject(path: string): Promise<Record<string, unknown>> {
+  const raw = await readFile(path, 'utf8')
+  let value: unknown
   try {
-    record = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
-  } catch {
-    // No capture record yet (unit-test or crash-before-write): still persist.
+    value = JSON.parse(raw)
+  } catch (error) {
+    throw new Error(`gepa seat: malformed JSON in existing provenance file ${path}`, { cause: error })
   }
-  const runs = Array.isArray(record.gepaInnerRuns) ? (record.gepaInnerRuns as unknown[]) : []
-  runs.push(run)
-  record.gepaInnerRuns = runs
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, JSON.stringify(record, null, 2))
+  if (!isRecord(value)) {
+    throw new Error(`gepa seat: existing provenance file ${path} must contain a JSON object`)
+  }
+  return value
+}
+
+async function validateExistingRunRecords(outDir: string): Promise<void> {
+  const launchRecordPath = join(outDir, PROPOSER_PROVENANCE_FILENAME)
+  try {
+    await readJsonObject(launchRecordPath)
+  } catch (error) {
+    if (errorCode(error) !== 'ENOENT') throw error
+  }
+
+  const recordsDir = join(outDir, GEPA_INNER_RUNS_DIRNAME)
+  let entries
+  try {
+    entries = await readdir(recordsDir, { withFileTypes: true })
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') return
+    throw error
+  }
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith('.json')) {
+      await readJsonObject(join(recordsDir, entry.name))
+    }
+  }
+}
+
+/** Persist one immutable record without mutating the shared launch record. */
+export async function recordGepaSeatInnerRun(outDir: string, run: GepaSeatInnerRun): Promise<string> {
+  await validateExistingRunRecords(outDir)
+  const recordsDir = join(outDir, GEPA_INNER_RUNS_DIRNAME)
+  await mkdir(recordsDir, { recursive: true })
+  const identity = createHash('sha256')
+    .update(JSON.stringify({ seat: run.seat, generation: run.generation, runId: run.runId }))
+    .digest('hex')
+    .slice(0, 16)
+  const nonce = randomUUID()
+  const filename = `${identity}-${nonce}.json`
+  const finalPath = join(recordsDir, filename)
+  const temporaryPath = join(recordsDir, `.${filename}.tmp`)
+  try {
+    await writeFile(temporaryPath, JSON.stringify(run, null, 2), { flag: 'wx' })
+    await rename(temporaryPath, finalPath)
+  } finally {
+    await rm(temporaryPath, { force: true })
+  }
+  return finalPath
+}
+
+function requiredText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value !== value.trim()) {
+    throw new Error(`gepa seat: optimizer result omitted ${label}`)
+  }
+  return value
+}
+
+function requiredSha256(value: unknown, label: string): string {
+  const hash = requiredText(value, label)
+  if (!/^[0-9a-f]{64}$/.test(hash)) {
+    throw new Error(`gepa seat: optimizer result returned invalid ${label}`)
+  }
+  return hash
+}
+
+function requiredCount(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`gepa seat: optimizer result returned invalid ${label}`)
+  }
+  return value as number
+}
+
+function completeProvenance(
+  provenance: OptimizationMethodProvenance | undefined,
+  seatName: string,
+): Pick<
+  GepaSeatInnerRun,
+  | 'source'
+  | 'bridge'
+  | 'modules'
+  | 'python'
+  | 'runId'
+  | 'compatibleRunId'
+  | 'resumed'
+  | 'evaluationCount'
+  | 'tokenUsage'
+  | 'artifactDir'
+> {
+  const label = `gepa seat '${seatName}'`
+  if (provenance === undefined) {
+    throw new Error(`${label}: optimizer result omitted provenance`)
+  }
+  if (
+    provenance.source.kind !== 'package' ||
+    provenance.source.evidence !== 'observed' ||
+    requiredText(provenance.source.package, 'source.package') !== 'gepa'
+  ) {
+    throw new Error(`${label}: optimizer result returned invalid source package`)
+  }
+  requiredText(provenance.source.version, 'source.version')
+  const sourceRevision = requiredText(provenance.source.revision, 'source.revision')
+  const sourceSha256 = requiredSha256(provenance.source.sourceSha256, 'source.sourceSha256')
+  if (provenance.bridge === undefined) {
+    throw new Error(`${label}: optimizer result omitted bridge provenance`)
+  }
+  if (
+    provenance.bridge.kind !== 'package' ||
+    provenance.bridge.evidence !== 'observed' ||
+    requiredText(provenance.bridge.package, 'bridge.package') !== 'agent-eval-rpc'
+  ) {
+    throw new Error(`${label}: optimizer result returned invalid bridge package`)
+  }
+  requiredText(provenance.bridge.version, 'bridge.version')
+  const bridgeSha256 = requiredSha256(provenance.bridge.sourceSha256, 'bridge.sourceSha256')
+  if (provenance.modules === undefined) {
+    throw new Error(`${label}: optimizer result omitted module provenance`)
+  }
+  const modules = provenance.modules.map((module, index) => ({
+    module: requiredText(module.module, `modules[${index}].module`),
+    sourceSha256: requiredSha256(module.sourceSha256, `modules[${index}].sourceSha256`),
+  }))
+  if (provenance.python === undefined) {
+    throw new Error(`${label}: optimizer result omitted Python provenance`)
+  }
+  const python = {
+    implementation: requiredText(provenance.python.implementation, 'python.implementation'),
+    version: requiredText(provenance.python.version, 'python.version'),
+  }
+  if (provenance.compatibleRunId === undefined) {
+    throw new Error(`${label}: optimizer result omitted compatibleRunId`)
+  }
+  if (provenance.tokenUsage === undefined) {
+    throw new Error(`${label}: optimizer result omitted token usage`)
+  }
+  const tokenUsage = {
+    inputTokens: requiredCount(provenance.tokenUsage.inputTokens, 'tokenUsage.inputTokens'),
+    ...(provenance.tokenUsage.cachedInputTokens === undefined
+      ? {}
+      : {
+          cachedInputTokens: requiredCount(
+            provenance.tokenUsage.cachedInputTokens,
+            'tokenUsage.cachedInputTokens',
+          ),
+        }),
+    ...(provenance.tokenUsage.cacheWriteInputTokens === undefined
+      ? {}
+      : {
+          cacheWriteInputTokens: requiredCount(
+            provenance.tokenUsage.cacheWriteInputTokens,
+            'tokenUsage.cacheWriteInputTokens',
+          ),
+        }),
+    outputTokens: requiredCount(provenance.tokenUsage.outputTokens, 'tokenUsage.outputTokens'),
+    ...(provenance.tokenUsage.reasoningTokens === undefined
+      ? {}
+      : {
+          reasoningTokens: requiredCount(
+            provenance.tokenUsage.reasoningTokens,
+            'tokenUsage.reasoningTokens',
+          ),
+        }),
+    totalTokens: requiredCount(provenance.tokenUsage.totalTokens, 'tokenUsage.totalTokens'),
+    calls: requiredCount(provenance.tokenUsage.calls, 'tokenUsage.calls'),
+  }
+  if (tokenUsage.totalTokens !== tokenUsage.inputTokens + tokenUsage.outputTokens) {
+    throw new Error(`${label}: optimizer result returned inconsistent token usage`)
+  }
+  return {
+    source: { ...provenance.source, revision: sourceRevision, sourceSha256 },
+    bridge: { ...provenance.bridge, sourceSha256: bridgeSha256 },
+    modules,
+    python,
+    runId: requiredText(provenance.runId, 'runId'),
+    compatibleRunId: requiredText(provenance.compatibleRunId, 'compatibleRunId'),
+    resumed: provenance.resumed,
+    evaluationCount: requiredCount(provenance.evaluationCount, 'evaluationCount'),
+    tokenUsage,
+    artifactDir: requiredText(provenance.artifactDir, 'artifactDir'),
+  }
+}
+
+function assertCompleteCost(
+  cost: { totalCostUsd: number; accountingComplete: boolean; incompleteReasons: string[] },
+  seatName: string,
+): void {
+  if (!Number.isFinite(cost.totalCostUsd) || cost.totalCostUsd < 0) {
+    throw new Error(`gepa seat '${seatName}': optimizer returned invalid total cost`)
+  }
+  if (
+    !Array.isArray(cost.incompleteReasons) ||
+    cost.incompleteReasons.some(
+      (reason) => typeof reason !== 'string' || reason.length === 0 || reason !== reason.trim(),
+    )
+  ) {
+    throw new Error(`gepa seat '${seatName}': optimizer returned invalid incomplete reasons`)
+  }
+  if (cost.accountingComplete !== (cost.incompleteReasons.length === 0)) {
+    throw new Error(`gepa seat '${seatName}': optimizer returned inconsistent cost accounting`)
+  }
+  if (!cost.accountingComplete) {
+    throw new Error(
+      `gepa seat '${seatName}': cost accounting is incomplete: ${cost.incompleteReasons.join('; ') || 'no reason provided'}`,
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Mechanical activation predicate (gen-5 activation gate).
+// Mechanical activation predicate.
 // ---------------------------------------------------------------------------
 
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -397,7 +583,6 @@ export function mechanicalActivationPredicate(
   if (added.length === 0) return null
   const line = added.reduce((a, b) => (b.length > a.length ? b : a))
   return {
-    version: 'v1',
     description: `gepa-author surface change fired: candidate text from ${surface} appears in run artifacts`,
     kind: 'grep',
     pattern: escapeRegExp(line),
@@ -410,16 +595,56 @@ export function mechanicalActivationPredicate(
 
 export interface GepaSeatDeps {
   smokeRunner: SmokeRunner
+  runnerImplementationRef: string
+  judgeImplementationRef: string
   /** Resolved PUBLIC smoke instance (outer-loop restricts the choice to the
    *  split's public set; re-asserted here fail-closed). */
   smokeInstanceId: string
   scoreSplit: Pick<ScoreSplit, 'privateInstances'> | null
-  /** Test seam. Default: checked dynamic import of the installed adapter. */
+  /** Test override. Default: agent-eval's official GEPA method. */
   methodFactory?: GepaMethodFactory
+  /** Explicit model override. Production otherwise resolves the metered model from env. */
+  optimizer?: NonNullable<
+    GepaOptimizationMethodConfig<GepaSeatScenario, SmokeVerdict>['optimizer']
+  >
   log?: (msg: string) => void
 }
 
 const sha256 = (s: string): string => `sha256:${createHash('sha256').update(s).digest('hex')}`
+
+export function gepaSeatEvaluationId(input: {
+  smokeInstanceId: string
+  dispatchTimeoutMs: number
+  incumbentCommit: string
+  runnerImplementationRef: string
+  judgeImplementationRef: string
+}): string {
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.incumbentCommit)) {
+    throw new Error('gepa seat: incumbentCommit must be an immutable git object id')
+  }
+  const requireImplementationRef = (value: string, label: string): string => {
+    if (!/^sha256:[a-f0-9]{64}$/.test(value)) {
+      throw new Error(`gepa seat: ${label} must be an immutable sha256 reference`)
+    }
+    return value
+  }
+  const runnerRef = requireImplementationRef(
+    input.runnerImplementationRef,
+    'runnerImplementationRef',
+  )
+  const judgeRef = requireImplementationRef(
+    input.judgeImplementationRef,
+    'judgeImplementationRef',
+  )
+  return [
+    'swe-arena-gepa-seat',
+    `smoke=${input.smokeInstanceId}`,
+    `incumbent=${input.incumbentCommit}`,
+    `runner=${runnerRef}`,
+    `judge=${judgeRef}`,
+    `dispatchTimeoutMs=${input.dispatchTimeoutMs}`,
+  ].join('|')
+}
 
 /** Build the seat's `AuthorFn`. The fan-out calls it with the seat's scratch
  *  worktree (checked out at the incumbent commit); everything this function
@@ -437,8 +662,12 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
     const seed = await readFile(surfacePath, 'utf8').catch(() => {
       throw new Error(`gepa seat '${spec.name}': surface ${spec.surface} does not exist at the incumbent commit`)
     })
+    const incumbentCommit = (
+      await runOk('git', ['-C', args.worktreePath, 'rev-parse', 'HEAD'])
+    ).stdout.trim()
     const runDir = join(config.outDir, 'gepa-seat', `gen${generation}-${spec.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`)
     await mkdir(runDir, { recursive: true })
+    await pruneDetachedWorktrees(args.worktreePath)
 
     const objective =
       `Improve the supervisor-loop file '${spec.surface}' (returned as the COMPLETE new file content) so the ` +
@@ -451,7 +680,15 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
     assertNoPrivateLeak(objective + background + JSON.stringify([...scenarios.train, ...scenarios.selection]),
       deps.scoreSplit, 'bridge payload')
 
+    const storage = fsCampaignStorage()
+    const costLedger =
+      args.costLedger ??
+      createRunCostLedger({
+        storage,
+        runDir: `${runDir}/cost`,
+      })
     const innerScores: GepaInnerCall[] = []
+    let dispatchedCalls = 0
     const dispatchWithSurface = async (
       surface: MutableSurface,
       scenario: GepaSeatScenario,
@@ -460,27 +697,38 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
       if (typeof surface !== 'string') {
         throw new Error(`gepa seat '${spec.name}': candidate surface must be a string`)
       }
-      if (innerScores.length >= budget) {
+      const call = ++dispatchedCalls
+      if (call > budget) {
         // Defense-in-depth: the adapter's callback enforces the same cap.
         throw new Error(`gepa seat '${spec.name}': inner-call budget ${budget} exhausted`)
       }
-      await writeFile(surfacePath, surface)
-      const verdict = await deps.smokeRunner({
-        scratchPath: args.worktreePath,
-        generation,
-        proposer: spec,
-        ...(args.costLedger ? { costLedger: args.costLedger } : {}),
-      })
+      const candidateSha256 = sha256(surface)
+      const evaluationKey = `inner-${call}-${candidateSha256.slice(7, 19)}`
+      const candidateWorktree = join(runDir, 'candidate-worktrees', evaluationKey)
+      await createDetachedWorktree(args.worktreePath, incumbentCommit, candidateWorktree)
+      let verdict: SmokeVerdict
+      try {
+        await writeFile(join(candidateWorktree, spec.surface), surface)
+        verdict = await deps.smokeRunner({
+          scratchPath: candidateWorktree,
+          generation,
+          proposer: spec,
+          evaluationKey,
+          costLedger,
+        })
+      } finally {
+        await removeDetachedWorktree(args.worktreePath, candidateWorktree)
+      }
       if (deps.scoreSplit !== null && deps.scoreSplit.privateInstances.includes(verdict.iid)) {
         throw new Error(
           `gepa seat '${spec.name}': smoke ran PRIVATE instance ${verdict.iid} — refusing to feed its score to the bridge`,
         )
       }
       innerScores.push({
-        call: innerScores.length + 1,
+        call,
         scenarioId: scenario.id,
         smokeIid: verdict.iid,
-        candidateSha256: sha256(surface),
+        candidateSha256,
         composite: innerSmokeComposite(verdict),
         resolved: verdict.resolved,
         verifyPass: verdict.verifyPass ?? null,
@@ -488,21 +736,51 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
         wallS: verdict.wallS,
       })
       log(
-        `gepa seat ${spec.name} inner call ${innerScores.length}/${budget}: ` +
+        `gepa seat ${spec.name} inner call ${call}/${budget}: ` +
           `composite=${innerSmokeComposite(verdict)} (${verdict.reason})`,
       )
       return verdict
     }
 
-    const factory = deps.methodFactory ?? (await loadGepaMethodFactory())
+    const factory: GepaMethodFactory =
+      deps.methodFactory ?? gepaOptimizationMethod<GepaSeatScenario, SmokeVerdict>
+    const innerJudge = innerSmokeJudge()
+    const optimizer =
+      deps.optimizer ??
+      (deps.methodFactory
+        ? undefined
+        : officialOptimizerModel({
+            env: process.env,
+            envPrefix: 'GEPA_OPTIMIZER',
+            model: process.env.GEPA_OPTIMIZER_MODEL ?? config.arm.driverModel,
+            baseUrl:
+              process.env.GEPA_OPTIMIZER_BASE_URL ??
+              process.env.ROUTER_BASE ??
+              'https://router.tangle.tools/v1',
+            apiKey: process.env.GEPA_OPTIMIZER_API_KEY ?? process.env.TANGLE_API_KEY ?? '',
+            maxCostUsd: spec.maxProposerCostUsd ?? DEFAULT_MAX_PROPOSER_COST_USD,
+            maxOutputTokensPerRequest: Number(
+              process.env.GEPA_OPTIMIZER_MAX_OUTPUT_TOKENS ?? 16_384,
+            ),
+          }))
     const method = factory({
       name: `gepa-seat:${spec.name}`,
       recipe,
       objective,
+      evaluationId: gepaSeatEvaluationId({
+        smokeInstanceId: deps.smokeInstanceId,
+        dispatchTimeoutMs: config.dispatchTimeoutMs,
+        incumbentCommit,
+        runnerImplementationRef: deps.runnerImplementationRef,
+        judgeImplementationRef: deps.judgeImplementationRef,
+      }),
       background,
       describeScenario: (scenario) => ({ id: scenario.id }),
-      // Ceiling, not expectation: every inner call is a real arm cell.
+      ...(optimizer ? { optimizer } : {}),
+      // Upper bound, not expectation: every inner call is a real arm cell.
       timeoutMs: budget * config.dispatchTimeoutMs,
+      resume: 'if-compatible',
+      trustResumeState: true,
       runner: { command: spec.python ?? DEFAULT_GEPA_PYTHON },
     })
 
@@ -511,10 +789,11 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
       trainScenarios: scenarios.train,
       selectionScenarios: scenarios.selection,
       dispatchWithSurface,
-      judges: [innerSmokeJudge()],
+      judges: [innerJudge],
       runDir,
       seed: config.round * 1000 + generation,
       runOptions: {
+        storage,
         maxConcurrency: 1,
         dispatchTimeoutMs: config.dispatchTimeoutMs,
         labeledStore: 'off',
@@ -522,30 +801,45 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
         expectUsage: 'off',
         resumable: false,
       },
+      costLedger,
     }
 
     const started = Date.now()
     const result = await method.optimize(input)
-    const winner = result.winnerSurface
-    if (typeof winner !== 'string' || winner.trim().length === 0) {
-      throw new Error(`gepa seat '${spec.name}': adapter returned a non-string winner surface`)
+    let innerRun: GepaSeatInnerRun
+    try {
+      const orderedInnerScores = [...innerScores].sort((a, b) => a.call - b.call)
+      innerRun = {
+        seat: spec.name,
+        engine: spec.engine,
+        surface: spec.surface,
+        generation,
+        budget,
+        innerCallCount: orderedInnerScores.length,
+        innerScores: orderedInnerScores,
+        bestComposite:
+          orderedInnerScores.length > 0
+            ? Math.max(...orderedInnerScores.map((score) => score.composite))
+            : null,
+        ...completeProvenance(result.provenance, spec.name),
+        totalCostUsd: result.cost.totalCostUsd,
+        accountingComplete: result.cost.accountingComplete,
+        incompleteReasons: [...result.cost.incompleteReasons],
+        durationMs: Date.now() - started,
+      }
+      await writeFile(join(runDir, 'inner-provenance.json'), JSON.stringify(innerRun, null, 2))
+      await recordGepaSeatInnerRun(config.outDir, innerRun)
+      assertCompleteCost(result.cost, spec.name)
+    } catch (error) {
+      await writeFile(surfacePath, seed)
+      throw error
     }
 
-    const innerRun: GepaSeatInnerRun = {
-      seat: spec.name,
-      engine: spec.engine,
-      surface: spec.surface,
-      generation,
-      budget,
-      innerCallCount: innerScores.length,
-      innerScores,
-      bestComposite: innerScores.length > 0 ? Math.max(...innerScores.map((s) => s.composite)) : null,
-      adapterReportedCostUsd: result.cost.totalCostUsd,
-      adapterCostAccountingComplete: result.cost.accountingComplete,
-      durationMs: Date.now() - started,
+    const winner = result.winnerSurface
+    if (typeof winner !== 'string' || winner.trim().length === 0) {
+      await writeFile(surfacePath, seed)
+      throw new Error(`gepa seat '${spec.name}': adapter returned a non-string winner surface`)
     }
-    await writeFile(join(runDir, 'inner-provenance.json'), JSON.stringify(innerRun, null, 2))
-    await recordGepaSeatInnerRun(config.outDir, innerRun)
 
     if (winner === seed) {
       // Restore the seed (the last inner call may have left another candidate)

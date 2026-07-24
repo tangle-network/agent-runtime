@@ -1,7 +1,6 @@
 /**
  *
- * `agenticGenerator` — the full-agentic `CandidateGenerator`: the
- * `shots=N, sandbox=on` setting of the one `improvementDriver`. It runs a real
+ * `agenticGenerator` — the full-agentic `CandidateGenerator`. It runs a real
  * coding harness (claude / codex / opencode) inside the candidate worktree the
  * driver already created, letting the agent read the codebase + the research
  * report and make the change in place. The driver then commits the worktree
@@ -237,7 +236,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
     kind: `agentic:${harness}`,
     // The seed repo + (in rawTraceContext mode) the raw-trace filesystem context
     // are the change signal — an agentic coder proposes from them even when the
-    // distiller yielded zero findings. Without this, the improvementDriver's
+    // distiller yielded zero findings. Without this, the code candidate driver's
     // empty-findings guard short-circuits and generates ZERO candidates on the
     // first (and, for a single-generation run, only) proposal round.
     proposesWithoutFindings: true,

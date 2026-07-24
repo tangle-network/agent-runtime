@@ -129,7 +129,14 @@ runInteraction({
   store,
 })
 
-improve(profile, findings, options)
+improve(profile, {
+  method,
+  trainScenarios,
+  selectionScenarios,
+  testScenarios,
+  judges,
+  agent,
+})
 ```
 
 `runAgent` is the common path for one root profile that may dynamically delegate.

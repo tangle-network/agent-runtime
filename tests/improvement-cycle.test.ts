@@ -1,11 +1,3 @@
-import type { AnalystFinding } from '@tangle-network/agent-eval'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-  SurfaceProposer,
-} from '@tangle-network/agent-eval/contract'
 import {
   sealCandidateBenchmarkSuite,
   sealCandidateBenchmarkTask,
@@ -54,79 +46,16 @@ import {
   cleanupCandidateExperimentFixtures,
   createCandidateExperimentFixture,
 } from './helpers/candidate-experiment-fixture'
-
-const finding: AnalystFinding = {
-  schema_version: '1.0.0',
-  finding_id: 'finding-1',
-  analyst_id: 'improvement',
-  produced_at: '2026-07-10T00:00:00.000Z',
-  severity: 'high',
-  area: 'prompt',
-  claim: 'The agent omits the required answer.',
-  evidence_refs: [{ kind: 'span', id: 'span-1' }],
-  recommended_action: 'Return the measured answer.',
-  confidence: 0.9,
-  subject: 'agent-profile:prompt.systemPrompt',
-}
-
-interface ImprovementScenario extends Scenario {
-  kind: 'improvement-test'
-}
-
-const improvementScenarios: ImprovementScenario[] = Array.from({ length: 12 }, (_, index) => ({
-  id: `improvement-${index}`,
-  kind: 'improvement-test',
-}))
-
-const improvementAgent = async (
-  surface: MutableSurface,
-  _scenario: ImprovementScenario,
-  context: DispatchContext,
-): Promise<string> => {
-  const paid = await context.cost.runPaidCall({
-    channel: 'agent',
-    actor: 'improvement-cycle-test',
-    model: 'deterministic-test',
-    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => String(surface),
-    receipt: () => ({
-      model: 'deterministic-test',
-      inputTokens: 1,
-      outputTokens: 1,
-      actualCostUsd: 0.0001,
-    }),
-  })
-  if (!paid.succeeded) throw paid.error
-  return paid.value
-}
-
-const improvementJudge: JudgeConfig<string, ImprovementScenario> = {
-  name: 'exact-prompt',
-  dimensions: [{ key: 'quality', description: 'Candidate prompt selected.' }],
-  score: ({ artifact }) => {
-    const composite = artifact === 'PROMOTED' ? 1 : 0
-    return { dimensions: { quality: composite }, composite, notes: '' }
-  },
-}
-
-const improvementProposer: SurfaceProposer = {
-  kind: 'deterministic-candidate',
-  propose: async () => [
-    { surface: 'PROMOTED', label: 'measured candidate', rationale: 'test fixture' },
-  ],
-}
+import {
+  candidateExperimentMaterial,
+  improvementFinding as finding,
+  improvementOptions,
+} from './helpers/improvement-method-fixture'
 
 afterEach(() => {
   cleanupCandidateExperimentFixtures()
   cleanupCandidateFixtures()
 })
-
-function candidateExperimentMaterial(
-  experiment: CandidateExperimentFixture['experiment'],
-): AgentImprovementExperimentMaterial {
-  const { candidateLineage: _candidateLineage, digest: _digest, ...material } = experiment
-  return material
-}
 
 // These exercise the whole improvement lifecycle — real content-addressing, real file I/O, a
 // paired matrix — and on CI the slowest already burn ~4.3s of the 5s default. That leaves the
@@ -157,14 +86,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         findingsStore: null,
         log: () => {},
       },
-      improvement: {
-        surface: 'prompt',
-        generator: improvementProposer,
-        scenarios: improvementScenarios,
-        judge: improvementJudge,
-        agent: improvementAgent,
-        budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-      },
+      improvement: improvementOptions(),
       buildExperiment: ({ improvement }) => {
         if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
         const candidate = redigestCandidateBundle(seed.experiment.baseline, {
@@ -227,8 +149,8 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     expect(result.experiment.candidateLineage).toEqual({
       source: 'optimizer',
       parentDigests: [measured.experiment.baseline.digest],
-      runIds: [result.improvement.raw.provenance.runId],
-      developmentSplitDigest: result.improvement.raw.provenance.evidence.search.splitDigest,
+      runIds: [result.improvement.lineage.runId],
+      developmentSplitDigest: result.improvement.lineage.developmentSplitDigest,
     })
     expect(activation.targets[0].expectedBaseDigest).toBe(promptSurfaceDigest(measured))
     expect(activationResult.outcome.status).toBe('applied')
@@ -261,14 +183,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
           findingsStore: null,
           log: () => {},
         },
-        improvement: {
-          surface: 'prompt',
-          generator: improvementProposer,
-          scenarios: improvementScenarios,
-          judge: improvementJudge,
-          agent: improvementAgent,
-          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-        },
+        improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
           if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
           const substituted = {
@@ -338,14 +253,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
           findingsStore: null,
           log: () => {},
         },
-        improvement: {
-          surface: 'prompt',
-          generator: improvementProposer,
-          scenarios: improvementScenarios,
-          judge: improvementJudge,
-          agent: improvementAgent,
-          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-        },
+        improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
           if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
           const candidate = redigestCandidateBundle(seed.experiment.baseline, {
@@ -391,14 +299,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
           findingsStore: null,
           log: () => {},
         },
-        improvement: {
-          surface: 'prompt',
-          generator: improvementProposer,
-          scenarios: improvementScenarios,
-          judge: improvementJudge,
-          agent: improvementAgent,
-          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-        },
+        improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
           if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
           const candidate = redigestCandidateBundle(seed.experiment.baseline, {
@@ -415,7 +316,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
             ...taskMaterial,
             benchmark: {
               ...task.benchmark,
-              splitDigest: improvement.raw.provenance.evidence.search.splitDigest,
+              splitDigest: improvement.lineage.developmentSplitDigest,
             },
           })
           return {

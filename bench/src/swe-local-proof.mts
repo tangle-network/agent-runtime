@@ -46,6 +46,9 @@ async function main(): Promise<void> {
 
   const { environment, tasks, adapter } = await createSweBenchEnvironment(ids.length, { ids, enableRun })
   const taskList = await tasks(0, ids.length)
+  const benchTaskById = new Map(
+    (await adapter.loadTasks({ ids, split: 'test' })).map((task) => [task.id, task]),
+  )
 
   // One shot per pinned id: proxy score() to capture the exact judged bytes + a NON-DESTRUCTIVE
   // apply-coherence check, then delegate the verdict to the real Docker judge.
@@ -123,7 +126,9 @@ async function main(): Promise<void> {
       // Cached judge: identical patch ⇒ identical verdict; don't pay for a second Docker run.
       let s = judged.get(effPatch)
       if (!s) {
-        s = await adapter.judge(task, effPatch)
+        const benchTask = benchTaskById.get(task.id)
+        if (!benchTask) throw new Error(`swe-local-proof: unknown benchmark task ${task.id}`)
+        s = await adapter.judge(benchTask, effPatch)
         judged.set(effPatch, s)
       }
       rec.score = s

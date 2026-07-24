@@ -1,20 +1,16 @@
 import {
-  gepaProposer,
-  runImprovementLoop,
-  runOptimization,
-  skillOptProposer,
+  gepaOptimizationMethod,
+  inMemoryCampaignStorage,
+  type OptimizationMethod,
+  skillOptOptimizationMethod,
 } from '@tangle-network/agent-eval/campaign'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-  SurfaceProposer,
-} from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../src/durable/spawn-journal'
-import { improve } from '../src/improvement'
+import * as runtimeImprovement from '../src/improvement'
+import { improve, officialGepa, officialSkillOpt } from '../src/improvement'
+import type { ReadonlyAgentProfile } from '../src/improvement/profile-types'
 import { loopUntil } from '../src/runtime/personify/combinators'
 import { definePersona, runPersonified } from '../src/runtime/personify/persona'
 import type { Outcome } from '../src/runtime/personify/wave-types'
@@ -36,23 +32,24 @@ const scenarios: ProfileScenario[] = Array.from({ length: 12 }, (_, i) => ({
   id: `profile-${i}`,
   kind: 'profile-stack' as const,
 }))
+const trainScenarios = scenarios.slice(0, 4)
+const selectionScenarios = scenarios.slice(4, 8)
+const testScenarios = scenarios.slice(8)
+const executionRef = canonicalCandidateDigest({ fixture: 'profile-improvement-stack' })
 
 const baseProfile = (): AgentProfile => ({
   name: 'incident-responder',
   prompt: { systemPrompt: 'Handle the task directly.' },
 })
 
-const improvingProposer: SurfaceProposer = {
-  kind: 'scripted-gepa-slot',
-  async propose() {
-    return [
-      {
-        surface:
-          'Handle the task directly.\n\nREPAIR_ON_FAILURE: after a failed draft, revise once using the failure signal.',
-        label: 'repair-on-failure',
-        rationale: 'Add the missing retry policy as a profile instruction.',
-      },
-    ]
+const improvingMethod: OptimizationMethod<ProfileScenario, { prompt: string }> = {
+  name: 'scripted-complete-method',
+  async optimize() {
+    return {
+      winnerSurface:
+        'Handle the task directly.\n\nREPAIR_ON_FAILURE: after a failed draft, revise once using the failure signal.',
+      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+    }
   },
 }
 
@@ -66,7 +63,7 @@ const promptJudge: JudgeConfig<{ prompt: string }, ProfileScenario> = {
 }
 
 async function promptAgent(
-  surface: MutableSurface,
+  profile: ReadonlyAgentProfile,
   _scenario: ProfileScenario,
   ctx: DispatchContext,
 ): Promise<{ prompt: string }> {
@@ -75,7 +72,7 @@ async function promptAgent(
     actor: 'profile-stack-test',
     model: 'deterministic-test',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => ({ prompt: String(surface) }),
+    execute: async () => ({ prompt: profile.prompt?.systemPrompt ?? '' }),
     receipt: () => ({
       model: 'deterministic-test',
       inputTokens: 1,
@@ -168,22 +165,31 @@ function foldedAnswer(settled: Settled<Outcome<LoopDeliverable>>): string | null
   return String((out as { answer: unknown }).answer)
 }
 
-describe('profile improvement stack — agent-eval optimizer plus runtime loop', () => {
-  it('uses current agent-eval optimizer exports instead of local mutators', () => {
-    expect(typeof gepaProposer).toBe('function')
-    expect(typeof skillOptProposer).toBe('function')
-    expect(typeof runOptimization).toBe('function')
-    expect(typeof runImprovementLoop).toBe('function')
+describe('profile improvement stack', () => {
+  it('exposes complete official methods without public proposer defaults', () => {
+    expect(typeof gepaOptimizationMethod).toBe('function')
+    expect(typeof skillOptOptimizationMethod).toBe('function')
+    expect(typeof officialGepa).toBe('function')
+    expect(typeof officialSkillOpt).toBe('function')
+    expect(runtimeImprovement).not.toHaveProperty('improvementDriver')
+    expect(runtimeImprovement).not.toHaveProperty('profileDiffProposer')
   })
 
   it('runs a detached profile candidate through loopUntil()', async () => {
-    const improved = await improve(baseProfile(), [{ failure: 'single draft gets stuck' }], {
+    const improved = await improve(baseProfile(), {
       surface: 'prompt',
-      scenarios,
-      judge: promptJudge,
+      executionRef,
+      method: improvingMethod,
+      findings: [{ failure: 'single draft gets stuck' }],
+      trainScenarios,
+      selectionScenarios,
+      testScenarios,
+      judges: [promptJudge],
       agent: promptAgent,
-      generator: improvingProposer,
-      budget: { generations: 1, populationSize: 1, reps: 3, holdoutFraction: 0.5 },
+      runDir: 'mem://profile-improvement-stack',
+      storage: inMemoryCampaignStorage(),
+      resamples: 40,
+      confidence: 0.95,
     })
 
     expect(improved.decision).toBe('ship')

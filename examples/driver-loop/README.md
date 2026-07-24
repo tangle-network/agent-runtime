@@ -66,5 +66,5 @@ credentials, no network, same result every run.
 ## Honest scope
 
 Everything here is real and runs for $0 — the *worker* is scripted so the loop is deterministic and
-provable, but the driver, the loop kernel (`runLoop`), and the winner-selection are the actual runtime
+provable, but the driver, the loop kernel (`runAgentRounds`), and the winner-selection are the actual runtime
 primitives. Swap the scripted worker for a live model-backed one and the same driver drives it.

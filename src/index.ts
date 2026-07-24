@@ -117,14 +117,14 @@ export {
   ValidationError,
 } from './errors'
 // ── Improvement (self-improvement surfaces) ──────────────────────────
-// `improve` is the one pluggable RSI verb (facade over agent-eval's
-// `selfImprove`); the rest are the code-surface driver + its generators.
+// Complete agent-eval methods optimize profile fields. Runtime owns only
+// isolated code/worktree candidate execution.
 export * from './improvement'
 // ── Knowledge orchestration ──────────────────────────────────────────
 // Runtime owns live agent orchestration; agent-knowledge owns the KB/RAG/memory state.
 // These wrappers bridge the two without making agent-knowledge import runtime.
 export * from './knowledge'
-// ── Delegated loop-runner (configured code/research/review/audit/self-improve) ──
+// ── Delegated loop-runner (configured code/research/review/audit/improvement) ──
 export {
   auditLoopRunner,
   DELEGATED_LOOP_MODES,
@@ -138,7 +138,6 @@ export {
   type RunDelegatedLoopOptions,
   researchLoopRunner,
   runDelegatedLoop,
-  selfImproveLoopRunner,
   type VetoedFact,
   type WorktreeLoopRunnerOptions,
   worktreeLoopRunner,

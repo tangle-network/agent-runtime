@@ -8,6 +8,11 @@ const clock = () => {
 }
 
 describe('runDelegatedLoop — mode dispatch', () => {
+  it('does not expose the legacy proposer-driven self-improvement factory', async () => {
+    const runtime = await import('../src/index')
+    expect(runtime).not.toHaveProperty('selfImproveLoopRunner')
+  })
+
   it('routes to the registered runner and returns a uniform ok result', async () => {
     const registry: DelegatedLoopRegistry = {
       research: async () => ({ grounded: 3 }),

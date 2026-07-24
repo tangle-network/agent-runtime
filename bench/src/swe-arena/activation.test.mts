@@ -26,7 +26,6 @@ describe('parseActivationPredicate', () => {
   it('accepts a valid grep predicate (with optional files filters)', () => {
     const parsed = parseActivationPredicate(
       JSON.stringify({
-        version: 'v1',
         description: 'patchRiskWarnings emitted in at least one settle',
         kind: 'grep',
         pattern: 'patchRiskWarnings|patch-risk',
@@ -38,7 +37,7 @@ describe('parseActivationPredicate', () => {
 
   it('accepts a valid script predicate', () => {
     const parsed = parseActivationPredicate(
-      JSON.stringify({ version: 'v1', description: 'x', kind: 'script', script: 'grep -rq X .' }),
+      JSON.stringify({ description: 'x', kind: 'script', script: 'grep -rq X .' }),
     )
     expect(parsed.ok).toBe(true)
   })
@@ -46,13 +45,12 @@ describe('parseActivationPredicate', () => {
   it.each([
     ['not json', 'not valid JSON'],
     ['[]', 'JSON object'],
-    [JSON.stringify({ version: 'v2', description: 'x', kind: 'grep', pattern: 'a' }), 'version'],
-    [JSON.stringify({ version: 'v1', description: '', kind: 'grep', pattern: 'a' }), 'description'],
-    [JSON.stringify({ version: 'v1', description: 'x', kind: 'grep' }), 'pattern'],
-    [JSON.stringify({ version: 'v1', description: 'x', kind: 'grep', pattern: '(' }), 'RegExp'],
-    [JSON.stringify({ version: 'v1', description: 'x', kind: 'grep', pattern: 'a', files: [1] }), 'files'],
-    [JSON.stringify({ version: 'v1', description: 'x', kind: 'script' }), 'script'],
-    [JSON.stringify({ version: 'v1', description: 'x', kind: 'sql' }), 'kind'],
+    [JSON.stringify({ description: '', kind: 'grep', pattern: 'a' }), 'description'],
+    [JSON.stringify({ description: 'x', kind: 'grep' }), 'pattern'],
+    [JSON.stringify({ description: 'x', kind: 'grep', pattern: '(' }), 'RegExp'],
+    [JSON.stringify({ description: 'x', kind: 'grep', pattern: 'a', files: [1] }), 'files'],
+    [JSON.stringify({ description: 'x', kind: 'script' }), 'script'],
+    [JSON.stringify({ description: 'x', kind: 'sql' }), 'kind'],
   ])('rejects %s', (raw, want) => {
     const parsed = parseActivationPredicate(raw)
     expect(parsed.ok).toBe(false)
@@ -84,7 +82,6 @@ describe('runActivationPredicate', () => {
   })
 
   const grep = (pattern: string, files?: string[]) => ({
-    version: 'v1' as const,
     description: 'd',
     kind: 'grep' as const,
     pattern,
@@ -127,7 +124,7 @@ describe('runActivationPredicate', () => {
   })
 
   it('script kind fires on rc=0 in any run dir, not-fired otherwise', async () => {
-    const script = (s: string) => ({ version: 'v1' as const, description: 'd', kind: 'script' as const, script: s })
+    const script = (s: string) => ({ description: 'd', kind: 'script' as const, script: s })
     const hit = await runActivationPredicate(script('grep -q patchRiskWarnings driver.log'), [runA, runB])
     expect(hit.fired).toBe(true)
     expect(hit.evidence[0]).toContain(runB)
@@ -261,11 +258,11 @@ describe('activation-predicate prefilter', () => {
           await mkdir(join(args.worktreePath, '.improve'), { recursive: true })
           await writeFile(
             join(args.worktreePath, ACTIVATION_PREDICATE_RELPATH),
-            JSON.stringify({ version: 'v1', description: 'd', kind: 'grep', pattern: 'x' }),
+            JSON.stringify({ description: 'd', kind: 'grep', pattern: 'x' }),
           )
         } else if (proposer.name === 'invalid-predicate') {
           await mkdir(join(args.worktreePath, '.improve'), { recursive: true })
-          await writeFile(join(args.worktreePath, ACTIVATION_PREDICATE_RELPATH), '{"version":"v1"}')
+          await writeFile(join(args.worktreePath, ACTIVATION_PREDICATE_RELPATH), '{}')
         }
         return { applied: true, summary: `${proposer.name} edit` }
       },

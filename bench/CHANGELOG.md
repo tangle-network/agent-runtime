@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Add the resumable SWE improvement loop backed by the official GEPA engine.
+- Isolate every concurrent candidate in its own Git worktree and authorize the exact candidate before execution.
+- Include the complete Runtime, Bench, and installed SWE judge implementations in resume identity.
+- Consume `@tangle-network/agent-runtime` 0.105.x, `@tangle-network/agent-eval` 0.126.6, and `@tangle-network/agent-knowledge` 5.0.1.
+
 ## 0.3.8
 
 - Resolve package-owned fixtures and scripts from both source and compiled installs, and prove ToolLLM fixture loading from the packed package.

@@ -1,83 +1,66 @@
-/**
- * `improve()` default-proposer resolution proof.
- *
- * The regression this guards: `improve()` maps each surface to a default
- * `SurfaceProposer` — `prompt → gepaProposer`, `skills → skillOptProposer`,
- * `memory → memoryCurationProposer`.
- * If either import resolves to `undefined` (a substrate export drift), the facade
- * does not fail at module load — it fails at CALL time, the first time a caller
- * names that surface. So a green typecheck is not enough; this test drives the
- * REAL `improve()` far enough to construct the default proposer and run the
- * baseline-only loop to a gate decision.
- *
- * It is deterministic and offline: `gate: 'none'` forces `generations = 0`, so
- * `selfImprove` runs the baseline cells only and never calls the reflection LLM
- * the proposer wraps. The stub agent reports a token-bearing cost through
- * `ctx.cost` so the substrate's backend-integrity guard (default `'assert'`)
- * sees a real backend rather than a silent-zero stub.
- */
-
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   gitWorktreeAdapter,
+  inMemoryCampaignStorage,
+  type OptimizationMethod,
+  type OptimizationMethodInput,
   type Worktree,
   type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 import type {
-  CodeSurface,
   DispatchContext,
   JudgeConfig,
+  MutableSurface,
   Scenario,
-  SurfaceProposer,
 } from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
-import {
-  type ImproveOptions,
-  type ImproveSkillsOptions,
-  type ImproveSurface,
-  improve,
-} from './improve'
+import { improve } from './improve'
+import type { ReadonlyAgentProfile } from './profile-types'
 
-// Four scenarios so the train/holdout split is non-empty at the default 0.25
-// holdout fraction (a single scenario yields an empty train split).
-const scenarios: Scenario[] = [
-  { id: 'a', kind: 'fixture' },
-  { id: 'b', kind: 'fixture' },
-  { id: 'c', kind: 'fixture' },
-  { id: 'd', kind: 'fixture' },
-]
-
-// A deterministic judge — every artifact scores the same. The POINT is the
-// proposer wiring, not a score gradient.
-const judge: JudgeConfig<{ text: string }, Scenario> = {
-  name: 'stub-judge',
-  dimensions: [{ key: 'q', description: 'fixture quality' }],
-  score: () => ({ dimensions: { q: 0.5 }, composite: 0.5, notes: '' }),
+interface TestScenario extends Scenario {
+  kind: 'fixture'
 }
 
-const improvementJudge: JudgeConfig<{ text: string }, Scenario> = {
-  name: 'improvement-judge',
-  dimensions: [{ key: 'q', description: 'contains the measured improvement marker' }],
+interface TextArtifact {
+  text: string
+}
+
+const trainScenarios: TestScenario[] = [{ id: 'train', kind: 'fixture' }]
+const selectionScenarios: TestScenario[] = [{ id: 'selection', kind: 'fixture' }]
+const testScenarios: TestScenario[] = [
+  { id: 'test-a', kind: 'fixture' },
+  { id: 'test-b', kind: 'fixture' },
+]
+const allScenarios = [...trainScenarios, ...selectionScenarios, ...testScenarios]
+const executionRef = canonicalCandidateDigest({ fixture: 'improve-method' })
+
+const improvementJudge: JudgeConfig<TextArtifact, TestScenario> = {
+  name: 'improvement',
+  dimensions: [{ key: 'quality', description: 'candidate contains the improvement marker' }],
   score: ({ artifact }) => {
-    const score = artifact.text.includes('improved') ? 1 : 0
-    return { dimensions: { q: score }, composite: score, notes: '' }
+    const quality = artifact.text.includes('improved') ? 1 : 0
+    return { dimensions: { quality }, composite: quality, notes: '' }
   },
 }
 
-async function paidStubCall<T>(
+async function paidArtifact(
+  text: string,
+  _scenario: TestScenario,
   ctx: DispatchContext,
-  actor: string,
-  execute: () => T | Promise<T>,
-): Promise<T> {
+): Promise<TextArtifact> {
   const paid = await ctx.cost.runPaidCall({
     channel: 'agent',
-    actor,
-    model: 'stub-model',
+    actor: 'test-agent',
+    model: 'deterministic-test',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => execute(),
+    execute: async () => ({ text }),
     receipt: () => ({
-      model: 'stub-model',
+      model: 'deterministic-test',
       inputTokens: 1,
       outputTokens: 1,
       actualCostUsd: 0.0001,
@@ -87,1123 +70,759 @@ async function paidStubCall<T>(
   return paid.value
 }
 
-// The fake dispatch enters the same paid-call path as a real backend so the
-// backend-integrity check sees its explicit token and cost receipt.
-async function stubAgent(
-  surface: unknown,
-  _scenario: Scenario,
+async function paidProfile(
+  profile: ReadonlyAgentProfile,
+  scenario: TestScenario,
   ctx: DispatchContext,
-): Promise<{ text: string }> {
-  return paidStubCall(ctx, 'stub-agent', () => ({ text: String(surface) }))
+): Promise<TextArtifact> {
+  return paidArtifact(profile.prompt?.systemPrompt ?? '', scenario, ctx)
+}
+
+function fixedMethod(
+  winnerSurface: MutableSurface,
+  inspect?: (input: OptimizationMethodInput<TestScenario, TextArtifact>) => void,
+): OptimizationMethod<TestScenario, TextArtifact> {
+  return {
+    name: 'fixed-method',
+    async optimize(input) {
+      inspect?.(input)
+      return {
+        winnerSurface,
+        cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+        durationMs: 1,
+      }
+    },
+  }
+}
+
+function methodOptions(method: OptimizationMethod<TestScenario, TextArtifact>): {
+  method: OptimizationMethod<TestScenario, TextArtifact>
+  executionRef: typeof executionRef
+  trainScenarios: TestScenario[]
+  selectionScenarios: TestScenario[]
+  testScenarios: TestScenario[]
+  judges: JudgeConfig<TextArtifact, TestScenario>[]
+  agent: typeof paidProfile
+  runDir: string
+  storage: ReturnType<typeof inMemoryCampaignStorage>
+  resamples: number
+  confidence: number
+} {
+  return {
+    method,
+    executionRef,
+    trainScenarios,
+    selectionScenarios,
+    testScenarios,
+    judges: [improvementJudge],
+    agent: paidProfile,
+    runDir: `mem://improve-method-${Math.random()}`,
+    storage: inMemoryCampaignStorage(),
+    resamples: 40,
+    confidence: 0.95,
+  }
 }
 
 const promptProfile = (): AgentProfile => ({
   name: 'fixture-agent',
-  prompt: { systemPrompt: 'be careful' },
+  prompt: { systemPrompt: 'baseline' },
 })
 
-const skillDocument = '# Fixture skill\n\nCheck the result.\n'
-
-const skillProfile = (): AgentProfile => ({
-  name: 'fixture-agent',
-  resources: {
-    failOnError: true,
-    skills: [{ kind: 'inline', name: 'fixture-skill', content: skillDocument }],
-  },
-})
-
-const memoryProfile = (document = '# Durable memory\n'): AgentProfile => ({
-  name: 'fixture-agent',
-  resources: {
-    failOnError: true,
-    instructions: { kind: 'inline', name: 'durable-memory', content: document },
-  },
-})
-
-describe('improve() — default proposer resolution (substrate export drift guard)', () => {
-  it("surface 'prompt' resolves gepaProposer and runs the baseline loop without crashing", async () => {
-    const result = await improve(promptProfile(), [], {
+describe('improve method execution', () => {
+  it('runs a complete method without exposing final-test cases and materializes its prompt', async () => {
+    let observed: OptimizationMethodInput<TestScenario, TextArtifact> | undefined
+    let observedEvaluationRef = ''
+    const profile = promptProfile()
+    const method = fixedMethod('improved prompt', (input) => (observed = input))
+    const result = await improve(profile, {
+      ...methodOptions(method),
       surface: 'prompt',
-      gate: 'none',
-      scenarios,
-      judge,
-      agent: stubAgent,
-    })
-
-    // The default gepaProposer was constructed (not undefined) and selfImprove
-    // ran to a gate decision; a baseline-only run holds.
-    expect(result.decision).toBe('hold')
-    expect(result.candidate).toMatchObject({
-      surface: 'prompt',
-      value: 'be careful',
-      profile: { prompt: { systemPrompt: 'be careful' } },
-    })
-  })
-
-  it("surface 'skills' resolves skillOptProposer and runs the baseline loop without crashing", async () => {
-    const result = await improve(skillProfile(), [], {
-      surface: 'skills',
-      gate: 'none',
-      scenarios,
-      judge,
-      agent: stubAgent,
-      skills: { resourceName: 'fixture-skill' },
-    })
-
-    expect(result.decision).toBe('hold')
-    expect(result.candidate).toMatchObject({
-      surface: 'skills',
-      value: skillDocument,
-      profile: { resources: { skills: [{ content: skillDocument }] } },
-    })
-  })
-
-  it("surface 'skills' fails loud without an exact inline resource identity", async () => {
-    await expect(
-      improve(skillProfile(), [], {
-        surface: 'skills',
-        gate: 'none',
-        scenarios,
-        judge,
-        agent: stubAgent,
-      }),
-    ).rejects.toThrow(/requires opts\.skills\.resourceName/)
-  })
-
-  it("surface 'memory' resolves memoryCurationProposer from exact profile instructions", async () => {
-    const result = await improve(memoryProfile(), [], {
-      surface: 'memory',
-      gate: 'none',
-      scenarios,
-      judge,
-      agent: stubAgent,
-    })
-
-    expect(result.decision).toBe('hold')
-    expect(result.candidate.value).toBe('# Durable memory\n')
-    expect(result.candidate.profile?.resources?.instructions).toEqual({
-      kind: 'inline',
-      name: 'durable-memory',
-      content: '# Durable memory\n',
-    })
-    await expect(
-      improve(promptProfile(), [], {
-        surface: 'memory',
-        gate: 'none',
-        scenarios,
-        judge,
-        agent: stubAgent,
-      }),
-    ).rejects.toThrow(/requires profile\.resources\.failOnError/)
-  })
-
-  it("surface 'memory' returns a frozen profile without changing the baseline", async () => {
-    const baseline = '# Durable memory\n'
-    const profile = memoryProfile(baseline)
-    const result = await improve(profile, [{ claim: 'improved verification lesson' }], {
-      surface: 'memory',
-      scenarios,
-      judge: improvementJudge,
-      agent: stubAgent,
-      promotionGate: {
-        name: 'test-ship',
-        decide: async () => ({
-          decision: 'ship',
-          reasons: ['test candidate'],
-          contributingGates: [],
-        }),
+      method: (context) => {
+        observedEvaluationRef = context.evaluationRef
+        return method
       },
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
     })
 
+    expect(observed?.trainScenarios.map((scenario) => scenario.id)).toEqual(['train'])
+    expect(observed?.selectionScenarios.map((scenario) => scenario.id)).toEqual(['selection'])
+    expect(observed?.runOptions.dispatchRef).toBe(`improve:${observedEvaluationRef}`)
+    expect(observed?.judges[0]?.judgeVersion).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(JSON.stringify(observed)).not.toContain('test-a')
+    expect(result.mode).toBe('method')
+    expect(result.method).toBe('fixed-method')
     expect(result.decision).toBe('ship')
-    expect(result.candidate.value).toContain('improved verification lesson')
-    expect(result.candidate.profile?.resources?.instructions).toMatchObject({
-      content: expect.stringContaining('improved verification lesson'),
-    })
+    expect(result.lift).toBe(1)
+    expect(result.liftInterval.low).toBeGreaterThan(0)
+    expect(result.candidate.profile?.prompt?.systemPrompt).toBe('improved prompt')
+    expect(profile.prompt?.systemPrompt).toBe('baseline')
     expect(Object.isFrozen(result.candidate)).toBe(true)
-    expect(profile.resources?.instructions).toEqual({
-      kind: 'inline',
-      name: 'durable-memory',
-      content: baseline,
-    })
   })
 
-  it("surface 'memory' rejects a non-text candidate", async () => {
-    const nonTextSurface: CodeSurface = {
-      kind: 'code',
-      worktreeRef: 'not-a-memory-document',
-      baseRef: 'main',
-      baseCommit: 'a'.repeat(40),
-      baseTree: 'b'.repeat(40),
-      candidateCommit: 'c'.repeat(40),
-      candidateTree: 'd'.repeat(40),
-      patch: {
-        format: 'git-diff-binary',
-        sha256: `sha256:${'e'.repeat(64)}`,
-        byteLength: 1,
+  it('resumes an identical profile run without dispatching another agent call', async () => {
+    const storage = inMemoryCampaignStorage()
+    let agentCalls = 0
+    const options = {
+      ...methodOptions(fixedMethod('improved prompt')),
+      storage,
+      runDir: 'mem://improve-exact-resume',
+      agent: async (
+        candidate: ReadonlyAgentProfile,
+        scenario: TestScenario,
+        ctx: DispatchContext,
+      ) => {
+        agentCalls += 1
+        return paidProfile(candidate, scenario, ctx)
       },
     }
-    const surfaceKindJudge: JudgeConfig<{ text: string }, Scenario> = {
-      name: 'surface-kind-judge',
-      dimensions: [{ key: 'q', description: 'candidate is code-tier' }],
-      score: ({ artifact }) => {
-        const score = artifact.text === 'code' ? 1 : 0
-        return { dimensions: { q: score }, composite: score, notes: '' }
+
+    const first = await improve(promptProfile(), options)
+    const callsAfterFirst = agentCalls
+    const second = await improve(promptProfile(), options)
+
+    expect(callsAfterFirst).toBeGreaterThan(0)
+    expect(agentCalls).toBe(callsAfterFirst)
+    expect(second.cost).toEqual(first.cost)
+    expect(second.candidate.profile).toEqual(first.candidate.profile)
+  })
+
+  it('does not reuse saved measurements after executable or baseline identity changes', async () => {
+    const storage = inMemoryCampaignStorage()
+    const runDir = 'mem://improve-identity-change'
+    let agentCalls = 0
+    const options = {
+      ...methodOptions(fixedMethod('improved prompt')),
+      storage,
+      runDir,
+      agent: async (
+        candidate: ReadonlyAgentProfile,
+        scenario: TestScenario,
+        ctx: DispatchContext,
+      ) => {
+        agentCalls += 1
+        return paidProfile(candidate, scenario, ctx)
       },
     }
-    const malformedMemory: SurfaceProposer = {
-      kind: 'malformed-memory',
-      propose: async () => [
-        {
-          surface: nonTextSurface,
-          label: 'wrong-tier',
-          rationale: 'test malformed winner',
-        },
-      ],
-    }
+    await improve(promptProfile(), options)
+    const callsAfterBaseline = agentCalls
+
+    await improve(promptProfile(), {
+      ...options,
+      executionRef: canonicalCandidateDigest({ fixture: 'changed-execution' }),
+    })
+    expect(agentCalls).toBeGreaterThan(callsAfterBaseline)
+    const callsAfterExecutionChange = agentCalls
+
+    await improve(
+      {
+        ...promptProfile(),
+        description: 'changed complete profile',
+      },
+      options,
+    )
+    expect(agentCalls).toBeGreaterThan(callsAfterExecutionChange)
+  })
+
+  it('requires a content-addressed executable identity', async () => {
     await expect(
-      improve(memoryProfile(), [], {
-        surface: 'memory',
-        scenarios,
-        judge: surfaceKindJudge,
-        agent: async (surface, _scenario, ctx) => {
-          return paidStubCall(ctx, 'stub-agent', () => ({
-            text: typeof surface === 'string' ? 'text' : surface.kind,
-          }))
-        },
-        generator: malformedMemory,
-        promotionGate: {
-          name: 'test-ship',
-          decide: async () => ({
-            decision: 'ship',
-            reasons: ['test candidate'],
-            contributingGates: [],
-          }),
-        },
-        budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+      improve(promptProfile(), {
+        ...methodOptions(fixedMethod('improved prompt')),
+        executionRef: undefined as never,
       }),
-    ).rejects.toThrow(/incompatible surface value/)
+    ).rejects.toThrow(/executionRef must be a lowercase sha256/)
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(fixedMethod('improved prompt')),
+        executionRef: 'callback-v1' as never,
+      }),
+    ).rejects.toThrow(/executionRef must be a lowercase sha256/)
   })
 
-  it("surface 'memory' returns a held candidate without side effects", async () => {
-    const result = await improve(memoryProfile(), [], {
-      surface: 'memory',
-      gate: 'none',
-      scenarios,
-      judge,
-      agent: stubAgent,
+  it('propagates caller cancellation into the optimization method', async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller stopped improvement')
+    controller.abort(reason)
+    let observedAbortedSignal = false
+    const method = fixedMethod('improved prompt')
+    method.optimize = async (input) => {
+      observedAbortedSignal = input.runOptions.signal?.aborted === true
+      throw input.runOptions.signal?.reason
+    }
+
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(method),
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(reason.message)
+    expect(observedAbortedSignal).toBe(true)
+  })
+
+  it('passes current findings to a method factory', async () => {
+    const findings = [{ claim: 'answers omit citations' }]
+    let observedFindings: readonly unknown[] | undefined
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('unused')),
+      findings,
+      method: (context) => {
+        observedFindings = context.findings
+        expect(context.surface).toBe('prompt')
+        expect(context.baselineSurface).toBe('baseline')
+        return fixedMethod('improved prompt')
+      },
     })
 
+    expect(observedFindings).toEqual(findings)
+    expect(result.decision).toBe('ship')
+  })
+
+  it('holds when the final-test interval does not clear the requested lift', async () => {
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('improved prompt')),
+      minimumLift: 1,
+    })
+
+    expect(result.lift).toBe(1)
     expect(result.decision).toBe('hold')
-    expect(result.candidate.value).toBe('# Durable memory\n')
   })
 
-  it('a real runDir makes the loop durable: provenance lands on the filesystem', async () => {
-    const { mkdtempSync, existsSync, rmSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const runDir = mkdtempSync(join(tmpdir(), 'improve-rundir-'))
-    try {
-      const result = await improve(promptProfile(), [], {
-        surface: 'prompt',
-        gate: 'none',
-        scenarios,
-        judge,
-        agent: stubAgent,
-        runDir,
-      })
-      expect(result.decision).toBe('hold')
-      // The durable-storage default keys off a real (non-mem://) runDir: the loop
-      // provenance record must survive the call on disk — this is what a 5-hour
-      // search recovers from after a process death.
-      expect(existsSync(join(runDir, 'loop-provenance.json'))).toBe(true)
-    } finally {
-      rmSync(runDir, { recursive: true, force: true })
-    }
+  it('distinguishes train and selection boundaries in optimizer lineage', async () => {
+    const extra: TestScenario = { id: 'extra', kind: 'fixture' }
+    const first = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('improved prompt')),
+      trainScenarios: [trainScenarios[0]!, extra],
+      selectionScenarios,
+    })
+    const second = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('improved prompt')),
+      trainScenarios,
+      selectionScenarios: [extra, selectionScenarios[0]!],
+    })
+
+    expect(first.lineage.developmentSplitDigest).not.toBe(second.lineage.developmentSplitDigest)
   })
 
-  it("surface 'skills' returns an exact profile without changing the baseline", async () => {
-    // Baseline document; a scenario whose judge rewards the presence of a rule the
-    // skillOpt proposer will add. A deterministic stub proposer stands in for the LLM.
-    const baselineDoc = '# OR skills\n- always run a solver\n'
-    const stubProposer = {
-      kind: 'stub-skillopt',
-      async propose(ctx: { currentSurface: unknown }) {
-        // Prove the baseline surface is the DOCUMENT, not a refs array.
-        expect(ctx.currentSurface).toBe(baselineDoc)
-        return [
-          {
-            surface: `${baselineDoc}- recompute the objective before writing\n`,
-            label: 'add-recompute-rule',
-            rationale: 'stub',
-          },
-        ]
-      },
-    }
-    // Judge: reward the document that contains the added rule.
-    const docJudge: JudgeConfig<{ doc: string }, Scenario> = {
-      name: 'doc-judge',
-      dimensions: [{ key: 'q', description: 'has recompute rule' }],
-      score: ({ artifact }) => {
-        const has = artifact.doc.includes('recompute the objective')
-        return { dimensions: { q: has ? 1 : 0 }, composite: has ? 1 : 0, notes: '' }
-      },
-    }
-    const skillProfileWithRef = (): AgentProfile => ({
+  it('materializes one exact inline skill', async () => {
+    const profile: AgentProfile = {
       name: 'fixture-agent',
       resources: {
         failOnError: true,
-        skills: [{ kind: 'inline', name: 'or-skills', content: baselineDoc }],
+        skills: [{ kind: 'inline', name: 'review', content: 'baseline skill' }],
       },
-    })
-
-    const profile = skillProfileWithRef()
-    const result = await improve(profile, [], {
+    }
+    const result = await improve(profile, {
+      ...methodOptions(fixedMethod('improved skill')),
       surface: 'skills',
-      scenarios,
-      judge: docJudge,
-      agent: async (surface, _s, ctx) => {
-        return paidStubCall(ctx, 'stub', () => ({ doc: String(surface) }))
-      },
-      generator: stubProposer as never,
-      skills: { resourceName: 'or-skills' },
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+      skills: { resourceName: 'review' },
     })
 
-    expect(typeof result.decision).toBe('string')
-    expect(result.candidate.value).toContain('recompute the objective')
-    expect(result.candidate.profile?.resources?.skills?.[0]).toMatchObject({
-      content: expect.stringContaining('recompute the objective'),
-    })
+    expect(result.candidate.profile?.resources?.skills).toEqual([
+      { kind: 'inline', name: 'review', content: 'improved skill' },
+    ])
     expect(profile.resources?.skills).toEqual([
-      { kind: 'inline', name: 'or-skills', content: baselineDoc },
+      { kind: 'inline', name: 'review', content: 'baseline skill' },
     ])
   })
 
   it.each([
     {
-      surface: 'subagents' as const,
-      profile: { name: 'fixture-agent', subagents: {} },
-      winner: JSON.stringify({ reviewer: { prompt: 'improved review instructions' } }),
-      read: (profile: AgentProfile) => profile.subagents?.reviewer?.prompt,
-      expected: 'improved review instructions',
+      surface: 'tools' as const,
+      profile: { name: 'fixture-agent', tools: { Bash: true } },
+      winner: '{"Read":true}',
+      expected: { tools: { Read: true } },
     },
     {
-      surface: 'agent-profile' as const,
-      profile: { name: 'fixture-agent', prompt: { systemPrompt: 'baseline' } },
-      winner: JSON.stringify({
+      surface: 'mcp' as const,
+      profile: { name: 'fixture-agent', mcp: { old: { command: 'old-server' } } },
+      winner: '{"search":{"command":"new-server"}}',
+      expected: { mcp: { search: { command: 'new-server' } } },
+    },
+    {
+      surface: 'hooks' as const,
+      profile: { name: 'fixture-agent', hooks: { Stop: [{ command: 'echo old' }] } },
+      winner: '{"Stop":[{"command":"echo new"}]}',
+      expected: { hooks: { Stop: [{ command: 'echo new' }] } },
+    },
+    {
+      surface: 'subagents' as const,
+      profile: { name: 'fixture-agent', subagents: { old: { prompt: 'Old prompt' } } },
+      winner: '{"reviewer":{"prompt":"Review the result"}}',
+      expected: { subagents: { reviewer: { prompt: 'Review the result' } } },
+    },
+    {
+      surface: 'memory' as const,
+      profile: {
         name: 'fixture-agent',
-        prompt: { systemPrompt: 'improved whole profile' },
-      }),
-      read: (profile: AgentProfile) => profile.prompt?.systemPrompt,
-      expected: 'improved whole profile',
+        resources: { failOnError: true as const, instructions: 'baseline memory' },
+      },
+      winner: 'improved memory',
+      expected: {
+        resources: { failOnError: true, instructions: 'improved memory' },
+      },
     },
-  ])('materializes a valid $surface profile candidate', async (fixture) => {
-    const result = await improve(fixture.profile, [{ finding: 'surface needs improvement' }], {
-      surface: fixture.surface,
-      scenarios,
-      judge: improvementJudge,
-      agent: stubAgent,
-      generator: {
-        kind: `stub-${fixture.surface}`,
-        propose: async () => [
-          { surface: fixture.winner, label: 'candidate', rationale: 'test candidate' },
-        ],
-      },
-      promotionGate: {
-        name: 'test-ship',
-        decide: async () => ({
-          decision: 'ship',
-          reasons: ['test candidate'],
-          contributingGates: [],
-        }),
-      },
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+  ])('materializes an exact $surface profile coordinate', async (testCase) => {
+    const result = await improve(testCase.profile, {
+      ...methodOptions(fixedMethod(testCase.winner)),
+      surface: testCase.surface,
     })
 
-    expect(result.decision).toBe('ship')
-    if (!result.candidate.profile) throw new Error('expected a profile candidate')
-    expect(fixture.read(result.candidate.profile)).toEqual(fixture.expected)
+    expect(result.candidate.profile).toMatchObject(testCase.expected)
+    expect(testCase.profile).not.toMatchObject(testCase.expected)
   })
 
-  it.each([
-    {
-      surface: 'skills' as const,
-      profile: skillProfile(),
-      skills: { resourceName: 'fixture-skill' },
-      baseline: skillDocument,
-      winner: 'improved skill instructions',
-      read: (profile: AgentProfile) => {
-        const resource = profile.resources?.skills?.[0]
-        return resource?.kind === 'inline' ? resource.content : undefined
-      },
-    },
-    {
-      surface: 'subagents' as const,
-      profile: { name: 'fixture-agent', subagents: {} },
-      baseline: undefined,
-      winner: JSON.stringify({ reviewer: { prompt: 'improved review instructions' } }),
-      read: (profile: AgentProfile) => profile.subagents?.reviewer?.prompt,
-    },
-  ] satisfies Array<{
-    surface: ImproveSurface
-    profile: AgentProfile
-    skills?: ImproveSkillsOptions
-    baseline: string | undefined
-    winner: string
-    read: (profile: AgentProfile) => string | undefined
-  }>)('profileDispatch runs the full immutable $surface profile for every cell', async (fixture) => {
-    const seen: AgentProfile[] = []
-    const result = await improve(fixture.profile, [{ finding: 'surface needs improvement' }], {
-      surface: fixture.surface,
-      scenarios,
-      judge: improvementJudge,
-      profileDispatch: async (profile, _scenario, ctx) =>
-        paidStubCall(ctx, 'profile-dispatch', () => {
-          seen.push(profile)
-          return { text: fixture.read(profile) ?? '' }
-        }),
-      generator: {
-        kind: `profile-dispatch-${fixture.surface}`,
-        propose: async () => [
-          { surface: fixture.winner, label: 'candidate', rationale: 'test candidate' },
-        ],
-      },
-      ...(fixture.skills === undefined ? {} : { skills: fixture.skills }),
-      promotionGate: {
-        name: 'test-ship',
-        decide: async () => ({
-          decision: 'ship',
-          reasons: ['test candidate'],
-          contributingGates: [],
-        }),
-      },
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+  it('materializes a complete profile candidate', async () => {
+    const winner = JSON.stringify({
+      name: 'fixture-agent',
+      prompt: { systemPrompt: 'improved whole profile' },
+    })
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod(winner)),
+      surface: 'agent-profile',
     })
 
-    expect(result.decision).toBe('ship')
-    expect(seen.some((profile) => fixture.read(profile) === fixture.baseline)).toBe(true)
-    expect(seen.some((profile) => fixture.read(profile)?.includes('improved'))).toBe(true)
-    expect(seen.every(Object.isFrozen)).toBe(true)
-    expect(fixture.read(fixture.profile)).toBe(fixture.baseline)
+    expect(result.candidate.profile).toEqual({
+      name: 'fixture-agent',
+      prompt: { systemPrompt: 'improved whole profile' },
+    })
   })
 
-  it("surface 'code' refuses profileDispatch before it can open a worktree", async () => {
-    let dispatched = 0
+  it('optimizes caller-defined profile components without dropping component state', async () => {
+    let observedBaseline: MutableSurface | undefined
+    const profile: AgentProfile = {
+      name: 'fixture-agent',
+      prompt: { systemPrompt: 'baseline' },
+      tools: { search: false },
+    }
+    const winner: MutableSurface = {
+      kind: 'components',
+      components: {
+        prompt: 'improved prompt',
+        tools: '{"search":true}',
+      },
+    }
+    const result = await improve(profile, {
+      ...methodOptions(
+        fixedMethod(winner, (input) => {
+          observedBaseline = input.baselineSurface
+        }),
+      ),
+      surface: 'agent-profile',
+      profileComponents: {
+        read: (current) => ({
+          prompt: current.prompt?.systemPrompt ?? '',
+          tools: JSON.stringify(current.tools ?? {}),
+        }),
+        apply: (current, components) => ({
+          ...current,
+          prompt: { ...current.prompt, systemPrompt: components.prompt },
+          tools: JSON.parse(components.tools ?? '{}') as Record<string, boolean>,
+        }),
+      },
+      agent: paidProfile,
+    })
+
+    expect(observedBaseline).toEqual({
+      kind: 'components',
+      components: {
+        prompt: 'baseline',
+        tools: '{"search":false}',
+      },
+    })
+    expect(result.candidate.profile).toMatchObject({
+      prompt: { systemPrompt: 'improved prompt' },
+      tools: { search: true },
+    })
+    expect(profile).toMatchObject({
+      prompt: { systemPrompt: 'baseline' },
+      tools: { search: false },
+    })
+  })
+
+  it('rejects component candidates that add or remove profile component names', async () => {
     await expect(
-      improve(promptProfile(), [], {
-        surface: 'code',
-        scenarios,
-        judge,
-        profileDispatch: async (_profile, _scenario, ctx) => {
-          dispatched += 1
-          return paidStubCall(ctx, 'profile-dispatch', () => ({ text: 'unreachable' }))
+      improve(promptProfile(), {
+        ...methodOptions(
+          fixedMethod({
+            kind: 'components',
+            components: { prompt: 'improved prompt' },
+          }),
+        ),
+        surface: 'agent-profile',
+        profileComponents: {
+          read: () => ({ prompt: 'baseline', policy: '{}' }),
+          apply: (current, components) => ({
+            ...current,
+            prompt: { ...current.prompt, systemPrompt: components.prompt },
+          }),
         },
-        code: { repoRoot: '/tmp/must-not-be-opened' },
       }),
-    ).rejects.toThrow(/cannot use profileDispatch/)
-    expect(dispatched).toBe(0)
+    ).rejects.toThrow(/preserve the exact component names/)
   })
 
-  it('rejects both dispatch forms before a cell runs', async () => {
-    let dispatched = 0
-    const invalid = {
-      surface: 'prompt',
-      gate: 'none',
-      scenarios,
-      judge,
-      agent: async (surface: unknown, scenario: Scenario, ctx: DispatchContext) => {
-        dispatched += 1
-        return stubAgent(surface, scenario, ctx)
+  it('rejects a profile component adapter that does not apply the measured winner', async () => {
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(
+          fixedMethod({
+            kind: 'components',
+            components: { prompt: 'improved prompt' },
+          }),
+        ),
+        surface: 'agent-profile',
+        profileComponents: {
+          read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+          apply: (current) => ({ ...current }),
+        },
+        agent: paidProfile,
+      }),
+    ).rejects.toThrow(/round-trip every winning component/)
+  })
+
+  it('rejects a component adapter that changes unmeasured baseline fields', async () => {
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(
+          fixedMethod({
+            kind: 'components',
+            components: { prompt: 'improved prompt' },
+          }),
+        ),
+        surface: 'agent-profile',
+        profileComponents: {
+          read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+          apply: (current, components) => ({
+            ...current,
+            description: 'unmeasured adapter side effect',
+            prompt: { ...current.prompt, systemPrompt: components.prompt },
+          }),
+        },
+      }),
+    ).rejects.toThrow(/must reproduce the complete baseline profile exactly/)
+  })
+
+  it('scores and returns the same complete profile produced by a component mapping', async () => {
+    const observed: ReadonlyAgentProfile[] = []
+    const result = await improve(
+      {
+        name: 'fixture-agent',
+        prompt: { systemPrompt: 'baseline' },
+        tools: { Bash: false },
       },
-      profileDispatch: async (
-        _profile: AgentProfile,
-        _scenario: Scenario,
-        ctx: DispatchContext,
-      ) => {
-        dispatched += 1
-        return paidStubCall(ctx, 'profile-dispatch', () => ({ text: 'unreachable' }))
+      {
+        ...methodOptions(
+          fixedMethod({
+            kind: 'components',
+            components: { prompt: 'improved prompt' },
+          }),
+        ),
+        surface: 'agent-profile',
+        profileComponents: {
+          read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+          apply: (current, components) => ({
+            ...current,
+            prompt: { ...current.prompt, systemPrompt: components.prompt },
+            tools: { Bash: components.prompt === 'improved prompt' },
+          }),
+        },
+        agent: async (candidate, scenario, ctx) => {
+          observed.push(candidate)
+          return paidProfile(candidate, scenario, ctx)
+        },
       },
-    } as unknown as ImproveOptions<Scenario, { text: string }>
+    )
 
-    await expect(improve(promptProfile(), [], invalid)).rejects.toThrow(/provide exactly one/)
-    expect(dispatched).toBe(0)
+    const measuredWinner = observed.find(
+      (candidate) =>
+        candidate.prompt?.systemPrompt === 'improved prompt' && candidate.tools?.Bash === true,
+    )
+    expect(result.candidate.profile?.tools).toEqual({ Bash: true })
+    expect(measuredWinner).toBeDefined()
+    expect(result.candidate.profile).toBe(measuredWinner)
+    expect(observed.every((candidate) => Object.isFrozen(candidate))).toBe(true)
+    expect(observed.every((candidate) => Object.isFrozen(candidate.prompt))).toBe(true)
+    expect(observed.every((candidate) => Object.isFrozen(candidate.tools))).toBe(true)
   })
 
-  it('rejects a missing dispatch before a cell runs', async () => {
-    const invalid = {
-      surface: 'prompt',
-      gate: 'none',
-      scenarios,
-      judge,
-    } as ImproveOptions<Scenario, { text: string }>
+  it('holds an apparent win when any run cost is incompletely accounted', async () => {
+    const method = fixedMethod('improved prompt')
+    method.optimize = async () => ({
+      winnerSurface: 'improved prompt',
+      cost: {
+        totalCostUsd: 0,
+        accountingComplete: false,
+        incompleteReasons: ['optimizer model cost unavailable'],
+      },
+    })
 
-    await expect(improve(promptProfile(), [], invalid)).rejects.toThrow(/provide exactly one/)
+    const result = await improve(promptProfile(), methodOptions(method))
+
+    expect(result.liftInterval.low).toBeGreaterThan(0)
+    expect(result.cost.accountingComplete).toBe(false)
+    expect(result.decision).toBe('hold')
   })
 
-  it('rejects a config candidate that cannot form a valid AgentProfile', async () => {
+  it('rejects method-reported spend above the configured total limit', async () => {
+    let agentCalls = 0
+    const method = fixedMethod('improved prompt')
+    method.optimize = async () => ({
+      winnerSurface: 'improved prompt',
+      cost: {
+        totalCostUsd: 2,
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
+    })
+
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(method),
+        costCeiling: 1,
+        agent: async (candidate, scenario, context) => {
+          agentCalls += 1
+          return paidProfile(candidate, scenario, context)
+        },
+      }),
+    ).rejects.toThrow(/reported cost \$2 above costCeiling \$1; refusing final scoring/)
+    expect(agentCalls).toBe(0)
+  })
+
+  it('rejects an invalid method and malformed profile output', async () => {
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(null as never),
+        method: null as never,
+      }),
+    ).rejects.toBeInstanceOf(ConfigError)
+
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(fixedMethod('not json')),
+        surface: 'agent-profile',
+      }),
+    ).rejects.toThrow(/not valid JSON/)
+  })
+
+  it('requires exact resource identity for skills and curated memory', async () => {
     await expect(
       improve(
-        { name: 'fixture-agent', subagents: {} },
-        [{ finding: 'surface needs improvement' }],
         {
-          surface: 'subagents',
-          scenarios,
-          judge: improvementJudge,
-          agent: stubAgent,
-          generator: {
-            kind: 'stub-invalid-subagent',
-            propose: async () => [
-              {
-                surface: JSON.stringify({ reviewer: { prompt: 'improved', maxSteps: 'many' } }),
-                label: 'candidate',
-                rationale: 'invalid candidate',
-              },
-            ],
+          name: 'fixture-agent',
+          resources: {
+            failOnError: true,
+            skills: [{ kind: 'inline', name: 'review', content: 'baseline skill' }],
           },
-          promotionGate: {
-            name: 'test-ship',
-            decide: async () => ({
-              decision: 'ship',
-              reasons: ['exercise validation'],
-              contributingGates: [],
-            }),
-          },
-          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+        },
+        {
+          ...methodOptions(fixedMethod('improved skill')),
+          surface: 'skills',
         },
       ),
-    ).rejects.toThrow(/valid AgentProfile/)
-  })
-
-  it('forwards evaluation controls to the shared self-improvement loop', async () => {
-    const progressKinds: string[] = []
-    let provenanceCalls = 0
-    let decisionCalls = 0
-    const result = await improve(promptProfile(), [{ finding: 'prompt needs improvement' }], {
-      surface: 'prompt',
-      scenarios,
-      judge: improvementJudge,
-      agent: stubAgent,
-      generator: {
-        kind: 'stub-controls',
-        propose: async () => [
-          { surface: 'improved prompt', label: 'candidate', rationale: 'test candidate' },
-        ],
-      },
-      promotionGate: {
-        name: 'test-hold',
-        decide: async () => {
-          decisionCalls += 1
-          return { decision: 'hold', reasons: ['test hold'], contributingGates: [] }
-        },
-      },
-      onProgress: (event) => progressKinds.push(event.kind),
-      onProvenance: () => {
-        provenanceCalls += 1
-      },
-      expectUsage: 'assert',
-      captureSource: 'eval-run',
-      autoOnPromote: 'none',
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
-    })
-
-    expect(result.decision).toBe('hold')
-    expect(decisionCalls).toBe(1)
-    expect(provenanceCalls).toBe(1)
-    expect(progressKinds).toContain('baseline.completed')
-    expect(progressKinds).toContain('gate.decided')
-  })
-
-  it('a surface with no zero-config default still fails loud with ConfigError', async () => {
-    // Prompt, skills, and memory have defaults; config surfaces require a
-    // caller-supplied generator. This is the
-    // designed boundary the proposer migration must NOT erase.
-    const configSurfaces: ImproveSurface[] = ['tools', 'mcp', 'hooks', 'subagents', 'agent-profile']
-    for (const surface of configSurfaces) {
-      await expect(
-        improve(promptProfile(), [], { surface, gate: 'none', scenarios, judge, agent: stubAgent }),
-      ).rejects.toBeInstanceOf(ConfigError)
-    }
-  })
-
-  it.each([
-    'text',
-    'external-code',
-  ] as const)("surface 'code' rejects a top-level proposer before it can return $surfaceKind", async (surfaceKind) => {
-    let proposerCalls = 0
-    const externalCode: CodeSurface = {
-      kind: 'code',
-      worktreeRef: '/tmp/externally-owned-code-surface',
-      baseRef: 'main',
-      baseCommit: 'a'.repeat(40),
-      baseTree: 'b'.repeat(40),
-      candidateCommit: 'c'.repeat(40),
-      candidateTree: 'd'.repeat(40),
-      patch: {
-        format: 'git-diff-binary',
-        sha256: `sha256:${'e'.repeat(64)}`,
-        byteLength: 1,
-      },
-    }
-    const externalProposer: SurfaceProposer = {
-      kind: 'externally-owned-code-test',
-      async propose() {
-        proposerCalls += 1
-        return [
-          {
-            surface: surfaceKind === 'text' ? 'not-a-code-surface' : externalCode,
-            label: 'unsafe external result',
-            rationale: 'exercise code ownership validation',
-          },
-        ]
-      },
-    }
+    ).rejects.toThrow(/requires opts\.skills\.resourceName/)
 
     await expect(
-      improve(promptProfile(), [], {
-        surface: 'code',
-        scenarios,
-        judge,
-        agent: stubAgent,
-        generator: externalProposer,
-        code: { repoRoot: '/tmp/must-not-be-opened' },
-        budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+      improve(promptProfile(), {
+        ...methodOptions(fixedMethod('improved memory')),
+        surface: 'memory',
       }),
-    ).rejects.toThrow(/forbids opts\.generator/)
-    expect(proposerCalls).toBe(0)
+    ).rejects.toThrow(/requires profile\.resources\.failOnError/)
   })
+})
 
-  it('the default generation distiller feeds real failures to the next proposal round', async () => {
-    // Judge fails scenario 'b' with a distinctive reason; everything else is perfect.
-    const failingJudge: JudgeConfig<{ text: string }, Scenario> = {
-      name: 'distiller-judge',
-      dimensions: [{ key: 'q', description: 'fixture quality' }],
-      score: ({ scenario }) =>
-        scenario.id === 'b'
-          ? { dimensions: { q: 0 }, composite: 0, notes: 'tour is not a permutation of 0..8' }
-          : { dimensions: { q: 1 }, composite: 1, notes: 'ok' },
-    }
-    // Proposer stub records the findings it is handed each generation.
-    const findingsSeen: unknown[][] = []
-    const stubProposer = {
-      kind: 'stub-recorder',
-      async propose(ctx: { findings: unknown[]; populationSize: number }) {
-        findingsSeen.push(ctx.findings)
-        return [{ surface: `candidate-${findingsSeen.length}`, label: 'stub', rationale: 'stub' }]
-      },
-    }
-    const result = await improve(promptProfile(), [{ seed: 'static-seed-finding' }], {
-      surface: 'prompt',
-      scenarios,
-      judge: failingJudge,
-      agent: stubAgent,
-      generator: stubProposer as never,
-      budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
+function createRepo(prefix: string): {
+  repoRoot: string
+  git(args: string[]): string
+  cleanup(): void
+} {
+  const repoRoot = mkdtempSync(join(tmpdir(), prefix))
+  const git = (args: string[]) =>
+    execFileSync('git', args, {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
-    expect(typeof result.decision).toBe('string')
-    expect(findingsSeen.length).toBeGreaterThanOrEqual(2)
-    // Current selfImprove analyzes the baseline before generation 1, so every
-    // proposal round starts from measured failures instead of wasting a round
-    // on the static seed.
-    for (const seen of findingsSeen) {
-      const round = JSON.stringify(seen)
-      expect(round).toContain('"scenario":"b"')
-      expect(round).toContain('not a permutation')
-    }
-    // The digest is TYPED on the wire: real AnalystFinding envelopes, not
-    // ad-hoc {scenario, composite} objects a consumer must down-cast.
-    const { isAnalystFinding } = await import('./findings')
-    expect(findingsSeen[1]!.length).toBeGreaterThanOrEqual(1)
-    expect(findingsSeen[1]!.every(isAnalystFinding)).toBe(true)
-  })
+  git(['init', '-q', '-b', 'main'])
+  git(['config', 'user.email', 'improve@test.local'])
+  git(['config', 'user.name', 'improve-test'])
+  writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
+  git(['add', 'module.txt'])
+  git(['commit', '-qm', 'baseline'])
+  return {
+    repoRoot,
+    git,
+    cleanup: () => rmSync(repoRoot, { recursive: true, force: true }),
+  }
+}
 
-  it('a real runDir defaults analyzeGeneration to the RAW-TRACE distiller', async () => {
-    const { mkdtempSync, rmSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const runDir = mkdtempSync(join(tmpdir(), 'improve-rawtrace-'))
-    const failingJudge: JudgeConfig<{ text: string }, Scenario> = {
-      name: 'failing-judge',
-      dimensions: [{ key: 'q', description: 'fixture quality' }],
-      score: () => ({ dimensions: { q: 0 }, composite: 0, notes: 'always failing' }),
-    }
-    const findingsSeen: unknown[][] = []
-    const stubProposer = {
-      kind: 'stub-recorder',
-      async propose(ctx: { findings: unknown[]; populationSize: number }) {
-        findingsSeen.push(ctx.findings)
-        return [{ surface: `candidate-${findingsSeen.length}`, label: 'stub', rationale: 'stub' }]
-      },
-    }
+function worktreeCount(git: (args: string[]) => string): number {
+  return git(['worktree', 'list', '--porcelain']).match(/^worktree /gm)?.length ?? 0
+}
+
+async function paidCodeText(
+  surface: MutableSurface,
+  _scenario: TestScenario,
+  ctx: DispatchContext,
+): Promise<TextArtifact> {
+  if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+    throw new Error('expected a code surface')
+  }
+  return paidArtifact(
+    readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+    _scenario,
+    ctx,
+  )
+}
+
+describe('improve code execution', () => {
+  it('runs candidate generation in isolated worktrees and retains only the winner', async () => {
+    const repo = createRepo('improve-code-')
     try {
-      await improve(promptProfile(), [], {
-        surface: 'prompt',
-        scenarios,
-        judge: failingJudge,
-        agent: stubAgent,
-        generator: stubProposer as never,
-        runDir,
-        budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
-      })
-      // The durable-run default is rawTraceDistiller: a later round's findings
-      // are its raw-trace-context envelopes (paths into the recorded traces),
-      // NOT the distilled failure digest.
-      const later = findingsSeen.at(-1)!
-      expect(JSON.stringify(later)).toContain('raw-trace-context')
-      const { isAnalystFinding } = await import('./findings')
-      expect(later.every(isAnalystFinding)).toBe(true)
-    } finally {
-      rmSync(runDir, { recursive: true, force: true })
-    }
-  })
-
-  it('the distiller keeps traceback-sized notes intact and clips at the 1500/500 caps', async () => {
-    // A realistic executable-judge note (~1000 chars) must survive whole; a
-    // runaway note is clipped to exactly 1500; a cell error is clipped to 500.
-    const intactNote = `Traceback (most recent call last):\n${'  assert tour == expected\n'.repeat(38)}`
-    expect(intactNote.length).toBeGreaterThan(900)
-    expect(intactNote.length).toBeLessThan(1500)
-    const runawayNote = 'n'.repeat(1600)
-    const longError = 'e'.repeat(800)
-    const cappingJudge: JudgeConfig<{ text: string }, Scenario> = {
-      name: 'capping-judge',
-      dimensions: [{ key: 'q', description: 'fixture quality' }],
-      score: ({ scenario }) => {
-        if (scenario.id === 'a') return { dimensions: { q: 0 }, composite: 0, notes: intactNote }
-        if (scenario.id === 'b') return { dimensions: { q: 0 }, composite: 0, notes: runawayNote }
-        return { dimensions: { q: 1 }, composite: 1, notes: 'ok' }
-      },
-    }
-    const findingsSeen: unknown[][] = []
-    const stubProposer = {
-      kind: 'stub-recorder',
-      async propose(ctx: { findings: unknown[]; populationSize: number }) {
-        findingsSeen.push(ctx.findings)
-        return [{ surface: `candidate-${findingsSeen.length}`, label: 'stub', rationale: 'stub' }]
-      },
-    }
-    const failingAgent = async (surface: unknown, scenario: Scenario, ctx: DispatchContext) => {
-      // The baseline must stay complete (an incomplete incumbent is refused),
-      // so the error lands on a generation-1 candidate cell instead.
-      if (scenario.id === 'c' && typeof surface === 'string' && surface.startsWith('candidate-')) {
-        throw new Error(longError)
-      }
-      return stubAgent(surface, scenario, ctx)
-    }
-    await improve(promptProfile(), [], {
-      surface: 'prompt',
-      scenarios,
-      judge: cappingJudge,
-      agent: failingAgent,
-      generator: stubProposer as never,
-      budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
-    })
-    expect(findingsSeen.length).toBeGreaterThanOrEqual(1)
-    // Rows are typed AnalystFinding envelopes; the distilled cell fields ride
-    // `metadata` so consumers keep one wire shape (see generationFailureDistiller).
-    const rows = findingsSeen.flat() as Array<{
-      metadata?: { scenario?: string; notes?: string; error?: string }
-    }>
-    const intact = rows.find((row) => row.metadata?.scenario === 'a')
-    expect(intact?.metadata?.notes).toBe(intactNote) // below the cap ⇒ untouched
-    const clipped = rows.find((row) => row.metadata?.scenario === 'b')
-    expect(clipped?.metadata?.notes).toBe('n'.repeat(1500)) // at the cap ⇒ exactly 1500
-    const errored = rows.find((row) => row.metadata?.scenario === 'c')
-    expect(errored?.metadata?.error).toBeDefined()
-    expect(errored?.metadata?.error).toContain('e'.repeat(400))
-    expect(errored?.metadata?.error?.length).toBeLessThanOrEqual(500)
-  })
-
-  it("surface 'code' + opts.code assembles the worktree pipeline and measures a candidate", async () => {
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const repoRoot = mkdtempSync(join(tmpdir(), 'improve-code-'))
-    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
-    try {
-      git('init -q -b main')
-      git('config user.email improve@test.local')
-      git('config user.name improve-test')
-      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
-      git('add module.txt')
-      git('commit -qm baseline')
-
-      // Byte-producer stub via the designed test seam: writes a change into the
-      // candidate worktree; the driver finalizes it into a CodeSurface.
       let generatorCalls = 0
-      const startingContents: string[] = []
-      const measured: unknown[] = []
-      const result = await improve(promptProfile(), [{ finding: 'module.txt is stale' }], {
+      const result = await improve({
         surface: 'code',
-        scenarios,
+        findings: [{ claim: 'module.txt is stale' }],
+        scenarios: allScenarios,
         judge: improvementJudge,
-        agent: async (surface, _scenario, ctx) => {
-          return paidStubCall(ctx, 'stub-agent', () => {
-            measured.push(surface)
-            if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
-              throw new Error('expected code surface')
-            }
-            return {
-              text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
-            }
-          })
-        },
+        agent: paidCodeText,
         code: {
-          repoRoot,
+          repoRoot: repo.repoRoot,
           generator: {
-            kind: 'stub',
-            async generate({ worktreePath }) {
+            kind: 'test-generator',
+            async generate({ worktreePath }: { worktreePath: string }) {
               generatorCalls += 1
-              const current = readFileSync(join(worktreePath, 'module.txt'), 'utf8')
-              startingContents.push(current)
-              writeFileSync(
-                join(worktreePath, 'module.txt'),
-                `${current}improved ${generatorCalls}\n`,
-              )
-              return { applied: true, summary: 'stub improvement' }
+              writeFileSync(join(worktreePath, 'module.txt'), 'improved contents\n')
+              return { applied: true, summary: 'updated module' }
             },
           },
         },
         promotionGate: {
-          name: 'test-hold',
+          name: 'retain-test-winner',
           decide: async () => ({
-            decision: 'hold',
-            reasons: ['exercise non-promoted candidate retention'],
+            decision: 'hold' as const,
+            reasons: ['exercise detached candidate retention'],
             contributingGates: [],
           }),
         },
-        budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
+        budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
       })
 
-      // The facade assembled a real proposer: the stub produced candidates, the
-      // loop measured them (code surfaces reached the agent), and the gate decided.
-      expect(generatorCalls).toBe(2)
-      expect(startingContents).toEqual(['baseline contents\n', 'baseline contents\nimproved 1\n'])
-      expect(result.decision).toBe('hold')
-      const codeSurfaces = measured.filter(
-        (m) =>
-          typeof m === 'object' && m !== null && 'worktreeRef' in (m as Record<string, unknown>),
-      )
-      expect(codeSurfaces.length).toBeGreaterThanOrEqual(2)
-      expect(
-        codeSurfaces.some((surface) =>
-          String((surface as { worktreeRef: string }).worktreeRef).includes('incumbent-baseline'),
-        ),
-      ).toBe(true)
+      expect(generatorCalls).toBe(1)
+      expect(result.mode).toBe('code')
       expect(result.candidate.profile).toBeUndefined()
-      if (typeof result.candidate.value === 'string') {
-        throw new Error('expected code winner')
+      expect(typeof result.candidate.value).toBe('object')
+      if (typeof result.candidate.value === 'string' || result.candidate.value.kind !== 'code') {
+        throw new Error('expected code surface')
       }
       expect(readFileSync(join(result.candidate.value.worktreeRef, 'module.txt'), 'utf8')).toBe(
-        'baseline contents\nimproved 1\n',
+        'improved contents\n',
       )
-      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(2)
+      expect(worktreeCount(repo.git)).toBe(2)
       await result.dispose()
       await result.dispose()
-      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(1)
+      expect(worktreeCount(repo.git)).toBe(1)
     } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
+      repo.cleanup()
     }
   })
 
-  it("surface 'code' keeps the baseline worktree when a baseline-only run returns it", async () => {
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const repoRoot = mkdtempSync(join(tmpdir(), 'improve-code-baseline-'))
-    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+  it('retains and disposes the incumbent for a baseline-only code run', async () => {
+    const repo = createRepo('improve-code-baseline-')
     try {
-      git('init -q -b main')
-      git('config user.email improve@test.local')
-      git('config user.name improve-test')
-      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
-      git('add module.txt')
-      git('commit -qm baseline')
-
-      const result = await improve(promptProfile(), [], {
+      const result = await improve({
         surface: 'code',
         gate: 'none',
-        scenarios,
-        judge,
-        agent: async (surface, _scenario, ctx) => {
-          return paidStubCall(ctx, 'stub-agent', () => {
-            if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
-              throw new Error('expected code surface')
-            }
-            return {
-              text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
-            }
-          })
-        },
+        scenarios: allScenarios,
+        judge: improvementJudge,
+        agent: paidCodeText,
         code: {
-          repoRoot,
+          repoRoot: repo.repoRoot,
           generator: {
             kind: 'must-not-run',
             async generate() {
-              throw new Error('baseline-only run must not call the generator')
+              throw new Error('baseline-only run must not generate')
             },
           },
         },
       })
 
-      if (typeof result.candidate.value === 'string') {
-        throw new Error('expected code winner')
-      }
       expect(result.decision).toBe('hold')
+      if (typeof result.candidate.value === 'string' || result.candidate.value.kind !== 'code') {
+        throw new Error('expected code surface')
+      }
       expect(readFileSync(join(result.candidate.value.worktreeRef, 'module.txt'), 'utf8')).toBe(
         'baseline contents\n',
       )
-      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(2)
+      expect(worktreeCount(repo.git)).toBe(2)
       await result.dispose()
-      await result.dispose()
-      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(1)
+      expect(worktreeCount(repo.git)).toBe(1)
     } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
+      repo.cleanup()
     }
   })
 
-  it.each([
-    { mode: 'transient' as const, expectedWorktrees: 1, expectedErrors: 1 },
-    { mode: 'persistent' as const, expectedWorktrees: 3, expectedErrors: 2 },
-  ])('surface code retries $mode cleanup before rejecting without a result', async (fixture) => {
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const repoRoot = mkdtempSync(join(tmpdir(), `improve-code-${fixture.mode}-cleanup-`))
-    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+  it('cleans every worktree when candidate generation fails', async () => {
+    const repo = createRepo('improve-code-reject-')
     try {
-      git('init -q -b main')
-      git('config user.email improve@test.local')
-      git('config user.name improve-test')
-      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
-      git('add module.txt')
-      git('commit -qm baseline')
-
-      const realWorktree = gitWorktreeAdapter({ repoRoot })
-      let discardAttempts = 0
-      const flakyWorktree: WorktreeAdapter = {
-        ...realWorktree,
-        async discard(worktree: Worktree) {
-          discardAttempts += 1
-          if (fixture.mode === 'persistent' || discardAttempts === 1) {
-            throw new Error(`${fixture.mode} discard failure ${discardAttempts}`)
-          }
-          await realWorktree.discard(worktree)
-        },
-      }
-
-      let caught: unknown
-      try {
-        await improve(promptProfile(), [], {
+      await expect(
+        improve({
           surface: 'code',
-          scenarios,
+          scenarios: allScenarios,
           judge: improvementJudge,
-          agent: async (surface, _scenario, ctx) => {
-            return paidStubCall(ctx, 'stub-agent', () => {
-              if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
-                throw new Error('expected code surface')
-              }
-              return {
-                text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
-              }
-            })
-          },
+          agent: paidCodeText,
           code: {
-            repoRoot,
-            worktree: flakyWorktree,
+            repoRoot: repo.repoRoot,
             generator: {
-              kind: 'cleanup-test',
-              async generate({ worktreePath }) {
-                writeFileSync(join(worktreePath, 'module.txt'), 'improved contents\n')
-                return { applied: true, summary: 'improve cleanup fixture' }
-              },
-            },
-          },
-          promotionGate: {
-            name: 'test-hold',
-            decide: async () => ({
-              decision: 'hold',
-              reasons: ['exercise cleanup recovery'],
-              contributingGates: [],
-            }),
-          },
-          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
-        })
-      } catch (cause) {
-        caught = cause
-      }
-
-      const aggregate =
-        caught instanceof AggregateError
-          ? caught
-          : (caught as { cause?: unknown } | undefined)?.cause
-      expect(aggregate).toBeInstanceOf(AggregateError)
-      expect((aggregate as AggregateError).errors).toHaveLength(fixture.expectedErrors)
-      expect(discardAttempts).toBe(3)
-      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(
-        fixture.expectedWorktrees,
-      )
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
-    }
-  })
-
-  it.each([
-    {
-      mode: 'transient' as const,
-      expectedWorktrees: 1,
-      expectedErrors: 2,
-      expectedDiscardAttempts: 3,
-    },
-    {
-      mode: 'persistent' as const,
-      expectedWorktrees: 3,
-      expectedErrors: 3,
-      expectedDiscardAttempts: 6,
-    },
-  ])('surface code retries $mode cleanup when selfImprove rejects', async (fixture) => {
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const repoRoot = mkdtempSync(join(tmpdir(), `improve-code-${fixture.mode}-rejection-`))
-    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
-    try {
-      git('init -q -b main')
-      git('config user.email improve@test.local')
-      git('config user.name improve-test')
-      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
-      git('add module.txt')
-      git('commit -qm baseline')
-
-      const realWorktree = gitWorktreeAdapter({ repoRoot })
-      let discardAttempts = 0
-      const flakyWorktree: WorktreeAdapter = {
-        ...realWorktree,
-        async discard(worktree: Worktree) {
-          discardAttempts += 1
-          if (fixture.mode === 'persistent' || discardAttempts === 1) {
-            throw new Error(`${fixture.mode} discard failure ${discardAttempts}`)
-          }
-          await realWorktree.discard(worktree)
-        },
-      }
-      let caught: unknown
-      try {
-        await improve(promptProfile(), [], {
-          surface: 'code',
-          scenarios,
-          judge,
-          agent: async (surface, _scenario, ctx) => {
-            return paidStubCall(ctx, 'stub-agent', () => {
-              if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
-                throw new Error('expected code surface')
-              }
-              return {
-                text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
-              }
-            })
-          },
-          code: {
-            repoRoot,
-            worktree: flakyWorktree,
-            generator: {
-              kind: 'rejecting-test',
+              kind: 'rejecting-generator',
               async generate() {
                 throw new Error('candidate generation failed')
               },
             },
           },
           budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
-        })
-      } catch (cause) {
-        caught = cause
-      }
-
-      const aggregate =
-        caught instanceof AggregateError
-          ? caught
-          : (caught as { cause?: unknown } | undefined)?.cause
-      expect(aggregate).toBeInstanceOf(AggregateError)
-      expect((aggregate as AggregateError).errors).toHaveLength(fixture.expectedErrors)
-      expect(discardAttempts).toBe(fixture.expectedDiscardAttempts)
-      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(
-        fixture.expectedWorktrees,
-      )
+        }),
+      ).rejects.toThrow(/candidate generation failed/)
+      expect(worktreeCount(repo.git)).toBe(1)
     } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
+      repo.cleanup()
     }
   })
 
-  it.each([
-    { mode: 'transient' as const, expectedWorktrees: 1, expectedErrors: 2 },
-    { mode: 'persistent' as const, expectedWorktrees: 2, expectedErrors: 3 },
-  ])('surface code retries $mode cleanup when baseline finalization rejects', async (fixture) => {
-    const { execSync } = await import('node:child_process')
-    const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const repoRoot = mkdtempSync(join(tmpdir(), `improve-code-${fixture.mode}-finalize-`))
-    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+  it('cleans the incumbent when baseline finalization fails', async () => {
+    const repo = createRepo('improve-code-finalize-')
     try {
-      git('init -q -b main')
-      git('config user.email improve@test.local')
-      git('config user.name improve-test')
-      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
-      git('add module.txt')
-      git('commit -qm baseline')
-
-      const realWorktree = gitWorktreeAdapter({ repoRoot })
-      let discardAttempts = 0
+      const realWorktree = gitWorktreeAdapter({ repoRoot: repo.repoRoot })
+      let discarded = 0
       const rejectingWorktree: WorktreeAdapter = {
         ...realWorktree,
         async finalize() {
           throw new Error('baseline finalization failed')
         },
         async discard(worktree: Worktree) {
-          discardAttempts += 1
-          if (fixture.mode === 'persistent' || discardAttempts === 1) {
-            throw new Error(`${fixture.mode} discard failure ${discardAttempts}`)
-          }
+          discarded += 1
           await realWorktree.discard(worktree)
         },
       }
 
-      let caught: unknown
-      try {
-        await improve(promptProfile(), [], {
+      await expect(
+        improve({
           surface: 'code',
-          scenarios,
-          judge,
-          agent: stubAgent,
+          scenarios: allScenarios,
+          judge: improvementJudge,
+          agent: paidCodeText,
           code: {
-            repoRoot,
+            repoRoot: repo.repoRoot,
             worktree: rejectingWorktree,
             generator: {
               kind: 'unused',
               async generate() {
-                throw new Error('must not generate before baseline finalization')
+                throw new Error('must not generate')
               },
             },
           },
-          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
-        })
-      } catch (cause) {
-        caught = cause
-      }
-
-      expect(caught).toBeInstanceOf(AggregateError)
-      expect((caught as AggregateError).errors).toHaveLength(fixture.expectedErrors)
-      expect(discardAttempts).toBe(2)
-      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(
-        fixture.expectedWorktrees,
-      )
+        }),
+      ).rejects.toThrow(/baseline finalization failed/)
+      expect(discarded).toBe(1)
+      expect(worktreeCount(repo.git)).toBe(1)
     } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
+      repo.cleanup()
     }
   })
 })

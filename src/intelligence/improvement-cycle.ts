@@ -78,6 +78,12 @@ import {
   buildAgentImprovementActivationTargets,
   deriveChangedSurfaces,
 } from './improvement-surfaces'
+import {
+  assertNoCallerOptimizationReceipt,
+  attachOptimizationActivationReceipt,
+  createOptimizationActivationReceipt,
+  optimizationActivationReceiptFromMetadata,
+} from './optimization-receipt'
 
 export type {
   AgentImprovementActivation,
@@ -205,8 +211,8 @@ function sealAgentImprovementExperiment<TScenario extends Scenario, TArtifact>(
   const candidateLineage: AgentCandidateLineage = {
     source: 'optimizer',
     parentDigests: [material.baseline.digest],
-    runIds: [improvement.raw.provenance.runId],
-    developmentSplitDigest: improvement.raw.provenance.evidence.search.splitDigest,
+    runIds: [improvement.lineage.runId],
+    developmentSplitDigest: improvement.lineage.developmentSplitDigest,
   }
   return sealCandidateExperiment({ ...material, candidateLineage })
 }
@@ -327,16 +333,26 @@ export function createAgentImprovementMeasuredComparison(
 export async function proposeAgentImprovement<TScenario extends Scenario, TArtifact>(
   options: ProposeAgentImprovementOptions<TScenario, TArtifact>,
 ): Promise<ProposeAgentImprovementResult<TScenario, TArtifact>> {
+  assertNoCallerOptimizationReceipt(options.metadata)
   const analysis = await runAnalystLoop({ ...options.analysis, runId: options.runId })
   const findings = assertNoJudgeVerdict(
     analysis.analystResult.findings,
     'proposeAgentImprovement findings',
   )
-  const improvement = await improve(options.profile, [...findings], options.improvement)
+  const improvementInput = {
+    ...options.improvement,
+    findings: [...(options.improvement.findings ?? []), ...findings],
+  }
+  const improvement =
+    improvementInput.surface === 'code'
+      ? await improve(improvementInput)
+      : await improve(options.profile, improvementInput)
   try {
     if (improvement.decision !== 'ship') {
       throw new Error('agent improvement search did not produce a promotable candidate')
     }
+    const optimizationReceipt =
+      improvement.mode === 'method' ? createOptimizationActivationReceipt(improvement) : undefined
     const experiment = sealAgentImprovementExperiment(
       await options.buildExperiment({ analysis, improvement }),
       improvement,
@@ -350,10 +366,18 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
       ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.candidate ? { candidate: options.candidate } : {}),
-      ...(options.metadata ? { metadata: options.metadata } : {}),
-      generationsExplored: improvement.raw.generationsExplored,
-      searchDurationMs: improvement.raw.durationMs,
-      searchCostUsd: improvement.raw.totalCostUsd,
+      ...(optimizationReceipt
+        ? {
+            metadata: attachOptimizationActivationReceipt(options.metadata, optimizationReceipt),
+          }
+        : options.metadata
+          ? { metadata: options.metadata }
+          : {}),
+      ...(improvement.generationsExplored === undefined
+        ? {}
+        : { generationsExplored: improvement.generationsExplored }),
+      searchDurationMs: improvement.durationMs,
+      searchCostUsd: improvement.cost.totalCostUsd,
     })
     const proposal = createAgentImprovementProposal({
       runId: options.runId,
@@ -379,9 +403,6 @@ function assertImprovementCandidateBinding<TScenario extends Scenario, TArtifact
 ): void {
   const candidate = improvement.candidate
   if (candidate.surface !== 'code') {
-    if (!candidate.profile) {
-      throw new Error(`improvement surface '${candidate.surface}' did not produce an exact profile`)
-    }
     try {
       assertCandidateProfileBinding(candidate.profile, experiment.candidate.profile)
     } catch (cause) {
@@ -422,6 +443,7 @@ export function createAgentImprovementProposal(
     'createAgentImprovementProposal findings',
   )
   const evaluation = verifyCandidateExperimentComparison(options.evaluation)
+  optimizationActivationReceiptFromMetadata(evaluation.metadata)
   if (evaluation.decision.outcome !== 'ship') {
     throw new Error('agent improvement proposal requires a passing experiment')
   }
@@ -521,6 +543,7 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
     'agent improvement proposal',
   )
   const evaluation = verifyCandidateExperimentComparison(proposal.evaluation)
+  optimizationActivationReceiptFromMetadata(evaluation.metadata)
   if (evaluation.decision.outcome !== 'ship') {
     throw new Error('agent improvement proposal does not contain a passing experiment')
   }

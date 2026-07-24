@@ -28,6 +28,7 @@ import {
   flatOtelSpan,
   type OtelExporter,
 } from '../otel-export'
+import { type Redactor, resolveRedactor } from '../redact'
 import type { LoopTraceEvent } from '../runtime/types'
 import type { RuntimeTelemetryOptions } from '../sanitize'
 import type { RuntimeStreamEvent } from '../types'
@@ -40,7 +41,6 @@ import {
   isIntelligenceOff,
   resolveEffort,
 } from './effort'
-import { type Redactor, resolveRedactor } from './redact'
 
 export type {
   AgentCandidateProfileActivation as CandidateProfileMaterialization,
@@ -55,6 +55,8 @@ export type {
   CandidateExecutionEvidence,
 } from '@tangle-network/agent-interface'
 export { parseAgentCandidateProfileActivation as parseCandidateProfileMaterialization } from '../candidate-execution/profile'
+export type { Redactor } from '../redact'
+export { defaultRedactor, resolveRedactor } from '../redact'
 export type {
   AgentImprovementActivationReconciliation,
   AgentImprovementActivationResultStore,
@@ -179,6 +181,14 @@ export {
   isAgentImprovementProfileSurface,
 } from './improvement-surfaces'
 export type {
+  OptimizationActivationReceipt,
+  OptimizationReceiptCost,
+} from './optimization-receipt'
+export {
+  createOptimizationActivationReceipt,
+  optimizationActivationReceiptFromMetadata,
+} from './optimization-receipt'
+export type {
   AgentImprovementProfileActivationPreparation,
   AgentImprovementProfileActivationTarget,
   AgentImprovementProfileReplacement,
@@ -186,8 +196,6 @@ export type {
   AgentImprovementProfileTargetTransition,
 } from './profile-activation'
 export { prepareAgentImprovementProfileActivation } from './profile-activation'
-export type { Redactor } from './redact'
-export { defaultRedactor, resolveRedactor } from './redact'
 export type { ProvisionedHost, ResolveCtx } from './resolver'
 export {
   composeCertifiedProfile,

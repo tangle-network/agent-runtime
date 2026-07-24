@@ -33,7 +33,6 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { improve, agenticGenerator } from '@tangle-network/agent-runtime'
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
@@ -108,7 +107,6 @@ async function main(): Promise<void> {
   if (!routerKey) throw new Error('TANGLE_API_KEY required (worker calls the router)')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const workerModel = process.env.WORKER_MODEL ?? 'glm-4.6'
-  const reflectModel = process.env.REFLECT_MODEL ?? 'glm-4.6'
   const trainIds = (process.env.TRAIN_IDS ?? 'psf__requests-2931,pallets__flask-5014').split(',').map((s) => s.trim()).filter(Boolean)
   const holdoutIds = (process.env.HOLDOUT_IDS ?? 'psf__requests-1142,psf__requests-1921').split(',').map((s) => s.trim()).filter(Boolean)
   const generations = Number(process.env.GENERATIONS ?? 1)
@@ -127,7 +125,7 @@ async function main(): Promise<void> {
   const allIds = [...new Set([...trainIds, ...holdoutIds])]
 
   console.log('=== META-HARNESS on the SWE scaffold — improve(surface:code) ===')
-  console.log(`worker=${workerModel} reflect=${reflectModel} router=${routerBaseUrl} runTool=${enableRun}`)
+  console.log(`worker=${workerModel} router=${routerBaseUrl} runTool=${enableRun}`)
   console.log(`train=[${trainIds.join(', ')}] holdout=[${holdoutIds.join(', ')}]`)
   console.log(`generations=${generations} population=${population} innerTurns=${innerTurns} maxTokens=${maxTokens}`)
   console.log(`repoRoot=${REPO_ROOT} baseRef=${baseRef}`)
@@ -156,15 +154,25 @@ async function main(): Promise<void> {
     const worktreeRef = isCode ? String((surface as { worktreeRef?: string }).worktreeRef ?? '') : ''
     const rootDir = isCode && worktreeRef && existsSync(worktreeRef) ? worktreeRef : SWE_MAIN_ROOT
     const t0 = Date.now()
-    const r = await runEmit(rootDir, scenario.id, workerEnv, emitTimeoutMs)
+    const paid = await ctx.cost.runPaidCall({
+      channel: 'agent',
+      actor: 'swe-scaffold-worker',
+      model: workerModel,
+      execute: () => runEmit(rootDir, scenario.id, workerEnv, emitTimeoutMs),
+      receipt: (result) => {
+        const usageUnknown = result.tokIn === 0 && result.tokOut === 0
+        return {
+          model: workerModel,
+          inputTokens: result.tokIn,
+          outputTokens: result.tokOut,
+          ...(result.usd > 0 ? { actualCostUsd: result.usd } : {}),
+          ...(usageUnknown ? { usageUnknown: true, costUnknown: result.usd <= 0 } : {}),
+        }
+      },
+    })
+    if (!paid.succeeded) throw paid.error
+    const r = paid.value
     const hasPatch = r.patch.trim().length > 0
-    // Report real usage; floor a patch-bearing zero-usage cell so the stub-guard cannot abort on a
-    // router telemetry gap (lift is judge-derived, so this only affects cost accounting).
-    const zeroUsage = r.tokIn === 0 && r.tokOut === 0
-    ctx.cost.observe(zeroUsage && hasPatch ? Math.max(r.usd, 0.0001) : r.usd, workerModel)
-    ctx.cost.observeTokens(
-      zeroUsage && hasPatch ? { input: Math.max(r.tokIn, 1), output: Math.max(r.tokOut, 1) } : { input: r.tokIn, output: r.tokOut },
-    )
     const files = hasPatch ? [...r.patch.matchAll(/^diff --git a\/(\S+)/gm)].map((m) => m[1]) : []
     console.log(
       `  [measure] ${isCode ? 'cand' : 'base'} ${scenario.id} patch=${r.patch.length}b files=[${files.join(', ') || 'none'}] ` +
@@ -173,7 +181,7 @@ async function main(): Promise<void> {
     return hasPatch ? r.patch : null
   }
 
-  const judge: JudgeConfig<string, Scenario> = {
+  const judge: JudgeConfig<string | null, Scenario> = {
     name: 'swebench-docker',
     dimensions: [{ key: 'resolved', description: 'FAIL_TO_PASS + PASS_TO_PASS resolved by the official swebench Docker harness' }],
     async score({ artifact, scenario }) {
@@ -286,11 +294,10 @@ async function main(): Promise<void> {
     runHarness: runHarness as any,
   })
 
-  const profile: AgentProfile = { name: 'swe-scaffold', prompt: { systemPrompt: '' } }
   const scenarios: Scenario[] = allIds.map((id) => ({ id, kind: 'swe-bench-verified' }))
   const holdoutScenarios: Scenario[] = holdoutIds.map((id) => ({ id, kind: 'swe-bench-verified' }))
 
-  const out = await improve(profile, [], {
+  const out = await improve({
     surface: 'code',
     gate: 'holdout',
     code: { repoRoot: REPO_ROOT, baseRef, worktreeDir, generator },
@@ -301,25 +308,17 @@ async function main(): Promise<void> {
     agent,
     expectUsage: 'warn',
     budget: { generations, populationSize: population, holdoutScenarios, maxConcurrency: 1, reps: 1 },
-    llm: { baseUrl: routerBaseUrl, apiKey: routerKey, model: reflectModel },
   })
 
   console.log('\n=== RESULT ===')
-  console.log(`gateDecision=${out.gateDecision} shipped=${out.shipped} lift=${out.lift}`)
+  console.log(`decision=${out.decision} lift=${out.lift}`)
   console.log(`baseline holdout composite = ${out.raw.baseline.compositeMean}`)
   console.log(`winner   holdout composite = ${out.raw.winner.compositeMean}`)
   console.log(`baseline per-scenario: ${JSON.stringify(out.raw.baseline.perScenario)}`)
   console.log(`winner   per-scenario: ${JSON.stringify(out.raw.winner.perScenario)}`)
   if (out.raw.winner.label) console.log(`winner label: ${out.raw.winner.label}`)
-  if (out.raw.winner.summary) console.log(`winner summary: ${out.raw.winner.summary}`)
-  for (const gen of out.raw.generations ?? []) {
-    console.log(`\n-- generation ${gen.record.generationIndex} candidates --`)
-    for (const c of gen.record.candidates) {
-      const perScenario = (c as { scenarios?: Array<{ scenarioId: string; composite: number }> }).scenarios ?? []
-      const detail = perScenario.map((s) => `${s.scenarioId}=${s.composite}`).join(' ')
-      console.log(`  candidate ${c.surfaceHash.slice(0, 8)} composite=${c.composite}${c.label ? ` "${c.label}"` : ''} [${detail}]`)
-    }
-  }
+  if (out.raw.winner.rationale) console.log(`winner rationale: ${out.raw.winner.rationale}`)
+  console.log(`generations explored: ${out.generationsExplored ?? 0}`)
 }
 
 main().catch((e) => {

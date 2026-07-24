@@ -1,48 +1,31 @@
-/**
- * `improve()` — the one pluggable RSI verb, offline.
- *
- * `improve(profile, findings, opts)` optimizes ONE surface of an agent's profile (here the system
- * prompt) and returns the frozen winner only if it clears the held-out gate. It is a facade over agent-eval's
- * `selfImprove`: you name a `surface` and it picks the matching default mutator, extracts the baseline
- * from the profile, and runs the loop. A ship verdict still requires a separate measured approval and
- * product-owned activation; this function never mutates the live profile.
- *
- * The REQUIRED positional `findings` (an `AnalystFinding[]`) is what the loop reflects on: the trace
- * analysts' read of what went wrong. Here it is a single hand-written finding.
- *
- * This example runs OFFLINE with no credentials: a scripted `SurfaceProposer` proposes a fixed
- * winning candidate, a deterministic judge scores it, and the "agent" returns the surface verbatim
- * while reporting token usage (so agent-eval's backend-integrity guard sees a real backend). Mirrors
- * `tests/improve.test.ts`.
- *
- * Run:  pnpm tsx examples/improve/improve.ts
- */
+/** Complete-method prompt improvement, offline and deterministic. */
 
 import { makeFinding } from '@tangle-network/agent-eval'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-  SurfaceProposer,
-} from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import { improve } from '@tangle-network/agent-runtime'
+import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
+import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  type ImproveMethodFactory,
+  improve,
+  type ReadonlyAgentProfile,
+} from '@tangle-network/agent-runtime'
 
 export interface DemoScenario extends Scenario {
   kind: 'demo'
 }
 
-// 12 trivial scenarios — enough for the held-out gate's minimum-evidence floor.
 export const scenarios: DemoScenario[] = Array.from({ length: 12 }, (_, i) => ({
   id: `s${i}`,
   kind: 'demo' as const,
 }))
+export const trainScenarios = scenarios.slice(0, 4)
+export const selectionScenarios = scenarios.slice(4, 8)
+export const testScenarios = scenarios.slice(8)
 
 // The agent returns the surface verbatim as the artifact AND reports usage, so the backend-integrity
 // guard sees a real backend rather than a stub-zero cell. No LLM.
 export const agent = async (
-  surface: MutableSurface,
+  candidate: ReadonlyAgentProfile,
   _scenario: DemoScenario,
   ctx: DispatchContext,
 ): Promise<string> => {
@@ -51,7 +34,7 @@ export const agent = async (
     actor: 'example',
     model: 'deterministic-example',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => String(surface),
+    execute: async () => candidate.prompt?.systemPrompt ?? '',
     receipt: () => ({
       model: 'deterministic-example',
       inputTokens: 1,
@@ -73,14 +56,17 @@ export const judge: JudgeConfig<string, DemoScenario> = {
   },
 }
 
-// A scripted SurfaceProposer that always proposes the winning surface — the offline stand-in for
-// `gepaProposer`, no router call.
-export const scriptedWinner: SurfaceProposer = {
-  kind: 'scripted-winner',
-  async propose() {
-    return [{ surface: 'PROMOTED', label: 'win', rationale: 'from findings' }]
+// A complete deterministic method for the offline example. Production callers
+// pass `officialGepa(...)`, `officialSkillOpt(...)`, or another OptimizationMethod.
+export const scriptedWinner: ImproveMethodFactory<DemoScenario, string> = (context) => ({
+  name: 'scripted-complete-method',
+  async optimize() {
+    return {
+      winnerSurface: context.findings.length > 0 ? 'PROMOTED' : context.baselineSurface,
+      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+    }
   },
-}
+})
 
 // What the loop reflects on: the trace analysts' read of what went wrong. `makeFinding` stamps the
 // schema-version / finding-id / timestamp the full `AnalystFinding` shape requires.
@@ -96,22 +82,32 @@ const findings = [
 ]
 
 export const profile: AgentProfile = { name: 'demo', prompt: { systemPrompt: 'BASELINE' } }
+export const executionRef = canonicalCandidateDigest({
+  callback: 'examples/improve/agent',
+  model: 'deterministic-example',
+})
 
 async function main(): Promise<void> {
-  const out = await improve(profile, findings, {
+  const out = await improve(profile, {
     surface: 'prompt',
-    generator: scriptedWinner,
-    scenarios,
-    judge,
+    executionRef,
+    method: scriptedWinner,
+    findings,
+    trainScenarios,
+    selectionScenarios,
+    testScenarios,
+    judges: [judge],
     agent,
-    // A perfect +1.0 lift at this n/reps clears the default held-out gate.
-    budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+    runDir: 'mem://improve-example',
+    storage: inMemoryCampaignStorage(),
+    resamples: 40,
+    confidence: 0.95,
   })
   console.log(
-    'improve() proposed a detached prompt candidate and measured it on held-out scenarios (offline: scripted proposer, deterministic judge):',
+    'improve() proposed a detached prompt candidate and measured it on final-test scenarios (offline complete method, deterministic judge):',
   )
-  console.log(`decision: ${out.decision}  lift: ${out.lift?.toFixed(3) ?? 'deferred'}`)
-  console.log(`candidate prompt: ${out.candidate.profile?.prompt?.systemPrompt}`)
+  console.log(`decision: ${out.decision}  lift: ${out.lift.toFixed(3)}`)
+  console.log(`candidate prompt: ${out.candidate.profile.prompt?.systemPrompt}`)
   console.log(`live prompt unchanged: ${profile.prompt?.systemPrompt}`)
 }
 

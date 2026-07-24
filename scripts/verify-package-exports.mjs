@@ -347,7 +347,7 @@ try {
       '--eval',
       `
         const runtime = await import('@tangle-network/agent-runtime')
-        for (const name of ['improve']) {
+        for (const name of ['improve', 'officialGepa', 'officialSkillOpt']) {
           if (typeof runtime[name] !== 'function') throw new Error('missing improvement export ' + name)
         }
         if ('loadAgentImprovementProposalFixture' in runtime) {

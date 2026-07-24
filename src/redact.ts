@@ -1,10 +1,9 @@
 /**
  *
- * Redaction for Intelligence trace export. The trace carries the customer's
- * real input/output; before any of it leaves the process it passes through a
- * `Redactor`. The default scrubs the obvious leak classes (API keys, bearer
- * tokens, emails, private keys) from strings and walks nested objects/arrays,
- * but a customer with domain-specific PII supplies their own `redact` hook.
+ * Redaction for values that may leave the Runtime process. The default scrubs
+ * common leak classes (API keys, bearer tokens, emails, private keys) from
+ * strings and walks nested objects and arrays. A customer with domain-specific
+ * PII supplies their own `redact` hook.
  *
  * This is intentionally narrower than `src/sanitize.ts` (which redacts the
  * runtime's *event envelope* field-by-field): here the value is opaque
@@ -39,13 +38,18 @@ const valuePatterns: ReadonlyArray<RegExp> = [
   /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
 ]
 
+/** Secret assignments embedded inside an otherwise opaque string, including
+ * serialized JSON and log-style `key=value` text. */
+const secretAssignmentPattern =
+  /((?:"|')?(?:api[-_]?key|secret|token|password|passwd|authorization|auth|private[-_]?key|credential|access[-_]?key|client[-_]?secret|session[-_]?(?:id|token)|cookie|bearer)(?:"|')?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)/gi
+
 /** Scrub a single string of in-value secret/PII patterns. */
 function scrubString(input: string): string {
   let out = input
   for (const pattern of valuePatterns) {
     out = out.replace(pattern, redactedMarker)
   }
-  return out
+  return out.replace(secretAssignmentPattern, `$1${redactedMarker}`)
 }
 
 /**
@@ -82,14 +86,32 @@ function walk(value: unknown, seen: WeakSet<object>, depth: number): unknown {
   return out
 }
 
+/** Stable identity input for saved work that depends on built-in redaction behavior. */
+export function defaultRedactorIdentityMaterial(): unknown {
+  const patternIdentity = (pattern: RegExp) => ({
+    source: pattern.source,
+    flags: pattern.flags,
+  })
+  return {
+    marker: redactedMarker,
+    secretKeyPattern: patternIdentity(secretKeyPattern),
+    valuePatterns: valuePatterns.map(patternIdentity),
+    secretAssignmentPattern: patternIdentity(secretAssignmentPattern),
+    maxDepth,
+    scrubString: Function.prototype.toString.call(scrubString),
+    walk: Function.prototype.toString.call(walk),
+    defaultRedactor: Function.prototype.toString.call(defaultRedactor),
+  }
+}
+
 /**
- * Resolve the redactor a client uses. A caller-supplied hook replaces the
- * default entirely (the customer owns their PII rules); absent one, the
- * built-in `defaultRedactor` runs. Returning `false` is the explicit opt-out —
- * NO redaction, for a caller who has already sanitized upstream and wants raw
- * fidelity. Opt-out is loud (an explicit `false`), never a silent default.
+ * Resolve the redactor a client uses. A caller-supplied hook handles
+ * domain-specific values first, then the built-in scrubber still removes
+ * common credentials and email addresses. Returning `false` is the explicit
+ * opt-out for already-reviewed public values.
  */
 export function resolveRedactor(redact: Redactor | false | undefined): Redactor {
   if (redact === false) return (value) => value
-  return redact ?? defaultRedactor
+  if (!redact) return defaultRedactor
+  return (value) => defaultRedactor(redact(value))
 }

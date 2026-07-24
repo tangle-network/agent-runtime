@@ -1,21 +1,8 @@
 /**
+ * Code-only candidate driver for Runtime-owned git worktrees.
  *
- * `improvementDriver` — the ONE reflective/agentic improvement proposer for
- * agent-eval's improvement loop. It implements `SurfaceProposer` and owns
- * the candidate lifecycle (worktree create → generate → finalize/discard,
- * × populationSize); it delegates the only thing that genuinely varies — HOW
- * a candidate change is produced — to a pluggable `CandidateGenerator`.
- *
- * There is no separate "analyst driver" vs "autoresearch driver": those are
- * the SAME driver at two settings of a dial.
- *   - cheap reflective path  → `reflectiveGenerator` (shots=1, no sandbox;
- *                              applies pre-drafted patches)
- *   - full agentic path      → `agenticGenerator` (shots=N, multi-shot
- *                              verify-in-session loop; an agent reads code +
- *                              report, edits, and re-tries on verifier failure)
- * Both emit changes into a worktree the driver finalizes into a
- * `CodeSurface{ worktreeRef }` the loop measures on the holdout. See
- * agent-eval's `docs/design/self-improvement-engine.md`.
+ * A `CandidateGenerator` edits an isolated checkout. This driver finalizes each
+ * accepted edit as a `CodeSurface` and disposes rejected worktrees.
  *
  * @experimental
  */
@@ -65,7 +52,7 @@ export interface CandidateGenerator {
      *  reflective generator ignores it). */
     maxShots: number
     signal: AbortSignal
-    /** Improvement-loop coordinates. Present when called through improvementDriver. */
+    /** Generation coordinates supplied by Runtime's internal code candidate driver. */
     generation?: number
     candidateIndex?: number
     /** Shared run-wide paid-call account supplied by agent-eval 0.117+. */
@@ -98,7 +85,7 @@ export interface ManagedImprovementDriver extends SurfaceProposer<AnalystFinding
   cleanup(retainWorktreeRefs?: readonly string[]): Promise<void>
 }
 
-/** The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. */
+/** Build the code-only proposer used internally by `improve({ surface: 'code' })`. */
 export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprovementDriver {
   const baseRef = opts.baseRef ?? 'main'
   const owned = new Map<string, Worktree>()

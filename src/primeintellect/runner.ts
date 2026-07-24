@@ -35,7 +35,6 @@ export function readPrimeIntellectEpisodeContext(
   const mcpServers = validateStringMap(parsedMcp, ENV.mcpServers)
 
   return {
-    protocol: 'tangle.primeintellect.episode/v1',
     task,
     model: {
       name: requiredEnv(env, ENV.model),

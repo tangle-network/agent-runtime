@@ -26,7 +26,6 @@ import { run } from './proc.ts'
 export const ACTIVATION_PREDICATE_RELPATH = '.improve/activation.json'
 
 export interface ActivationPredicate {
-  version: 'v1'
   /** One sentence: which mechanism this proves fired. */
   description: string
   kind: 'grep' | 'script'
@@ -53,7 +52,6 @@ export function parseActivationPredicate(raw: string): ParsedPredicate {
     return { ok: false, error: 'must be a JSON object' }
   }
   const p = value as Record<string, unknown>
-  if (p.version !== 'v1') return { ok: false, error: `version must be "v1", got ${JSON.stringify(p.version)}` }
   if (typeof p.description !== 'string' || p.description.trim().length === 0) {
     return { ok: false, error: 'description must be a non-empty string' }
   }
@@ -90,13 +88,12 @@ export function activationPredicateInstruction(): string {
     '',
     'Template (kind "grep" — a RegExp tested over the run artifacts):',
     '  {',
-    '    "version": "v1",',
     '    "description": "patchRiskWarnings emitted in at least one settle",',
     '    "kind": "grep",',
     '    "pattern": "patchRiskWarnings|patch-risk",',
     '    "files": ["journal.jsonl", "workers/"]',
     '  }',
-    'Or kind "script": {"version":"v1","description":"...","kind":"script","script":"grep -rq NEW_SECTION ws/.loops"}',
+    'Or kind "script": {"description":"...","kind":"script","script":"grep -rq NEW_SECTION ws/.loops"}',
     '(exit 0 in any run dir = fired).',
     'Pick a pattern that can ONLY appear when your mechanism ran — not one that matches the diff itself.',
   ].join('\n')

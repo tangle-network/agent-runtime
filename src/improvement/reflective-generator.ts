@@ -6,9 +6,8 @@
  * the candidate worktree. `maxShots` is ignored — reflection is single-shot by
  * construction (the patches are already drafted).
  *
- * This is the `shots=1, sandbox=off` setting of the one improvement driver.
- * The `agenticGenerator` (a multi-shot verify-in-session loop) is the
- * `shots=N` setting — both plug into the same `improvementDriver`.
+ * This is the `shots=1, sandbox=off` code-candidate setting.
+ * `agenticGenerator` supplies the multi-shot verify-in-session setting.
  *
  * @experimental
  */
