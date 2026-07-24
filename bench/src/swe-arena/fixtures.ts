@@ -9,6 +9,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type {
+  ExcludedTest,
   FactoryInstance,
   HoldoutEntry,
   HoldoutRegistry,
@@ -100,7 +101,10 @@ export const FACTORY_INSTANCES_DIR = fixturePath('factory')
 export interface LoadedFactoryInstance extends FactoryInstance {
   dir: string
   spec: string
+  /** The JUDGED denominator — authored tests minus `excluded_tests`. */
   judgeTestTotal: number
+  /** Every test the hidden judge files author, excluded ones included. */
+  judgeTestTotalAuthored: number
 }
 
 const SHA_RE = /^[0-9a-f]{40}$/
@@ -110,6 +114,29 @@ function requireStringArray(dir: string, field: string, v: unknown, minLen: numb
     throw new Error(`${dir}/manifest.json: ${field} must be a string[] with ≥${minLen} non-empty entries`)
   }
   return v as string[]
+}
+
+const EXCLUSION_REASONS = new Set<ExcludedTest['reason']>(['spec-unreachable', 'flaky', 'env-dependent'])
+
+function requireExcludedTests(manifestPath: string, v: unknown): ExcludedTest[] {
+  if (!Array.isArray(v)) throw new Error(`${manifestPath}: excluded_tests must be an array`)
+  return v.map((raw, i) => {
+    const e = raw as Record<string, unknown>
+    if (typeof e?.name !== 'string' || e.name.length === 0) {
+      throw new Error(`${manifestPath}: excluded_tests[${i}].name must be the vitest full test name`)
+    }
+    if (typeof e.reason !== 'string' || !EXCLUSION_REASONS.has(e.reason as ExcludedTest['reason'])) {
+      throw new Error(
+        `${manifestPath}: excluded_tests[${i}].reason must be one of ${[...EXCLUSION_REASONS].join(' | ')}`,
+      )
+    }
+    const missing = e.missing === undefined ? undefined : requireStringArray(manifestPath, `excluded_tests[${i}].missing`, e.missing, 1)
+    return {
+      name: e.name,
+      reason: e.reason as ExcludedTest['reason'],
+      ...(missing !== undefined ? { missing } : {}),
+    }
+  })
 }
 
 /** Load + validate one instance dir (fail-loud on any shape drift). */
@@ -136,7 +163,7 @@ export function loadFactoryInstance(dir: string): LoadedFactoryInstance {
     }
   }
   const judge_tests = requireStringArray(dir, 'judge_tests', m.judge_tests, 1)
-  const excluded_tests = requireStringArray(dir, 'excluded_tests', m.excluded_tests ?? [], 0)
+  const excluded_tests = requireExcludedTests(manifestPath, m.excluded_tests ?? [])
   const setup_cmds = requireStringArray(dir, 'setup_cmds', m.setup_cmds ?? [], 0)
   const judge_cmds = requireStringArray(dir, 'judge_cmds', m.judge_cmds, 1)
   if (typeof m.timeout_s !== 'number' || !Number.isFinite(m.timeout_s) || m.timeout_s <= 0) {
@@ -178,6 +205,7 @@ export function loadFactoryInstance(dir: string): LoadedFactoryInstance {
     dir,
     spec,
     judgeTestTotal,
+    judgeTestTotalAuthored: judgeTestTotal + excluded_tests.length,
   }
 }
 

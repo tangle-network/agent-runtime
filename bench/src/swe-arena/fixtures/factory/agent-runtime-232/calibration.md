@@ -46,3 +46,17 @@ Both files fail at collection: `src/mcp/delegation-store` does not exist and `ta
 - The judge asserts **typed error classes** (`DelegationPersistenceError`, `DelegationStateCorruptError`) and one error `kind` string (`'DriverRestartError'`), not message prose — clean behavioral contract; all named in `spec.md`.
 - `DelegationRecord`, `DelegationTaskQueue`, `hashIdempotencyInput`, and `DelegateCodeArgs` pre-exist at base; the judge extends them rather than asserting incidental internals.
 - The PR also touched `README.md` — excluded from the impl patch definition of "the feature" for grading purposes (docs churn, no behavioral content). It applies cleanly either way since the impl patch used `':(exclude)tests/'` only.
+
+## Spec-reachability gate (added 2026-07-24)
+
+Before the spec repair: **3 of 21 reachable, 18 unreachable** — matching the one measured solo run's 3/21.
+Missing tokens were the port's method names (`loadAll`, `lookupIdempotencyKey`), the queue's `flush()`,
+the persisted snapshot's `version` envelope, and three queue options (`resumeDelegate`, `intervalMs`,
+`onPersistError`). All are public API names, so the repair was spec enrichment, not exclusion.
+
+```
+REACHABILITY factory.agent-runtime.232: 21/21 reachable, 0 unreachable; judged denominator 21 of 21 authored
+CALIBRATE factory.agent-runtime.232: gold 21/21 resolved=true; base 0/21 resolved=false; reachability ok → ADMITTED
+```
+
+Denominator unchanged at **21** (authored 21, excluded 0).

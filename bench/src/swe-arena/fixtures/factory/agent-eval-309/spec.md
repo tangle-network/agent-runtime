@@ -32,26 +32,37 @@ Builds matched pairs. Hard requirements:
 
 Runs the full comparison over the pairs:
 
-- **Correctness**: derive discordant counts (baseline-pass/treatment-fail and the reverse) from `pass` and report exact McNemar (`pValue`) plus the paired risk difference under a `correctness` result section, with `nPairs`, `nUnpairedBaseline`, `nUnpairedTreatment` visible.
+- **Correctness**: derive discordant counts from `pass` and report them under a `correctness` result section as `b10` (treatment passes where baseline fails) and `b01` (the reverse), alongside the exact McNemar result (`mcnemar`, carrying `pValue`) and the paired `riskDifference`, with `nPairs`, `nUnpairedBaseline`, `nUnpairedTreatment` visible. `correctness` is `null` when no pair carries `pass` on both sides.
 - **Efficiency**: for every metric name present, per-pair deltas (treatment − baseline) summarized with the paired bootstrap and Wilcoxon signed-rank, reported as `metricDeltas` (one entry per metric).
-- A metric with zero complete pairs reports `null` for its bootstrap CI and Wilcoxon — the bootstrap's all-zero sentinel must never read as a measured tight null.
-- Bootstrap must be seeded/deterministic so repeated runs agree.
+- Each `metricDeltas` entry carries: `name`, `n` (complete pairs), `nMissing` (pairs lacking the metric on a side), `medianDelta`, `meanDelta`, `bootstrapCi`, and `wilcoxon`.
+- An explicit `metricNames` option reports the named metrics even when no pair carries them: `n` = 0, `nMissing` counted, `medianDelta`/`meanDelta` `NaN` — absent evidence stays visible instead of vanishing from the output.
+- A metric with zero complete pairs reports `null` for `bootstrapCi` and `wilcoxon` — the bootstrap's all-zero sentinel must never read as a measured tight null.
+- A non-finite metric value is corrupt telemetry, not a missing one: throw naming the metric (matches `non-finite value for metric 'score'`).
+- Bootstrap must be seeded/deterministic so repeated runs agree; the seed arrives as `bootstrap: { seed }`.
 
 ## Deliverable 2 — capability-headroom gate (`src/capability-headroom.ts`)
 
 ### `capabilityHeadroom(rows, options)`
 
+Input rows are `HeadroomInput`: `{ taskId: string; baselineOutcome: 'pass' | 'fail' | 'unknown' }` — one row per baseline rep of a task, projected by the caller from its own run data. `HeadroomInput` is exported.
+
 Given per-task baseline outcomes for the capability-absent arm, report which tasks have headroom (baseline fails → task can show the capability) with fail-closed semantics:
 
 - Outcomes are per-rep and may be pass / fail / unknown; **unknown never counts as headroom** and never counts as a known rep.
 - Reject an unrecognized baseline outcome value loudly (message names the bad value, e.g. `unrecognized baselineOutcome 'passed'`); reject an empty baseline (`no baseline rows`).
-- Per-task output includes `nKnown`; a `summary` includes `tasksWithGap` and `repsUnknown` so thin evidence stays visible.
+- Each per-task row is `{ taskId, n, nKnown, baselinePassRate, headroom }`, where `n` counts all reps, `nKnown` counts reps with a recognized outcome, `baselinePassRate` is the pass rate over KNOWN reps (`NaN` when `nKnown` is 0), and `headroom` classifies the task as `'gap'`, `'saturated'`, or `'unknown'`.
+- The classification threshold is a `keepThreshold` option, default `0`: a task is `'gap'` when its `baselinePassRate` is ≤ the threshold, `'saturated'` above it, and `'unknown'` when nothing is known. So at the default any pass saturates a task. `keepThreshold` outside `[0, 1)` throws (matches `keepThreshold must be in [0, 1)`).
+- The `summary` is `{ tasksWithGap, tasksSaturated, tasksUnknown, repsUnknown }` so thin evidence stays visible.
 - Numeric guards validate loudly: minimum reps must be an integer ≥ 1 (message contains `integer ≥ 1`); where two of something are required the message says `need ≥ 2`.
 - Result exposes `tasks` (per-task rows) and `summary`.
 
-### `assertCapabilityHeadroom(rows, options)`
+### `assertCapabilityHeadroom(report, options)`
 
-Throws an actionable error when the benchmark cannot see the capability it claims to measure (no headroom); otherwise returns the headroom report.
+Throws an actionable error when the benchmark cannot see the capability it claims to measure; otherwise returns the headroom report.
+
+- The bar is a `minTasksWithGap` option, default `1`: fewer tasks classified `'gap'` than the bar is a no-go.
+- The error has to be actionable, so it states how many of how many tasks have baseline headroom, how many are saturated, how many are unknown, and what to do about it — e.g. `only 0 of 2 task(s) have baseline headroom (1 saturated, 1 unknown) — add tasks the baseline fails`. Falling short of a higher bar says `need ≥ 2`.
+- `minTasksWithGap` must be an integer ≥ 1 (message contains `integer ≥ 1`).
 
 ## Wiring
 

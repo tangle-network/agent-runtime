@@ -31,6 +31,7 @@ import { pathToFileURL } from 'node:url'
 import { applyPatchWithFallback } from './calibrate.ts'
 import { loadFactoryInstance, type LoadedFactoryInstance } from './fixtures.ts'
 import { run, runOk, shq } from './proc.ts'
+import { applyTestExclusions, type JudgeTestSource, specReferencedPaths } from './spec-reachability.ts'
 
 /** Warm installs across judge/calibration runs (design: `--config.store-dir`). */
 export const SHARED_PNPM_STORE = join(tmpdir(), 'factory-bench-pnpm-store')
@@ -103,11 +104,50 @@ export async function exportBaseTree(mirror: string, ref: string, dest: string):
 }
 
 /** Overlay each judge test from the merge commit (`git show <judge_ref>:<path>`). */
+/** The hidden judge test files as authored at `judge_ref`. */
+export async function judgeTestSources(inst: LoadedFactoryInstance): Promise<JudgeTestSource[]> {
+  const out: JudgeTestSource[] = []
+  for (const path of inst.judge_tests) {
+    const show = await runOk('git', ['-C', inst.repo_local_mirror, 'show', `${inst.judge_ref}:${path}`])
+    out.push({ path, source: show.stdout })
+  }
+  return out
+}
+
+/**
+ * Base-tree contents of the source files the spec explicitly names. These are
+ * part of what a builder can derive the contract from, so the reachability
+ * gate reads them alongside the spec text.
+ */
+export async function specReferencedSources(inst: LoadedFactoryInstance): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  for (const path of specReferencedPaths(inst.spec)) {
+    const res = await run('git', ['-C', inst.repo_local_mirror, 'show', `${inst.base_commit}:${path}`])
+    if (res.code === 0) out[path] = res.stdout
+  }
+  return out
+}
+
+/**
+ * Write the hidden tests into the workspace, marking every `excluded_tests`
+ * entry `it.skip` so it lands in vitest's skipped bucket instead of counting
+ * as a failure nobody could have avoided. Fail-loud when an exclusion matches
+ * no test — a stale name would silently shrink the denominator.
+ */
 export async function overlayJudgeTests(inst: LoadedFactoryInstance, ws: string): Promise<void> {
-  for (const testPath of inst.judge_tests) {
-    const show = await runOk('git', ['-C', inst.repo_local_mirror, 'show', `${inst.judge_ref}:${testPath}`])
-    await mkdir(dirname(join(ws, testPath)), { recursive: true })
-    await writeFile(join(ws, testPath), show.stdout)
+  const excludedNames = inst.excluded_tests.map((e) => e.name)
+  const skipped = new Set<string>()
+  for (const { path, source } of await judgeTestSources(inst)) {
+    const applied = applyTestExclusions(source, path, excludedNames)
+    for (const name of applied.skipped) skipped.add(name)
+    await mkdir(dirname(join(ws, path)), { recursive: true })
+    await writeFile(join(ws, path), applied.source)
+  }
+  const unmatched = excludedNames.filter((n) => !skipped.has(n))
+  if (unmatched.length > 0) {
+    throw new Error(
+      `${inst.id}: excluded_tests names no test in ${inst.judge_tests.join(', ')} — ${unmatched.join(' | ')}`,
+    )
   }
 }
 

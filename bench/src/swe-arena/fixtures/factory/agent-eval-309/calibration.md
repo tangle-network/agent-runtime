@@ -49,3 +49,27 @@ Both files fail at collection: `src/paired-arms.ts` and `src/capability-headroom
 - The tests pin exact error-message substrings (validation regexes). Rather than trimming, those substrings were promoted into `spec.md` as explicit acceptance criteria — they are fail-loud contract, not incidental internals.
 - Tests import by public module path (`./paired-arms`, `./capability-headroom`) and use `mcnemar` from the pre-existing `src/statistics` — the builder must produce those module paths; that IS the spec.
 - Vitest config at base has no `include` restriction; explicit file args run colocated `src/*.test.ts` fine.
+
+## Spec-reachability gate (added 2026-07-24, after the control-arm result)
+
+The first two gates admitted this instance and it still could not discriminate arms: all seven measured
+runs failed the SAME 17 of 30 hidden tests, and only 2 tests ever differed between runs.
+The cause was the spec rewrite, not the arms — 17 tests asserted on names the spec never stated
+(`keepThreshold`, `saturated`, `minTasksWithGap`, `HeadroomInput`, `taskId`, `baselinePassRate`,
+`b10`/`b01`, `meanDelta`/`medianDelta`/`nMissing`/`metricNames`/`wilcoxon`, and the `'gap'`/`'saturated'`
+classification values), so no builder could reach them.
+
+`tsx src/swe-arena/calibrate.ts --factory-reachability <instanceDir>` reports it mechanically.
+Before the spec repair: **13 of 30 reachable, 17 unreachable** — which is exactly the 13/30 both
+supervisor reps scored and the 17 every run failed.
+
+Repair chosen: **enrich the spec, exclude nothing.** Every missing token is a public API name, an
+option name, an exported type name, an enum value, or an error-message fragment — all of which a PM
+ticket can state without leaking implementation. After the rewrite:
+
+```
+REACHABILITY factory.agent-eval.309: 30/30 reachable, 0 unreachable; judged denominator 30 of 30 authored
+CALIBRATE factory.agent-eval.309: gold 30/30 resolved=true; base 0/30 resolved=false; reachability ok → ADMITTED
+```
+
+Denominator is unchanged at **30** (authored 30, excluded 0) because enrichment was sufficient.

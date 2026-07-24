@@ -13,13 +13,16 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   calibrateFactoryInstance,
+  checkFactoryReachability,
   goldImplPatch,
 } from './calibrate.ts'
 import {
   judgeFactoryPatch,
+  overlayJudgeTests,
   parseFactoryJudgeResult,
   parseVitestSummary,
 } from './factory-judge-child.mts'
+import { applyTestExclusions, checkSpecReachability } from './spec-reachability.ts'
 import {
   FACTORY_INSTANCES_DIR,
   loadFactoryInstance,
@@ -91,12 +94,42 @@ await runChecks([
 ])
 `
 
+/**
+ * A judge file in vitest's own `describe`/`it` shape (with a self-contained
+ * runner, so no vitest dependency) — the exclusion path rewrites `it(` to
+ * `it.skip(`, and only this shape can prove that end to end. Its third test
+ * needs a `sub()` the spec never names: unreachable.
+ */
+const SHAPED_TESTS = `
+let passed = 0
+let failed = 0
+let skipped = 0
+const names = []
+function describe(name, fn) { names.push(name); fn(); names.pop() }
+function it(name, fn) { try { fn(); passed += 1 } catch { failed += 1 } }
+it.skip = () => { skipped += 1 }
+const lib = await import('../lib.mjs').catch(() => null)
+describe('lib', () => {
+  it('adds two numbers', () => { if (lib.add(1, 2) !== 3) throw new Error('add') })
+  it('multiplies two numbers', () => { if (lib.mul(2, 3) !== 6) throw new Error('mul') })
+  it('subtracts two numbers', () => { if (lib.sub(3, 1) !== 2) throw new Error('sub') })
+})
+const total = passed + failed + skipped
+const parts = []
+if (failed > 0) parts.push(failed + ' failed')
+if (passed > 0) parts.push(passed + ' passed')
+if (skipped > 0) parts.push(skipped + ' skipped')
+console.log(' Test Files  ' + (failed > 0 ? '1 failed (1)' : '1 passed (1)'))
+console.log('      Tests  ' + parts.join(' | ') + ' (' + total + ')')
+process.exit(failed > 0 ? 1 : 0)
+`
+
 const IMPL = `export const add = (a, b) => a + b\nexport const mul = (a, b) => a * b\n`
 
 interface SyntheticMirror {
   mirror: string
   baseCommit: string
-  refs: { good: string; trivial: string; tooHard: string }
+  refs: { good: string; trivial: string; tooHard: string; shaped: string }
 }
 
 async function git(cwd: string, ...argv: string[]): Promise<string> {
@@ -130,7 +163,8 @@ async function makeSyntheticMirror(root: string): Promise<SyntheticMirror> {
   const good = await variant('pr-good', GOOD_TESTS, true)
   const trivial = await variant('pr-trivial', TRIVIAL_TESTS, true)
   const tooHard = await variant('pr-too-hard', TOO_HARD_TESTS, true)
-  return { mirror, baseCommit, refs: { good, trivial, tooHard } }
+  const shaped = await variant('pr-shaped', SHAPED_TESTS, true)
+  return { mirror, baseCommit, refs: { good, trivial, tooHard, shaped } }
 }
 
 async function makeInstanceDir(
@@ -371,6 +405,162 @@ describe('calibrateFactoryInstance', () => {
     const r = await calibrateFactoryInstance(inst)
     expect(r.goldResolved).toBe(false)
     expect(r.admitted).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Spec-reachability — the third admission gate. A hidden test that asserts on
+// something the spec never provides is dead weight in the denominator: `.309`
+// passed gold/base calibration and still failed the same 17 of 30 tests in all
+// seven measured runs.
+// ---------------------------------------------------------------------------
+
+const REACH_TESTS = `
+import { describe, expect, it } from 'vitest'
+import { classify, type ClassifyInput } from './classify'
+
+describe('classify', () => {
+  it('reports the rate and the verdict', () => {
+    const r = classify([{ taskId: 'a', outcome: 'fail' }])
+    expect(r.tasks[0].passRate).toBe(0)
+    expect(r.tasks[0].verdict).toBe('gap')
+  })
+
+  it('honours the threshold option', () => {
+    expect(classify([], { keepThreshold: 0.5 }).tasks).toEqual([])
+  })
+})
+`
+
+const REACH_SPEC_FULL = `# classify
+
+Export \`classify(rows, options)\` and the \`ClassifyInput\` type from \`src/classify.ts\`.
+Rows are \`{ taskId, outcome }\`. Each entry of \`tasks\` carries \`passRate\` and a
+\`verdict\` of \`'gap'\` or \`'saturated'\`. A \`keepThreshold\` option moves the boundary.
+`
+
+describe('checkSpecReachability', () => {
+  const files = [{ path: 'src/classify.test.ts', source: REACH_TESTS }]
+
+  it('marks every test reachable when the spec names the whole contract', () => {
+    const r = checkSpecReachability(REACH_SPEC_FULL, files)
+    expect(r.unreachableNames).toEqual([])
+    expect([r.reachable, r.unreachable]).toEqual([2, 0])
+  })
+
+  it('flags the one test whose identifier the spec drops, naming the missing token', () => {
+    const r = checkSpecReachability(REACH_SPEC_FULL.replace('A `keepThreshold` option moves the boundary.', ''), files)
+    expect(r.unreachableNames).toEqual(['classify > honours the threshold option'])
+    const flagged = r.tests.find((t) => !t.reachable)!
+    expect(flagged.missing.map((m) => `${m.token}(${m.kind})`)).toEqual(['keepThreshold(option)'])
+  })
+
+  it('requires an asserted-only value but not one the test feeds in', () => {
+    // 'gap' is only ever asserted (contract); 'fail' is fed in as fixture data.
+    const noVerdicts = checkSpecReachability(
+      REACH_SPEC_FULL.replace("`'gap'` or `'saturated'`", 'an opaque verdict value'),
+      files,
+    )
+    const missing = noVerdicts.tests.flatMap((t) => t.missing.map((m) => m.token))
+    expect(missing).toContain('gap')
+    expect(missing).not.toContain('fail')
+  })
+
+  it('reads the base-tree files the spec names, so pre-existing API needs no restating', () => {
+    const specNamingFile = REACH_SPEC_FULL.replace('A `keepThreshold` option moves the boundary.', 'See `src/knobs.ts`.')
+    const withoutSource = checkSpecReachability(specNamingFile, files)
+    const withSource = checkSpecReachability(specNamingFile, files, {
+      'src/knobs.ts': 'export const keepThreshold = 0\n',
+    })
+    expect(withoutSource.unreachable).toBe(1)
+    expect(withSource.unreachable).toBe(0)
+  })
+
+  it('holds the 3 shipped pilots fully reachable from their specs', async () => {
+    for (const inst of loadFactoryInstances(FACTORY_INSTANCES_DIR)) {
+      const r = await checkFactoryReachability(inst)
+      expect([inst.id, r.unreachableTests.map((t) => t.name)]).toEqual([inst.id, []])
+      expect(r.passed).toBe(true)
+    }
+  })
+})
+
+describe('applyTestExclusions', () => {
+  it('marks the named test .skip and leaves the rest untouched', () => {
+    const { source, skipped } = applyTestExclusions(REACH_TESTS, 'src/classify.test.ts', [
+      'classify > honours the threshold option',
+    ])
+    expect(skipped).toEqual(['classify > honours the threshold option'])
+    expect(source).toContain("it.skip('honours the threshold option'")
+    expect(source).toContain("it('reports the rate and the verdict'")
+  })
+
+  it('reports nothing skipped for a name that matches no test', () => {
+    expect(applyTestExclusions(REACH_TESTS, 'src/classify.test.ts', ['classify > nope']).skipped).toEqual([])
+  })
+})
+
+describe('spec-unreachable exclusion end to end', () => {
+  const excluded = {
+    name: 'lib > subtracts two numbers',
+    reason: 'spec-unreachable' as const,
+    missing: ['sub(property)'],
+  }
+  const shapedManifest = (excluded_tests: unknown[], total: number): Record<string, unknown> => ({
+    judge_tests: ['tests/judge.mjs'],
+    judge_cmds: ['node tests/judge.mjs'],
+    excluded_tests,
+    resolved_criterion: `all ${total} judge tests pass; partial score = passed/${total}`,
+  })
+
+  it('REJECTS the instance while the unreachable test is undeclared, naming it and the missing token', async () => {
+    const inst = loadFactoryInstance(
+      await makeInstanceDir(root, 'shaped-undeclared', mirror, mirror.refs.shaped, shapedManifest([], 3)),
+    )
+    const r = await checkFactoryReachability(inst)
+    expect(r.passed).toBe(false)
+    expect(r.undeclared.map((u) => u.name)).toEqual(['lib > subtracts two numbers'])
+    expect(r.undeclared[0]!.missing).toContain('sub(property)')
+  })
+
+  it('declaring it preserves the instance: gold passes over the reachable set, 3 authored → 2 judged', async () => {
+    const inst = loadFactoryInstance(
+      await makeInstanceDir(root, 'shaped-excluded', mirror, mirror.refs.shaped, shapedManifest([excluded], 2)),
+    )
+    expect([inst.judgeTestTotal, inst.judgeTestTotalAuthored]).toEqual([2, 3])
+    const r = await calibrateFactoryInstance(inst)
+    expect(r).toMatchObject({ goldResolved: true, goldPassed: 2, total: 2, authoredTotal: 3, admitted: true })
+    expect(r.baseResolved).toBe(false)
+  })
+
+  it('REJECTS a stale exclusion — a denominator shrunk for a test the spec now reaches', async () => {
+    const inst = loadFactoryInstance(
+      await makeInstanceDir(
+        root,
+        'shaped-stale',
+        mirror,
+        mirror.refs.shaped,
+        shapedManifest([{ ...excluded, name: 'lib > adds two numbers' }], 2),
+      ),
+    )
+    const r = await checkFactoryReachability(inst)
+    expect(r.staleExclusions).toEqual(['lib > adds two numbers'])
+    expect(r.passed).toBe(false)
+  })
+
+  it('fails loud at overlay when an exclusion names no test', async () => {
+    const inst = loadFactoryInstance(
+      await makeInstanceDir(
+        root,
+        'shaped-ghost',
+        mirror,
+        mirror.refs.shaped,
+        shapedManifest([{ ...excluded, name: 'lib > divides two numbers' }], 2),
+      ),
+    )
+    const ws = join(root, 'ghost-ws')
+    await mkdir(ws, { recursive: true })
+    await expect(overlayJudgeTests(inst, ws)).rejects.toThrow(/divides two numbers/)
   })
 })
 

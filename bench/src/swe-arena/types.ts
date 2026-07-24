@@ -31,6 +31,23 @@ export interface SweInstance {
 }
 
 /**
+ * A hidden test removed from an instance's judged denominator, and why.
+ *
+ * `spec-unreachable` is the spec-reachability gate's verdict: the test asserts
+ * on something the spec never provides, so no builder could reach it and
+ * leaving it in the denominator only compresses every arm into the same band
+ * (this is what capped `factory.agent-eval.309` at 13/30 for all seven runs).
+ * The judge marks these `it.skip` so a run's score is over the reachable set.
+ */
+export interface ExcludedTest {
+  /** Vitest full name: describe titles and the test title joined by ' > '. */
+  name: string
+  reason: 'spec-unreachable' | 'flaky' | 'env-dependent'
+  /** For `spec-unreachable`: the exact tokens the spec never provides. */
+  missing?: string[]
+}
+
+/**
  * One factory-bench instance — a merged feature PR from our own repo history
  * turned into a gradable end-to-end feature-building task (see
  * supervisor-lab/factory-bench/docs/design.md). The worker sees only the tree
@@ -54,8 +71,8 @@ export interface FactoryInstance {
   spec_md: string
   /** Hidden judge test files, overlaid at judge time only. */
   judge_tests: string[]
-  /** Flaky/env-dependent tests excluded at calibration, reasons in calibration.md. */
-  excluded_tests: string[]
+  /** Tests removed from the judged denominator at calibration, with the reason. */
+  excluded_tests: ExcludedTest[]
   setup_cmds: string[]
   judge_cmds: string[]
   /** e.g. "all 30 judge tests pass; partial score = passed/30" — the /NN is parsed. */

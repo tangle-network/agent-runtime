@@ -10,12 +10,13 @@ Build that follow-up. Additive only: zero behavior change for existing consumers
 
 Public surface (also re-exported from `src/mcp/index.ts`):
 
-- `DelegationStore` — async port with the operations the queue needs: load all persisted records, upsert one record, remove one record, and resolve/persist idempotency-key → taskId mappings.
+- `DelegationStore` — async port with the operations the queue needs, named: `loadAll()` (every persisted record), `upsert(record)` (one record), `remove(taskIds)` (a batch of ids), and `lookupIdempotencyKey(key)` resolving to the prior taskId or `undefined`.
 - `InMemoryDelegationStore` — the default; semantics identical to today. Round-trips records, isolates stored state from caller mutation (no shared references), supports removal and idempotency resolution.
 - `FileDelegationStore` — single-file JSON snapshot store:
   - A missing file is an empty store, not an error.
   - Writes are atomic (write tmp file, then rename); concurrent upserts serialize into one parseable snapshot; no tmp litter left behind.
-  - Writing before an initial load is a programming error → typed `DelegationPersistenceError`.
+  - The snapshot is a versioned envelope — a `version` number plus the record list — so a future format change is detectable rather than silently misread.
+  - Writing before an initial `loadAll()` is a programming error → typed `DelegationPersistenceError`.
   - Upserts and removals persist across store instances (new instance over the same path sees them).
   - Corrupt state (unparseable JSON, or valid JSON with the wrong shape) **refuses to load** with a typed `DelegationStateCorruptError` — never silently starts fresh.
   - Explicit opt-in recovery (`recoverCorrupt` behavior, wired to env `AGENT_RUNTIME_DELEGATION_STATE_RECOVER=1` in the bin): archives the corrupt file (kept on disk under a recognizable archived name) and starts empty.
@@ -23,14 +24,14 @@ Public surface (also re-exported from `src/mcp/index.ts`):
 
 ## Deliverable 2 — durable mode in `DelegationTaskQueue` (`src/mcp/task-queue.ts`)
 
-Queue options grow a `store?: DelegationStore` (default in-memory, unchanged behavior) plus:
+Queue options grow a `store?: DelegationStore` (default in-memory, unchanged behavior), an `onPersistError` callback invoked when a store write fails, and a `flush()` method callers await so persistence that a submission triggered has settled before they assert on it (it surfaces the write failure when there was one) — plus:
 
 - **Restore/rehydration** (a `restore()` step a fresh queue instance runs over the store):
   - Terminal records (completed/failed/cancelled) become queryable again: status and history visible to the fresh instance.
   - The idempotency index rebuilds: re-submitting a previously-seen idempotency key returns the prior taskId and terminal state **without re-running** the delegate (`hashIdempotencyInput` unchanged).
   - Records that were in-flight when the previous driver died must not pretend to be running: settle them as failed with a truthful error whose `error.kind` is `'DriverRestartError'` — **unless** the record carries a `detachedSessionRef` (see resume seam).
   - `restore()` rejects with `DelegationStateCorruptError` over a corrupt state file.
-- **Resume seam**: a `DelegationResumeDriver` interface (a `tick`-style driver the queue polls to re-drive a detached session to completion, designed to map 1:1 onto the sandbox SDK's turn-drive result). Behavior:
+- **Resume seam**: a `DelegationResumeDriver` interface (a `tick`-style driver the queue polls to re-drive a detached session to completion, designed to map 1:1 onto the sandbox SDK's turn-drive result), configured as a `resumeDelegate` queue option and carrying its own poll `intervalMs`. Behavior:
   - A restored in-flight record with a `detachedSessionRef` and a configured resume delegate is resumed through the driver (the driver sees the ref) and settles with the driver's outcome.
   - With a `detachedSessionRef` but **no** resume delegate configured, the record settles failed truthfully (no resurrection).
   - A driver tick that throws settles the record as failed.

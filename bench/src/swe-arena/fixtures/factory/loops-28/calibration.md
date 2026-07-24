@@ -45,3 +45,18 @@ All three fail at collection: `src/best-effort.ts`, `src/worker-clone.ts`, `src/
 - One pinned prose contract: the best-effort delivery commit subject must contain `best-effort delivery from <label>` and `no worker passed the verify gate` — promoted into `spec.md` as acceptance criteria.
 - Judge imports `@tangle-network/agent-runtime/loops` (`gitWorkspace`, `runInWorkspace`) — a published npm dependency already in the base lockfile, not sibling unmerged work.
 - Scope note: the merged PR also tuned worker budgets and prompts (`extensions/pi/`, `src/top-model.ts`); the judge does not cover those, so this instance grades the three library modules only. The spec describes the modules as the deliverable.
+
+## Spec-reachability gate (added 2026-07-24)
+
+This instance was never run against an arm, so the gate is its first reachability evidence.
+Before the spec repair: **14 of 20 reachable, 6 unreachable**. Missing were `warnBytes` (the clone
+payload bound option), `composeWorkerEvidence`'s input field names (`testOutput`, `typecheckOutput`,
+`reviewerNotes`), and `commit.ok` on the pre-existing `runInWorkspace` result — reachable only once
+the spec names `extensions/pi/loops.ts`, which it now does.
+
+```
+REACHABILITY factory.loops.28: 20/20 reachable, 0 unreachable; judged denominator 20 of 20 authored
+CALIBRATE factory.loops.28: gold 20/20 resolved=true; base 0/20 resolved=false; reachability ok → ADMITTED
+```
+
+Denominator unchanged at **20** (authored 20, excluded 0).
