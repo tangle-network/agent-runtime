@@ -30,6 +30,8 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
+import type { ExecutorProgress, WorkerProgress } from './progress'
+import type { TraceSource } from './trace-source'
 
 // `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
 // import the budget surface from one place. `usd` is a SEPARATE channel (see `UsageEvent`).
@@ -94,6 +96,27 @@ export interface Executor<Out> {
    * executor's to ignore.
    */
   deliver?(msg: unknown): void
+  /**
+   * Optional LIVE progress: what this worker is doing RIGHT NOW, read synchronously and
+   * cheaply while `execute` is still streaming. The scope already derives activity timing,
+   * turns, and spend from the metered usage stream for EVERY executor; this adds only what
+   * the executor alone knows — the harness's tool/file activity, its own turn count, and how
+   * many delivered steers it has not yet folded in. Never throws; a read that cannot be
+   * answered returns `undefined`.
+   *
+   * This is the observe half of steering: `deliver` lets a driver correct a worker, and this
+   * is the evidence it corrects FROM. An executor that implements neither cannot be supervised
+   * mid-flight — it can only be waited on.
+   */
+  progress?(): ExecutorProgress | undefined
+  /**
+   * Optional live tool-call trace for the ONLINE detectors (`watchTrace`). An executor that
+   * can see its worker's tool calls exposes them here, so a supervisor can run the streaming
+   * repeated-action / error-streak panel over a RUNNING worker and raise a `finding` the
+   * moment it loops, instead of discovering it at settle. Omitted = no online detection for
+   * this runtime (the settle-time analyzers still work).
+   */
+  traceSource?(): TraceSource | undefined
   /**
    * Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
    * (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
@@ -314,6 +337,23 @@ export interface Scope<Out> {
    * is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
    */
   send(nodeId: NodeId, msg: unknown): boolean
+  /**
+   * The LIVE read-model of one child, valid WHILE it runs: last-activity timestamp, idle time,
+   * a derived `stalled` flag, tokens/turns spent so far, whether a steer can even reach it
+   * (`steerable`), and whatever tool activity its executor exposes. `undefined` for an unknown
+   * id. This is the counterpart to `send`: a driver that can steer but cannot observe has
+   * nothing to steer on, which is precisely why steering went unused.
+   *
+   * Pull-based and side-effect free — reading it starts no timer and spends nothing. `now` and
+   * `stallAfterMs` are injectable so a caller (and a test) controls what counts as stalled.
+   */
+  progress(
+    nodeId: NodeId,
+    opts?: { now?: number; stallAfterMs?: number },
+  ): WorkerProgress | undefined
+  /** The live tool-call trace of one child when its executor exposes one (`Executor.traceSource`),
+   *  for running the online detector panel over a RUNNING worker. `undefined` otherwise. */
+  traceSource(nodeId: NodeId): TraceSource | undefined
   /** This scope's abort signal — aborted when the run is cancelled, a breaker trips, the pool
    *  is exhausted, or a parent scope cascades. A long-running driver `act` over this scope reads
    *  it to break promptly (the conserved pool + driver-stop are the other bounds). A nested

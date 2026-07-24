@@ -14,7 +14,11 @@
  * oracle (`finalizeBestDelivered` — the best DELIVERED child, never the driver's own prose).
  */
 import { ValidationError } from '../../errors'
-import type { AnalystRegistry, MakeWorkerAgent } from '../../mcp/tools/coordination'
+import type {
+  AnalystRegistry,
+  MakeWorkerAgent,
+  WorkerWatchOptions,
+} from '../../mcp/tools/coordination'
 import { type RouterConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { driverAgent, finalizeBestDelivered } from './coordination-driver'
@@ -99,6 +103,11 @@ export interface SupervisorAgentDeps {
   /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
    *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string>
+  /** Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
+   *  learns a worker is looping mid-run instead of at settle. Omit = no online watching. */
+  readonly watchWorkers?: WorkerWatchOptions
+  /** Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default. */
+  readonly stallAfterMs?: number
   readonly maxTurns?: number
   /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
    *  distills its coordination transcript to a compact progress note once it exceeds the threshold,
@@ -137,6 +146,8 @@ export function supervisorAgent(
       ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
       ...(deps.analysts ? { analysts: deps.analysts } : {}),
       ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+      ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
+      ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
       ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
       ...(deps.compaction ? { compaction: deps.compaction } : {}),
     })
@@ -160,6 +171,8 @@ export function supervisorAgent(
         ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+        ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
+        ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
       })
       try {
         await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })

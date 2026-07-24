@@ -544,6 +544,28 @@ export { assertModelAllowed } from './supervise/model-policy'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
+// pi WRAPPED, not forked: `piExecutor` speaks pi's own out-of-process RPC protocol, so its
+// steering queue, session persistence, abort, and compaction stay upstream's. Registered as
+// runtime `'pi'` through the documented `ExecutorRegistry.register` extension point.
+export {
+  PI_RUNTIME,
+  type PiSeam,
+  piExecutor,
+  piSeamKey,
+} from './supervise/pi-executor'
+// The LIVE read-model of a RUNNING worker — last activity, idle time, derived stall, turns,
+// tokens so far, recent tool/file activity, unread steers. What `observe_agent` now returns
+// mid-flight, and the evidence a supervisor steers FROM.
+export {
+  type ActivityLog,
+  type ActivityNote,
+  createActivityLog,
+  DEFAULT_STALL_AFTER_MS,
+  type ExecutorProgress,
+  readWorkerProgress,
+  type ScopeProgressInput,
+  type WorkerProgress,
+} from './supervise/progress'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
@@ -567,6 +589,14 @@ export {
   type ProviderSeam,
   type ToolSpec,
 } from './supervise/runtime'
+// The STEERABLE sandbox worker: one box, one server-side session, many turns — so a steer has a
+// turn boundary to be folded into and the default cloud worker becomes correctable mid-flight.
+export {
+  createSteerableSandboxSession,
+  DEFAULT_SANDBOX_STEERING_MAX_TURNS,
+  type SandboxSteeringOptions,
+  type SteerableSandboxSession,
+} from './supervise/sandbox-session'
 export { createScope, settledToIteration } from './supervise/scope'
 // The one-call "just invoke the supervisor": `supervise(profile, task, { backend, budget })` with
 // sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam

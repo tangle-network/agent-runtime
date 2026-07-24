@@ -234,12 +234,18 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
+    // The reply carries the worker's live `progress` alongside `delivered` (null for a scope
+    // that exposes no progress read, as this hand-rolled mock does).
     expect(
       await tool(tb, 'steer_agent').handler({ workerId: 'w0', instruction: 'do X next' }),
-    ).toEqual({ delivered: true })
+    ).toEqual({ delivered: true, progress: null })
     expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X next', interrupt: false } }])
+    // A failed delivery now says WHY, so the driver can tell "already finished" from
+    // "this runtime has no inbox at all" instead of seeing a bare false.
     expect(await tool(tb, 'steer_agent').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
+      reason: 'unknown-worker',
+      progress: null,
     })
   })
 
@@ -476,10 +482,12 @@ describe('coordination tools', () => {
         instruction: 'do X',
         interrupt: true,
       }),
-    ).toEqual({ delivered: true })
-    // A steer to a worker with no live inbox reports delivered:false.
+    ).toEqual({ delivered: true, progress: null })
+    // A steer to a worker with no live inbox reports delivered:false, and says why.
     expect(await tool(tb, 'steer_agent').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
+      reason: 'unknown-worker',
+      progress: null,
     })
     // The forceful steer reached the child inbox (down delivery)...
     expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X', interrupt: true } }])
