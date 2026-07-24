@@ -29,6 +29,10 @@ export interface SettledWorker {
   readonly valid?: boolean
   readonly outRef?: string
   readonly reason?: string
+  /** Epoch ms the ledger recorded this settlement — the resolution a progress-based stop rule
+   *  needs to answer "how long since anything landed?" without inventing a timestamp at read
+   *  time. Stamped when the cursor yields the settlement, not when a reader first looks. */
+  readonly settledAt?: number
 }
 
 export type QuestionLevel = 'worker' | 'driver' | 'loop'
@@ -285,6 +289,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   }
 
   const recordSettled = (s: Settled<unknown>): SettledWorker => {
+    const settledAt = Date.now()
     const w: SettledWorker =
       s.kind === 'done'
         ? {
@@ -293,8 +298,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             score: s.verdict?.score ?? 0,
             valid: s.verdict?.valid ?? false,
             outRef: s.outRef,
+            settledAt,
           }
-        : { id: s.handle.id, status: 'down', reason: s.reason }
+        : { id: s.handle.id, status: 'down', reason: s.reason, settledAt }
     ledger.push(w)
     // A settled worker's trace source is finished; drop the online subscription with it.
     unwatchWorker(w.id)

@@ -64,11 +64,13 @@ export async function trajectoryReport(
   // Spawns (ordinal seq) create the nodes; settlements/cancellations (cursor seq) close
   // them. The two seq namespaces overlap, so create every node from its `spawned` event
   // first, then apply settlements/cancellations — mirrors `materializeTreeView`.
-  const spawns = events.filter(isSpawned).sort(bySeq)
+  const spawns = events.filter(isNodeCreation).sort(bySeq)
   // `metered` events (driver inference) are folded onto each node in a separate pass below, so
   // they accumulate ONTO the settled child-work base regardless of seq order; closes are the
   // settlements/cancellations that set node status.
-  const closes = events.filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'metered').sort(bySeq)
+  const closes = events
+    .filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'waiting' && ev.kind !== 'metered')
+    .sort(bySeq)
 
   const nodes = new Map<NodeId, MutableNode>()
   for (const ev of spawns) {
@@ -76,8 +78,10 @@ export async function trajectoryReport(
       id: ev.id,
       parent: ev.parent,
       label: ev.label,
-      runtime: ev.runtime,
-      status: 'pending',
+      // A wait-state has no executor, so it has no runtime in the executor sense — it is tagged
+      // `'wait'` so a reader can separate zero-cost waiting from paid work in the trajectory.
+      runtime: ev.kind === 'waiting' ? 'wait' : ev.runtime,
+      status: ev.kind === 'waiting' ? 'waiting' : 'pending',
       ownSpend: zeroSpend(),
       children: [],
     })
@@ -86,6 +90,12 @@ export async function trajectoryReport(
     const node = requireNode(nodes, ev.id, root)
     if (ev.kind === 'cancelled') {
       node.status = 'cancelled'
+      continue
+    }
+    if (ev.kind === 'woken') {
+      // A wait's spend stays zero by construction — it never reserved and never reconciled.
+      node.status = ev.by === 'cancelled' ? 'cancelled' : 'done'
+      node.outRef = ev.outRef
       continue
     }
     node.status = ev.status === 'done' ? 'done' : 'failed'
@@ -258,6 +268,7 @@ function countStatuses(
     failed: 0,
     cancelled: 0,
     pending: 0,
+    waiting: 0,
   }
   for (const node of reported) counts[node.status] += 1
   return counts
@@ -336,8 +347,12 @@ function medianOf(values: ReadonlyArray<number>): number {
 
 // ── Guards + narrowers ───────────────────────────────────────────────────────────
 
-function isSpawned(ev: SpawnEvent): ev is Extract<SpawnEvent, { kind: 'spawned' }> {
-  return ev.kind === 'spawned'
+/** Node-CREATION events — a spawned child or an armed wait-state. Both mint a node in the
+ *  ordinal namespace; their settlements (`settled` / `woken`) close them in the cursor namespace. */
+function isNodeCreation(
+  ev: SpawnEvent,
+): ev is Extract<SpawnEvent, { kind: 'spawned' | 'waiting' }> {
+  return ev.kind === 'spawned' || ev.kind === 'waiting'
 }
 
 function isNode(node: MutableNode | undefined): node is MutableNode {

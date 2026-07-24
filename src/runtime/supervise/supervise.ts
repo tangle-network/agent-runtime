@@ -20,6 +20,7 @@ import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { assertModelAllowed } from './model-policy'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
+import type { StopRule } from './stop-rules'
 import { createSupervisor } from './supervisor'
 import { type DriveHarness, type SupervisorProfile, supervisorAgent } from './supervisor-agent'
 import type {
@@ -30,6 +31,7 @@ import type {
   ResultBlobStore,
   SpawnJournal,
 } from './types'
+import type { WaitProbeRegistry } from './wait'
 
 /** Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
  *  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
@@ -134,6 +136,24 @@ export interface SuperviseOptions {
   /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
    *  with `blobs` — a journal whose result payloads live in a different store cannot replay. */
   readonly journal?: SpawnJournal
+  /** Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
+   *  wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
+   *  refused `unknown-probe` and `timer` waits still work. */
+  readonly probes?: WaitProbeRegistry
+  /**
+   * PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
+   * before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
+   * not because it ran out". It composes with the budget guards and can never override one.
+   *
+   * Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
+   * `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
+   * thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
+   * only (unchanged behavior).
+   */
+  readonly stopRule?: StopRule
+  /** One-shot notification of WHY a `stopRule` ended the run — so a caller records the reason
+   *  instead of inferring an early stop from an unexhausted budget. */
+  readonly onProgressStop?: (reason: string) => void
   readonly maxDepth?: number
   readonly maxTurns?: number
   /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
@@ -203,6 +223,8 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
     ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
     ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+    ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
+    ...(opts.onProgressStop ? { onProgressStop: opts.onProgressStop } : {}),
     ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
     ...(opts.compaction ? { compaction: opts.compaction } : {}),
   })
@@ -214,6 +236,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     blobs,
     executors: ctx.executors,
     maxDepth: opts.maxDepth ?? 8,
+    ...(opts.probes ? { probes: opts.probes } : {}),
     ...(ctx.resume === true ? { resume: true } : {}),
     ...(opts.now ? { now: opts.now } : {}),
   })

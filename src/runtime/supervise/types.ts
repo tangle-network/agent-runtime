@@ -32,10 +32,27 @@ import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
 import type { ExecutorProgress, WorkerProgress } from './progress'
 import type { TraceSource } from './trace-source'
+import type { PendingWait, WaitOutcome, WaitProbeRegistry, WaitRejection, WaitSpec } from './wait'
 
 // `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
 // import the budget surface from one place. `usd` is a SEPARATE channel (see `UsageEvent`).
-export type { DefaultVerdict, LoopTokenUsage }
+/** Wait-state vocabulary, re-exported so the keystone surface stays one import. */
+export type {
+  DefaultVerdict,
+  LoopTokenUsage,
+  PendingWait,
+  WaitOutcome,
+  WaitProbeRegistry,
+  WaitRejection,
+  WaitSpec,
+}
+
+/** Options for `Scope.wait`. `label` is the wait's identity within its parent scope — it is what
+ *  a resumed run matches to re-adopt a journaled, still-unfired wait, so it must be stable across
+ *  processes (a label derived from wall-clock would resume as a NEW wait). */
+export interface WaitOpts {
+  readonly label: string
+}
 
 // ── The atom ────────────────────────────────────────────────────────────────
 
@@ -245,8 +262,18 @@ export interface Spend {
 export type Restart = 'temporary' | 'transient' | 'permanent'
 
 /** `'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box
- *  during sandbox acquire BEFORE it is `running`, so abort must be defined over it. */
-export type NodeStatus = 'pending' | 'acquiring' | 'running' | 'done' | 'failed' | 'cancelled'
+ *  during sandbox acquire BEFORE it is `running`, so abort must be defined over it.
+ *  `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
+ *  box, and no conserved budget — it is neither in flight nor settled, so neither `inFlight` nor
+ *  a terminal status describes it (see `Scope.wait`). */
+export type NodeStatus =
+  | 'pending'
+  | 'acquiring'
+  | 'running'
+  | 'waiting'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
 
 /** Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-clock. */
 export type NodeId = string
@@ -338,6 +365,29 @@ export interface Scope<Out> {
    */
   send(nodeId: NodeId, msg: unknown): boolean
   /**
+   * Arm a WAIT-STATE node: a first-class tree node that waits on wall-clock time (`timer`) or on
+   * a named external predicate (`poll`) and settles through THIS scope's `next()` cursor like any
+   * other child — but holds no executor, no sandbox, and no conserved budget. Waiting costs zero
+   * tokens and zero dollars by construction.
+   *
+   * It is journaled (`waiting` → `woken`) with its ABSOLUTE deadline, so a run that dies mid-wait
+   * resumes still waiting: the supervisor surfaces the un-woken waits on `Scope.resume.waits`, and
+   * re-arming the same `label` adopts the recorded node id and original instant instead of
+   * restarting the countdown.
+   *
+   * Fail-closed admission, mirroring `spawn`: `invalid-spec`, `unknown-probe` (a `poll` naming a
+   * predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
+   * the pool's hard wall-clock ceiling — a wait never extends a budget guard).
+   *
+   * NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 15s fence makes
+   * the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
+   * and nothing about it survives a restart. See `supervise/wait.ts`.
+   */
+  wait(
+    spec: WaitSpec,
+    opts: WaitOpts,
+  ): { ok: true; handle: Handle<WaitOutcome> } | { ok: false; reason: WaitRejection }
+  /**
    * The LIVE read-model of one child, valid WHILE it runs: last-activity timestamp, idle time,
    * a derived `stalled` flag, tokens/turns spent so far, whether a steer can even reach it
    * (`steerable`), and whatever tool activity its executor exposes. `undefined` for an unknown
@@ -402,6 +452,13 @@ export interface Scope<Out> {
 export interface ResumedWork<Out> {
   readonly settled: ReadonlyArray<Settled<Out>>
   readonly view: TreeView
+  /**
+   * Wait-state nodes the journal shows as ARMED but never woken — the run died mid-wait. Each
+   * carries the ORIGINAL arm instant and absolute deadline, so re-arming the same `label` through
+   * `Scope.wait` resumes the countdown instead of restarting it. Empty on a fresh run and on a
+   * resumed run that was not waiting.
+   */
+  readonly waits: ReadonlyArray<PendingWait>
 }
 
 // ── Observability view (read off the in-memory nursery) ────────────────────────
@@ -425,6 +482,10 @@ export interface TreeView {
   readonly nodes: ReadonlyArray<NodeSnapshot>
   /** Count of nodes in `running` or `acquiring` — the "what's in flow?" answer. */
   readonly inFlight: number
+  /** Count of nodes in `waiting` — armed wait-states. Deliberately NOT folded into `inFlight`:
+   *  a wait burns no executor and no budget, so counting it as flow would misreport both idle
+   *  capacity and how much work is actually running. */
+  readonly waiting: number
 }
 
 // ── Event source — the decision/payload split the replay argument rests on ─────
@@ -455,6 +516,32 @@ export type SpawnEvent =
       at: string
     }
   | { kind: 'cancelled'; id: NodeId; reason: string; seq: number; at: string }
+  | {
+      /** A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the wait
+       *  ordinal within its parent scope), exactly like `spawned` — it creates a node, it does not
+       *  settle one. It carries the whole `spec` and the original `armedAt` so a brand-new process
+       *  re-arms the identical wait with the identical ABSOLUTE deadline. */
+      kind: 'waiting'
+      id: NodeId
+      parent?: NodeId
+      label: string
+      spec: WaitSpec
+      armedAt: number
+      seq: number
+      at: string
+    }
+  | {
+      /** A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept distinct so a
+       *  reader can tell zero-cost waiting apart from paid work without inspecting payloads. A
+       *  wait carries no `spent` (it is free by construction, not by measurement); `outRef`
+       *  rehydrates its `WaitOutcome`, absent when the wait was cancelled. */
+      kind: 'woken'
+      id: NodeId
+      by: 'fired' | 'timeout' | 'cancelled'
+      outRef?: string
+      seq: number
+      at: string
+    }
   | {
       /** A driver's OWN inference spend, journaled separately from spawned-child work — the journal
        *  TWIN of `BudgetPool.observe`, exactly as `settled` is the twin of `reconcile`. So every
@@ -512,6 +599,10 @@ export interface SupervisorOpts {
   readonly blobs: ResultBlobStore
   /** Executor resolution — the open registry mapping `AgentSpec` → `Executor`. */
   readonly executors: ExecutorRegistry
+  /** Predicate resolution for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so
+   *  the wait can be journaled and re-armed by a later process; this is what the name resolves
+   *  against. Unset ⇒ `poll` waits are refused (`unknown-probe`); `timer` waits are unaffected. */
+  readonly probes?: WaitProbeRegistry
   /** Runtime recursion-depth ceiling (paired with the conserved pool per R3). */
   readonly maxDepth?: number
   /**

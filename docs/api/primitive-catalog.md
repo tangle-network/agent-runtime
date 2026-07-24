@@ -442,13 +442,17 @@ Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 509 exports.
+Import from `@tangle-network/agent-runtime/loops` — 541 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `acquireSandbox` | function | Cold-start-resilient sandbox acquisition: create by name, observe readiness from the sandbox's own status (not the create call), and re-attach after gateway timeouts. |
+| `allOf` | function | Stop only when EVERY rule stops — for a conservative gate that needs corroboration. |
+| `allWorkersStalled` | function | "Everyone is stuck." Fires when every live worker reads `stalled` — no metered activity for |
 | `analyzeTrace` | function | Collect the source's spans and run the agent-eval batch analyzers over them under one `runId`. |
+| `anyOf` | function | Stop when ANY rule stops — the ordinary composition (each rule is a separate reason to end). |
 | `anytimeReport` | function | Derive anytime metrics from waterfall spans. `targets` are the satisficing score |
+| `areaUnderCurve` | function | Mean of a best-so-far curve — the anytime AUC when the curve is normalized to [0,1]. Higher = |
 | `asAuthoredProfile` | function | Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the |
 | `assertModelAllowed` | function | Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a |
 | `assertStrategyContract` | function | Static CONTRACT lint over an authored strategy module — the module-boundary |
@@ -456,6 +460,7 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `auditIntent` | function | The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention. |
 | `authoredWorker` | function | Build a worker AGENT from a profile the supervisor authored: the authored `systemPrompt` + |
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
+| `bestSoFar` | function | The best-so-far fold — the ONE definition of "how good was the run after k results", shared by |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
@@ -476,6 +481,7 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `createInbox` | function | Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle. |
 | `createInMemoryRunContext` | function | Build a fresh in-memory run context. Every call returns NEW stores (no shared global |
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
+| `createProgressTracker` | function | Build the settled-work ledger a `StopRule` decides from: record each settlement (idempotent by |
 | `createPushTraceSource` | function | A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): the loop calls |
 | `createSandboxLineage` | function | Build a lineage bound to one client + its probed capabilities. The |
 | `createSandboxToolPartState` | function | Fresh per-turn {@link SandboxToolPartState} for {@link mapSandboxToolEvent} — an |
@@ -485,6 +491,7 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `createSteerableSandboxSession` | function | One steerable sandbox worker. The returned session is inert until `stream()` is drained. |
 | `createSupervisor` | function | The `Supervisor` impl (KEYSTONE, build step 5). |
 | `createVerifierEnvironment` | function | Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it. |
+| `createWaitProbes` | function | Registry over a plain name→predicate record. |
 | `createWaterfallCollector` | function | Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. |
 | `createWorktreeCliExecutor` | function | Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a |
 | `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
@@ -515,6 +522,7 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `harvestCorpus` | function | Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. |
 | `inlineSandboxClient` | function | Adapt an `ExecutorFactory` into a `SandboxClient` for `runLoop`. The factory is |
 | `inProcessSandboxClient` | function | Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for |
+| `isWaitOutcome` | function | Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cursor as workers, |
 | `jjWorkspace` | function | A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote). |
 | `leaderboard` | function | Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic. |
 | `localSandboxClient` | function | A same-host `SandboxClient` adapter with no process isolation. Local MCP is |
@@ -529,14 +537,19 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `materializeTreeView` | function | Materialize a recorded `TreeView` from a journaled event list for inspection. Folds |
 | `modelAuthoredChecks` | function | Default authored-check source: one metered LLM call per task, before sampling, |
 | `naiveDriver` | function | `naiveDriver` — the no-signal steering control. |
+| `noProgressFor` | function | "Nothing new has happened." Fires when the run has produced no new settled work for `ms`, or no |
 | `observe` | function | The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus. |
 | `officialChecksFromMeta` | function | Official checks the surface stashed on the task (e.g. MBPP's shown assert). Reads |
 | `openSandboxRun` | function | Open a sandbox run. Harness-agnostic: the harness lives in |
 | `pairwiseSignificance` | function | Compare EVERY profile pair on the scenarios they both ran — paired-bootstrap effect + CI, a real |
 | `panel` | function | `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements, |
 | `patchDelivered` | function | Build the `DeliverableSpec<WorktreePatchArtifact>`: `check(artifact)` runs the shared mechanical |
+| `pendingWaits` | function | The waits a journaled tree shows as ARMED but never woken — what a resumed run re-arms with the |
 | `pickChampion` | function | The champion pick over a means table. 'score' takes the best mean score (ties → |
 | `pipeline` | function | `pipeline(stages)` — run the stages in order, feeding each stage's `done` deliverable into the |
+| `plateau` | function | "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than |
+| `plateauLength` | function | How many trailing entries of a best-so-far curve are within `minDelta` of the curve's value |
+| `pollFor` | function | Build a bounded `poll` spec from a duration. |
 | `printBenchmarkReport` | function | Pretty-print a report — the "free optimization" verdict, with the cost vector. |
 | `probeSandboxCapabilities` | function | Probe (and memoize per client) what the loop may rely on. A client without a |
 | `profileRichnessFinding` | function | Turn a {@link ProfileRichness} verdict into a bus-routable `AnalystFinding` (area `profile-quality`). |
@@ -571,6 +584,7 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `runLoop` | function | The round-synchronous loop kernel: each round `driver.plan()` fans N tasks to sandboxes (bounded concurrency), parses + validates each output, and folds results through `driver.decide`. |
 | `runPersonified` | function | Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape |
 | `runStrategyEvolution` | function | Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice. |
+| `sampleFromSettled` | function | Build a `ProgressSample` from a scope settlement. The objective is the verdict score and |
 | `sandboxCheckRunner` | function | Default CheckRunner backend: pipes the check program into `python3` over the sandbox |
 | `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
 | `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
@@ -591,9 +605,12 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `superviseSurface` | function | Drive a team of agents (spawned + steered by `profile`) to solve a graded `AgenticSurface` task, and |
 | `supervisorAgent` | function | Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. |
 | `supervisorInstructions` | function | The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable |
+| `timerAt` | function | Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed |
 | `trajectoryReport` | function | Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the |
+| `validateWaitSpec` | function | Structural validation, independent of the run. Returns null when the spec is usable. |
 | `verify` | function | `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades |
 | `visibleCheckScore` | function | Display scalar for receipts/reports (the rigs' `visibleScore` shape): crash = -1, |
+| `waitUntil` | function | The absolute instant a spec is bounded by, or `undefined` for an unbounded poll. |
 | `watchTrace` | function | Subscribe to a `TraceSource` and run the streaming detectors over its live spans. Returns an |
 | `widen` | function | `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS |
 | `workerFromBackend` | function | Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the |
@@ -721,6 +738,7 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `PanelJudge` | interface | One judge in a panel — a labeled persona-derived judge child. Content (the rubric) lives in |
 | `PanelSpec` | interface | `panel(judges)` — M judges over ONE artifact, merged WRITE-ONLY (selector≠judge taken to its |
 | `PanelVerdict` | interface | One judge child's settled verdict, surfaced to the write-only `merge`. `down` judges carry no |
+| `PendingWait` | interface | A wait recorded in the journal that never woke — what a resumed run re-arms. |
 | `Persona` | interface | The "act like X" record. A thin composition over the keystone's `AgentSpec`: it pairs the |
 | `PersonaContext` | interface | The persona context blob — who the loop is acting as. Open by intent: a persona names its |
 | `PersonaExecutors` | interface | How a persona supplies executor resolution. Either a pre-built registry (factories already |
@@ -728,6 +746,9 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `PiSeam` | interface | How to launch pi in its out-of-process RPC mode, and how long to wait on it. |
 | `ProfileRichness` | interface | Per-field verdict on one authored profile — the raw material the bench renders + scores. |
 | `ProfileRichnessThresholds` | interface | Thresholds below which a system prompt is treated as a thin stub. Tunable per call. |
+| `ProgressSample` | interface | One settled unit of work, reduced to what a stop rule reads. `objective` is the run's own |
+| `ProgressTracker` | interface | Accumulates settlements and materializes a `ProgressView`. Idempotent by settlement id, so a |
+| `ProgressView` | interface | The read-model a `StopRule` decides from — the run's progress, not its budget. |
 | `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
@@ -786,6 +807,8 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `VerifierEnvironmentOptions` | interface | createVerifierEnvironment — ANY checkable task as an `Environment`, no tool surface |
 | `VerifySpec` | interface | `verify({ implement, verifier })` — the 2-node sequential gate: an IMPLEMENT child produces a |
 | `VisibleCheck` | interface | One task-visible executable check (e.g. a single-line Python assert). |
+| `WaitOutcome` | interface | The `out` a settled wait node delivers through `Scope.next()`. `settled` is the outcome the |
+| `WaitProbeRegistry` | interface | Resolves a `poll` spec's `probe` name to its predicate. Threaded through `SupervisorOpts` so |
 | `WatchTraceOptions` | interface | The ONLINE analyst: watch a `TraceSource` and fold each tool span through agent-eval's published |
 | `WaterfallSpan` | interface | createWaterfallCollector — 100% trajectory observability from the lifecycle stream: |
 | `WidenGate` | interface | The progressive-widening gate (MCTS-PW). Decides whether a settled child is |
@@ -831,18 +854,23 @@ Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 | `Shell` | type | Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`. |
 | `SpawnEvent` | type | Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO |
 | `SteeringDecision` | type | Terminal-or-continue decision shared by all three steering drivers. The |
+| `StopDecision` | type | A stop rule's answer. `reason` is required when stopping — a run that ends must be able to say |
+| `StopRule` | type | Evaluated from the progress feed, never from the budget. Pure and synchronous: it is called on |
 | `SupervisedResult` | type | Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. |
 | `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |
 | `ToolLoopCompactionOptions` | type | Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional |
 | `TrajectoryReportFn` | type | `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs). |
 | `UsageEvent` | type | Normalized usage event — the single channel every executor reports through, so the |
 | `Verify` | type | `verify(spec)` — build the 2-node implement→verifier-gate combinator. |
+| `WaitProbe` | type | A named predicate a `poll` node re-checks. Returns true when the condition it watches has |
+| `WaitRejection` | type | Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission shape. |
+| `WaitSpec` | type | What a wait node is waiting for. Both variants carry ABSOLUTE epoch-ms instants so a wait |
 | `Widen` | type | `widen(spec)` — build the streaming progressive-widening combinator. |
 | `WidenDecision` | type | A widening decision: extend one lineage by one child, or stop widening. `flatWidenGate` |
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `RepairStop`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NoProgressForOptions`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `RepairStop`, `WorkspaceCommit`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 

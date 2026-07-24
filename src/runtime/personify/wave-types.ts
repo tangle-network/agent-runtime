@@ -521,8 +521,9 @@ export interface TrajectoryNode {
   readonly children: ReadonlyArray<NodeId>
   readonly label: string
   readonly runtime: string
-  /** Terminal status the journal recorded for this node. */
-  readonly status: 'done' | 'failed' | 'cancelled' | 'pending'
+  /** Terminal status the journal recorded for this node. `'waiting'` is a wait-state node that was
+   *  armed and never woken — the journal's record of a run that died mid-wait. */
+  readonly status: 'done' | 'failed' | 'cancelled' | 'pending' | 'waiting'
   /** This node's OWN conserved spend (from its `settled` event). */
   readonly ownSpend: Spend
   /** This node's spend PLUS every descendant's — the rolled-up subtree cost. The cost a parent

@@ -287,9 +287,12 @@ describe('coordination tools', () => {
       idle: true,
       freeSlots: null,
     })
-    expect(tb.settled()).toEqual([
+    expect(tb.settled()).toMatchObject([
       { id: 'w7', status: 'done', score: 0.83, valid: true, outRef: 'blob:w7' },
     ])
+    // The ledger stamps WHEN the settlement landed — the resolution a progress-based stop rule
+    // reads to answer "how long since anything landed?" without inventing a timestamp at read time.
+    expect(typeof tb.settled()[0]?.settledAt).toBe('number')
   })
 
   it('await_event bounds the block: { pending, live } while a worker runs, then pulls the settlement once it lands', async () => {
