@@ -14,11 +14,18 @@ import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { assertModelAllowed } from './model-policy'
-import { createInMemoryRunContext } from './run-context'
+import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
 import { createSupervisor } from './supervisor'
 import { type DriveHarness, type SupervisorProfile, supervisorAgent } from './supervisor-agent'
-import type { Agent, AgentSpec, Budget, ExecutorContext, ResultBlobStore } from './types'
+import type {
+  Agent,
+  AgentSpec,
+  Budget,
+  ExecutorContext,
+  ResultBlobStore,
+  SpawnJournal,
+} from './types'
 
 /** Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
  *  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
@@ -89,6 +96,27 @@ export interface SuperviseOptions {
   readonly analyzeOnSettle?: ReadonlyArray<string>
   /** Worker output store. Defaults to in-memory. */
   readonly blobs?: ResultBlobStore
+  /**
+   * Make the run DURABLE: journal + result blobs are file-backed under this directory
+   * (`createFileRunContext`), fsynced per write, and the supervisor reads the prior tree first.
+   * Re-running with the same `runDir` AND the same `runId` resumes — the children that already
+   * settled are replayed onto `Scope.resume` with their real outputs, and the scope's counters
+   * continue past the journaled maxima. Unset = in-memory, fresh every call.
+   *
+   * What that does and does not buy you, precisely: the run's history survives the process and is
+   * replayable, and a resumed run never corrupts the tree. It does NOT by itself make the built-in
+   * supervisor brain skip committed work — `supervisorAgent`'s driver does not read
+   * `Scope.resume`, so out of the box a resumed run re-spawns children it already paid for. Only a
+   * root `Agent.act` that reads `scope.resume.settled` (as the durable-resume test's root does)
+   * turns durability into work-skipping. Wiring that into the default brain is separate work.
+   *
+   * `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
+   * resumable run per directory but collides across concurrent runs sharing one `runDir`.
+   */
+  readonly runDir?: string
+  /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
+   *  with `blobs` — a journal whose result payloads live in a different store cannot replay. */
+  readonly journal?: SpawnJournal
   readonly maxDepth?: number
   readonly maxTurns?: number
   /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
@@ -125,7 +153,12 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     opts.allowedModels,
   )
 
-  const ctx = createInMemoryRunContext({ withDriver: true })
+  // `withDriver: true` is the wiring invariant either way (a `role: 'driver'` child must resolve
+  // to the nested-scope executor); `runDir` only changes WHERE the journal and blobs live.
+  const ctx =
+    opts.runDir !== undefined
+      ? createFileRunContext(opts.runDir, { withDriver: true })
+      : createInMemoryRunContext({ withDriver: true })
   const blobs = opts.blobs ?? ctx.blobs
   const perWorker = opts.perWorker ?? defaultPerWorker(opts.budget)
 
@@ -158,10 +191,11 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   return createSupervisor<unknown, unknown>().run(agent, task, {
     budget: opts.budget,
     runId: opts.runId ?? 'supervise',
-    journal: ctx.journal,
+    journal: opts.journal ?? ctx.journal,
     blobs,
     executors: ctx.executors,
     maxDepth: opts.maxDepth ?? 8,
+    ...(ctx.resume === true ? { resume: true } : {}),
     ...(opts.now ? { now: opts.now } : {}),
   })
 }

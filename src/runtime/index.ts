@@ -29,12 +29,23 @@ export type {
 // caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
 // Recursive execution atom (the keystone): the open `Executor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
-// journal. Substrate types come from `./supervise/types`; the in-memory journal +
-// blob store live in `../durable/spawn-journal`.
+// journal. Substrate types come from `./supervise/types`; the journal + blob store
+// impls live in `../durable/spawn-journal`.
+//
+// Both pairs are exported: the in-memory stores (tests / scratch / a run that need not
+// outlive its process) AND the file-backed stores that make a run RESUMABLE. Without the
+// durable pair on the public surface a consumer cannot resume at all — and the one that
+// tried wrote its own half-working copy, whose `loadTree` never read the file back. The
+// replay readers ship with them, because a durable journal you cannot fold back into a
+// tree is only a log.
 export {
   contentAddress,
+  FileResultBlobStore,
+  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  materializeTreeView,
+  replaySpawnTree,
 } from '../durable/spawn-journal'
 // The typed coordination-bus event (up: settled/question/finding; down: steer/answer) — surfaced
 // here so a host folding the bus onto its own timeline (the supervise-topology observability) can
@@ -500,6 +511,21 @@ export {
   type WatchTraceOptions,
   watchTrace,
 } from './supervise/detector-monitor'
+// REFILLING dispatch: hold N children in flight and admit the next queued unit the moment one
+// settles, instead of draining a whole round (`fanout`) or opening one worker per driver turn.
+// `freeSlots` is the reading the driver sees; `effectiveConcurrency` collapses the supervisor and
+// fleet caps into the ONE number a host should pass to both `maxLiveWorkers` and `width`.
+export {
+  type ConcurrencyCaps,
+  type DispatchReport,
+  type DispatchStopReason,
+  type DispatchUnit,
+  effectiveConcurrency,
+  freeSlots,
+  queueOf,
+  type RollingDispatchOptions,
+  rollingDispatch,
+} from './supervise/dispatch'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {
@@ -518,13 +544,18 @@ export { assertModelAllowed } from './supervise/model-policy'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
-// The one-call in-memory store bundle for a supervised run: a fresh journal + blob store +
-// executor registry, shaped to spread straight into `SupervisorOpts`. `{ withDriver: true }`
-// wraps the registry for the recursive agents-drive-agents path.
+// The one-call store bundle for a supervised run: a journal + blob store + executor registry,
+// shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
+// (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
+// plus `resume: true`, so re-running the same `runId` against the same `dir` picks up the
+// children that already settled instead of re-running them. `{ withDriver: true }` wraps the
+// registry for the recursive agents-drive-agents path.
 export {
+  createFileRunContext,
   createInMemoryRunContext,
   type InMemoryRunContext,
   type InMemoryRunContextOptions,
+  type RunContext,
 } from './supervise/run-context'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
@@ -576,10 +607,15 @@ export type {
   ExecutorFactory,
   ExecutorRegistry,
   ExecutorResult,
+  NodeId,
   ResultBlobStore,
+  ResumedWork,
   Runtime,
   Scope,
   Settled,
+  SpawnEvent,
+  SpawnJournal,
+  SpawnOpts,
   Spend,
   SupervisedResult,
   Supervisor,
