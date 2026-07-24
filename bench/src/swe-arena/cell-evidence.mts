@@ -283,27 +283,46 @@ export function decideVerdict(input: {
 // coverage-incomplete downstream, fail-closed).
 // ---------------------------------------------------------------------------
 
-/** Parse every `<cellDir>/cached-result.json` under one campaign dir. Missing dir = []. */
-export async function loadCampaignCells(campaignDir: string): Promise<EvidenceCell[]> {
+/** Every `<cellDir>/cached-result.json` under one campaign dir, verbatim and
+ *  identity-checked. Missing dir = []. A cache that exists but carries no
+ *  scenarioId/rep cannot be attributed to a cell, so it throws rather than
+ *  disappearing from the campaign's coverage. */
+export async function loadCampaignCellRecords(campaignDir: string): Promise<Record<string, unknown>[]> {
   const entries = await readdir(campaignDir, { withFileTypes: true }).catch(() => [])
-  const cells: EvidenceCell[] = []
+  const records: Record<string, unknown>[] = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     const path = join(campaignDir, entry.name, 'cached-result.json')
     const raw = await readFile(path, 'utf8').catch(() => null)
     if (raw === null) continue
-    let parsed: Record<string, unknown>
+    let parsed: unknown
     try {
-      parsed = JSON.parse(raw) as Record<string, unknown>
+      parsed = JSON.parse(raw)
     } catch {
       throw new Error(`loadCampaignCells: corrupt cell cache ${path}`)
     }
-    if (typeof parsed.scenarioId !== 'string' || typeof parsed.rep !== 'number') {
+    // null and arrays parse fine and would make the identity check below throw a
+    // TypeError instead of naming what is wrong with the file.
+    const record =
+      parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null
+    if (record === null || typeof record.scenarioId !== 'string' || typeof record.rep !== 'number') {
       throw new Error(`loadCampaignCells: ${path} is not a campaign cell (scenarioId/rep missing)`)
     }
+    records.push(record)
+  }
+  return records
+}
+
+/** Parse every `<cellDir>/cached-result.json` under one campaign dir. Missing dir = []. */
+export async function loadCampaignCells(campaignDir: string): Promise<EvidenceCell[]> {
+  const cells: EvidenceCell[] = []
+  for (const parsed of await loadCampaignCellRecords(campaignDir)) {
     cells.push({
-      scenarioId: parsed.scenarioId,
-      rep: parsed.rep,
+      // loadCampaignCellRecords has already proven both are present and typed.
+      scenarioId: parsed.scenarioId as string,
+      rep: parsed.rep as number,
       artifact: (parsed.artifact ?? null) as R4Artifact | null,
       ...(typeof parsed.error === 'string' ? { error: parsed.error } : {}),
       ...(typeof parsed.costUsd === 'number' ? { costUsd: parsed.costUsd } : {}),

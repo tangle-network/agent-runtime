@@ -283,3 +283,70 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
     expect(result.kind).not.toBe('winner')
   })
 })
+
+// ── The gate must not blind a live supervisor ─────────────────────────────────────────────
+// A gated worker is still a RUNNING worker: the scope captures `progress`/`traceSource` at spawn,
+// and ONLY if the executor exposes them. A gate that dropped them made `observe_agent` read
+// `recentActivity:[]` for a genuinely-active worker and lost online detection — the exact blind
+// steer this fix closes. `metered` is a driver-executor's own-inference subtree total; dropping it
+// leaks a gated sub-driver's inference out of the journal.
+describe('gateOnDeliverable — forwards the live-observation surfaces so a gated worker stays supervisable', () => {
+  /** A worker that implements every optional executor surface, each with a distinct sentinel. */
+  function observableWorker(): Executor<unknown> {
+    const artifact: ExecutorResult<unknown> = {
+      outRef: 'obs',
+      out: { answer: 42 },
+      verdict: { valid: true, score: 0.5 },
+      spent: { iterations: 3, tokens: { input: 9, output: 9 }, usd: 0, ms: 0 },
+    }
+    // Stable instance so the test can assert the gate forwards the SAME source, not a copy.
+    const traceSource = { onSpan: () => () => {}, collect: async () => [] }
+    return {
+      runtime: 'router',
+      execute: async () => artifact,
+      teardown: () => Promise.resolve({ destroyed: true }),
+      resultArtifact: () => artifact,
+      deliver: () => {},
+      progress: () => ({
+        turns: 3,
+        pendingMessages: 1,
+        recentActivity: [{ at: 100, kind: 'tool', label: 'edit', detail: 'src/x.ts' }],
+        note: 'turn 3, editing',
+      }),
+      traceSource: () => traceSource,
+      metered: () => ({ iterations: 2, tokens: { input: 4, output: 4 }, usd: 0.01, ms: 5 }),
+    }
+  }
+
+  it('forwards progress() to the inner value, not undefined', () => {
+    const inner = observableWorker()
+    const gated = gateOnDeliverable(inner, { check: () => true })
+    // The exact failure this fixes: `readWorkerProgress` on a gated worker read undefined here.
+    expect(typeof gated.progress).toBe('function')
+    const p = gated.progress?.()
+    expect(p).toEqual(inner.progress?.())
+    expect(p?.turns).toBe(3)
+    expect(p?.recentActivity?.[0]?.label).toBe('edit')
+    expect(p?.pendingMessages).toBe(1)
+  })
+
+  it('forwards traceSource() and metered() through the wrapper', () => {
+    const inner = observableWorker()
+    const gated = gateOnDeliverable(inner, { check: () => true })
+    expect(typeof gated.traceSource).toBe('function')
+    expect(gated.traceSource?.()).toBe(inner.traceSource?.())
+    expect(typeof gated.metered).toBe('function')
+    expect(gated.metered?.()).toEqual(inner.metered?.())
+  })
+
+  it('preserves the "undefined ⟺ not implemented" contract for a leaf that omits them', () => {
+    // A bare leaf implements none of the optional surfaces; the gate must not fabricate them,
+    // or the scope would set up a readProgress that returns undefined and report a broken
+    // observable state for a worker that genuinely has no live read.
+    const bare = streamingWorker({ out: { answer: 42 }, score: 0.9 })
+    const gated = gateOnDeliverable(bare, { check: () => true })
+    expect(gated.progress).toBeUndefined()
+    expect(gated.traceSource).toBeUndefined()
+    expect(gated.metered).toBeUndefined()
+  })
+})
