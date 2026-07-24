@@ -5,10 +5,10 @@
  * parse pipeline is exercised without pnpm, docker, or network.
  */
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -16,10 +16,10 @@ import {
   goldImplPatch,
 } from './calibrate.ts'
 import {
-  judgeCmdEnv,
   judgeFactoryPatch,
   parseFactoryJudgeResult,
   parseVitestSummary,
+  prepareJudgeCmdEnv,
 } from './factory-judge-child.mts'
 import {
   FACTORY_INSTANCES_DIR,
@@ -92,6 +92,53 @@ await runChecks([
 ])
 `
 
+const CREDENTIAL_PROBE = `
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const secretNames = [
+  'ARBITRARY_FACTORY_SECRET',
+  'GH_TOKEN',
+  'TANGLETOOLS_GH_TOKEN',
+  'DREW_GH_TOKEN',
+  'AWS_SECRET_ACCESS_KEY',
+  'NPM_TOKEN',
+  'NODE_AUTH_TOKEN',
+  'SSH_AUTH_SOCK',
+  'GPG_AGENT_INFO',
+  'DBUS_SESSION_BUS_ADDRESS',
+]
+const leakedEnv = secretNames.filter((name) => process.env[name] !== undefined)
+const candidateFiles = [
+  process.env.HOME && join(process.env.HOME, '.config', 'gh', 'hosts.yml'),
+  process.env.HOME && join(process.env.HOME, '.aws', 'credentials'),
+  process.env.HOME && join(process.env.HOME, '.npmrc'),
+  process.env.XDG_CONFIG_HOME && join(process.env.XDG_CONFIG_HOME, 'gh', 'hosts.yml'),
+  process.env.NPM_CONFIG_USERCONFIG,
+  process.env.npm_config_userconfig,
+  process.env.NPM_CONFIG_GLOBALCONFIG,
+  process.env.npm_config_globalconfig,
+].filter(Boolean)
+const credentialFiles = []
+for (const path of new Set(candidateFiles)) {
+  try {
+    const content = readFileSync(path, 'utf8')
+    if (content.trim()) credentialFiles.push({ path, content })
+  } catch {}
+}
+writeFileSync(
+  'credential-probe-result.json',
+  JSON.stringify({
+    leakedEnv,
+    credentialFiles,
+    home: process.env.HOME,
+    xdgConfigHome: process.env.XDG_CONFIG_HOME,
+    npmUserConfig: process.env.NPM_CONFIG_USERCONFIG ?? process.env.npm_config_userconfig,
+  }),
+)
+if (leakedEnv.length > 0 || credentialFiles.length > 0) process.exit(86)
+`
+
 const IMPL = `export const add = (a, b) => a + b\nexport const mul = (a, b) => a * b\n`
 
 interface SyntheticMirror {
@@ -116,7 +163,15 @@ async function makeSyntheticMirror(root: string): Promise<SyntheticMirror> {
   await mkdir(mirror, { recursive: true })
   await runOk('git', ['-C', mirror, 'init', '-q', '-b', 'main'])
   await writeFile(join(mirror, 'README.md'), '# synthetic\n')
-  await writeFile(join(mirror, 'package.json'), JSON.stringify({ name: 'synthetic', type: 'module' }))
+  await writeFile(
+    join(mirror, 'package.json'),
+    JSON.stringify({
+      name: 'synthetic',
+      type: 'module',
+      scripts: { preinstall: 'node credential-probe.mjs' },
+    }),
+  )
+  await writeFile(join(mirror, 'credential-probe.mjs'), CREDENTIAL_PROBE)
   await writeFile(join(mirror, '.gitignore'), 'node_modules\n')
   const baseCommit = await commitAll(mirror, 'base')
 
@@ -219,41 +274,128 @@ describe('parseVitestSummary', () => {
   })
 })
 
-// The judge/setup subprocess env must be hermetic: it runs the repo's OWN tests, so a
-// dotenvx-injected TANGLE_API_KEY must not reach them. Otherwise a base test that asserts
-// "throws without an api key" passes on the leaked key and the gate becomes unpassable.
-describe('judgeCmdEnv — hermetic w.r.t. injected inference secrets', () => {
-  it('does not carry ambient TANGLE_API_KEY / INTELLIGENCE_BASE / provider keys, but keeps the store + CI knobs', () => {
-    const saved = {
-      TANGLE_API_KEY: process.env.TANGLE_API_KEY,
-      INTELLIGENCE_BASE: process.env.INTELLIGENCE_BASE,
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    }
+describe('prepareJudgeCmdEnv', () => {
+  it('passes only PATH and replaces user, package-manager, Git, and temp state', async () => {
+    const allowedPath = [join(tmpdir(), 'operator-bin'), dirname(process.execPath)].join(delimiter)
+    const prepared = await prepareJudgeCmdEnv({
+      PATH: `${allowedPath}${delimiter}relative`,
+      HOME: '/operator/home',
+      XDG_CONFIG_HOME: '/operator/config',
+      SSH_AUTH_SOCK: '/operator/ssh-agent.sock',
+      GH_TOKEN: 'github-secret',
+      ARBITRARY_FACTORY_SECRET: 'unknown-secret',
+      NPM_CONFIG_USERCONFIG: '/operator/.npmrc',
+      npm_config_registry: 'https://user:secret@registry.example',
+    })
     try {
-      process.env.TANGLE_API_KEY = 'sk-tan-injected'
-      process.env.INTELLIGENCE_BASE = 'https://intel.example'
-      process.env.ANTHROPIC_API_KEY = 'sk-ant-injected'
-      process.env.OPENAI_API_KEY = 'sk-oai-injected'
-      const env = judgeCmdEnv()
-      expect(env.TANGLE_API_KEY).toBeUndefined()
-      expect(env.INTELLIGENCE_BASE).toBeUndefined()
-      expect(env.ANTHROPIC_API_KEY).toBeUndefined()
-      expect(env.OPENAI_API_KEY).toBeUndefined()
-      // The non-secret gate knobs still ride through.
+      const { env } = prepared
+      expect(Object.keys(env).sort()).toEqual(
+        [
+          'CI',
+          'COREPACK_DEFAULT_TO_LATEST',
+          'COREPACK_ENABLE_DOWNLOAD_PROMPT',
+          'COREPACK_HOME',
+          'GCM_INTERACTIVE',
+          'GIT_CONFIG_GLOBAL',
+          'GIT_CONFIG_NOSYSTEM',
+          'GIT_CONFIG_SYSTEM',
+          'GIT_TERMINAL_PROMPT',
+          'HOME',
+          'LANG',
+          'LC_ALL',
+          'NPM_CONFIG_CACHE',
+          'NPM_CONFIG_GLOBALCONFIG',
+          'NPM_CONFIG_USERCONFIG',
+          'PATH',
+          'TEMP',
+          'TMP',
+          'TMPDIR',
+          'TZ',
+          'XDG_CACHE_HOME',
+          'XDG_CONFIG_HOME',
+          'XDG_DATA_HOME',
+          'XDG_RUNTIME_DIR',
+          'XDG_STATE_HOME',
+          'npm_config_store_dir',
+        ].sort(),
+      )
+      expect(env.PATH).toBe(allowedPath)
+      expect(env.HOME).toContain(prepared.rootDir)
+      expect(env.XDG_CONFIG_HOME).toContain(prepared.rootDir)
+      expect(env.NPM_CONFIG_USERCONFIG).toContain(prepared.rootDir)
+      expect(env.NPM_CONFIG_GLOBALCONFIG).toContain(prepared.rootDir)
+      expect(await readFile(env.NPM_CONFIG_USERCONFIG!, 'utf8')).toBe('')
+      expect(await readFile(env.NPM_CONFIG_GLOBALCONFIG!, 'utf8')).toBe('')
       expect(env.CI).toBe('false')
+      expect(env.COREPACK_HOME).toContain('factory-bench-corepack')
       expect(env.npm_config_store_dir).toContain('factory-bench-pnpm-store')
-      expect(env.PATH).toBe(process.env.PATH)
-      // Falsification: the ambient parent still has the injected key — the strip is the gate's,
-      // not the process's. A pre-fix judgeCmdEnv (spread of raw process.env) would expose it.
-      expect(process.env.TANGLE_API_KEY).toBe('sk-tan-injected')
     } finally {
-      for (const [k, v] of Object.entries(saved)) {
-        if (v === undefined) delete process.env[k]
-        else process.env[k] = v
+      await prepared.dispose()
+    }
+    expect(existsSync(prepared.rootDir)).toBe(false)
+  })
+})
+
+describe('factory command credential isolation', () => {
+  it('blocks arbitrary env, auth sockets, npm config, and home credentials from a package lifecycle script', async () => {
+    const ambientHome = join(root, 'ambient-home')
+    const ambientXdg = join(root, 'ambient-xdg')
+    await mkdir(join(ambientHome, '.config', 'gh'), { recursive: true })
+    await mkdir(join(ambientHome, '.aws'), { recursive: true })
+    await mkdir(join(ambientXdg, 'gh'), { recursive: true })
+    await writeFile(join(ambientHome, '.config', 'gh', 'hosts.yml'), 'oauth_token: ambient-secret\n')
+    await writeFile(join(ambientHome, '.aws', 'credentials'), 'aws_secret_access_key=ambient-secret\n')
+    await writeFile(join(ambientHome, '.npmrc'), '//registry.npmjs.org/:_authToken=ambient-secret\n')
+    await writeFile(join(ambientXdg, 'gh', 'hosts.yml'), 'oauth_token: ambient-xdg-secret\n')
+
+    const injected: Record<string, string> = {
+      HOME: ambientHome,
+      XDG_CONFIG_HOME: ambientXdg,
+      ARBITRARY_FACTORY_SECRET: 'arbitrary-secret',
+      GH_TOKEN: 'github-secret',
+      TANGLETOOLS_GH_TOKEN: 'tangletools-secret',
+      DREW_GH_TOKEN: 'drew-secret',
+      AWS_SECRET_ACCESS_KEY: 'aws-secret',
+      NPM_TOKEN: 'npm-secret',
+      NODE_AUTH_TOKEN: 'node-auth-secret',
+      NPM_CONFIG_USERCONFIG: join(ambientHome, '.npmrc'),
+      SSH_AUTH_SOCK: join(ambientHome, 'agent.sock'),
+      GPG_AGENT_INFO: join(ambientHome, 'gpg-agent'),
+      DBUS_SESSION_BUS_ADDRESS: 'unix:path=/tmp/operator-bus',
+    }
+    const saved = new Map(Object.keys(injected).map((name) => [name, process.env[name]]))
+    for (const [name, value] of Object.entries(injected)) process.env[name] = value
+
+    const workDir = join(root, 'credential-probe-workspace')
+    try {
+      const instance = loadFactoryInstance(
+        await makeInstanceDir(root, 'credential-probe', mirror, mirror.refs.good, {
+          setup_cmds: ['npm install --no-audit --no-fund'],
+        }),
+      )
+      const patch = await makePatch(goodInst, IMPL)
+      const { result } = await judgeFactoryPatch(instance, patch, { workDir, keepWorkspace: true })
+      expect(result).toMatchObject({ resolved: true, passed: 2, total: 2 })
+
+      const report = JSON.parse(await readFile(join(workDir, 'credential-probe-result.json'), 'utf8')) as {
+        leakedEnv: string[]
+        credentialFiles: Array<{ path: string; content: string }>
+        home: string
+        xdgConfigHome: string
+        npmUserConfig: string
+      }
+      expect(report.leakedEnv).toEqual([])
+      expect(report.credentialFiles).toEqual([])
+      expect(report.home).not.toBe(ambientHome)
+      expect(report.xdgConfigHome).not.toBe(ambientXdg)
+      expect(report.npmUserConfig).not.toBe(join(ambientHome, '.npmrc'))
+    } finally {
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
       }
     }
-  })
+  }, 60_000)
 })
 
 // ---------------------------------------------------------------------------
