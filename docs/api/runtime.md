@@ -11978,7 +11978,7 @@ Generic environment provider executor config. External packages implement
 
 > `optional` **defaults?**: `Partial`\<`CreateAgentEnvironmentInput`\>
 
-Defined in: [src/runtime/environment-provider.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L269)
+Defined in: [src/runtime/environment-provider.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L274)
 
 **`Experimental`**
 
@@ -11990,7 +11990,7 @@ Defined in: [src/runtime/environment-provider.ts:269](https://github.com/tangle-
 
 > `optional` **runtime?**: [`Runtime`](#runtime-3)
 
-Defined in: [src/runtime/environment-provider.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L270)
+Defined in: [src/runtime/environment-provider.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L275)
 
 **`Experimental`**
 
@@ -12002,7 +12002,7 @@ Defined in: [src/runtime/environment-provider.ts:270](https://github.com/tangle-
 
 > `optional` **destroyOnSettle?**: `boolean`
 
-Defined in: [src/runtime/environment-provider.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L271)
+Defined in: [src/runtime/environment-provider.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L276)
 
 **`Experimental`**
 
@@ -12014,7 +12014,7 @@ Defined in: [src/runtime/environment-provider.ts:271](https://github.com/tangle-
 
 > `optional` **requireTerminalEvent?**: `boolean`
 
-Defined in: [src/runtime/environment-provider.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L272)
+Defined in: [src/runtime/environment-provider.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L277)
 
 **`Experimental`**
 
@@ -12026,7 +12026,7 @@ Defined in: [src/runtime/environment-provider.ts:272](https://github.com/tangle-
 
 > `optional` **taskToTurn?**: (`task`, `specProfile`) => `AgentTurnInput`
 
-Defined in: [src/runtime/environment-provider.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L273)
+Defined in: [src/runtime/environment-provider.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L278)
 
 **`Experimental`**
 
@@ -15037,6 +15037,20 @@ returning an incomplete reproducibility receipt.
 Defined in: [src/runtime/supervise/worktree-fanout.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L69)
 
 **`Experimental`**
+
+***
+
+### CreateTangleSandboxExactProcessProviderOptions
+
+Defined in: [src/runtime/tangle-sandbox-exact-process-provider.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tangle-sandbox-exact-process-provider.ts#L26)
+
+#### Properties
+
+##### name?
+
+> `optional` **name?**: `string`
+
+Defined in: [src/runtime/tangle-sandbox-exact-process-provider.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tangle-sandbox-exact-process-provider.ts#L27)
 
 ***
 
@@ -23558,6 +23572,33 @@ the shared valid-only `selectValidWinner` (never a judge).
 #### Returns
 
 [`CombinatorShape`](#combinatorshape)\<`Task`, `WorktreeHarnessResult`\>
+
+***
+
+### createTangleSandboxExactProcessProvider()
+
+> **createTangleSandboxExactProcessProvider**(`client`, `options?`): `AgentEnvironmentProvider`
+
+Defined in: [src/runtime/tangle-sandbox-exact-process-provider.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tangle-sandbox-exact-process-provider.ts#L39)
+
+Adapt Tangle Sandbox's managed control runtime to Runtime's exact-process provider.
+
+The adapter deliberately exposes no ordinary agent environment: an exact experiment
+must start a fresh Sandbox with no managed agent and launch its declared argv directly.
+
+#### Parameters
+
+##### client
+
+`SandboxClient`
+
+##### options?
+
+[`CreateTangleSandboxExactProcessProviderOptions`](#createtanglesandboxexactprocessprovideroptions) = `{}`
+
+#### Returns
+
+`AgentEnvironmentProvider`
 
 ***
 

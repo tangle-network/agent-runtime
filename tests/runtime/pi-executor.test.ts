@@ -2,9 +2,9 @@
  * `piExecutor` — pi wrapped behind `Executor`, driven against a FAKE pi that speaks pi 0.80.2's
  * real RPC wire (`--mode rpc`, JSON lines on stdin/stdout, `AgentEvent` shapes).
  *
- * The point of the wrapper is that it delegates rather than reimplements: a steer becomes pi's own
- * `steer` command, a queued message becomes `follow_up`, teardown becomes `abort`. These tests
- * assert exactly that — the COMMANDS the wrapper sends — plus that pi's tool/turn events become
+ * The point of the wrapper is that it delegates rather than reimplements: a message becomes pi's
+ * own `prompt` command with a streaming behavior, teardown becomes `abort`. These tests assert
+ * exactly that — the COMMANDS the wrapper sends — plus that pi's tool/turn events become
  * the live progress feed and the shared tool-span currency.
  */
 
@@ -126,7 +126,7 @@ describe('piExecutor — pi wrapped, not forked', () => {
     await ex.teardown('brutalKill')
   })
 
-  it('routes a forceful steer to pi’s OWN `steer` command and a queued one to `follow_up`', async () => {
+  it('uses pi’s state-safe prompt behavior for forceful and queued messages', async () => {
     await writeFile(commandLog, '')
     const ctx = piCtx()
     const ex = piExecutor(spec, ctx)
@@ -138,12 +138,14 @@ describe('piExecutor — pi wrapped, not forked', () => {
     await drain(ex.execute('make the change', ctx.signal) as AsyncIterable<UsageEvent>)
     const commands = await readCommands()
 
-    const kinds = commands.map((c) => c.type)
-    expect(kinds).toContain('prompt')
-    expect(kinds, 'a forceful steer must become pi’s own steer command').toContain('steer')
-    expect(kinds, 'a queued message must become pi’s own follow_up command').toContain('follow_up')
-    const steer = commands.find((c) => c.type === 'steer')
+    const steer = commands.find(
+      (command) => command.type === 'prompt' && command.streamingBehavior === 'steer',
+    )
+    const followUp = commands.find(
+      (command) => command.type === 'prompt' && command.streamingBehavior === 'followUp',
+    )
     expect(String(steer?.message)).toContain('switch to right.ts')
+    expect(String(followUp?.message)).toContain('and add a test')
     await ex.teardown('brutalKill')
   })
 
