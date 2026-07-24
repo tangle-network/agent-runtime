@@ -59,7 +59,7 @@
  * generator's evidence gate requires).
  */
 
-import { appendFile, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { join } from 'node:path'
@@ -134,6 +134,31 @@ import {
 } from './proposer-fanout.mts'
 import { captureProposerProvenance } from './proposer-provenance.mts'
 import { CRASH_ORPHAN_REASON, reconcileCrashOrphansOnDisk } from './ledger-orphans.mts'
+import {
+  AUTHOR_BRIEFING_VERSION,
+  resolveAuthorBriefing,
+  writeEvidenceIndex,
+  type BriefingContext,
+} from './briefing.mts'
+import {
+  readCommittedPredicate,
+  runActivationPredicate,
+  ACTIVATION_PREDICATE_RELPATH,
+  type ActivationRecord,
+} from './activation.mts'
+import {
+  loadOrCreateScoreSplit,
+  subScores,
+  type ScoreSplit,
+  type ScoreSplitConfig,
+} from './score-split.mts'
+import { recordLineageGeneration, type LineageCandidateInput } from './lineage-record.mts'
+import {
+  campaignCoordsFromCellPath,
+  createSettleCapture,
+  type SettleCapture,
+} from '../rollout-ledger/settle-capture.mts'
+import { findSupervisorRunDir } from './arms.ts'
 import { installProcessSignalAbort, run, runOk } from './proc.ts'
 import { loadInstanceImages } from './run-experiment.mts'
 import {
@@ -485,6 +510,16 @@ export interface StaircaseRow {
   armProvenance: { repo: string; commit: string } | null
   diffPath: string | null
   diffSha256: string | null
+  /** GEN-5 public/private sub-scores (selection stays on the combined count;
+   *  the private sub-score is never surfaced to proposers). */
+  split?: {
+    publicInstances: string[]
+    privateInstances: string[]
+    publicResolvedCount: number
+    privateResolvedCount: number
+  }
+  /** GEN-5 activation-gate outcome for this candidate. */
+  activation?: ActivationRecord
 }
 
 const STAIRCASE_VERDICTS: ReadonlySet<string> = new Set([
@@ -494,6 +529,7 @@ const STAIRCASE_VERDICTS: ReadonlySet<string> = new Set([
   'rejected-out-of-space',
   'rejected-incomplete',
   'rejected-prefilter',
+  'quarantined-inactive',
 ])
 
 /** Parse + validate one staircase JSONL row. Throws on schema drift. */
@@ -626,6 +662,29 @@ export interface OuterLoopConfig {
    *  reps/fail-closed protocol, or 'measure' — the incumbent runs the same
    *  2-rep holdout first in the certification run. */
   holdoutBaseline?: Record<string, boolean> | 'measure'
+  /** GEN-5 public/private score split (score-split.mts): proposers + the
+   *  pre-filter see only PUBLIC instances' scores/evidence; selection stays
+   *  on the combined set. Unset = everything public (pre-gen-5 behavior). */
+  scoreSplit?: ScoreSplitConfig
+  /** GEN-5 MAP+TOOLBOX briefing (briefing.mts): write the per-run evidence
+   *  index and append the toolbox/permission briefing (change-space
+   *  overridable) to every author prompt. */
+  briefing?: typeof AUTHOR_BRIEFING_VERSION
+  /** GEN-5 activation gate (activation.mts): require a machine-checkable
+   *  activation predicate per candidate (prefilter-enforced) and quarantine
+   *  candidates whose mechanism never fired in their own campaign traces. */
+  activationGate?: boolean
+  /** GEN-5 settle-time rollout-ledger capture (rollout-ledger/settle-capture.mts):
+   *  emit tangle.rollout.v1 lines live after each cell judges, with label-v2
+   *  rewards. Default path: <outDir>/rollout-ledger.jsonl. */
+  rolloutLedger?: { enabled: boolean; path?: string; opencodeDb?: string }
+  /** GEN-5 lineage DAG (lineage-record.mts): record every candidate as a
+   *  LineageNode at <outDir>/.evolve/lineage.jsonl and put the governor's
+   *  continuation decision in the round summary. */
+  lineage?: boolean
+  /** GEN-5 evidence map: prior run outDirs whose arm-runs/judge/candidate
+   *  evidence the authors may mine (rendered into the evidence index). */
+  priorEvidenceDirs?: string[]
   /** Router model ids for the blind diagnosis ensemble (config, never a
    *  hardcoded unrouted model). */
   analystModels: string[]
@@ -884,6 +943,47 @@ export function defaultGen4Config(
     populationSize: proposers.length,
     proposers,
     paretoParents: [...GEN3_PARETO_PARENTS],
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GEN-5 configuration — gen-4's shape (4 proposers incl. the merge seat,
+// Pareto parents, premeasured baseline carried forward per the same
+// cell-derivation, 2 reps, deferred holdout) PLUS the gen-5 integration
+// bundle as a unit:
+//
+//  1. MAP+TOOLBOX briefing — per-run evidence index + toolbox/permission
+//     briefing (change-space overridable at extensions/pi/author-briefing.md);
+//     the 3-analyst diagnosis stays as ONE input among the named tools.
+//  2. PUBLIC/PRIVATE SPLIT — 4 public / 2 private of the 6 instances,
+//     deterministically seeded by runId and persisted per outDir; proposers +
+//     prefilter see public only, selection stays combined. Small-n caveat
+//     documented in score-split.mts.
+//  3. ACTIVATION GATE — required machine-checkable predicate per candidate;
+//     never-fired mechanisms are quarantined even on an improved score.
+//  4. SETTLE-TIME ROLLOUT LEDGER — tangle.rollout.v1 lines live per cell,
+//     label v2 (contribution-aware workers, baseline-relative proposers).
+//  5. LINEAGE DAG — agent-eval Lineage at <outDir>/.evolve/lineage.jsonl +
+//     governor continuation decision in the round summary; staircase rows
+//     unchanged (observatory contract).
+// ---------------------------------------------------------------------------
+
+export function defaultGen5Config(
+  hh = DEFAULT_HH_SCRATCHPAD,
+  opts: { outDirName?: string; includeCodex?: boolean } = {},
+): OuterLoopConfig {
+  const base = defaultGen4Config(hh, {
+    outDirName: opts.outDirName ?? 'gen5',
+    ...(opts.includeCodex !== undefined ? { includeCodex: opts.includeCodex } : {}),
+  })
+  return {
+    ...base,
+    scoreSplit: { publicCount: 4 },
+    briefing: AUTHOR_BRIEFING_VERSION,
+    activationGate: true,
+    rolloutLedger: { enabled: true },
+    lineage: true,
+    priorEvidenceDirs: [join(hh, 'gen4'), join(hh, 'gen3')],
   }
 }
 
@@ -1299,14 +1399,41 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
   const excludes = await loadExcludes()
   const images = await loadInstanceImages(config.instanceImagesPath)
   const adapter = createSweBenchAdapter()
+  const runId = `r${config.round}-${Date.now().toString(36)}`
+  await mkdir(config.outDir, { recursive: true })
+
+  // GEN-5 public/private split — deterministic (seeded by runId), PERSISTED
+  // per outDir so a resume can never rotate private instances into view.
+  // Scored identically; selection stays combined; proposers + prefilter see
+  // public only.
+  const split: ScoreSplit | null =
+    config.scoreSplit !== undefined
+      ? await loadOrCreateScoreSplit({
+          outDir: config.outDir,
+          runId,
+          instances: config.instances,
+          publicCount: config.scoreSplit.publicCount,
+        })
+      : null
+  const privateIids = new Set(split?.privateInstances ?? [])
+  if (split !== null) {
+    log(
+      `score split (seeded by ${split.seededBy}): public [${split.publicInstances.join(', ')}] + ` +
+        `${split.privateInstances.length} private instance(s) (identities withheld from proposers; ` +
+        `selection uses public+private combined; small-n caveat: 2 private of 6 is a direction check, not certification)`,
+    )
+  }
+
   // The pre-filter's smoke instance may sit outside the improvement set (e.g.
   // a designated cheap instance) — it needs the same problem/image/verify
-  // validation and rides the same loaded-task map.
+  // validation and rides the same loaded-task map. Under the gen-5 split the
+  // smoke choice is restricted to PUBLIC instances (the prefilter surfaces
+  // its verdict to the kill log the authors can mine).
   const smokeIid =
     config.proposers !== undefined && config.prefilter?.enabled
       ? resolveSmokeInstance(
           config.prefilter.smokeInstance,
-          config.instances,
+          split !== null ? split.publicInstances : config.instances,
           premeasured ? cellsFromCampaign(premeasured.campaign) : null,
         )
       : null
@@ -1328,11 +1455,56 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
   const judge: SerializedJudge = createSerializedJudge(
     config.judgeTimeoutMs !== undefined ? { timeoutMs: config.judgeTimeoutMs } : {},
   )
-  const runId = `r${config.round}-${Date.now().toString(36)}`
-  await mkdir(config.outDir, { recursive: true })
   await mkdir(config.roundsDir, { recursive: true })
   const recorder = new RoundRecorder(config.loopsRepo, join(config.outDir, 'candidates'))
   const analysts: AnalystSpec[] = config.analystModels.map((model, i) => ({ id: `${model}#${i + 1}`, model }))
+
+  // GEN-5 MAP+TOOLBOX briefing: persist the Pareto parent diffs, write the
+  // per-run evidence index (a map — one line per evidence path, private
+  // instances excluded), and resolve the briefing text (the change-space
+  // override at extensions/pi/author-briefing.md wins over the default).
+  let briefingCtx: BriefingContext | undefined
+  if (config.briefing === AUTHOR_BRIEFING_VERSION) {
+    const parentPatches: Array<{ label: string; path: string }> = []
+    if (paretoParents.length > 0) {
+      const parentsDir = join(config.outDir, 'pareto-parents')
+      await mkdir(parentsDir, { recursive: true })
+      for (const parent of paretoParents) {
+        const patchPath = join(parentsDir, `${parent.label}.patch`)
+        await writeFile(patchPath, parent.diff)
+        parentPatches.push({ label: parent.label, path: patchPath })
+      }
+    }
+    const index = await writeEvidenceIndex({
+      outDir: config.outDir,
+      roundsDir: config.roundsDir,
+      seedArtifactRuns: config.seedArtifactRuns,
+      ...(config.priorEvidenceDirs !== undefined ? { priorEvidenceDirs: config.priorEvidenceDirs } : {}),
+      paretoParentPatches: parentPatches,
+      split,
+    })
+    const briefing = await resolveAuthorBriefing(config.loopsRepo, config.loopsBaseRef)
+    briefingCtx = { indexPath: index.path, briefingText: briefing.text, briefingSource: briefing.source }
+    log(
+      `briefing ${AUTHOR_BRIEFING_VERSION}: evidence index → ${index.path} (${index.rows.length} row(s)); ` +
+        `briefing text source: ${briefing.source}`,
+    )
+  }
+
+  // GEN-5 settle-time rollout ledger — tangle.rollout.v1 lines appended live
+  // after each cell judges (label v2); capture failure logs loud but never
+  // kills a cell.
+  const settleCapture: SettleCapture | null =
+    config.rolloutLedger?.enabled === true
+      ? createSettleCapture({
+          ledgerPath: config.rolloutLedger.path ?? join(config.outDir, 'rollout-ledger.jsonl'),
+          runId,
+          instanceCount: config.instances.length,
+          ...(config.rolloutLedger.opencodeDb !== undefined ? { opencodeDb: config.rolloutLedger.opencodeDb } : {}),
+          log,
+        })
+      : null
+  if (settleCapture !== null) log(`rollout-ledger: settle-time capture ON → ${settleCapture.path}`)
 
   const sweScenarios: Scenario[] = config.instances.map((iid) => ({ id: iid, kind: 'swe-instance' }))
 
@@ -1574,7 +1746,61 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
             recoveredTokens: recovered,
           }) + '\n',
         )
-        await ctx.artifacts.writeJson('arm-summary.json', { runDir, patchPath: armRes.patchPath, verdict })
+        const summaryPath = await ctx.artifacts.writeJson('arm-summary.json', {
+          runDir,
+          patchPath: armRes.patchPath,
+          verdict,
+        })
+
+        // GEN-5 settle-time rollout capture: emit supervisor + worker lines
+        // NOW, while the opencode store still holds the worker transcripts.
+        // Attribution comes from the campaign cell path (never dispatch
+        // order); a capture failure logs loud but never kills the cell.
+        if (settleCapture !== null) {
+          try {
+            const coords = campaignCoordsFromCellPath(summaryPath)
+            if (coords === null) {
+              log(`rollout-ledger: cannot derive campaign coords from ${summaryPath} — cell ${iid} r${ctx.rep} skipped`)
+            } else {
+              const supRunDir = await findSupervisorRunDir(armRes.ws)
+              const deliveredPatch = await readFile(armRes.patchPath, 'utf8').catch(() => '')
+              await settleCapture.captureCell({
+                generation: coords.generation,
+                candidateIndex: coords.candidateIndex,
+                iid,
+                rep: ctx.rep,
+                seed: ctx.seed,
+                splitVisibility: split === null ? null : privateIids.has(iid) ? 'private' : 'public',
+                commit: cs.candidateCommit,
+                resolved: verdict.resolved,
+                judgeVerdict: { ...verdict, wallS: judgeWallS },
+                runDir,
+                patchPath: armRes.patchPath,
+                supRunDir,
+                deliveredPatch,
+                workerModel: config.arm.workerModel,
+                metrics: {
+                  resolved: verdict.resolved,
+                  verify_pass: armRes.verify_pass,
+                  patch_lines: armRes.patch_lines,
+                  judge_attempts: verdict.attempts ?? null,
+                  judge_wall_s: judgeWallS,
+                  spent_tokens: armRes.spentTokens,
+                  spent_usd: armRes.spentUsd,
+                  recovered_tokens: recovered,
+                  sup_status: armRes.sup_status,
+                  sup_verdict: armRes.sup_verdict,
+                  spawned: armRes.spawned,
+                  workers: armRes.workers,
+                  settled: armRes.settled,
+                },
+                cost: { usd: armRes.spentUsd, wallS: armRes.wall_s, spentTokens: armRes.spentTokens },
+              })
+            }
+          } catch (cause) {
+            log(`rollout-ledger: settle-time capture FAILED for ${iid} r${ctx.rep}: ${(cause as Error).message}`)
+          }
+        }
 
         if (verdict.resolved === null) {
           // Inconclusive judge (double flake / infra) — the cell must FAIL, not
@@ -1677,6 +1903,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     const runs: SupRunArtifacts[] = []
     if (input.generation === -1) {
       for (const seed of config.seedArtifactRuns) {
+        if (privateIids.has(seed.iid)) continue // gen-5 split: never surfaced to proposers
         if (!existsSync(seed.dir)) {
           // A wiped scratchpad (host reboot) must not feed EMPTY bundles to the
           // analysts as if they were real artifacts — skip loudly.
@@ -1701,6 +1928,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       for (const cell of cells) {
         const a = cell.artifact
         if (a === null || a.kind !== 'swe-arm' || !a.runDir) continue
+        if (privateIids.has(a.iid)) continue // gen-5 split: never surfaced to proposers
         runs.push({
           iid: a.iid,
           arm: config.armName,
@@ -1738,8 +1966,25 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         log(`diagnosis ensemble FAILED for gen ${input.generation}: ${(cause as Error).message}`)
       }
     }
+    // GEN-5 split: the raw-trace distiller must not hand private-instance
+    // cells' path context to the authors either — censor them out of the
+    // candidates' campaigns before distillation.
+    const censoredInput =
+      split === null
+        ? input
+        : {
+            ...input,
+            candidates: input.candidates.map((cand) => {
+              const campaign = cand.campaign as { cells?: Array<{ scenarioId: string }> } | null
+              if (campaign === null || typeof campaign !== 'object' || !Array.isArray(campaign.cells)) return cand
+              return {
+                ...cand,
+                campaign: { ...campaign, cells: campaign.cells.filter((c) => !privateIids.has(c.scenarioId)) },
+              }
+            }),
+          }
     signal?.throwIfAborted()
-    const rawFindings = (await rawTrace(input as Parameters<typeof rawTrace>[0])) as unknown[]
+    const rawFindings = (await rawTrace(censoredInput as Parameters<typeof rawTrace>[0])) as unknown[]
     signal?.throwIfAborted()
     return [steeringFinding, ...ensembleFindings, ...rawFindings]
   }
@@ -1780,6 +2025,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       ? fanOutLoopsGenerator(config, {
           ...(smokeRunner ? { smokeRunner } : {}),
           ...(paretoParents.length > 0 ? { parents: paretoParents } : {}),
+          ...(briefingCtx !== undefined ? { briefing: briefingCtx } : {}),
           log,
         })
       : null
@@ -1875,10 +2121,25 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       }
     }
 
+    // Collected per-candidate facts for the gen-5 machinery (activation by
+    // surface hash for the winner brief, lineage nodes, proposer v2 rewards).
+    const activationBySurface = new Map<string, ActivationRecord>()
+    const lineageCandidates: LineageCandidateInput[] = []
+    interface ProposerOutcomeFact {
+      generation: number
+      candidateIndex: number
+      label: string
+      commit: string | null
+      resolvedCount: number
+      diffPath: string | null
+    }
+    const proposerFacts: ProposerOutcomeFact[] = []
+
     for (let g = 0; g < loop.generations.length; g++) {
       const gen = loop.generations[g]!
       const rows: StaircaseRow[] = []
-      for (const cand of gen.record.candidates) {
+      for (let candIndex = 0; candIndex < gen.record.candidates.length; candIndex++) {
+        const cand = gen.record.candidates[candIndex]!
         const surface = gen.surfaces.find((s) => s.surfaceHash === cand.surfaceHash)?.surface
         const cs = surface && typeof surface === 'object' && surface.kind === 'code' ? surface : null
         const desc = cs ? await recorder.ensure(cs) : undefined
@@ -1902,6 +2163,71 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         const parentResolvedCount =
           parentCampaign !== undefined ? resolvedCountOf(parentCampaign) : measuredBaselineCount
         const violations = desc?.violations ?? []
+
+        // GEN-5 activation gate: run the candidate's own committed predicate
+        // over its own cell run dirs. Fail-closed — a missing/unparseable
+        // predicate (the prefilter should have killed it) quarantines.
+        let activation: ActivationRecord | undefined
+        if (config.activationGate === true && cs !== null) {
+          const committed = await readCommittedPredicate(config.loopsRepo, cs.candidateCommit)
+          if (committed === null || !committed.parsed.ok) {
+            const why =
+              committed === null
+                ? `no ${ACTIVATION_PREDICATE_RELPATH} at ${cs.candidateCommit.slice(0, 10)}`
+                : `unparseable activation predicate: ${committed.parsed.ok ? '' : committed.parsed.error}`
+            activation = {
+              present: false,
+              description: null,
+              fired: false,
+              evidence: [],
+              warnings: [`${why} — fail-closed quarantine`],
+            }
+          } else {
+            const runDirs = [
+              ...new Set(
+                cells
+                  .map((c) => (c.artifact !== null && c.artifact.kind === 'swe-arm' ? c.artifact.runDir : null))
+                  .filter((d): d is string => typeof d === 'string' && d.length > 0),
+              ),
+            ]
+            const res = await runActivationPredicate(committed.parsed.predicate, runDirs)
+            activation = {
+              present: true,
+              description: committed.parsed.predicate.description,
+              fired: res.fired,
+              evidence: res.evidence,
+              warnings: res.warnings,
+            }
+          }
+          activationBySurface.set(cand.surfaceHash, activation)
+          log(
+            `activation ${cand.label ?? cand.surfaceHash.slice(0, 10)}: present=${activation.present} ` +
+              `fired=${activation.fired}${activation.fired ? ` — ${activation.evidence[0] ?? ''}` : ''}` +
+              `${activation.warnings.length > 0 ? ` (warnings: ${activation.warnings.join('; ')})` : ''}`,
+          )
+        }
+
+        // GEN-5 split sub-scores: both halves logged per candidate; the
+        // selection rule stays combined (candResolved over ALL instances).
+        const verdicts = instanceVerdictsFromCells(cells, config.instances, reps)
+        const splitScores = split !== null ? subScores(verdicts, split) : null
+        if (split !== null && splitScores !== null) {
+          log(
+            `split scores ${cand.label ?? cand.surfaceHash.slice(0, 10)}: ` +
+              `public ${splitScores.publicResolvedCount}/${split.publicInstances.length}, ` +
+              `private ${splitScores.privateResolvedCount}/${split.privateInstances.length} (combined ${candResolved}/${config.instances.length})`,
+          )
+        }
+
+        const verdict = decideVerdict({
+          violations,
+          coverageComplete,
+          resolvedCount: candResolved,
+          parentResolvedCount,
+          costRatio,
+          costGuardRatio: config.costGuardRatio,
+          ...(activation !== undefined ? { activationFired: activation.fired } : {}),
+        })
         rows.push({
           schema: STAIRCASE_SCHEMA,
           round: config.round,
@@ -1924,18 +2250,39 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
           costRatio,
           costGuardRatio: config.costGuardRatio,
           internallyPromoted: gen.record.promoted.includes(cand.surfaceHash),
-          verdict: decideVerdict({
-            violations,
-            coverageComplete,
-            resolvedCount: candResolved,
-            parentResolvedCount,
-            costRatio,
-            costGuardRatio: config.costGuardRatio,
-          }),
+          verdict,
           holdout: 'operator-approval-required',
           armProvenance: desc?.armProvenance ?? null,
           diffPath: desc?.diffPath ?? null,
           diffSha256: desc?.diffSha256 ?? null,
+          ...(split !== null && splitScores !== null
+            ? {
+                split: {
+                  publicInstances: split.publicInstances,
+                  privateInstances: split.privateInstances,
+                  ...splitScores,
+                },
+              }
+            : {}),
+          ...(activation !== undefined ? { activation } : {}),
+        })
+
+        const label = cand.label ?? cs?.candidateCommit?.slice(0, 10) ?? cand.surfaceHash.slice(0, 10)
+        lineageCandidates.push({
+          label,
+          commit: cs?.candidateCommit ?? null,
+          resolvedCount: candResolved,
+          verdicts,
+          merge: config.proposers?.find((p) => p.name === cand.label)?.merge === true,
+          verdict,
+        })
+        proposerFacts.push({
+          generation: g,
+          candidateIndex: candIndex,
+          label,
+          commit: cs?.candidateCommit ?? null,
+          resolvedCount: candResolved,
+          diffPath: desc?.diffPath ?? null,
         })
       }
       const genFile = join(config.roundsDir, `gen-${g}.jsonl`)
@@ -1985,6 +2332,74 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       }
     }
 
+    // GEN-5 label-v2 proposer rewards: baseline-relative (candidate − baseline
+    // resolved fraction, improvement positive), one settle-time ledger line
+    // per evaluated candidate now that the round's scores are final.
+    if (settleCapture !== null) {
+      const sanitizeName = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_')
+      for (const fact of proposerFacts) {
+        try {
+          const flatDir = join(config.outDir, 'proposer-shots')
+          const pattern = new RegExp(`^gen${fact.generation}-cand${fact.candidateIndex}-shot\\d+\\.json$`)
+          const receiptPaths: string[] = []
+          for (const dir of [flatDir, join(flatDir, sanitizeName(fact.label))]) {
+            for (const name of (await readdir(dir).catch(() => [])).sort()) {
+              if (pattern.test(name)) receiptPaths.push(join(dir, name))
+            }
+          }
+          await settleCapture.captureProposer({
+            generation: fact.generation,
+            candidateIndex: fact.candidateIndex,
+            proposer: fact.label,
+            harness: config.proposers?.find((p) => p.name === fact.label)?.harness ?? null,
+            commit: fact.commit,
+            candResolved: fact.resolvedCount,
+            baselineResolved: measuredBaselineCount,
+            shotReceiptPaths: receiptPaths,
+            diffPath: fact.diffPath,
+          })
+        } catch (cause) {
+          log(`rollout-ledger: proposer capture FAILED for ${fact.label}: ${(cause as Error).message}`)
+        }
+      }
+    }
+
+    // GEN-5 lineage DAG: record baseline root + pareto parents + every
+    // evaluated candidate (multi-parent for the merge seat) at the
+    // .evolve-compatible store, and ask the governor for the continuation
+    // decision (recorded below — never acted on inside this run).
+    let lineageResult: Awaited<ReturnType<typeof recordLineageGeneration>> | null = null
+    if (config.lineage === true) {
+      try {
+        const baselineCommit =
+          baselineCells.find((c) => c.artifact !== null && c.artifact.kind === 'swe-arm')?.artifact?.commit ??
+          config.loopsBaseRef
+        lineageResult = await recordLineageGeneration({
+          outDir: config.outDir,
+          runId,
+          instances: config.instances,
+          baseline: {
+            commit: baselineCommit,
+            resolvedCount: measuredBaselineCount,
+            verdicts: instanceVerdictsFromCells(baselineCells, config.instances, reps),
+          },
+          paretoParents: (config.paretoParents ?? []).map((p) => ({
+            label: p.label,
+            commit: p.commit,
+            resolvedInstances: p.resolvedInstances,
+          })),
+          candidates: lineageCandidates,
+        })
+        log(
+          `lineage: ${lineageResult.appended.length} node(s) appended (total ${lineageResult.nodesTotal}) → ` +
+            `${lineageResult.path}; governor decision: ${JSON.stringify(lineageResult.governor)}` +
+            `${lineageResult.skipped.length > 0 ? `; skipped (no commit): ${lineageResult.skipped.join(', ')}` : ''}`,
+        )
+      } catch (cause) {
+        log(`lineage: recording FAILED: ${(cause as Error).message}`)
+      }
+    }
+
     const winnerSurface = result.raw.winner.surface
     const winnerCs =
       typeof winnerSurface === 'object' && winnerSurface !== null && winnerSurface.kind === 'code'
@@ -2022,6 +2437,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     // is worth approving.
     const winnerHash = winnerCs ? surfaceHash(winnerCs) : null
     const winnerCampaign = winnerHash !== null ? campaignBySurface.get(winnerHash) : undefined
+    const winnerActivation = winnerHash !== null ? activationBySurface.get(winnerHash) : undefined
     const improvementSet =
       winnerCampaign !== undefined && winnerRec !== undefined
         ? gateEvidenceFromCells({
@@ -2031,6 +2447,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
             iids: config.instances,
             reps,
             costGuardRatio: config.costGuardRatio,
+            ...(winnerActivation !== undefined ? { activationFired: winnerActivation.fired } : {}),
           })
         : null
     const wouldKeep = improvementSet !== null && improvementSet.verdict === 'accepted'
@@ -2076,6 +2493,49 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       gateReasons: loop.gateResult.reasons,
       // Improvement-set (search-split) evidence — NOT a held-out measurement.
       improvementSet: improvementSet === null ? null : { ...improvementSet, wouldKeep },
+      // GEN-5: the public/private split (sub-scores live per candidate in the
+      // staircase rows; selection stays combined; private never surfaced to
+      // proposers — the 2-of-6 private half is a direction check, not a
+      // certification).
+      scoreSplit:
+        split === null
+          ? null
+          : {
+              seededBy: split.seededBy,
+              publicInstances: split.publicInstances,
+              privateInstances: split.privateInstances,
+            },
+      // GEN-5: activation-gate outcomes per candidate surface.
+      activationGate:
+        config.activationGate === true
+          ? {
+              enabled: true,
+              byCandidate: [...activationBySurface.entries()].map(([surface, a]) => ({
+                surface,
+                present: a.present,
+                fired: a.fired,
+                description: a.description,
+              })),
+            }
+          : { enabled: false },
+      // GEN-5: MAP+TOOLBOX briefing provenance.
+      briefing:
+        briefingCtx === undefined
+          ? null
+          : { version: AUTHOR_BRIEFING_VERSION, indexPath: briefingCtx.indexPath, textSource: briefingCtx.briefingSource },
+      // GEN-5: settle-time rollout ledger location (tangle.rollout.v1, label v2).
+      rolloutLedger: settleCapture === null ? null : { path: settleCapture.path, capture: 'settle-time', labels: 'v2' },
+      // GEN-5: lineage DAG + the governor's recorded continuation decision.
+      lineage:
+        lineageResult === null
+          ? null
+          : {
+              path: lineageResult.path,
+              nodesTotal: lineageResult.nodesTotal,
+              appended: lineageResult.appended.length,
+              skipped: lineageResult.skipped,
+              governor: lineageResult.governor,
+            },
       // Honest run-wide spend from the lib's CostLedger: per-channel rollups
       // (agent = arm cells, judge = official-judge calls, driver = proposer
       // shots), token totals, and accounting-completeness flags.
@@ -2225,24 +2685,28 @@ if (isMain) {
     if (argv[0] === '--write-config') {
       const path = argv[1]
       if (!path || path.startsWith('--')) {
-        console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4]')
+        console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4|--gen5]')
         process.exit(2)
       }
       const outDirName = flag('--out-name')
       const gen3 = argv.includes('--gen3')
       const gen4 = argv.includes('--gen4')
+      const gen5 = argv.includes('--gen5')
       let config: OuterLoopConfig
       let flavor: string
-      if (gen4) {
+      if (gen4 || gen5) {
         // The codex seat rides only when the CLI is actually present — a config
         // naming a missing harness would fail the whole launch at t=0.
         const codexProbe = await run('codex', ['--version'])
         const includeCodex = codexProbe.code === 0
         if (!includeCodex) {
-          console.log(`codex CLI unavailable (rc=${codexProbe.code}) — gen-4 config written WITHOUT the codex-author seat`)
+          console.log(
+            `codex CLI unavailable (rc=${codexProbe.code}) — ${gen5 ? 'gen-5' : 'gen-4'} config written WITHOUT the codex-author seat`,
+          )
         }
-        config = defaultGen4Config(undefined, { ...(outDirName ? { outDirName } : {}), includeCodex })
-        flavor = 'gen-4'
+        const make = gen5 ? defaultGen5Config : defaultGen4Config
+        config = make(undefined, { ...(outDirName ? { outDirName } : {}), includeCodex })
+        flavor = gen5 ? 'gen-5' : 'gen-4'
       } else {
         const make = gen3 ? defaultGen3Config : defaultRound4Config
         config = make(undefined, outDirName ? { outDirName } : {})
@@ -2282,7 +2746,7 @@ if (isMain) {
     } else {
       console.error(
         'usage: tsx src/swe-arena/outer-loop.mts <config.json>            # SPENDS: arms + judges + proposer\n' +
-          '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4]\n' +
+          '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4|--gen5]\n' +
           '       tsx src/swe-arena/outer-loop.mts --calibration-smoke [supRunDir] [--analysts N] [--model M] [--endpoint router|zai] [--retries N]',
       )
       process.exit(2)

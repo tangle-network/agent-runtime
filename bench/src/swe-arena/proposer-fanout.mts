@@ -38,7 +38,7 @@
 
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile as readFilePromise, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -58,6 +58,12 @@ import {
   round4BuildPrompt,
   type OuterLoopConfig,
 } from './outer-loop.mts'
+import {
+  ACTIVATION_PREDICATE_RELPATH,
+  activationPredicateInstruction,
+  parseActivationPredicate,
+} from './activation.mts'
+import { briefingPromptSection, type BriefingContext } from './briefing.mts'
 import { run, runOk } from './proc.ts'
 
 // ---------------------------------------------------------------------------
@@ -125,7 +131,7 @@ export interface PrefilterKill {
   candidateIndex: number
   proposer: string
   harness: ProposerSpec['harness']
-  stage: 'change-space' | 'smoke'
+  stage: 'change-space' | 'activation-predicate' | 'smoke'
   reason: string
   diffSha256: string | null
   /** Persisted kill-forensics patch under `<outDir>/proposer-patches/`. */
@@ -319,20 +325,37 @@ export function sliceFindings(findings: AnalystFinding[], slice: ProposerSpec['d
   })
 }
 
+/** GEN-5 prompt extensions shared by every seat (merge included): the
+ *  MAP+TOOLBOX+PERMISSION briefing (briefing.mts) and the activation-predicate
+ *  deliverable contract (activation.mts). */
+export interface Gen5PromptExtras {
+  briefing?: BriefingContext
+  activationGate?: boolean
+}
+
+function appendGen5Sections(prompt: string, extras: Gen5PromptExtras): string {
+  let out = prompt
+  if (extras.briefing) out = `${out}\n\n${briefingPromptSection(extras.briefing)}`
+  if (extras.activationGate) out = `${out}\n\n${activationPredicateInstruction()}`
+  return out
+}
+
 /** The proposer's task prompt: the shared round prompt plus this proposer's
  *  authoring lens (appended so the protocol change-space text stays intact),
- *  plus the gen-4 Pareto-parents section when parents are seeded. A merge-seat
- *  spec gets the dedicated merge prompt instead. */
+ *  plus the gen-4 Pareto-parents section when parents are seeded, plus the
+ *  gen-5 briefing/activation sections when configured. A merge-seat spec gets
+ *  the dedicated merge prompt instead (gen-5 sections still apply). */
 export function proposerBuildPrompt(
   args: { report: unknown; findings: Array<Record<string, unknown>> },
   spec: ProposerSpec,
   parents: ParetoParentContext[] = [],
+  extras: Gen5PromptExtras = {},
 ): string {
-  if (spec.merge) return mergeAuthorPrompt(args, spec, parents)
+  if (spec.merge) return appendGen5Sections(mergeAuthorPrompt(args, spec, parents), extras)
   let prompt = round4BuildPrompt(args)
   if (spec.lens) prompt = `${prompt}\n\nYOUR AUTHORING LENS (${spec.name}):\n${spec.lens}`
   if (parents.length > 0) prompt = `${prompt}\n\n${parentsPromptSection(parents)}`
-  return prompt
+  return appendGen5Sections(prompt, extras)
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +460,8 @@ export interface FanOutDeps {
   /** GEN-4: materialized Pareto parents seeded into every author's prompt (and
    *  the merge seat's explicit merge input). Empty/omitted = gen-3 behavior. */
   parents?: ParetoParentContext[]
+  /** GEN-5: MAP+TOOLBOX briefing context threaded into every author prompt. */
+  briefing?: BriefingContext
   log?: (msg: string) => void
 }
 
@@ -468,6 +493,10 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
             a as unknown as { report: unknown; findings: Array<Record<string, unknown>> },
             proposer,
             deps.parents ?? [],
+            {
+              ...(deps.briefing ? { briefing: deps.briefing } : {}),
+              ...(config.activationGate === true ? { activationGate: true } : {}),
+            },
           ),
         verify: loopsCandidateVerifier(config.loopsRepo),
         runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(proposer.harness) }),
@@ -566,6 +595,32 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
             kills.push(kill)
             log(`prefilter KILL gen ${generation} ${proposer.name}: ${kill.reason}`)
             return { proposer, applied: false, summary: authored.summary, patch: null, kill }
+          }
+
+          // Pre-filter stage A.5 — GEN-5 activation gate: a candidate without
+          // a parseable machine-checkable predicate is killed before any
+          // evaluation spend (the post-eval quarantine needs it to exist).
+          if (config.activationGate === true) {
+            const raw = await readFilePromise(join(scratch, ACTIVATION_PREDICATE_RELPATH), 'utf8').catch(() => null)
+            const parsed = raw === null ? null : parseActivationPredicate(raw)
+            if (parsed === null || !parsed.ok) {
+              const kill: PrefilterKill = {
+                generation,
+                candidateIndex: index,
+                proposer: proposer.name,
+                harness: proposer.harness,
+                stage: 'activation-predicate',
+                reason:
+                  parsed === null
+                    ? `missing ${ACTIVATION_PREDICATE_RELPATH} (required activation predicate)`
+                    : `invalid ${ACTIVATION_PREDICATE_RELPATH}: ${parsed.error}`,
+                diffSha256,
+                patchPath,
+              }
+              kills.push(kill)
+              log(`prefilter KILL gen ${generation} ${proposer.name}: ${kill.reason}`)
+              return { proposer, applied: false, summary: authored.summary, patch: null, kill }
+            }
           }
 
           // Pre-filter stage B — one smoke cell before any full-arm spend.

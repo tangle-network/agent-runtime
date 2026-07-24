@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   defaultGen3Config,
   defaultGen4Config,
+  defaultGen5Config,
   defaultRound4Config,
   GEN3_IMPROVEMENT_SET,
   GEN3_PARETO_PARENTS,
@@ -537,5 +538,82 @@ describe('fanOutLoopsGenerator', () => {
       ])),
     ).toThrow(/duplicate/)
     expect(() => fanOutLoopsGenerator({ ...defaultRound4Config(), loopsRepo, outDir })).toThrow(/empty/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GEN-5: config bundle + prompt sections (MAP+TOOLBOX briefing, activation
+// contract) on every seat, merge included.
+// ---------------------------------------------------------------------------
+
+describe('defaultGen5Config', () => {
+  const config = defaultGen5Config()
+
+  it('keeps the full gen-4 shape (seats, parents, 2 reps, deferred holdout) under a fresh gen5 outDir', () => {
+    expect(config.proposers!.map((p) => p.name)).toEqual(
+      defaultGen4Config().proposers!.map((p) => p.name),
+    )
+    expect(config.populationSize).toBe(config.proposers!.length)
+    expect(config.paretoParents).toEqual(GEN3_PARETO_PARENTS)
+    expect(config.repsPerInstance).toBe(2)
+    expect(config.generations).toBe(1)
+    expect(config.holdoutRepsPerInstance).toBe(2)
+    expect(config.outDir).toContain('gen5')
+    expect(config.premeasuredBaselinePath).toContain('gen5')
+  })
+
+  it('turns on the five gen-5 mechanisms as a unit', () => {
+    expect(config.scoreSplit).toEqual({ publicCount: 4 })
+    expect(config.briefing).toBe('map-toolbox-v1')
+    expect(config.activationGate).toBe(true)
+    expect(config.rolloutLedger).toEqual({ enabled: true })
+    expect(config.lineage).toBe(true)
+    expect(config.priorEvidenceDirs!.some((d) => d.includes('gen4'))).toBe(true)
+  })
+
+  it('drops the codex seat when includeCodex is false (population follows)', () => {
+    const noCodex = defaultGen5Config(undefined, { includeCodex: false })
+    expect(noCodex.proposers!.map((p) => p.name)).toEqual(['claude-author', 'glm-author', 'merge-author'])
+    expect(noCodex.populationSize).toBe(3)
+  })
+})
+
+describe('gen-5 prompt sections', () => {
+  const briefing = {
+    indexPath: '/tmp/out/evidence-index.md',
+    briefingText: 'TOOLBOX: traces CLI, analysts, AxLLM. PERMISSION: subagents.',
+    briefingSource: 'default' as const,
+  }
+
+  it('appends EVIDENCE MAP + briefing + activation contract after the protocol prompt', () => {
+    const spec: ProposerSpec = { name: 'x', harness: 'claude' }
+    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec, [], {
+      briefing,
+      activationGate: true,
+    })
+    expect(prompt).toContain('DECLARED CHANGE-SPACE')
+    expect(prompt).toContain('EVIDENCE MAP: /tmp/out/evidence-index.md')
+    expect(prompt).toContain('TOOLBOX')
+    expect(prompt).toContain('ACTIVATION PREDICATE')
+    expect(prompt.indexOf('DECLARED CHANGE-SPACE')).toBeLessThan(prompt.indexOf('EVIDENCE MAP'))
+  })
+
+  it('the merge seat gets the gen-5 sections too', () => {
+    const spec: ProposerSpec = { name: 'merge-author', harness: 'claude', merge: true }
+    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS, {
+      briefing,
+      activationGate: true,
+    })
+    expect(prompt).toContain('MERGE SEAT')
+    expect(prompt).toContain('EVIDENCE MAP')
+    expect(prompt).toContain('ACTIVATION PREDICATE')
+  })
+
+  it('leaves gen-3/gen-4 prompts byte-identical when no extras are passed', () => {
+    const spec: ProposerSpec = { name: 'x', harness: 'claude' }
+    const legacy = proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS)
+    expect(legacy).not.toContain('EVIDENCE MAP')
+    expect(legacy).not.toContain('ACTIVATION PREDICATE')
+    expect(proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS, {})).toBe(legacy)
   })
 })

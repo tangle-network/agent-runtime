@@ -248,9 +248,17 @@ export type StaircaseVerdict =
    *  evaluation — the candidate never became a measured surface. Emitted by
    *  the outer loop's kill-row writer, never by `decideVerdict`. */
   | 'rejected-prefilter'
+  /** GEN-5 activation gate: the candidate's own machine-checkable predicate
+   *  (activation.mts) proved its mechanism NEVER fired in its campaign
+   *  traces — recorded, never promoted, EVEN when the score improved. */
+  | 'quarantined-inactive'
 
 /** protocol_v2 keep-if-better: improvement-set resolved-count must RISE and
- *  cost must stay within the guard. Fail-closed on unprovable cost. */
+ *  cost must stay within the guard. Fail-closed on unprovable cost.
+ *  GEN-5: `activationFired === false` quarantines the candidate ahead of the
+ *  score comparison — an improved score with an inactive mechanism is
+ *  indistinguishable from luck (undefined/null = gate not applicable:
+ *  disabled, baseline, or predicate unevaluated). */
 export function decideVerdict(input: {
   violations: string[]
   coverageComplete: boolean
@@ -258,8 +266,10 @@ export function decideVerdict(input: {
   parentResolvedCount: number
   costRatio: number | null
   costGuardRatio: number
+  activationFired?: boolean | null
 }): StaircaseVerdict {
   if (input.violations.length > 0) return 'rejected-out-of-space'
+  if (input.activationFired === false) return 'quarantined-inactive'
   if (!input.coverageComplete) return 'rejected-incomplete'
   if (input.resolvedCount <= input.parentResolvedCount) return 'rejected-no-gain'
   if (input.costRatio === null || input.costRatio > input.costGuardRatio) return 'rejected-cost'
@@ -377,6 +387,8 @@ export function gateEvidenceFromCells(input: {
   iids: string[]
   reps: number
   costGuardRatio: number
+  /** GEN-5 activation-gate outcome for the winner (see decideVerdict). */
+  activationFired?: boolean | null
 }): GateEvidence {
   const winnerRuns = replicateRunsFromCells(input.winnerCells)
   const baselineRuns = replicateRunsFromCells(input.baselineCells)
@@ -400,6 +412,7 @@ export function gateEvidenceFromCells(input: {
       parentResolvedCount: baseResolved,
       costRatio,
       costGuardRatio: input.costGuardRatio,
+      ...(input.activationFired !== undefined ? { activationFired: input.activationFired } : {}),
     }),
   }
 }

@@ -1,0 +1,138 @@
+{
+  "round": 4,
+  "instances": [
+    "astropy__astropy-13033",
+    "django__django-11532",
+    "matplotlib__matplotlib-20826",
+    "pydata__xarray-4687",
+    "pytest-dev__pytest-6197",
+    "sphinx-doc__sphinx-9658"
+  ],
+  "holdoutInstances": [
+    "astropy__astropy-14182",
+    "django__django-12774",
+    "django__django-14140",
+    "scikit-learn__scikit-learn-14894",
+    "sympy__sympy-20438",
+    "pytest-dev__pytest-7236"
+  ],
+  "loopsRepo": "/home/drew/code/loops",
+  "loopsBaseRef": "feat/supervisor-evidence-flow",
+  "armName": "R4",
+  "arm": {
+    "workerModel": "zai-coding-plan/glm-5.2",
+    "driverModel": "glm-5.2",
+    "budget": 40,
+    "maxSandboxes": 4,
+    "maxUsd": 8,
+    "maxDepth": 3,
+    "timeoutMs": 2800000
+  },
+  "verifyDir": "/home/drew/code/agent-runtime-gen5/bench/src/swe-arena/fixtures/verify",
+  "outDir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen5",
+  "roundsDir": "/home/drew/code/supervisor-lab/.evolve/rounds",
+  "secretsDir": "/home/drew/company/devops/secrets",
+  "envFiles": [
+    "agent-state.env",
+    "tangle-router.env"
+  ],
+  "generations": 1,
+  "populationSize": 4,
+  "repsPerInstance": 2,
+  "premeasuredBaselinePath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen5/premeasured-baseline.json",
+  "maxShots": 3,
+  "proposerHarness": "claude",
+  "proposerTimeoutMs": 2400000,
+  "analystModels": [
+    "glm-5.2",
+    "glm-5.2",
+    "glm-5.2"
+  ],
+  "seedArtifactRuns": [
+    {
+      "iid": "astropy__astropy-13033",
+      "arm": "SUP4",
+      "dir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/runs/astropy__astropy-13033/SUP4",
+      "patchPath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/patches/astropy__astropy-13033.sup4.patch",
+      "resolved": false
+    },
+    {
+      "iid": "django__django-11532",
+      "arm": "SUP4",
+      "dir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/runs/django__django-11532/SUP4",
+      "patchPath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/patches/django__django-11532.sup4.patch",
+      "resolved": false
+    },
+    {
+      "iid": "matplotlib__matplotlib-20826",
+      "arm": "SUP4",
+      "dir": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/runs/matplotlib__matplotlib-20826/SUP4",
+      "patchPath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/patches/matplotlib__matplotlib-20826.sup4.patch",
+      "resolved": true
+    }
+  ],
+  "costGuardRatio": 1.2,
+  "dispatchTimeoutMs": 7200000,
+  "proposers": [
+    {
+      "name": "claude-author",
+      "profile": "default-author.profile.json",
+      "harness": "claude"
+    },
+    {
+      "name": "glm-author",
+      "harness": "opencode",
+      "model": "zai-coding-plan/glm-5.2"
+    },
+    {
+      "name": "codex-author",
+      "harness": "codex"
+    },
+    {
+      "name": "merge-author",
+      "profile": "default-author.profile.json",
+      "harness": "claude",
+      "merge": true
+    }
+  ],
+  "prefilter": {
+    "enabled": true,
+    "smokeInstance": "cheapest-of-set",
+    "requireResolved": false
+  },
+  "holdoutRepsPerInstance": 2,
+  "holdoutBaseline": "measure",
+  "paretoParents": [
+    {
+      "commit": "cc0d95584c7ea14324cd57c21fe946c7c0f53827",
+      "label": "default-author",
+      "resolvedInstances": [
+        "pydata__xarray-4687",
+        "sphinx-doc__sphinx-9658"
+      ],
+      "note": "mechanical patch-risk scan (patchRiskWarnings in src/worker-evidence.ts, threaded through extensions/pi/loops.ts) + never-reword / test-seam / run-the-neighbors worker rules + 3-check reviewer; pytest-dev__pytest-6197 split 0/1 across reps (near-miss)"
+    },
+    {
+      "commit": "a7a2a982e51551de3a8e796ee2efc448ed405e6a",
+      "label": "prompts-author",
+      "resolvedInstances": [
+        "django__django-11532",
+        "pydata__xarray-4687"
+      ],
+      "note": "prompt-only: hidden-suite bullet in the supervisor GOAL-authoring section (the django seam), frozen-behavior worker section + run-the-repo-tests discipline, 2-check reviewer; sphinx-doc__sphinx-9658 split 0/1 across reps (near-miss)"
+    }
+  ],
+  "scoreSplit": {
+    "publicCount": 4
+  },
+  "briefing": "map-toolbox-v1",
+  "activationGate": true,
+  "rolloutLedger": {
+    "enabled": true
+  },
+  "lineage": true,
+  "priorEvidenceDirs": [
+    "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen4",
+    "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3"
+  ]
+}
