@@ -265,6 +265,62 @@ describe('backfillSweArena', () => {
     expect(toSftRows(lines)).toHaveLength(2)
   })
 
+  it('joins a respawned worker cwd once, not once per recovered entry', async () => {
+    await buildFixtureTree()
+    await buildFixtureDb()
+    // A crashed-and-retried worker reuses its clone dir, so the recovered list
+    // names it twice.
+    await writeArmRun(
+      join(outDir, 'arm-runs', 'cand-0', 'rep-0', 'runs', 'astropy__astropy-13033', 'R4'),
+      'astropy__astropy-13033',
+      true,
+      [WORKER_CWD, WORKER_CWD],
+    )
+    const { lines, stats } = await backfillSweArena(outDir, {
+      opencodeDb: dbPath,
+      claudeProjectsDir: projectsDir,
+    })
+    const candidateWorkers = lines.filter((l) => l.role === 'worker' && l.candidate_index === 0)
+    expect(candidateWorkers).toHaveLength(1)
+    expect(stats.workerSessionsJoined).toBe(2)
+  })
+
+  it('marks a session with no readable parts as an incomplete gap line', async () => {
+    await buildFixtureTree()
+    await buildFixtureDb()
+    const { DatabaseSync } = await import('node:sqlite')
+    const db = new DatabaseSync(dbPath)
+    // Session row survives; its message parts do not.
+    db.exec("DELETE FROM part; DELETE FROM message")
+    db.close()
+
+    const { lines, stats } = await backfillSweArena(outDir, {
+      opencodeDb: dbPath,
+      claudeProjectsDir: projectsDir,
+    })
+    const joinedCwd = lines.filter((l) => l.role === 'worker' && l.outcome.metrics.has_session === true)
+    expect(joinedCwd.length).toBeGreaterThan(0)
+    for (const worker of joinedCwd) {
+      expect(worker.messages).toHaveLength(0)
+      expect(worker.outcome.is_completed).toBe(false)
+      expect(worker.provenance.gap).toMatch(/no readable message parts/)
+    }
+    // The store-integrity failure is counted apart from the cwd-join failure.
+    expect(stats.workerSessionsEmpty).toBe(2)
+    expect(stats.workerCwdsMissed).toBe(1)
+    expect(stats.workerSessionsJoined).toBe(0)
+  })
+
+  it('fails loud on a cell cache that carries no scenarioId/rep identity', async () => {
+    await buildFixtureTree()
+    await writeJson(join(outDir, 'improve-run', 'baseline', 'astropy__astropy-13033_0', 'cached-result.json'), {
+      artifact: { resolved: true },
+    })
+    await expect(
+      backfillSweArena(outDir, { opencodeDb: join(dir, 'absent.db'), claudeProjectsDir: projectsDir }),
+    ).rejects.toThrow(/is not a campaign cell \(scenarioId\/rep missing\)/)
+  })
+
   it('records worker gap lines when the opencode store is unavailable', async () => {
     await buildFixtureTree()
     const { lines, stats } = await backfillSweArena(outDir, {

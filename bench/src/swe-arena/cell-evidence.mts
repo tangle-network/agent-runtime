@@ -248,9 +248,17 @@ export type StaircaseVerdict =
    *  evaluation — the candidate never became a measured surface. Emitted by
    *  the outer loop's kill-row writer, never by `decideVerdict`. */
   | 'rejected-prefilter'
+  /** GEN-5 activation gate: the candidate's own machine-checkable predicate
+   *  (activation.mts) proved its mechanism NEVER fired in its campaign
+   *  traces — recorded, never promoted, EVEN when the score improved. */
+  | 'quarantined-inactive'
 
 /** protocol_v2 keep-if-better: improvement-set resolved-count must RISE and
- *  cost must stay within the guard. Fail-closed on unprovable cost. */
+ *  cost must stay within the guard. Fail-closed on unprovable cost.
+ *  GEN-5: `activationFired === false` quarantines the candidate ahead of the
+ *  score comparison — an improved score with an inactive mechanism is
+ *  indistinguishable from luck (undefined/null = gate not applicable:
+ *  disabled, baseline, or predicate unevaluated). */
 export function decideVerdict(input: {
   violations: string[]
   coverageComplete: boolean
@@ -258,8 +266,10 @@ export function decideVerdict(input: {
   parentResolvedCount: number
   costRatio: number | null
   costGuardRatio: number
+  activationFired?: boolean | null
 }): StaircaseVerdict {
   if (input.violations.length > 0) return 'rejected-out-of-space'
+  if (input.activationFired === false) return 'quarantined-inactive'
   if (!input.coverageComplete) return 'rejected-incomplete'
   if (input.resolvedCount <= input.parentResolvedCount) return 'rejected-no-gain'
   if (input.costRatio === null || input.costRatio > input.costGuardRatio) return 'rejected-cost'
@@ -273,10 +283,13 @@ export function decideVerdict(input: {
 // coverage-incomplete downstream, fail-closed).
 // ---------------------------------------------------------------------------
 
-/** Parse every `<cellDir>/cached-result.json` under one campaign dir. Missing dir = []. */
-export async function loadCampaignCells(campaignDir: string): Promise<EvidenceCell[]> {
+/** Every `<cellDir>/cached-result.json` under one campaign dir, verbatim and
+ *  identity-checked. Missing dir = []. A cache that exists but carries no
+ *  scenarioId/rep cannot be attributed to a cell, so it throws rather than
+ *  disappearing from the campaign's coverage. */
+export async function loadCampaignCellRecords(campaignDir: string): Promise<Record<string, unknown>[]> {
   const entries = await readdir(campaignDir, { withFileTypes: true }).catch(() => [])
-  const cells: EvidenceCell[] = []
+  const records: Record<string, unknown>[] = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     const path = join(campaignDir, entry.name, 'cached-result.json')
@@ -291,9 +304,19 @@ export async function loadCampaignCells(campaignDir: string): Promise<EvidenceCe
     if (typeof parsed.scenarioId !== 'string' || typeof parsed.rep !== 'number') {
       throw new Error(`loadCampaignCells: ${path} is not a campaign cell (scenarioId/rep missing)`)
     }
+    records.push(parsed)
+  }
+  return records
+}
+
+/** Parse every `<cellDir>/cached-result.json` under one campaign dir. Missing dir = []. */
+export async function loadCampaignCells(campaignDir: string): Promise<EvidenceCell[]> {
+  const cells: EvidenceCell[] = []
+  for (const parsed of await loadCampaignCellRecords(campaignDir)) {
     cells.push({
-      scenarioId: parsed.scenarioId,
-      rep: parsed.rep,
+      // loadCampaignCellRecords has already proven both are present and typed.
+      scenarioId: parsed.scenarioId as string,
+      rep: parsed.rep as number,
       artifact: (parsed.artifact ?? null) as R4Artifact | null,
       ...(typeof parsed.error === 'string' ? { error: parsed.error } : {}),
       ...(typeof parsed.costUsd === 'number' ? { costUsd: parsed.costUsd } : {}),
@@ -377,6 +400,8 @@ export function gateEvidenceFromCells(input: {
   iids: string[]
   reps: number
   costGuardRatio: number
+  /** GEN-5 activation-gate outcome for the winner (see decideVerdict). */
+  activationFired?: boolean | null
 }): GateEvidence {
   const winnerRuns = replicateRunsFromCells(input.winnerCells)
   const baselineRuns = replicateRunsFromCells(input.baselineCells)
@@ -400,6 +425,7 @@ export function gateEvidenceFromCells(input: {
       parentResolvedCount: baseResolved,
       costRatio,
       costGuardRatio: input.costGuardRatio,
+      ...(input.activationFired !== undefined ? { activationFired: input.activationFired } : {}),
     }),
   }
 }

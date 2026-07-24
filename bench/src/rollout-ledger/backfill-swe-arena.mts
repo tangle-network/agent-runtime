@@ -33,6 +33,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { DatabaseSync } from 'node:sqlite'
+import { loadCampaignCellRecords } from '../swe-arena/cell-evidence.mts'
 import { buildRolloutManifest, type RolloutEntry } from '../swe-arena/manifest.mts'
 import {
   DEFAULT_CLAUDE_PROJECTS_DIR,
@@ -47,13 +48,10 @@ import {
   type RolloutLine,
   writeRolloutLedger,
 } from '@tangle-network/agent-eval/rollout'
+import { candidateId } from './settle-capture.mts'
 
 const OFFICIAL_JUDGE = 'swe-arena-official-judge'
 
-/** Stable candidate identity from the improvement-loop coordinates. */
-function candidateId(generation: number, candidateIndex: number): string {
-  return candidateIndex === -1 ? 'baseline' : `gen${generation}-cand${candidateIndex}`
-}
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -71,24 +69,12 @@ interface CellRecord {
   cached?: boolean
 }
 
+/** The same cell caches `loadCampaignCells` reads, kept verbatim: the backfill
+ *  needs fields (judgeScores, resolvedModel, seed) the EvidenceCell slice drops.
+ *  Traversal and the fail-loud identity check are owned by cell-evidence — one
+ *  rule for what counts as a campaign cell. */
 async function readCellRecords(campaignDir: string): Promise<CellRecord[]> {
-  const entries = await readdir(campaignDir, { withFileTypes: true }).catch(() => [])
-  const records: CellRecord[] = []
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const path = join(campaignDir, entry.name, 'cached-result.json')
-    const raw = await readFile(path, 'utf8').catch(() => null)
-    if (raw === null) continue
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      throw new Error(`backfill: corrupt cell cache ${path}`)
-    }
-    if (isRecord(parsed) && typeof parsed.scenarioId === 'string' && Number.isInteger(parsed.rep)) {
-      records.push(parsed as unknown as CellRecord)
-    }
-  }
+  const records = (await loadCampaignCellRecords(campaignDir)) as unknown as CellRecord[]
   return records.sort((a, b) => a.scenarioId.localeCompare(b.scenarioId) || a.rep - b.rep)
 }
 
@@ -116,7 +102,10 @@ export interface BackfillStats {
   gapLines: number
   rewardLabeled: number
   workerSessionsJoined: number
+  /** Worker cwds with no opencode session row — a join failure. */
   workerCwdsMissed: number
+  /** Sessions found but carrying no readable message parts — a store failure. */
+  workerSessionsEmpty: number
   proposerShotsJoined: number
   proposerShotsMissed: number
   opencodeDbAvailable: boolean
@@ -270,9 +259,12 @@ async function emitCellLines(
 
   // Worker sessions: result.json recoveredSpend.workerCwds → opencode store.
   const recovered = result !== null && isRecord(result.recoveredSpend) ? result.recoveredSpend : null
+  // A respawned worker reuses its clone cwd, so the recovered list can name the
+  // same directory twice. Joining it twice would mint two rollout ids over one
+  // opencode session — duplicate training signal, inflated worker counts.
   const workerCwds =
     recovered !== null && Array.isArray(recovered.workerCwds)
-      ? recovered.workerCwds.filter((c): c is string => typeof c === 'string')
+      ? [...new Set(recovered.workerCwds.filter((c): c is string => typeof c === 'string'))]
       : []
   for (const cwd of workerCwds) {
     const sessions = ctx.db === null ? [] : findOpencodeSessionsByDirectory(ctx.db, cwd)
@@ -283,8 +275,11 @@ async function emitCellLines(
     }
     for (const session of sessions) {
       const messages = ctx.db === null ? [] : readOpencodeSessionMessages(ctx.db, session.id)
+      // Two distinct failures: no session row for the cwd (join failure) versus
+      // a session row whose parts are unreadable (store integrity). One counter
+      // for both would hide store corruption behind a cwd-join metric.
       if (messages.length > 0) ctx.stats.workerSessionsJoined += 1
-      else ctx.stats.workerCwdsMissed += 1
+      else ctx.stats.workerSessionsEmpty += 1
       push(ctx, lines, workerLine(ctx, entry, cell, supervisorId, reward, cwd, session, messages))
     }
   }
@@ -336,8 +331,12 @@ function workerLine(
         worker_cwd: cwd,
         session_agent: session?.agent ?? null,
         session_parent_id: session?.parentId ?? null,
+        has_session: session !== null,
       },
-      is_completed: session !== null,
+      // A session row with no readable parts is a gap line, not a completed
+      // invocation — training filters that key on is_completed alone would
+      // otherwise pull empty transcripts.
+      is_completed: session !== null && messages.length > 0,
       is_truncated: false,
       error: null,
     },
@@ -561,6 +560,7 @@ export async function backfillSweArena(outDir: string, opts: BackfillOptions = {
       rewardLabeled: 0,
       workerSessionsJoined: 0,
       workerCwdsMissed: 0,
+      workerSessionsEmpty: 0,
       proposerShotsJoined: 0,
       proposerShotsMissed: 0,
       opencodeDbAvailable: db !== null,
