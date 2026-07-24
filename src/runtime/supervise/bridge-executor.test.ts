@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
+import { spendFromUsageEvents } from './budget'
 import { bridgeExecutor } from './runtime'
 import type { UsageEvent } from './types'
 
@@ -103,5 +104,27 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const artifact = executor.resultArtifact()
     expect(artifact.out).toMatchObject({ content: 'final answer' })
     expect(artifact.spent.tokens).toEqual({ input: 10, output: 4 })
+  })
+
+  it('meters one iteration per bridge turn instead of one per content chunk', async () => {
+    const chunks = [
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'first ' } }] })}`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'second ' } }] })}`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'third' } }] })}`,
+      `data: ${JSON.stringify({ usage: { prompt_tokens: 10, completion_tokens: 4, cost: 0.01 } })}`,
+      'data: [DONE]',
+    ]
+    const stub = await startBridgeStub(`${chunks.join('\n\n')}\n\n`)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(events.filter((event) => event.kind === 'iteration')).toHaveLength(1)
+    const normalized = spendFromUsageEvents(events)
+    const artifact = executor.resultArtifact()
+    expect(artifact.out).toMatchObject({ content: 'first second third' })
+    expect(normalized).toEqual({ ...artifact.spent, ms: 0 })
   })
 })

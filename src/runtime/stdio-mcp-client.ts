@@ -2,12 +2,10 @@
  * Same-host stdio MCP: the ONE persistent newline-delimited JSON-RPC 2.0
  * connection to a spawned MCP server child process. This is the handshake
  * `mcpServeVerifier` boots for its probe (`initialize` →
- * `notifications/initialized` → `tools/list`), extracted so a LIVE consumer —
- * the local sandbox client, the SWE eval runner's `materializeMcp` path — can
- * keep the server running and route `tools/call` to it during a driven run.
- * A locally-BUILT MCP server (its cwd is a host worktree) is unreachable from
- * a remote box; spawning it here, next to the worker, is what makes a built
- * tool scoreable at all.
+ * `notifications/initialized` → `tools/list`), extracted so a trusted
+ * same-host consumer can keep the server running and route `tools/call` to it.
+ * This module does not isolate the child: callers must use a real sandbox for
+ * user- or model-authored code.
  *
  * Two layers:
  *   - `connectStdioMcp`     — spawn ONE server at its cwd, run the real MCP
@@ -32,7 +30,15 @@
 
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type AgentProfileSecurityPolicy,
+  validateAgentProfileSecurity,
+} from '@tangle-network/agent-interface'
+import {
+  redactProtectedReason,
+  redactProtectedValue,
+} from '../candidate-execution/protected-redaction'
 import { ValidationError } from '../errors'
 import { type KeyProvider, resolveSecretEnv, secretEnvOfMcpServer } from './key-provider'
 import { sanitizeMcpToolSchema } from './mcp-environment'
@@ -40,14 +46,41 @@ import type { AgenticTool } from './strategy'
 
 const PROTOCOL_VERSION = '2024-11-05'
 
+/** Non-sensitive process settings a stdio child may inherit without receiving
+ * credentials, agent settings, provider configuration, or tracing state. */
+const SAFE_INHERITED_ENV_NAMES = [
+  'PATH',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TZ',
+  'SYSTEMROOT',
+  'WINDIR',
+  'COMSPEC',
+  'PATHEXT',
+] as const
+
+function inheritedStdioEnv(source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const name of SAFE_INHERITED_ENV_NAMES) {
+    const value = source[name]
+    if (value !== undefined) env[name] = value
+  }
+  return env
+}
+
 export interface StdioMcpServerSpec {
   /** Command that starts the MCP server (stdio transport). */
   command: string
   args?: string[]
   /** Working directory the server starts in (a built candidate's worktree, typically). */
   cwd?: string
-  /** Extra env for the server process (merged over `process.env`). */
+  /** Declared public env for the server process. Only a minimal non-sensitive
+   * subset of the parent env is inherited. */
   env?: Record<string, string>
+  /** Sensitive env for the server process. These values override `env` and are
+   * redacted from child-supplied errors, tool metadata, and tool results. */
+  protectedEnv?: Record<string, string>
   /** Handshake AND per-request timeout (ms). Default 30s. */
   timeoutMs?: number
 }
@@ -80,18 +113,22 @@ interface JsonRpcResponse {
   error?: { code: number; message: string }
 }
 
-/** Spawn a stdio MCP server, complete the handshake, and return the LIVE connection. */
+/** Spawn a trusted host command, complete the stdio MCP handshake, and return
+ * the live connection. This low-level function provides no process isolation. */
 export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMcpConnection> {
   const timeoutMs = spec.timeoutMs ?? 30_000
+  const protectedValues = Object.values(spec.protectedEnv ?? {})
+  const redactReason = (value: string): string => redactProtectedReason(value, protectedValues)
   const child = spawn(spec.command, spec.args ?? [], {
     ...(spec.cwd ? { cwd: spec.cwd } : {}),
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, ...spec.env },
+    env: { ...inheritedStdioEnv(), ...spec.env, ...spec.protectedEnv },
   })
 
   const stderr: string[] = []
   child.stderr.on('data', (d) => stderr.push(String(d)))
-  const stderrTail = () => (stderr.length > 0 ? `\nstderr:\n${stderr.join('').slice(-2000)}` : '')
+  const stderrTail = () =>
+    stderr.length > 0 ? `\nstderr:\n${redactReason(stderr.join('')).slice(-2000)}` : ''
   let nextId = 1
   let spawnFault: McpSpawnFault | undefined
   let closed = false
@@ -123,7 +160,9 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
   // request immediately with the same wording as a synchronous write failure,
   // not wait out the handshake timeout.
   child.stdin.on('error', (err) => {
-    failAllPending(new Error(`writing to MCP server stdin failed: ${err.message}${stderrTail()}`))
+    failAllPending(
+      new Error(redactReason(`writing to MCP server stdin failed: ${err.message}${stderrTail()}`)),
+    )
   })
   // 'close' (not 'exit'): it fires after stdio flushes, so the stderr tail in
   // the failure message is complete. After our own SIGKILL in close(), pending
@@ -132,7 +171,9 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
     failAllPending(
       spawnFault ??
         new Error(
-          `MCP server exited (code ${code}, signal ${signal}) before serving${stderrTail()}`,
+          redactReason(
+            `MCP server exited (code ${code}, signal ${signal}) before serving${stderrTail()}`,
+          ),
         ),
     )
   })
@@ -170,7 +211,7 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
       const id = nextId++
       const timer = setTimeout(() => {
         pending.delete(id)
-        reject(new Error(`${timeoutMessage}${stderrTail()}`))
+        reject(new Error(redactReason(`${timeoutMessage}${stderrTail()}`)))
       }, timeoutMs)
       pending.set(id, { resolve, reject, timer })
       try {
@@ -180,7 +221,9 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
         clearTimeout(timer)
         reject(
           new Error(
-            `writing to MCP server stdin failed: ${err instanceof Error ? err.message : String(err)}${stderrTail()}`,
+            redactReason(
+              `writing to MCP server stdin failed: ${err instanceof Error ? err.message : String(err)}${stderrTail()}`,
+            ),
           ),
         )
       }
@@ -206,24 +249,38 @@ export async function connectStdioMcp(spec: StdioMcpServerSpec): Promise<StdioMc
       handshakeTimeout,
     )
     if (init.error)
-      throw new Error(`initialize errored: ${JSON.stringify(init.error)}${stderrTail()}`)
+      throw new Error(
+        redactReason(`initialize errored: ${JSON.stringify(init.error)}${stderrTail()}`),
+      )
     send({ jsonrpc: '2.0', method: 'notifications/initialized' })
     const list = await request('tools/list', undefined, handshakeTimeout)
     if (list.error)
-      throw new Error(`tools/list errored: ${JSON.stringify(list.error)}${stderrTail()}`)
-    const tools = (list.result as { tools?: McpToolDescriptor[] } | undefined)?.tools
-    if (!Array.isArray(tools))
+      throw new Error(
+        redactReason(`tools/list errored: ${JSON.stringify(list.error)}${stderrTail()}`),
+      )
+    const rawTools = (list.result as { tools?: McpToolDescriptor[] } | undefined)?.tools
+    if (!Array.isArray(rawTools))
       throw new Error(`tools/list result has no tools array${stderrTail()}`)
+    const tools = redactProtectedValue(rawTools, protectedValues).value
 
     const callTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
       const res = await request('tools/call', { name, arguments: args })
-      if (res.error) return `ERROR: ${JSON.stringify(res.error).slice(0, 300)}`
+      if (res.error) return `ERROR: ${redactReason(JSON.stringify(res.error)).slice(0, 300)}`
       const result = res.result as
         | { content?: Array<{ text?: string }>; isError?: boolean }
         | undefined
-      const text =
-        result?.content?.map((c) => c.text ?? '').join('\n') ?? JSON.stringify(result ?? null)
-      return result?.isError ? `ERROR: ${text}` : text
+      const chunks = result?.content?.map((c) => c.text ?? '')
+      const joined = chunks?.join('\n') ?? JSON.stringify(result ?? null)
+      // MCP content blocks are joined with newlines for the worker. Also scan
+      // their raw concatenation so a protected value split across two blocks
+      // cannot evade exact-value redaction at the inserted newline.
+      const collapsed = chunks?.join('')
+      let text = joined
+      if (collapsed !== undefined) {
+        const collapsedRedacted = redactReason(collapsed)
+        if (collapsedRedacted !== collapsed) text = collapsedRedacted
+      }
+      return redactReason(result?.isError ? `ERROR: ${text}` : text)
     }
 
     return { tools, callTool, close }
@@ -244,6 +301,11 @@ export interface MaterializeLocalMcpOptions {
    *  a server declaring secrets without a provider (or with a missing key)
    *  throws instead of booting keyless. */
   keys?: KeyProvider
+  /** Required trust decision for profiles that declare local MCP processes.
+   * Omit to refuse all profile-controlled host execution. Passing
+   * `allowLocalMcp: true` is only safe for an author-controlled profile: the
+   * process receives this Runtime's filesystem and network privileges. */
+  profileSecurityPolicy?: AgentProfileSecurityPolicy
 }
 
 /** The live same-host materialization of a profile's `mcp` surface. */
@@ -259,14 +321,22 @@ export interface LocalMcpMaterialization {
 }
 
 /**
- * Spawn every enabled stdio server in `profile.mcp` as a same-host child and
- * expose their tools under `<server>__<tool>` names. A profile with no MCP
- * surface materializes zero tools (a valid, cheap no-op).
+ * Spawn every explicitly trusted stdio server in `profile.mcp` as a same-host
+ * child and expose its tools under `<server>__<tool>` names. The default policy
+ * refuses local processes. A profile with no MCP surface returns zero tools.
  */
 export async function materializeLocalMcp(
   profile: AgentProfile,
   opts: MaterializeLocalMcpOptions = {},
 ): Promise<LocalMcpMaterialization> {
+  const security = validateAgentProfileSecurity(profile, opts.profileSecurityPolicy)
+  if (!security.ok) {
+    const reasons = security.issues
+      .filter((issue) => issue.level === 'error')
+      .map((issue) => issue.message)
+      .join('; ')
+    throw new ValidationError(`materializeLocalMcp: profile host execution refused: ${reasons}`)
+  }
   const maxResultChars = opts.maxResultChars ?? 2000
   const connections: StdioMcpConnection[] = []
   const routes = new Map<string, { conn: StdioMcpConnection; tool: string }>()
@@ -300,12 +370,12 @@ export async function materializeLocalMcp(
             `materializeLocalMcp: profile.mcp['${key}']`,
           )
         : undefined
-      const env = server.env || provisioned ? { ...server.env, ...provisioned } : undefined
       const conn = await connectStdioMcp({
         command: server.command,
         ...(server.args ? { args: server.args } : {}),
         ...(server.cwd ? { cwd: server.cwd } : {}),
-        ...(env ? { env } : {}),
+        ...(server.env ? { env: server.env } : {}),
+        ...(provisioned ? { protectedEnv: provisioned } : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       })
       connections.push(conn)

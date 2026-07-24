@@ -73,12 +73,16 @@ function harnessStub(onRun?: (opts: RunLocalHarnessOptions) => void) {
   return { run, prompts }
 }
 
-const generateArgs = (findings: AnalystFinding[], maxShots: number) => ({
+const generateArgs = (
+  findings: AnalystFinding[],
+  maxShots: number,
+  signal = new AbortController().signal,
+) => ({
   worktreePath: '/wt/cand0',
   report: undefined,
   findings,
   maxShots,
-  signal: new AbortController().signal,
+  signal,
 })
 
 describe('driverLoopGenerator — the driver→worker build atom', () => {
@@ -191,6 +195,46 @@ describe('driverLoopGenerator — the driver→worker build atom', () => {
     const result = await generator.generate(generateArgs([finding('gap')], 1))
     expect(result.applied).toBe(false)
     expect(result.summary).toBe('')
+  })
+
+  it('rejects a partial edit when the caller aborts after a normal worker result', async () => {
+    const controller = new AbortController()
+    const { chat } = scriptedBrain([
+      { calls: [{ name: 'run_worker', args: { instruction: 'make a partial edit' } }] },
+      { say: 'done' },
+    ])
+    const generator = driverLoopGenerator({
+      brain: chat,
+      runHarness: harnessStub(() => {
+        controller.abort(new Error('cancelled after worker settlement'))
+      }).run,
+      changedPaths: () => ['partial.ts'],
+      readDiff: () => '+ partial',
+    })
+
+    await expect(
+      generator.generate(generateArgs([finding('gap')], 1, controller.signal)),
+    ).rejects.toThrow(/cancelled after worker settlement/)
+  })
+
+  it('rejects a candidate when cancellation arrives during final verification', async () => {
+    const controller = new AbortController()
+    const { chat } = scriptedBrain([{ say: 'the existing edit is complete' }])
+    const verify = async (_path: string, signal?: AbortSignal): Promise<VerifyResult> => {
+      expect(signal).toBe(controller.signal)
+      controller.abort(new Error('cancelled during driver verification'))
+      return { ok: true }
+    }
+    const generator = driverLoopGenerator({
+      brain: chat,
+      verify,
+      changedPaths: () => ['partial.ts'],
+      readDiff: () => '+ partial',
+    })
+
+    await expect(
+      generator.generate(generateArgs([finding('gap')], 1, controller.signal)),
+    ).rejects.toThrow(/cancelled during driver verification/)
   })
 
   it('offers the research tool + adopt doctrine ONLY when the seam is wired', async () => {
