@@ -154,7 +154,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.122.8 <0.124.0",
+    "@tangle-network/agent-eval": ">=0.122.8 <0.125.0",
     "@tangle-network/agent-interface": ">=0.32.0 <0.33.0",
     "@tangle-network/sandbox": ">=0.11.1 <1.0.0",
     "playwright": "^1.40.0"
