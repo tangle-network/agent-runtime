@@ -4,7 +4,7 @@
  * Playwright browser in-process and delegates finding identification to a
  * consumer-supplied {@link UiJudge}.
  *
- * Why this exists: `runLoop` is built around a sandbox-SDK seam — each
+ * Why this exists: `runAgentRounds` is built around a sandbox-SDK seam — each
  * iteration is `client.create() → box.streamPrompt() → box.delete()`.
  * For UI audit, spinning up a real container running a coding harness
  * per iteration is overkill: the work is one browser capture + one
@@ -194,8 +194,8 @@ export function createInProcessUiAuditClient(
    * Close the underlying browser. Idempotent.
    *
    * Contract: callers MUST ensure no iterations are in flight when this is
-   * called. The kernel respects this — `runLoop` awaits every iteration
-   * before returning, so `await runLoop(...); await client.close()` is the
+   * called. The kernel respects this — `runAgentRounds` awaits every iteration
+   * before returning, so `await runAgentRounds(...); await client.close()` is the
    * intended pattern (see `examples/ui-audit`). If `close()` is invoked
    * concurrently with a running iteration, the browser teardown will race
    * against in-flight page operations; the iteration will surface an

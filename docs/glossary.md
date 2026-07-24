@@ -4,7 +4,8 @@
 
 **Track:** reference · **Role:** canonical (terms). One definition per concept, grounded to `file:line`. When a term has drifted into synonyms, the **canonical** word is marked and the synonyms are listed as "avoid / say X instead". If code and this file disagree, the code wins — fix this file the same turn (the anti-staleness law, `CLAUDE.md`).
 
-Two substrates run the same "recursive agent decision" atom — the round-synchronous `runLoop` and the reactive `Scope`/`Supervisor`. Terms below note which substrate they belong to; several are shared.
+Two substrates run the same "recursive agent decision" atom — the round-synchronous `runAgentRounds` and the reactive `Scope`/`Supervisor`. Terms below note which substrate they belong to; several are shared.
+`runAgentRounds` was named `runLoop`; that name is still exported from `/loops` as a deprecated alias. Neither is `runToolLoop`/`streamToolLoop` (package root), which run ONE chat turn and fold its tool calls back in.
 
 ## The execution units (most-confused — read first)
 
@@ -46,8 +47,8 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 |---|---|---|
 | **Executor** | The OPEN port that runs one unit of work: `execute → ExecutorResult | AsyncIterable<UsageEvent>`, optional `deliver` (steer inbox), `teardown`, `resultArtifact`. BYO agents implement this directly. (was `LeafExecutor`.) | `supervise/types.ts:69` |
 | **createExecutor** | The ONE built-in: `createExecutor({backend: 'router'|'bridge'|'cli'|'sandbox', …seam})` — backend as **data**, not an import. Per-backend bodies are internal case-arms. | `supervise/runtime.ts` |
-| **SandboxClient** | The box-shaped structural contract (`create → box.streamPrompt → delete`, optional sessions/fs/fork). What `runLoop` drives. (was `LoopSandboxClient`.) | `types.ts` (`SandboxClient`) |
-| **inlineSandboxClient** | The ONE adapter presenting any non-box `Executor` as a `SandboxClient`, so `runLoop` drives router/bridge/BYO without re-faking a box. | `inline-sandbox-client.ts` |
+| **SandboxClient** | The box-shaped structural contract (`create → box.streamPrompt → delete`, optional sessions/fs/fork). What `runAgentRounds` drives. (was `LoopSandboxClient`.) | `types.ts` (`SandboxClient`) |
+| **inlineSandboxClient** | The ONE adapter presenting any non-box `Executor` as a `SandboxClient`, so `runAgentRounds` drives router/bridge/BYO without re-faking a box. | `inline-sandbox-client.ts` |
 | **openSandboxRun** | The one run/stream/**resume** seam over a persistent box (sessions + fs-artifact deliverables). | `sandbox-run.ts` |
 
 ## Budget & accounting
@@ -58,7 +59,7 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 | **Spend** | Conserved actual cost reconciled from `UsageEvent`s: `{iterations, tokens, usd, ms}`. Tokens and usd are separate channels, never folded. | `supervise/types.ts:198` |
 | **BudgetPool / ReservationTicket** | The **conserved reservation pool**: each spawn *reserves* against the root then settles to actual `Spend`. This is what makes **equal-compute hold by construction** (the anti-confound invariant for the gate). | `supervise/budget.ts:48,29` |
 | **UsageEvent** | The normalized usage increment every executor emits, so the pool meters all runtimes identically. | `supervise/types.ts:120` |
-| `runLoop`'s budget | Only `maxIterations` (count) + `maxConcurrency` (in-flight cap) + per-`Iteration` cost aggregation. The rigorous reservation pool is the keystone's, not `runLoop`'s. | `run-loop.ts:88` |
+| `runAgentRounds`'s budget | Only `maxIterations` (count) + `maxConcurrency` (in-flight cap) + per-`Iteration` cost aggregation. The rigorous reservation pool is the keystone's, not `runAgentRounds`'s. | `run-loop.ts:88` |
 
 ## Agent-to-agent
 

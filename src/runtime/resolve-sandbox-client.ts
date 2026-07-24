@@ -1,6 +1,6 @@
 /**
  * The product-facing backend selector: one call picks the execution transport a
- * `runLoop` (or any consumer that drives a `SandboxClient`) runs on, from the
+ * `runAgentRounds` (or any consumer that drives a `SandboxClient`) runs on, from the
  * package a product already depends on. It is pure sugar over the existing
  * primitives — `createExecutor({ backend })` + `inlineSandboxClient` — and adds
  * ZERO transport code (the node:http cli-bridge transport lives in `bridgeExecutor`).

@@ -1,14 +1,14 @@
 /**
- * Bridge a finished `runLoop` into an agent-eval campaign / profile-matrix
+ * Bridge a finished `runAgentRounds` into an agent-eval campaign / profile-matrix
  * dispatch.
  *
  * `runProfileMatrix` (and `runCampaign`) run the backend-integrity guard over
  * the token usage a dispatch reports through `ctx.cost`. A dispatch that wraps
- * `runLoop` must forward the loop's cost AND token usage, or the guard reads
+ * `runAgentRounds` must forward the loop's cost AND token usage, or the guard reads
  * the run as a stub and throws. `reportLoopUsage` is that one line:
  *
  *   const dispatch: ProfileDispatchFn<S, A> = async (profile, scenario, ctx) => {
- *     const result = await runLoop({ ...optsFor(profile, scenario), ctx: loopCtx })
+ *     const result = await runAgentRounds({ ...optsFor(profile, scenario), ctx: loopCtx })
  *     reportLoopUsage(ctx, result)
  *     return result.winner?.output as A
  *   }

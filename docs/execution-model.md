@@ -19,7 +19,7 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
    ┌──────────┬──────────┬──────────┬────────────┐         ┌──────────────────┐
    │ 'router' │ 'bridge' │  'cli'   │ 'sandbox'  │         │  BYO  Executor   │
    │ HTTP     │ cli-     │ claude-p │ a real box │         │ (mastra / agno / │
-   │ chat     │ bridge   │ codex    │ runLoop in │         │  your own HTTP)  │
+   │ chat     │ bridge   │ codex    │ runAgentRounds in │         │  your own HTTP)  │
    │ no box   │ HTTP     │ opencode │  a leaf    │         │ implements the   │
    └────┬─────┴────┬─────┴────┬─────┴─────┬──────┘         │ port directly    │
         └──────────┴──────────┴───────────┴──── all are Executors ──┴─────────┘
@@ -28,11 +28,11 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
    │                                                      │
  inlineSandboxClient(exec)                       (the sandbox executor already IS
  wraps a NON-box executor as a SandboxClient      a SandboxClient: real box, sessions,
- so runLoop can drive it (inline-sandbox-client)  fs artifacts, fork/CRIU)
+ so runAgentRounds can drive it (inline-sandbox-client)  fs artifacts, fork/CRIU)
    │                                                      │
    ▼                                                      ▼
 ┌─────────────────────────────┐            ┌─────────────────────────────────┐
-│ ENGINE A: runLoop           │            │ ENGINE B: Scope / Supervisor    │
+│ ENGINE A: runAgentRounds           │            │ ENGINE B: Scope / Supervisor    │
 │ round-synchronous           │            │ reactive keystone (canonical)   │
 │ driver.plan → decide        │            │ Agent.act spawns into a Scope   │
 │ (most benches drive this)   │            │ conserved budget ⇒ equal-k      │

@@ -24,7 +24,7 @@
  *      level. How many workers may be spawned-but-not-settled at once; `spawn_agent` fails closed
  *      with `error: 'max-live-workers'` past it. Unset by default ⇒ NO cap at this layer.
  *   2. `SandboxLineage`'s `maxConcurrency` / `DEFAULT_FORK_CONCURRENCY = 4`
- *      (`src/runtime/sandbox-lineage.ts`) — kernel level. How many BOXES one `runLoop` fork wave
+ *      (`src/runtime/sandbox-lineage.ts`) — kernel level. How many BOXES one `runAgentRounds` fork wave
  *      provisions at once. It bounds a single leaf's fanout, not the supervisor's worker count.
  *   3. A host's own live-box governor (e.g. loops' `ComputeGovernor`, `maxSandboxes = 4`) — fleet
  *      level. How many sandboxes may exist across the whole host process.

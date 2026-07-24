@@ -9,7 +9,7 @@
  *   PARENT_SPAN_ID=<span-that-dispatched-the-delegation>
  *
  * The MCP server reads these at startup and uses them as the root of its
- * internal trace tree. All spans emitted by `runLoop` invocations inside
+ * internal trace tree. All spans emitted by `runAgentRounds` invocations inside
  * the MCP are children of the parent's delegation span.
  *
  * When these env vars are absent, the MCP generates a fresh trace root —

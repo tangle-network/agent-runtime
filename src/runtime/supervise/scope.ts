@@ -104,7 +104,7 @@ export interface ScopeArgs {
   /** Injected clock — keeps the journal `at` timestamp deterministic in tests. */
   readonly now?: () => number
   /** Lifecycle stream sink. `spawn` emits `agent.spawn`, `next` emits `agent.child` — the
-   *  SAME stream `runLoop`/`tool-loop` feed, so the recursive tree is ONE observable stream
+   *  SAME stream `runAgentRounds`/`tool-loop` feed, so the recursive tree is ONE observable stream
    *  (the topology viewer reads it). Undefined ⇒ the journal stays the only record. */
   readonly hooks?: RuntimeHooks
   /**

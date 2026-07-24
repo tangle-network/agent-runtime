@@ -1,6 +1,6 @@
 /**
  *
- * `detachedSessionDelegate` — the sandbox-session coder delegate: a closure that drives `runLoop`
+ * `detachedSessionDelegate` — the sandbox-session coder delegate: a closure that drives `runAgentRounds`
  * against a `SandboxClient` + a caller-supplied (or minimal model-only default) worker profile, to a
  * mechanically-validated `CoderOutput`. The caller invokes the returned delegate directly with its
  * coder args; when wired into a durable queue it also settles cross-restart-resumed records.
@@ -29,7 +29,7 @@ import type {
   SandboxClient,
   WinnerStrategy,
 } from '../runtime'
-import { runLoop, selectValidWinner } from '../runtime'
+import { runAgentRounds, selectValidWinner } from '../runtime'
 import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   type CoderOutput,
@@ -150,7 +150,7 @@ export interface DetachedSessionDelegateOptions {
   sandboxClient?: SandboxClient
   /**
    * The worker's authored `AgentProfile` (§1.5: the system authors profiles). Spread onto the
-   * sandbox-session run spec → `runLoop` → the executor's `harnessInvocation`, so the harness runs
+   * sandbox-session run spec → `runAgentRounds` → the executor's `harnessInvocation`, so the harness runs
    * under the caller's stance. Omit to use a minimal model-only default (no hardcoded skills/tools);
    * `harness` / `model` / `systemPrompt` below are convenience overrides layered onto whichever
    * profile is used.
@@ -162,7 +162,7 @@ export interface DetachedSessionDelegateOptions {
   model?: string
   /**
    * The worker's authored system prompt (§1.5). Flows onto the run spec's
-   * `profile.prompt.systemPrompt` → through `runLoop` → the executor's `harnessInvocation`, so the
+   * `profile.prompt.systemPrompt` → through `runAgentRounds` → the executor's `harnessInvocation`, so the
    * harness runs under this stance. Omit to keep the profile's own prompt.
    */
   systemPrompt?: string
@@ -182,14 +182,14 @@ export interface DetachedSessionDelegateOptions {
   /** Winner-selection strategy among eligible candidates. Default `highest-score`. */
   winnerSelection?: DetachedWinnerSelection
   /**
-   * Loop trace emitter forwarded into every delegated `runLoop`. Wire
+   * Loop trace emitter forwarded into every delegated `runAgentRounds`. Wire
    * `createPropagatingTraceEmitter(readTraceContextFromEnv())` here (the bin
    * does) so delegated build-loops export their topology spans to the OTLP /
    * Tangle Intelligence sink when `OTEL_EXPORTER_OTLP_ENDPOINT` is set — and
    * are a cheap no-op when it isn't. Configurable by construction.
    *
    * Detached single-variant turns (taken when `ctx.detachedSessionRef` is set)
-   * bypass `runLoop`; `runDetachedTurn` synthesizes a single-iteration loop
+   * bypass `runAgentRounds`; `runDetachedTurn` synthesizes a single-iteration loop
    * event stream for them so this emitter observes detached work too.
    */
   traceEmitter?: LoopTraceEmitter
@@ -200,7 +200,7 @@ export interface DetachedSessionDelegateOptions {
 }
 
 /**
- * Build the sandbox-session coder delegate. It drives `runLoop` against the project's
+ * Build the sandbox-session coder delegate. It drives `runAgentRounds` against the project's
  * sandbox client + coder profile; when `args.variants > 1` it switches to the multi-harness fanout
  * topology.
  *
@@ -272,7 +272,7 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
         ctx.report({ iteration: 1, phase: 'completed' })
         return chosen
       }
-      const result = await runLoop({
+      const result = await runAgentRounds({
         driver: singleShotDriver,
         agentRun: agentRunSpec,
         output,
@@ -305,7 +305,7 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
       ...(options.fanoutModels ? { models: options.fanoutModels.slice(0, variants) } : {}),
     })
     const agentRuns = fanout.agentRuns.slice(0, variants)
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver: fanout.driver,
       agentRuns,
       output: fanout.output,
@@ -456,7 +456,7 @@ export interface SettleDetachedCoderTurnOptions {
  * detached run must not return an unvalidated patch.
  *
  * SCOPE NOTE (detached/resume): the detached `driveTurn`-tick + cross-restart resume path is
- * bound to the `runLoop` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
+ * bound to the `runAgentRounds` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
  * journal→replay but no driveTurn-over-a-detached-sandbox-session equivalent yet, so resume is NOT
  * advertised on the generic `worktreeFanout` path. This helper (with `coderTaskFromArgs` and
  * `createDetachedTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
@@ -497,7 +497,7 @@ function resolveExecutor(options: DetachedSessionDelegateOptions): DelegationExe
 /**
  * Single-shot driver — plan one task on iteration 0, stop after one
  * iteration. Used by the coder delegate when `variants <= 1`. Keeps the
- * runLoop kernel-level accounting (timing, cost, trace emission) while
+ * runAgentRounds kernel-level accounting (timing, cost, trace emission) while
  * skipping fanout/refine topology overhead.
  */
 const singleShotDriver = {

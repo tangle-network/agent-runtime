@@ -2,7 +2,7 @@
  *
  * `uiAuditorProfile` — preset for vision-driven UI audit iterations.
  *
- * A `runLoop` bundle: it returns the `AgentRunSpec`, output adapter, validator, and prompt
+ * A `runAgentRounds` bundle: it returns the `AgentRunSpec`, output adapter, validator, and prompt
  * formatter the loop kernel needs. The agent's "harness" is not a sandbox-SDK code-runner — it's a
  * vision-capable judge driving a browser. The loop kernel still iterates
  * `client.create() → box.streamPrompt() → box.delete()`; the client/box pair are provided by
@@ -39,7 +39,7 @@ export interface UiAuditorProfileOptions {
 }
 
 /**
- * Preset `runLoop` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs.
+ * Preset `runAgentRounds` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs.
  *
  * @experimental
  */

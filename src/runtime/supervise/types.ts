@@ -82,7 +82,7 @@ export interface Agent<Task, Out> {
  * meters every runtime identically.
  *
  * Built-in implementations (in `runtime.ts`, NOT variants here): router/inline (a direct
- * Router/HTTP inference call, no box), sandbox (COMPOSES `runLoop` as a leaf, forwarding
+ * Router/HTTP inference call, no box), sandbox (COMPOSES `runAgentRounds` as a leaf, forwarding
  * PR #150's optional `lineage` passthrough — does NOT reinvent checkpoint/fork), cli
  * (Halo/RLM subprocess; `budgetExempt`, excluded from equal-k by construction). A user's
  * own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this interface.
@@ -187,7 +187,7 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
  * Resolution (in `runtime.ts`):
  *  - `executor` present        → BYO: use it verbatim (a user's own `Executor`).
  *  - `harness === null`        → router/inline: a direct Router call, no box.
- *  - `harness` is a `BackendType` → sandbox: compose `runLoop` against `profile` on that backend.
+ *  - `harness` is a `BackendType` → sandbox: compose `runAgentRounds` against `profile` on that backend.
  * Fail loud on an unresolvable spec (no executor and an unknown harness).
  */
 export interface AgentSpec {
@@ -625,7 +625,7 @@ export interface SupervisorOpts {
   readonly now?: () => number
   readonly signal?: AbortSignal
   /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
-   *  same `agent.spawn`/`agent.child` stream `runLoop` feeds — one observable recursive tree. */
+   *  same `agent.spawn`/`agent.child` stream `runAgentRounds` feeds — one observable recursive tree. */
   readonly hooks?: RuntimeHooks
 }
 

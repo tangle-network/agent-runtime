@@ -62,7 +62,7 @@ export function createPrimeIntellectBackend(
 
 /**
  * Execute the caller's canonical runtime program inside a Prime rollout.
- * The callback may call runPersonified, runAgentic, runLoop, or any product wrapper.
+ * The callback may call runPersonified, runAgentic, runAgentRounds, or any product wrapper.
  */
 export async function runPrimeIntellectProgram<Result>(
   run: (context: PrimeIntellectEpisodeContext) => Promise<Result>,
