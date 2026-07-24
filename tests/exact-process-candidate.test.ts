@@ -34,9 +34,11 @@ import {
   CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
   CANDIDATE_KNOWLEDGE_ROOT_ENV,
 } from '../src/candidate-execution/knowledge'
+import type { AgentCandidateModelGrantClient } from '../src/candidate-execution/protected-model-port'
 import type { AgentCandidateExecutorRequest } from '../src/candidate-execution/types'
 import {
   createExactProcessCandidateExperimentExecutor,
+  createProtectedExactProcessCandidateExperimentExecutor,
   exactProcessCandidateExperimentExecutionSupport,
 } from '../src/intelligence/exact-process-candidate'
 import { createAgentEnvironmentProviderRegistry } from '../src/runtime/environment-provider'
@@ -54,6 +56,80 @@ const TEST_RESOURCES = Object.freeze({ cpu: 2, memoryMb: 2_048, diskMb: 8_192 })
 afterEach(cleanupCandidateFixtures)
 
 describe('exact process candidate experiment executor', () => {
+  it('composes host-owned ports with protected model grants', async () => {
+    const fixture = createCandidateOutputExecutionFixture('application/json', 32)
+    const experiment = candidateExperiment(fixture)
+    const process = completedProcess('{"accepted":true}\n')
+    let spawned = false
+    let destroyed = false
+    const environment = exactEnvironment({
+      process,
+      status: () => stoppedStatus(0),
+      spawned: () => spawned,
+      setSpawned: () => {
+        spawned = true
+      },
+      destroy: async () => {
+        destroyed = true
+      },
+    })
+    const create = vi.fn(async (input: CreateAgentExactProcessEnvironmentInput) => {
+      setEnvironmentMetadata(environment, input.metadata)
+      return environment
+    })
+    const exact = exactProvider({ create, environment, destroyed: () => destroyed })
+    const outputs = createCandidateOutputFixture()
+    const grantClient: AgentCandidateModelGrantClient = {
+      reserve: vi.fn(async (input) => ({
+        preparationId: input.preparationId,
+        digest: candidateSha('c'),
+        expiresAtMs: input.expiresAtMs,
+        enforcedLimits: input.limits,
+        network:
+          input.limits.maxModelCalls === 0
+            ? { mode: 'disabled' as const }
+            : { mode: 'gateway-only' as const, domains: ['router.tangle.tools'] },
+      })),
+      activate: vi.fn(async () => ({ env: { MODEL_GATEWAY_TOKEN: 'protected' } })),
+      settle: vi.fn(async (input) => ({
+        preparationId: input.preparationId,
+        grantDigest: input.grantDigest,
+        closed: true as const,
+        calls: [],
+      })),
+    }
+    const { models: _fixtureModels, ...hostPorts } = fixture.ports
+    const adapter = createProtectedExactProcessCandidateExperimentExecutor({
+      provider: environmentProvider(exact),
+      resources: TEST_RESOURCES,
+      hostPorts,
+      model: {
+        client: grantClient,
+        resolveModel: async ({ requested, reasoningEffort }) => ({
+          requested,
+          provider: 'provider',
+          model: 'model-snapshot',
+          snapshot: 'model-snapshot-2026-07-01',
+          reasoningEffort,
+        }),
+        gatewayDomain: 'router.tangle.tools',
+        activationEnvNames: ['MODEL_GATEWAY_TOKEN'],
+      },
+      ...outputs,
+      traceStore: new InMemoryTraceStore(),
+      claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
+    })
+
+    await adapter.execute(candidateCell(experiment, fixture))
+
+    expect(adapter.recoveryPorts.models).not.toBe(fixture.ports.models)
+    expect(adapter.recoveryPorts.memory).toBe(fixture.ports.memory)
+    expect(grantClient.reserve).toHaveBeenCalledOnce()
+    expect(grantClient.activate).toHaveBeenCalledOnce()
+    expect(grantClient.settle).toHaveBeenCalledOnce()
+    expect(environment.process.spawn).toHaveBeenCalledOnce()
+  })
+
   it('runs one exact bounded-output cell with profile and knowledge bytes', async () => {
     const fixture = createCandidateOutputExecutionFixture('application/json', 1_024)
     const baseline = fixture.bundle
