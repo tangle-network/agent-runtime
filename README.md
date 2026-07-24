@@ -115,6 +115,25 @@ The profile is never changed.
 ```ts
 import { improve, officialGepa } from '@tangle-network/agent-runtime'
 
+const optimizer = {
+  model: process.env.OPTIMIZER_MODEL!,
+  baseUrl: process.env.OPTIMIZER_BASE_URL!,
+  apiKey: process.env.OPTIMIZER_API_KEY!,
+  budget: {
+    maxCostUsd: 10,
+    maxRequests: 50,
+    maxRequestBytes: 2_000_000,
+    maxResponseBytes: 2_000_000,
+    maxOutputTokensPerRequest: 16_384,
+    pricing: {
+      inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
+      cachedInputUsdPerMillion: Number(process.env.OPTIMIZER_CACHED_INPUT_USD_PER_MILLION),
+      cacheWriteUsdPerMillion: Number(process.env.OPTIMIZER_CACHE_WRITE_USD_PER_MILLION),
+      outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
+    },
+  },
+}
+
 const result = await improve(baseProfile, {
   surface: 'prompt',
   method: officialGepa({
@@ -128,6 +147,7 @@ const result = await improve(baseProfile, {
         maxProposerCostUsd: 10,
       },
     },
+    optimizer,
     resume: 'if-compatible',
     describeScenario: ({ input }) => ({ input }),
   }),
@@ -169,8 +189,8 @@ python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@
 
 The source pins are deliberate.
 The published GEPA wheel lacks Optimize Anything, and the published SkillOpt wheel lacks files required by `ReflACTTrainer`.
-SkillOpt requires `optimizer: { model, baseUrl, apiKey, budget }`.
-GEPA accepts the same optional `optimizer` block for its standard reflection engine.
+SkillOpt and GEPA's standard reflection engine require `optimizer: { model, baseUrl, apiKey, budget }`.
+Agent-based GEPA engines may own their model connection instead.
 Agent Eval proxies those model calls, enforces the nested budget, and records their cost.
 
 SkillOpt accepts one text surface.
