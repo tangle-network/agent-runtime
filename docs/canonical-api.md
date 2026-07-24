@@ -6,8 +6,8 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.104.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> Agent Eval must satisfy `>=0.126.5 <0.127.0`.
-> Sandbox must satisfy `>=0.12.0 <1.0.0`.
+> `agent-eval` must satisfy `>=0.126.6 <0.127.0`.
+> `sandbox` must satisfy `>=0.12.0 <1.0.0`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.32.0 <0.33.0`.
 >
 > **`./loops` is the runtime barrel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/loops` is the recursive-atom + loop-kernel surface.
@@ -103,7 +103,8 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Pick / register a leaf backend, or bring your own agent | `createExecutor({ backend })` / `createExecutorRegistry()` / implement `Executor`: `/loops` | a per-vendor adapter or closed `inline\|sandbox\|cli` switch (won't report through the `UsageEvent` channel) |
 | Optimize text or named components with upstream GEPA | `officialGepa({ recipe, ... })`, passed as `improve(...).method` from root `.` | a local GEPA approximation, prompt mutation loop, or silent fallback when Python is unavailable |
 | Optimize one text surface with Microsoft SkillOpt | `officialSkillOpt({ trainer, optimizer, ... })`, passed as `improve(...).method` from root `.` | Runtime-owned SkillOpt search or a silent local fallback |
-| Improve one profile coordinate | `improve(profile, { surface, executionRef, method, trainScenarios, selectionScenarios, testScenarios, judges, agent, costCeiling })` from root `.`; `executionRef` binds saved work to executable behavior, `agent` receives the exact complete candidate profile, and `costCeiling` limits the whole run | an implicit per-surface optimizer, a method that sees final-test cases, an unmeasured profile mutation, or separate optimizer and final-test spend limits |
+| Improve one profile coordinate | `improve(profile, { surface, executionRef, method, trainScenarios, selectionScenarios, testScenarios, judges, agent, costCeiling })` from root `.`; `executionRef` binds saved work to executable behavior, `agent` receives the exact complete candidate profile, and the total-cost option limits the whole run | an implicit per-surface optimizer, a method that sees final-test cases, an unmeasured profile mutation, or separate optimizer and final-test spend limits |
+| Inspect observed optimizer package, model, usage, cost, and resumed-run evidence before proposing a change | `createOptimizationActivationReceipt(result)` from `/intelligence` | reconstructing optimizer evidence from logs or trusting caller-authored metadata |
 | Compare complete optimization methods directly | `compareOptimizationMethods(...)` from `agent-eval/campaign` | comparing one method's training score to another method's final score |
 | Improve repository code | `improve({ surface: 'code', code, scenarios, judge, agent, budget })` from root `.` | passing code through a text optimizer or managing candidate worktrees in product code |
 | Decide ship/hold on a candidate (campaign context) | `defaultProductionGate({ holdoutScenarios, deltaThreshold })`; compose with `heldOutGate` / `composeGate`: `agent-eval/contract` | a raw `h1>h0` point comparison on the training set |

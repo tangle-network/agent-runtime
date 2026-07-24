@@ -188,7 +188,7 @@ There is no local fallback.
 Install its optional Python process before using it:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.126.5"
+python -m pip install "agent-eval-rpc==0.126.6"
 python -m pip install "gepa[full]==0.1.4"
 ```
 
@@ -202,7 +202,7 @@ python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.126.5"
+python -m pip install "agent-eval-rpc==0.126.6"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 
@@ -238,8 +238,11 @@ Set `redact: false` only when every outbound value is public and already reviewe
 
 The selected profile surface is the optimizer's candidate and cannot be redacted without changing the measured candidate.
 Runtime always rejects recognized credentials in those bytes.
-It also rejects structurally sensitive fields such as MCP env, headers, URLs, metadata, and extensions unless `approveSensitiveProfileSurface: true`.
-That approval asserts the exact candidate contains only public values or safe references.
+It also rejects structurally sensitive fields such as MCP env, headers, URLs, metadata, and extensions.
+For `tools`, `mcp`, `hooks`, `subagents`, and `agent-profile`, Runtime treats the entire selected coordinate as execution-capable.
+Use `authorizeSensitiveCandidate` to inspect and accept each exact immutable profile containing public values or safe references.
+The callback runs for the baseline and every distinct candidate before either reaches your agent.
+Its `sensitivePaths` includes `$` when the whole coordinate requires review.
 
 Code is the exception.
 It uses Runtime's isolated git worktrees and coding-agent candidate execution:
@@ -274,6 +277,7 @@ const result = await proposeAgentImprovement({
   analysis,
   improvement: {
     surface: 'prompt',
+    executionRef,
     method,
     trainScenarios,
     selectionScenarios,
@@ -312,6 +316,8 @@ const outcome = await executeAgentImprovementActivation(
 `buildExperimentMaterial`, `placeCell`, and the transaction functions are application ports because storage and compute differ by product.
 The builder returns only baseline, candidate, tasks, and policy; Runtime adds the search ancestry and seals the final experiment.
 Runtime owns candidate identity, measurement, review binding, expiry, retry identity, and result validation; the application owns its atomic write.
+Official optimizer proposals carry the observed package versions, optimizer model, evaluation and token usage, separate optimization and final-test costs, and resumed-run identity.
+`createOptimizationActivationReceipt(result)` exposes the same detached record for callers that need to inspect an `improve()` result before building a proposal.
 
 ### Improve a knowledge base
 
@@ -327,6 +333,7 @@ import { runKnowledgeImprovementJob } from '@tangle-network/agent-runtime/knowle
 const result = await runKnowledgeImprovementJob({
   root: './kb',
   goal: 'Improve support refund-policy knowledge',
+  implementationRef: 'git:0123456789abcdef0123456789abcdef01234567',
   readinessSpecs,
   budget: { maxIterations: 8, maxTokens: 120_000, maxUsd: 10 },
   backend,
@@ -336,6 +343,8 @@ console.log(result.knowledge?.reference.candidateHash, result.measurement.superv
 ```
 
 Use it when the product needs one knob for "make this knowledge base better" instead of wiring `improveKnowledgeBase`, a runtime supervisor, candidate workspaces, and readiness checks by hand.
+Set `implementationRef` to the deployed `git:<40 hex>` revision or a `sha256:<64 hex>` digest covering every callback, model, index, and external setting that can change the result.
+The same run ID resumes only when this identity still matches.
 Measure the returned bundle pair, record the review, then activate through `executeAgentImprovementActivation`; activation is the only write path.
 
 ### Run on PrimeIntellect

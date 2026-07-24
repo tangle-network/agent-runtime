@@ -1,7 +1,7 @@
 import type {
-  ComparisonCost,
   CostLedgerHandle,
   OptimizationMethodInput,
+  OptimizationMethodResult,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import type { Sha256Digest } from '@tangle-network/agent-interface'
@@ -18,23 +18,39 @@ interface MethodCostScope {
   invocationId: string
 }
 
+export type MethodCostAttribution = 'invocation' | 'optimizer-run'
+
 export function methodInputWithScopedCost<TScenario extends Scenario, TArtifact>(
   input: OptimizationMethodInput<TScenario, TArtifact>,
   scope: MethodCostScope,
+  costAttribution: MethodCostAttribution = 'invocation',
 ): OptimizationMethodInput<TScenario, TArtifact> {
   return Object.freeze({
     ...input,
-    costLedger: scopedCostLedger(input.costLedger, scope),
+    costLedger: scopedCostLedger(input.costLedger, scope, costAttribution),
   })
+}
+
+export function methodInvocationCostLedger(
+  ledger: CostLedgerHandle,
+  scope: MethodCostScope,
+): CostLedgerHandle {
+  return scopedCostLedger(ledger, scope, 'invocation')
 }
 
 export function assertMethodCostRecorded(
   methodName: string,
-  cost: ComparisonCost,
-  ledger: CostLedgerHandle,
+  result: Pick<OptimizationMethodResult, 'cost' | 'provenance'>,
+  compatibleLedger: CostLedgerHandle,
+  invocationLedger: CostLedgerHandle,
   costCeiling: number | undefined,
+  costAttribution: MethodCostAttribution = 'invocation',
 ): void {
-  const observed = ledger.summary()
+  const { cost } = result
+  const observed =
+    costAttribution === 'optimizer-run' && result.provenance?.runId
+      ? compatibleLedger.summary({ tags: { optimizerRun: result.provenance.runId } })
+      : invocationLedger.summary()
   if (costCeiling !== undefined && !cost.accountingComplete) {
     throw new ConfigError(
       `improve(): method '${methodName}' returned incomplete cost accounting under costCeiling; refusing final scoring`,
@@ -57,30 +73,48 @@ export function assertMethodCostRecorded(
   }
 }
 
-function scopedCostLedger(parent: CostLedgerHandle, scope: MethodCostScope): CostLedgerHandle {
-  const tags = {
+function scopedCostLedger(
+  parent: CostLedgerHandle,
+  scope: MethodCostScope,
+  costAttribution: MethodCostAttribution,
+): CostLedgerHandle {
+  const evaluationTags = {
     [EVALUATION_TAG]: scope.evaluationRef,
+  }
+  const invocationTags = {
+    ...evaluationTags,
     [INVOCATION_TAG]: scope.invocationId,
   }
+  const readTags = (filter: LedgerFilter): Record<string, string> =>
+    costAttribution === 'optimizer-run' && hasOptimizerRunFilter(filter)
+      ? evaluationTags
+      : invocationTags
   return {
     costCeilingUsd: parent.costCeilingUsd,
     runPaidCall: (input) =>
       parent.runPaidCall({
         ...input,
-        tags: { ...(input.tags ?? {}), ...tags },
+        tags: { ...(input.tags ?? {}), ...invocationTags },
       }),
     reconcile: (...args) => parent.reconcile(...args),
-    list: (filter) => parent.list(withTags(filter, tags)),
-    listPending: (filter) => parent.listPending?.(withTags(filter, tags)) ?? [],
-    summary: (filter) => parent.summary(withTags(filter, tags)),
+    list: (filter) => parent.list(withTags(filter, readTags(filter))),
+    listPending: (filter) => parent.listPending?.(withTags(filter, readTags(filter))) ?? [],
+    summary: (filter) => parent.summary(withTags(filter, readTags(filter))),
     waitForIdle: (options: LedgerWaitOptions = {}) =>
       parent.waitForIdle?.({
         ...options,
-        filter: withTags(options.filter, tags),
-      }) ?? Promise.resolve(parent.summary(withTags(options.filter, tags)).pendingCalls === 0),
+        filter: withTags(options.filter, readTags(options.filter)),
+      }) ??
+      Promise.resolve(
+        parent.summary(withTags(options.filter, readTags(options.filter))).pendingCalls === 0,
+      ),
     markCompleted: (count) => parent.markCompleted(count),
     costPerCompletedTask: () => parent.costPerCompletedTask(),
   }
+}
+
+function hasOptimizerRunFilter(filter: LedgerFilter): boolean {
+  return typeof filter?.tags?.optimizerRun === 'string' && filter.tags.optimizerRun.length > 0
 }
 
 function withTags(filter: LedgerFilter, tags: Record<string, string>): LedgerFilter {

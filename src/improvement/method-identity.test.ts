@@ -62,6 +62,7 @@ describe('method evaluation identity', () => {
       findings?: readonly unknown[]
       trainScenarios?: IdentityScenario[]
       judges?: JudgeConfig<IdentityArtifact, IdentityScenario>[]
+      validateCandidate?: () => void
       reps?: number
       optimizationRunOptions?: { reps?: number }
     }) =>
@@ -93,6 +94,7 @@ describe('method evaluation identity', () => {
     ).not.toBe(baseline)
     expect(evaluationRef({ optimizationRunOptions: { reps: 2 } })).not.toBe(baseline)
     expect(evaluationRef({ reps: 2 })).not.toBe(baseline)
+    expect(evaluationRef({ validateCandidate: () => undefined })).not.toBe(baseline)
     expect(evaluationRef({ findings: [{ issue: 'different failure' }] })).not.toBe(baseline)
     expect(evaluationRef({})).toBe(baseline)
   })

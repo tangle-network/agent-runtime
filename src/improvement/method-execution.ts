@@ -14,13 +14,19 @@ import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-
 import { ConfigError } from '../errors'
 import { copyImproveCost } from './improve-result'
 import type {
+  ImproveCandidateValidationInput,
   ImproveMethodContext,
   ImproveMethodOptions,
   ImproveMethodResult,
   ImproveMethodSource,
   ImprovementProfileCandidate,
 } from './improve-types'
-import { assertMethodCostRecorded, methodInputWithScopedCost } from './method-cost'
+import { methodRuntimeControlsOf } from './method-controls'
+import {
+  assertMethodCostRecorded,
+  methodInputWithScopedCost,
+  methodInvocationCostLedger,
+} from './method-cost'
 import { buildMethodEvaluationIdentity } from './method-identity'
 import {
   assertCandidateSurfaceKind,
@@ -71,6 +77,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     executionRef: inputExecutionRef,
     method: methodSource,
     agent,
+    validateCandidate,
     findings: inputFindings = [],
     skills,
     profileComponents,
@@ -98,6 +105,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     baselineSurface,
     surface,
     skills,
+    validateCandidate,
     findings,
     trainScenarios: comparisonOptions.trainScenarios,
     selectionScenarios: comparisonOptions.selectionScenarios,
@@ -118,7 +126,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
       }),
     }),
   )
-  const materializeProfile = createProfileCandidateMaterializer(
+  const rawMaterializeProfile = createProfileCandidateMaterializer(
     profile,
     surface,
     baselineSurface,
@@ -134,19 +142,51 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     baselineValue,
     findings,
   })
+  const methodControls = methodRuntimeControlsOf(method)
+  const baselineSurfaceDigest = canonicalCandidateDigest(baselineSurface)
+  const validatedCandidates = new Set<Sha256Digest>()
+  const materializeProfile = (
+    candidateSurface: Parameters<typeof rawMaterializeProfile>[0],
+  ): ReturnType<typeof rawMaterializeProfile> => {
+    const candidate = rawMaterializeProfile(candidateSurface)
+    const candidateDigest = canonicalCandidateDigest(candidateSurface)
+    if (!validatedCandidates.has(candidateDigest)) {
+      const prepared = prepareProfileSurface(candidate, surface, skills, profileComponents)
+      const validationInput: ImproveCandidateValidationInput = Object.freeze({
+        profile: candidate,
+        surface,
+        candidateSurface: immutableCandidateValue(candidateSurface),
+        value: immutableCandidateValue(prepared.value),
+        isBaseline: candidateDigest === baselineSurfaceDigest,
+      })
+      methodControls?.validateCandidate(validationInput)
+      validateCandidate?.(validationInput)
+      validatedCandidates.add(candidateDigest)
+    }
+    return candidate
+  }
+  materializeProfile(baselineSurface)
   const measuredMethod: OptimizationMethod<TScenario, TArtifact> = {
     ...method,
     async optimize(input) {
-      const scopedInput = methodInputWithScopedCost(input, {
+      const costScope = {
         evaluationRef,
         invocationId: runtimeInvocationId,
-      })
+      }
+      const scopedInput = methodInputWithScopedCost(
+        input,
+        costScope,
+        methodControls?.costAttribution,
+      )
+      const invocationLedger = methodInvocationCostLedger(input.costLedger, costScope)
       const result = await method.optimize(scopedInput)
       assertMethodCostRecorded(
         method.name,
-        result.cost,
+        result,
         scopedInput.costLedger,
+        invocationLedger,
         comparisonOptions.costCeiling,
+        methodControls?.costAttribution,
       )
       materializeProfile(result.winnerSurface)
       return result

@@ -77,12 +77,10 @@ export function prepareProfileSurface(
     }
     case 'rollout-policy': {
       const policy = structuralRolloutPolicyFromProfile(profile)
-      if (!policy) {
-        throw new ConfigError(
-          "improve(): surface 'rollout-policy' requires an existing structural rollout policy",
-        )
+      return {
+        surface: policy ? serializeRolloutPolicy(policy) : '',
+        value: policy ?? null,
       }
-      return { surface: serializeRolloutPolicy(policy), value: policy }
     }
     case 'code':
       throw new ConfigError(

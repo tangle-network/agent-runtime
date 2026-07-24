@@ -8,6 +8,10 @@ import {
   officialGepa,
   officialSkillOpt,
 } from '@tangle-network/agent-runtime'
+import {
+  createOptimizationActivationReceipt,
+  optimizationActivationReceiptFromMetadata,
+} from '@tangle-network/agent-runtime/intelligence'
 
 const python = process.env.AGENT_EVAL_TEST_PYTHON?.trim()
 if (!python) throw new Error('AGENT_EVAL_TEST_PYTHON is required')
@@ -62,13 +66,51 @@ async function runWheelVerification() {
     assert(firstGepa.provenance?.resumed === false, 'first GEPA run must be fresh')
     assert(firstGepa.provenance?.source.version === '0.1.4', 'GEPA version was not observed')
     assert(
-      firstGepa.provenance?.bridge?.version === '0.126.5',
+      firstGepa.provenance?.bridge?.version === '0.126.6',
       'agent-eval-rpc version was not observed',
+    )
+    assert(
+      firstGepa.provenance?.optimizerModel === 'local-model',
+      'GEPA optimizer model was not observed',
     )
     assert(firstGepa.decision === 'ship', 'GEPA candidate was not promoted')
     assert(
       JSON.parse(String(firstGepa.candidate.value)).k === 2,
       'GEPA did not produce the expected candidate',
+    )
+    const firstGepaModelRequests = gepaModel.requests.length
+    const firstGepaOptimizationCostUsd = firstGepa.raw.optimizationCost.totalCostUsd
+    assert(firstGepaModelRequests > 0, 'fresh GEPA run did not call the optimizer model')
+    assert(
+      firstGepa.raw.optimizationCost.accountingComplete,
+      'fresh GEPA run has incomplete optimizer cost accounting',
+    )
+    assert(
+      approximatelyEqual(
+        firstGepaOptimizationCostUsd,
+        localModelCostUsd(firstGepaModelRequests),
+      ),
+      `fresh GEPA cost ${firstGepaOptimizationCostUsd} did not match ${firstGepaModelRequests} optimizer requests`,
+    )
+    const activationReceipt = createOptimizationActivationReceipt(firstGepa)
+    assert(activationReceipt, 'GEPA result did not produce an activation receipt')
+    assert(
+      activationReceipt.models?.optimizer === 'local-model',
+      'activation receipt omitted the optimizer model',
+    )
+    assert(
+      approximatelyEqual(
+        activationReceipt.cost.optimization.totalUsd,
+        firstGepaOptimizationCostUsd,
+      ),
+      'activation receipt changed optimizer cost',
+    )
+    const parsedReceipt = optimizationActivationReceiptFromMetadata({
+      optimizationReceipt: activationReceipt,
+    })
+    assert(
+      parsedReceipt?.digest === activationReceipt.digest,
+      'activation receipt did not survive public parsing',
     )
 
     const resumedGepa = await runGepa({
@@ -78,8 +120,29 @@ async function runWheelVerification() {
     })
     assert(resumedGepa.provenance?.resumed === true, 'second GEPA run did not restore state')
     assert(
+      resumedGepa.provenance?.optimizerModel === 'local-model',
+      'resumed GEPA run omitted the optimizer model',
+    )
+    assert(
       resumedGepa.provenance?.compatibleRunId === firstGepa.provenance?.compatibleRunId,
       'resumed GEPA run changed compatible identity',
+    )
+    const resumedGepaModelRequests = gepaModel.requests.length
+    const resumedGepaOptimizationCostUsd = resumedGepa.raw.optimizationCost.totalCostUsd
+    assert(
+      resumedGepa.raw.optimizationCost.accountingComplete,
+      'resumed GEPA run has incomplete optimizer cost accounting',
+    )
+    assert(
+      resumedGepaOptimizationCostUsd >= firstGepaOptimizationCostUsd,
+      `resumed GEPA cost reset from ${firstGepaOptimizationCostUsd} to ${resumedGepaOptimizationCostUsd}`,
+    )
+    assert(
+      approximatelyEqual(
+        resumedGepaOptimizationCostUsd,
+        localModelCostUsd(resumedGepaModelRequests),
+      ),
+      `resumed GEPA cost ${resumedGepaOptimizationCostUsd} did not preserve all ${resumedGepaModelRequests} optimizer requests`,
     )
 
     let incompatibleError
@@ -148,8 +211,14 @@ async function runWheelVerification() {
         runtimeImport: '@tangle-network/agent-runtime',
         gepa: {
           bridge: firstGepa.provenance.bridge.version,
+          optimizerModel: firstGepa.provenance.optimizerModel,
+          receipt: activationReceipt.digest,
           evaluations: firstGepa.provenance.evaluationCount,
           resumed: resumedGepa.provenance.resumed,
+          optimizationCostUsd: {
+            fresh: firstGepaOptimizationCostUsd,
+            resumed: resumedGepaOptimizationCostUsd,
+          },
           source: firstGepa.provenance.source.version,
           concurrent: {
             completed: completedConcurrent.length,
@@ -221,7 +290,7 @@ async function runOmniVerification() {
       'source GEPA revision was not observed',
     )
     assert(
-      result.provenance?.bridge?.version === '0.126.5',
+      result.provenance?.bridge?.version === '0.126.6',
       'Omni agent-eval-rpc version was not observed',
     )
     assert(result.decision === 'ship', 'Omni candidate was not promoted')
@@ -433,6 +502,15 @@ function optimizerModel(baseUrl, maxOutputTokensPerRequest) {
 function digest(value) {
   const hex = createHash('sha256').update(JSON.stringify(value)).digest('hex')
   return `sha256:${hex}`
+}
+
+function localModelCostUsd(requestCount) {
+  return requestCount * ((11 * 1) / 1_000_000 + (13 * 2) / 1_000_000)
+}
+
+function approximatelyEqual(left, right) {
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(left), Math.abs(right)) * 8
+  return Math.abs(left - right) <= tolerance
 }
 
 function assert(condition, message) {

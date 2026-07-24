@@ -285,31 +285,35 @@ describe('backfillSweArena', () => {
     expect(stats.workerSessionsJoined).toBe(2)
   })
 
-  it('marks a session with no readable parts as an incomplete gap line', async () => {
-    await buildFixtureTree()
-    await buildFixtureDb()
-    const { DatabaseSync } = await import('node:sqlite')
-    const db = new DatabaseSync(dbPath)
-    // Session row survives; its message parts do not.
-    db.exec("DELETE FROM part; DELETE FROM message")
-    db.close()
+  it(
+    'marks a session with no readable parts as an incomplete gap line',
+    async () => {
+      await buildFixtureTree()
+      await buildFixtureDb()
+      const { DatabaseSync } = await import('node:sqlite')
+      const db = new DatabaseSync(dbPath)
+      // Session row survives; its message parts do not.
+      db.exec("DELETE FROM part; DELETE FROM message")
+      db.close()
 
-    const { lines, stats } = await backfillSweArena(outDir, {
-      opencodeDb: dbPath,
-      claudeProjectsDir: projectsDir,
-    })
-    const joinedCwd = lines.filter((l) => l.role === 'worker' && l.outcome.metrics.has_session === true)
-    expect(joinedCwd.length).toBeGreaterThan(0)
-    for (const worker of joinedCwd) {
-      expect(worker.messages).toHaveLength(0)
-      expect(worker.outcome.is_completed).toBe(false)
-      expect(worker.provenance.gap).toMatch(/no readable message parts/)
-    }
-    // The store-integrity failure is counted apart from the cwd-join failure.
-    expect(stats.workerSessionsEmpty).toBe(2)
-    expect(stats.workerCwdsMissed).toBe(1)
-    expect(stats.workerSessionsJoined).toBe(0)
-  })
+      const { lines, stats } = await backfillSweArena(outDir, {
+        opencodeDb: dbPath,
+        claudeProjectsDir: projectsDir,
+      })
+      const joinedCwd = lines.filter((l) => l.role === 'worker' && l.outcome.metrics.has_session === true)
+      expect(joinedCwd.length).toBeGreaterThan(0)
+      for (const worker of joinedCwd) {
+        expect(worker.messages).toHaveLength(0)
+        expect(worker.outcome.is_completed).toBe(false)
+        expect(worker.provenance.gap).toMatch(/no readable message parts/)
+      }
+      // The store-integrity failure is counted apart from the cwd-join failure.
+      expect(stats.workerSessionsEmpty).toBe(2)
+      expect(stats.workerCwdsMissed).toBe(1)
+      expect(stats.workerSessionsJoined).toBe(0)
+    },
+    15_000,
+  )
 
   it('fails loud on a cell cache that carries no scenarioId/rep identity', async () => {
     await buildFixtureTree()

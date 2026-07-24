@@ -24,6 +24,8 @@ import type {
 import { runMethodImprovement } from './method-execution'
 
 export type {
+  ImproveCandidateValidationInput,
+  ImproveCandidateValidator,
   ImproveCodeOptions,
   ImproveCodeResult,
   ImproveCodeRunOptions,

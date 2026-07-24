@@ -28,18 +28,18 @@ export interface OptimizationActivationReceipt {
   bridge?: OptimizationPackageSource
   modules?: OptimizationProvenance['modules']
   python?: OptimizationProvenance['python']
-  model?: {
-    role: 'candidate'
-    identity: NonNullable<AgentProfile['model']>
+  models?: {
+    candidate?: NonNullable<AgentProfile['model']>
+    optimizer?: string
   }
   usage: {
-    evaluations: number
-    tokens?: OptimizationTokenUsage
+    optimizerEvaluations: number
+    optimizerTokens?: OptimizationTokenUsage
   }
   cost: {
-    totalUsd: number
-    accountingComplete: boolean
-    incompleteReasons: string[]
+    optimization: OptimizationReceiptCost
+    finalTest: OptimizationReceiptCost
+    total: OptimizationReceiptCost
   }
   invocation: {
     runtimeInvocationId: string
@@ -52,6 +52,12 @@ export interface OptimizationActivationReceipt {
   digest: Sha256Digest
 }
 
+export interface OptimizationReceiptCost {
+  totalUsd: number
+  accountingComplete: boolean
+  incompleteReasons: string[]
+}
+
 export const optimizationReceiptMetadataKey = 'optimizationReceipt'
 
 /** Build a detached receipt only for methods backed by an identified external optimizer. */
@@ -60,6 +66,8 @@ export function createOptimizationActivationReceipt(
 ): OptimizationActivationReceipt | undefined {
   const provenance = improvement.provenance
   if (!provenance) return undefined
+  const optimizerModel = provenance.optimizerModel
+  const candidateModel = improvement.candidate.profile.model
 
   return canonicalCandidateDocument<OptimizationActivationReceipt>({
     kind: 'optimization-activation-receipt',
@@ -68,22 +76,22 @@ export function createOptimizationActivationReceipt(
     ...(provenance.bridge ? { bridge: provenance.bridge } : {}),
     ...(provenance.modules ? { modules: provenance.modules } : {}),
     ...(provenance.python ? { python: provenance.python } : {}),
-    ...(improvement.candidate.profile.model
+    ...(candidateModel || optimizerModel
       ? {
-          model: {
-            role: 'candidate',
-            identity: improvement.candidate.profile.model,
+          models: {
+            ...(candidateModel ? { candidate: candidateModel } : {}),
+            ...(optimizerModel ? { optimizer: optimizerModel } : {}),
           },
         }
       : {}),
     usage: {
-      evaluations: provenance.evaluationCount,
-      ...(provenance.tokenUsage ? { tokens: provenance.tokenUsage } : {}),
+      optimizerEvaluations: provenance.evaluationCount,
+      ...(provenance.tokenUsage ? { optimizerTokens: provenance.tokenUsage } : {}),
     },
     cost: {
-      totalUsd: improvement.cost.totalCostUsd,
-      accountingComplete: improvement.cost.accountingComplete,
-      incompleteReasons: improvement.cost.incompleteReasons,
+      optimization: receiptCost(improvement.raw.optimizationCost),
+      finalTest: receiptCost(improvement.raw.testCost),
+      total: receiptCost(improvement.raw.totalCost),
     },
     invocation: {
       runtimeInvocationId: improvement.lineage.invocationId,
@@ -139,7 +147,7 @@ function parseOptimizationActivationReceipt(
     (value.bridge !== undefined && !isPackageSource(value.bridge)) ||
     !isModules(value.modules) ||
     !isPythonRuntime(value.python) ||
-    !isCandidateModel(value.model) ||
+    !isModels(value.models) ||
     !isUsage(value.usage) ||
     !isCost(value.cost) ||
     !isInvocation(value.invocation) ||
@@ -194,19 +202,21 @@ function isPythonRuntime(value: unknown): boolean {
   )
 }
 
-function isCandidateModel(value: unknown): boolean {
+function isModels(value: unknown): boolean {
   return (
     value === undefined ||
     (isRecord(value) &&
-      value.role === 'candidate' &&
-      agentProfileModelHintsSchema.safeParse(value.identity).success)
+      (value.candidate === undefined ||
+        agentProfileModelHintsSchema.safeParse(value.candidate).success) &&
+      isOptionalNonEmptyString(value.optimizer) &&
+      (value.candidate !== undefined || value.optimizer !== undefined))
   )
 }
 
 function isUsage(value: unknown): boolean {
-  if (!isRecord(value) || !isNonNegativeInteger(value.evaluations)) return false
-  if (value.tokens === undefined) return true
-  const tokens = value.tokens
+  if (!isRecord(value) || !isNonNegativeInteger(value.optimizerEvaluations)) return false
+  if (value.optimizerTokens === undefined) return true
+  const tokens = value.optimizerTokens
   if (!isRecord(tokens)) return false
   const inputTokens = tokens.inputTokens
   const outputTokens = tokens.outputTokens
@@ -241,6 +251,24 @@ function isUsage(value: unknown): boolean {
 }
 
 function isCost(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !isCostPart(value.optimization) ||
+    !isCostPart(value.finalTest) ||
+    !isCostPart(value.total)
+  ) {
+    return false
+  }
+  const optimization = value.optimization as unknown as OptimizationReceiptCost
+  const finalTest = value.finalTest as unknown as OptimizationReceiptCost
+  const total = value.total as unknown as OptimizationReceiptCost
+  return (
+    approximatelyEqual(total.totalUsd, optimization.totalUsd + finalTest.totalUsd) &&
+    total.accountingComplete === (optimization.accountingComplete && finalTest.accountingComplete)
+  )
+}
+
+function isCostPart(value: unknown): boolean {
   return (
     isRecord(value) &&
     typeof value.totalUsd === 'number' &&
@@ -250,6 +278,23 @@ function isCost(value: unknown): boolean {
     Array.isArray(value.incompleteReasons) &&
     value.incompleteReasons.every((reason) => typeof reason === 'string')
   )
+}
+
+function receiptCost(value: {
+  totalCostUsd: number
+  accountingComplete: boolean
+  incompleteReasons: string[]
+}): OptimizationReceiptCost {
+  return {
+    totalUsd: value.totalCostUsd,
+    accountingComplete: value.accountingComplete,
+    incompleteReasons: [...value.incompleteReasons],
+  }
+}
+
+function approximatelyEqual(left: number, right: number): boolean {
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(left), Math.abs(right)) * 8
+  return Math.abs(left - right) <= tolerance
 }
 
 function isInvocation(value: unknown): boolean {

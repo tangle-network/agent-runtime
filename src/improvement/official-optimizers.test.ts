@@ -9,6 +9,7 @@ import {
   OfficialOptimizerUnavailableError,
   officialGepa,
   officialSkillOpt,
+  optimizerRedactionPolicyRef,
 } from './official-optimizers'
 import type { ReadonlyAgentProfile } from './profile-types'
 
@@ -75,11 +76,6 @@ const testCases: OptimizerScenario[] = [
   { id: 'test-b', kind: 'fixture', prompt: 'private test b', privateNote: 'TEST_SECRET_B' },
 ]
 const executionRef = canonicalCandidateDigest({ fixture: 'official-optimizer-method' })
-const evaluationRef = canonicalCandidateDigest({
-  executionRef,
-  baselineProfileDigest: canonicalCandidateDigest(profile),
-  surface: 'prompt',
-})
 
 const runDirs: string[] = []
 
@@ -101,6 +97,7 @@ function fakeRunner(
   callback?: {
     exampleId: string
     responsePath: string
+    candidate?: string
   },
 ) {
   const optimizerSource = {
@@ -112,7 +109,7 @@ function fakeRunner(
   const output =
     optimizer === 'gepa'
       ? [
-          '  bestCandidate: "improved prompt",',
+          `  bestCandidate: ${JSON.stringify(callback?.candidate ?? 'improved prompt')},`,
           '  bestScore: 1,',
           `  totalEvaluations: ${callback ? 1 : 0},`,
           '  recipeKind: input.recipe.kind,',
@@ -121,7 +118,7 @@ function fakeRunner(
           '  upstream: optimizerSource,',
         ]
       : [
-          '  bestCandidate: "improved prompt",',
+          `  bestCandidate: ${JSON.stringify(callback?.candidate ?? 'improved prompt')},`,
           '  bestScore: 1,',
           `  totalEvaluations: ${callback ? 1 : 0},`,
           '  totalSteps: 0,',
@@ -153,7 +150,7 @@ function fakeRunner(
           '    authorization: "Bearer " + input.callbackToken,',
           '    "content-type": "application/json",',
           '  },',
-          `  body: JSON.stringify({ candidate: "improved prompt", exampleId: ${JSON.stringify(callback.exampleId)} }),`,
+          `  body: JSON.stringify({ candidate: ${JSON.stringify(callback.candidate ?? 'improved prompt')}, exampleId: ${JSON.stringify(callback.exampleId)} }),`,
           '})',
           'if (!callbackResponse.ok) throw new Error("callback failed: " + callbackResponse.status)',
           'const callbackBody = await callbackResponse.json()',
@@ -303,6 +300,58 @@ describe('official optimizer methods', () => {
     expect(result.raw.best.provenance?.bridge?.version).toBe('0.126.1')
     expect(result.decision).toBe('ship')
     expect(result.candidate.profile?.prompt?.systemPrompt).toBe('improved prompt')
+  })
+
+  it('changes upstream identity when feedback transformation logic changes', async () => {
+    const describeArtifactA = (artifact: Artifact) => ({ answer: artifact.text })
+    const describeArtifactB = (artifact: Artifact) => ({ output: artifact.text })
+    const rawRedactor = (value: unknown) => value
+    const observe = async (options: {
+      describeArtifact: (artifact: Artifact) => unknown
+      redact: typeof rawRedactor | false
+    }) => {
+      const root = runDir()
+      const observedInputPath = join(root, 'input.json')
+      await improve(profile, {
+        ...commonOptions(
+          officialGepa<OptimizerScenario, Artifact>({
+            objective: 'Improve the agent prompt.',
+            recipe: {
+              kind: 'engine',
+              run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+            },
+            optimizer: testOptimizer,
+            describeArtifact: options.describeArtifact,
+            redact: options.redact,
+            runner: fakeRunner('gepa', observedInputPath),
+          }),
+        ),
+        runDir: join(root, 'run'),
+      })
+      const observed = JSON.parse(readFileSync(observedInputPath, 'utf8')) as {
+        evaluationId: string
+      }
+      return observed.evaluationId
+    }
+
+    const baseline = await observe({ describeArtifact: describeArtifactA, redact: false })
+    expect(await observe({ describeArtifact: describeArtifactB, redact: false })).not.toBe(baseline)
+    expect(await observe({ describeArtifact: describeArtifactA, redact: rawRedactor })).not.toBe(
+      baseline,
+    )
+  })
+
+  it('changes saved-work identity when built-in redaction behavior changes', () => {
+    const first = optimizerRedactionPolicyRef(undefined, {
+      maxDepth: 32,
+      patterns: ['credential'],
+    })
+    const second = optimizerRedactionPolicyRef(undefined, {
+      maxDepth: 64,
+      patterns: ['credential'],
+    })
+
+    expect(second).not.toBe(first)
   })
 
   it('passes the official Omni recipe through unchanged', async () => {
@@ -575,34 +624,116 @@ describe('official optimizer methods', () => {
     })
   })
 
-  it('allows a reviewed sensitive profile surface only with explicit approval', () => {
-    const mcp = {
+  it('rejects an unauthorized executable candidate before agent dispatch', async () => {
+    const root = runDir()
+    const candidate = JSON.stringify({
+      local: {
+        transport: 'stdio' as const,
+        command: 'echo',
+        args: ['unauthorized'],
+      },
+    })
+    let agentCalls = 0
+    const reviewed: Array<{
+      isBaseline: boolean
+      command: string | undefined
+      sensitivePaths: readonly string[]
+    }> = []
+
+    await expect(
+      improve(
+        { name: 'optimizer-fixture', mcp: {} },
+        {
+          ...commonOptions(
+            officialGepa<OptimizerScenario, Artifact>({
+              objective: 'Improve the MCP profile.',
+              recipe: {
+                kind: 'engine',
+                run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+              },
+              optimizer: testOptimizer,
+              authorizeSensitiveCandidate: (input) => {
+                reviewed.push({
+                  isBaseline: input.isBaseline,
+                  command: input.profile.mcp?.local?.command,
+                  sensitivePaths: input.sensitivePaths,
+                })
+                return input.isBaseline
+              },
+              runner: fakeRunner('gepa', join(root, 'input.json'), {
+                exampleId: 'train',
+                responsePath: join(root, 'response.json'),
+                candidate,
+              }),
+            }),
+          ),
+          runDir: join(root, 'run'),
+          surface: 'mcp',
+          agent: async () => {
+            agentCalls += 1
+            return { text: 'must not run' }
+          },
+        },
+      ),
+    ).rejects.toThrow(/callback failed: 500/)
+    expect(agentCalls).toBe(0)
+    expect(reviewed).toEqual([
+      { isBaseline: true, command: undefined, sensitivePaths: ['$'] },
+      { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
+    ])
+  })
+
+  it('authorizes every exact sensitive candidate through a callback', async () => {
+    const root = runDir()
+    const candidate = JSON.stringify({
       remote: {
         transport: 'http' as const,
         url: 'https://public.example.test/mcp',
       },
-    }
-    const method = officialGepa<OptimizerScenario, Artifact>({
-      objective: 'Improve the MCP profile.',
-      recipe: {
-        kind: 'engine',
-        run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
-      },
-      optimizer: testOptimizer,
-      approveSensitiveProfileSurface: true,
-      runner: failingRunner('runner must not start'),
     })
-
-    expect(() =>
-      method({
-        profile: { name: 'optimizer-fixture', mcp },
-        evaluationRef,
+    const reviewed: ReadonlyAgentProfile[] = []
+    const result = await improve(
+      { name: 'optimizer-fixture', mcp: {} },
+      {
+        ...commonOptions(
+          officialGepa<OptimizerScenario, Artifact>({
+            objective: 'Improve the MCP profile.',
+            recipe: {
+              kind: 'engine',
+              run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+            },
+            optimizer: testOptimizer,
+            authorizeSensitiveCandidate: (input) => {
+              reviewed.push(input.profile)
+              if (input.isBaseline) {
+                return (
+                  input.surface === 'mcp' &&
+                  input.sensitivePaths.includes('$') &&
+                  Object.keys(input.profile.mcp ?? {}).length === 0
+                )
+              }
+              return (
+                input.surface === 'mcp' &&
+                input.sensitivePaths.includes('$') &&
+                input.sensitivePaths.includes('$.remote.url') &&
+                input.profile.mcp?.remote?.url === 'https://public.example.test/mcp'
+              )
+            },
+            runner: fakeRunner('gepa', join(root, 'input.json'), {
+              exampleId: 'train',
+              responsePath: join(root, 'response.json'),
+              candidate,
+            }),
+          }),
+        ),
+        runDir: join(root, 'run'),
         surface: 'mcp',
-        baselineSurface: JSON.stringify(mcp),
-        baselineValue: mcp,
-        findings: [],
-      }),
-    ).not.toThrow()
+      },
+    )
+
+    expect(reviewed).toHaveLength(2)
+    expect(reviewed.every(Object.isFrozen)).toBe(true)
+    expect(result.candidate.profile.mcp?.remote?.url).toBe('https://public.example.test/mcp')
   })
 
   it.each([

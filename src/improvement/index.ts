@@ -30,6 +30,8 @@ export {
   toAnalystFindings,
 } from './findings'
 export {
+  type ImproveCandidateValidationInput,
+  type ImproveCandidateValidator,
   type ImproveCodeOptions,
   type ImproveCodeResult,
   type ImproveCodeRunOptions,
@@ -59,6 +61,7 @@ export {
   type OfficialGepaOptions,
   type OfficialOptimizerContextOptions,
   OfficialOptimizerUnavailableError,
+  type OfficialSensitiveCandidateInput,
   type OfficialSkillOptOptions,
   officialGepa,
   officialSkillOpt,

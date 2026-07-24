@@ -45,9 +45,10 @@ const officialImprovementMethod: ImproveMethodFactory<ImprovementScenario, strin
           kind: 'package',
           evidence: 'observed',
           package: 'agent-eval-rpc',
-          version: '0.126.5',
+          version: '0.126.6',
           sourceSha256: 'b'.repeat(64),
         },
+        optimizerModel: 'optimizer-model',
         modules: [{ module: 'official_optimizer.engine', sourceSha256: 'c'.repeat(64) }],
         python: { implementation: 'CPython', version: '3.13.5' },
         runId: `official:${context.evaluationRef}`,
@@ -99,26 +100,38 @@ describe('optimization activation receipt', { timeout: 30_000 }, () => {
       },
       bridge: {
         package: 'agent-eval-rpc',
-        version: '0.126.5',
+        version: '0.126.6',
         sourceSha256: 'b'.repeat(64),
       },
       python: { implementation: 'CPython', version: '3.13.5' },
-      model: {
-        role: 'candidate',
-        identity: {
+      models: {
+        candidate: {
           provider: 'test-provider',
           default: 'provider/model',
           reasoningEffort: 'high',
         },
+        optimizer: 'optimizer-model',
       },
       usage: {
-        evaluations: 7,
-        tokens: { inputTokens: 100, outputTokens: 30, totalTokens: 130, calls: 2 },
+        optimizerEvaluations: 7,
+        optimizerTokens: { inputTokens: 100, outputTokens: 30, totalTokens: 130, calls: 2 },
       },
       cost: {
-        totalUsd: result.improvement.cost.totalCostUsd,
-        accountingComplete: true,
-        incompleteReasons: [],
+        optimization: {
+          totalUsd: result.improvement.raw.optimizationCost.totalCostUsd,
+          accountingComplete: true,
+          incompleteReasons: [],
+        },
+        finalTest: {
+          totalUsd: result.improvement.raw.testCost.totalCostUsd,
+          accountingComplete: true,
+          incompleteReasons: [],
+        },
+        total: {
+          totalUsd: result.improvement.cost.totalCostUsd,
+          accountingComplete: true,
+          incompleteReasons: [],
+        },
       },
       invocation: {
         runtimeInvocationId: result.improvement.lineage.invocationId,
@@ -154,12 +167,21 @@ describe('optimization activation receipt', { timeout: 30_000 }, () => {
       } as unknown as Parameters<typeof optimizationActivationReceiptFromMetadata>[0]),
     ).toThrow(/invalid evidence/)
     const invalidUsageReceipt = structuredClone(receipt)
-    if (!invalidUsageReceipt.usage.tokens) throw new Error('expected optimizer token usage')
-    invalidUsageReceipt.usage.tokens.totalTokens += 1
+    if (!invalidUsageReceipt.usage.optimizerTokens)
+      throw new Error('expected optimizer token usage')
+    invalidUsageReceipt.usage.optimizerTokens.totalTokens += 1
     invalidUsageReceipt.digest = canonicalCandidateDigest(omitTopLevelDigest(invalidUsageReceipt))
     expect(() =>
       optimizationActivationReceiptFromMetadata({
         [optimizationReceiptMetadataKey]: invalidUsageReceipt,
+      } as unknown as Parameters<typeof optimizationActivationReceiptFromMetadata>[0]),
+    ).toThrow(/invalid evidence/)
+    const invalidCostReceipt = structuredClone(receipt)
+    invalidCostReceipt.cost.total.totalUsd += 1
+    invalidCostReceipt.digest = canonicalCandidateDigest(omitTopLevelDigest(invalidCostReceipt))
+    expect(() =>
+      optimizationActivationReceiptFromMetadata({
+        [optimizationReceiptMetadataKey]: invalidCostReceipt,
       } as unknown as Parameters<typeof optimizationActivationReceiptFromMetadata>[0]),
     ).toThrow(/invalid evidence/)
 

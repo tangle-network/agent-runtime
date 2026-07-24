@@ -4,6 +4,9 @@
 
 - Add `officialGepa(...)` and `officialSkillOpt(...)` as Runtime adapters over the upstream GEPA and Microsoft SkillOpt implementations in `@tangle-network/agent-eval`.
 - Require one complete `OptimizationMethod` for profile improvement and keep final-test scenarios outside optimizer input.
+- Authorize every exact execution-capable profile candidate before it reaches an agent.
+- Preserve resumed optimizer spend, model identity, package provenance, and separate optimization versus final-test costs in activation receipts.
+- Verify released Python packages, pinned source revisions, resume behavior, concurrency, and packed external installs in CI.
 - Keep code improvement on Runtime-owned isolated Git worktrees.
 - Remove the retired local prompt, profile-diff, campaign OTLP, and record-only optimizer paths.
 - Require `@tangle-network/agent-eval` 0.126.x.

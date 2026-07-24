@@ -7,6 +7,7 @@ import {
 import type { Sha256Digest } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import type {
+  ImproveCandidateValidator,
   ImproveOptimizationRunOptions,
   ImproveProfileSurface,
   ImproveSkillsOptions,
@@ -32,6 +33,7 @@ export function buildMethodEvaluationIdentity<TScenario extends Scenario, TArtif
   baselineSurface: MutableSurface
   surface: ImproveProfileSurface
   skills?: ImproveSkillsOptions
+  validateCandidate?: ImproveCandidateValidator
   findings: readonly unknown[]
   trainScenarios: readonly TScenario[]
   selectionScenarios: readonly TScenario[]
@@ -51,6 +53,9 @@ export function buildMethodEvaluationIdentity<TScenario extends Scenario, TArtif
     executionRef: input.executionRef,
     baselineProfileDigest: input.baselineProfileDigest,
     coordinate: profileCoordinate(input.surface, input.baselineSurface, input.skills),
+    candidateValidation: input.validateCandidate
+      ? Function.prototype.toString.call(input.validateCandidate)
+      : null,
     developmentSplitDigest,
     findings: input.findings,
     judges: judgeDescriptors,

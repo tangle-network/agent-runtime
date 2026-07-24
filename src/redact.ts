@@ -86,6 +86,24 @@ function walk(value: unknown, seen: WeakSet<object>, depth: number): unknown {
   return out
 }
 
+/** Stable identity input for saved work that depends on built-in redaction behavior. */
+export function defaultRedactorIdentityMaterial(): unknown {
+  const patternIdentity = (pattern: RegExp) => ({
+    source: pattern.source,
+    flags: pattern.flags,
+  })
+  return {
+    marker: redactedMarker,
+    secretKeyPattern: patternIdentity(secretKeyPattern),
+    valuePatterns: valuePatterns.map(patternIdentity),
+    secretAssignmentPattern: patternIdentity(secretAssignmentPattern),
+    maxDepth,
+    scrubString: Function.prototype.toString.call(scrubString),
+    walk: Function.prototype.toString.call(walk),
+    defaultRedactor: Function.prototype.toString.call(defaultRedactor),
+  }
+}
+
 /**
  * Resolve the redactor a client uses. A caller-supplied hook handles
  * domain-specific values first, then the built-in scrubber still removes

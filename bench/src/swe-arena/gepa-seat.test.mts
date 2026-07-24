@@ -14,6 +14,7 @@ import {
   DEFAULT_GEPA_PYTHON,
   DEFAULT_MAX_METRIC_CALLS,
   GEPA_INNER_RUNS_DIRNAME,
+  GEPA_PYTHON_INSTALL_HINT,
   gepaBridgeScenarios,
   innerSmokeComposite,
   innerSmokeJudge,
@@ -188,7 +189,7 @@ describe('probeGepaRuntime', () => {
   it('fails loud with pip install instructions when the bridge module is missing', async () => {
     const exec = execFailingOn('agent_eval_rpc.gepa_bridge', "ModuleNotFoundError: No module named 'agent_eval_rpc'")
     await expect(probeGepaRuntime('python3', exec, 'gepa-author')).rejects.toThrow(
-      /pip install agent-eval-rpc/,
+      GEPA_PYTHON_INSTALL_HINT,
     )
     await expect(probeGepaRuntime('python3', exec, 'gepa-author')).rejects.toThrow(/not installed/)
   })
@@ -256,7 +257,7 @@ describe('captureProposerProvenance with a gepa seat', () => {
         ? { code: 1, stdout: '', stderr: 'ModuleNotFoundError' }
         : { code: 0, stdout: 'Python 3.12.3', stderr: '' }
     await expect(captureProposerProvenance([seat()], { exec })).rejects.toThrow(
-      /pip install agent-eval-rpc/,
+      GEPA_PYTHON_INSTALL_HINT,
     )
   })
 })

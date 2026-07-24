@@ -69,6 +69,17 @@ export type ImproveProfileAgent<TScenario extends Scenario, TArtifact> = (
   >[2],
 ) => Promise<TArtifact>
 
+/** Exact materialized profile presented for validation before any candidate run. */
+export interface ImproveCandidateValidationInput {
+  profile: ReadonlyAgentProfile
+  surface: ImproveProfileSurface
+  candidateSurface: MutableSurface
+  value: unknown
+  isBaseline: boolean
+}
+
+export type ImproveCandidateValidator = (input: ImproveCandidateValidationInput) => void
+
 export type ImproveOptimizationRunOptions<TScenario extends Scenario, TArtifact> = Omit<
   NonNullable<CompareOptimizationMethodsOptions<TScenario, TArtifact>['optimizationRunOptions']>,
   'dispatchRef'
@@ -95,6 +106,8 @@ export type ImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   method: ImproveMethodSource<TScenario, TArtifact>
   /** Runs the exact complete profile materialized from one candidate surface. */
   agent: ImproveProfileAgent<TScenario, TArtifact>
+  /** Reject a materialized profile before it reaches the agent callback. */
+  validateCandidate?: ImproveCandidateValidator
   /** Trace or analyst findings available to a method factory. */
   findings?: readonly unknown[]
   /** Select the exact inline skill document for `surface: 'skills'`. */

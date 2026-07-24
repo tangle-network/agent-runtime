@@ -10,12 +10,22 @@ import {
 } from '@tangle-network/agent-eval/campaign'
 import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
-import { defaultRedactor, type Redactor, resolveRedactor } from '../redact'
-import type { ImproveMethodContext, ImproveMethodFactory } from './improve'
+import {
+  defaultRedactor,
+  defaultRedactorIdentityMaterial,
+  type Redactor,
+  resolveRedactor,
+} from '../redact'
+import type {
+  ImproveCandidateValidationInput,
+  ImproveMethodContext,
+  ImproveMethodFactory,
+} from './improve'
+import { withMethodRuntimeControls } from './method-controls'
 
 const defaultMaxFindingsChars = 50_000
 const pythonClientDocs = 'https://github.com/tangle-network/agent-eval/tree/main/clients/python'
-const bridgeInstall = '`python -m pip install "agent-eval-rpc==0.126.5"`'
+const bridgeInstall = '`python -m pip install "agent-eval-rpc==0.126.6"`'
 const gepaWheelInstall = '`python -m pip install "gepa[full]==0.1.4"`'
 const gepaSourceInstall =
   '`python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"`'
@@ -37,13 +47,13 @@ export interface OfficialOptimizerContextOptions {
    * that has already been reviewed.
    */
   redact?: Redactor | false
-  /**
-   * Confirm that structurally sensitive candidate fields contain only safe
-   * references or public values. Required for fields such as MCP env, headers,
-   * URLs, metadata, and extensions because candidate bytes cannot be redacted
-   * without changing what the optimizer measures.
-   */
-  approveSensitiveProfileSurface?: boolean
+  /** Authorize one exact candidate containing structurally sensitive fields.
+   * The callback must return true for every accepted baseline and candidate. */
+  authorizeSensitiveCandidate?: (input: OfficialSensitiveCandidateInput) => boolean
+}
+
+export interface OfficialSensitiveCandidateInput extends ImproveCandidateValidationInput {
+  sensitivePaths: readonly string[]
 }
 
 /** Official GEPA configuration plus bounded Runtime findings context. */
@@ -104,7 +114,7 @@ export function officialGepa<TScenario extends { id: string; kind: string }, TAr
     describeScenario,
     describeArtifact,
     redact,
-    approveSensitiveProfileSurface = false,
+    authorizeSensitiveCandidate,
     ...config
   } = options
   const redactor = resolveRedactor(redact)
@@ -112,16 +122,22 @@ export function officialGepa<TScenario extends { id: string; kind: string }, TAr
   assertMaxFindingsChars('officialGepa', maxFindingsChars)
   const objective = redactOptimizerText('officialGepa', 'objective', config.objective, redactor)
   return (context) => {
-    assertSafeOptimizerSurface('officialGepa', context, approveSensitiveProfileSurface)
-    return withDependencyHelp(
+    const externalEvaluationRef = optimizerEvidencePolicyRef({
+      runtimeEvaluationRef: context.evaluationRef,
+      redactionPolicyRef,
+      describeScenario,
+      describeArtifact,
+      authorizeSensitiveCandidate,
+    })
+    const method = withDependencyHelp(
       'gepa',
-      context.evaluationRef,
+      externalEvaluationRef,
       redactor,
       redactionPolicyRef,
       gepaOptimizationMethod<TScenario, TArtifact>({
         ...config,
         objective,
-        evaluationId: context.evaluationRef,
+        evaluationId: externalEvaluationRef,
         background: methodBackground({
           context,
           background,
@@ -154,6 +170,11 @@ export function officialGepa<TScenario extends { id: string; kind: string }, TAr
           : {}),
       }),
     )
+    return withMethodRuntimeControls(method, {
+      costAttribution: 'optimizer-run',
+      validateCandidate: (input) =>
+        assertSafeOptimizerCandidate('officialGepa', input, authorizeSensitiveCandidate),
+    })
   }
 }
 
@@ -171,7 +192,7 @@ export function officialSkillOpt<
     describeScenario,
     describeArtifact,
     redact,
-    approveSensitiveProfileSurface = false,
+    authorizeSensitiveCandidate,
     ...config
   } = options
   const redactor = resolveRedactor(redact)
@@ -179,16 +200,22 @@ export function officialSkillOpt<
   assertMaxFindingsChars('officialSkillOpt', maxFindingsChars)
   const objective = redactOptimizerText('officialSkillOpt', 'objective', config.objective, redactor)
   return (context) => {
-    assertSafeOptimizerSurface('officialSkillOpt', context, approveSensitiveProfileSurface)
-    return withDependencyHelp(
+    const externalEvaluationRef = optimizerEvidencePolicyRef({
+      runtimeEvaluationRef: context.evaluationRef,
+      redactionPolicyRef,
+      describeScenario,
+      describeArtifact,
+      authorizeSensitiveCandidate,
+    })
+    const method = withDependencyHelp(
       'skillopt',
-      context.evaluationRef,
+      externalEvaluationRef,
       redactor,
       redactionPolicyRef,
       skillOptOptimizationMethod<TScenario, TArtifact>({
         ...config,
         objective,
-        evaluationId: context.evaluationRef,
+        evaluationId: externalEvaluationRef,
         background: methodBackground({
           context,
           background,
@@ -221,6 +248,11 @@ export function officialSkillOpt<
           : {}),
       }),
     )
+    return withMethodRuntimeControls(method, {
+      costAttribution: 'optimizer-run',
+      validateCandidate: (input) =>
+        assertSafeOptimizerCandidate('officialSkillOpt', input, authorizeSensitiveCandidate),
+    })
   }
 }
 
@@ -279,34 +311,58 @@ function methodBackground(options: {
   return sections.join('\n\n')
 }
 
-function assertSafeOptimizerSurface(
+function assertSafeOptimizerCandidate(
   label: string,
-  context: ImproveMethodContext,
-  approveSensitiveProfileSurface: boolean,
+  input: ImproveCandidateValidationInput,
+  authorizeSensitiveCandidate: ((input: OfficialSensitiveCandidateInput) => boolean) | undefined,
 ): void {
-  const redactedValue = defaultRedactor(context.baselineValue)
-  const redactedSurface = defaultRedactor(context.baselineSurface)
+  const redactedValue = defaultRedactor(input.value)
+  const redactedSurface = defaultRedactor(input.candidateSurface)
   if (
-    !isDeepStrictEqual(context.baselineValue, redactedValue) ||
-    !isDeepStrictEqual(context.baselineSurface, redactedSurface)
+    !isDeepStrictEqual(input.value, redactedValue) ||
+    !isDeepStrictEqual(input.candidateSurface, redactedSurface)
   ) {
     throw new ConfigError(
       `${label}: the selected profile surface contains a common credential or private value. ` +
         'Store live credentials as provider references, or remove private data before starting an external optimizer.',
     )
   }
-  const sensitivePaths = sensitiveProfileSurfacePaths(context.baselineValue)
-  if (!approveSensitiveProfileSurface && sensitivePaths.length > 0) {
+  const sensitivePaths = sensitiveProfileSurfacePaths(input)
+  if (sensitivePaths.length === 0) return
+  let authorized = false
+  if (authorizeSensitiveCandidate) {
+    try {
+      authorized =
+        authorizeSensitiveCandidate(
+          Object.freeze({
+            ...input,
+            sensitivePaths: Object.freeze([...sensitivePaths]),
+          }),
+        ) === true
+    } catch (cause) {
+      throw new ConfigError(`${label}: sensitive candidate authorization failed`, { cause })
+    }
+  }
+  if (!authorized) {
     throw new ConfigError(
       `${label}: the selected profile surface contains fields that may carry private values: ` +
         `${sensitivePaths.slice(0, 8).join(', ')}. Remove them, replace values with safe references, ` +
-        'or set approveSensitiveProfileSurface: true after reviewing the exact candidate bytes.',
+        'or authorize the exact profile with authorizeSensitiveCandidate.',
     )
   }
 }
 
-function sensitiveProfileSurfacePaths(value: unknown): string[] {
-  const paths: string[] = []
+function sensitiveProfileSurfacePaths(input: ImproveCandidateValidationInput): string[] {
+  const paths = new Set<string>()
+  if (
+    input.surface === 'tools' ||
+    input.surface === 'mcp' ||
+    input.surface === 'hooks' ||
+    input.surface === 'subagents' ||
+    input.surface === 'agent-profile'
+  ) {
+    paths.add('$')
+  }
   const seen = new WeakSet<object>()
   const visit = (current: unknown, path: string): void => {
     if (current === null || typeof current !== 'object') return
@@ -321,14 +377,14 @@ function sensitiveProfileSurfacePaths(value: unknown): string[] {
     for (const [key, child] of Object.entries(current as Record<string, unknown>)) {
       const childPath = `${path}.${key}`
       if (['env', 'headers', 'url', 'metadata', 'extensions'].includes(key.toLowerCase())) {
-        paths.push(childPath)
+        paths.add(childPath)
         continue
       }
       visit(child, childPath)
     }
   }
-  visit(value, '$')
-  return paths
+  visit(input.value, '$')
+  return [...paths]
 }
 
 function redactOptimizerEvidence(
@@ -365,13 +421,41 @@ function redactJudgeScore(score: JudgeScore, redactor: Redactor): JudgeScore {
   }
 }
 
-function optimizerRedactionPolicyRef(redact: Redactor | false | undefined): string {
-  if (redact === undefined) return 'default-redactor'
+export function optimizerRedactionPolicyRef(
+  redact: Redactor | false | undefined,
+  builtInIdentity: unknown = defaultRedactorIdentityMaterial(),
+): string {
   if (redact === false) return 'caller-approved-raw'
   return canonicalCandidateDigest({
-    kind: 'caller-redactor',
-    source: Function.prototype.toString.call(redact),
+    kind: redact === undefined ? 'default-redactor' : 'caller-redactor-with-default',
+    builtIn: builtInIdentity,
+    ...(redact === undefined
+      ? {}
+      : {
+          callerSource: Function.prototype.toString.call(redact),
+          composition: Function.prototype.toString.call(resolveRedactor),
+        }),
   })
+}
+
+function optimizerEvidencePolicyRef(input: {
+  runtimeEvaluationRef: ImproveMethodContext['evaluationRef']
+  redactionPolicyRef: string
+  describeScenario: unknown
+  describeArtifact: unknown
+  authorizeSensitiveCandidate: unknown
+}): ReturnType<typeof canonicalCandidateDigest> {
+  return canonicalCandidateDigest({
+    runtimeEvaluationRef: input.runtimeEvaluationRef,
+    redactionPolicyRef: input.redactionPolicyRef,
+    describeScenario: callbackSource(input.describeScenario),
+    describeArtifact: callbackSource(input.describeArtifact),
+    authorizeSensitiveCandidate: callbackSource(input.authorizeSensitiveCandidate),
+  })
+}
+
+function callbackSource(callback: unknown): string | null {
+  return typeof callback === 'function' ? Function.prototype.toString.call(callback) : null
 }
 
 function withDependencyHelp<TScenario extends { id: string; kind: string }, TArtifact>(

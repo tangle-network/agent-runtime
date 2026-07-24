@@ -123,7 +123,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "0.126.5",
+    "@tangle-network/agent-eval": "0.126.6",
     "@tangle-network/agent-interface": "0.32.0",
     "@tangle-network/sandbox": "^0.12.0",
     "@types/node": "^25.9.3",
@@ -155,7 +155,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.126.5 <0.127.0",
+    "@tangle-network/agent-eval": ">=0.126.6 <0.127.0",
     "@tangle-network/agent-interface": ">=0.32.0 <0.33.0",
     "@tangle-network/sandbox": ">=0.12.0 <1.0.0",
     "playwright": "^1.40.0"
@@ -169,7 +169,7 @@
     }
   },
   "dependencies": {
-    "@tangle-network/agent-knowledge": "5.0.0",
+    "@tangle-network/agent-knowledge": "5.0.1",
     "@tangle-network/agent-profile-materialize": "0.5.1",
     "tar-stream": "3.2.0"
   }

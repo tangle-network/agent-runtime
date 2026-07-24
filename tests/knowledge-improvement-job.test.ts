@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
-import type {
-  AgentImprovementActivationResult,
-  Sha256Digest,
+import {
+  type AgentImprovementActivationResult,
+  canonicalCandidateDigest,
+  type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
   addSourceText,
@@ -161,6 +162,7 @@ describe('runKnowledgeImprovementJob', () => {
         const result = await runKnowledgeImprovementJob({
           root,
           goal: 'Add runtime job knowledge',
+          implementationRef: canonicalCandidateDigest({ fixture: 'runtime-job' }),
           runId: 'runtime-job',
           strict: true,
           budget: { maxIterations: 2, maxTokens: 1000 },
@@ -258,6 +260,9 @@ describe('runKnowledgeImprovementJob', () => {
         const result = await runKnowledgeImprovementJob({
           root,
           goal: 'Add runtime job knowledge',
+          implementationRef: canonicalCandidateDigest({
+            fixture: 'runtime-job-default-readiness',
+          }),
           runId: 'runtime-job-default-readiness',
           strict: true,
           readinessSpecs: [readinessSpec],
@@ -305,6 +310,7 @@ describe('runKnowledgeImprovementJob', () => {
         const proposed = await runKnowledgeImprovementJob({
           root,
           goal: 'Add runtime job knowledge',
+          implementationRef: canonicalCandidateDigest({ fixture: 'runtime-job-approved' }),
           runId: 'runtime-job-approved',
           strict: true,
           budget: { maxIterations: 2, maxTokens: 1000 },

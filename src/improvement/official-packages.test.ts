@@ -160,7 +160,7 @@ print(json.dumps({
     }
     expect(inspected.runtime.bridge).toMatchObject({
       package: 'agent-eval-rpc',
-      version: '0.126.5',
+      version: '0.126.6',
       sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
     expect(inspected.runtime.optimizer).toMatchObject({
@@ -229,7 +229,7 @@ print(json.dumps({
     }
     expect(inspected.runtime.bridge).toMatchObject({
       package: 'agent-eval-rpc',
-      version: '0.126.5',
+      version: '0.126.6',
       sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
     expect(inspected.runtime.optimizer).toMatchObject({
