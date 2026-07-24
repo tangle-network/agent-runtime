@@ -12171,7 +12171,7 @@ Defined in: [src/runtime/supervise/sandbox-session.ts:76](https://github.com/tan
 
 ### ProgressSample
 
-Defined in: src/runtime/supervise/stop-rules.ts:47
+Defined in: [src/runtime/supervise/stop-rules.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L47)
 
 One settled unit of work, reduced to what a stop rule reads. `objective` is the run's own
  quality signal (a verdict score, a test pass-rate, a judge rating); `undefined` = this
@@ -12183,13 +12183,13 @@ One settled unit of work, reduced to what a stop rule reads. `objective` is the 
 
 > `readonly` **id**: `string`
 
-Defined in: src/runtime/supervise/stop-rules.ts:48
+Defined in: [src/runtime/supervise/stop-rules.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L48)
 
 ##### at
 
 > `readonly` **at**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:50
+Defined in: [src/runtime/supervise/stop-rules.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L50)
 
 Epoch ms the settlement was observed.
 
@@ -12197,13 +12197,13 @@ Epoch ms the settlement was observed.
 
 > `readonly` `optional` **objective?**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:51
+Defined in: [src/runtime/supervise/stop-rules.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L51)
 
 ##### delivered
 
 > `readonly` **delivered**: `boolean`
 
-Defined in: src/runtime/supervise/stop-rules.ts:54
+Defined in: [src/runtime/supervise/stop-rules.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L54)
 
 True when the settlement passed its deliverable check — a scored-but-undelivered result is
  not progress.
@@ -12212,7 +12212,7 @@ True when the settlement passed its deliverable check — a scored-but-undeliver
 
 ### ProgressView
 
-Defined in: src/runtime/supervise/stop-rules.ts:58
+Defined in: [src/runtime/supervise/stop-rules.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L58)
 
 The read-model a `StopRule` decides from — the run's progress, not its budget.
 
@@ -12222,13 +12222,13 @@ The read-model a `StopRule` decides from — the run's progress, not its budget.
 
 > `readonly` **now**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:59
+Defined in: [src/runtime/supervise/stop-rules.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L59)
 
 ##### settles
 
 > `readonly` **settles**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:61
+Defined in: [src/runtime/supervise/stop-rules.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L61)
 
 Settlements observed so far, in the order they landed.
 
@@ -12236,7 +12236,7 @@ Settlements observed so far, in the order they landed.
 
 > `readonly` **delivered**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:63
+Defined in: [src/runtime/supervise/stop-rules.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L63)
 
 Of those, how many passed their deliverable check.
 
@@ -12244,7 +12244,7 @@ Of those, how many passed their deliverable check.
 
 > `readonly` **curve**: readonly `number`[]
 
-Defined in: src/runtime/supervise/stop-rules.ts:65
+Defined in: [src/runtime/supervise/stop-rules.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L65)
 
 Best-so-far objective after each settlement (`anytime.bestSoFar`).
 
@@ -12252,7 +12252,7 @@ Best-so-far objective after each settlement (`anytime.bestSoFar`).
 
 > `readonly` **best**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:67
+Defined in: [src/runtime/supervise/stop-rules.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L67)
 
 The current best objective; `0` when nothing has scored.
 
@@ -12260,7 +12260,7 @@ The current best objective; `0` when nothing has scored.
 
 > `readonly` **auc**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:69
+Defined in: [src/runtime/supervise/stop-rules.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L69)
 
 Mean of the best-so-far curve — how EARLY the run climbed (`anytime.areaUnderCurve`).
 
@@ -12268,7 +12268,7 @@ Mean of the best-so-far curve — how EARLY the run climbed (`anytime.areaUnderC
 
 > `readonly` **lastSettleAt**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:71
+Defined in: [src/runtime/supervise/stop-rules.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L71)
 
 Epoch ms of the most recent settlement; `0` when none has landed.
 
@@ -12276,7 +12276,7 @@ Epoch ms of the most recent settlement; `0` when none has landed.
 
 > `readonly` **lastImprovementAt**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:73
+Defined in: [src/runtime/supervise/stop-rules.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L73)
 
 Epoch ms of the most recent improvement in best-so-far; `0` when none.
 
@@ -12284,7 +12284,7 @@ Epoch ms of the most recent improvement in best-so-far; `0` when none.
 
 > `readonly` **settlesSinceImprovement**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:75
+Defined in: [src/runtime/supervise/stop-rules.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L75)
 
 Settlements since the last improvement — `0` right after one improves.
 
@@ -12292,7 +12292,7 @@ Settlements since the last improvement — `0` right after one improves.
 
 > `readonly` **workers**: readonly [`WorkerProgress`](#workerprogress)[]
 
-Defined in: src/runtime/supervise/stop-rules.ts:78
+Defined in: [src/runtime/supervise/stop-rules.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L78)
 
 Live read of every non-terminal worker (the `Scope.progress` feed). Empty when the caller
  supplied no scope.
@@ -12301,7 +12301,7 @@ Live read of every non-terminal worker (the `Scope.progress` feed). Empty when t
 
 > `readonly` **inFlight**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:80
+Defined in: [src/runtime/supervise/stop-rules.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L80)
 
 Nodes running or acquiring.
 
@@ -12309,7 +12309,7 @@ Nodes running or acquiring.
 
 > `readonly` **waiting**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:83
+Defined in: [src/runtime/supervise/stop-rules.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L83)
 
 Armed wait-state nodes — deliberately separate from `inFlight`: a tree whose only remaining
  nodes are waits is NOT stalled, it is waiting on the world.
@@ -12318,7 +12318,7 @@ Armed wait-state nodes — deliberately separate from `inFlight`: a tree whose o
 
 ### ProgressTracker
 
-Defined in: src/runtime/supervise/stop-rules.ts:99
+Defined in: [src/runtime/supervise/stop-rules.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L101)
 
 Accumulates settlements and materializes a `ProgressView`. Idempotent by settlement id, so a
  caller may re-push its whole roster every turn (the driver does exactly that) without
@@ -12330,7 +12330,7 @@ Accumulates settlements and materializes a `ProgressView`. Idempotent by settlem
 
 > **record**(`sample`): `boolean`
 
-Defined in: src/runtime/supervise/stop-rules.ts:102
+Defined in: [src/runtime/supervise/stop-rules.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L104)
 
 Record a settlement. A second call with the same `id` is ignored. Returns true when it was
  new.
@@ -12349,7 +12349,7 @@ Record a settlement. A second call with the same `id` is ignored. Returns true w
 
 > **view**(`scope?`, `opts?`): [`ProgressView`](#progressview)
 
-Defined in: src/runtime/supervise/stop-rules.ts:104
+Defined in: [src/runtime/supervise/stop-rules.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L106)
 
 Materialize the view. Pass the live `Scope` to include the worker feed and tree shape.
 
@@ -12373,7 +12373,7 @@ Materialize the view. Pass the live `Scope` to include the worker feed and tree 
 
 > **evaluate**(`rule`, `scope?`, `opts?`): [`StopDecision`](#stopdecision)
 
-Defined in: src/runtime/supervise/stop-rules.ts:106
+Defined in: [src/runtime/supervise/stop-rules.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L108)
 
 Evaluate a rule against the current view.
 
@@ -12401,7 +12401,7 @@ Evaluate a rule against the current view.
 
 > **samples**(): readonly [`ProgressSample`](#progresssample)[]
 
-Defined in: src/runtime/supervise/stop-rules.ts:108
+Defined in: [src/runtime/supervise/stop-rules.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L114)
 
 The samples recorded so far, in order.
 
@@ -12413,7 +12413,7 @@ readonly [`ProgressSample`](#progresssample)[]
 
 ### ProgressTrackerOptions
 
-Defined in: src/runtime/supervise/stop-rules.ts:111
+Defined in: [src/runtime/supervise/stop-rules.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L117)
 
 #### Properties
 
@@ -12421,7 +12421,7 @@ Defined in: src/runtime/supervise/stop-rules.ts:111
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:113
+Defined in: [src/runtime/supervise/stop-rules.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L119)
 
 Clock for `view().now`. Defaults to `Date.now`.
 
@@ -12433,7 +12433,7 @@ Clock for `view().now`. Defaults to `Date.now`.
 
 > `readonly` `optional` **requireDelivered?**: `boolean`
 
-Defined in: src/runtime/supervise/stop-rules.ts:117
+Defined in: [src/runtime/supervise/stop-rules.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L123)
 
 Treat a settlement that did NOT pass its deliverable check as having no objective. Default
  true — "scored 0.9 but never delivered" is not progress, and counting it as progress is the
@@ -12443,7 +12443,7 @@ Treat a settlement that did NOT pass its deliverable check as having no objectiv
 
 > `readonly` `optional` **minImprovement?**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:120
+Defined in: [src/runtime/supervise/stop-rules.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L126)
 
 How much the best-so-far must rise for a settlement to count as an IMPROVEMENT. Default 0
  (any strict rise counts). Raise it to ignore score noise.
@@ -12452,7 +12452,7 @@ How much the best-so-far must rise for a settlement to count as an IMPROVEMENT. 
 
 ### NoProgressForOptions
 
-Defined in: src/runtime/supervise/stop-rules.ts:218
+Defined in: [src/runtime/supervise/stop-rules.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L225)
 
 #### Properties
 
@@ -12460,7 +12460,7 @@ Defined in: src/runtime/supervise/stop-rules.ts:218
 
 > `readonly` `optional` **ms?**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:220
+Defined in: [src/runtime/supervise/stop-rules.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L227)
 
 Stop when this many ms have passed since the last SETTLEMENT. Omit to not bound on time.
 
@@ -12468,7 +12468,7 @@ Stop when this many ms have passed since the last SETTLEMENT. Omit to not bound 
 
 > `readonly` `optional` **settles?**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:223
+Defined in: [src/runtime/supervise/stop-rules.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L230)
 
 Stop when this many settlements have landed with no improvement in best-so-far. Omit to not
  bound on settles.
@@ -12477,7 +12477,7 @@ Stop when this many settlements have landed with no improvement in best-so-far. 
 
 > `readonly` `optional` **minSettles?**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:226
+Defined in: [src/runtime/supervise/stop-rules.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L233)
 
 Never stop before this many settlements have landed — the warm-up that stops a rule from
  firing on an empty run. Default 1.
@@ -12486,7 +12486,7 @@ Never stop before this many settlements have landed — the warm-up that stops a
 
 ### PlateauOptions
 
-Defined in: src/runtime/supervise/stop-rules.ts:268
+Defined in: [src/runtime/supervise/stop-rules.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L275)
 
 #### Properties
 
@@ -12494,7 +12494,7 @@ Defined in: src/runtime/supervise/stop-rules.ts:268
 
 > `readonly` **window**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:271
+Defined in: [src/runtime/supervise/stop-rules.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L278)
 
 How many trailing settlements to judge. The rule fires when the whole window failed to lift
  the best-so-far by more than `minDelta`.
@@ -12503,7 +12503,7 @@ How many trailing settlements to judge. The rule fires when the whole window fai
 
 > `readonly` **minDelta**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:274
+Defined in: [src/runtime/supervise/stop-rules.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L281)
 
 The rise that counts as an improvement — the domain's noise floor. `0` means any strict rise
  counts.
@@ -12512,7 +12512,7 @@ The rise that counts as an improvement — the domain's noise floor. `0` means a
 
 > `readonly` `optional` **minSettles?**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:277
+Defined in: [src/runtime/supervise/stop-rules.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L284)
 
 Never fire before this many settlements. Defaults to `window` (so the first decision is made
  on a full window, not on a partial one).
@@ -12521,7 +12521,7 @@ Never fire before this many settlements. Defaults to `window` (so the first deci
 
 ### AllWorkersStalledOptions
 
-Defined in: src/runtime/supervise/stop-rules.ts:309
+Defined in: [src/runtime/supervise/stop-rules.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L316)
 
 #### Properties
 
@@ -12529,7 +12529,7 @@ Defined in: src/runtime/supervise/stop-rules.ts:309
 
 > `readonly` `optional` **minWorkers?**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:312
+Defined in: [src/runtime/supervise/stop-rules.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L319)
 
 Require at least this many live workers before the rule can fire — one stalled worker in a
  one-worker tree is a weaker signal than a whole fleet going quiet. Default 1.
@@ -12538,7 +12538,7 @@ Require at least this many live workers before the rule can fire — one stalled
 
 > `readonly` `optional` **stallAfterMs?**: `number`
 
-Defined in: src/runtime/supervise/stop-rules.ts:315
+Defined in: [src/runtime/supervise/stop-rules.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L322)
 
 Idle time that counts as stalled, passed through to the live progress read. Omit = the
  runtime default (`DEFAULT_STALL_AFTER_MS`).
@@ -14399,7 +14399,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ### WaitProbeRegistry
 
-Defined in: src/runtime/supervise/wait.ts:110
+Defined in: [src/runtime/supervise/wait.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L110)
 
 Resolves a `poll` spec's `probe` name to its predicate. Threaded through `SupervisorOpts` so
  the SAME registry a fresh run used is what a resumed run re-resolves against.
@@ -14410,7 +14410,7 @@ Resolves a `poll` spec's `probe` name to its predicate. Threaded through `Superv
 
 > **resolve**(`name`): [`WaitProbe`](#waitprobe) \| `undefined`
 
-Defined in: src/runtime/supervise/wait.ts:111
+Defined in: [src/runtime/supervise/wait.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L111)
 
 ###### Parameters
 
@@ -14426,7 +14426,7 @@ Defined in: src/runtime/supervise/wait.ts:111
 
 ### WaitOutcome
 
-Defined in: src/runtime/supervise/wait.ts:124
+Defined in: [src/runtime/supervise/wait.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L124)
 
 The `out` a settled wait node delivers through `Scope.next()`. `settled` is the outcome the
  caller branches on: `'fired'` = the timer reached its instant or the predicate flipped;
@@ -14439,7 +14439,7 @@ The `out` a settled wait node delivers through `Scope.next()`. `settled` is the 
 
 > `readonly` **waitOutcome**: `true`
 
-Defined in: src/runtime/supervise/wait.ts:126
+Defined in: [src/runtime/supervise/wait.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L126)
 
 Tag for `isWaitOutcome` — a wait outcome arrives on the same cursor as worker outputs.
 
@@ -14447,25 +14447,25 @@ Tag for `isWaitOutcome` — a wait outcome arrives on the same cursor as worker 
 
 > `readonly` **kind**: `"poll"` \| `"timer"`
 
-Defined in: src/runtime/supervise/wait.ts:127
+Defined in: [src/runtime/supervise/wait.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L127)
 
 ##### settled
 
 > `readonly` **settled**: `"timeout"` \| `"fired"`
 
-Defined in: src/runtime/supervise/wait.ts:128
+Defined in: [src/runtime/supervise/wait.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L128)
 
 ##### label
 
 > `readonly` **label**: `string`
 
-Defined in: src/runtime/supervise/wait.ts:129
+Defined in: [src/runtime/supervise/wait.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L129)
 
 ##### untilMs?
 
 > `readonly` `optional` **untilMs?**: `number`
 
-Defined in: src/runtime/supervise/wait.ts:132
+Defined in: [src/runtime/supervise/wait.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L132)
 
 The absolute instant this wait was armed for (timer `untilMs` / poll `timeoutAtMs`); absent
  for an unbounded poll.
@@ -14474,7 +14474,7 @@ The absolute instant this wait was armed for (timer `untilMs` / poll `timeoutAtM
 
 > `readonly` **armedAt**: `number`
 
-Defined in: src/runtime/supervise/wait.ts:135
+Defined in: [src/runtime/supervise/wait.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L135)
 
 Epoch ms the wait was FIRST armed — preserved across a resume, so `wokenAt - armedAt` is
  the true end-to-end wait even when it spanned several processes.
@@ -14483,13 +14483,13 @@ Epoch ms the wait was FIRST armed — preserved across a resume, so `wokenAt - a
 
 > `readonly` **wokenAt**: `number`
 
-Defined in: src/runtime/supervise/wait.ts:136
+Defined in: [src/runtime/supervise/wait.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L136)
 
 ##### polls
 
 > `readonly` **polls**: `number`
 
-Defined in: src/runtime/supervise/wait.ts:138
+Defined in: [src/runtime/supervise/wait.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L138)
 
 Predicate checks performed in the process that settled it (a resume restarts this count).
 
@@ -14497,7 +14497,7 @@ Predicate checks performed in the process that settled it (a resume restarts thi
 
 > `readonly` **probeErrors**: `number`
 
-Defined in: src/runtime/supervise/wait.ts:140
+Defined in: [src/runtime/supervise/wait.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L140)
 
 Probe checks that threw (counted, not fatal).
 
@@ -14505,7 +14505,7 @@ Probe checks that threw (counted, not fatal).
 
 > `readonly` **resumed**: `boolean`
 
-Defined in: src/runtime/supervise/wait.ts:142
+Defined in: [src/runtime/supervise/wait.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L142)
 
 True when a later process re-armed this wait from the journal instead of creating it.
 
@@ -14513,7 +14513,7 @@ True when a later process re-armed this wait from the journal instead of creatin
 
 ### PendingWait
 
-Defined in: src/runtime/supervise/wait.ts:156
+Defined in: [src/runtime/supervise/wait.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L156)
 
 A wait recorded in the journal that never woke — what a resumed run re-arms.
 
@@ -14523,25 +14523,25 @@ A wait recorded in the journal that never woke — what a resumed run re-arms.
 
 > `readonly` **id**: `string`
 
-Defined in: src/runtime/supervise/wait.ts:157
+Defined in: [src/runtime/supervise/wait.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L157)
 
 ##### label
 
 > `readonly` **label**: `string`
 
-Defined in: src/runtime/supervise/wait.ts:158
+Defined in: [src/runtime/supervise/wait.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L158)
 
 ##### spec
 
 > `readonly` **spec**: [`WaitSpec`](#waitspec)
 
-Defined in: src/runtime/supervise/wait.ts:159
+Defined in: [src/runtime/supervise/wait.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L159)
 
 ##### armedAt
 
 > `readonly` **armedAt**: `number`
 
-Defined in: src/runtime/supervise/wait.ts:161
+Defined in: [src/runtime/supervise/wait.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L161)
 
 The ORIGINAL arm instant. A re-armed wait keeps it, so its deadline never slides.
 
@@ -14549,7 +14549,7 @@ The ORIGINAL arm instant. A re-armed wait keeps it, so its deadline never slides
 
 > `readonly` **ordinal**: `number`
 
-Defined in: src/runtime/supervise/wait.ts:163
+Defined in: [src/runtime/supervise/wait.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L163)
 
 The wait ordinal in its parent scope, so a resumed scope continues past it.
 
@@ -18146,7 +18146,7 @@ variant carries its backend's seam (router/router-tools/bridge/cli/cli-worktree/
 
 > **StopDecision** = \{ `stop`: `false`; \} \| \{ `stop`: `true`; `reason`: `string`; \}
 
-Defined in: src/runtime/supervise/stop-rules.ts:88
+Defined in: [src/runtime/supervise/stop-rules.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L88)
 
 A stop rule's answer. `reason` is required when stopping — a run that ends must be able to say
  why in the result, and an unexplained early stop is indistinguishable from a bug.
@@ -18157,7 +18157,7 @@ A stop rule's answer. `reason` is required when stopping — a run that ends mus
 
 > **StopRule** = (`view`) => [`StopDecision`](#stopdecision)
 
-Defined in: src/runtime/supervise/stop-rules.ts:92
+Defined in: [src/runtime/supervise/stop-rules.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L94)
 
 Evaluated from the progress feed, never from the budget. Pure and synchronous: it is called on
  the driver's hot path, once per turn.
@@ -18607,7 +18607,7 @@ The conserved spend incurred before the run failed — real cost is paid even wh
 
 > **WaitSpec** = \{ `kind`: `"timer"`; `untilMs`: `number`; \} \| \{ `kind`: `"poll"`; `probe`: `string`; `intervalMs`: `number`; `timeoutAtMs?`: `number`; `args?`: `Record`\<`string`, `unknown`\>; \}
 
-Defined in: src/runtime/supervise/wait.ts:50
+Defined in: [src/runtime/supervise/wait.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L50)
 
 What a wait node is waiting for. Both variants carry ABSOLUTE epoch-ms instants so a wait
  re-armed by a later process keeps the deadline the first process set.
@@ -18672,7 +18672,7 @@ Opaque JSON handed to the probe on every check. Journaled with the spec, so a re
 
 > **WaitProbe** = (`args`, `signal`) => `boolean` \| `Promise`\<`boolean`\>
 
-Defined in: src/runtime/supervise/wait.ts:103
+Defined in: [src/runtime/supervise/wait.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L103)
 
 A named predicate a `poll` node re-checks. Returns true when the condition it watches has
 flipped. A throw is treated as "not yet" (an unreachable CI endpoint is not a settled answer),
@@ -18699,7 +18699,7 @@ than silently polling forever.
 
 > **WaitRejection** = `"invalid-spec"` \| `"unknown-probe"` \| `"deadline-exceeded"`
 
-Defined in: src/runtime/supervise/wait.ts:167
+Defined in: [src/runtime/supervise/wait.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L167)
 
 Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission shape.
 
@@ -22295,7 +22295,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 > **driverAgent**(`opts`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L233)
+Defined in: [src/runtime/supervise/coordination-driver.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L229)
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -22316,7 +22316,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:475](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L475)
+Defined in: [src/runtime/supervise/coordination-driver.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L471)
 
 Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
  output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
@@ -22963,7 +22963,7 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 > **createProgressTracker**(`opts?`): [`ProgressTracker`](#progresstracker)
 
-Defined in: src/runtime/supervise/stop-rules.ts:125
+Defined in: [src/runtime/supervise/stop-rules.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L131)
 
 Build the settled-work ledger a `StopRule` decides from: record each settlement (idempotent by
  id) and materialize a `ProgressView` combining the best-so-far curve with the live worker feed.
@@ -22984,7 +22984,7 @@ Build the settled-work ledger a `StopRule` decides from: record each settlement 
 
 > **sampleFromSettled**(`settled`, `at`): [`ProgressSample`](#progresssample)
 
-Defined in: src/runtime/supervise/stop-rules.ts:201
+Defined in: [src/runtime/supervise/stop-rules.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L208)
 
 Build a `ProgressSample` from a scope settlement. The objective is the verdict score and
  `delivered` is the verdict's `valid` — the SAME single delivery signal `finalizeBestDelivered`
@@ -23010,7 +23010,7 @@ Build a `ProgressSample` from a scope settlement. The objective is the verdict s
 
 > **noProgressFor**(`opts`): [`StopRule`](#stoprule-1)
 
-Defined in: src/runtime/supervise/stop-rules.ts:236
+Defined in: [src/runtime/supervise/stop-rules.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L243)
 
 "Nothing new has happened." Fires when the run has produced no new settled work for `ms`, or no
 IMPROVEMENT over the last `settles` settlements.
@@ -23034,7 +23034,7 @@ on CI is not a run that stopped making progress, and killing it there would defe
 
 > **plateau**(`opts`): [`StopRule`](#stoprule-1)
 
-Defined in: src/runtime/supervise/stop-rules.ts:288
+Defined in: [src/runtime/supervise/stop-rules.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L295)
 
 "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than
 `minDelta` across the last `window` settlements.
@@ -23059,7 +23059,7 @@ run was flat.
 
 > **allWorkersStalled**(`opts?`): [`StopRule`](#stoprule-1)
 
-Defined in: src/runtime/supervise/stop-rules.ts:325
+Defined in: [src/runtime/supervise/stop-rules.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L332)
 
 "Everyone is stuck." Fires when every live worker reads `stalled` — no metered activity for
 longer than the stall threshold — and none of the tree is merely waiting.
@@ -23083,7 +23083,7 @@ reads it. A tree with armed waits never fires: waiting is not stalling.
 
 > **anyOf**(...`rules`): [`StopRule`](#stoprule-1)
 
-Defined in: src/runtime/supervise/stop-rules.ts:340
+Defined in: [src/runtime/supervise/stop-rules.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L347)
 
 Stop when ANY rule stops — the ordinary composition (each rule is a separate reason to end).
 
@@ -23103,7 +23103,7 @@ Stop when ANY rule stops — the ordinary composition (each rule is a separate r
 
 > **allOf**(...`rules`): [`StopRule`](#stoprule-1)
 
-Defined in: src/runtime/supervise/stop-rules.ts:351
+Defined in: [src/runtime/supervise/stop-rules.ts:358](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L358)
 
 Stop only when EVERY rule stops — for a conservative gate that needs corroboration.
 
@@ -23365,7 +23365,7 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 
 > **timerAt**(`ms`, `now`): [`WaitSpec`](#waitspec)
 
-Defined in: src/runtime/supervise/wait.ts:74
+Defined in: [src/runtime/supervise/wait.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L74)
 
 Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed
  wait re-uses the journaled instant, never a fresh `now + ms`.
@@ -23390,7 +23390,7 @@ Build a `timer` spec from a DURATION. The instant is resolved once, at arm time 
 
 > **pollFor**(`probe`, `opts`, `now`): [`WaitSpec`](#waitspec)
 
-Defined in: src/runtime/supervise/wait.ts:79
+Defined in: [src/runtime/supervise/wait.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L79)
 
 Build a bounded `poll` spec from a duration.
 
@@ -23428,7 +23428,7 @@ Build a bounded `poll` spec from a duration.
 
 > **createWaitProbes**(`entries`): [`WaitProbeRegistry`](#waitproberegistry)
 
-Defined in: src/runtime/supervise/wait.ts:115
+Defined in: [src/runtime/supervise/wait.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L115)
 
 Registry over a plain name→predicate record.
 
@@ -23448,7 +23448,7 @@ Registry over a plain name→predicate record.
 
 > **isWaitOutcome**(`value`): `value is WaitOutcome`
 
-Defined in: src/runtime/supervise/wait.ts:147
+Defined in: [src/runtime/supervise/wait.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L147)
 
 Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cursor as workers,
  so a driver that mixes them tags them apart with this.
@@ -23469,7 +23469,7 @@ Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cur
 
 > **waitUntil**(`spec`): `number` \| `undefined`
 
-Defined in: src/runtime/supervise/wait.ts:170
+Defined in: [src/runtime/supervise/wait.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L170)
 
 The absolute instant a spec is bounded by, or `undefined` for an unbounded poll.
 
@@ -23489,7 +23489,7 @@ The absolute instant a spec is bounded by, or `undefined` for an unbounded poll.
 
 > **validateWaitSpec**(`spec`): `string` \| `null`
 
-Defined in: src/runtime/supervise/wait.ts:175
+Defined in: [src/runtime/supervise/wait.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L175)
 
 Structural validation, independent of the run. Returns null when the spec is usable.
 
