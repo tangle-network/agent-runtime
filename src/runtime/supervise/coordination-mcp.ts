@@ -28,6 +28,7 @@ import {
   createCoordinationTools,
   type MakeWorkerAgent,
   type QuestionPolicy,
+  type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { Budget, ResultBlobStore, Scope } from './types'
 
@@ -70,6 +71,10 @@ export async function serveCoordinationMcp(opts: {
   analysts?: AnalystRegistry
   /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
   analyzeOnSettle?: ReadonlyArray<string>
+  /** Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events). */
+  watchWorkers?: WorkerWatchOptions
+  /** Idle time after which `observe_agent` reports a worker as stalled. */
+  stallAfterMs?: number
   /** Pass-through subscriber for every bus event (settled / question / finding). */
   onEvent?: (event: CoordinationEvent) => void | Promise<void>
   questionPolicy?: QuestionPolicy
@@ -83,6 +88,8 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: opts.awaitTimeoutMs } : {}),
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+    ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
+    ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
     ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
     ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
   })

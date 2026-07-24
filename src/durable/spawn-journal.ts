@@ -33,6 +33,7 @@ import type {
   Spend,
   TreeView,
 } from '../runtime/supervise/types'
+import type { PendingWait } from '../runtime/supervise/wait'
 import { zeroTokenUsage } from '../runtime/util'
 
 // ── Content addressing ──────────────────────────────────────────────────────
@@ -275,15 +276,23 @@ type SpawnJournalRecord =
  * ordinal legitimately equals a later `settled` cursor seq and is not a collision.
  */
 function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): void {
-  // `spawned` (ordinal namespace) and `metered` (informational spend, no settlement order) live
-  // outside the cursor-uniqueness namespace replay relies on.
-  if (ev.kind === 'spawned' || ev.kind === 'metered') return
-  if (events.some((e) => e.kind !== 'spawned' && e.kind !== 'metered' && e.seq === ev.seq)) {
+  // `spawned` (ordinal namespace), `waiting` (the wait-ordinal namespace — it CREATES a node, it
+  // does not settle one), and `metered` (informational spend, no settlement order) live outside
+  // the cursor-uniqueness namespace replay relies on. `woken` IS a settlement and does not.
+  if (outsideCursorNamespace(ev)) return
+  if (events.some((e) => !outsideCursorNamespace(e) && e.seq === ev.seq)) {
     throw new Error(
       `spawn journal corrupted: duplicate cursor seq ${ev.seq} in tree '${root}'; ` +
         'the cursor order replay relies on is not unique',
     )
   }
+}
+
+/** Node-CREATION and informational records — outside the cursor namespace whose uniqueness replay
+ *  ordering rests on. The single predicate both the guard's sides read, so a new event kind is
+ *  classified once. */
+function outsideCursorNamespace(ev: SpawnEvent): boolean {
+  return ev.kind === 'spawned' || ev.kind === 'waiting' || ev.kind === 'metered'
 }
 
 // ── Replay executor (build step 7) ───────────────────────────────────────────────
@@ -311,12 +320,43 @@ export async function replaySpawnTree(
   const ordered = [...events].sort((a, b) => a.seq - b.seq)
   const labels = new Map<NodeId, string>()
   for (const ev of ordered) {
-    if (ev.kind === 'spawned') labels.set(ev.id, ev.label)
+    if (ev.kind === 'spawned' || ev.kind === 'waiting') labels.set(ev.id, ev.label)
   }
   const settled: Settled<unknown>[] = []
   for (const ev of ordered) {
     if (ev.kind === 'spawned') continue
+    if (ev.kind === 'waiting') continue // arms a wait node; `woken` is its settlement
     if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
+    if (ev.kind === 'woken') {
+      // A wait that was cancelled carries no outcome blob — it replays as a `down`, exactly as a
+      // cancelled worker does. A fired/timed-out wait rehydrates its `WaitOutcome` and costs zero.
+      if (ev.by === 'cancelled' || ev.outRef === undefined) {
+        settled.push({
+          kind: 'down',
+          handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'cancelled'),
+          reason: 'wait cancelled',
+          infra: false,
+          restartCount: 0,
+          seq: ev.seq,
+        })
+        continue
+      }
+      const outcome = await blobs.get(ev.outRef)
+      if (outcome === undefined) {
+        throw new Error(
+          `replaySpawnTree: blob store has no wait outcome for outRef '${ev.outRef}' (node '${ev.id}', seq ${ev.seq})`,
+        )
+      }
+      settled.push({
+        kind: 'done',
+        handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'done'),
+        out: outcome,
+        outRef: ev.outRef,
+        spent: zeroSpend(),
+        seq: ev.seq,
+      })
+      continue
+    }
     if (ev.kind === 'cancelled') {
       settled.push({
         kind: 'down',
@@ -389,12 +429,29 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   // ordinal order, then settlements/cancellations in cursor order. A settle/cancel for an
   // un-spawned node is a corrupted log (fail loud via requireNode).
   const spawns = events
-    .filter((ev): ev is Extract<SpawnEvent, { kind: 'spawned' }> => ev.kind === 'spawned')
+    .filter(
+      (ev): ev is Extract<SpawnEvent, { kind: 'spawned' | 'waiting' }> =>
+        ev.kind === 'spawned' || ev.kind === 'waiting',
+    )
     .sort((a, b) => a.seq - b.seq)
   const settlements = events
-    .filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'metered')
+    .filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'waiting' && ev.kind !== 'metered')
     .sort((a, b) => a.seq - b.seq)
   for (const ev of spawns) {
+    if (ev.kind === 'waiting') {
+      // An ARMED wait reads `waiting` until a `woken` event lands. That is the whole durability
+      // claim: a materialized tree from a journal whose process died mid-wait still shows the wait.
+      nodes.set(ev.id, {
+        id: ev.id,
+        parent: ev.parent,
+        label: ev.label,
+        status: 'waiting',
+        runtime: 'wait',
+        budget: { maxIterations: 0, maxTokens: 0 },
+        spent: zeroSpend(),
+      })
+      continue
+    }
     if (ev.parent === undefined && root === undefined) root = ev.id
     nodes.set(ev.id, {
       id: ev.id,
@@ -411,6 +468,10 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       const node = requireNode(nodes, ev.id)
       node.status = ev.status === 'done' ? 'done' : 'failed'
       node.spent = ev.spent
+      node.outRef = ev.outRef
+    } else if (ev.kind === 'woken') {
+      const node = requireNode(nodes, ev.id)
+      node.status = ev.by === 'cancelled' ? 'cancelled' : 'done'
       node.outRef = ev.outRef
     } else {
       const node = requireNode(nodes, ev.id)
@@ -429,7 +490,30 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     root: root ?? snapshots[0]?.id ?? '',
     nodes: snapshots,
     inFlight: snapshots.filter((n) => n.status === 'running' || n.status === 'acquiring').length,
+    waiting: snapshots.filter((n) => n.status === 'waiting').length,
   }
+}
+
+/**
+ * The waits a journaled tree shows as ARMED but never woken — what a resumed run re-arms with the
+ * ORIGINAL absolute deadline. Reading it from the journal (rather than from any live state) is
+ * what makes "SIGKILL a waiting tree, a new process keeps waiting to the same instant" true.
+ */
+export function pendingWaits(events: SpawnEvent[]): PendingWait[] {
+  const woken = new Set<NodeId>()
+  for (const ev of events) if (ev.kind === 'woken') woken.add(ev.id)
+  const pending: PendingWait[] = []
+  for (const ev of events) {
+    if (ev.kind !== 'waiting' || woken.has(ev.id)) continue
+    pending.push({
+      id: ev.id,
+      label: ev.label,
+      spec: ev.spec,
+      armedAt: ev.armedAt,
+      ordinal: ev.seq,
+    })
+  }
+  return pending.sort((a, b) => a.ordinal - b.ordinal)
 }
 
 interface MutableSnapshot {

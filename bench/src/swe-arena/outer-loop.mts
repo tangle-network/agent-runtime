@@ -160,9 +160,13 @@ import {
   type SettleCapture,
 } from '../rollout-ledger/settle-capture.mts'
 import { findSupervisorRunDir } from './arms.ts'
-import { run, runOk } from './proc.ts'
+import { installProcessSignalAbort, run, runOk } from './proc.ts'
 import { loadInstanceImages } from './run-experiment.mts'
-import { createSerializedJudge, type SerializedJudge } from './serialized-judge.ts'
+import {
+  createSerializedJudge,
+  JUDGE_TIMEOUT_FLOOR_MS,
+  type SerializedJudge,
+} from './serialized-judge.ts'
 
 // ---------------------------------------------------------------------------
 // The DECLARED CHANGE-SPACE (protocol_v2). Pure + unit-tested.
@@ -253,49 +257,121 @@ export const SUPERVISOR_GATE_COUNT = 2
 /** capacity.ts's default waitCeilingMs (orchestrate.sh: 300 min/gate). */
 export const DEFAULT_GATE_WAIT_CEILING_MS = 300 * 60_000
 
+/** Extra time for process/worktree cleanup after the post-gate clock aborts.
+ * Judge time is budgeted separately because one verdict may require two full
+ * attempts. The campaign must not abandon either attempt or cleanup. */
+export const DISPATCH_CLEANUP_GRACE_MS = 5 * 60_000
+
 /** The widened ceiling handed to the campaign: per-cell work budget PLUS the
  *  worst-case capacity-gate holds (gates run sequentially, each with its own
  *  ceiling). The campaign clock starts at dispatch entry — before the gates —
  *  so it must cover them; `waitForCapacity` itself fails the cell at each
  *  gate's own ceiling, so total cell time stays bounded. */
 export function campaignDispatchCeilingMs(
-  config: Pick<OuterLoopConfig, 'dispatchTimeoutMs' | 'gateWaitCeilingMs'>,
+  config: Pick<OuterLoopConfig, 'dispatchTimeoutMs' | 'gateWaitCeilingMs' | 'judgeTimeoutMs'>,
   gateCount = SUPERVISOR_GATE_COUNT,
 ): number {
-  return config.dispatchTimeoutMs + gateCount * (config.gateWaitCeilingMs ?? DEFAULT_GATE_WAIT_CEILING_MS)
+  const judgeSettlementMs = config.judgeTimeoutMs ?? JUDGE_TIMEOUT_FLOOR_MS
+  return (
+    config.dispatchTimeoutMs +
+    gateCount * (config.gateWaitCeilingMs ?? DEFAULT_GATE_WAIT_CEILING_MS) +
+    2 * judgeSettlementMs +
+    DISPATCH_CLEANUP_GRACE_MS
+  )
 }
 
 /** Run `work` under `timeoutMs`, with the clock started AFTER `awaitGates`
  *  resolves — a capacity hold is never billed to the cell's work budget.
  *  Gate failures (no capacity within a gate's own ceiling) still reject. */
 export async function runWithPostGateClock<T>(opts: {
-  awaitGates: () => Promise<void>
-  work: () => Promise<T>
+  awaitGates: (signal?: AbortSignal) => Promise<void>
+  work: (signal: AbortSignal) => Promise<T>
   timeoutMs: number
   label?: string
+  /** Caller cancellation remains active during both capacity waiting and work. */
+  signal?: AbortSignal
 }): Promise<T> {
-  await opts.awaitGates()
-  if (!(opts.timeoutMs > 0)) return opts.work()
+  opts.signal?.throwIfAborted()
+  await opts.awaitGates(opts.signal)
+  opts.signal?.throwIfAborted()
+  const abort = new AbortController()
+  const linked = linkAbortSignals([abort.signal, ...(opts.signal ? [opts.signal] : [])])
   let timer: NodeJS.Timeout | undefined
+  let timedOut = false
+  const timeoutError = new Error(
+    `post-gate dispatch exceeded ${opts.timeoutMs}ms${opts.label ? ` (${opts.label})` : ''} — failed loud, gate wait unbilled`,
+  )
   try {
-    return await Promise.race([
-      opts.work(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `post-gate dispatch exceeded ${opts.timeoutMs}ms${opts.label ? ` (${opts.label})` : ''} — failed loud, gate wait unbilled`,
-              ),
-            ),
-          opts.timeoutMs,
-        )
-        timer.unref?.()
-      }),
-    ])
+    if (opts.timeoutMs > 0) {
+      timer = setTimeout(() => {
+        timedOut = true
+        abort.abort(timeoutError)
+      }, opts.timeoutMs)
+      timer.unref?.()
+    }
+    const result = await opts.work(linked.signal)
+    if (timedOut) throw timeoutError
+    opts.signal?.throwIfAborted()
+    return result
+  } catch (err) {
+    if (timedOut && err !== timeoutError) {
+      const cleanupFailure = err instanceof Error ? err.message : String(err)
+      throw new Error(`${timeoutError.message}; cleanup failed: ${cleanupFailure}`, { cause: err })
+    }
+    if (timedOut) throw timeoutError
+    if (opts.signal?.aborted) {
+      if (err !== opts.signal.reason) {
+        const cleanupFailure = err instanceof Error ? err.message : String(err)
+        const interrupted = opts.signal.reason instanceof Error
+          ? opts.signal.reason.message
+          : String(opts.signal.reason ?? 'caller aborted')
+        throw new Error(`${interrupted}; cleanup failed: ${cleanupFailure}`, { cause: err })
+      }
+      throw opts.signal.reason
+    }
+    throw err
   } finally {
     if (timer) clearTimeout(timer)
+    linked.dispose()
   }
+}
+
+function linkAbortSignals(signals: AbortSignal[]): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController()
+  const listeners = new Map<AbortSignal, () => void>()
+  for (const signal of signals) {
+    const onAbort = () => controller.abort(signal.reason)
+    listeners.set(signal, onAbort)
+    if (signal.aborted) {
+      onAbort()
+      break
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  }
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      for (const [signal, listener] of listeners) signal.removeEventListener('abort', listener)
+    },
+  }
+}
+
+function withParentCancellation<T extends CandidateGenerator>(generator: T, signal?: AbortSignal): T {
+  if (!signal) return generator
+  return {
+    ...generator,
+    async generate(args) {
+      signal.throwIfAborted()
+      const linked = linkAbortSignals([args.signal, signal])
+      try {
+        const result = await generator.generate({ ...args, signal: linked.signal })
+        signal.throwIfAborted()
+        return result
+      } finally {
+        linked.dispose()
+      }
+    },
+  } as T
 }
 
 // ---------------------------------------------------------------------------
@@ -996,11 +1072,21 @@ class RoundRecorder {
 // finalize-time verification rejects any extra file, node_modules included).
 // ---------------------------------------------------------------------------
 
-export async function addEvalWorktree(loopsRepo: string, commit: string, dest: string): Promise<void> {
-  await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest])
+export async function addEvalWorktree(
+  loopsRepo: string,
+  commit: string,
+  dest: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted()
+  await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest], { timeoutMs: 60_000, signal })
+  signal?.throwIfAborted()
   await rm(dest, { recursive: true, force: true })
-  await run('git', ['-C', loopsRepo, 'worktree', 'prune'])
-  await runOk('git', ['-C', loopsRepo, 'worktree', 'add', '--detach', dest, commit])
+  signal?.throwIfAborted()
+  await run('git', ['-C', loopsRepo, 'worktree', 'prune'], { timeoutMs: 60_000, signal })
+  signal?.throwIfAborted()
+  await runOk('git', ['-C', loopsRepo, 'worktree', 'add', '--detach', dest, commit], { timeoutMs: 60_000, signal })
+  signal?.throwIfAborted()
   // The loops driver needs deps; a worktree has none. Shared install is safe:
   // arms never write into the loops checkout (state goes to ws/.loops + runDir).
   await symlink(join(loopsRepo, 'node_modules'), join(dest, 'node_modules'), 'dir')
@@ -1008,10 +1094,10 @@ export async function addEvalWorktree(loopsRepo: string, commit: string, dest: s
 
 export async function removeEvalWorktree(loopsRepo: string, dest: string): Promise<void> {
   await unlink(join(dest, 'node_modules')).catch(() => {})
-  const res = await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest])
+  const res = await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest], { timeoutMs: 60_000 })
   if (res.code !== 0) {
     await rm(dest, { recursive: true, force: true })
-    await run('git', ['-C', loopsRepo, 'worktree', 'prune'])
+    await run('git', ['-C', loopsRepo, 'worktree', 'prune'], { timeoutMs: 60_000 })
   }
 }
 
@@ -1086,8 +1172,13 @@ export function round4BuildPrompt(args: { report: unknown; findings: Array<Recor
  *  whole run. `-X` deletes only ignored paths, so tracked edits and untracked
  *  non-ignored deliverables (e.g. .improve/raw-trace-diagnosis.md) survive;
  *  the doubled `-f` clears nested git dirs some packages ship. */
-export async function purgeIgnoredArtifacts(worktreePath: string): Promise<void> {
-  await runOk('git', ['-C', worktreePath, 'clean', '-Xdff'])
+export async function purgeIgnoredArtifacts(
+  worktreePath: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await runOk('git', ['-C', worktreePath, 'clean', '-Xdff'], {
+    ...(signal ? { signal } : {}),
+  })
 }
 
 /** Verifier run after each generator shot: ignored-dirt purge first (the
@@ -1096,9 +1187,16 @@ export async function purgeIgnoredArtifacts(worktreePath: string): Promise<void>
  *  node_modules linked in TEMPORARILY (the link must not survive — the
  *  driver's finalize-time surface verification rejects any extra path). */
 export function loopsCandidateVerifier(loopsRepo: string): Verifier {
-  return async (worktreePath: string) => {
-    await purgeIgnoredArtifacts(worktreePath)
-    const status = await runOk('git', ['-C', worktreePath, 'status', '--porcelain=v1', '--untracked-files=all'])
+  return async (worktreePath: string, signal?: AbortSignal) => {
+    signal?.throwIfAborted()
+    await purgeIgnoredArtifacts(worktreePath, signal)
+    signal?.throwIfAborted()
+    const status = await runOk(
+      'git',
+      ['-C', worktreePath, 'status', '--porcelain=v1', '--untracked-files=all'],
+      { ...(signal ? { signal } : {}) },
+    )
+    signal?.throwIfAborted()
     const violations = changeSpaceViolations(porcelainChangedPaths(status.stdout))
     if (violations.length > 0) {
       return {
@@ -1111,13 +1209,19 @@ export function loopsCandidateVerifier(loopsRepo: string): Verifier {
     }
     const nm = join(worktreePath, 'node_modules')
     let linked = false
+    signal?.throwIfAborted()
     if (!existsSync(nm)) {
       await symlink(join(loopsRepo, 'node_modules'), nm, 'dir')
       linked = true
     }
     try {
       const tsc = join(loopsRepo, 'node_modules', '.bin', 'tsc')
-      const res = await run(tsc, ['--noEmit'], { cwd: worktreePath, timeoutMs: 300_000 })
+      const res = await run(tsc, ['--noEmit'], {
+        cwd: worktreePath,
+        timeoutMs: 300_000,
+        ...(signal ? { signal } : {}),
+      })
+      signal?.throwIfAborted()
       if (res.code !== 0) {
         return {
           ok: false,
@@ -1218,7 +1322,8 @@ function asCodeSurface(surface: MutableSurface): CodeSurface {
 
 const log = (msg: string): void => console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`)
 
-export async function runRound(config: OuterLoopConfig): Promise<void> {
+export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   assertFrozenArm(config.arm)
   if (config.instances.length === 0) throw new Error('outer-loop: empty improvement set')
   const overlap = config.instances.filter((i) => config.holdoutInstances.includes(i))
@@ -1411,13 +1516,13 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   // Shared by every arm dispatch — the improvement cells AND the pre-filter
   // smoke cell. A cell's WORK clock (config.dispatchTimeoutMs) starts only
   // after these clear — a capacity hold is never billed to the work budget.
-  const awaitGates = async (): Promise<void> => {
+  const awaitGates = async (gateSignal: AbortSignal | undefined = signal): Promise<void> => {
     for (const gate of gatesForArmKind('supervisor', secrets, {
       ...(config.gateWaitCeilingMs !== undefined ? { waitCeilingMs: config.gateWaitCeilingMs } : {}),
       ...(config.capacityModel !== undefined ? { model: config.capacityModel } : {}),
       onStatus: log,
     })) {
-      if (!(await waitForCapacity(gate))) throw new Error(`no capacity on ${gate.name} within ceiling`)
+      if (!(await waitForCapacity(gate, gateSignal))) throw new Error(`no capacity on ${gate.name} within ceiling`)
     }
   }
 
@@ -1442,7 +1547,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
               await symlink(join(config.loopsRepo, 'node_modules'), nm, 'dir')
               linked = true
             }
-            const work = async (): Promise<{ armRes: SupervisorArmResult; resolved: boolean | null }> => {
+            const work = async (signal: AbortSignal): Promise<{ armRes: SupervisorArmResult; resolved: boolean | null }> => {
               const spec: SupervisorArmSpec = {
                 kind: 'supervisor',
                 name: config.armName,
@@ -1467,8 +1572,15 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
                 outDir: armOutDir,
                 secrets,
                 excludes,
+                signal,
               })
-              const verdict = await judge.judge(iid, armRes.patchPath, `prefilter-g${generation}-${proposer.name}`)
+              if (signal.aborted) throw signal.reason
+              const verdict = await judge.judge(
+                iid,
+                armRes.patchPath,
+                `prefilter-g${generation}-${proposer.name}`,
+                signal,
+              )
               return { armRes, resolved: verdict.resolved }
             }
             const runWork = (): Promise<{ armRes: SupervisorArmResult; resolved: boolean | null }> =>
@@ -1477,6 +1589,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
                 work,
                 timeoutMs: config.dispatchTimeoutMs,
                 label: `prefilter smoke ${proposer.name} ${iid}`,
+                signal,
               })
             let outcome: { armRes: SupervisorArmResult; resolved: boolean | null }
             if (costLedger) {
@@ -1527,6 +1640,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
             await writeFile(join(armOutDir, 'smoke.json'), JSON.stringify(result, null, 2))
             return result
           } catch (cause) {
+            if (signal?.aborted) throw signal.reason
             const wallS = Math.round((Date.now() - t0) / 1000)
             const result: SmokeVerdict = {
               iid,
@@ -1557,12 +1671,12 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       throw new Error(`change-space violation (${rec.violations.length} path(s)): ${rec.violations.join(', ')}`)
     }
 
-    const runCell = async (): Promise<R4Artifact> => {
+    const runCell = async (signal: AbortSignal): Promise<R4Artifact> => {
       const entry = images[iid]!
       const evalWt = join(config.outDir, 'eval-wt', `${rec.tag}-${iid}-r${ctx.rep}`)
       const armOutDir = join(config.outDir, 'arm-runs', rec.tag, `rep-${ctx.rep}`)
-      await addEvalWorktree(config.loopsRepo, cs.candidateCommit, evalWt)
       try {
+        await addEvalWorktree(config.loopsRepo, cs.candidateCommit, evalWt, signal)
         const spec: SupervisorArmSpec = {
           kind: 'supervisor',
           name: config.armName,
@@ -1587,7 +1701,9 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           outDir: armOutDir,
           secrets,
           excludes,
+          signal,
         })
+        if (signal.aborted) throw signal.reason
         const runDir = join(armOutDir, 'runs', iid, config.armName)
         const { ws: _ws, ...armSummary } = armRes
         await writeFile(join(runDir, 'result.json'), JSON.stringify(armSummary, null, 1))
@@ -1601,7 +1717,10 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           channel: 'judge',
           actor: `official-judge:${iid}#r${ctx.rep}`,
           model: OFFICIAL_JUDGE_MODEL,
-          execute: () => judge.judge(iid, armRes.patchPath, `${config.armName}-${rec.tag}`),
+          execute: () => {
+            if (signal.aborted) throw signal.reason
+            return judge.judge(iid, armRes.patchPath, `${config.armName}-${rec.tag}`, signal)
+          },
           receipt: () => ({ model: OFFICIAL_JUDGE_MODEL, inputTokens: 0, outputTokens: 0, actualCostUsd: 0 }),
         })
         if (!judgePaid.succeeded) throw judgePaid.error
@@ -1740,6 +1859,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           work: runCell,
           timeoutMs: config.dispatchTimeoutMs,
           label: `${config.armName} ${rec.tag} ${iid} r${ctx.rep}`,
+          signal,
         }),
       receipt: (artifact) => {
         if (artifact.kind !== 'swe-arm') throw new Error('swe cell produced a non-arm artifact')
@@ -1793,6 +1913,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     candidates: Array<{ surfaceHash: string; composite: number; campaign: unknown }>
     history: unknown[]
   }): Promise<unknown[]> => {
+    signal?.throwIfAborted()
     const runs: SupRunArtifacts[] = []
     if (input.generation === -1) {
       for (const seed of config.seedArtifactRuns) {
@@ -1835,7 +1956,15 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     if (runs.length > 0) {
       try {
         const scratch = join(config.outDir, 'diagnosis', `gen-${input.generation}`)
-        const ensemble = await runDiagnosisEnsemble({ analysts, runs, secrets, scratchDir: scratch, onStatus: log })
+        const ensemble = await runDiagnosisEnsemble({
+          analysts,
+          runs,
+          secrets,
+          scratchDir: scratch,
+          onStatus: log,
+          signal,
+        })
+        signal?.throwIfAborted()
         await writeFile(
           join(config.outDir, 'diagnosis', `gen-${input.generation}.json`),
           JSON.stringify({ reports: ensemble.reports, fused: ensemble.fused }, null, 2),
@@ -1845,6 +1974,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           totalAnalysts: analysts.length,
         })
       } catch (cause) {
+        if (signal?.aborted) throw signal.reason
         // A dead router must not kill the round: the raw-trace context below
         // still grounds the proposer; the failure is logged, never silent.
         log(`diagnosis ensemble FAILED for gen ${input.generation}: ${(cause as Error).message}`)
@@ -1867,7 +1997,9 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
               }
             }),
           }
+    signal?.throwIfAborted()
     const rawFindings = (await rawTrace(censoredInput as Parameters<typeof rawTrace>[0])) as unknown[]
+    signal?.throwIfAborted()
     return [steeringFinding, ...ensembleFindings, ...rawFindings]
   }
 
@@ -1916,11 +2048,13 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
           log,
         })
       : null
+  const generator = withParentCancellation(fanout ?? constrainedLoopsGenerator(config), signal)
 
   // ── the improve() call: the optimizer seat ───────────────────────────
   // Typed from improve()'s own parameter: the monorepo hoists two
   // agent-interface majors, so a nominal import can resolve to the wrong one.
   const profile = { name: 'loops-pi-supervisor' } as Parameters<typeof improve>[0]
+  signal?.throwIfAborted()
   log(`round ${config.round} runId=${runId}: improve(surface:'code') over ${config.loopsRepo}@${config.loopsBaseRef}`)
   const result = await improve<Scenario, R4Artifact>(profile, [], {
     surface: 'code',
@@ -1932,7 +2066,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
       repoRoot: config.loopsRepo,
       baseRef: config.loopsBaseRef,
       worktreeDir: join(config.outDir, 'loops-worktrees'),
-      generator: fanout ?? constrainedLoopsGenerator(config),
+      generator,
     },
     scenarios: sweScenarios,
     judge: judgeConfig,
@@ -1965,6 +2099,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
     runDir: improveRunDir,
     ...(premeasured ? { premeasuredBaseline: premeasured } : {}),
   })
+  signal?.throwIfAborted()
 
   // ── staircase rows + round summary — scored from the LIB's campaign cells
   // (baselineCampaign + per-generation candidate campaigns), which replay
@@ -2467,6 +2602,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
   } finally {
     await result.dispose()
   }
+  signal?.throwIfAborted()
 }
 
 // ---------------------------------------------------------------------------
@@ -2565,76 +2701,92 @@ const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileUR
 
 if (isMain) {
   const argv = process.argv.slice(2)
-  const flag = (name: string): string | undefined => {
-    const i = argv.indexOf(name)
-    return i !== -1 ? argv[i + 1] : undefined
-  }
-  if (argv[0] === '--write-config') {
-    const path = argv[1]
-    if (!path || path.startsWith('--')) {
-      console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4|--gen5]')
-      process.exit(2)
+  // Config execution owns long-lived workers and therefore needs cooperative
+  // cleanup. Utility modes keep the terminal's default signal behavior because
+  // their analyst APIs do not yet accept AbortSignal; installing a handler there
+  // would swallow Ctrl-C while the model call continued.
+  const interrupt = argv[0] && !argv[0].startsWith('--')
+    ? installProcessSignalAbort('outer-loop')
+    : undefined
+  try {
+    const flag = (name: string): string | undefined => {
+      const i = argv.indexOf(name)
+      return i !== -1 ? argv[i + 1] : undefined
     }
-    const outDirName = flag('--out-name')
-    const gen3 = argv.includes('--gen3')
-    const gen4 = argv.includes('--gen4')
-    const gen5 = argv.includes('--gen5')
-    let config: OuterLoopConfig
-    let flavor: string
-    if (gen4 || gen5) {
-      // The codex seat rides only when the CLI is actually present — a config
-      // naming a missing harness would fail the whole launch at t=0.
-      const codexProbe = await run('codex', ['--version'])
-      const includeCodex = codexProbe.code === 0
-      if (!includeCodex) {
-        console.log(
-          `codex CLI unavailable (rc=${codexProbe.code}) — ${gen5 ? 'gen-5' : 'gen-4'} config written WITHOUT the codex-author seat`,
-        )
+    if (argv[0] === '--write-config') {
+      const path = argv[1]
+      if (!path || path.startsWith('--')) {
+        console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4|--gen5]')
+        process.exit(2)
       }
-      const make = gen5 ? defaultGen5Config : defaultGen4Config
-      config = make(undefined, { ...(outDirName ? { outDirName } : {}), includeCodex })
-      flavor = gen5 ? 'gen-5' : 'gen-4'
+      const outDirName = flag('--out-name')
+      const gen3 = argv.includes('--gen3')
+      const gen4 = argv.includes('--gen4')
+      const gen5 = argv.includes('--gen5')
+      let config: OuterLoopConfig
+      let flavor: string
+      if (gen4 || gen5) {
+        // The codex seat rides only when the CLI is actually present — a config
+        // naming a missing harness would fail the whole launch at t=0.
+        const codexProbe = await run('codex', ['--version'])
+        const includeCodex = codexProbe.code === 0
+        if (!includeCodex) {
+          console.log(
+            `codex CLI unavailable (rc=${codexProbe.code}) — ${gen5 ? 'gen-5' : 'gen-4'} config written WITHOUT the codex-author seat`,
+          )
+        }
+        const make = gen5 ? defaultGen5Config : defaultGen4Config
+        config = make(undefined, { ...(outDirName ? { outDirName } : {}), includeCodex })
+        flavor = gen5 ? 'gen-5' : 'gen-4'
+      } else {
+        const make = gen3 ? defaultGen3Config : defaultRound4Config
+        config = make(undefined, outDirName ? { outDirName } : {})
+        flavor = gen3 ? 'gen-3' : 'round-4'
+      }
+      await writeFile(path, JSON.stringify(config, null, 2) + '\n')
+      console.log(`default ${flavor} config → ${path}`)
+    } else if (argv[0] === '--calibration-smoke') {
+      const dir = argv[1] && !argv[1].startsWith('--') ? argv[1] : undefined
+      const n = flag('--analysts')
+      const model = flag('--model')
+      const endpoint = flag('--endpoint')
+      const retries = flag('--retries')
+      if (endpoint !== undefined && endpoint !== 'router' && endpoint !== 'zai') {
+        console.error(`--endpoint must be 'router' or 'zai', got ${JSON.stringify(endpoint)}`)
+        process.exit(2)
+      }
+      await calibrationSmoke({
+        ...(dir ? { supRunDir: dir } : {}),
+        ...(n ? { analysts: Number(n) } : {}),
+        ...(model ? { model } : {}),
+        ...(endpoint ? { endpoint } : {}),
+        ...(retries ? { retries: Number(retries) } : {}),
+      })
+    } else if (argv[0] && !argv[0].startsWith('--')) {
+      const config = JSON.parse(await readFile(argv[0], 'utf8')) as OuterLoopConfig
+      // Launch guards BEFORE any spend: keys present (dotenvx forgotten = hours
+      // of confusing downstream failures) and exactly one loop per outDir.
+      assertLaunchEnv()
+      interrupt!.signal.throwIfAborted()
+      const lock = await acquireInstanceLock(config.outDir)
+      try {
+        await runRound(config, interrupt!.signal)
+      } finally {
+        await lock.release()
+      }
     } else {
-      const make = gen3 ? defaultGen3Config : defaultRound4Config
-      config = make(undefined, outDirName ? { outDirName } : {})
-      flavor = gen3 ? 'gen-3' : 'round-4'
-    }
-    await writeFile(path, JSON.stringify(config, null, 2) + '\n')
-    console.log(`default ${flavor} config → ${path}`)
-  } else if (argv[0] === '--calibration-smoke') {
-    const dir = argv[1] && !argv[1].startsWith('--') ? argv[1] : undefined
-    const n = flag('--analysts')
-    const model = flag('--model')
-    const endpoint = flag('--endpoint')
-    const retries = flag('--retries')
-    if (endpoint !== undefined && endpoint !== 'router' && endpoint !== 'zai') {
-      console.error(`--endpoint must be 'router' or 'zai', got ${JSON.stringify(endpoint)}`)
+      console.error(
+        'usage: tsx src/swe-arena/outer-loop.mts <config.json>            # SPENDS: arms + judges + proposer\n' +
+          '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4|--gen5]\n' +
+          '       tsx src/swe-arena/outer-loop.mts --calibration-smoke [supRunDir] [--analysts N] [--model M] [--endpoint router|zai] [--retries N]',
+      )
       process.exit(2)
     }
-    await calibrationSmoke({
-      ...(dir ? { supRunDir: dir } : {}),
-      ...(n ? { analysts: Number(n) } : {}),
-      ...(model ? { model } : {}),
-      ...(endpoint ? { endpoint } : {}),
-      ...(retries ? { retries: Number(retries) } : {}),
-    })
-  } else if (argv[0] && !argv[0].startsWith('--')) {
-    const config = JSON.parse(await readFile(argv[0], 'utf8')) as OuterLoopConfig
-    // Launch guards BEFORE any spend: keys present (dotenvx forgotten = hours
-    // of confusing downstream failures) and exactly one loop per outDir.
-    assertLaunchEnv()
-    const lock = await acquireInstanceLock(config.outDir)
-    try {
-      await runRound(config)
-    } finally {
-      await lock.release()
-    }
-  } else {
-    console.error(
-      'usage: tsx src/swe-arena/outer-loop.mts <config.json>            # SPENDS: arms + judges + proposer\n' +
-        '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4|--gen5]\n' +
-        '       tsx src/swe-arena/outer-loop.mts --calibration-smoke [supRunDir] [--analysts N] [--model M] [--endpoint router|zai] [--retries N]',
-    )
-    process.exit(2)
+  } catch (cause) {
+    if (!interrupt?.signal.aborted) throw cause
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    console.error(`outer-loop stopped after cleanup: ${detail}`)
+  } finally {
+    interrupt?.dispose()
   }
 }

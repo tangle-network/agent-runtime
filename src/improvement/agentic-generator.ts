@@ -58,6 +58,7 @@ import {
   type LocalHarnessResult,
   runLocalHarness,
 } from '../mcp/local-harness'
+import { runSettledCommand } from '../mcp/worktree-harness'
 import type { CandidateGenerator } from './improvement-driver'
 import { optimizerMethod } from './optimizer-prompt'
 
@@ -79,7 +80,10 @@ export interface VerifyResult {
 /** Verifies the edited worktree. Sync or async; throws only on a setup fault
  *  (a candidate that fails verification returns `{ok:false}`, it does not
  *  throw). */
-export type Verifier = (worktreePath: string) => Promise<VerifyResult> | VerifyResult
+export type Verifier = (
+  worktreePath: string,
+  signal?: AbortSignal,
+) => Promise<VerifyResult> | VerifyResult
 
 export interface AgenticGeneratorShotReceipt {
   readonly generation: number | null
@@ -96,6 +100,8 @@ export interface AgenticGeneratorShotReceipt {
   readonly durationMs: number
   readonly exitCode: number | null
   readonly timedOut: boolean
+  /** True when caller cancellation reached the author process; absent in older receipts. */
+  readonly aborted?: boolean
   readonly killedBySignal: NodeJS.Signals | null
   readonly stdoutBytes: number | null
   readonly stdoutSha256: `sha256:${string}` | null
@@ -246,6 +252,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
       costLedger,
       costPhase,
     }) {
+      signal.throwIfAborted()
       let reproducibleCostLedger: CostLedgerHandle | undefined
       if (opts.codexReproducible) {
         if (!costLedger) {
@@ -265,7 +272,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
       let attemptNote = ''
 
       for (let shot = 0; shot < shots; shot++) {
-        if (signal.aborted) break
+        signal.throwIfAborted()
         const taskPrompt = attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt
         const invocation = opts.profile
           ? harnessInvocation(harness, opts.profile, taskPrompt, {
@@ -368,6 +375,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
           error: shotError,
         })
         await emitShotReceipt(opts.onShotCompleted, receipt, execution, shotError)
+        signal.throwIfAborted()
 
         if (!execution) {
           throw new Error('agenticGenerator: author shot completed without a harness result')
@@ -377,6 +385,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         try {
           worktreeChanged = dirty(worktreePath)
         } catch (cause) {
+          signal.throwIfAborted()
           return rethrowShotSetupError(
             opts.onShotDisposition,
             receipt,
@@ -388,10 +397,12 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
 
         // The worktree IS the signal: no edits ⇒ tell the next shot to act.
         if (!worktreeChanged) {
+          signal.throwIfAborted()
           await emitShotDisposition(opts.onShotDisposition, receipt, {
             kind: 'clean',
             worktreePath,
           })
+          signal.throwIfAborted()
           attemptNote = EMPTY_TREE_NOTE
           continue
         }
@@ -401,6 +412,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
           try {
             problem = rawTraceEvidenceProblem(worktreePath, findings)
           } catch (cause) {
+            signal.throwIfAborted()
             return rethrowShotSetupError(
               opts.onShotDisposition,
               receipt,
@@ -410,12 +422,14 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
             )
           }
           if (problem) {
+            signal.throwIfAborted()
             await emitShotDisposition(opts.onShotDisposition, receipt, {
               kind: 'rejected',
               worktreePath,
               stage: 'raw-trace-evidence',
               feedback: problem,
             })
+            signal.throwIfAborted()
             attemptNote = problem
             continue
           }
@@ -424,17 +438,22 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         // Dirty: with no verifier the diff IS the candidate (we trust the diff,
         // not the harness's stdout). With a verifier the candidate must pass it.
         if (!verify) {
+          signal.throwIfAborted()
           await emitShotDisposition(opts.onShotDisposition, receipt, {
             kind: 'accepted',
             worktreePath,
             verified: false,
           })
+          signal.throwIfAborted()
           return acceptedCandidate(findings)
         }
         let result: VerifyResult
         try {
-          result = await verify(worktreePath)
+          signal.throwIfAborted()
+          result = await verify(worktreePath, signal)
+          signal.throwIfAborted()
         } catch (cause) {
+          signal.throwIfAborted()
           return rethrowShotSetupError(
             opts.onShotDisposition,
             receipt,
@@ -444,19 +463,23 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
           )
         }
         if (result.ok) {
+          signal.throwIfAborted()
           await emitShotDisposition(opts.onShotDisposition, receipt, {
             kind: 'accepted',
             worktreePath,
             verified: true,
           })
+          signal.throwIfAborted()
           return acceptedCandidate(findings)
         }
+        signal.throwIfAborted()
         await emitShotDisposition(opts.onShotDisposition, receipt, {
           kind: 'rejected',
           worktreePath,
           stage: 'verification',
           feedback: result.feedback ?? null,
         })
+        signal.throwIfAborted()
         // Dirty but failing — resume next shot atop these edits with the error.
         attemptNote = failureNote(result.feedback)
       }
@@ -644,6 +667,7 @@ function shotExecutionSnapshot(
     killedBySignal: result.killedBySignal,
     durationMs: result.durationMs,
     timedOut: result.timedOut,
+    ...(result.aborted !== undefined ? { aborted: result.aborted } : {}),
     ...(usage ? { usage } : {}),
     ...(evidence ? { evidence } : {}),
   })
@@ -687,6 +711,7 @@ function shotReceipt(input: {
     durationMs: result?.durationMs ?? input.completedAt.getTime() - input.startedAt.getTime(),
     exitCode: result?.exitCode ?? null,
     timedOut: result?.timedOut ?? false,
+    aborted: result?.aborted ?? false,
     killedBySignal: result?.killedBySignal ?? null,
     stdoutBytes: result ? Buffer.byteLength(result.stdout) : null,
     stdoutSha256: result ? sha256(result.stdout) : null,
@@ -722,6 +747,9 @@ function shotFailure(
 ): Error | null {
   if (result.timedOut) {
     return new Error('agenticGenerator: author shot timed out')
+  }
+  if (result.aborted) {
+    return new Error('agenticGenerator: author shot was cancelled by the caller')
   }
   if (result.killedBySignal) {
     return new Error(`agenticGenerator: author shot was killed by ${result.killedBySignal}`)
@@ -877,30 +905,36 @@ export function commandVerifier(
   args: string[] = [],
   timeoutMs = 300_000,
 ): Verifier {
-  return (worktreePath: string): VerifyResult => {
-    const result = spawnSync(command, args, {
-      cwd: worktreePath,
-      encoding: 'utf-8',
-      timeout: timeoutMs,
-    })
-    if (result.signal) {
-      return {
-        ok: false,
-        feedback: `verifier '${command}' killed by ${result.signal} (likely timeout after ${timeoutMs}ms)`,
-      }
-    }
-    if (result.error) {
-      const code = (result.error as NodeJS.ErrnoException).code
+  return async (worktreePath: string, signal?: AbortSignal): Promise<VerifyResult> => {
+    let result: Awaited<ReturnType<typeof runSettledCommand>>
+    try {
+      result = await runSettledCommand({
+        command,
+        args,
+        cwd: worktreePath,
+        timeoutMs,
+        ...(signal ? { signal } : {}),
+      })
+    } catch (err) {
+      signal?.throwIfAborted()
+      const code = (err as NodeJS.ErrnoException).code
       if (code === 'ENOENT') {
         throw new Error(
           `commandVerifier: '${command}' not found in PATH (setup bug, not a failed candidate)`,
         )
       }
-      throw new Error(`commandVerifier: '${command}' failed to spawn: ${result.error.message}`)
+      const reason = err instanceof Error ? err.message : String(err)
+      throw new Error(`commandVerifier: '${command}' failed to spawn: ${reason}`)
     }
-    if (result.status === 0) return { ok: true }
-    const out = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
-    return { ok: false, feedback: out.length > 0 ? out : `exit ${result.status}` }
+    if (result.timedOut || result.killedBySignal) {
+      return {
+        ok: false,
+        feedback: `verifier '${command}' ${result.killedBySignal ? `killed by ${result.killedBySignal}` : 'timed out'} after ${timeoutMs}ms`,
+      }
+    }
+    if (result.exitCode === 0) return { ok: true }
+    const out = `${result.stdout}${result.stderr}`.trim()
+    return { ok: false, feedback: out.length > 0 ? out : `exit ${result.exitCode}` }
   }
 }
 

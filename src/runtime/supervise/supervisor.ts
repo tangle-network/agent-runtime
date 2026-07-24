@@ -34,7 +34,12 @@
  * @experimental
  */
 
-import { contentAddress } from '../../durable/spawn-journal'
+import {
+  contentAddress,
+  materializeTreeView,
+  pendingWaits,
+  replaySpawnTree,
+} from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { createScope } from './scope'
@@ -43,6 +48,7 @@ import type {
   RootHandle,
   RootSignal,
   Scope,
+  Settled,
   SpawnEvent,
   SpawnJournal,
   Spend,
@@ -51,6 +57,26 @@ import type {
   SupervisorOpts,
   TreeView,
 } from './types'
+import type { PendingWait } from './wait'
+
+/** The committed work + cursor maxima the supervisor hands a resumed scope. Shaped to spread
+ *  into `ScopeArgs.resumeFrom`. */
+interface ResumeFrom {
+  readonly settled: ReadonlyArray<Settled<unknown>>
+  readonly view: TreeView
+  readonly maxSpawnOrdinal: number
+  readonly maxCursorSeq: number
+  readonly maxWaitOrdinal: number
+  readonly waits: ReadonlyArray<PendingWait>
+}
+
+/** Highest `seq` among events matching `pred`, or `-1` when none match (so a resumed scope's
+ *  first new ordinal/seq is 0 — the same start a fresh scope uses). */
+function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean): number {
+  let max = -1
+  for (const ev of events) if (pred(ev) && ev.seq > max) max = ev.seq
+  return max
+}
 
 /** The default runtime recursion-depth ceiling, paired with the conserved pool so a
  *  runaway recursion hits budget-exhaustion first and depth-exceeded second (R3). */
@@ -72,25 +98,56 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
   ): Promise<SupervisedResult<Out>> {
     const now = opts.now ?? Date.now
     const pool = createBudgetPool(opts.budget, now)
-    await opts.journal.beginTree(opts.runId, new Date(now()).toISOString())
 
-    // Journal the root as its own `spawned` node (parent-less, the spawn-ordinal-0 marker), so a
-    // journal-based reader — `trajectoryReport`, `replaySpawnTree`, `materializeTreeView` — can
-    // reconstruct the WHOLE realized tree from a real run, not only hand-built journals. The root
-    // is never `scope.spawn`ed (the supervisor runs `act` directly), so without this the root node
-    // is absent and `trajectoryReport` fails its `nodes.has(root)` invariant. The uniqueness guard
-    // skips `spawned` events (only the cursor namespace must be unique), so sharing ordinal 0 with
-    // the first child's spawn is not a collision; replay ignores `spawned` events for settlement
-    // reconstruction, so the replayed `Settled[]` is unchanged.
-    await opts.journal.appendEvent(opts.runId, {
-      kind: 'spawned',
-      id: opts.runId,
-      label: 'root',
-      budget: opts.budget,
-      runtime: 'inline',
-      seq: 0,
-      at: new Date(now()).toISOString(),
-    })
+    // RESUME-FIRST (opt-in via `opts.resume`): read any prior journal tree for this runId BEFORE
+    // beginning a fresh one. A non-empty tree means a prior run for this runId already committed
+    // work (it crashed mid-flight, or this is an explicit resume), so rehydrate it instead of
+    // starting over. An empty/absent tree — and every run that did NOT opt in — takes the fresh
+    // path unchanged. This wires the already-built+tested resume primitives
+    // (`replaySpawnTree`/`materializeTreeView`); the journal/blob store decide durability.
+    const prior = opts.resume === true ? await opts.journal.loadTree(opts.runId) : undefined
+    const resuming = prior !== undefined && prior.length > 0
+    let resumeFrom: ResumeFrom | undefined
+    if (resuming) {
+      // Rehydrate the committed work: the cursor-ordered `Settled[]` (from the blob store) plus the
+      // tree as it stood at the recorded cursor position. The new scope's ordinal/cursor counters
+      // continue past the recorded maxima so a fresh spawn never reuses a journaled `seq`.
+      const settled = await replaySpawnTree(opts.journal, opts.blobs, opts.runId)
+      const view = materializeTreeView(prior)
+      resumeFrom = {
+        settled,
+        view,
+        maxSpawnOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'spawned'),
+        maxCursorSeq: maxSeqOf(
+          prior,
+          (ev) => ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken',
+        ),
+        maxWaitOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'waiting'),
+        // Waits armed but never woken: the run died mid-wait. They ride onto `Scope.resume.waits`,
+        // and re-arming the same label adopts the ORIGINAL absolute deadline rather than
+        // restarting the countdown from this process's clock.
+        waits: pendingWaits(prior),
+      }
+    } else {
+      // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
+      // spawn-ordinal-0 marker), so a journal-based reader — `trajectoryReport`, `replaySpawnTree`,
+      // `materializeTreeView` — can reconstruct the WHOLE realized tree from a real run, not only
+      // hand-built journals. The root is never `scope.spawn`ed (the supervisor runs `act` directly),
+      // so without this the root node is absent and `trajectoryReport` fails its `nodes.has(root)`
+      // invariant. The uniqueness guard skips `spawned` events (only the cursor namespace must be
+      // unique), so sharing ordinal 0 with the first child's spawn is not a collision; replay ignores
+      // `spawned` events for settlement reconstruction, so the replayed `Settled[]` is unchanged.
+      await opts.journal.beginTree(opts.runId, new Date(now()).toISOString())
+      await opts.journal.appendEvent(opts.runId, {
+        kind: 'spawned',
+        id: opts.runId,
+        label: 'root',
+        budget: opts.budget,
+        runtime: 'inline',
+        seq: 0,
+        at: new Date(now()).toISOString(),
+      })
+    }
 
     // ONE internal controller is the root scope's abort source. Every cascade path
     // (caller signal, RootHandle.abort, breaker trip, deadline) aborts it; the scope
@@ -129,6 +186,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       signal: controller.signal,
       now,
       hooks: opts.hooks,
+      ...(opts.probes ? { probes: opts.probes } : {}),
+      ...(resumeFrom ? { resumeFrom } : {}),
     })
 
     // `view`/drain read the scope opaquely (`Out` erased) — the supervisor never `spawn`s
@@ -371,7 +430,11 @@ async function drainLiveChildren(
   scope: Scope<unknown>,
   controller: AbortController,
 ): Promise<void> {
-  const hasLive = scope.view.inFlight > 0
+  // Armed wait-states count here even though they are deliberately excluded from `inFlight`: a
+  // wait holds no executor, but it DOES hold a live timer, so a run that returns without
+  // cancelling one would leave the process pinned to a deadline nobody is reading anymore.
+  const view = scope.view
+  const hasLive = view.inFlight > 0 || view.waiting > 0
   if (!hasLive) return
   // Cascade the abort into every live child's executor before draining.
   if (!controller.signal.aborted) controller.abort()

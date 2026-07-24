@@ -132,6 +132,17 @@ export interface FanoutOptions<Item, D> {
    * synthesis child IS the selection); supplying both is a config error.
    */
   selectWinner?: FanoutWinnerSelector<D>
+  /**
+   * Cap on how many item children run AT ONCE. When set, the fanout dispatches through
+   * `rollingDispatch`: it fills `width` slots and admits the next item the moment one settles,
+   * instead of opening every item in a single round. Same items, same selection, same conserved
+   * pool — only the simultaneity changes.
+   *
+   * Unset (the default) keeps the single-round batch behavior every existing caller has. Set it
+   * when the items outnumber the live capacity a host can actually afford, so the pool is not
+   * spent opening children that then queue behind a real fence.
+   */
+  width?: number
 }
 
 /** A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the
@@ -510,8 +521,9 @@ export interface TrajectoryNode {
   readonly children: ReadonlyArray<NodeId>
   readonly label: string
   readonly runtime: string
-  /** Terminal status the journal recorded for this node. */
-  readonly status: 'done' | 'failed' | 'cancelled' | 'pending'
+  /** Terminal status the journal recorded for this node. `'waiting'` is a wait-state node that was
+   *  armed and never woken — the journal's record of a run that died mid-wait. */
+  readonly status: 'done' | 'failed' | 'cancelled' | 'pending' | 'waiting'
   /** This node's OWN conserved spend (from its `settled` event). */
   readonly ownSpend: Spend
   /** This node's spend PLUS every descendant's — the rolled-up subtree cost. The cost a parent

@@ -17,7 +17,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
@@ -111,19 +111,36 @@ export interface CheckResult {
   detail?: string
 }
 
+export interface PythonProgramResult {
+  exitCode: number
+  stdout: string
+  stderr: string
+}
+
 /** Run one candidate's deployable test program in an isolated container:
- *  `docker run --rm --network=none -v <tmp>:/w -w /w <img> python /w/p.py`.
+ *  read-only root, bounded writable `/tmp`, no network, one CPU, and 512 MiB.
  *  Exit 0 → pass. A docker invocation error (binary missing, daemon down, image
- *  pull failure) is NOT a test failure — it throws so the harness fails loud rather
+ *  unavailable) is NOT a test failure — it throws so the harness fails loud rather
  *  than scoring every candidate 0 from a broken checker. */
 let dockerRunSeq = 0
 
-export function runChecker(task: HumanEvalTask, candidate: string): Promise<CheckResult> {
+/** Run arbitrary Python in the same isolated container used by the HumanEval
+ * checker. This is also the execution-tool primitive for experiments that let
+ * a model test its own snippets; model-written code must never run on the host. */
+export function runPythonProgram(
+  program: string,
+  timeoutMs = dockerTimeoutMs,
+): Promise<PythonProgramResult> {
   const dir = mkdtempSync(join(tmpdir(), 'hev-'))
-  writeFileSync(join(dir, 'p.py'), buildProgram(task, candidate))
+  // Rootless Docker maps container root to a subordinate host uid that cannot
+  // traverse mkdtemp's default 0700 directory. The directory contains only the
+  // disposable candidate script and is mounted read-only into the container.
+  chmodSync(dir, 0o755)
+  writeFileSync(join(dir, 'p.py'), program, { mode: 0o644 })
   // Unique container name so we can force-reap it regardless of the docker client's state.
   const name = `hev-${process.pid}-${dockerRunSeq++}`
-  return new Promise<CheckResult>((resolvePromise, reject) => {
+  const startMarker = `__AGENT_RUNTIME_CANDIDATE_STARTED_${name}__`
+  return new Promise<PythonProgramResult>((resolvePromise, reject) => {
     let settled = false
     const cleanup = () => {
       rmSync(dir, { recursive: true, force: true })
@@ -132,7 +149,7 @@ export function runChecker(task: HumanEvalTask, candidate: string): Promise<Chec
       // the name is unique, so no reuse race).
       execFile('docker', ['rm', '-f', name], () => {})
     }
-    const finish = (res: CheckResult) => {
+    const finish = (res: PythonProgramResult) => {
       if (settled) return
       settled = true
       clearTimeout(backstop)
@@ -146,54 +163,104 @@ export function runChecker(task: HumanEvalTask, candidate: string): Promise<Chec
       cleanup()
       reject(e)
     }
-    // A hung container can leave the docker client stuck forwarding SIGTERM, so the
-    // execFile callback never fires. This guarantees resolution (and reap) after the
-    // timeout, independent of the callback.
-    const backstop = setTimeout(() => finish({ pass: 0 }), dockerTimeoutMs + 3000)
+    // Candidate timeouts are enforced inside the container. If the outer Docker
+    // client or daemon misses this larger deadline, that is infrastructure failure,
+    // not a wrong answer.
+    const outerTimeoutMs = timeoutMs + 3_000
+    const backstop = setTimeout(
+      () => fail(new Error(`docker checker did not return within ${outerTimeoutMs + 3_000}ms`)),
+      outerTimeoutMs + 3_000,
+    )
+    const inContainerSeconds = Math.max(1, Math.ceil(timeoutMs / 1_000))
     execFile(
       'docker',
       [
         'run',
         '--rm',
+        '--pull=never',
         '--name',
         name,
         '--network=none',
         '--cpus=1',
         '--memory=512m',
+        '--pids-limit=64',
+        '--cap-drop=ALL',
+        '--security-opt=no-new-privileges',
+        '--read-only',
+        '--tmpfs',
+        '/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777',
+        '--user',
+        '65534:65534',
         '-v',
         `${dir}:/w:ro`,
         '-w',
         '/w',
         dockerImage,
-        'python',
-        '/w/p.py',
+        'sh',
+        '-c',
+        'command -v timeout >/dev/null 2>&1 && command -v python >/dev/null 2>&1 && [ -r /w/p.py ] || exit 126; printf "%s\\n" "$1"; exec timeout -s KILL "$2" python /w/p.py',
+        'agent-runtime-checker',
+        startMarker,
+        `${inContainerSeconds}s`,
       ],
-      { timeout: dockerTimeoutMs, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
-      (err, _stdout, stderr) => {
+      { timeout: outerTimeoutMs, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const markerLine = `${startMarker}\n`
+        const candidateStarted = stdout?.startsWith(markerLine) === true
+        const candidateStdout = candidateStarted ? stdout.slice(markerLine.length) : (stdout ?? '')
         if (err) {
-          const e = err as NodeJS.ErrnoException & { killed?: boolean; code?: number | string }
+          const e = err as Error & { killed?: boolean; code?: number | string }
           if (e.code === 'ENOENT') {
             fail(new Error('docker binary not found on PATH — cannot run the deployable checker'))
             return
           }
-          if (/cannot connect to the docker daemon|is the docker daemon running|permission denied while trying to connect/i.test(stderr)) {
-            fail(new Error(`docker daemon unreachable: ${stderr.slice(0, 200)}`))
+          if (e.killed) {
+            fail(new Error(`docker checker exceeded its ${outerTimeoutMs}ms outer timeout`))
             return
           }
-          if (/(unable to find image|pull access denied|manifest unknown|error response from daemon).*(pull|repository|registry)/i.test(stderr)) {
-            fail(new Error(`docker image ${dockerImage} unavailable: ${stderr.slice(0, 200)}`))
+          if (!candidateStarted) {
+            if (
+              /cannot connect to the docker daemon|is the docker daemon running|permission denied while trying to connect/i.test(
+                stderr,
+              )
+            ) {
+              fail(new Error(`docker daemon unreachable: ${stderr.slice(0, 200)}`))
+              return
+            }
+            if (/unable to find image|no such image|pull access denied|manifest unknown/i.test(stderr)) {
+              fail(new Error(`docker image ${dockerImage} unavailable: ${stderr.slice(0, 200)}`))
+              return
+            }
+            fail(
+              new Error(
+                `docker checker did not start the candidate: ${stderr.slice(0, 200) || e.message}`,
+              ),
+            )
             return
           }
-          // killed-by-timeout or a non-zero exit (assert failure / error) are genuine
-          // test FAILURES — score 0, do not throw. Carry the stderr tail as the
-          // execution-grounded failure detail (empty ⇒ timeout/SIGKILL left no output).
-          finish({ pass: 0, detail: (stderr || '').slice(-600) || 'timed out (no output)' })
+          const exitCode = typeof e.code === 'number' ? e.code : 1
+          finish({
+            exitCode,
+            stdout: candidateStdout,
+            stderr: stderr ?? '',
+          })
           return
         }
-        finish({ pass: 1 })
+        if (!candidateStarted) {
+          fail(new Error('docker checker exited without starting the candidate'))
+          return
+        }
+        finish({ exitCode: 0, stdout: candidateStdout, stderr: stderr ?? '' })
       },
     )
   })
+}
+
+export async function runChecker(task: HumanEvalTask, candidate: string): Promise<CheckResult> {
+  const result = await runPythonProgram(buildProgram(task, candidate))
+  return result.exitCode === 0
+    ? { pass: 1 }
+    : { pass: 0, detail: result.stderr.slice(-600) || 'timed out (no output)' }
 }
 
 /** A HumanEval task carries its checker inputs in metadata so the deterministic
@@ -229,11 +296,17 @@ export function createHumanEvalAdapter(): BenchmarkAdapter {
   return {
     name: 'humaneval',
     async preflight() {
-      // The judge is the only hard dependency; it fails loud on a missing/broken
-      // docker, so a cheap presence check here gives an earlier, clearer signal.
+      // Prove the daemon and exact local image before any model call. Scoring uses
+      // --pull=never so a registry or cold pull cannot become a candidate outcome.
       await new Promise<void>((resolve, reject) => {
         execFile('docker', ['version', '--format', '{{.Server.Version}}'], (err) => {
           if (err) reject(new Error('HumanEval judge needs a running Docker daemon (python:3.12-slim, --network=none)'))
+          else resolve()
+        })
+      })
+      await new Promise<void>((resolve, reject) => {
+        execFile('docker', ['image', 'inspect', dockerImage], (err) => {
+          if (err) reject(new Error(`HumanEval judge needs the cached Docker image ${dockerImage}`))
           else resolve()
         })
       })

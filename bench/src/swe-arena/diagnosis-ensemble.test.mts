@@ -4,6 +4,10 @@
  * survive marked as competing hypotheses). Pure — no router, no tokens.
  */
 
+import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   classSimilarity,
@@ -12,6 +16,7 @@ import {
   fuseFindings,
   fusedToAnalystFindings,
   parseAnalystFindings,
+  runDiagnosisEnsemble,
   surfacesPlacementRegex,
   type AnalystRawFinding,
   type AnalystReport,
@@ -183,5 +188,23 @@ describe('defaultAnalysts / placement regex', () => {
     expect(re.test('the helper belongs in django/utils/encoding.py')).toBe(true)
     expect(re.test('worker put the fix in the wrong file')).toBe(true)
     expect(surfacesPlacementRegex().test('router 503 storm during brain call')).toBe(false)
+  })
+})
+
+describe('diagnosis cancellation', () => {
+  it('does no artifact or analyst work when the parent is already cancelled', async () => {
+    const scratchDir = join(tmpdir(), `diagnosis-preabort-${randomUUID()}`)
+    const controller = new AbortController()
+    const reason = new Error('stop before analyst spend')
+    controller.abort(reason)
+
+    await expect(runDiagnosisEnsemble({
+      analysts: [{ id: 'a', model: 'm' }],
+      runs: [{ iid: 'i', arm: 'sup', dir: scratchDir }],
+      secrets: { secretsDir: scratchDir, envFiles: [] },
+      scratchDir,
+      signal: controller.signal,
+    })).rejects.toBe(reason)
+    expect(existsSync(scratchDir)).toBe(false)
   })
 })
