@@ -72,9 +72,17 @@ interface CellRecord {
 /** The same cell caches `loadCampaignCells` reads, kept verbatim: the backfill
  *  needs fields (judgeScores, resolvedModel, seed) the EvidenceCell slice drops.
  *  Traversal and the fail-loud identity check are owned by cell-evidence — one
- *  rule for what counts as a campaign cell. */
+ *  rule for what counts as a campaign cell.
+ *
+ *  Only scenarioId and rep are proven by that check; `artifact` is normalized to
+ *  a record-or-null here so the `artifact !== null` guards downstream cannot be
+ *  handed an `undefined` that passes them. Every remaining field is optional and
+ *  read behind its own typeof guard. */
 async function readCellRecords(campaignDir: string): Promise<CellRecord[]> {
-  const records = (await loadCampaignCellRecords(campaignDir)) as unknown as CellRecord[]
+  const records = (await loadCampaignCellRecords(campaignDir)).map((record) => ({
+    ...record,
+    artifact: isRecord(record.artifact) ? record.artifact : null,
+  })) as unknown as CellRecord[]
   return records.sort((a, b) => a.scenarioId.localeCompare(b.scenarioId) || a.rep - b.rep)
 }
 
@@ -475,8 +483,8 @@ async function emitProposerLines(ctx: Ctx, lines: RolloutLine[], entries: Rollou
         suite: 'swe-arena-proposer',
         instance_id:
           shot.author !== null
-            ? `gen${shot.generation}-cand${shot.candidateIndex}-${shot.author}`
-            : `gen${shot.generation}-cand${shot.candidateIndex}`,
+            ? `${candidateId(shot.generation, shot.candidateIndex)}-${shot.author}`
+            : candidateId(shot.generation, shot.candidateIndex),
         split: 'search',
         seed: null,
         rep: shot.shot,

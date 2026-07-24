@@ -295,16 +295,22 @@ export async function loadCampaignCellRecords(campaignDir: string): Promise<Reco
     const path = join(campaignDir, entry.name, 'cached-result.json')
     const raw = await readFile(path, 'utf8').catch(() => null)
     if (raw === null) continue
-    let parsed: Record<string, unknown>
+    let parsed: unknown
     try {
-      parsed = JSON.parse(raw) as Record<string, unknown>
+      parsed = JSON.parse(raw)
     } catch {
       throw new Error(`loadCampaignCells: corrupt cell cache ${path}`)
     }
-    if (typeof parsed.scenarioId !== 'string' || typeof parsed.rep !== 'number') {
+    // null and arrays parse fine and would make the identity check below throw a
+    // TypeError instead of naming what is wrong with the file.
+    const record =
+      parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null
+    if (record === null || typeof record.scenarioId !== 'string' || typeof record.rep !== 'number') {
       throw new Error(`loadCampaignCells: ${path} is not a campaign cell (scenarioId/rep missing)`)
     }
-    records.push(parsed)
+    records.push(record)
   }
   return records
 }
