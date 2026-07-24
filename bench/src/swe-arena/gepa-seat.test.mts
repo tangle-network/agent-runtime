@@ -16,6 +16,7 @@ import {
   GEPA_INNER_RUNS_DIRNAME,
   GEPA_PYTHON_INSTALL_HINT,
   gepaBridgeScenarios,
+  gepaSeatEvaluationId,
   innerSmokeComposite,
   innerSmokeJudge,
   isGepaSeat,
@@ -36,6 +37,10 @@ import { captureProposerProvenance } from './proposer-provenance.mts'
 import { runOk } from './proc.ts'
 
 const SURFACE = 'extensions/pi/prompts/worker-coding-system.md'
+const IMPLEMENTATION_REFS = {
+  runnerImplementationRef: `sha256:${'a'.repeat(64)}`,
+  judgeImplementationRef: `sha256:${'b'.repeat(64)}`,
+} as const
 
 const seat = (over: Partial<ProposerSpec> = {}): ProposerSpec => ({
   name: 'gepa-author',
@@ -569,16 +574,36 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
 
   it('construction fails loud without the smoke runner (the inner evaluator)', () => {
     expect(() => fanOutLoopsGenerator(baseConfig([seat()]))).toThrow(/inner evaluator/)
+    expect(() =>
+      fanOutLoopsGenerator(baseConfig([seat()]), {
+        smokeRunner: async () => smokeVerdict(),
+        smokeInstanceId: 'astropy__astropy-13033',
+      }),
+    ).toThrow(/immutable runner and judge references/)
     expect(() => fanOutLoopsGenerator(baseConfig([{ name: 'no-seat-kind' }]))).toThrow(/neither a harness nor an engine/)
   })
 
   it('materializes each candidate into the scratch surface, applies the winner through the normal prefilter path, and records provenance', async () => {
     const WINNER = `${SEED}Always run the neighboring test file before finalizing.\n`
     const LOSER = `${SEED}delete all tests\n`
-    const seen: Array<{ content: string; scratch: string; hasCostLedger: boolean }> = []
-    const smokeRunner: SmokeRunner = async ({ scratchPath, costLedger }) => {
+    const seen: Array<{
+      content: string
+      scratch: string
+      evaluationKey: string
+      hasCostLedger: boolean
+    }> = []
+    const smokeRunner: SmokeRunner = async ({
+      scratchPath,
+      evaluationKey,
+      costLedger,
+    }) => {
       const content = await readFile(join(scratchPath, SURFACE), 'utf8')
-      seen.push({ content, scratch: scratchPath, hasCostLedger: costLedger !== undefined })
+      seen.push({
+        content,
+        scratch: scratchPath,
+        evaluationKey,
+        hasCostLedger: costLedger !== undefined,
+      })
       // The winner candidate resolves; the seed gets verify-pass only; the
       // loser gets nothing — exercising resolve-dominates + tiebreak.
       if (content === WINNER) return smokeVerdict({ resolved: true, verifyPass: true })
@@ -588,6 +613,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
     const observed: { config?: unknown } = {}
     const config = baseConfig([seat({ maxMetricCalls: 5 })], { activationGate: true })
     const gen = fanOutLoopsGenerator(config, {
+      ...IMPLEMENTATION_REFS,
       smokeRunner,
       smokeInstanceId: 'astropy__astropy-13033',
       scoreSplit: { privateInstances: ['django__django-11532'] },
@@ -599,11 +625,14 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
 
     expect(result).toMatchObject({ applied: true, label: 'gepa-author' })
     expect(result.rationale).toContain('engine gepa')
-    // 3 inner calls (seed, loser, winner) + 1 stage-B prefilter smoke on the
-    // final candidate — all in the seat's scratch worktree, never the driver.
+    // 3 isolated inner calls (seed, loser, winner) + 1 stage-B prefilter smoke
+    // on the final candidate, all outside the driver worktree.
     expect(seen).toHaveLength(4)
     for (const call of seen) expect(call.scratch).not.toBe(driverWt)
     expect(seen.map((c) => c.content)).toEqual([SEED, LOSER, WINNER, WINNER])
+    expect(new Set(seen.slice(0, 3).map((call) => call.scratch)).size).toBe(3)
+    expect(seen.slice(0, 3).every((call) => call.evaluationKey.startsWith('inner-'))).toBe(true)
+    expect(seen[3]!.evaluationKey).toBe('candidate-0')
     expect(seen.slice(0, 3).every((call) => call.hasCostLedger)).toBe(true)
     // The winner landed on the driver worktree with the mechanical predicate.
     expect(await readFile(join(driverWt, SURFACE), 'utf8')).toBe(WINNER)
@@ -616,9 +645,14 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
       .filter(Boolean)
     expect(changed.sort()).toEqual([ACTIVATION_PREDICATE_RELPATH, SURFACE].sort())
     // Budget threaded into the adapter recipe.
+    const incumbentCommit = await git(['rev-parse', 'HEAD'], driverWt)
     expect(observed.config).toMatchObject({
-      evaluationId:
-        `swe-arena-gepa-seat|smoke=astropy__astropy-13033|judge=gepa-inner-smoke|dispatchTimeoutMs=${config.dispatchTimeoutMs}`,
+      evaluationId: gepaSeatEvaluationId({
+        smokeInstanceId: 'astropy__astropy-13033',
+        dispatchTimeoutMs: config.dispatchTimeoutMs,
+        incumbentCommit,
+        ...IMPLEMENTATION_REFS,
+      }),
       recipe: { kind: 'engine', run: { engine: 'gepa', maxEvaluations: 5 } },
       optimizer: testOptimizer,
       resume: 'if-compatible',
@@ -670,6 +704,116 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
     expect(gen.drainPrefilterKills()).toEqual([])
   })
 
+  it('isolates concurrent candidate evaluations while preserving parallel execution', async () => {
+    const candidateA = `${SEED}candidate A keeps its own workspace\n`
+    const candidateB = `${SEED}candidate B keeps its own workspace\n`
+    let releaseBoth!: () => void
+    const bothStarted = new Promise<void>((resolve) => {
+      releaseBoth = resolve
+    })
+    let started = 0
+    const innerSeen: Array<{ content: string; scratchPath: string }> = []
+    const smokeRunner: SmokeRunner = async ({
+      scratchPath,
+      evaluationKey,
+    }) => {
+      if (evaluationKey.startsWith('inner-')) {
+        started += 1
+        if (started === 2) releaseBoth()
+        await bothStarted
+      }
+      const content = await readFile(join(scratchPath, SURFACE), 'utf8')
+      if (evaluationKey.startsWith('inner-')) {
+        innerSeen.push({ content, scratchPath })
+      }
+      return smokeVerdict({ resolved: content === candidateA })
+    }
+    const parallelFactory: GepaMethodFactory = () => ({
+      name: 'parallel-gepa',
+      async optimize(input) {
+        const scenario = input.trainScenarios[0]!
+        await Promise.all([
+          input.dispatchWithSurface(candidateA, scenario, fakeCtx),
+          input.dispatchWithSurface(candidateB, scenario, fakeCtx),
+        ])
+        return {
+          winnerSurface: candidateA,
+          cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+          durationMs: 1,
+          provenance: fullProvenance('parallel-gepa', { evaluationCount: 2 }),
+        }
+      },
+    })
+    const gen = fanOutLoopsGenerator(baseConfig([seat({ maxMetricCalls: 2 })]), {
+      ...IMPLEMENTATION_REFS,
+      smokeRunner,
+      smokeInstanceId: 'astropy__astropy-13033',
+      scoreSplit: null,
+      gepaMethodFactory: parallelFactory,
+    })
+
+    const result = await gen.generate(generatorArgs(0))
+
+    expect(result.applied).toBe(true)
+    expect(innerSeen.map((entry) => entry.content).sort()).toEqual(
+      [candidateA, candidateB].sort(),
+    )
+    expect(new Set(innerSeen.map((entry) => entry.scratchPath)).size).toBe(2)
+  })
+
+  it('uses explicit immutable refs so captured runner or judge behavior cannot share resume state', async () => {
+    const config = baseConfig([seat()])
+    const incumbentCommit = await git(['rev-parse', 'HEAD'], driverWt)
+    const makeRunner = (resolved: boolean): SmokeRunner =>
+      async () => smokeVerdict({ resolved })
+    const runnerV1 = makeRunner(false)
+    const runnerV2 = makeRunner(true)
+    const common = {
+      smokeInstanceId: 'astropy__astropy-13033',
+      dispatchTimeoutMs: config.dispatchTimeoutMs,
+      incumbentCommit,
+    }
+    const original = gepaSeatEvaluationId({ ...common, ...IMPLEMENTATION_REFS })
+    const changedRunner = gepaSeatEvaluationId({
+      ...common,
+      ...IMPLEMENTATION_REFS,
+      runnerImplementationRef: `sha256:${'c'.repeat(64)}`,
+    })
+    const changedJudge = gepaSeatEvaluationId({
+      ...common,
+      ...IMPLEMENTATION_REFS,
+      judgeImplementationRef: `sha256:${'d'.repeat(64)}`,
+    })
+    const changedIncumbent = gepaSeatEvaluationId({
+      ...common,
+      ...IMPLEMENTATION_REFS,
+      incumbentCommit: 'e'.repeat(40),
+    })
+    const smokeArgs: Parameters<SmokeRunner>[0] = {
+      scratchPath: driverWt,
+      generation: 0,
+      proposer: seat(),
+      evaluationKey: 'identity-test',
+    }
+
+    expect(runnerV1.toString()).toBe(runnerV2.toString())
+    expect((await runnerV1(smokeArgs)).resolved).toBe(false)
+    expect((await runnerV2(smokeArgs)).resolved).toBe(true)
+    expect(original).toMatch(
+      /^swe-arena-gepa-seat\|smoke=astropy__astropy-13033\|incumbent=[a-f0-9]{40,64}\|runner=sha256:[a-f0-9]{64}\|judge=sha256:[a-f0-9]{64}\|dispatchTimeoutMs=\d+$/,
+    )
+    expect(changedRunner).not.toBe(original)
+    expect(changedJudge).not.toBe(original)
+    expect(changedIncumbent).not.toBe(original)
+    expect(() =>
+      gepaSeatEvaluationId({
+        ...common,
+        ...IMPLEMENTATION_REFS,
+        runnerImplementationRef: 'runner-v2',
+      }),
+    ).toThrow(/runnerImplementationRef must be an immutable sha256 reference/)
+  })
+
   it('records but rejects a winner when cost accounting is incomplete', async () => {
     const WINNER = `${SEED}Always run the neighboring test file before finalizing.\n`
     const incomplete: GepaMethodFactory = () => ({
@@ -689,6 +833,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
       },
     })
     const gen = fanOutLoopsGenerator(baseConfig([seat()]), {
+      ...IMPLEMENTATION_REFS,
       smokeRunner: async () => smokeVerdict({ resolved: true }),
       smokeInstanceId: 'astropy__astropy-13033',
       scoreSplit: null,
@@ -714,9 +859,19 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
     const runaway: GepaMethodFactory = () => ({
       name: 'runaway',
       async optimize(input) {
-        for (let i = 0; i < 4; i++) {
-          await input.dispatchWithSurface(`${SEED}candidate ${i}\n`, input.trainScenarios[0]!, fakeCtx)
-        }
+        const results = await Promise.allSettled(
+          Array.from({ length: 4 }, (_, index) =>
+            input.dispatchWithSurface(
+              `${SEED}candidate ${index}\n`,
+              input.trainScenarios[0]!,
+              fakeCtx,
+            ),
+          ),
+        )
+        const rejected = results.find(
+          (result): result is PromiseRejectedResult => result.status === 'rejected',
+        )
+        if (rejected) throw rejected.reason
         return {
           winnerSurface: SEED,
           cost: { totalCostUsd: 0, accountingComplete: false, incompleteReasons: [] },
@@ -726,6 +881,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
       },
     })
     const gen = fanOutLoopsGenerator(baseConfig([seat({ maxMetricCalls: 3 })]), {
+      ...IMPLEMENTATION_REFS,
       smokeRunner: async () => smokeVerdict(),
       smokeInstanceId: 'astropy__astropy-13033',
       scoreSplit: null,
@@ -736,6 +892,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
 
   it('refuses to feed a PRIVATE smoke verdict to the bridge', async () => {
     const gen = fanOutLoopsGenerator(baseConfig([seat()]), {
+      ...IMPLEMENTATION_REFS,
       smokeRunner: async () => smokeVerdict({ iid: 'django__django-11532' }),
       smokeInstanceId: 'astropy__astropy-13033',
       scoreSplit: { privateInstances: ['django__django-11532'] },
@@ -746,6 +903,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
 
   it('declines the slot without a kill when GEPA returns the seed unchanged', async () => {
     const gen = fanOutLoopsGenerator(baseConfig([seat()]), {
+      ...IMPLEMENTATION_REFS,
       smokeRunner: async () => smokeVerdict(),
       smokeInstanceId: 'astropy__astropy-13033',
       scoreSplit: null,
@@ -837,6 +995,7 @@ describe('integration: real adapter roundtrip', () => {
           prefilter: { enabled: true, smokeInstance: 'cheapest-of-set', requireResolved: false },
         },
         {
+          ...IMPLEMENTATION_REFS,
           smokeRunner: async ({ scratchPath }) => {
             const candidate = await readFile(join(scratchPath, SURFACE), 'utf8')
             return {

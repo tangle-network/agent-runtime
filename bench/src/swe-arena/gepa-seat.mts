@@ -6,12 +6,11 @@
  *
  *   INNER (what GEPA's own loop calls, many times, budget-capped): the
  *   candidate is ONE change-space file's content as a string. Each inner call
- *   materializes the candidate string into the seat's scratch loops worktree
- *   (the rest of the repo stays at the incumbent commit) and runs the EXISTING
- *   pre-filter smoke cell — one PUBLIC instance, the cheap path — through the
- *   injected `SmokeRunner`. Score = smoke resolve (1/0) + verify-pass fraction
- *   as a bounded tiebreak. Inner calls are capped by `maxMetricCalls`
- *   (default 10; each smoke costs minutes of arm time).
+ *   gets a detached worktree at the incumbent commit, writes its own candidate,
+ *   and runs the existing pre-filter smoke cell on one PUBLIC instance through
+ *   the injected `SmokeRunner`. Score = smoke resolve (1/0) + verify-pass
+ *   fraction as a bounded tiebreak. Inner calls are capped by
+ *   `maxMetricCalls` (default 10; each smoke costs minutes of arm time).
  *
  *   OUTER: GEPA's best candidate is written back to the surface file in the
  *   scratch worktree and the seat returns `applied: true` — from there the
@@ -58,6 +57,12 @@ import { officialOptimizerModel } from '../official-optimizer-config.mts'
 import { ACTIVATION_PREDICATE_RELPATH, type ActivationPredicate } from './activation.mts'
 import { changeSpaceViolations, type OuterLoopConfig } from './outer-loop.mts'
 import type { AuthorFn, ProposerSpec, SmokeRunner, SmokeVerdict } from './proposer-fanout.mts'
+import { runOk } from './proc.ts'
+import {
+  createDetachedWorktree,
+  pruneDetachedWorktrees,
+  removeDetachedWorktree,
+} from './scratch-worktree.ts'
 import type { ScoreSplit } from './score-split.mts'
 
 // ---------------------------------------------------------------------------
@@ -590,6 +595,8 @@ export function mechanicalActivationPredicate(
 
 export interface GepaSeatDeps {
   smokeRunner: SmokeRunner
+  runnerImplementationRef: string
+  judgeImplementationRef: string
   /** Resolved PUBLIC smoke instance (outer-loop restricts the choice to the
    *  split's public set; re-asserted here fail-closed). */
   smokeInstanceId: string
@@ -604,6 +611,40 @@ export interface GepaSeatDeps {
 }
 
 const sha256 = (s: string): string => `sha256:${createHash('sha256').update(s).digest('hex')}`
+
+export function gepaSeatEvaluationId(input: {
+  smokeInstanceId: string
+  dispatchTimeoutMs: number
+  incumbentCommit: string
+  runnerImplementationRef: string
+  judgeImplementationRef: string
+}): string {
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.incumbentCommit)) {
+    throw new Error('gepa seat: incumbentCommit must be an immutable git object id')
+  }
+  const requireImplementationRef = (value: string, label: string): string => {
+    if (!/^sha256:[a-f0-9]{64}$/.test(value)) {
+      throw new Error(`gepa seat: ${label} must be an immutable sha256 reference`)
+    }
+    return value
+  }
+  const runnerRef = requireImplementationRef(
+    input.runnerImplementationRef,
+    'runnerImplementationRef',
+  )
+  const judgeRef = requireImplementationRef(
+    input.judgeImplementationRef,
+    'judgeImplementationRef',
+  )
+  return [
+    'swe-arena-gepa-seat',
+    `smoke=${input.smokeInstanceId}`,
+    `incumbent=${input.incumbentCommit}`,
+    `runner=${runnerRef}`,
+    `judge=${judgeRef}`,
+    `dispatchTimeoutMs=${input.dispatchTimeoutMs}`,
+  ].join('|')
+}
 
 /** Build the seat's `AuthorFn`. The fan-out calls it with the seat's scratch
  *  worktree (checked out at the incumbent commit); everything this function
@@ -621,8 +662,12 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
     const seed = await readFile(surfacePath, 'utf8').catch(() => {
       throw new Error(`gepa seat '${spec.name}': surface ${spec.surface} does not exist at the incumbent commit`)
     })
+    const incumbentCommit = (
+      await runOk('git', ['-C', args.worktreePath, 'rev-parse', 'HEAD'])
+    ).stdout.trim()
     const runDir = join(config.outDir, 'gepa-seat', `gen${generation}-${spec.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`)
     await mkdir(runDir, { recursive: true })
+    await pruneDetachedWorktrees(args.worktreePath)
 
     const objective =
       `Improve the supervisor-loop file '${spec.surface}' (returned as the COMPLETE new file content) so the ` +
@@ -643,6 +688,7 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
         runDir: `${runDir}/cost`,
       })
     const innerScores: GepaInnerCall[] = []
+    let dispatchedCalls = 0
     const dispatchWithSurface = async (
       surface: MutableSurface,
       scenario: GepaSeatScenario,
@@ -651,27 +697,38 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
       if (typeof surface !== 'string') {
         throw new Error(`gepa seat '${spec.name}': candidate surface must be a string`)
       }
-      if (innerScores.length >= budget) {
+      const call = ++dispatchedCalls
+      if (call > budget) {
         // Defense-in-depth: the adapter's callback enforces the same cap.
         throw new Error(`gepa seat '${spec.name}': inner-call budget ${budget} exhausted`)
       }
-      await writeFile(surfacePath, surface)
-      const verdict = await deps.smokeRunner({
-        scratchPath: args.worktreePath,
-        generation,
-        proposer: spec,
-        costLedger,
-      })
+      const candidateSha256 = sha256(surface)
+      const evaluationKey = `inner-${call}-${candidateSha256.slice(7, 19)}`
+      const candidateWorktree = join(runDir, 'candidate-worktrees', evaluationKey)
+      await createDetachedWorktree(args.worktreePath, incumbentCommit, candidateWorktree)
+      let verdict: SmokeVerdict
+      try {
+        await writeFile(join(candidateWorktree, spec.surface), surface)
+        verdict = await deps.smokeRunner({
+          scratchPath: candidateWorktree,
+          generation,
+          proposer: spec,
+          evaluationKey,
+          costLedger,
+        })
+      } finally {
+        await removeDetachedWorktree(args.worktreePath, candidateWorktree)
+      }
       if (deps.scoreSplit !== null && deps.scoreSplit.privateInstances.includes(verdict.iid)) {
         throw new Error(
           `gepa seat '${spec.name}': smoke ran PRIVATE instance ${verdict.iid} — refusing to feed its score to the bridge`,
         )
       }
       innerScores.push({
-        call: innerScores.length + 1,
+        call,
         scenarioId: scenario.id,
         smokeIid: verdict.iid,
-        candidateSha256: sha256(surface),
+        candidateSha256,
         composite: innerSmokeComposite(verdict),
         resolved: verdict.resolved,
         verifyPass: verdict.verifyPass ?? null,
@@ -679,7 +736,7 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
         wallS: verdict.wallS,
       })
       log(
-        `gepa seat ${spec.name} inner call ${innerScores.length}/${budget}: ` +
+        `gepa seat ${spec.name} inner call ${call}/${budget}: ` +
           `composite=${innerSmokeComposite(verdict)} (${verdict.reason})`,
       )
       return verdict
@@ -687,6 +744,7 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
 
     const factory: GepaMethodFactory =
       deps.methodFactory ?? gepaOptimizationMethod<GepaSeatScenario, SmokeVerdict>
+    const innerJudge = innerSmokeJudge()
     const optimizer =
       deps.optimizer ??
       (deps.methodFactory
@@ -709,12 +767,13 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
       name: `gepa-seat:${spec.name}`,
       recipe,
       objective,
-      evaluationId: [
-        'swe-arena-gepa-seat',
-        `smoke=${deps.smokeInstanceId}`,
-        'judge=gepa-inner-smoke',
-        `dispatchTimeoutMs=${config.dispatchTimeoutMs}`,
-      ].join('|'),
+      evaluationId: gepaSeatEvaluationId({
+        smokeInstanceId: deps.smokeInstanceId,
+        dispatchTimeoutMs: config.dispatchTimeoutMs,
+        incumbentCommit,
+        runnerImplementationRef: deps.runnerImplementationRef,
+        judgeImplementationRef: deps.judgeImplementationRef,
+      }),
       background,
       describeScenario: (scenario) => ({ id: scenario.id }),
       ...(optimizer ? { optimizer } : {}),
@@ -730,7 +789,7 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
       trainScenarios: scenarios.train,
       selectionScenarios: scenarios.selection,
       dispatchWithSurface,
-      judges: [innerSmokeJudge()],
+      judges: [innerJudge],
       runDir,
       seed: config.round * 1000 + generation,
       runOptions: {
@@ -749,15 +808,19 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
     const result = await method.optimize(input)
     let innerRun: GepaSeatInnerRun
     try {
+      const orderedInnerScores = [...innerScores].sort((a, b) => a.call - b.call)
       innerRun = {
         seat: spec.name,
         engine: spec.engine,
         surface: spec.surface,
         generation,
         budget,
-        innerCallCount: innerScores.length,
-        innerScores,
-        bestComposite: innerScores.length > 0 ? Math.max(...innerScores.map((s) => s.composite)) : null,
+        innerCallCount: orderedInnerScores.length,
+        innerScores: orderedInnerScores,
+        bestComposite:
+          orderedInnerScores.length > 0
+            ? Math.max(...orderedInnerScores.map((score) => score.composite))
+            : null,
         ...completeProvenance(result.provenance, spec.name),
         totalCostUsd: result.cost.totalCostUsd,
         accountingComplete: result.cost.accountingComplete,

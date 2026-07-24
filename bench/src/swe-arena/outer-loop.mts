@@ -72,6 +72,7 @@ import {
   type Verifier,
 } from '@tangle-network/agent-runtime'
 import { runLocalHarness } from '@tangle-network/agent-runtime/mcp'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { makeFinding } from '@tangle-network/agent-eval'
 import {
   FsLabeledScenarioStore,
@@ -85,7 +86,12 @@ import {
   type Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import type { CostLedgerHandle } from '@tangle-network/agent-eval'
+import { runVenvPython } from '../benchmarks/_harness.ts'
 import { createSweBenchAdapter } from '../benchmarks/swe-bench.ts'
+import {
+  fileTreeImplementationRef,
+  pythonDistributionImplementationRef,
+} from './implementation-ref.ts'
 import {
   baselineDriftWarnings,
   cellsFromCampaign,
@@ -1528,11 +1534,24 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
   const smokeRunner: SmokeRunner | undefined =
     smokeIid === null
       ? undefined
-      : async ({ scratchPath, generation, proposer, costLedger }): Promise<SmokeVerdict> => {
+      : async ({
+          scratchPath,
+          generation,
+          proposer,
+          evaluationKey,
+          costLedger,
+        }): Promise<SmokeVerdict> => {
           const iid = smokeIid
+          if (!/^[a-zA-Z0-9_-]+$/.test(evaluationKey)) {
+            throw new Error(`outer-loop: invalid smoke evaluation key ${JSON.stringify(evaluationKey)}`)
+          }
           const requireResolved = config.prefilter?.requireResolved === true
           const entry = images[iid]!
-          const armOutDir = join(config.outDir, 'prefilter-smoke', `gen${generation}-${proposer.name}`)
+          const armOutDir = join(
+            config.outDir,
+            'prefilter-smoke',
+            `gen${generation}-${proposer.name}-${evaluationKey}`,
+          )
           const nm = join(scratchPath, 'node_modules')
           let linked = false
           const t0 = Date.now()
@@ -1591,7 +1610,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
               const paid = await costLedger.runPaidCall({
                 channel: 'agent',
                 phase: 'search.prefilter',
-                actor: `prefilter-smoke:${iid}:g${generation}:${proposer.name}`,
+                actor: `prefilter-smoke:${iid}:g${generation}:${proposer.name}:${evaluationKey}`,
                 model: config.arm.workerModel,
                 execute: runWork,
                 receipt: ({ armRes }) => {
@@ -1651,6 +1670,79 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
             if (linked) await unlink(nm).catch(() => {})
           }
         }
+
+  let runnerImplementationRef: string | undefined
+  let judgeImplementationRef: string | undefined
+  const hasGepaSeat = config.proposers?.some((proposer) => proposer.engine !== undefined) === true
+  if (hasGepaSeat && smokeIid !== null && smokeRunner !== undefined) {
+    const runtimeRoot = fileURLToPath(new URL('../../..', import.meta.url))
+    const benchRoot = fileURLToPath(new URL('../..', import.meta.url))
+    const sourceCommit = (
+      await runOk('git', ['-C', config.loopsRepo, 'rev-parse', 'HEAD'])
+    ).stdout.trim()
+    const entry = images[smokeIid]!
+    const verifyScript = await readFile(join(config.verifyDir, `${smokeIid}.sh`), 'utf8')
+    const implementationArtifacts = {
+      benchSource: await fileTreeImplementationRef(join(benchRoot, 'src')),
+      runtimeSource: await fileTreeImplementationRef(join(runtimeRoot, 'src')),
+      runtimeDist: await fileTreeImplementationRef(join(runtimeRoot, 'dist')),
+      packageFiles: canonicalCandidateDigest({
+        runtimePackage: await readFile(join(runtimeRoot, 'package.json'), 'utf8'),
+        benchPackage: await readFile(join(benchRoot, 'package.json'), 'utf8'),
+        lockfile: await readFile(join(runtimeRoot, 'pnpm-lock.yaml'), 'utf8'),
+      }),
+      swebench: await pythonDistributionImplementationRef(
+        'swebench',
+        (script, args) => runVenvPython(script, args),
+      ),
+    }
+    const runnerSourceRef = canonicalCandidateDigest({
+      benchSource: implementationArtifacts.benchSource,
+      runtimeSource: implementationArtifacts.runtimeSource,
+      runtimeDist: implementationArtifacts.runtimeDist,
+      packageFiles: implementationArtifacts.packageFiles,
+    })
+    const judgeSourceRef = canonicalCandidateDigest({
+      benchSource: implementationArtifacts.benchSource,
+      packageFiles: implementationArtifacts.packageFiles,
+      swebench: implementationArtifacts.swebench,
+    })
+    runnerImplementationRef = canonicalCandidateDigest({
+      implementation: 'swe-arena-smoke-runner',
+      sourceCommit,
+      sourceRef: runnerSourceRef,
+      smoke: {
+        iid: smokeIid,
+        image: entry.image,
+        baseCommit: entry.base_commit,
+        problemStatement: problemById.get(smokeIid)!,
+        verifyScript,
+        requireResolved: config.prefilter?.requireResolved === true,
+      },
+      arm: {
+        name: config.armName,
+        workerModel: config.arm.workerModel,
+        driverModel: config.arm.driverModel,
+        budget: config.arm.budget,
+        maxSandboxes: config.arm.maxSandboxes,
+        maxUsd: config.arm.maxUsd,
+        maxDepth: config.arm.maxDepth,
+        timeoutMs: config.arm.timeoutMs,
+        envKnobs: config.arm.envKnobs ?? null,
+      },
+      dispatchTimeoutMs: config.dispatchTimeoutMs,
+      capacityModel: config.capacityModel ?? null,
+      gateWaitCeilingMs: config.gateWaitCeilingMs ?? null,
+      excludes,
+    })
+    judgeImplementationRef = canonicalCandidateDigest({
+      implementation: 'serialized-swebench-judge',
+      sourceCommit,
+      sourceRef: judgeSourceRef,
+      timeoutMs: config.judgeTimeoutMs ?? JUDGE_TIMEOUT_FLOOR_MS,
+      cacheLevel: 'instance',
+    })
+  }
 
   // ── dispatch: one (surface × scenario) cell ──────────────────────────
   const agent = async (surface: MutableSurface, scenario: Scenario, ctx: DispatchContext): Promise<R4Artifact> => {
@@ -2032,6 +2124,8 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     config.proposers !== undefined
       ? fanOutLoopsGenerator(config, {
           ...(smokeRunner ? { smokeRunner } : {}),
+          ...(runnerImplementationRef ? { runnerImplementationRef } : {}),
+          ...(judgeImplementationRef ? { judgeImplementationRef } : {}),
           ...(paretoParents.length > 0 ? { parents: paretoParents } : {}),
           ...(briefingCtx !== undefined ? { briefing: briefingCtx } : {}),
           // The GEPA seat's inner evaluator uses the same public-only

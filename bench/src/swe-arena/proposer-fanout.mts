@@ -73,6 +73,11 @@ import {
 } from './gepa-seat.mts'
 import type { ScoreSplit } from './score-split.mts'
 import { run, runOk } from './proc.ts'
+import {
+  createDetachedWorktree,
+  pruneDetachedWorktrees,
+  removeDetachedWorktree,
+} from './scratch-worktree.ts'
 
 // ---------------------------------------------------------------------------
 // Config types.
@@ -151,6 +156,7 @@ export type SmokeRunner = (args: {
   scratchPath: string
   generation: number
   proposer: ProposerSpec
+  evaluationKey: string
   costLedger?: CostLedgerHandle
 }) => Promise<SmokeVerdict>
 
@@ -442,21 +448,6 @@ export function proposerShotHooks(opts: {
 // smoke runner link one in temporarily when they need it).
 // ---------------------------------------------------------------------------
 
-async function addAuthoringWorktree(loopsRepo: string, commit: string, dest: string): Promise<void> {
-  await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest])
-  await rm(dest, { recursive: true, force: true })
-  await run('git', ['-C', loopsRepo, 'worktree', 'prune'])
-  await runOk('git', ['-C', loopsRepo, 'worktree', 'add', '--detach', dest, commit])
-}
-
-async function removeAuthoringWorktree(loopsRepo: string, dest: string): Promise<void> {
-  const res = await run('git', ['-C', loopsRepo, 'worktree', 'remove', '--force', '--', dest])
-  if (res.code !== 0) {
-    await rm(dest, { recursive: true, force: true })
-    await run('git', ['-C', loopsRepo, 'worktree', 'prune'])
-  }
-}
-
 const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_')
 
 // ---------------------------------------------------------------------------
@@ -485,6 +476,10 @@ export type AuthorFn = (
 export interface FanOutDeps {
   author?: AuthorFn
   smokeRunner?: SmokeRunner
+  /** Immutable digest of the smoke runner plus every captured execution input. */
+  runnerImplementationRef?: string
+  /** Immutable digest of the official judge implementation and configuration. */
+  judgeImplementationRef?: string
   /** GEN-4: materialized Pareto parents seeded into every author's prompt (and
    *  the merge seat's explicit merge input). Empty/omitted = gen-3 behavior. */
   parents?: ParetoParentContext[]
@@ -523,6 +518,8 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
     if (isGepaSeat(proposer)) {
       gepaAuthor ??= gepaSeatAuthor(config, {
         smokeRunner: deps.smokeRunner!,
+        runnerImplementationRef: deps.runnerImplementationRef!,
+        judgeImplementationRef: deps.judgeImplementationRef!,
         smokeInstanceId: deps.smokeInstanceId!,
         scoreSplit: deps.scoreSplit ?? null,
         ...(deps.gepaMethodFactory ? { methodFactory: deps.gepaMethodFactory } : {}),
@@ -604,10 +601,19 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
       throw new Error(`fanOutLoopsGenerator: proposer ${seat.name} has neither a harness nor an engine`)
     }
   }
-  if (gepaSeats.length > 0 && deps.author === undefined && (deps.smokeRunner === undefined || deps.smokeInstanceId === undefined)) {
+  if (
+    gepaSeats.length > 0 &&
+    deps.author === undefined &&
+    (
+      deps.smokeRunner === undefined ||
+      deps.smokeInstanceId === undefined ||
+      deps.runnerImplementationRef === undefined ||
+      deps.judgeImplementationRef === undefined
+    )
+  ) {
     throw new Error(
       `fanOutLoopsGenerator: gepa seat(s) ${gepaSeats.map((p) => p.name).join(', ')} need the pre-filter smoke ` +
-        'cell as their inner evaluator — enable config.prefilter and provide smokeRunner + smokeInstanceId',
+        'cell plus immutable runner and judge references as their inner evaluator',
     )
   }
   const author = deps.author ?? defaultAuthor(config, deps)
@@ -623,11 +629,12 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
     const baseCommit = head.stdout.trim()
     const patchesDir = join(config.outDir, 'proposer-patches')
     await mkdir(patchesDir, { recursive: true })
+    await pruneDetachedWorktrees(config.loopsRepo)
     log(`fan-out gen ${generation}: ${proposers.length} proposer(s) authoring in parallel from ${baseCommit.slice(0, 10)}`)
     return Promise.all(
       proposers.map(async (proposer, index): Promise<AuthorOutcome> => {
         const scratch = join(config.outDir, 'proposer-wt', `gen${generation}-cand${index}-${sanitize(proposer.name)}`)
-        await addAuthoringWorktree(config.loopsRepo, baseCommit, scratch)
+        await createDetachedWorktree(config.loopsRepo, baseCommit, scratch)
         try {
           const authored = await author(proposer, {
             ...args,
@@ -704,6 +711,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
               scratchPath: scratch,
               generation,
               proposer,
+              evaluationKey: `candidate-${index}`,
               ...(args.costLedger ? { costLedger: args.costLedger } : {}),
             })
             if (!smoke.pass) {
@@ -726,7 +734,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
           }
           return { proposer, applied: true, summary: authored.summary, patch: diff, kill: null }
         } finally {
-          await removeAuthoringWorktree(config.loopsRepo, scratch)
+          await removeDetachedWorktree(config.loopsRepo, scratch)
         }
       }),
     )
