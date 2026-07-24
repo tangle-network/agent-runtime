@@ -188,12 +188,10 @@ interface BlockRecord {
   bag: TokenBag
 }
 
-/** Leftmost identifier of a call target: `it.skip(…)` → `it`. */
+/** Leftmost identifier of a call target: `it.skip(…)` and `it.each(…)(…)` → `it`. */
 function calleeRootName(expr: ts.Expression): string | undefined {
   let cur: ts.Expression = expr
-  while (ts.isPropertyAccessExpression(cur) || ts.isCallExpression(cur)) {
-    cur = ts.isCallExpression(cur) ? cur.expression : cur.expression
-  }
+  while (ts.isPropertyAccessExpression(cur) || ts.isCallExpression(cur)) cur = cur.expression
   return ts.isIdentifier(cur) ? cur.text : undefined
 }
 
@@ -531,7 +529,7 @@ export function applyTestExclusions(
   if (excludedNames.length === 0) return { source, skipped: [] }
   const wanted = new Set(excludedNames)
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const byCall = new Map<ts.CallExpression, { title: string; isTest: boolean; parent?: ts.CallExpression }>()
+  const byCall = new Map<ts.CallExpression, { title: string; parent?: ts.CallExpression }>()
 
   const enclosing = (node: ts.Node): ts.CallExpression | undefined => {
     let cur: ts.Node | undefined = node.parent
@@ -561,7 +559,7 @@ export function applyTestExclusions(
       const title = literalTitle(node.arguments[0])
       if (root !== undefined && title !== undefined && (BLOCK_FNS.has(root) || TEST_FNS.has(root))) {
         const parent = enclosing(node)
-        byCall.set(node, { title, isTest: TEST_FNS.has(root), ...(parent !== undefined ? { parent } : {}) })
+        byCall.set(node, { title, ...(parent !== undefined ? { parent } : {}) })
         if (TEST_FNS.has(root)) {
           const name = fullName(node)
           if (wanted.has(name)) {
