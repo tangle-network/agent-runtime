@@ -9,16 +9,29 @@
  */
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
-import type { AnalystRegistry, MakeWorkerAgent } from '../../mcp/tools/coordination'
+import type {
+  AnalystRegistry,
+  MakeWorkerAgent,
+  WorkerWatchOptions,
+} from '../../mcp/tools/coordination'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { assertModelAllowed } from './model-policy'
-import { createInMemoryRunContext } from './run-context'
+import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
+import type { StopRule } from './stop-rules'
 import { createSupervisor } from './supervisor'
 import { type DriveHarness, type SupervisorProfile, supervisorAgent } from './supervisor-agent'
-import type { Agent, AgentSpec, Budget, ExecutorContext, ResultBlobStore } from './types'
+import type {
+  Agent,
+  AgentSpec,
+  Budget,
+  ExecutorContext,
+  ResultBlobStore,
+  SpawnJournal,
+} from './types'
+import type { WaitProbeRegistry } from './wait'
 
 /** Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
  *  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
@@ -87,8 +100,60 @@ export interface SuperviseOptions {
    *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
    *  Omit/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string>
+  /**
+   * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
+   * moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
+   * instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
+   * is the correction. Requires a backend whose executor exposes a trace source (the steerable
+   * sandbox worker and the pi wrapper do); other runtimes are simply not watched.
+   *
+   * Omit = off (status quo — no online watching, no extra events).
+   */
+  readonly watchWorkers?: WorkerWatchOptions
+  /** Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
+   *  at observation time — nothing is killed or retried. Omit = the runtime default. */
+  readonly stallAfterMs?: number
   /** Worker output store. Defaults to in-memory. */
   readonly blobs?: ResultBlobStore
+  /**
+   * Make the run DURABLE: journal + result blobs are file-backed under this directory
+   * (`createFileRunContext`), fsynced per write, and the supervisor reads the prior tree first.
+   * Re-running with the same `runDir` AND the same `runId` resumes — the children that already
+   * settled are replayed onto `Scope.resume` with their real outputs, and the scope's counters
+   * continue past the journaled maxima. Unset = in-memory, fresh every call.
+   *
+   * What that does and does not buy you, precisely: the run's history survives the process and is
+   * replayable, and a resumed run never corrupts the tree. It does NOT by itself make the built-in
+   * supervisor brain skip committed work — `supervisorAgent`'s driver does not read
+   * `Scope.resume`, so out of the box a resumed run re-spawns children it already paid for. Only a
+   * root `Agent.act` that reads `scope.resume.settled` (as the durable-resume test's root does)
+   * turns durability into work-skipping. Wiring that into the default brain is separate work.
+   *
+   * `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
+   * resumable run per directory but collides across concurrent runs sharing one `runDir`.
+   */
+  readonly runDir?: string
+  /** Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
+   *  with `blobs` — a journal whose result payloads live in a different store cannot replay. */
+  readonly journal?: SpawnJournal
+  /** Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
+   *  wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
+   *  refused `unknown-probe` and `timer` waits still work. */
+  readonly probes?: WaitProbeRegistry
+  /**
+   * PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
+   * before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
+   * not because it ran out". It composes with the budget guards and can never override one.
+   *
+   * Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
+   * `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
+   * thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
+   * only (unchanged behavior).
+   */
+  readonly stopRule?: StopRule
+  /** One-shot notification of WHY a `stopRule` ended the run — so a caller records the reason
+   *  instead of inferring an early stop from an unexhausted budget. */
+  readonly onProgressStop?: (reason: string) => void
   readonly maxDepth?: number
   readonly maxTurns?: number
   /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
@@ -125,7 +190,12 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     opts.allowedModels,
   )
 
-  const ctx = createInMemoryRunContext({ withDriver: true })
+  // `withDriver: true` is the wiring invariant either way (a `role: 'driver'` child must resolve
+  // to the nested-scope executor); `runDir` only changes WHERE the journal and blobs live.
+  const ctx =
+    opts.runDir !== undefined
+      ? createFileRunContext(opts.runDir, { withDriver: true })
+      : createInMemoryRunContext({ withDriver: true })
   const blobs = opts.blobs ?? ctx.blobs
   const perWorker = opts.perWorker ?? defaultPerWorker(opts.budget)
 
@@ -151,6 +221,10 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+    ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
+    ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+    ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
+    ...(opts.onProgressStop ? { onProgressStop: opts.onProgressStop } : {}),
     ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
     ...(opts.compaction ? { compaction: opts.compaction } : {}),
   })
@@ -158,10 +232,12 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   return createSupervisor<unknown, unknown>().run(agent, task, {
     budget: opts.budget,
     runId: opts.runId ?? 'supervise',
-    journal: ctx.journal,
+    journal: opts.journal ?? ctx.journal,
     blobs,
     executors: ctx.executors,
     maxDepth: opts.maxDepth ?? 8,
+    ...(opts.probes ? { probes: opts.probes } : {}),
+    ...(ctx.resume === true ? { resume: true } : {}),
     ...(opts.now ? { now: opts.now } : {}),
   })
 }

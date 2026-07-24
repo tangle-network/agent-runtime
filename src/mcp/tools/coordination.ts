@@ -15,7 +15,10 @@ import type {
   Settled,
   Agent as SuperviseAgent,
 } from '../../runtime'
+import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
+import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
+import type { WorkerProgress } from '../../runtime/supervise/progress'
 import type { McpToolDescriptor } from '../server'
 
 /** A worker the driver has drained via `await_event`. */
@@ -26,6 +29,10 @@ export interface SettledWorker {
   readonly valid?: boolean
   readonly outRef?: string
   readonly reason?: string
+  /** Epoch ms the ledger recorded this settlement — the resolution a progress-based stop rule
+   *  needs to answer "how long since anything landed?" without inventing a timestamp at read
+   *  time. Stamped when the cursor yields the settlement, not when a reader first looks. */
+  readonly settledAt?: number
 }
 
 export type QuestionLevel = 'worker' | 'driver' | 'loop'
@@ -121,6 +128,34 @@ export interface CoordinationToolsOptions {
    *  pulled by the next call — nothing is lost. Omit = {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0`
    *  restores the prior UNBOUNDED block (only safe for in-process drivers with no transport timeout). */
   readonly awaitTimeoutMs?: number
+  /**
+   * OPT-IN: run the ONLINE detector panel over each spawned worker's live tool trace and raise a
+   * `finding` on the bus the moment a detector fires — so the driver learns "this worker is
+   * looping" mid-run, from `await_event`, instead of at settle.
+   *
+   * This closes the `watchTrace` → `raiseFinding` wire whose own docstring already described it
+   * ("the seam an ONLINE detector uses to tell the driver 'this worker is looping/erroring' the
+   * moment it happens") but which nothing connected. Workers whose executor exposes no
+   * `traceSource` are simply not watched; nothing fails.
+   *
+   * Omit = no online watching (the settle-time analysts are unaffected).
+   */
+  readonly watchWorkers?: WorkerWatchOptions
+  /**
+   * How long a worker may go without metered activity before `observe_agent` reports it as
+   * `stalled`. A derived read at observation time, never a background watchdog — nothing is
+   * killed or retried. Omit = the runtime default.
+   */
+  readonly stallAfterMs?: number
+}
+
+/** Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). */
+export interface WorkerWatchOptions {
+  /** Detector panel; omit for the default stuck-loop + error-streak pair. */
+  readonly detectors?: WatchTraceOptions['detectors']
+  /** Raise at most this many findings per worker, so one pathological worker cannot flood the
+   *  driver's inbox with the same signal every span. Default 3; `<= 0` = unlimited. */
+  readonly maxFindingsPerWorker?: number
 }
 
 /** Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote
@@ -254,6 +289,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   }
 
   const recordSettled = (s: Settled<unknown>): SettledWorker => {
+    const settledAt = Date.now()
     const w: SettledWorker =
       s.kind === 'done'
         ? {
@@ -262,9 +298,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             score: s.verdict?.score ?? 0,
             valid: s.verdict?.valid ?? false,
             outRef: s.outRef,
+            settledAt,
           }
-        : { id: s.handle.id, status: 'down', reason: s.reason }
+        : { id: s.handle.id, status: 'down', reason: s.reason, settledAt }
     ledger.push(w)
+    // A settled worker's trace source is finished; drop the online subscription with it.
+    unwatchWorker(w.id)
     return w
   }
 
@@ -436,6 +475,86 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       .filter((n) => isLive(n.status))
       .map((n) => ({ id: n.id, status: n.status, spent: n.spent }))
 
+  // How many workers the driver could open RIGHT NOW without hitting the simultaneity fence, or
+  // `null` when no cap is set (the conserved pool is then the only fence, so there is no finite
+  // slot count). Without this the brain could see WHO is running but never that capacity was idle,
+  // so filling N slots meant emitting N blind tool calls with no feedback telling it to — the
+  // mechanical reason a 5-worker run peaked at 2 live workers. Policy (whether to fill) stays with
+  // the driver; this is only the reading.
+  const freeWorkerSlots = (): number | null => freeSlots(liveWorkerCount(), maxLiveWorkers)
+
+  // The LIVE read of one worker. Guarded because `createCoordinationTools` is bound to a `Scope`
+  // it did not construct — an older or hand-rolled scope may not implement `progress` at all, and
+  // an observation must degrade to "no progress available", never throw at the driver.
+  const readProgress = (id: string): WorkerProgress | undefined => {
+    const scope = opts.scope as Partial<Scope<unknown>>
+    if (typeof scope.progress !== 'function') return undefined
+    try {
+      return scope.progress(
+        id,
+        opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {},
+      )
+    } catch {
+      return undefined
+    }
+  }
+
+  // ONLINE detection: subscribe the streaming detector panel to a freshly-spawned worker's live
+  // tool trace, and turn each signal into a `finding` the driver pulls from `await_event`. The
+  // unsubscribe fires on the worker's settle (its trace source is dead from then on) and the
+  // per-worker cap stops one looping worker from flooding the bus.
+  const watchers = new Map<string, () => void>()
+  const watchWorker = (id: string): void => {
+    const watch = opts.watchWorkers
+    if (!watch) return
+    const scope = opts.scope as Partial<Scope<unknown>>
+    if (typeof scope.traceSource !== 'function') return
+    let source: ReturnType<NonNullable<Scope<unknown>['traceSource']>>
+    try {
+      source = scope.traceSource(id)
+    } catch {
+      return
+    }
+    if (!source) return
+    const cap = watch.maxFindingsPerWorker ?? 3
+    let raised = 0
+    const unsub = watchTrace(source, {
+      ...(watch.detectors ? { detectors: watch.detectors } : {}),
+      onSignal: async (signal, span) => {
+        if (cap > 0 && raised >= cap) return
+        raised += 1
+        await bus.publish({
+          type: 'finding',
+          finding: {
+            fromWorker: id,
+            analyst: `online:${signal.detector}`,
+            findings: {
+              detector: signal.detector,
+              severity: signal.severity,
+              reason: signal.reason,
+              streak: signal.streak,
+              ...(signal.failureClass ? { failureClass: signal.failureClass } : {}),
+              toolName: span.toolName,
+              at: span.endedAt,
+              progress: readProgress(id),
+            },
+          },
+        })
+      },
+    })
+    watchers.set(id, unsub)
+  }
+  const unwatchWorker = (id: string): void => {
+    const unsub = watchers.get(id)
+    if (!unsub) return
+    watchers.delete(id)
+    try {
+      unsub()
+    } catch {
+      // an unsubscribe that throws must never break the settle path
+    }
+  }
+
   // The blocking `scope.next()` (via `drainSettlement`) waits on a LIVE worker for its whole run.
   // Keep at most ONE such drain in flight and let every concurrent `await_event` race THAT single
   // promise against a timeout — so a bounded call never starts a second unbounded block, and the
@@ -477,7 +596,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'Pass an optional `budget` (per-field) to give a hard sub-task more than the default — it ' +
         'merges over the per-worker default; the conserved pool is still the hard fence. When a ' +
         'max-live-workers cap is set it also fails closed (`error: "max-live-workers"`) while that ' +
-        'many workers are still in flight — settle or steer one before spawning another.',
+        'many workers are still in flight — settle or steer one before spawning another. ' +
+        'Returns `freeSlots`: how many MORE workers you can start right now (`null` = uncapped). ' +
+        'While `freeSlots > 0` there is idle capacity — call this again to fill it rather than ' +
+        'waiting; parallel workers finish the run sooner than one at a time.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -508,7 +630,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           maxLiveWorkers > 0 &&
           liveWorkerCount() >= maxLiveWorkers
         )
-          return Promise.resolve({ error: 'max-live-workers' as const })
+          return Promise.resolve({
+            error: 'max-live-workers' as const,
+            live: liveWorkerCount(),
+            freeSlots: freeWorkerSlots(),
+          })
         const agent = opts.makeWorkerAgent(a.profile)
         const budget =
           a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget)
@@ -516,23 +642,40 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           budget,
           label: typeof a.label === 'string' ? a.label : 'worker',
         })
-        return Promise.resolve(res.ok ? { workerId: res.handle.id } : { error: res.reason })
+        if (res.ok) watchWorker(res.handle.id)
+        // Report the REMAINING capacity alongside the spawn, so one tool call tells the driver
+        // both "it started" and "you can still open N more" — the feedback that lets it fill
+        // slots instead of opening one worker per turn. `null` = uncapped.
+        return Promise.resolve(
+          res.ok
+            ? { workerId: res.handle.id, live: liveWorkerCount(), freeSlots: freeWorkerSlots() }
+            : { error: res.reason, live: liveWorkerCount(), freeSlots: freeWorkerSlots() },
+        )
       },
     },
     {
       name: 'observe_agent',
-      description: 'Inspect a worker status, spend, and settled output artifact when available.',
+      description:
+        'Inspect a worker WHILE IT RUNS, not only after it finishes: status, spend so far, and ' +
+        '`progress` — how long since it last did anything (`idleMs`), whether that counts as ' +
+        'stalled, how many turns it has taken, the last tools/files it touched ' +
+        '(`recentActivity`), whether a steer can even reach it (`steerable`), and how many ' +
+        'steers it has not yet read (`pendingMessages`). Returns the settled output artifact ' +
+        'once it exists. Use this BEFORE steer_agent: a steer is only worth sending when the ' +
+        'progress says the worker is on the wrong path or has stopped making any.',
       inputSchema: { type: 'object', properties: { workerId: idArg }, required: ['workerId'] },
       handler: async (raw) => {
         const id = str(obj(raw).workerId, 'workerId')
         const node = opts.scope.view.nodes.find((n) => n.id === id)
         if (!node) return { error: `unknown workerId ${JSON.stringify(id)}` }
         const output = node.outRef ? await opts.blobs.get(node.outRef) : undefined
+        const progress = readProgress(id)
         return {
           status: node.status,
           spent: node.spent,
           outRef: node.outRef ?? null,
           output: output ?? null,
+          progress: progress ?? null,
         }
       },
     },
@@ -565,7 +708,16 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const interrupt = a.interrupt === true
         const delivered = opts.scope.send(workerId, { steer: instruction, interrupt })
         await sendDown('steer', { toWorker: workerId, instruction, delivered })
-        return { delivered }
+        if (delivered) return { delivered, progress: readProgress(workerId) ?? null }
+        // Say WHY nothing landed. A silent `delivered:false` is how steering became a no-op:
+        // the driver could not tell "already finished" from "this runtime has no inbox at all".
+        const progress = readProgress(workerId)
+        const reason = !progress
+          ? 'unknown-worker'
+          : !progress.live
+            ? 'already-settled'
+            : 'runtime-has-no-inbox'
+        return { delivered, reason, progress: progress ?? null }
       },
     },
     {
@@ -578,7 +730,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'worker; omit `kinds` to also receive questions and findings. Returns { idle: true } when ' +
         'nothing is queued and no workers are live. If a worker is still running when the wait ' +
         'elapses, returns { pending: true, live: [...] } (the workers still in flight) instead of ' +
-        'blocking indefinitely — call await_event again to keep waiting; the settlement is not lost.',
+        'blocking indefinitely — call await_event again to keep waiting; the settlement is not lost. ' +
+        'Every reply carries `freeSlots`: how many more workers you can start right now (`null` = ' +
+        'uncapped). A settled worker frees its slot, so `freeSlots > 0` means capacity is sitting ' +
+        'idle — spawn into it before waiting again.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -598,7 +753,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           : undefined
         // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
         let ev = bus.pull(kinds)
-        if (ev) return projectEvent(ev)
+        // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
+        // capacity frees up, so the answer travels with the event that freed it.
+        if (ev) return { ...projectEvent(ev), freeSlots: freeWorkerSlots() }
         // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
         // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
         // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
@@ -606,10 +763,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         // fence: if it settles in time, re-pull and return the event (or idle when the cursor is dry);
         // if the fence wins, return a non-error liveness snapshot the supervisor can re-poll on.
         const raced = await raceDrainWithTimeout(ensureDrain())
-        if (raced === undefined) return { pending: true, live: liveSnapshot() }
+        if (raced === undefined)
+          return { pending: true, live: liveSnapshot(), freeSlots: freeWorkerSlots() }
         ev = bus.pull(kinds)
-        if (!ev) return { idle: !raced.drained }
-        return projectEvent(ev)
+        if (!ev) return { idle: !raced.drained, freeSlots: freeWorkerSlots() }
+        return { ...projectEvent(ev), freeSlots: freeWorkerSlots() }
       },
     },
     {

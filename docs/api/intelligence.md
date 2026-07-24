@@ -4744,7 +4744,7 @@ Analyze, search, then remeasure the resulting exact candidate before proposing i
 
 ##### TScenario
 
-`TScenario` *extends* `Scenario`
+`TScenario` *extends* `Scenario$1`
 
 ##### TArtifact
 

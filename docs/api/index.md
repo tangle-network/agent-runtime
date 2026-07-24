@@ -1135,7 +1135,7 @@ Defined in: [src/errors.ts:117](https://github.com/tangle-network/agent-runtime/
 
 ### OfficialOptimizerUnavailableError
 
-Defined in: src/improvement/official-optimizers.ts:46
+Defined in: [src/improvement/official-optimizers.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L46)
 
 Missing optional Python dependencies for an official optimizer.
 
@@ -1149,7 +1149,7 @@ Missing optional Python dependencies for an official optimizer.
 
 > **new OfficialOptimizerUnavailableError**(`optimizer`, `cause`): [`OfficialOptimizerUnavailableError`](#officialoptimizerunavailableerror)
 
-Defined in: src/improvement/official-optimizers.ts:49
+Defined in: [src/improvement/official-optimizers.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L49)
 
 ###### Parameters
 
@@ -1175,7 +1175,7 @@ Defined in: src/improvement/official-optimizers.ts:49
 
 > `readonly` **optimizer**: `"gepa"` \| `"skillopt"`
 
-Defined in: src/improvement/official-optimizers.ts:47
+Defined in: [src/improvement/official-optimizers.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L47)
 
 ***
 
@@ -6017,60 +6017,6 @@ Test seam — inject the worktree-dirty check (defaults to `git status`).
 
 ***
 
-### CampaignOtlpOptions
-
-Defined in: [src/improvement/campaign-otlp.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/campaign-otlp.ts#L43)
-
-#### Extended by
-
-- [`CampaignTraceResolverOptions`](#campaigntraceresolveroptions)
-
-#### Properties
-
-##### serviceName?
-
-> `optional` **serviceName?**: `string`
-
-Defined in: [src/improvement/campaign-otlp.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/campaign-otlp.ts#L45)
-
-OTLP `service.name` on every emitted span. Default `'campaign'`.
-
-***
-
-### CampaignTraceResolverOptions
-
-Defined in: [src/improvement/campaign-otlp.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/campaign-otlp.ts#L155)
-
-#### Extends
-
-- [`CampaignOtlpOptions`](#campaignotlpoptions)
-
-#### Properties
-
-##### serviceName?
-
-> `optional` **serviceName?**: `string`
-
-Defined in: [src/improvement/campaign-otlp.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/campaign-otlp.ts#L45)
-
-OTLP `service.name` on every emitted span. Default `'campaign'`.
-
-###### Inherited from
-
-[`CampaignOtlpOptions`](#campaignotlpoptions).[`serviceName`](#servicename)
-
-##### runDir
-
-> **runDir**: `string`
-
-Defined in: [src/improvement/campaign-otlp.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/campaign-otlp.ts#L159)
-
-The code-improvement run root — the SAME `runDir` the loop
- records under (`<runDir>/baseline/...`, `<runDir>/gen-<g>/candidate-<i>/...`).
- Must be a real path; a `mem://` run records nothing to resolve.
-
-***
-
 ### DriverLoopGeneratorOptions
 
 Defined in: [src/improvement/driver-loop-generator.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/driver-loop-generator.ts#L45)
@@ -7016,7 +6962,7 @@ Minimum tools the server must expose to pass. Default 1.
 
 ### OfficialOptimizerContextOptions
 
-Defined in: src/improvement/official-optimizers.ts:22
+Defined in: [src/improvement/official-optimizers.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L22)
 
 Runtime context appended to an official optimizer's own configuration.
 
@@ -7026,7 +6972,7 @@ Runtime context appended to an official optimizer's own configuration.
 
 > `optional` **background?**: `string`
 
-Defined in: src/improvement/official-optimizers.ts:24
+Defined in: [src/improvement/official-optimizers.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L24)
 
 Context supplied to the optimizer before Runtime appends the profile surface and findings.
 
@@ -7034,7 +6980,7 @@ Context supplied to the optimizer before Runtime appends the profile surface and
 
 > `optional` **includeFindings?**: `boolean`
 
-Defined in: src/improvement/official-optimizers.ts:26
+Defined in: [src/improvement/official-optimizers.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L26)
 
 Include current trace or analyst findings in the optimizer background. Default true.
 
@@ -7042,7 +6988,7 @@ Include current trace or analyst findings in the optimizer background. Default t
 
 > `optional` **maxFindingsChars?**: `number`
 
-Defined in: src/improvement/official-optimizers.ts:28
+Defined in: [src/improvement/official-optimizers.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L28)
 
 Reject oversized serialized findings before starting Python. Default 50,000 characters.
 
@@ -12128,7 +12074,7 @@ Defined in: [src/improvement/improve.ts:267](https://github.com/tangle-network/a
 
 > **OfficialGepaOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`GepaOptimizationMethodConfig`\<`TScenario`, `TArtifact`\>, `"background"`\> & [`OfficialOptimizerContextOptions`](#officialoptimizercontextoptions)
 
-Defined in: src/improvement/official-optimizers.ts:32
+Defined in: [src/improvement/official-optimizers.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L32)
 
 Official GEPA configuration plus bounded Runtime findings context.
 
@@ -12148,7 +12094,7 @@ Official GEPA configuration plus bounded Runtime findings context.
 
 > **OfficialSkillOptOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`SkillOptOptimizationMethodConfig`\<`TScenario`, `TArtifact`\>, `"background"`\> & [`OfficialOptimizerContextOptions`](#officialoptimizercontextoptions)
 
-Defined in: src/improvement/official-optimizers.ts:39
+Defined in: [src/improvement/official-optimizers.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L39)
 
 Official SkillOpt configuration plus bounded Runtime findings context.
 
@@ -14316,97 +14262,6 @@ Build the starting instruction for a coder agent tasked with implementing a new 
 
 ***
 
-### campaignCellSpansToOtlp()
-
-> **campaignCellSpansToOtlp**(`content`, `cell`, `opts?`): `string`[]
-
-Defined in: [src/improvement/campaign-otlp.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/campaign-otlp.ts#L64)
-
-Convert ONE cell's `spans.jsonl` content to OTLP-flat JSONL lines.
-`cellKey` is the identity the trace id folds from — pass the cell's on-disk
-path (unique per campaign); `cellId` is the display/attribute label.
-Returns `[]` for empty/recordless content (a dispatch that never touched
-`ctx.trace`/`ctx.cost` writes an empty file — that is data, not an error).
-
-#### Parameters
-
-##### content
-
-`string`
-
-##### cell
-
-###### cellId
-
-`string`
-
-###### cellKey?
-
-`string`
-
-##### opts?
-
-[`CampaignOtlpOptions`](#campaignotlpoptions) = `{}`
-
-#### Returns
-
-`string`[]
-
-***
-
-### convertCampaignDirToOtlp()
-
-> **convertCampaignDirToOtlp**(`dir`, `opts?`): `string`
-
-Defined in: [src/improvement/campaign-otlp.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/campaign-otlp.ts#L136)
-
-Walk `dir` (a campaign run dir, a generation dir, or a whole code-improvement
-run root) for `spans.jsonl` files and return their concatenated OTLP-flat
-JSONL — the exact string the `resolveTraces` contract expects. `''` when no
-spans exist (the proposers fail loud on empty by design).
-
-#### Parameters
-
-##### dir
-
-`string`
-
-##### opts?
-
-[`CampaignOtlpOptions`](#campaignotlpoptions) = `{}`
-
-#### Returns
-
-`string`
-
-***
-
-### campaignTraceResolver()
-
-> **campaignTraceResolver**(`opts`): (`ctx`) => `string`
-
-Defined in: [src/improvement/campaign-otlp.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/campaign-otlp.ts#L171)
-
-Build the `resolveTraces` function `traceAnalystProposer`/`haloProposer`
-take: proposing generation g reads the traces of the campaigns the loop just
-scored — `gen-<g-1>` (or `baseline` when g = 0), falling back to every trace
-under the run root when that directory has none (e.g. a caller pointing at a
-single campaign dir rather than a loop root).
-
-  traceAnalystProposer({ ..., resolveTraces: campaignTraceResolver({ runDir }) })
-
-#### Parameters
-
-##### opts
-
-[`CampaignTraceResolverOptions`](#campaigntraceresolveroptions)
-
-#### Returns
-
-(`ctx`) => `string`
-
-***
-
 ### driverLoopGenerator()
 
 > **driverLoopGenerator**(`opts`): [`CandidateGenerator`](#candidategenerator)
@@ -14483,7 +14338,7 @@ readonly `unknown`[]
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `opts`): `Promise`\<[`ImproveMethodResult`](#improvemethodresult)\>
 
-Defined in: [src/improvement/improve.ts:972](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L972)
+Defined in: [src/improvement/improve.ts:971](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L971)
 
 Optimize one exact profile surface with a complete method, or optimize code
 through Runtime's isolated worktree path. The input profile is never changed.
@@ -14492,7 +14347,7 @@ through Runtime's isolated worktree path. The input profile is never changed.
 
 ###### TScenario
 
-`TScenario` *extends* `Scenario`
+`TScenario` *extends* `Scenario$1`
 
 ###### TArtifact
 
@@ -14516,7 +14371,7 @@ through Runtime's isolated worktree path. The input profile is never changed.
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `opts`): `Promise`\<[`ImproveCodeResult`](#improvecoderesult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [src/improvement/improve.ts:976](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L976)
+Defined in: [src/improvement/improve.ts:975](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L975)
 
 Optimize one exact profile surface with a complete method, or optimize code
 through Runtime's isolated worktree path. The input profile is never changed.
@@ -14525,7 +14380,7 @@ through Runtime's isolated worktree path. The input profile is never changed.
 
 ###### TScenario
 
-`TScenario` *extends* `Scenario`
+`TScenario` *extends* `Scenario$1`
 
 ###### TArtifact
 
@@ -14549,7 +14404,7 @@ through Runtime's isolated worktree path. The input profile is never changed.
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [src/improvement/improve.ts:980](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L980)
+Defined in: [src/improvement/improve.ts:979](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L979)
 
 Optimize one exact profile surface with a complete method, or optimize code
 through Runtime's isolated worktree path. The input profile is never changed.
@@ -14558,7 +14413,7 @@ through Runtime's isolated worktree path. The input profile is never changed.
 
 ###### TScenario
 
-`TScenario` *extends* `Scenario`
+`TScenario` *extends* `Scenario$1`
 
 ###### TArtifact
 
@@ -14604,7 +14459,7 @@ Build a `Verifier` that boots a generated MCP server over stdio and checks it ex
 
 > **officialGepa**\<`TScenario`, `TArtifact`\>(`options`): [`ImproveMethodFactory`](#improvemethodfactory)\<`TScenario`, `TArtifact`\>
 
-Defined in: src/improvement/official-optimizers.ts:75
+Defined in: [src/improvement/official-optimizers.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L75)
 
 Build a complete method backed by GEPA's official Optimize Anything API.
 
@@ -14637,7 +14492,7 @@ The recipe is passed through unchanged. Use `engine`, `sequential`,
 
 > **officialSkillOpt**\<`TScenario`, `TArtifact`\>(`options`): [`ImproveMethodFactory`](#improvemethodfactory)\<`TScenario`, `TArtifact`\>
 
-Defined in: src/improvement/official-optimizers.ts:97
+Defined in: [src/improvement/official-optimizers.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/official-optimizers.ts#L97)
 
 Build a complete method backed by Microsoft's official SkillOpt trainer.
 
@@ -14688,7 +14543,7 @@ Drop-in for `analyzeGeneration` on `improve({ surface: 'code' })`:
 
 ##### TScenario
 
-`TScenario` *extends* `Scenario` = `Scenario`
+`TScenario` *extends* `Scenario$1` = `Scenario$1`
 
 ##### TArtifact
 

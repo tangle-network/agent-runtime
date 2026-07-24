@@ -1,0 +1,173 @@
+{
+ "schema": "swe-arena/run-report@1",
+ "cellDir": "/tmp/factory-gen0-live/rep-0/runs/factory.agent-eval.309/FSUP0",
+ "instanceId": "factory.agent-eval.309",
+ "arm": "FSUP0",
+ "supervisorId": "sup-1-8f75ee",
+ "generatedAt": "2026-07-24T00:32:17.691Z",
+ "orchestration": {
+  "workersSpawned": 5,
+  "workersSettled": 5,
+  "workersCancelled": 0,
+  "steers": 0,
+  "steersDelivered": 0,
+  "steersByWorker": [
+   {
+    "worker": "w-0",
+    "queued": 0,
+    "delivered": 0
+   },
+   {
+    "worker": "w-1",
+    "queued": 0,
+    "delivered": 0
+   },
+   {
+    "worker": "w-2",
+    "queued": 0,
+    "delivered": 0
+   },
+   {
+    "worker": "w-3",
+    "queued": 0,
+    "delivered": 0
+   },
+   {
+    "worker": "w-4",
+    "queued": 0,
+    "delivered": 0
+   }
+  ],
+  "driverSteerCalls": 0,
+  "waves": 4,
+  "waveSizes": [
+   2,
+   1,
+   1,
+   1
+  ],
+  "maxConcurrency": 2,
+  "respawns": 3,
+  "repeatedLabels": [],
+  "delegationDepth": 1,
+  "timeToFirstSpawnMs": 831016,
+  "supervisorWallMs": 1934608,
+  "idleMs": 934563,
+  "idlePct": 48.3,
+  "workerUtilization": 0.663
+ },
+ "decision": {
+  "settledByStatus": {
+   "done": 5
+  },
+  "settledVerdicts": {},
+  "accepted": 3,
+  "rejected": 1,
+  "emptyPass": 1,
+  "observeThenRespawn": 3,
+  "respawnWithoutEvidence": 0,
+  "reviewActions": 0,
+  "workerEvidenceBytes": 12153
+ },
+ "economics": {
+  "brain": {
+   "tokensIn": 228169,
+   "tokensOut": 19398,
+   "usd": 0.179577,
+   "source": "journal metered events (n=17)"
+  },
+  "workers": {
+   "tokensIn": 286763,
+   "tokensOut": 69794,
+   "usd": 0,
+   "source": "journal settled spend + opencode sessions (n=5)"
+  },
+  "totalUsd": 0.179577,
+  "totalUsdSource": "state.json result.spentUsd — brain-priced only; worker CLI inference is unpriced (see worker token counts)",
+  "costPerAcceptedPatchUsd": 0.059859,
+  "workerWallMsDistribution": {
+   "n": 5,
+   "min": 70445,
+   "p50": 235872,
+   "p90": 556457,
+   "max": 556457,
+   "sum": 1274117
+  },
+  "perWorker": [
+   {
+    "worker": "w-0",
+    "wallMs": 556457,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "usd": 0,
+    "patchBytes": 21183,
+    "passed": false
+   },
+   {
+    "worker": "w-1",
+    "wallMs": 279898,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "usd": 0,
+    "patchBytes": 14573,
+    "passed": true
+   },
+   {
+    "worker": "w-2",
+    "wallMs": 70445,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "usd": 0,
+    "patchBytes": 0,
+    "passed": true
+   },
+   {
+    "worker": "w-3",
+    "wallMs": 235872,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "usd": 0,
+    "patchBytes": 21325,
+    "passed": true
+   },
+   {
+    "worker": "w-4",
+    "wallMs": 131445,
+    "tokensIn": 0,
+    "tokensOut": 0,
+    "usd": 0,
+    "patchBytes": 1016,
+    "passed": true
+   }
+  ]
+ },
+ "outcome": {
+  "supStatus": "completed",
+  "supVerdict": "delivered",
+  "delivered": true,
+  "judgeResolved": false,
+  "judgeScore": 0.4333,
+  "judgePassed": 13,
+  "judgeTotal": 30,
+  "verifyPass": {
+   "unavailable": "result.json absent or has no verify_pass"
+  },
+  "verifyRc": {
+   "unavailable": "result.json absent or has no verify_rc"
+  },
+  "patch": {
+   "files": 5,
+   "linesAdded": 939,
+   "linesRemoved": 0,
+   "testFilesTouched": [
+    "src/capability-headroom.test.ts",
+    "src/paired-arms.test.ts"
+   ]
+  },
+  "judgeSource": "/tmp/factory-gen0-live/ledger.jsonl (ledger row)"
+ },
+ "gaps": [
+  "verifyPass: result.json absent or has no verify_pass"
+ ],
+ "traceCommand": "npx --yes @tangle-network/traces@latest analyze --harness opencode --cwd <worker-clone-cwd>"
+}

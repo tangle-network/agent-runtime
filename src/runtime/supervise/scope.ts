@@ -30,6 +30,13 @@ import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
 import type { BudgetPool, ReservationTicket } from './budget'
+import {
+  DEFAULT_STALL_AFTER_MS,
+  type ExecutorProgress,
+  readWorkerProgress,
+  type WorkerProgress,
+} from './progress'
+import type { TraceSource } from './trace-source'
 import type {
   Agent,
   AgentSpec,
@@ -44,6 +51,7 @@ import type {
   NodeSnapshot,
   NodeStatus,
   ResultBlobStore,
+  ResumedWork,
   Scope,
   Settled,
   SpawnJournal,
@@ -51,7 +59,18 @@ import type {
   Spend,
   TreeView,
   UsageEvent,
+  WaitOpts,
 } from './types'
+import {
+  assertWaitWithinDeadline,
+  type PendingWait,
+  runWait,
+  validateWaitSpec,
+  type WaitOutcome,
+  type WaitProbeRegistry,
+  type WaitRejection,
+  type WaitSpec,
+} from './wait'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
  *  blob store, and executor registry through; `depth`/`maxDepth` pair the runtime
@@ -69,6 +88,11 @@ export interface ScopeArgs {
   readonly blobs: ResultBlobStore
   /** The open executor resolver (BYO → router/inline → registered harness factory). */
   readonly executors: ExecutorRegistry
+  /** Predicate resolver for `poll` wait-states. Absent ⇒ `wait` refuses a `poll` with
+   *  `unknown-probe`; `timer` waits never touch it. */
+  readonly probes?: WaitProbeRegistry
+  /** Injected sleeper for wait-states — a test drives a week-long timer in microseconds. */
+  readonly waitSleep?: (ms: number, signal: AbortSignal) => Promise<void>
   /** Per-spawn executor-construction seams (sandbox client, router config, cli bin). */
   readonly seams: Readonly<Record<string, unknown>>
   /** This scope's recursion depth (root = 0). */
@@ -83,6 +107,25 @@ export interface ScopeArgs {
    *  SAME stream `runLoop`/`tool-loop` feed, so the recursive tree is ONE observable stream
    *  (the topology viewer reads it). Undefined ⇒ the journal stays the only record. */
   readonly hooks?: RuntimeHooks
+  /**
+   * Resume seam — set ONLY by the supervisor when `SupervisorOpts.resume` is on AND a non-empty
+   * journal tree exists for this root. It carries the replayed committed work (so `scope.resume`
+   * exposes it to a resume-aware `act`) and the recorded ordinal/cursor maxima the new counters
+   * continue past, so a freshly-spawned child never reuses a journaled `seq`. Absent ⇒ fresh run.
+   */
+  readonly resumeFrom?: {
+    readonly settled: ReadonlyArray<Settled<unknown>>
+    readonly view: TreeView
+    /** Highest `spawned` ordinal already journaled; new spawns start at `+1`. */
+    readonly maxSpawnOrdinal: number
+    /** Highest cursor `seq` already journaled; new settlements start at `+1`. */
+    readonly maxCursorSeq: number
+    /** Highest `waiting` ordinal already journaled; new waits start at `+1`. */
+    readonly maxWaitOrdinal: number
+    /** Waits journaled as armed but never woken — re-armed (same node id, same absolute deadline)
+     *  when `wait` is called again with the SAME label. */
+    readonly waits: ReadonlyArray<PendingWait>
+  }
 }
 
 /**
@@ -112,9 +155,23 @@ interface LiveChild {
   delivered: boolean
   /** The executor's out-of-band inbox, captured at spawn — backs `scope.send`. */
   readonly deliver?: (msg: unknown) => void
+  /** The executor's optional live progress read, captured at spawn — backs `scope.progress`. */
+  readonly readProgress?: () => ExecutorProgress | undefined
+  /** The executor's optional live tool trace, captured at spawn — backs `scope.traceSource`. */
+  readonly readTraceSource?: () => TraceSource | undefined
+  /** Wall-clock of the spawn, and of the last metered usage event this child produced. Both are
+   *  stamped by the scope from the stream the conserved pool already meters, so EVERY executor —
+   *  including one that implements no progress read at all — has an observable liveness signal. */
+  readonly startedAt: number
+  lastActivityAt: number
+  /** Present ONLY on a wait-state node. Its presence is what routes the settle path to the
+   *  `woken` journal event instead of `settled`, and what keeps a wait out of `inFlight`. */
+  readonly wait?: { readonly spec: WaitSpec; readonly armedAt: number; readonly label: string }
 }
 
-/** A child's terminal settlement before the cursor stamps the monotonic `seq`. */
+/** A child's terminal settlement before the cursor stamps the monotonic `seq`. A wait-state's
+ *  `done` carries a `WaitOutcome` as its `out` and a zero `spent` — waiting is free by type, not
+ *  by measurement. */
 type PreSeqSettled =
   | {
       kind: 'done'
@@ -200,10 +257,22 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   //    `settled`/`cancelled` event's `seq` and the `Settled.seq` the driver branches on.
   // They are separate so a `spawned` event never collides with a `settled` event in the
   // journal's per-tree uniqueness guard (which is scoped to the cursor namespace).
-  let spawnOrdinal = 0
-  let cursorSeq = 0
+  // On a resumed scope, continue both monotonic namespaces PAST the recorded maxima so a
+  // freshly-spawned child or settlement never reuses a journaled `seq` (the per-tree
+  // uniqueness guard would otherwise fail loud). On a fresh scope both start at 0.
+  //  - `waitOrdinal` is a THIRD namespace for wait-states (`${parent}:w${ordinal}`, stamping the
+  //    `waiting` event's `seq`), separate from the spawn ordinal so a wait and a worker can never
+  //    mint the same node id.
+  let spawnOrdinal = args.resumeFrom ? args.resumeFrom.maxSpawnOrdinal + 1 : 0
+  let cursorSeq = args.resumeFrom ? args.resumeFrom.maxCursorSeq + 1 : 0
+  let waitOrdinal = args.resumeFrom ? args.resumeFrom.maxWaitOrdinal + 1 : 0
   let meterSeq = 0
   const now = args.now ?? Date.now
+  // Waits the journal shows as armed but never woken, keyed by label. `wait` RE-ADOPTS one instead
+  // of arming a fresh countdown — that is what makes a resumed deadline the ORIGINAL deadline.
+  const unclaimedWaits = new Map<string, PendingWait>(
+    (args.resumeFrom?.waits ?? []).map((w) => [w.label, w]),
+  )
 
   function spawn<C extends Out>(
     agent: Agent<unknown, C>,
@@ -284,7 +353,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         settled: undefined as unknown as Promise<PreSeqSettled>,
         delivered: false,
         executorDone: false,
+        startedAt: now(),
+        lastActivityAt: now(),
         ...(executor.deliver ? { deliver: executor.deliver.bind(executor) } : {}),
+        ...(executor.progress ? { readProgress: executor.progress.bind(executor) } : {}),
+        ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
       }
       children.set(id, live)
 
@@ -332,6 +405,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         args.pool,
         reservation.ticket,
         args.blobs,
+        now,
       )
         .then((s) => {
           live.resolved = s
@@ -398,7 +472,193 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // accepts an inbox. A settled/unknown child, or a leaf with no `deliver`, cannot be steered.
     if (!child || child.delivered || !child.deliver) return false
     child.deliver(msg)
+    // A delivered steer IS activity: it resets the idle clock so a worker that was about to read
+    // as stalled is not immediately re-steered before it can act on the message it just got.
+    child.lastActivityAt = now()
     return true
+  }
+
+  /**
+   * Arm a wait-state node. Deliberately NOT a `spawn` with a sleeping executor: it resolves no
+   * `AgentSpec`, constructs no `Executor`, and — the point of the whole mechanic — reserves NOTHING
+   * from the conserved pool, so a week-long wait costs zero tokens and zero dollars and cannot
+   * starve a worker of budget.
+   *
+   * Fail-closed admission, mirroring `spawn`'s typed outcome. The deadline check is the one that
+   * matters: a wait may not silently sleep past the pool's hard wall-clock ceiling, and it may not
+   * extend that ceiling either (that would make a wait override a budget guard).
+   */
+  function wait(
+    spec: WaitSpec,
+    opts: WaitOpts,
+  ): { ok: true; handle: Handle<WaitOutcome> } | { ok: false; reason: WaitRejection } {
+    if (validateWaitSpec(spec) !== null) return { ok: false, reason: 'invalid-spec' }
+    if (spec.kind === 'poll' && args.probes?.resolve(spec.probe) === undefined) {
+      return { ok: false, reason: 'unknown-probe' }
+    }
+
+    // Re-adopt a journaled, still-unfired wait with this label: same node id, same spec, same
+    // ORIGINAL arm instant. The caller passes the spec it would have used fresh; the journaled one
+    // wins, so a restart cannot slide the deadline forward.
+    const adopted = unclaimedWaits.get(opts.label)
+    if (adopted) unclaimedWaits.delete(opts.label)
+    const effectiveSpec = adopted?.spec ?? spec
+    const armedAt = adopted?.armedAt ?? now()
+
+    if (!assertWaitWithinDeadline(effectiveSpec, args.pool.readout().deadlineMs)) {
+      return { ok: false, reason: 'deadline-exceeded' }
+    }
+
+    const id: NodeId = adopted ? adopted.id : `${args.parentId}:w${waitOrdinal}`
+    const ordinal = adopted ? adopted.ordinal : waitOrdinal
+    if (!adopted) waitOrdinal += 1
+
+    const waitAbort = new AbortController()
+    const cascadeAbort = () => waitAbort.abort()
+    if (args.signal.aborted) waitAbort.abort()
+    else args.signal.addEventListener('abort', cascadeAbort, { once: true })
+
+    const handle: Handle<WaitOutcome> = {
+      id,
+      label: opts.label,
+      get status(): NodeStatus {
+        return children.get(id)?.status ?? 'cancelled'
+      },
+      abort(reason?: string): void {
+        waitAbort.abort(reason)
+      },
+    }
+
+    const live: LiveChild = {
+      id,
+      status: 'waiting',
+      runtime: 'wait',
+      // A wait's recorded budget is zero on every channel — nothing was reserved, so nothing may
+      // be reconciled, and a journal reader sums it as the zero it truly is.
+      budget: { maxIterations: 0, maxTokens: 0 },
+      label: opts.label,
+      spent: zeroSpend(),
+      settled: undefined as unknown as Promise<PreSeqSettled>,
+      delivered: false,
+      executorDone: false,
+      startedAt: armedAt,
+      lastActivityAt: now(),
+      wait: { spec: effectiveSpec, armedAt, label: opts.label },
+    }
+    children.set(id, live)
+
+    // Only a FRESH arm journals `waiting`; an adopted one already has its record (re-writing it
+    // would duplicate the wait ordinal in the journal's per-tree guard).
+    if (!adopted) {
+      void args.journal.appendEvent(args.root, {
+        kind: 'waiting',
+        id,
+        parent: args.parentId,
+        label: opts.label,
+        spec: effectiveSpec,
+        armedAt,
+        seq: ordinal,
+        at: new Date(now()).toISOString(),
+      })
+    }
+
+    notifyRuntimeHookEvent(
+      args.hooks,
+      {
+        id: `${id}:waiting`,
+        runId: args.root,
+        target: 'agent.spawn',
+        phase: 'after',
+        timestamp: now(),
+        stepIndex: ordinal,
+        parentId: args.parentId,
+        payload: {
+          childId: id,
+          label: opts.label,
+          runtime: 'wait',
+          wait: effectiveSpec,
+          armedAt,
+          resumed: adopted !== undefined,
+        },
+      },
+      { signal: args.signal },
+    )
+
+    const settled = runWait({
+      spec: effectiveSpec,
+      label: opts.label,
+      armedAt,
+      resumed: adopted !== undefined,
+      signal: waitAbort.signal,
+      ...(args.probes ? { probes: args.probes } : {}),
+      now,
+      ...(args.waitSleep ? { sleep: args.waitSleep } : {}),
+    })
+      .then(async (resolution): Promise<PreSeqSettled> => {
+        live.executorDone = true
+        live.lastActivityAt = now()
+        if (resolution.kind === 'cancelled') {
+          return { kind: 'down', reason: resolution.reason, infra: false, restartCount: 0 }
+        }
+        const outRef = contentAddress(resolution.outcome)
+        await args.blobs.put(outRef, resolution.outcome)
+        return { kind: 'done', out: resolution.outcome, outRef, spent: zeroSpend() }
+      })
+      .catch((err): PreSeqSettled => {
+        live.executorDone = true
+        return { kind: 'down', reason: errMessage(err), infra: true, restartCount: 0 }
+      })
+      .then((s) => {
+        live.resolved = s
+        return s
+      })
+      .finally(() => {
+        args.signal.removeEventListener('abort', cascadeAbort)
+      })
+    ;(live as { settled: Promise<PreSeqSettled> }).settled = settled
+
+    return { ok: true, handle }
+  }
+
+  function progress(
+    nodeId: NodeId,
+    opts: { now?: number; stallAfterMs?: number } = {},
+  ): WorkerProgress | undefined {
+    const child = children.get(nodeId)
+    if (!child) return undefined
+    // The executor's own read is best-effort enrichment on a live path — a throwing progress
+    // implementation must never break the driver's observation of an otherwise healthy worker.
+    let fromExecutor: ExecutorProgress | undefined
+    try {
+      fromExecutor = child.readProgress?.()
+    } catch {
+      fromExecutor = undefined
+    }
+    return readWorkerProgress(
+      {
+        id: child.id,
+        status: child.status,
+        steerable: child.deliver !== undefined && !child.delivered,
+        startedAt: child.startedAt,
+        lastActivityAt: child.lastActivityAt,
+        turns: child.spent.iterations,
+        tokens: child.spent.tokens,
+        usd: child.spent.usd,
+      },
+      fromExecutor,
+      opts.now ?? now(),
+      opts.stallAfterMs ?? DEFAULT_STALL_AFTER_MS,
+    )
+  }
+
+  function traceSource(nodeId: NodeId): TraceSource | undefined {
+    const child = children.get(nodeId)
+    if (!child) return undefined
+    try {
+      return child.readTraceSource?.()
+    } catch {
+      return undefined
+    }
   }
 
   async function meter(spend: Spend, detail?: Record<string, unknown>): Promise<void> {
@@ -434,13 +694,27 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     )
   }
 
+  // The replayed committed work, frozen once at construction — a resume-aware `act` reads it
+  // to skip re-spawning settled children. Absent on a fresh scope.
+  const resume: ResumedWork<Out> | undefined = args.resumeFrom
+    ? {
+        settled: args.resumeFrom.settled as ReadonlyArray<Settled<Out>>,
+        view: args.resumeFrom.view,
+        waits: args.resumeFrom.waits,
+      }
+    : undefined
+
   return {
     spawn,
     next,
     nextResolved,
     send,
+    wait,
+    progress,
+    traceSource,
     signal: args.signal,
     meter,
+    ...(resume ? { resume } : {}),
     get view(): TreeView {
       return makeTreeView(args.parentId, children)
     },
@@ -467,6 +741,10 @@ async function finalizeSettlement<Out>(
   now: () => number,
 ): Promise<Settled<Out>> {
   const handle = frozenHandle<Out>(child)
+  // A wait-state settles into the `woken` cursor event, not `settled` — kept distinct so any
+  // journal reader can separate zero-cost waiting from paid work without inspecting payloads
+  // (`spentFromJournal` therefore sums waits as the zero they are, with no special case).
+  if (child.wait) return finalizeWait<Out>(child, settlement, seq, args, now, handle)
   if (settlement.kind === 'down') {
     child.status = 'failed'
     await args.journal.appendEvent(args.root, {
@@ -576,6 +854,71 @@ async function finalizeSettlement<Out>(
   }
 }
 
+/** Journal a wait-state's settlement as a `woken` event and project it onto the same `Settled`
+ *  the driver branches on. `by` names WHY it woke — `fired` / `timeout` / `cancelled` — which is
+ *  the fact a resumed reader needs and cannot recover from a payload it may never fetch. */
+async function finalizeWait<Out>(
+  child: LiveChild,
+  settlement: PreSeqSettled,
+  seq: number,
+  args: ScopeArgs,
+  now: () => number,
+  handle: Handle<Out>,
+): Promise<Settled<Out>> {
+  const at = new Date(now()).toISOString()
+  if (settlement.kind === 'down') {
+    child.status = 'cancelled'
+    await args.journal.appendEvent(args.root, {
+      kind: 'woken',
+      id: child.id,
+      by: 'cancelled',
+      seq,
+      at,
+    })
+    return {
+      kind: 'down',
+      handle,
+      reason: settlement.reason,
+      infra: settlement.infra,
+      restartCount: settlement.restartCount,
+      seq,
+    }
+  }
+  child.status = 'done'
+  child.outRef = settlement.outRef
+  const out = settlement.out as WaitOutcome
+  await args.journal.appendEvent(args.root, {
+    kind: 'woken',
+    id: child.id,
+    by: out.settled,
+    outRef: settlement.outRef,
+    seq,
+    at,
+  })
+  notifyRuntimeHookEvent(
+    args.hooks,
+    {
+      id: `${child.id}:woken`,
+      runId: args.root,
+      target: 'agent.child',
+      phase: 'after',
+      timestamp: now(),
+      stepIndex: seq,
+      parentId: args.parentId,
+      payload: { childId: child.id, status: 'done', wait: out },
+    },
+    { signal: args.signal },
+  )
+  return {
+    kind: 'done',
+    handle,
+    out: settlement.out as Out,
+    outRef: settlement.outRef,
+    spent: settlement.spent,
+    seq,
+  }
+}
+
 /**
  * Drive one child's `Executor` to a terminal `PreSeqSettled`, folding usage into the
  * conserved `Spend`, reconciling the reservation, and persisting the result blob. Both
@@ -596,6 +939,7 @@ async function runChild<C>(
   pool: BudgetPool,
   ticket: ReservationTicket,
   blobs: ResultBlobStore,
+  now: () => number,
 ): Promise<PreSeqSettled> {
   let reconciled = false
   const reconcileOnce = (spend: Spend) => {
@@ -611,8 +955,13 @@ async function runChild<C>(
     let artifact: ExecutorResult<C>
     if (isAsyncIterable(ran)) {
       // Streaming: fold the incremental usage events as they arrive (the conserved-pool
-      // authority), then read the terminal artifact after the stream drains.
-      const spend = await foldStream(ran)
+      // authority), then read the terminal artifact after the stream drains. Each event also
+      // republishes the running total + a fresh activity stamp onto the live child, so a
+      // concurrent `scope.progress(id)` sees a worker mid-flight rather than a zeroed row.
+      const spend = await foldStream(ran, (running) => {
+        live.spent = running
+        live.lastActivityAt = now()
+      })
       live.spent = spend
       artifact = executor.resultArtifact() as ExecutorResult<C>
       reconcileOnce(spend)
@@ -713,6 +1062,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     root,
     nodes,
     inFlight: nodes.filter((n) => n.status === 'running' || n.status === 'acquiring').length,
+    waiting: nodes.filter((n) => n.status === 'waiting').length,
   }
 }
 
@@ -727,7 +1077,20 @@ function frozenHandle<C>(child: LiveChild): Handle<C> {
   }
 }
 
-async function foldStream(stream: AsyncIterable<UsageEvent>): Promise<Spend> {
+/**
+ * Fold a streaming executor's normalized usage into the conserved `Spend`, publishing the
+ * running total after EVERY event via `onProgress`.
+ *
+ * The publish is what makes a running worker observable. Before it, `live.spent` was assigned
+ * once — after the whole stream drained — so `observe_agent` on a RUNNING worker reported
+ * `{tokens:0, iterations:0}` for the entire run and a driver had no way to tell a worker three
+ * turns deep from one that had produced nothing. It also means a worker that THROWS mid-stream
+ * now reconciles its real partial spend instead of refunding work the provider already billed.
+ */
+async function foldStream(
+  stream: AsyncIterable<UsageEvent>,
+  onProgress?: (running: Spend) => void,
+): Promise<Spend> {
   const tokens = { input: 0, output: 0 }
   let usd = 0
   let iterations = 0
@@ -740,6 +1103,7 @@ async function foldStream(stream: AsyncIterable<UsageEvent>): Promise<Spend> {
     } else {
       iterations += 1
     }
+    onProgress?.({ iterations, tokens: { ...tokens }, usd, ms: 0 })
   }
   return { iterations, tokens, usd, ms: 0 }
 }
