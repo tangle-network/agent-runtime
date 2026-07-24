@@ -81,6 +81,11 @@ export type {
   WorkspaceRequest,
 } from '@tangle-network/agent-interface/environment-provider'
 
+export {
+  type CreateTangleSandboxExactProcessProviderOptions,
+  createTangleSandboxExactProcessProvider,
+} from './tangle-sandbox-exact-process-provider'
+
 /** Provider object or registry name accepted by runtime provider adapters.
  * @experimental */
 export type AgentEnvironmentProviderRef = AgentEnvironmentProvider | string
