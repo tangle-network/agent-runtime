@@ -28,10 +28,10 @@ describe('supervisor driver cancellation', () => {
     const extension = join(dir, 'fake-extension.mjs')
     await mkdir(workspace)
     await writeFile(params, '{}')
-    const workerScript = `const fs=require('node:fs'); const marker=process.argv[1]; process.on('SIGTERM',()=>setTimeout(()=>{fs.writeFileSync(marker,'clean'); process.exit(0)},30)); setInterval(()=>{},1000)`
+    const workerScript = `const fs=require('node:fs'); const marker=process.argv[1]; const ready=process.argv[2]; process.on('SIGTERM',()=>setTimeout(()=>{fs.writeFileSync(marker,'clean'); process.exit(0)},30)); fs.writeFileSync(ready,'ready'); setInterval(()=>{},1000)`
     await writeFile(extension, `
 import { spawn } from 'node:child_process'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const id = 'sup-1-fake12'
@@ -47,11 +47,13 @@ export default function fakeExtension(pi) {
       writeFileSync(join(runDir, 'state.json'), JSON.stringify({ status: 'running', progress: 'driving' }))
       appendFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({ kind: 'spawned', id, label: 'root' }) + '\\n')
       appendFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({ kind: 'spawned', id: id + ':s1', parent: id, label: 'w-0' }) + '\\n')
-      child = spawn(process.execPath, ['-e', ${JSON.stringify(workerScript)}, join(ctx.cwd, 'worker-cleaned.txt')], {
+      const readyPath = join(ctx.cwd, 'worker-ready.txt')
+      child = spawn(process.execPath, ['-e', ${JSON.stringify(workerScript)}, join(ctx.cwd, 'worker-cleaned.txt'), readyPath], {
         detached: true,
         stdio: 'ignore',
       })
       writeFileSync(join(ctx.cwd, 'worker.pid'), String(child.pid))
+      while (!existsSync(readyPath)) await new Promise((resolve) => setTimeout(resolve, 5))
       return text('spawned supervisor ' + id)
     },
   })
