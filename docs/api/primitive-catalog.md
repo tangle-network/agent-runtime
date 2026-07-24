@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.102.2` and `@tangle-network/agent-eval@0.123.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.103.0` and `@tangle-network/agent-eval@0.123.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 377 exports.
+Import from `@tangle-network/agent-runtime` — 378 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -23,6 +23,7 @@ Import from `@tangle-network/agent-runtime` — 377 exports.
 | `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
 | `applyRolloutPolicyToProfile` | function | Persist a policy into the profile's extensions namespace. Shallow copy; never |
 | `applyRunRecordDefaults` | function | Stamp cross-cutting defaults onto adapter-projected RunRecords without |
+| `assertCandidateProfileBinding` | function | Prove the measured generic profile and sealed candidate profile describe the same behavior. |
 | `auditLoopRunner` | function | `audit` mode — analyst loop over captured trace/run data. |
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
@@ -947,11 +948,12 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 101 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 102 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
+| `assertCandidateProfileBinding` | function | Prove the measured generic profile and sealed candidate profile describe the same behavior. |
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
 | `candidateKnowledgeExecutionPaths` | function | Deterministic, signed locations used by every candidate executor. |
