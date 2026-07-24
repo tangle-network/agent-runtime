@@ -2,8 +2,9 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { certifyOnHoldout } from './holdout-certify.mts'
+import { VbtWorker } from './vbt-client.ts'
 
 /** Synthetic Stooq-format CSVs on real calendar dates — the certification
  *  path exercised end-to-end WITHOUT ever reading the real vendored holdout. */
@@ -27,12 +28,21 @@ const csvFor = (phase: number, from: number, to: number): string => {
 
 const BUY_HOLD_PATH = fileURLToPath(new URL('./strategies/buy-hold-index/strategy.ts', import.meta.url))
 
-describe('certifyOnHoldout (synthetic stand-in dirs — the real holdout stays untouched)', () => {
+// Certification scores through the official vectorbt worker; without `uv`
+// (the pinned env launcher) this suite skips with that reason.
+describe.skipIf(!VbtWorker.isAvailable())('certifyOnHoldout (synthetic stand-in dirs — the real holdout stays untouched)', () => {
   let outDir: string
   let insampleDir: string
   let holdoutDir: string
+  let worker: VbtWorker
+
+  afterAll(async () => {
+    await worker?.close()
+  })
 
   beforeAll(async () => {
+    worker = new VbtWorker()
+    await worker.ping() // absorb cold numba JIT before test timeouts apply
     const root = await mkdtemp(join(tmpdir(), 'quant-arena-cert-'))
     outDir = join(root, 'out')
     insampleDir = join(root, 'insample')
@@ -44,10 +54,10 @@ describe('certifyOnHoldout (synthetic stand-in dirs — the real holdout stays u
       await writeFile(join(insampleDir, `${ticker}.csv`), csvFor(phase, 0, 300))
       await writeFile(join(holdoutDir, `${ticker}.csv`), csvFor(phase, 300, 400))
     }
-  })
+  }, 240_000)
 
-  it('scores in-sample and holdout side by side and appends a notebook row', async () => {
-    const record = await certifyOnHoldout({ strategyPath: BUY_HOLD_PATH, outDir, insampleDir, holdoutDir })
+  it('scores in-sample and holdout side by side and appends a notebook row', { timeout: 120_000 }, async () => {
+    const record = await certifyOnHoldout({ strategyPath: BUY_HOLD_PATH, outDir, insampleDir, holdoutDir, worker })
     expect(record.truncationClean).toBe(true)
     expect(record.inSample.days).toBe(300)
     expect(record.holdout.days).toBe(100)
@@ -62,11 +72,11 @@ describe('certifyOnHoldout (synthetic stand-in dirs — the real holdout stays u
     expect(rows.some((r) => r.schema === 'quant-arena.certification.v1')).toBe(true)
   })
 
-  it('refuses a second certification for the same strategy hash without --force', async () => {
-    await expect(certifyOnHoldout({ strategyPath: BUY_HOLD_PATH, outDir, insampleDir, holdoutDir })).rejects.toThrow(
+  it('refuses a second certification for the same strategy hash without --force', { timeout: 120_000 }, async () => {
+    await expect(certifyOnHoldout({ strategyPath: BUY_HOLD_PATH, outDir, insampleDir, holdoutDir, worker })).rejects.toThrow(
       /answers once/,
     )
-    const forced = await certifyOnHoldout({ strategyPath: BUY_HOLD_PATH, outDir, insampleDir, holdoutDir, force: true })
+    const forced = await certifyOnHoldout({ strategyPath: BUY_HOLD_PATH, outDir, insampleDir, holdoutDir, worker, force: true })
     expect(forced.schema).toBe('quant-arena.certification.v1')
   })
 })

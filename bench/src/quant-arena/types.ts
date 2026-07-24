@@ -1,25 +1,37 @@
 /**
- * QUANT-ARENA strategy contract.
+ * QUANT-ARENA strategy contract (v2 — incremental, OMS-mediated).
  *
- * A strategy is ONE module exporting `generateSignals(bars: Bar[][]): Signal[]`.
+ * A strategy is ONE module exporting `onBar(ctx: StrategyContext)`. The
+ * harness calls it once per trading day, in order, and the strategy answers
+ * with either a full set of target portfolio weights or `null` ("hold").
  *
- *  - `bars[k]` is ticker k's daily bars. All tickers share one date axis:
- *    equal length, identical dates. `bars[0]` is ALWAYS the index (the
- *    buy-and-hold benchmark asset); `bars[1..]` are the rest of the universe.
- *  - A `Signal { t, weights }` is a target portfolio decided at the CLOSE of
- *    day `t`: `weights[k]` is the fraction of equity to hold in ticker k.
- *  - NO-LOOK-AHEAD RULE: the signal at index `t` may be computed ONLY from
- *    `bars[k][0..t]` (inclusive). Nothing after `t` — no future closes, no
- *    full-series statistics, no calendar tricks keyed to specific dates.
- *    The backtester fills every target at the NEXT day's open, and the leak
- *    audit re-runs the strategy on truncated data: signals up to the cutoff
- *    must be bit-identical or the candidate is killed.
- *  - No shorting, no leverage: every weight >= 0 and the weights sum to <= 1
- *    (the remainder sits in cash earning 0). The backtester throws on a
- *    violating signal — fail-closed, not silently clamped.
- *  - A rebalance happens ONLY when a signal is emitted: the target fills at
- *    the next open, then positions drift with prices until the next signal.
- *    Emit a signal each time you want to trade. No signal at all = 100% cash.
+ *  - `ctx.history[k]` is ticker k's daily bars UP TO AND INCLUDING today
+ *    (`ctx.history[k].length === ctx.t + 1`, always). The harness physically
+ *    slices the data before every call: bars after today DO NOT EXIST in the
+ *    array, so look-ahead is structurally impossible through `history`.
+ *    `history[0]` is ALWAYS the index (the buy-and-hold benchmark asset);
+ *    `history[1..]` are the rest of the universe, in `ctx.symbols` order.
+ *  - Returning `TargetPosition[]` requests a rebalance: each entry names a
+ *    symbol and a target fraction of equity. Weights must be >= 0 and sum
+ *    to <= 1 (the remainder sits in cash earning 0). Violations kill the
+ *    candidate — fail-closed, not silently clamped. Symbols omitted from the
+ *    list are targeted to 0 (sold).
+ *  - Returning `null` means "no trade today": positions drift with prices.
+ *  - FILL TIMING: a rebalance decided at the close of day `t` fills at the
+ *    NEXT day's open. Every fill pays cost + slippage (basis points, one-way)
+ *    on traded dollars — churn is expensive.
+ *  - Strategies NEVER construct or emit `Order`s. The shared rebalancer
+ *    (oms.ts) is the only component that turns target weights into orders,
+ *    so sizing, side, and long-only enforcement are uniform across every
+ *    candidate and baseline.
+ *  - Determinism: `onBar` must be a pure function of `ctx`. No RNG, no
+ *    clock, no memory of prior calls that a re-run would not rebuild. The
+ *    lab re-runs candidates on truncated data; any divergence in decisions
+ *    up to the cutoff kills the candidate.
+ *
+ * The v1 batch contract (`generateSignals(bars): Signal[]`) remains for the
+ * pinned baselines and old fixtures; `driver.ts` wraps it so batch strategies
+ * run unchanged under the incremental harness.
  */
 
 export interface Bar {
@@ -31,6 +43,81 @@ export interface Bar {
   close: number
   volume: number
 }
+
+// ---------------------------------------------------------------------------
+// v2 incremental contract.
+// ---------------------------------------------------------------------------
+
+export interface StrategyContext {
+  /** Universe tickers; symbols[0] is the benchmark index. */
+  symbols: string[]
+  /** Today's day index into the shared date axis. */
+  t: number
+  /** history[k] = bars for symbols[k], indices 0..t ONLY (length t + 1). */
+  history: Bar[][]
+  /** Current portfolio weights per symbol (drifted, marked at today's close). */
+  weights: number[]
+  /** Current equity (starts at 1). */
+  equity: number
+}
+
+export interface TargetPosition {
+  symbol: string
+  /** Target fraction of equity; >= 0, and the sum over all targets <= 1. */
+  weight: number
+}
+
+export interface Strategy {
+  /** Called once per bar. Return targets to rebalance, or null to hold. */
+  onBar(ctx: StrategyContext): TargetPosition[] | null
+}
+
+export interface StrategyModuleV2 {
+  onBar: Strategy['onBar']
+}
+
+// ---------------------------------------------------------------------------
+// OMS layer. Orders are produced ONLY by the shared rebalancer (oms.ts) from
+// the strategy's target weights — never by strategy code.
+// ---------------------------------------------------------------------------
+
+export type OrderSide = 'buy' | 'sell'
+export type OrderType = 'market' | 'limit'
+export type TimeInForce = 'day' | 'gtc' | 'ioc' | 'fok'
+
+export interface Order {
+  /** Deterministic id, unique within a run (e.g. 'qa-t42-S03'). */
+  clientOrderId: string
+  symbol: string
+  side: OrderSide
+  /** Absolute quantity in shares (fractional allowed — see oms.ts). */
+  qty: number
+  type: OrderType
+  limitPrice?: number
+  tif: TimeInForce
+  /** Free-form provenance tag, e.g. the candidate id. */
+  tag?: string
+}
+
+/** Turns target weights into orders given the portfolio state at decision
+ *  time. The one shared implementation lives in oms.ts (long-only in v2). */
+export type Rebalancer = (args: {
+  targets: TargetPosition[]
+  symbols: string[]
+  /** Equity at decision time (close of day t). */
+  equity: number
+  /** Last price per symbol at decision time (close of day t). */
+  prices: number[]
+  /** Current position value in dollars per symbol. */
+  positionValues: number[]
+  /** Decision day index — used for deterministic order ids. */
+  t: number
+  tag?: string
+}) => Order[]
+
+// ---------------------------------------------------------------------------
+// v1 batch contract (baselines + legacy fixtures; wrapped by driver.ts).
+// ---------------------------------------------------------------------------
 
 export interface Signal {
   /** Day index into the shared date axis. */

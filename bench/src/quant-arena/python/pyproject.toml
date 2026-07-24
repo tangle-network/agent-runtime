@@ -1,0 +1,8 @@
+[project]
+name = "quant-arena-vbt-worker"
+version = "0.1.0"
+description = "vectorbt scoring worker for bench/src/quant-arena (internal research use)"
+requires-python = ">=3.12"
+dependencies = [
+    "vectorbt==1.1.0",
+]
