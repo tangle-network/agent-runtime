@@ -24,16 +24,25 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import {
+  DEFAULT_GEPA_PYTHON,
+  isGepaSeat,
+  loadGepaMethodFactory,
+  probeGepaRuntime,
+  type CampaignModuleImport,
+} from './gepa-seat.mts'
 import { run } from './proc.ts'
 import type { ProposerSpec } from './proposer-fanout.mts'
 
 export interface ProposerModelProvenance {
   name: string
+  /** Absent on a GEN-6 engine seat (see `engine`). */
   harness: ProposerSpec['harness']
   /** Explicit model pin from the spec (threaded as `-m`), or null when the
    *  seat runs the CLI's own resolved default. */
   pinnedModel: string | null
-  /** `<harness> --version` stdout (trimmed). */
+  /** `<harness> --version` stdout (trimmed). For a GEN-6 gepa seat this is
+   *  the bridge python's `--version` output — the runtime that authors. */
   harnessVersion: string
   /** claude seats only: the settings default model the logged-in CLI resolves
    *  when no `-m` is passed. Null when unreadable (recorded, never fatal —
@@ -42,6 +51,14 @@ export interface ProposerModelProvenance {
   /** codex seats only: `codex login status` stdout (trimmed). */
   authStatus: string | null
   merge: boolean
+  /** GEN-6 gepa seat: the engine name from the spec. */
+  engine?: 'gepa' | 'omni'
+  /** GEN-6 gepa seat: the ONE change-space file GEPA optimizes. */
+  surface?: string
+  /** GEN-6 gepa seat: installed gepa version ('source' for a source pin). */
+  gepaVersion?: string
+  /** GEN-6 gepa seat: the Python bridge module the seat runs. */
+  bridge?: string
 }
 
 export interface ProvenanceCaptureRecord {
@@ -75,16 +92,36 @@ export function claudeSettingsModel(
 }
 
 /** Capture per-proposer model provenance. Throws when any configured harness
- *  binary is missing/broken, or when a codex seat is not logged in. */
+ *  binary is missing/broken, when a codex seat is not logged in, or — GEN-6 —
+ *  when a gepa seat's runtime is incomplete: the installed agent-eval must
+ *  export `gepaOptimizationMethod` and the Python bridge + GEPA engine must
+ *  import (probeGepaRuntime carries the exact install instructions). A dead
+ *  seat fails the launch at t=0, never a mid-run candidate slot. */
 export async function captureProposerProvenance(
   proposers: ProposerSpec[],
-  deps: { exec?: VersionExec; readSettingsModel?: () => string | null } = {},
+  deps: {
+    exec?: VersionExec
+    readSettingsModel?: () => string | null
+    importCampaign?: CampaignModuleImport
+  } = {},
 ): Promise<ProvenanceCaptureRecord> {
   const exec = deps.exec ?? defaultExec
   const readSettingsModel = deps.readSettingsModel ?? (() => claudeSettingsModel())
   const versionByHarness = new Map<string, string>()
   const authByHarness = new Map<string, string>()
-  for (const harness of new Set(proposers.map((p) => p.harness))) {
+  const gepaBySeat = new Map<string, { pythonVersion: string; gepaVersion: string }>()
+  const gepaSeats = proposers.filter(isGepaSeat)
+  if (gepaSeats.length > 0) {
+    // Node side first: the adapter export (fails loud with upgrade hint).
+    await loadGepaMethodFactory(...(deps.importCampaign ? [deps.importCampaign] : []))
+    for (const seat of gepaSeats) {
+      gepaBySeat.set(seat.name, await probeGepaRuntime(seat.python ?? DEFAULT_GEPA_PYTHON, exec, seat.name))
+    }
+  }
+  const harnesses = [...new Set(proposers.map((p) => p.harness))].filter(
+    (h): h is NonNullable<ProposerSpec['harness']> => h !== undefined,
+  )
+  for (const harness of harnesses) {
     const res = await exec(harness, ['--version'])
     if (res.code !== 0) {
       throw new Error(
@@ -109,14 +146,32 @@ export async function captureProposerProvenance(
   return {
     schema: 'swe-arena.proposer-provenance.v1',
     capturedAt: new Date().toISOString(),
-    proposers: proposers.map((spec) => ({
-      name: spec.name,
-      harness: spec.harness,
-      pinnedModel: spec.model ?? null,
-      harnessVersion: versionByHarness.get(spec.harness)!,
-      settingsModel: spec.harness === 'claude' && !spec.model ? readSettingsModel() : null,
-      authStatus: authByHarness.get(spec.harness) ?? null,
-      merge: spec.merge === true,
-    })),
+    proposers: proposers.map((spec): ProposerModelProvenance => {
+      if (isGepaSeat(spec)) {
+        const probe = gepaBySeat.get(spec.name)!
+        return {
+          name: spec.name,
+          harness: undefined,
+          pinnedModel: null,
+          harnessVersion: probe.pythonVersion,
+          settingsModel: null,
+          authStatus: null,
+          merge: false,
+          engine: spec.engine,
+          surface: spec.surface,
+          gepaVersion: probe.gepaVersion,
+          bridge: 'agent_eval_rpc.gepa_bridge',
+        }
+      }
+      return {
+        name: spec.name,
+        harness: spec.harness,
+        pinnedModel: spec.model ?? null,
+        harnessVersion: versionByHarness.get(spec.harness!)!,
+        settingsModel: spec.harness === 'claude' && !spec.model ? readSettingsModel() : null,
+        authStatus: (spec.harness !== undefined ? authByHarness.get(spec.harness) : undefined) ?? null,
+        merge: spec.merge === true,
+      }
+    }),
   }
 }
