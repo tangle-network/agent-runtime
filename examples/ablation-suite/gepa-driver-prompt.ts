@@ -1,13 +1,9 @@
 /**
- * gepa-driver-prompt — GEPA-optimize the REAL supervisor driver prompt (the proposer) on TRAIN,
- * executable-graded by the ACTUAL supervised resolve, frozen, held-out-certified, and return the winner.
+ * Optimize the supervisor driver prompt with GEPA's official engine.
  *
- * This is the `optimize: 'gepa'` knob from the ablation board (ablation.ts), wired over the real
- * substrate: agent-eval's `selfImprove` (the held-out-gated closed loop) driven by `gepaProposer`
- * (the reflective prompt mutator). The surface under improvement is the driver/proposer standing
- * prompt that `supervise()` runs as its brain — each candidate string becomes the driver profile's
- * `systemPrompt`. So each candidate IS a candidate driver prompt, and its fitness IS the resolve it
- * earns when it actually drives a `superviseSurface` run over the surface.
+ * The surface under improvement is the standing prompt that `supervise()` uses
+ * to steer workers. Agent-eval's complete method owns candidate search and
+ * selection. Runtime scores the selected candidate on a separate final set.
  *
  * The grading is EXECUTABLE, never an LLM judge: each candidate driver prompt runs a real supervised
  * rollout via `superviseSurface` (its harness-verified `resolved`/`score` come from the
@@ -16,20 +12,24 @@
  * check — there is no model in the scoring loop to flatter it.
  */
 
-import {
-  type DispatchContext,
-  gepaProposer,
-  type JudgeConfig,
-  type MutableSurface,
-  type Scenario,
-  selfImprove,
+import type {
+  DispatchContext,
+  JudgeConfig,
+  MutableSurface,
+  Scenario,
 } from '@tangle-network/agent-eval/contract'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import { improve, officialGepa } from '@tangle-network/agent-runtime'
 import {
   type AgenticSurface,
   type AgenticTask,
   failuresAnalyst,
   superviseSurface,
 } from '@tangle-network/agent-runtime/loops'
+import {
+  assertCompleteCost,
+  officialOptimizerModel,
+} from '../../bench/src/official-optimizer-config.mjs'
 
 /** One TRAIN scenario: the coding task carried as the scenario's domain payload. The agent reads
  *  `scenario.task` to run the supervised rollout; the judge reads the artifact the rollout produced. */
@@ -47,25 +47,15 @@ interface SupervisedOutcome {
   tokensOut: number
 }
 
-/** The default reflection model — a model the Tangle router actually serves. The substrate default
- *  (`anthropic/claude-sonnet-4.6`) is NOT served by the router, so `gepaProposer` would fail every
- *  reflection call; callers should pass their own, but this keeps the zero-config path live. */
 const defaultReflectionModel = 'gemini-2.5-pro'
-
-/** The mutation levers offered to the reflective proposer — what a driver-prompt rewrite may change.
- *  These orient the model toward the kinds of edits that move a supervisor brain's effectiveness. */
-const driverMutationPrimitives = [
-  'sharpen what the driver must verify on a settled worker before it stops or re-spawns',
-  'make the next-spawn instruction the driver composes more concrete and tool-grounded',
-  'add an explicit verify-it-took step the driver must confirm before declaring done',
-  'tighten the stop / re-spawn decision so it settles only when every required change is verified',
-]
 
 export async function optimizeDriverPrompt(opts: {
   surface: AgenticSurface
   tasks: (offset: number, n: number) => Promise<AgenticTask[]>
   trainOffset: number
   trainN: number
+  selectionN?: number
+  testN?: number
   baselinePrompt: string
   worker: {
     routerBaseUrl: string
@@ -81,6 +71,12 @@ export async function optimizeDriverPrompt(opts: {
    *  inference). Defaults to the worker's router + model when omitted. */
   supervisorRouter?: { baseUrl: string; apiKey: string; model: string }
   reflectionModel?: string
+  /** Change when execution or scoring behavior changes outside the listed runtime knobs. */
+  evaluationId?: string
+  maxEvaluations?: number
+  maxProposerCostUsd?: number
+  maxConcurrency?: number
+  runDir?: string
 }): Promise<{ systemPrompt: string; lift: number | undefined; shipped: boolean; usd: number }> {
   const { surface, worker } = opts
 
@@ -93,14 +89,34 @@ export async function optimizeDriverPrompt(opts: {
     model: worker.model,
   }
 
-  // TRAIN scenarios — the disjoint training slice. `selfImprove` splits a held-out fraction off these
-  // for the gate, so the winner is certified on tasks the proposer never optimized against.
-  const trainTasks = await opts.tasks(opts.trainOffset, opts.trainN)
-  const scenarios: DriverPromptScenario[] = trainTasks.map((task) => ({
-    id: task.id,
-    kind: 'coding',
-    task,
-  }))
+  const selectionN = opts.selectionN ?? opts.trainN
+  const testN = opts.testN ?? opts.trainN
+  const tasks = await opts.tasks(opts.trainOffset, opts.trainN + selectionN + testN)
+  const trainTasks = tasks.slice(0, opts.trainN)
+  const selectionTasks = tasks.slice(opts.trainN, opts.trainN + selectionN)
+  const testTasks = tasks.slice(opts.trainN + selectionN)
+  if (
+    trainTasks.length !== opts.trainN ||
+    selectionTasks.length !== selectionN ||
+    testTasks.length !== testN
+  ) {
+    throw new Error('optimizeDriverPrompt: task source returned too few tasks for all partitions')
+  }
+  const scenarios = new Map(
+    tasks.map((task) => [
+      task.id,
+      {
+        id: task.id,
+        kind: 'coding',
+        task,
+      } satisfies DriverPromptScenario,
+    ]),
+  )
+  const mapScenarios = (items: AgenticTask[]): DriverPromptScenario[] =>
+    items.map((task) => scenarios.get(task.id)!)
+  const trainScenarios = mapScenarios(trainTasks)
+  const selectionScenarios = mapScenarios(selectionTasks)
+  const testScenarios = mapScenarios(testTasks)
 
   // The agent under improvement: it receives the CURRENT candidate driver prompt (the surface string)
   // and runs a REAL supervised rollout with that prompt as the supervisor brain's standing instruction.
@@ -179,36 +195,76 @@ export async function optimizeDriverPrompt(opts: {
     }),
   }
 
-  const reflectionModel = opts.reflectionModel ?? defaultReflectionModel
-
-  const result = await selfImprove<DriverPromptScenario, SupervisedOutcome>({
-    agent,
-    scenarios,
-    judge,
-    baselineSurface: opts.baselinePrompt,
-    proposer: gepaProposer({
-      llm: { baseUrl: worker.routerBaseUrl, apiKey: worker.routerKey },
-      model: reflectionModel,
-      target:
-        'the supervisor driver prompt (the standing brain instruction that spawns + steers workers)',
-      mutationPrimitives: driverMutationPrimitives,
+  const profile: AgentProfile = {
+    name: 'ablation-driver',
+    prompt: { systemPrompt: opts.baselinePrompt },
+  }
+  const maxProposerCostUsd = opts.maxProposerCostUsd ?? 3
+  const optimizer = officialOptimizerModel({
+    env: process.env,
+    model: opts.reflectionModel ?? defaultReflectionModel,
+    baseUrl: supervisorRouter.baseUrl,
+    apiKey: supervisorRouter.apiKey,
+    maxCostUsd: maxProposerCostUsd,
+    maxOutputTokensPerRequest: Number(process.env.REFLECT_MAX_TOKENS ?? 8192),
+  })
+  const result = await improve(profile, {
+    surface: 'prompt',
+    method: officialGepa<DriverPromptScenario, SupervisedOutcome>({
+      objective:
+        'Improve the complete standing prompt used by a supervisor that spawns, steers, and verifies coding workers.',
+      evaluationId:
+        opts.evaluationId ??
+        [
+          'ablation-driver-prompt',
+          `worker=${worker.model}`,
+          `supervisor=${supervisorRouter.model}`,
+          `tokens=${worker.maxTokens ?? 'default'}`,
+          `turns=${worker.innerTurns ?? 'default'}`,
+          `shots=${worker.budget ?? 'default'}`,
+        ].join('|'),
+      background: [
+        'Return only the complete supervisor prompt.',
+        'The supervisor must verify settled workers, target subsequent workers at observed failures, and stop only after the task check passes.',
+        'Do not change worker tools, models, or budgets.',
+      ].join(' '),
+      recipe: {
+        kind: 'engine',
+        run: {
+          engine: 'gepa',
+          maxEvaluations: opts.maxEvaluations ?? 8,
+          maxProposerCostUsd,
+        },
+      },
+      optimizer,
+      resume: 'if-compatible',
+      trustResumeState: true,
+      describeScenario: (scenario) => ({
+        id: scenario.id,
+        systemPrompt: scenario.task.systemPrompt,
+        userPrompt: scenario.task.userPrompt,
+      }),
     }),
-    // One generation, two candidates, a third of TRAIN held out for the gate — the cheap proof shape;
-    // raise generations/populationSize for a deeper search once the cheap run is green.
-    budget: { generations: 1, populationSize: 2, holdoutFraction: 0.34 },
+    trainScenarios,
+    selectionScenarios,
+    testScenarios,
+    judges: [judge],
+    agent,
+    runDir: opts.runDir ?? `.runs/ablation-driver-gepa-${opts.trainOffset}`,
+    maxConcurrency: opts.maxConcurrency ?? 1,
+    reps: 1,
+    optimizationRunOptions: {
+      maxConcurrency: opts.maxConcurrency ?? 1,
+      reps: 1,
+    },
   })
 
-  // The winner surface is the promoted driver prompt. A `CodeSurface` winner is impossible here (the
-  // baseline + every mutation is a string), but guard the type so the return stays a clean string.
-  const winner = result.winner.surface
-  const systemPrompt = typeof winner === 'string' ? winner : opts.baselinePrompt
-
+  assertCompleteCost('optimizeDriverPrompt', result.cost)
   return {
-    systemPrompt,
+    systemPrompt:
+      typeof result.candidate.value === 'string' ? result.candidate.value : opts.baselinePrompt,
     lift: result.lift,
-    shipped: result.gateDecision === 'ship',
-    // The TRAIN-side optimization cost (baseline + every generation) — counted into the arm's $ so the
-    // cost-aware ablation never hides the price of GEPA behind the held-out run alone.
-    usd: result.totalCostUsd,
+    shipped: result.decision === 'ship',
+    usd: result.cost.totalCostUsd,
   }
 }

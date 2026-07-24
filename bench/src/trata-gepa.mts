@@ -1,22 +1,22 @@
 /**
- * trata-gepa — selfImprove (GEPA) outer loop for Trata hedge-bench.
+ * Official GEPA prompt optimization for Trata hedge-bench.
  *
  * The optimization surface is the system prompt given to the financial analyst
  * worker. GEPA reflects on which rubric themes were missed across training tasks
- * and proposes improved system prompts — learning to instruct the model to
+ * and proposes improved system prompts, learning to instruct the model to
  * extract specific quantitative claims, cover multiple analytical themes, and
- * cite named evidence. Gated on a frozen holdout.
+ * cite named evidence. Candidate selection and final testing use disjoint data.
  *
  * The surface evolves beyond a bare system instruction: GEPA naturally discovers
  * that it can add few-shot analytical patterns, calculation templates, and
- * structured coverage checklists — effectively skill-creating without
+ * structured coverage checklists, effectively skill-creating without
  * hand-engineering. Set K_ROUNDS=2 to add a self-critique refine pass.
  *
  * Usage:
  *   TRATA_BENCH_ROOT=/tmp/trata-hedge-bench \
  *   JUDGE_MODEL=gemini-2.5-flash WORKER_MODEL=deepseek-v4-flash \
  *   REFLECT_MODEL=gemini-2.5-pro \
- *   TRAIN_N=70 HOLDOUT_N=32 GENS=2 POP=3 CONCURRENCY=8 \
+ *   TRAIN_N=70 SELECTION_N=16 TEST_N=16 MAX_EVALUATIONS=12 CONCURRENCY=8 \
  *   dotenvx run -f ~/company/devops/secrets/agent-state.env -- \
  *     pnpm exec tsx bench/src/trata-gepa.mts
  *
@@ -26,9 +26,10 @@
  *   JUDGE_MODEL        judge model in trata adapter (default gemini-2.5-flash)
  *   REFLECT_MODEL      GEPA reflection model (default gemini-2.5-pro)
  *   TRAIN_N            training tasks (default 70)
- *   HOLDOUT_N          frozen holdout tasks (default 32)
- *   GENS               optimization generations (default 2)
- *   POP                candidates per generation (default 3)
+ *   SELECTION_N        optimizer selection tasks (default 16)
+ *   TEST_N             untouched final comparison tasks (default 16)
+ *   MAX_EVALUATIONS    GEPA callback evaluations (default 12)
+ *   MAX_PROPOSER_COST_USD GEPA proposal budget (default 5)
  *   REPS               reps per scenario (default 1)
  *   CONCURRENCY        parallel worker slots (default 8)
  *   K_ROUNDS           1=single-shot, 2=analysis+self-critique (default 1)
@@ -36,28 +37,48 @@
  *   CORPUS             path to write JSONL run records (optional)
  */
 
-import { selfImprove } from '@tangle-network/agent-eval/contract'
-import type { CampaignResult, JudgeConfig, JudgeScore, Scenario } from '@tangle-network/agent-eval/campaign'
-import { heldoutSignificance, inMemoryCampaignStorage, pairHoldout } from '@tangle-network/agent-eval/campaign'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type {
+  DispatchContext,
+  JudgeConfig,
+  JudgeScore,
+  MutableSurface,
+  Scenario,
+} from '@tangle-network/agent-eval/campaign'
+import { improve, officialGepa } from '@tangle-network/agent-runtime'
 import { appendFileSync, writeFileSync } from 'node:fs'
 import { createTrataHedgeAdapter } from './benchmarks/trata-hedge'
 import type { BenchTask } from './benchmarks/types'
+import {
+  assertCompleteCost,
+  officialOptimizerModel,
+  requiredTokenPricing,
+} from './official-optimizer-config.mjs'
 
 interface TrataScenario extends Scenario {
   task: BenchTask
-}
-
-interface DiagnosedFinding {
-  claim: string
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
-  area?: string
-  recommended_action?: string
 }
 
 function must(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`env ${name} is required`)
   return v
+}
+
+function positiveInteger(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? fallback)
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`env ${name} must be a positive integer`)
+  }
+  return value
+}
+
+function positiveNumber(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? fallback)
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`env ${name} must be a positive number`)
+  }
+  return value
 }
 
 // GEPA-optimised baseline — the best surface found across 9 runs (+8.6pp on holdout, 2 independent
@@ -91,13 +112,15 @@ async function chatComplete(
   baseUrl: string,
   key: string,
   model: string,
+  maxTokens: number,
   messages: Array<{ role: string; content: string }>,
+  signal: AbortSignal,
 ): Promise<{ content: string; usage?: { input: number; output: number } }> {
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
-    signal: AbortSignal.timeout(180_000),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]),
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, temperature: 0, max_tokens: 4096, messages }),
+    body: JSON.stringify({ model, temperature: 0, max_tokens: maxTokens, messages }),
   })
   if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 300)}`)
   const j = (await res.json()) as {
@@ -112,50 +135,14 @@ async function chatComplete(
   return { content, usage }
 }
 
-function parseFindings(content: string): DiagnosedFinding[] {
-  // Balanced-bracket scan so `]` inside string values doesn't terminate early.
-  const startIdx = content.indexOf('[')
-  if (startIdx < 0) return []
-  let depth = 0, inString = false, endIdx = -1
-  for (let i = startIdx; i < content.length; i++) {
-    const ch = content[i]
-    if (inString) {
-      if (ch === '\\') { i++; continue }
-      if (ch === '"') inString = false
-    } else {
-      if (ch === '"') inString = true
-      else if (ch === '[' || ch === '{') depth++
-      else if (ch === ']' || ch === '}') {
-        depth--
-        if (depth === 0 && ch === ']') { endIdx = i; break }
-      }
-    }
-  }
-  if (endIdx < 0) return []
-  const candidate = content.slice(startIdx, endIdx + 1)
-  let arr: unknown
-  try {
-    arr = JSON.parse(candidate)
-  } catch (e1) {
-    try { arr = JSON.parse(candidate.replace(/,(\s*[}\]])/g, '$1')) }
-    catch { console.error(`[trata-gepa] parseFindings failed: ${(e1 as Error).message} | head: ${candidate.slice(0, 120)}`); return [] }
-  }
-  if (!Array.isArray(arr)) return []
-  const sev = new Set(['critical', 'high', 'medium', 'low', 'info'])
-  return arr
-    .filter(
-      (x): x is Record<string, unknown> =>
-        typeof x === 'object' && x !== null && typeof (x as { claim?: unknown }).claim === 'string',
-    )
-    .map((x) => ({
-      claim: String(x.claim),
-      severity: (sev.has(String(x.severity)) ? String(x.severity) : 'medium') as DiagnosedFinding['severity'],
-      area: x.area !== undefined ? String(x.area) : 'failure-mode',
-      recommended_action: x.recommended_action !== undefined ? String(x.recommended_action) : undefined,
-    }))
-}
-
 async function main(): Promise<void> {
+  if (process.env.DRYRUN) {
+    console.log(
+      `DRYRUN: imports OK (improve=${typeof improve}, officialGepa=${typeof officialGepa})`,
+    )
+    return
+  }
+
   const adapter = createTrataHedgeAdapter()
   await adapter.preflight()
 
@@ -163,15 +150,47 @@ async function main(): Promise<void> {
   const reflectModel = process.env.REFLECT_MODEL ?? 'deepseek-v4-flash'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
-  const trainN = Number(process.env.TRAIN_N ?? 70)
-  const holdoutN = Number(process.env.HOLDOUT_N ?? 32)
-  const kRounds = Number(process.env.K_ROUNDS ?? 1)
+  const reflectBaseUrl = process.env.REFLECT_BASE ?? routerBaseUrl
+  const reflectKey = process.env.REFLECT_KEY ?? routerKey
+  const trainN = positiveInteger('TRAIN_N', 70)
+  const selectionN = positiveInteger('SELECTION_N', 16)
+  const testN = positiveInteger('TEST_N', 16)
+  const kRounds = positiveInteger('K_ROUNDS', 1)
+  const maxEvaluations = positiveInteger('MAX_EVALUATIONS', 12)
+  const maxProposerCostUsd = positiveNumber('MAX_PROPOSER_COST_USD', 5)
+  const maxConcurrency = positiveInteger('CONCURRENCY', 8)
+  const reps = positiveInteger('REPS', 1)
+  const workerMaxTokens = positiveInteger('MAX_TOKENS', 4096)
+  const reflectMaxTokens = positiveInteger('REFLECT_MAX_TOKENS', 8192)
   const corpusPath = process.env.CORPUS
   const baselineSurface = process.env.BASELINE_DIRECTIVE ?? DEFAULT_TRATA_SYSTEM
+  const runDir = process.env.RUN_DIR ?? '.runs/trata-official-gepa'
+  const evaluationId = [
+    'trata-hedge-prompt',
+    `worker=${model}`,
+    `workerEndpoint=${new URL(routerBaseUrl).origin}`,
+    `judge=${process.env.JUDGE_MODEL ?? 'adapter-default'}`,
+    `rounds=${kRounds}`,
+    `tokens=${workerMaxTokens}`,
+  ].join('|')
+  const workerPricing = requiredTokenPricing(process.env, 'WORKER')
+  const optimizer = officialOptimizerModel({
+    env: process.env,
+    model: reflectModel,
+    baseUrl: reflectBaseUrl,
+    apiKey: reflectKey,
+    maxCostUsd: maxProposerCostUsd,
+    maxOutputTokensPerRequest: reflectMaxTokens,
+  })
 
-  // Load all tasks and split deterministically.
-  // Hash-shuffle by task id so both splits carry the same difficulty mix.
-  const tasks = await adapter.loadTasks({ limit: trainN + holdoutN })
+  // Hash-shuffle by task id so all three partitions carry the same difficulty mix.
+  const requestedTasks = trainN + selectionN + testN
+  const tasks = await adapter.loadTasks({ limit: requestedTasks })
+  if (tasks.length !== requestedTasks) {
+    throw new Error(
+      `Trata returned ${tasks.length} tasks; ${requestedTasks} are required for exact train/selection/test partitions`,
+    )
+  }
   const idHash = (s: string): number => {
     let h = 2166136261
     for (let i = 0; i < s.length; i += 1) {
@@ -180,45 +199,64 @@ async function main(): Promise<void> {
     }
     return h >>> 0
   }
-  tasks.sort((a, b) => idHash(a.id) - idHash(b.id))
-  const train = tasks.slice(0, Math.min(trainN, tasks.length))
-  const holdout = tasks.slice(train.length, train.length + Math.min(holdoutN, tasks.length - train.length))
+  tasks.sort((a, b) => idHash(a.id) - idHash(b.id) || a.id.localeCompare(b.id))
+  const train = tasks.slice(0, trainN)
+  const selection = tasks.slice(trainN, trainN + selectionN)
+  const test = tasks.slice(trainN + selectionN)
   const toScenario = (t: BenchTask): TrataScenario => ({ id: t.id, kind: 'trata-hedge', task: t })
 
   console.log(
-    `[trata-gepa] worker=${model} reflect=${reflectModel} rounds=${kRounds} train=${train.length} holdout=${holdout.length}`,
+    `[trata-gepa] worker=${model} reflect=${reflectModel} rounds=${kRounds} train=${train.length} selection=${selection.length} test=${test.length}`,
   )
 
-  // Domain seam: run the financial analyst worker under the candidate surface.
+  // Run the financial analyst worker under the candidate surface.
   // For K_ROUNDS=2, a second round asks the model to review its own coverage.
-  // Reports real token usage to ctx.cost (never fabricated).
+  // Every provider call reports its returned usage through the campaign ledger.
+  const runPaidCompletion = async (
+    ctx: DispatchContext,
+    actor: string,
+    messages: Array<{ role: string; content: string }>,
+  ): Promise<{ content: string; usage?: { input: number; output: number } }> => {
+    const paid = await ctx.cost.runPaidCall({
+      actor,
+      model,
+      execute: (signal) =>
+        chatComplete(routerBaseUrl, routerKey, model, workerMaxTokens, messages, signal),
+      receipt: (result) => ({
+        model,
+        inputTokens: result.usage?.input ?? 0,
+        outputTokens: result.usage?.output ?? 0,
+        customTokenPricing: workerPricing,
+        ...(result.usage ? {} : { usageUnknown: true }),
+      }),
+    })
+    if (!paid.succeeded) throw paid.error
+    return paid.value
+  }
+
   const runWithSurface = async (
-    surface: string,
+    surface: MutableSurface,
     scenario: TrataScenario,
-    ctx: {
-      cost: {
-        observe(usd: number, source: string): void
-        observeTokens(u: { input: number; output: number }): void
-      }
-    },
+    ctx: DispatchContext,
   ): Promise<string> => {
+    if (typeof surface !== 'string') {
+      throw new Error('Trata prompt optimization requires a text surface')
+    }
     // Round 1: initial analysis under the candidate system prompt.
-    const r1 = await chatComplete(routerBaseUrl, routerKey, model, [
+    const r1 = await runPaidCompletion(ctx, 'trata-worker-round-1', [
       { role: 'system', content: surface },
       { role: 'user', content: scenario.task.prompt },
     ])
-    if (r1.usage) ctx.cost.observeTokens(r1.usage)
     let answer = r1.content
 
     // Round 2 (optional): self-critique for rubric coverage.
     if (kRounds >= 2 && answer.trim()) {
-      const r2 = await chatComplete(routerBaseUrl, routerKey, model, [
+      const r2 = await runPaidCompletion(ctx, 'trata-worker-round-2', [
         { role: 'system', content: surface },
         { role: 'user', content: scenario.task.prompt },
         { role: 'assistant', content: answer },
         { role: 'user', content: REFINE_INSTRUCTION },
       ])
-      if (r2.usage) ctx.cost.observeTokens(r2.usage)
       if (r2.content.trim()) answer = r2.content
     }
 
@@ -253,173 +291,68 @@ async function main(): Promise<void> {
     },
   }
 
-  // EYES→HANDS: diagnose FAILED runs using themesMissed from judge detail.
-  // Trata's judge returns structured per-theme failure data — richer than the
-  // generic "wrong answer" signal that other benches feed into this hook.
-  const taskById = new Map(tasks.map((t) => [t.id, t]))
-  const analyzeGeneration = async (input: {
-    generation: number
-    runDir: string
-    candidates: Array<{
-      surfaceHash: string
-      campaign: CampaignResult<string, TrataScenario>
-      composite: number
-    }>
-    history: unknown[]
-  }): Promise<DiagnosedFinding[]> => {
-    interface FailureItem {
-      question: string
-      themesMissed: string[]
-      themesHit: string[]
-      answer: string
-      note: string
-    }
-    const failures = new Map<string, FailureItem>()
-    for (const cand of input.candidates) {
-      for (const cell of cand.campaign.cells) {
-        const js = cell.judgeScores?.[judge.name]
-        if ((js?.composite ?? 0) >= 1) continue
-        if (failures.has(cell.scenarioId)) continue
-        const task = taskById.get(cell.scenarioId)
-        if (!task) continue
-        let themesMissed: string[] = []
-        let themesHit: string[] = []
-        try {
-          const d = JSON.parse(js?.notes ?? '{}') as {
-            themesMissed?: string[]
-            themesHit?: string[]
-          }
-          themesMissed = d.themesMissed ?? []
-          themesHit = d.themesHit ?? []
-        } catch {
-          // no structured detail available
-        }
-        failures.set(cell.scenarioId, {
-          question: task.prompt.slice(0, 800),
-          themesMissed,
-          themesHit,
-          answer: (typeof cell.artifact === 'string' ? cell.artifact : '').slice(-1200),
-          note: (js?.notes ?? '').slice(0, 200),
-        })
-      }
-    }
-    const items = [...failures.values()].slice(0, 8)
-    if (items.length === 0) {
-      console.log(`[trata-gepa] gen ${input.generation}: 0 failures to diagnose`)
-      return []
-    }
-    const user = items
-      .map(
-        (f, i) =>
-          `### Failure ${i + 1}\nTASK (excerpt): ${f.question}\n` +
-          (f.themesMissed.length > 0 ? `MISSED THEMES: ${f.themesMissed.join(', ')}\n` : '') +
-          (f.themesHit.length > 0 ? `HIT THEMES: ${f.themesHit.join(', ')}\n` : '') +
-          `AGENT ANSWER (tail): ${f.answer}`,
-      )
-      .join('\n\n')
-    const system =
-      'You are a failure analyst for a financial analyst agent. The agent produces investment memos ' +
-      'scored by a rubric with 4-6 analytical themes, each requiring specific quantitative claims. ' +
-      'Below are FAILED runs showing which themes were missed and the agent\'s answer. ' +
-      'Identify the COMMON failure patterns — e.g., generic statements without specific figures, ' +
-      'missing peer comparisons, no explicit calculations, ignoring certain data file types. ' +
-      'For each finding, recommend a CONCRETE change to the system instruction that would fix it. ' +
-      'Return ONLY a JSON array (no prose): [{"claim","severity":"high"|"medium"|"low","area","recommended_action"}]. Max 6.'
-    let content: string | undefined
-    for (let attempt = 1; attempt <= 4; attempt += 1) {
-      try {
-        const r = await chatComplete(routerBaseUrl, routerKey, reflectModel, [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ])
-        content = r.content
-        break
-      } catch (err) {
-        const msg = (err as Error).message
-        if (attempt === 4) {
-          console.error(`[trata-gepa] analyzeGeneration failed gen ${input.generation}: ${msg}`)
-          return []
-        }
-        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)))
-      }
-    }
-    if (!content) return []
-    const findings = parseFindings(content)
-    console.log(`[trata-gepa] gen ${input.generation}: ${items.length} failures → ${findings.length} findings`)
-    return findings
+  const profile: AgentProfile = {
+    name: 'trata-financial-analyst',
+    prompt: { systemPrompt: baselineSurface },
   }
-
-  const result = await selfImprove<TrataScenario, string>({
-    agent: (surface, scenario, ctx) => runWithSurface(surface as string, scenario, ctx),
-    scenarios: train.map(toScenario),
-    judge,
-    baselineSurface,
-    budget: {
-      generations: Number(process.env.GENS ?? 2),
-      populationSize: Number(process.env.POP ?? 3),
-      maxConcurrency: Number(process.env.CONCURRENCY ?? 8),
-      reps: Number(process.env.REPS ?? 1),
-      promoteTopK: Number(process.env.TOPK ?? 1),
-      holdoutScenarios: holdout.map(toScenario),
+  const result = await improve(profile, {
+    surface: 'prompt',
+    method: officialGepa<TrataScenario, string>({
+      objective:
+        'Improve the complete system instruction for a financial analyst that writes evidence-backed investment memos.',
+      evaluationId,
+      background:
+        'The judge awards partial credit for covering every requested analytical theme with specific quantitative claims, named peer comparisons, explicit calculations, source citations, and a decisive synthesis. Preserve the required ANALYSIS: prefix.',
+      recipe: {
+        kind: 'engine',
+        run: {
+          engine: 'gepa',
+          maxEvaluations,
+          maxProposerCostUsd,
+        },
+      },
+      optimizer,
+      resume: 'if-compatible',
+      trustResumeState: true,
+      describeScenario: (scenario) => ({
+        id: scenario.id,
+        prompt: scenario.task.prompt,
+      }),
+      describeArtifact: (artifact) => ({ answer: artifact.slice(-4000) }),
+    }),
+    trainScenarios: train.map(toScenario),
+    selectionScenarios: selection.map(toScenario),
+    testScenarios: test.map(toScenario),
+    judges: [judge],
+    agent: runWithSurface,
+    expectUsage: 'warn',
+    maxConcurrency,
+    reps,
+    runDir,
+    optimizationRunOptions: {
+      expectUsage: 'warn',
+      maxConcurrency,
+      reps,
     },
-    llm: {
-      baseUrl: routerBaseUrl,
-      apiKey: routerKey,
-      model: reflectModel,
-    },
-    proposerTarget:
-      'a FINANCIAL ANALYST SYSTEM INSTRUCTION: the directive given to an agent that produces an investment memo from embedded earnings call transcripts, SEC filings, financial statements, and investor presentations. ' +
-      'The memo is scored by a rubric with 4-6 analytical themes, each requiring 2-4 specific analytical moves (quantitative claims, strategic conclusions, peer comparisons, or explicit calculations). ' +
-      'A theme is "hit" only when the agent makes the SPECIFIC move — not just gestures at the theme. ' +
-      'The directive must make the agent: (1) extract and cite specific numerical targets from management guidance, ' +
-      '(2) compute implied returns/IRRs when comparing capital allocation options, ' +
-      '(3) cover every distinct analytical theme with a dedicated paragraph, ' +
-      '(4) benchmark against named peers with specific metrics. The "ANALYSIS:" sentinel must start the response.',
-    mutationPrimitives: [
-      'instruct the agent to identify and verbatim-cite specific numerical targets in management guidance (earnings per share targets, margin percentages, growth rates, AUM figures) rather than paraphrasing in approximate terms',
-      'instruct the agent to explicitly compute implied returns or IRRs when evaluating capital allocation trade-offs — show the arithmetic using the price levels and targets from the source data',
-      'instruct the agent to structure the analysis with a clearly-labeled section for each distinct analytical theme (valuation, capital allocation, competitive dynamics, risk factors, etc.) so no major investment consideration is merged or omitted',
-      'instruct the agent to compare the company against its NAMED sector peers with specific metrics (EV/EBITDA, P/E, margin differential, growth premium) cited from the peer financials files in the data',
-    ],
-    runDir: 'improve-prompt-trata-hedge',
-    storage: inMemoryCampaignStorage(),
-    autoOnPromote: 'none',
-    analyzeGeneration,
   })
 
+  assertCompleteCost('Trata official GEPA run', result.cost)
   console.log('\n=== trata-gepa RESULT ===')
-  const improved = result.gateDecision === 'ship'
-  console.log(`  baseline held-out mean: ${(result.baseline.compositeMean * 100).toFixed(1)}%`)
-  console.log(`  winner   held-out mean: ${(result.winner.compositeMean * 100).toFixed(1)}%`)
-  console.log(`  ► held-out delta:       ${(result.lift * 100).toFixed(1)} pp`)
-  console.log(`  gate decision:          ${result.gateDecision}`)
+  const improved = result.decision === 'ship'
+  console.log(`  baseline test mean: ${(result.raw.best.baselineComposite * 100).toFixed(1)}%`)
+  console.log(`  winner test mean:   ${(result.raw.best.winnerComposite * 100).toFixed(1)}%`)
+  console.log(`  test delta:         ${(result.lift * 100).toFixed(1)} pp`)
+  console.log(
+    `  95% interval:      [${(result.liftInterval.low * 100).toFixed(1)}, ${(result.liftInterval.high * 100).toFixed(1)}] pp`,
+  )
+  console.log(`  decision:           ${result.decision}`)
+  console.log(`  cost:               ${JSON.stringify(result.cost)}`)
 
-  try {
-    const cellsToMap = (cells: ReadonlyArray<{ scenarioId: string; judgeScores: Record<string, JudgeScore> }>) => {
-      const m = new Map<string, Record<string, JudgeScore>>()
-      for (const c of cells) m.set(c.scenarioId, c.judgeScores)
-      return m
-    }
-    const baseMap = cellsToMap(result.raw.baselineOnHoldout.cells)
-    const winMap = cellsToMap(result.raw.winnerOnHoldout.cells)
-    const ids = new Set([...baseMap.keys()].filter((id) => winMap.has(id)))
-    const paired = pairHoldout(winMap, baseMap, ids, (s) => s.composite)
-    const sig = heldoutSignificance(paired)
-    console.log(
-      `  ► 95% CI (n=${sig.n}): [${(sig.bootstrap.low * 100).toFixed(1)}, ${(sig.bootstrap.high * 100).toFixed(1)}] pp · median ${(sig.bootstrap.median * 100).toFixed(1)}pp · significant=${sig.significant}`,
-    )
-    if (!sig.significant)
-      console.log('    (CI spans 0 — scale n or generations before promoting)')
-  } catch (err) {
-    console.log(`  (significance unavailable: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)})`)
-  }
-
-  const winnerSurface = result.winner.surface as string
+  const winnerSurface = String(result.candidate.value)
   if (improved) {
     console.log(`\n  PROMOTED SYSTEM PROMPT:\n${winnerSurface}`)
-    if (result.winner.rationale) console.log(`\n  rationale: ${result.winner.rationale}`)
   } else {
-    console.log('  kept baseline (gate did not promote)')
+    console.log('  kept baseline (the final-test interval did not clear zero)')
     console.log(`\n  BEST CANDIDATE SURFACE (set as BASELINE_DIRECTIVE to seed next run):\n${winnerSurface}`)
   }
   try {

@@ -1,10 +1,9 @@
 /**
- * SELF-IMPROVEMENT on the SEE-able LOCAL SWE-bench path — NO tangle sandbox.
+ * Official GEPA prompt optimization on the local SWE-bench path.
  *
- * Composes the three proven pieces into ONE held-out-gated improvement generation:
- *   1. `improve({ surface: 'prompt' })` (agent-runtime) drives the loop: it asks
- *      `gepaProposer` to EVOLVE the SWE agent's system prompt, then measures each
- *      candidate prompt on real instances and gates the winner on a held-out split.
+ * Composes three pieces:
+ *   1. `improve({ method: officialGepa(...) })` runs GEPA's upstream
+ *      Optimize Anything engine on explicit train and selection partitions.
  *   2. Per candidate + scenario, the `agent` fn runs the LOCAL SWE env
  *      (`createSweBenchEnvironment` + `runAgentic`): clone the instance repo to a
  *      host tmpdir, run the jailed list/read/edit tool loop with the CANDIDATE
@@ -16,23 +15,26 @@
  * IN-LOOP score is a cheap patch-exists proxy (NOT the Docker judge) so the ONLY
  * Docker run per cell is the improve judge — one deterministic verdict per cell.
  *
- * Cost per run = T·(1 + G·P) + 2·H cells, each = 1 clone + 1 runAgentic + 1 judge.
- *
- *   TANGLE_API_KEY=… dotenvx run -f …/agent-state.env -- \
- *     TRAIN_IDS=psf__requests-2931 HOLDOUT_IDS=psf__requests-1142 \
- *     GENERATIONS=1 POPULATION=1 WORKER_MODEL=glm-4.6 REFLECT_MODEL=glm-4.6 \
+ *   TANGLE_API_KEY=... dotenvx run -f .../agent-state.env -- \
+ *     TRAIN_IDS=psf__requests-2931 SELECTION_IDS=pallets__flask-5014 \
+ *     TEST_IDS=psf__requests-1142,psf__requests-1921 \
+ *     MAX_EVALUATIONS=4 MAX_PROPOSER_COST_USD=2 \
  *     node_modules/.bin/tsx bench/src/swe-improve.mts
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { improve } from '@tangle-network/agent-runtime'
+import { improve, officialGepa } from '@tangle-network/agent-runtime'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
 import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
-import { gepaProposer } from '@tangle-network/agent-eval/campaign'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
+import {
+  assertCompleteCost,
+  officialOptimizerModel,
+  requiredTokenPricing,
+} from './official-optimizer-config.mjs'
 import { createSweBenchEnvironment, SWE_SEED_PROMPT, SWE_SEED_PROMPT_WITH_RUN } from './swe-bench-env'
 
 const exec = promisify(execFile)
@@ -42,36 +44,56 @@ async function main(): Promise<void> {
   if (!routerKey) throw new Error('TANGLE_API_KEY required (the worker + reflection call the router)')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const workerModel = process.env.WORKER_MODEL ?? 'glm-4.6'
+  const reflectBase = process.env.REFLECT_BASE ?? routerBaseUrl
+  const reflectKey = process.env.REFLECT_KEY ?? routerKey
   const reflectModel = process.env.REFLECT_MODEL ?? 'glm-4.6'
   const trainIds = (process.env.TRAIN_IDS ?? 'psf__requests-2931').split(',').map((s) => s.trim()).filter(Boolean)
-  const holdoutIds = (process.env.HOLDOUT_IDS ?? 'psf__requests-1142').split(',').map((s) => s.trim()).filter(Boolean)
-  const generations = Number(process.env.GENERATIONS ?? 1)
-  const population = Number(process.env.POPULATION ?? 1)
+  const selectionIds = (process.env.SELECTION_IDS ?? 'pallets__flask-5014').split(',').map((s) => s.trim()).filter(Boolean)
+  const testIds = (process.env.TEST_IDS ?? 'psf__requests-1142,psf__requests-1921').split(',').map((s) => s.trim()).filter(Boolean)
+  const maxEvaluations = Number(process.env.MAX_EVALUATIONS ?? 4)
+  const maxProposerCostUsd = Number(process.env.MAX_PROPOSER_COST_USD ?? 2)
   const innerTurns = Number(process.env.INNER_TURNS ?? 40)
   const workerMaxTokens = Number(process.env.MAX_TOKENS ?? 8000)
   const reflectMaxTokens = Number(process.env.REFLECT_MAX_TOKENS ?? 12000)
   const maxConcurrency = Number(process.env.MAX_CONCURRENCY ?? 1)
   const budgetShots = Number(process.env.BUDGET ?? 1)
+  const runDir = process.env.RUN_DIR ?? '.runs/swe-official-gepa'
   // WITH-TOOLS arm: RUN_TOOL=1 exposes the jailed `run` tool AND swaps the seed to the run-aware prompt.
   // Default OFF ⇒ reproduces the read/edit-only baseline denominator unchanged.
   const enableRun = ['1', 'true', 'yes'].includes((process.env.RUN_TOOL ?? '').toLowerCase())
   const SEED_PROMPT = enableRun ? SWE_SEED_PROMPT_WITH_RUN : SWE_SEED_PROMPT
+  const evaluationId = [
+    'swe-prompt-eval',
+    `worker=${workerModel}`,
+    `router=${new URL(routerBaseUrl).origin}`,
+    `turns=${innerTurns}`,
+    `tokens=${workerMaxTokens}`,
+    `shots=${budgetShots}`,
+    `runTool=${String(enableRun)}`,
+  ].join('|')
+  const allIds = [...new Set([...trainIds, ...selectionIds, ...testIds])]
 
-  const allIds = [...new Set([...trainIds, ...holdoutIds])]
-  const cellsMax = trainIds.length * (1 + generations * population) + 2 * holdoutIds.length
-
-  console.log('═══ SWE-bench self-improvement — SEE-able LOCAL (no tangle sandbox) ═══')
-  console.log(`worker=${workerModel}  reflect=${reflectModel}  router=${routerBaseUrl}`)
-  console.log(`train=[${trainIds.join(', ')}]  holdout=[${holdoutIds.join(', ')}]`)
-  console.log(`generations=${generations} population=${population} innerTurns=${innerTurns} workerMaxTokens=${workerMaxTokens} reflectMaxTokens=${reflectMaxTokens} runTool=${enableRun}`)
-  console.log(`≈ ${cellsMax} cells max (each = 1 clone + 1 runAgentic + 1 Docker judge)\n`)
+  console.log('=== SWE-bench prompt optimization with official GEPA ===')
+  console.log(`worker=${workerModel} reflect=${reflectModel} router=${routerBaseUrl}`)
+  console.log(`train=[${trainIds.join(', ')}] selection=[${selectionIds.join(', ')}] test=[${testIds.join(', ')}]`)
+  console.log(`maxEvaluations=${maxEvaluations} maxProposerCostUsd=${maxProposerCostUsd} innerTurns=${innerTurns} workerMaxTokens=${workerMaxTokens} runTool=${enableRun}`)
+  console.log(`runDir=${runDir}\n`)
 
   if (process.env.DRYRUN) {
     // Import + wiring smoke: prove every module resolves and the plan is well-formed
     // WITHOUT paying for a clone / model call / Docker judge.
-    console.log(`DRYRUN: imports OK (improve=${typeof improve}, gepaProposer=${typeof gepaProposer}, runAgentic=${typeof runAgentic}, refine=${typeof refine})`)
+    console.log(`DRYRUN: imports OK (improve=${typeof improve}, officialGepa=${typeof officialGepa}, runAgentic=${typeof runAgentic}, refine=${typeof refine})`)
     return
   }
+  const workerPricing = requiredTokenPricing(process.env, 'WORKER')
+  const optimizer = officialOptimizerModel({
+    env: process.env,
+    model: reflectModel,
+    baseUrl: reflectBase,
+    apiKey: reflectKey,
+    maxCostUsd: maxProposerCostUsd,
+    maxOutputTokensPerRequest: reflectMaxTokens,
+  })
 
   const { environment, adapter } = await createSweBenchEnvironment(allIds.length, { ids: allIds, enableRun })
   const pool = await adapter.loadTasks({ ids: allIds, split: 'test' })
@@ -111,40 +133,44 @@ async function main(): Promise<void> {
       },
     }
     const t0 = Date.now()
-    const r = await runAgentic({
-      surface: proxy,
-      task,
-      strategy: refine,
-      routerBaseUrl,
-      routerKey,
+    const paid = await ctx.cost.runPaidCall({
+      channel: 'agent',
+      actor: 'swe-worker',
       model: workerModel,
-      maxTokens: workerMaxTokens,
-      innerTurns,
-      budget: budgetShots,
+      execute: () =>
+        runAgentic({
+          surface: proxy,
+          task,
+          strategy: refine,
+          routerBaseUrl,
+          routerKey,
+          model: workerModel,
+          maxTokens: workerMaxTokens,
+          innerTurns,
+          budget: budgetShots,
+        }),
+      receipt: (result) => {
+        const inputTokens = result.tokens.input ?? 0
+        const outputTokens = result.tokens.output ?? 0
+        const usageUnknown = inputTokens === 0 && outputTokens === 0
+        return {
+          model: workerModel,
+          inputTokens,
+          outputTokens,
+          customTokenPricing: workerPricing,
+          ...(usageUnknown ? { usageUnknown: true } : {}),
+        }
+      },
     })
-    // Report REAL cost/tokens so the backend-integrity guard sees a real backend
-    // rather than a silent-zero stub. A glm-5.2 turn occasionally returns a real
-    // patch with an UNPOPULATED usage block (a router telemetry gap on some
-    // reasoning-model responses — NOT a stub: the cell made real tool calls and
-    // produced a patch). In that gap case report a nominal floor so the stub-guard
-    // (artifact + zero usage) cannot abort the whole campaign on a telemetry gap.
-    // The lift metric is judge-derived, so a floored count does not distort it; only
-    // cost accounting undercounts those few cells (disclosed). No-patch cells return
-    // null below and are skipped by the guard's own contract, so this floor only
-    // ever applies to a cell that genuinely produced a patch.
+    if (!paid.succeeded) throw paid.error
+    const r = paid.value
     const zeroUsage = (r.tokens.input ?? 0) === 0 && (r.tokens.output ?? 0) === 0
     const hasPatch = capturedPatch.trim().length > 0
-    ctx.cost.observe(zeroUsage && hasPatch ? Math.max(r.usd ?? 0, 0.0001) : r.usd ?? 0, workerModel)
-    ctx.cost.observeTokens(
-      zeroUsage && hasPatch
-        ? { input: Math.max(r.tokens.input ?? 0, 1), output: Math.max(r.tokens.output ?? 0, 1) }
-        : { input: r.tokens.input, output: r.tokens.output },
-    )
     const files = capturedPatch ? [...capturedPatch.matchAll(/^diff --git a\/(\S+)/gm)].map((m) => m[1]) : []
     console.log(
       `  [agent] ${scenario.id} prompt=${promptText.length}c tools(l/r/e+/e-/run/run!)=${stats.list}/${stats.read}/${stats.edit_ok}/${stats.edit_fail}/${stats.run}/${stats.run_err} ` +
-        `patch=${capturedPatch.length}b files=[${files.join(', ') || 'none'}] tok=in:${r.tokens.input}/out:${r.tokens.output} usd=${r.usd} ${Math.round((Date.now() - t0) / 1000)}s` +
-        `${zeroUsage ? (hasPatch ? ' [zero-usage telemetry gap: patch kept, usage floored]' : ' [zero-usage cell: empty completion — scored as no-patch]') : ''}`,
+        `patch=${capturedPatch.length}b files=[${files.join(', ') || 'none'}] tok=in:${r.tokens.input}/out:${r.tokens.output} ${Math.round((Date.now() - t0) / 1000)}s` +
+        `${zeroUsage ? ' [provider usage unavailable]' : ''}`,
     )
     // A cell with no patch produced NO artifact. Return null (not '') so the
     // backend-integrity guard's own contract (`artifact == null → skip`) applies:
@@ -156,7 +182,7 @@ async function main(): Promise<void> {
 
   // The judge: the OFFICIAL swebench Docker harness. Deterministic FAIL_TO_PASS +
   // PASS_TO_PASS → resolved 0/1. This is the held-out gate's scoring axis.
-  const judge: JudgeConfig<string, Scenario> = {
+  const judge: JudgeConfig<string | null, Scenario> = {
     name: 'swebench-docker',
     dimensions: [{ key: 'resolved', description: 'FAIL_TO_PASS + PASS_TO_PASS resolved by the official swebench Docker harness' }],
     async score({ artifact, scenario }) {
@@ -177,53 +203,53 @@ async function main(): Promise<void> {
   }
 
   const profile: AgentProfile = { name: 'swe-agent-glm46', prompt: { systemPrompt: SEED_PROMPT } }
-  const proposer = gepaProposer({
-    llm: { baseUrl: routerBaseUrl, apiKey: routerKey },
-    model: reflectModel,
-    target: 'the system prompt of a coding agent that fixes real GitHub bugs via list_files/read_file/edit_file tools',
-    maxTokens: reflectMaxTokens,
-    temperature: 0.7,
-  })
+  const scenario = (id: string): Scenario => ({ id, kind: 'swe-bench-verified' })
 
-  const scenarios: Scenario[] = allIds.map((id) => ({ id, kind: 'swe-bench-verified' }))
-  const holdoutScenarios: Scenario[] = holdoutIds.map((id) => ({ id, kind: 'swe-bench-verified' }))
-
-  const out = await improve(profile, [], {
+  const out = await improve(profile, {
     surface: 'prompt',
-    gate: 'holdout',
-    generator: proposer,
-    scenarios,
-    judge,
+    method: officialGepa<Scenario, string | null>({
+      objective:
+        'Improve the system prompt of a coding agent that fixes real GitHub bugs with list_files, read_file, edit_file, and optional run tools.',
+      evaluationId,
+      background:
+        'Return the complete system prompt. Preserve tool names and require evidence from repository files and tests.',
+      recipe: {
+        kind: 'engine',
+        run: {
+          engine: 'gepa',
+          maxEvaluations,
+          maxProposerCostUsd,
+        },
+      },
+      optimizer,
+      resume: 'if-compatible',
+      trustResumeState: true,
+      describeScenario: (item) => ({ prompt: byId.get(item.id)?.prompt ?? item.id }),
+    }),
+    trainScenarios: trainIds.map(scenario),
+    selectionScenarios: selectionIds.map(scenario),
+    testScenarios: testIds.map(scenario),
+    judges: [judge],
     agent,
-    // glm-5.2 occasionally returns a real patch with an unpopulated usage block
-    // (a router telemetry gap on some reasoning-model responses — NOT a stub: the
-    // cell made real tool calls and produced a patch). 'assert' would abort the
-    // whole campaign on such a cell; 'warn' logs it and continues. The lift metric
-    // (resolved) is judge-derived, so a missing token count does not distort it —
-    // only the cost accounting undercounts those cells, which is disclosed.
     expectUsage: 'warn',
-    budget: { generations, populationSize: population, holdoutScenarios, maxConcurrency, reps: 1 },
-    llm: { baseUrl: routerBaseUrl, apiKey: routerKey, model: reflectModel },
+    maxConcurrency,
+    reps: 1,
+    runDir,
+    optimizationRunOptions: {
+      expectUsage: 'warn',
+      maxConcurrency,
+      reps: 1,
+    },
   })
 
-  console.log('\n═══ RESULT ═══')
-  console.log(`gateDecision=${out.gateDecision}  shipped=${out.shipped}  lift=${out.lift}`)
-  console.log(`baseline holdout composite = ${out.raw.baseline.compositeMean}`)
-  console.log(`winner   holdout composite = ${out.raw.winner.compositeMean}`)
-  console.log(`baseline per-scenario: ${JSON.stringify(out.raw.baseline.perScenario)}`)
-  console.log(`winner   per-scenario: ${JSON.stringify(out.raw.winner.perScenario)}`)
-  if (out.raw.winner.label) console.log(`winner label   : ${out.raw.winner.label}`)
-  if (out.raw.winner.rationale) console.log(`winner rationale: ${out.raw.winner.rationale}`)
-
-  // Per-candidate verdicts on the train set (the "real swebench verdict per candidate").
-  for (const gen of out.raw.generations ?? []) {
-    console.log(`\n── generation ${gen.record.generationIndex} candidates ──`)
-    for (const c of gen.record.candidates) {
-      const perScenario = (c as { scenarios?: Array<{ scenarioId: string; composite: number }> }).scenarios ?? []
-      const detail = perScenario.map((s) => `${s.scenarioId}=${s.composite}`).join(' ')
-      console.log(`  candidate ${c.surfaceHash.slice(0, 8)} composite=${c.composite}${c.label ? ` "${c.label}"` : ''}  [${detail}]`)
-    }
-  }
+  assertCompleteCost('SWE-bench official GEPA run', out.cost)
+  console.log('\n=== RESULT ===')
+  console.log(`decision=${out.decision} lift=${out.lift} interval=[${out.liftInterval.low}, ${out.liftInterval.high}]`)
+  console.log(`baseline test composite=${out.raw.best.baselineComposite}`)
+  console.log(`winner test composite=${out.raw.best.winnerComposite}`)
+  console.log(`test scenarios=${JSON.stringify(out.raw.best.scenarioScores)}`)
+  console.log(`cost=${JSON.stringify(out.cost)}`)
+  console.log(`candidate prompt:\n${String(out.candidate.value).slice(0, 2000)}`)
 }
 
 main().catch((e) => {
