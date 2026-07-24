@@ -24,9 +24,13 @@
  */
 
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { createSweBenchAdapter } from '../benchmarks/swe-bench.ts'
+import { exportBaseTree, judgeCmdEnv } from './factory-judge-child.mts'
+import { loadFactoryInstances, type LoadedFactoryInstance } from './fixtures.ts'
+import { run, runOk } from './proc.ts'
 import {
   extractPatch,
   loadExcludes,
@@ -39,6 +43,7 @@ import {
   type SupervisorArmResult,
   type SupervisorArmSpec,
 } from './arms.ts'
+import type { FactoryJudgeResult } from './factory-judge-child.mts'
 import { applyPatchWithFallback } from './calibrate.ts'
 import { gatesForArmKind, waitForCapacity } from './capacity.ts'
 import { materializeWorkspace } from './materialize.ts'
@@ -331,6 +336,296 @@ export async function replayPatchParity(
 }
 
 // ---------------------------------------------------------------------------
+// Factory-bench: worker workspace + experiment loop.
+//
+// The worker cell for a factory instance is the `git archive` export of the
+// base commit re-initialized as a FRESH git repo with one synthetic commit —
+// worker tooling that expects git works, but `git log`/refs cannot leak the
+// real repo's future history (the PR's impl and tests live only on the
+// judge-side mirror). SPEC.md (the rewritten PM-ticket spec) is part of that
+// initial commit. Everything downstream — arm runners, budgets, serialized
+// judge queue/ceiling, ledger resume — is the same machinery as swe-arena.
+// ---------------------------------------------------------------------------
+
+/** Ref name the synthetic initial commit is pinned to; the arm's diff base. */
+export const FACTORY_BASE_REF = 'factory-base'
+
+export interface FactoryWorkspace {
+  /** Sha of the synthetic initial commit (== FACTORY_BASE_REF). */
+  syntheticBase: string
+}
+
+/**
+ * Materialize a worker workspace for a factory instance: archive-export the
+ * base tree, add SPEC.md, re-init as a synthetic-history repo (single commit,
+ * no remotes), then pre-run `setup_cmds` so the worker starts on installed
+ * deps. The real repo's refs/objects are unreachable by construction — the
+ * leak test greps the workspace for them after setup.
+ */
+export async function materializeFactoryWorkspace(
+  inst: LoadedFactoryInstance,
+  dest: string,
+  opts: { setup?: boolean } = {},
+): Promise<FactoryWorkspace> {
+  await rm(dest, { recursive: true, force: true })
+  await mkdir(dirname(dest), { recursive: true })
+  await exportBaseTree(inst.repo_local_mirror, inst.base_commit, dest)
+  await writeFile(join(dest, 'SPEC.md'), inst.spec)
+
+  await runOk('git', ['-C', dest, 'init', '-q', '-b', 'work'])
+  await runOk('git', ['-C', dest, 'config', 'user.email', 'factory-bench@local'])
+  await runOk('git', ['-C', dest, 'config', 'user.name', 'factory-bench'])
+  await runOk('git', ['-C', dest, 'add', '-A'])
+  await runOk('git', ['-C', dest, 'commit', '-q', '-m', 'baseline workspace'])
+  await runOk('git', ['-C', dest, 'branch', '-f', FACTORY_BASE_REF, 'HEAD'])
+  const syntheticBase = (await runOk('git', ['-C', dest, 'rev-parse', 'HEAD'])).stdout.trim()
+  if (syntheticBase === inst.base_commit) {
+    throw new Error(`factory workspace ${inst.id}: synthetic base equals the real base commit — history leaked`)
+  }
+
+  if (opts.setup !== false) {
+    const env = judgeCmdEnv()
+    for (const cmd of inst.setup_cmds) {
+      const res = await run('bash', ['-c', cmd], { cwd: dest, timeoutMs: inst.timeout_s * 1000, env })
+      if (res.code !== 0) {
+        throw new Error(
+          `factory workspace ${inst.id}: setup_cmd failed (rc=${res.code}): ${cmd}\n${(res.stderr || res.stdout).slice(-2000)}`,
+        )
+      }
+    }
+  }
+  return { syntheticBase }
+}
+
+/** One appended line of the factory ledger (JSONL, resume key = iid + rep). */
+export interface FactoryLedgerRow {
+  at: string
+  iid: string
+  rep: number
+  arm: string
+  resolved: boolean
+  /** passed / calibrated total — the dense partial-credit signal. */
+  score: number
+  passed: number | null
+  total: number | null
+  verify_pass: boolean
+  patch_lines: number
+  wall_s: number
+  judge_secs: number | null
+  judge_attempts: number | null
+  driver_rc: number
+  sup_status: string | null
+  sup_verdict: string | null
+  delivered: boolean | null
+  spentTokens: number | null
+  spentUsd: number | null
+  spawned: number
+  workers: number
+  settled: number
+  patchPath: string
+  runDir: string
+}
+
+/** `iid#r<rep>` keys already in a factory ledger (resume-skip). */
+export async function factoryLedgerKeys(ledgerPath: string): Promise<Set<string>> {
+  const raw = await readFile(ledgerPath, 'utf8').catch(() => '')
+  const keys = new Set<string>()
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    let row: { iid?: string; rep?: number }
+    try {
+      row = JSON.parse(line) as { iid?: string; rep?: number }
+    } catch {
+      throw new Error(`corrupt factory ledger line in ${ledgerPath}: ${line.slice(0, 120)}`)
+    }
+    if (typeof row.iid === 'string' && typeof row.rep === 'number') keys.add(`${row.iid}#r${row.rep}`)
+  }
+  return keys
+}
+
+export interface FactoryArmConfig {
+  workerModel: string
+  driverModel: string
+  budget?: number
+  maxSandboxes?: number
+  maxUsd?: number
+  maxDepth?: number
+  timeoutMs?: number
+  envKnobs?: Record<string, string>
+}
+
+export interface FactoryExperimentConfig {
+  /** Instance-dir root; relative paths resolve against the config file. */
+  instancesDir: string
+  /** Manifest ids to run (subset of instancesDir). */
+  instances: string[]
+  repsPerInstance: number
+  armName: string
+  arm: FactoryArmConfig
+  /** The loops checkout in the supervisor seat (baseline = loops main). */
+  loopsRepo: string
+  ledgerPath: string
+  outDir: string
+  secretsDir: string
+  envFiles: string[]
+  /**
+   * Worker-side self-check per instance (the supervisor's internal verify
+   * gate). NEVER the judge tests — those stay hidden. Default `true` (no gate).
+   */
+  verifyCmds?: Record<string, string>
+  judgeTimeoutMs?: number
+  cooldownMs?: number
+  gateWaitCeilingMs?: number
+  capacityModel?: string
+}
+
+const factoryJudgeChildPath = fileURLToPath(new URL('./factory-judge-child.mts', import.meta.url))
+const benchRootDir = fileURLToPath(new URL('../..', import.meta.url))
+
+/**
+ * Serialized judge whose child is factory-judge-child.mts — same JUDGE_RESULT
+ * line protocol, queue, retry, and SIGKILL ceiling as the swebench judge. The
+ * 1800s ceiling floor is kept as the backstop; the child self-enforces the
+ * manifest's (much smaller) per-command timeout_s inside it.
+ */
+export function createFactoryJudge(
+  instances: LoadedFactoryInstance[],
+  opts: { timeoutMs?: number } = {},
+): SerializedJudge {
+  const dirById = new Map(instances.map((i) => [i.id, i.dir]))
+  return createSerializedJudge({
+    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    lockFile: join(tmpdir(), 'factory-arena-judge.lock'),
+    command: (iid, patchPath) => {
+      const dir = dirById.get(iid)
+      if (!dir) throw new Error(`factory judge: unknown instance id ${iid}`)
+      return { bin: 'node', argv: ['--import', 'tsx', factoryJudgeChildPath, dir, patchPath], cwd: benchRootDir }
+    },
+  })
+}
+
+/**
+ * Factory gen0 loop: per (instance × rep), sequentially — ledger resume →
+ * capacity gates → supervisor arm on a factory workspace → factory judge →
+ * one FactoryLedgerRow appended. Structure mirrors runExperiment.
+ */
+export async function runFactoryExperiment(
+  config: FactoryExperimentConfig,
+  opts: { configDir?: string; only?: string[]; repsOverride?: number } = {},
+): Promise<void> {
+  const log = (msg: string): void => console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`)
+  const baseDir = opts.configDir ?? process.cwd()
+  const instancesDir = isAbsolute(config.instancesDir) ? config.instancesDir : resolve(baseDir, config.instancesDir)
+  const all = loadFactoryInstances(instancesDir)
+  const byId = new Map(all.map((i) => [i.id, i]))
+  const wanted = (opts.only ?? config.instances).map((id) => {
+    const inst = byId.get(id)
+    if (!inst) throw new Error(`factory config: instance ${id} not found under ${instancesDir}`)
+    return inst
+  })
+  const reps = opts.repsOverride ?? config.repsPerInstance
+  if (!Number.isInteger(reps) || reps < 1) throw new Error(`repsPerInstance must be an integer ≥ 1, got ${reps}`)
+
+  const secrets: SecretsEnv = { secretsDir: config.secretsDir, envFiles: config.envFiles }
+  const judge = createFactoryJudge(all, {
+    ...(config.judgeTimeoutMs !== undefined ? { timeoutMs: config.judgeTimeoutMs } : {}),
+  })
+  await mkdir(config.outDir, { recursive: true })
+  await mkdir(dirname(config.ledgerPath), { recursive: true })
+  const done = await factoryLedgerKeys(config.ledgerPath)
+
+  for (const inst of wanted) {
+    for (let rep = 0; rep < reps; rep += 1) {
+      const key = `${inst.id}#r${rep}`
+      if (done.has(key)) {
+        log(`SKIP ${key} (already in ledger)`)
+        continue
+      }
+
+      const gateOpts = {
+        ...(config.gateWaitCeilingMs !== undefined ? { waitCeilingMs: config.gateWaitCeilingMs } : {}),
+        ...(config.capacityModel !== undefined ? { model: config.capacityModel } : {}),
+        onStatus: log,
+      }
+      for (const gate of gatesForArmKind('supervisor', secrets, gateOpts)) {
+        if (!(await waitForCapacity(gate))) {
+          log(`NO CAPACITY on ${gate.name} within ceiling — stopping before ${key} (resume later)`)
+          return
+        }
+      }
+
+      const spec: SupervisorArmSpec = {
+        kind: 'supervisor',
+        name: config.armName,
+        workerModel: config.arm.workerModel,
+        driverModel: config.arm.driverModel,
+        budget: config.arm.budget,
+        maxSandboxes: config.arm.maxSandboxes,
+        maxUsd: config.arm.maxUsd,
+        maxDepth: config.arm.maxDepth,
+        ...(config.arm.envKnobs ? { envKnobs: config.arm.envKnobs } : {}),
+        loopsRepo: config.loopsRepo,
+        timeoutMs: config.arm.timeoutMs,
+      }
+      const armOutDir = join(config.outDir, `rep-${rep}`)
+      log(`>>> ${config.armName} ${inst.id} rep=${rep}`)
+      const armRes = await runSupervisorArm(spec, {
+        instanceId: inst.id,
+        image: `factory-archive:${inst.id}`,
+        // The synthetic-history ref, NOT the real base sha: patch extraction
+        // diffs against the workspace's own single commit.
+        baseCommit: FACTORY_BASE_REF,
+        materialize: async (dest) => {
+          await materializeFactoryWorkspace(inst, dest)
+        },
+        problemStatement: inst.spec,
+        verifyCmd: config.verifyCmds?.[inst.id] ?? 'true',
+        outDir: armOutDir,
+        secrets,
+        // SPEC.md is workspace furniture, not worker product.
+        excludes: [':(exclude)SPEC.md'],
+      })
+
+      const verdict = await judge.judge(inst.id, armRes.patchPath, `${config.armName}-r${rep}`)
+      log(`${inst.id} r${rep} judged: ${JSON.stringify(verdict)}`)
+      if (verdict.resolved === null) {
+        throw new Error(`inconclusive factory judge verdict for ${key} (${verdict.error ?? 'unknown'}) — not writing a fabricated boolean`)
+      }
+      const fv = verdict as JudgeVerdict & Partial<FactoryJudgeResult>
+      const row: FactoryLedgerRow = {
+        at: new Date().toISOString(),
+        iid: inst.id,
+        rep,
+        arm: config.armName,
+        resolved: verdict.resolved,
+        score: typeof fv.score === 'number' ? fv.score : 0,
+        passed: typeof fv.passed === 'number' ? fv.passed : null,
+        total: typeof fv.total === 'number' ? fv.total : null,
+        verify_pass: armRes.verify_pass,
+        patch_lines: armRes.patch_lines,
+        wall_s: armRes.wall_s,
+        judge_secs: fv.secs ?? null,
+        judge_attempts: fv.attempts ?? null,
+        driver_rc: armRes.driver_rc,
+        sup_status: armRes.sup_status,
+        sup_verdict: armRes.sup_verdict,
+        delivered: armRes.delivered,
+        spentTokens: armRes.spentTokens,
+        spentUsd: armRes.spentUsd,
+        spawned: armRes.spawned,
+        workers: armRes.workers,
+        settled: armRes.settled,
+        patchPath: armRes.patchPath,
+        runDir: join(armOutDir, 'runs', inst.id, config.armName),
+      }
+      await appendFile(config.ledgerPath, JSON.stringify(row) + '\n')
+      log(`LEDGER_ROW ${key} resolved=${row.resolved} score=${row.score} (${row.passed}/${row.total})`)
+      await new Promise((r) => setTimeout(r, config.cooldownMs ?? 15_000))
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CLI.
 // ---------------------------------------------------------------------------
 
@@ -348,12 +643,33 @@ if (isMain) {
           `files(fixture=${r.fixtureFiles.join(',')} extracted=${r.extractedFiles.join(',')})`,
       )
     }
+  } else if (arg === '--factory') {
+    if (!extra) {
+      console.error('usage: tsx src/swe-arena/run-experiment.mts --factory <config.json> [--only <iid> ...] [--reps <n>]')
+      process.exit(2)
+    }
+    const rest = process.argv.slice(4)
+    const only: string[] = []
+    let repsOverride: number | undefined
+    for (let i = 0; i < rest.length; i += 1) {
+      if (rest[i] === '--only' && rest[i + 1]) only.push(rest[(i += 1)]!)
+      else if (rest[i] === '--reps' && rest[i + 1]) repsOverride = Number(rest[(i += 1)])
+      else throw new Error(`unknown --factory flag: ${rest[i]}`)
+    }
+    const configPath = resolve(extra)
+    const config = JSON.parse(await readFile(configPath, 'utf8')) as FactoryExperimentConfig
+    await runFactoryExperiment(config, {
+      configDir: dirname(configPath),
+      ...(only.length > 0 ? { only } : {}),
+      ...(repsOverride !== undefined ? { repsOverride } : {}),
+    })
   } else if (arg && !arg.startsWith('--')) {
     const config = JSON.parse(await readFile(arg, 'utf8')) as ExperimentConfig
     await runExperiment(config)
   } else {
     console.error(
       'usage: tsx src/swe-arena/run-experiment.mts <config.json>\n' +
+        '       tsx src/swe-arena/run-experiment.mts --factory <config.json> [--only <iid> ...] [--reps <n>]\n' +
         '       tsx src/swe-arena/run-experiment.mts --dry-run-parity [workDir]',
     )
     process.exit(2)
