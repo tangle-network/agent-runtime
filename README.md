@@ -69,7 +69,7 @@ The fully annotated version of this loop, with every seam explained, is [`exampl
 |---|---|
 | Run a **chat turn** for a production product agent | `handleChatTurn(...)` |
 | Have one agent **supervise a team of agents** toward a goal | `supervise(profile, task, opts)` |
-| **Improve** an agent and prove the gain on fresh tasks | `improve(profile, findings, opts)` |
+| **Improve** an agent and prove the gain on fresh tasks | `improve(profile, opts)` |
 | Produce a measured knowledge-base candidate with agents and checks | `runKnowledgeImprovementJob(...)` |
 | Evaluate or train the same agent on **PrimeIntellect** | `createPrimeIntellectPackage(...)` |
 
@@ -107,34 +107,92 @@ const result = await supervise(
 
 ### Improve an agent
 
-`improve` optimizes one part of an agent and returns a detached winner plus a decision. The decision is `ship` only when the candidate beats the current agent on tasks it never practiced on.
-It accepts prompt, skill document, curated memory, tool, MCP, hook, subagent, whole-profile, and code surfaces through one call.
-Prompt, skill-document, and memory optimization have built-in generators; structured profile surfaces take an explicit generator, and code runs from isolated incumbent and candidate checkouts.
-Workflow and rollout-policy files use the code surface so the measured winner is an exact patch that can be sealed and executed; JSON parameter sweeps use agent-eval's `parameterSweepProposer` instead of a runtime-specific optimizer.
+`improve` runs one complete `OptimizationMethod` against one profile field.
+The method owns candidate generation and selection.
+Runtime keeps the final test set out of the method, scores the baseline and selected candidate on it, and returns `ship` only when the paired confidence interval clears `minimumLift`.
+The profile is never changed.
 
 ```ts
-import { improve } from '@tangle-network/agent-runtime'
+import { improve, officialGepa } from '@tangle-network/agent-runtime'
 
-const { candidate, decision, lift } = await improve(baseProfile, findings, {
+const result = await improve(baseProfile, {
   surface: 'prompt',
-  gate: 'holdout',
+  method: officialGepa({
+    objective: 'Improve the complete support-agent prompt.',
+    evaluationId: 'support-prompt',
+    recipe: {
+      kind: 'engine',
+      run: {
+        engine: 'gepa',
+        maxEvaluations: 40,
+        maxProposerCostUsd: 10,
+      },
+    },
+    resume: 'if-compatible',
+    describeScenario: ({ input }) => ({ input }),
+  }),
+  findings,
+  trainScenarios,
+  selectionScenarios,
+  testScenarios,
+  judges: [judge],
+  agent,
+  runDir: '.runs/support-prompt',
+})
+
+if (result.decision === 'ship') {
+  console.log(result.candidate.profile, result.liftInterval)
+}
+```
+
+`officialGepa(...)` delegates the complete search to GEPA's upstream Optimize Anything API through agent-eval.
+Pass one explicit `engine`, `sequential`, `adaptive-sequential`, `best-of`, `vote`, or `omni` recipe.
+`evaluationId` identifies the dispatch, judges, models, and scoring logic.
+Change it whenever any of those behaviors change.
+With `resume: 'if-compatible'`, agent-eval resumes only when the saved run identity matches the candidate, recipe, data, optimizer settings, runner, and evaluation ID.
+Use `resume: 'required'` to fail when no matching run exists.
+`result.provenance` reports the upstream package, run ID, resume status, evaluation count, and artifact directory.
+There is no local fallback.
+Install its optional Python process before using it:
+
+```bash
+python -m pip install agent-eval-rpc
+python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+```
+
+Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
+
+```bash
+python -m pip install agent-eval-rpc
+python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
+```
+
+The source pins are deliberate.
+The published GEPA wheel lacks Optimize Anything, and the published SkillOpt wheel lacks files required by `ReflACTTrainer`.
+SkillOpt requires `optimizer: { model, baseUrl, apiKey, budget }`.
+GEPA accepts the same optional `optimizer` block for its standard reflection engine.
+Agent Eval proxies those model calls, enforces the nested budget, and records their cost.
+
+SkillOpt accepts one text surface.
+GEPA accepts text or named components.
+Any complete method from `@tangle-network/agent-eval` uses the same call.
+For a skill, set `surface: 'skills'` and `skills.resourceName`.
+For the complete profile, set `surface: 'agent-profile'`.
+To optimize several named profile fields together, also provide `profileComponents.read` and `profileComponents.apply`.
+Tools, MCP, hooks, subagents, curated instructions, and rollout policy are also exact profile coordinates.
+Runtime does not choose an optimizer for them.
+
+Code is the exception.
+It uses Runtime's isolated git worktrees and coding-agent candidate execution:
+
+```ts
+const result = await improve(baseProfile, {
+  surface: 'code',
+  code: { repoRoot, baseRef, generator },
   scenarios,
   judge,
   agent,
-})
-
-if (decision === 'ship') console.log({ candidate, lift })
-```
-
-Skill and curated-memory candidates are exact profile changes, not free-floating text.
-Name one inline skill through `skills.resourceName`; curated memory uses `profile.resources.instructions`.
-Both require `profile.resources.failOnError: true` so an unsupported resource cannot silently disappear.
-
-```ts
-const skillResult = await improve(baseProfile, findings, {
-  surface: 'skills',
-  skills: { resourceName: 'incident-response' },
-  scenarios, judge, agent,
+  budget,
 })
 ```
 
@@ -155,7 +213,15 @@ const result = await proposeAgentImprovement({
   runId,
   profile: liveProfile,
   analysis,
-  improvement: { surface: 'prompt', scenarios, judge, agent },
+  improvement: {
+    surface: 'prompt',
+    method,
+    trainScenarios,
+    selectionScenarios,
+    testScenarios,
+    judges: [judge],
+    agent,
+  },
   buildExperiment: ({ improvement }) =>
     buildExperimentMaterial({
       baseline,

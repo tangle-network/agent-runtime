@@ -13,8 +13,9 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SurfaceImprovementEdit } from '../src/agent/improvement-adapter'
 import type { ImprovementEditBatch, ImprovementProposalSource } from '../src/analyst-loop/types'
-import { improvementDriver, reflectiveGenerator } from '../src/improvement'
 import type { CandidateGenerator } from '../src/improvement/improvement-driver'
+import { improvementDriver } from '../src/improvement/improvement-driver'
+import { reflectiveGenerator } from '../src/improvement/reflective-generator'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()

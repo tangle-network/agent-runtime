@@ -1,15 +1,9 @@
 /**
- * `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
- * agent-eval's improvement loop.
+ * `@tangle-network/agent-runtime` improvement.
  *
- * The public entry point is `improve()`, a profile-aware facade over agent-eval's
- * `selfImprove`. This module also supplies the runtime-specific code candidate
- * producer, which mutates an isolated git worktree via a pluggable
- * `CandidateGenerator`:
- *   - `reflectiveGenerator` — cheap, no sandbox, applies pre-drafted patches
- *   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
- *   - `driverLoopGenerator`  — the driver→worker atom: an LLM driver authors,
- *     observes, rates, and steers the harness sessions (default for tool/mcp)
+ * The public entry point is `improve()`. Complete agent-eval methods optimize
+ * profile surfaces. Runtime owns only code candidates that mutate an isolated
+ * git worktree through a pluggable `CandidateGenerator`.
  */
 
 export {
@@ -26,13 +20,6 @@ export {
 } from './agentic-generator'
 export { findingLines, mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
-  type CampaignOtlpOptions,
-  type CampaignTraceResolverOptions,
-  campaignCellSpansToOtlp,
-  campaignTraceResolver,
-  convertCampaignDirToOtlp,
-} from './campaign-otlp'
-export {
   type DriverLoopGeneratorOptions,
   driverLoopGenerator,
 } from './driver-loop-generator'
@@ -44,20 +31,34 @@ export {
 } from './findings'
 export {
   type ImproveCodeOptions,
+  type ImproveCodeResult,
+  type ImproveCodeRunOptions,
+  type ImproveCost,
+  type ImproveLineage,
+  type ImproveMethodContext,
+  type ImproveMethodFactory,
+  type ImproveMethodOptions,
+  type ImproveMethodResult,
+  type ImproveMethodSource,
   type ImprovementCandidate,
   type ImproveOptions,
+  type ImproveProfileComponents,
+  type ImproveProfileSurface,
   type ImproveResult,
   type ImproveSkillsOptions,
   type ImproveSurface,
   improve,
 } from './improve'
-export {
-  type CandidateGenerator,
-  type ImprovementDriverOptions,
-  improvementDriver,
-  type ManagedImprovementDriver,
-} from './improvement-driver'
+export type { CandidateGenerator } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
+export {
+  type OfficialGepaOptions,
+  type OfficialOptimizerContextOptions,
+  OfficialOptimizerUnavailableError,
+  type OfficialSkillOptOptions,
+  officialGepa,
+  officialSkillOpt,
+} from './official-optimizers'
 export {
   buildDriverSystem,
   optimizerMethod,
@@ -65,23 +66,15 @@ export {
   strategyAuthorMethod,
 } from './optimizer-prompt'
 export {
-  type ProfileDiffProposerContext,
-  type ProfileDiffProposerOptions,
-  profileDiffProposer,
-} from './profile-diff-proposer'
-export {
   type RawTraceDistillerOptions,
   rawTraceDistiller,
 } from './raw-trace-distiller'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'
 export {
   applyRolloutPolicyToProfile,
-  enumerateNeighborPolicies,
   normalizeRolloutPolicy,
   parseRolloutPolicy,
-  ROLLOUT_POLICY_BOUNDS,
   ROLLOUT_POLICY_EXTENSION,
-  rolloutPolicyProposer,
   serializeRolloutPolicy,
   structuralRolloutPolicyFromProfile,
 } from './rollout-policy'

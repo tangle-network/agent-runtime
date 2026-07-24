@@ -1,10 +1,10 @@
 import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import type {
   DispatchContext,
   JudgeConfig,
   MutableSurface,
   Scenario,
-  SurfaceProposer,
 } from '@tangle-network/agent-eval/contract'
 import {
   sealCandidateBenchmarkSuite,
@@ -20,6 +20,7 @@ import {
   agentCandidateProfileAsAgentProfile,
   freezeGenericAgentCandidateProfile,
 } from '../src/candidate-execution/profile'
+import type { ImproveMethodFactory } from '../src/improvement'
 import {
   createAgentImprovementActivationResult,
   executeAgentImprovementActivation,
@@ -77,6 +78,9 @@ const improvementScenarios: ImprovementScenario[] = Array.from({ length: 12 }, (
   id: `improvement-${index}`,
   kind: 'improvement-test',
 }))
+const improvementTrain = improvementScenarios.slice(0, 4)
+const improvementSelection = improvementScenarios.slice(4, 8)
+const improvementTest = improvementScenarios.slice(8)
 
 const improvementAgent = async (
   surface: MutableSurface,
@@ -109,11 +113,35 @@ const improvementJudge: JudgeConfig<string, ImprovementScenario> = {
   },
 }
 
-const improvementProposer: SurfaceProposer = {
-  kind: 'deterministic-candidate',
-  propose: async () => [
-    { surface: 'PROMOTED', label: 'measured candidate', rationale: 'test fixture' },
-  ],
+const improvementMethod: ImproveMethodFactory<ImprovementScenario, string> = (context) => ({
+  name: 'deterministic-complete-method',
+  async optimize() {
+    if (
+      !context.findings.some((item) => (item as { finding_id?: string }).finding_id === 'finding-1')
+    ) {
+      throw new Error('analysis findings did not reach the optimization method')
+    }
+    return {
+      winnerSurface: 'PROMOTED',
+      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+    }
+  },
+})
+
+function improvementOptions() {
+  return {
+    surface: 'prompt' as const,
+    method: improvementMethod,
+    trainScenarios: improvementTrain,
+    selectionScenarios: improvementSelection,
+    testScenarios: improvementTest,
+    judges: [improvementJudge],
+    agent: improvementAgent,
+    runDir: `mem://improvement-cycle-${Math.random()}`,
+    storage: inMemoryCampaignStorage(),
+    resamples: 40,
+    confidence: 0.95,
+  }
 }
 
 afterEach(() => {
@@ -153,14 +181,7 @@ describe('agent improvement lifecycle', () => {
         findingsStore: null,
         log: () => {},
       },
-      improvement: {
-        surface: 'prompt',
-        generator: improvementProposer,
-        scenarios: improvementScenarios,
-        judge: improvementJudge,
-        agent: improvementAgent,
-        budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-      },
+      improvement: improvementOptions(),
       buildExperiment: ({ improvement }) => {
         if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
         const candidate = redigestCandidateBundle(seed.experiment.baseline, {
@@ -223,8 +244,8 @@ describe('agent improvement lifecycle', () => {
     expect(result.experiment.candidateLineage).toEqual({
       source: 'optimizer',
       parentDigests: [measured.experiment.baseline.digest],
-      runIds: [result.improvement.raw.provenance.runId],
-      developmentSplitDigest: result.improvement.raw.provenance.evidence.search.splitDigest,
+      runIds: [result.improvement.lineage.runId],
+      developmentSplitDigest: result.improvement.lineage.developmentSplitDigest,
     })
     expect(activation.targets[0].expectedBaseDigest).toBe(promptSurfaceDigest(measured))
     expect(activationResult.outcome.status).toBe('applied')
@@ -257,14 +278,7 @@ describe('agent improvement lifecycle', () => {
           findingsStore: null,
           log: () => {},
         },
-        improvement: {
-          surface: 'prompt',
-          generator: improvementProposer,
-          scenarios: improvementScenarios,
-          judge: improvementJudge,
-          agent: improvementAgent,
-          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-        },
+        improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
           if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
           const substituted = {
@@ -334,14 +348,7 @@ describe('agent improvement lifecycle', () => {
           findingsStore: null,
           log: () => {},
         },
-        improvement: {
-          surface: 'prompt',
-          generator: improvementProposer,
-          scenarios: improvementScenarios,
-          judge: improvementJudge,
-          agent: improvementAgent,
-          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-        },
+        improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
           if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
           const candidate = redigestCandidateBundle(seed.experiment.baseline, {
@@ -387,14 +394,7 @@ describe('agent improvement lifecycle', () => {
           findingsStore: null,
           log: () => {},
         },
-        improvement: {
-          surface: 'prompt',
-          generator: improvementProposer,
-          scenarios: improvementScenarios,
-          judge: improvementJudge,
-          agent: improvementAgent,
-          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
-        },
+        improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
           if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
           const candidate = redigestCandidateBundle(seed.experiment.baseline, {
@@ -411,7 +411,7 @@ describe('agent improvement lifecycle', () => {
             ...taskMaterial,
             benchmark: {
               ...task.benchmark,
-              splitDigest: improvement.raw.provenance.evidence.search.splitDigest,
+              splitDigest: improvement.lineage.developmentSplitDigest,
             },
           })
           return {

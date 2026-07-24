@@ -35,7 +35,7 @@ New module `src/runtime/structural-rollout.ts`:
 - `structuralRollout({ policy, checkSource, checkRunner }) → Strategy` — a fourth member of the sample/refine family via `defineStrategy`; argmax by weighted visible score, ≤`repairRounds` repair shots steered by `failureOutput`, keep-best-by-score. Emits `SelectionReceipt`s.
 - `StructuralRolloutPolicy { k, repairRounds, testgen, diverse?, temperature? }` — promoted from the rig env vars; later an optimizable surface for `improve()`.
 
-Placement rule: this is an INFERENCE-TIME capability (wraps the model call). It does not go into `improve()`/`selfImprove` (training-time); `improve()` may later tune the policy knobs.
+Placement rule: this is an INFERENCE-TIME capability (wraps the model call). It does not run inside optimization-time `improve()`; a complete method may later tune the policy knobs through that API.
 
 Extend-don't-fork list: strategy family, verifier-environment, selectWinner/receipts, agent-eval field routing + judges, the rigs' `generateTests`/`extractRepairCode` as default impls.
 

@@ -143,7 +143,7 @@ Breaks: the load-bearing assumption — a **calibrated** gap signal — is absen
 
 ### 3.4 Two-timescale / recursive self-improvement
 
-Inner fast loop drives an answer now; outer slow loop (GEPA / `runImprovementLoop`) rewrites policy from accumulated traces + judge scores, measures the exact candidate on held-back tasks, and requires an explicit activation. The recursion is real *in shape* — the optimiser is an atom editing an atom's policy — but cross-benchmark transfer remains unproven. The frame's value is its sharp corpus-vs-policy split: **wiki growth is an input to inference; only prompt/tool/policy rewrites are RSI.** The research-acquisition loop is RSI only if findings about *which acquisition move paid off* rewrite the driver's acquisition policy and the resulting profile wins on fresh tasks.
+Inner fast loop drives an answer now; outer slow loop (`improve()` with an official GEPA or SkillOpt method) rewrites policy from accumulated traces + judge scores, measures the exact candidate on final-test tasks hidden from the method, and requires an explicit activation. The recursion is real *in shape* — the optimiser is an atom editing an atom's policy — but cross-benchmark transfer remains unproven. The frame's value is its sharp corpus-vs-policy split: **wiki growth is an input to inference; only prompt/tool/policy rewrites are RSI.** The research-acquisition loop is RSI only if findings about *which acquisition move paid off* rewrite the driver's acquisition policy and the resulting profile wins on fresh tasks.
 
 ### 3.5 Skeptic / Occam (adversarial)
 
@@ -221,7 +221,7 @@ Then run the §5 gate. If a findings-fed driver beats random@k at equal k under 
   `authorStrategy`: the program space where the Gate-A strategies run.
 - `src/analyst-loop/` — `runAnalystLoop`; the trace observer feeding the canonical loop
   is `observe()` (`src/runtime/observe.ts`), consumed by the agent-driver.
-- Prompt-space optimization lives in agent-eval (`selfImprove`); the analyst-prompt
+- Prompt-space optimization lives in an agent-eval `OptimizationMethod`, invoked through Runtime's `improve()`; the analyst-prompt
   coordinate has shown no significant lift on held-back problems in controlled runs to date — see `.evolve/current.json` and the memory ledger for the current evidence state.
 - `bench/src/selector.ts` + `bench/src/corpus-replay.mts --selector` — the deployable
   selector and its offline replay harness.

@@ -64,7 +64,13 @@ import {
   parseActivationPredicate,
 } from './activation.mts'
 import { briefingPromptSection, type BriefingContext } from './briefing.mts'
-import { gepaSeatAuthor, isGepaSeat, validateGepaSeat, type GepaMethodFactory } from './gepa-seat.mts'
+import {
+  gepaSeatAuthor,
+  isGepaSeat,
+  validateGepaSeat,
+  type GepaMethodFactory,
+  type GepaSeatDeps,
+} from './gepa-seat.mts'
 import type { ScoreSplit } from './score-split.mts'
 import { run, runOk } from './proc.ts'
 
@@ -78,7 +84,7 @@ export interface ProposerSpec {
   /** Path to an `AgentProfile` JSON. Absolute, or relative to this module's
    *  `profiles/` directory. Omitted = bare profile (legacy invocation). */
   profile?: string
-  /** Required for harness-authored seats. ABSENT on a GEN-6 engine seat
+  /** Required for harness-authored seats. Absent on an engine seat
    *  (`engine` set) — enforced both ways at generator construction. */
   harness?: 'claude' | 'codex' | 'opencode'
   /** GEN-4 pinned model id, threaded to the harness CLI as `-m <model>` via
@@ -98,21 +104,20 @@ export interface ProposerSpec {
   /** Which diagnosis findings this proposer sees. Protocol/steering and
    *  raw-trace-context findings always pass through. Default 'all'. */
   diagnosisSlice?: 'all' | 'mechanics' | 'prompts'
-  /** GEN-6 GEPA seat: this seat is an ENGINE invocation (agent-eval's
+  /** GEPA seat: this seat is an engine invocation (agent-eval's
    *  external-GEPA adapter), not a harness CLI. `gepa` = one bounded engine
-   *  run; `omni` = GEPA's published best-of-then-continue shape. Validation +
+   *  run; `omni` = GEPA's official Omni recipe. Validation +
    *  authoring live in gepa-seat.mts. */
   engine?: 'gepa' | 'omni'
-  /** GEN-6 GEPA seat: the ONE repo-relative change-space file GEPA optimizes
+  /** GEPA seat: the one repo-relative change-space file GEPA optimizes
    *  as a string; the rest of the loops repo stays at the incumbent commit. */
   surface?: string
-  /** GEN-6 GEPA seat: total inner-evaluation budget (each inner call is one
+  /** GEPA seat: total inner-evaluation budget (each inner call is one
    *  real smoke arm cell). Default 10. */
   maxMetricCalls?: number
-  /** GEN-6 GEPA seat: requested GEPA proposer spend cap in USD (the adapter
-   *  reports GEPA's own model/CLI spend without an agent-eval receipt). */
+  /** GEPA seat: hard cap for metered optimizer-model spend. */
   maxProposerCostUsd?: number
-  /** GEN-6 GEPA seat: python executable for the bridge. Default 'python3'. */
+  /** GEPA seat: Python executable for the bridge. Default 'python3'. */
   python?: string
 }
 
@@ -137,8 +142,8 @@ export interface SmokeVerdict {
   resolved: boolean | null
   patchLines: number
   wallS: number
-  /** Committed verify fixture passed (GEN-6: the GEPA seat's inner-score
-   *  tiebreak). Absent on errored smokes and pre-gen-6 records. */
+  /** Committed verify fixture passed, used as the GEPA seat's inner-score
+   *  tiebreak. Absent on errored smokes and older records. */
   verifyPass?: boolean
 }
 
@@ -485,16 +490,17 @@ export interface FanOutDeps {
   parents?: ParetoParentContext[]
   /** GEN-5: MAP+TOOLBOX briefing context threaded into every author prompt. */
   briefing?: BriefingContext
-  /** GEN-6: the resolved PUBLIC smoke instance — the GEPA seat's inner
+  /** The resolved public smoke instance used by the GEPA seat's inner
    *  evaluator target. Required (with `smokeRunner`) when a gepa seat is
    *  configured and no custom `author` is injected. */
   smokeInstanceId?: string
-  /** GEN-6: the gen-5 score split; private instance ids never reach the GEPA
+  /** The score split; private instance ids never reach the GEPA
    *  bridge (gepa-seat.mts asserts, fail-closed). Null/omitted = no split. */
   scoreSplit?: Pick<ScoreSplit, 'privateInstances'> | null
-  /** GEN-6 test seam: the adapter factory (default: checked dynamic import of
-   *  agent-eval's gepaOptimizationMethod, loud when the install predates it). */
+  /** GEPA method override for tests. Default: agent-eval's official GEPA method. */
   gepaMethodFactory?: GepaMethodFactory
+  /** Explicit GEPA optimizer model override, primarily for isolated tests. */
+  gepaOptimizer?: GepaSeatDeps['optimizer']
   log?: (msg: string) => void
 }
 
@@ -509,7 +515,7 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
   // its own profile, lens prompt, and shot-receipt home.
   const inners = new Map<string, CandidateGenerator>()
   const ledgers = new Map<string, { ledger?: CostLedgerHandle; phase?: string }>()
-  // GEN-6: the GEPA seat authors through the agent-eval adapter, not a
+  // The GEPA seat authors through the agent-eval adapter, not a
   // harness CLI. Its inner evaluator is the SAME injected smoke runner the
   // pre-filter uses (presence enforced at generator construction).
   let gepaAuthor: AuthorFn | undefined
@@ -520,6 +526,7 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
         smokeInstanceId: deps.smokeInstanceId!,
         scoreSplit: deps.scoreSplit ?? null,
         ...(deps.gepaMethodFactory ? { methodFactory: deps.gepaMethodFactory } : {}),
+        ...(deps.gepaOptimizer ? { optimizer: deps.gepaOptimizer } : {}),
         ...(deps.log ? { log: deps.log } : {}),
       })
       return gepaAuthor(proposer, args)
@@ -586,7 +593,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
         `only ${(deps.parents ?? []).length} pareto parent(s) materialized — a merge seat needs >=2`,
     )
   }
-  // GEN-6: engine seats are validated fail-closed at construction, and the
+  // Engine seats are validated at construction, and the
   // default author path requires the pre-filter smoke runner — it IS the GEPA
   // seat's inner evaluator (spec: score = smoke resolve + verify-pass
   // tiebreak). A custom injected `author` owns its own evaluator.

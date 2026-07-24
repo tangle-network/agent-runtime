@@ -27,7 +27,7 @@ function positiveInteger(
 
 export function requiredTokenPricing(
   env: NodeJS.ProcessEnv,
-  prefix: 'WORKER' | 'REFLECT',
+  prefix: string,
 ) {
   return {
     inputUsdPerMillion: requiredNonNegativeNumber(
@@ -56,20 +56,22 @@ export function officialOptimizerModel(options: {
   apiKey: string
   maxCostUsd: number
   maxOutputTokensPerRequest: number
+  envPrefix?: string
 }) {
   const { env } = options
+  const envPrefix = options.envPrefix ?? 'REFLECT'
   return {
     model: options.model,
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
     budget: {
       maxCostUsd: options.maxCostUsd,
-      maxRequests: positiveInteger(env, 'REFLECT_MAX_REQUESTS', 100),
-      maxRequestBytes: positiveInteger(env, 'REFLECT_MAX_REQUEST_BYTES', 2_000_000),
-      maxResponseBytes: positiveInteger(env, 'REFLECT_MAX_RESPONSE_BYTES', 2_000_000),
+      maxRequests: positiveInteger(env, `${envPrefix}_MAX_REQUESTS`, 100),
+      maxRequestBytes: positiveInteger(env, `${envPrefix}_MAX_REQUEST_BYTES`, 2_000_000),
+      maxResponseBytes: positiveInteger(env, `${envPrefix}_MAX_RESPONSE_BYTES`, 2_000_000),
       maxOutputTokensPerRequest: options.maxOutputTokensPerRequest,
-      requestTimeoutMs: positiveInteger(env, 'REFLECT_REQUEST_TIMEOUT_MS', 300_000),
-      pricing: requiredTokenPricing(env, 'REFLECT'),
+      requestTimeoutMs: positiveInteger(env, `${envPrefix}_REQUEST_TIMEOUT_MS`, 300_000),
+      pricing: requiredTokenPricing(env, envPrefix),
     },
   }
 }

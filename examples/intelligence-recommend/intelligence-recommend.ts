@@ -4,7 +4,7 @@
  *
  * This is `improve()` (see examples/improve/) with ONE thing changed: the findings the loop
  * reflects on are no longer hand-written — they are DERIVED from a recorded run trace. The agent
- * harness (scenarios, agent, judge, the scripted proposer, the baseline profile) is imported from
+ * harness (scenarios, agent, judge, the complete method, the baseline profile) is imported from
  * improve.ts verbatim, so this file shows only the NEW seam a Recommend mode runs in production:
  *
  *   1. OBSERVE — record a run's `LoopTraceEvent` stream as one trace (best-effort export; with no
@@ -17,10 +17,19 @@
  */
 
 import { makeFinding } from '@tangle-network/agent-eval'
+import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import { improve } from '@tangle-network/agent-runtime'
 import { createIntelligenceClient } from '@tangle-network/agent-runtime/intelligence'
 import type { LoopTraceEvent } from '@tangle-network/agent-runtime/loops'
-import { agent, judge, profile, scenarios, scriptedWinner } from '../improve/improve'
+import {
+  agent,
+  judge,
+  profile,
+  scriptedWinner,
+  selectionScenarios,
+  testScenarios,
+  trainScenarios,
+} from '../improve/improve'
 
 // ── 1. OBSERVE — record a run's loop topology as one trace ──────────────────
 // A real run emits this `LoopTraceEvent` stream from the kernel; here a tiny two-event trace stands
@@ -68,13 +77,19 @@ const findings = [
 
 // ── 3. IMPROVE — feed the derived findings to the gated RSI verb (offline) ──
 async function main(): Promise<void> {
-  const out = await improve(profile, findings, {
+  const out = await improve(profile, {
     surface: 'prompt',
-    generator: scriptedWinner,
-    scenarios,
-    judge,
+    method: scriptedWinner,
+    findings,
+    trainScenarios,
+    selectionScenarios,
+    testScenarios,
+    judges: [judge],
     agent,
-    budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+    runDir: 'mem://intelligence-recommend',
+    storage: inMemoryCampaignStorage(),
+    resamples: 40,
+    confidence: 0.95,
   })
   console.log(`trace recorded: ${traceId}`)
   console.log(`findings derived: ${findings.length}`)

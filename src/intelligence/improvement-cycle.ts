@@ -205,8 +205,8 @@ function sealAgentImprovementExperiment<TScenario extends Scenario, TArtifact>(
   const candidateLineage: AgentCandidateLineage = {
     source: 'optimizer',
     parentDigests: [material.baseline.digest],
-    runIds: [improvement.raw.provenance.runId],
-    developmentSplitDigest: improvement.raw.provenance.evidence.search.splitDigest,
+    runIds: [improvement.lineage.runId],
+    developmentSplitDigest: improvement.lineage.developmentSplitDigest,
   }
   return sealCandidateExperiment({ ...material, candidateLineage })
 }
@@ -332,7 +332,10 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
     analysis.analystResult.findings,
     'proposeAgentImprovement findings',
   )
-  const improvement = await improve(options.profile, [...findings], options.improvement)
+  const improvement = await improve(options.profile, {
+    ...options.improvement,
+    findings: [...(options.improvement.findings ?? []), ...findings],
+  })
   try {
     if (improvement.decision !== 'ship') {
       throw new Error('agent improvement search did not produce a promotable candidate')
@@ -351,9 +354,11 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.candidate ? { candidate: options.candidate } : {}),
       ...(options.metadata ? { metadata: options.metadata } : {}),
-      generationsExplored: improvement.raw.generationsExplored,
-      searchDurationMs: improvement.raw.durationMs,
-      searchCostUsd: improvement.raw.totalCostUsd,
+      ...(improvement.generationsExplored === undefined
+        ? {}
+        : { generationsExplored: improvement.generationsExplored }),
+      searchDurationMs: improvement.durationMs,
+      searchCostUsd: improvement.cost.totalCostUsd,
     })
     const proposal = createAgentImprovementProposal({
       runId: options.runId,

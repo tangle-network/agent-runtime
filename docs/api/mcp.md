@@ -3219,7 +3219,7 @@ Present for reproducible Codex runs; generated and checked before model executio
 
 ### MemoryItem
 
-Defined in: [src/mcp/memory-server.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L34)
+Defined in: [src/mcp/memory-server.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L33)
 
 One row of agent memory: a crisp lesson/fact with provenance.
 
@@ -3229,7 +3229,7 @@ One row of agent memory: a crisp lesson/fact with provenance.
 
 > **id**: `string`
 
-Defined in: [src/mcp/memory-server.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L36)
+Defined in: [src/mcp/memory-server.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L35)
 
 Stable id (content-hash by convention; see `memoryArtifactFromLessons`).
 
@@ -3237,7 +3237,7 @@ Stable id (content-hash by convention; see `memoryArtifactFromLessons`).
 
 > **text**: `string`
 
-Defined in: [src/mcp/memory-server.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L38)
+Defined in: [src/mcp/memory-server.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L37)
 
 The lesson itself — one imperative or observation the agent should recall.
 
@@ -3245,7 +3245,7 @@ The lesson itself — one imperative or observation the agent should recall.
 
 > `optional` **tags?**: `string`[]
 
-Defined in: [src/mcp/memory-server.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L40)
+Defined in: [src/mcp/memory-server.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L39)
 
 Optional retrieval tags, matched by `memory_search` alongside the text.
 
@@ -3253,7 +3253,7 @@ Optional retrieval tags, matched by `memory_search` alongside the text.
 
 > `optional` **source?**: `string`
 
-Defined in: [src/mcp/memory-server.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L42)
+Defined in: [src/mcp/memory-server.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L41)
 
 Provenance: the finding / trace / curation pass this row came from.
 
@@ -3261,7 +3261,7 @@ Provenance: the finding / trace / curation pass this row came from.
 
 ### AgentMemorySpec
 
-Defined in: [src/mcp/memory-server.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L59)
+Defined in: [src/mcp/memory-server.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L58)
 
 The `memory` artifact payload — HOW a profile's memory is stored and served:
 
@@ -3282,13 +3282,13 @@ The `memory` artifact payload — HOW a profile's memory is stored and served:
 
 > **store**: `"mcp"` \| `"file"`
 
-Defined in: [src/mcp/memory-server.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L60)
+Defined in: [src/mcp/memory-server.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L59)
 
 ##### path?
 
 > `optional` **path?**: `string`
 
-Defined in: [src/mcp/memory-server.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L62)
+Defined in: [src/mcp/memory-server.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L61)
 
 `store:'file'` — host path to the durable row store (JSON array or JSONL).
 
@@ -3296,7 +3296,7 @@ Defined in: [src/mcp/memory-server.ts:62](https://github.com/tangle-network/agen
 
 > `optional` **items?**: [`MemoryItem`](#memoryitem)[]
 
-Defined in: [src/mcp/memory-server.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L64)
+Defined in: [src/mcp/memory-server.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L63)
 
 Inline seed rows, served alongside (and winning over) `path` rows.
 
@@ -3304,7 +3304,7 @@ Inline seed rows, served alongside (and winning over) `path` rows.
 
 > `optional` **server?**: `AgentProfileMcpServer`
 
-Defined in: [src/mcp/memory-server.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L66)
+Defined in: [src/mcp/memory-server.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L65)
 
 `store:'mcp'` — the external server that already serves memory tools.
 
@@ -3312,7 +3312,7 @@ Defined in: [src/mcp/memory-server.ts:66](https://github.com/tangle-network/agen
 
 > `optional` **logPath?**: `string`
 
-Defined in: [src/mcp/memory-server.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L68)
+Defined in: [src/mcp/memory-server.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L67)
 
 JSONL retrieval log: one row per `memory_search` (ts, query, k, returned).
 
@@ -3320,7 +3320,7 @@ JSONL retrieval log: one row per `memory_search` (ts, query, k, returned).
 
 ### CreateMemoryToolServerOptions
 
-Defined in: [src/mcp/memory-server.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L81)
+Defined in: [src/mcp/memory-server.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L80)
 
 #### Properties
 
@@ -3328,7 +3328,7 @@ Defined in: [src/mcp/memory-server.ts:81](https://github.com/tangle-network/agen
 
 > **items**: readonly [`MemoryItem`](#memoryitem)[]
 
-Defined in: [src/mcp/memory-server.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L83)
+Defined in: [src/mcp/memory-server.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L82)
 
 The rows to serve. MUST be non-empty (an empty memory is never served).
 
@@ -3336,7 +3336,7 @@ The rows to serve. MUST be non-empty (an empty memory is never served).
 
 > `optional` **serverName?**: `string`
 
-Defined in: [src/mcp/memory-server.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L85)
+Defined in: [src/mcp/memory-server.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L84)
 
 Server display name surfaced via `initialize`. Default 'agent-memory'.
 
@@ -3344,7 +3344,7 @@ Server display name surfaced via `initialize`. Default 'agent-memory'.
 
 > `optional` **serverVersion?**: `string`
 
-Defined in: [src/mcp/memory-server.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L87)
+Defined in: [src/mcp/memory-server.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L86)
 
 Server version surfaced via `initialize`. Default '0'.
 
@@ -3352,7 +3352,7 @@ Server version surfaced via `initialize`. Default '0'.
 
 > `optional` **defaultK?**: `number`
 
-Defined in: [src/mcp/memory-server.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L89)
+Defined in: [src/mcp/memory-server.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L88)
 
 Default result count for `memory_search`. Default 5.
 
@@ -3360,7 +3360,7 @@ Default result count for `memory_search`. Default 5.
 
 > `optional` **logPath?**: `string`
 
-Defined in: [src/mcp/memory-server.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L91)
+Defined in: [src/mcp/memory-server.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L90)
 
 Append one JSONL row per `memory_search` (the retrieval-holdout seam).
 
@@ -3368,7 +3368,7 @@ Append one JSONL row per `memory_search` (the retrieval-holdout seam).
 
 ### ResolvedMemoryEnv
 
-Defined in: [src/mcp/memory-server.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L261)
+Defined in: [src/mcp/memory-server.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L260)
 
 What the memory bin resolved from its environment.
 
@@ -3378,19 +3378,19 @@ What the memory bin resolved from its environment.
 
 > **items**: [`MemoryItem`](#memoryitem)[]
 
-Defined in: [src/mcp/memory-server.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L262)
+Defined in: [src/mcp/memory-server.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L261)
 
 ##### serverName?
 
 > `optional` **serverName?**: `string`
 
-Defined in: [src/mcp/memory-server.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L263)
+Defined in: [src/mcp/memory-server.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L262)
 
 ##### logPath?
 
 > `optional` **logPath?**: `string`
 
-Defined in: [src/mcp/memory-server.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L264)
+Defined in: [src/mcp/memory-server.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L263)
 
 ***
 
@@ -6803,7 +6803,7 @@ Default cap on the serialized trace payload per record, in bytes.
 
 > `const` **MEMORY\_FILE\_ENV**: `"AGENT_MEMORY_FILE"` = `'AGENT_MEMORY_FILE'`
 
-Defined in: [src/mcp/memory-server.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L73)
+Defined in: [src/mcp/memory-server.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L72)
 
 Env var naming the durable row store file the memory bin loads (the
  `memoryMcpServer` ↔ memory-bin contract).
@@ -6814,7 +6814,7 @@ Env var naming the durable row store file the memory bin loads (the
 
 > `const` **MEMORY\_ITEMS\_ENV**: `"AGENT_MEMORY_ITEMS"` = `'AGENT_MEMORY_ITEMS'`
 
-Defined in: [src/mcp/memory-server.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L75)
+Defined in: [src/mcp/memory-server.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L74)
 
 Env var carrying inline JSON `MemoryItem` rows (win over file rows on id).
 
@@ -6824,7 +6824,7 @@ Env var carrying inline JSON `MemoryItem` rows (win over file rows on id).
 
 > `const` **MEMORY\_LOG\_ENV**: `"AGENT_MEMORY_LOG"` = `'AGENT_MEMORY_LOG'`
 
-Defined in: [src/mcp/memory-server.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L77)
+Defined in: [src/mcp/memory-server.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L76)
 
 Env var naming the JSONL retrieval log (one row per `memory_search`).
 
@@ -6834,7 +6834,7 @@ Env var naming the JSONL retrieval log (one row per `memory_search`).
 
 > `const` **MEMORY\_NAME\_ENV**: `"AGENT_MEMORY_NAME"` = `'AGENT_MEMORY_NAME'`
 
-Defined in: [src/mcp/memory-server.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L79)
+Defined in: [src/mcp/memory-server.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L78)
 
 Env var overriding the served display name (default 'agent-memory').
 
@@ -8132,7 +8132,7 @@ Parse and validate the one terminal usage event emitted by `codex exec --json`.
 
 > **createMemoryToolServer**(`opts`): [`StdioToolServer`](#stdiotoolserver)
 
-Defined in: [src/mcp/memory-server.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L98)
+Defined in: [src/mcp/memory-server.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L97)
 
 Build the memory MCP server: `memory_search` (lexical top-k over the rows)
 and `memory_get` (one row by id) on the generic stdio JSON-RPC core.
@@ -8153,7 +8153,7 @@ and `memory_get` (one row by id) on the generic stdio JSON-RPC core.
 
 > **parseMemoryItems**(`value`, `source`): [`MemoryItem`](#memoryitem)[]
 
-Defined in: [src/mcp/memory-server.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L213)
+Defined in: [src/mcp/memory-server.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L212)
 
 Coerce an untrusted JSON array into validated `MemoryItem` rows.
 
@@ -8177,7 +8177,7 @@ Coerce an untrusted JSON array into validated `MemoryItem` rows.
 
 > **readMemoryItemsFile**(`path`): [`MemoryItem`](#memoryitem)[]
 
-Defined in: [src/mcp/memory-server.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L221)
+Defined in: [src/mcp/memory-server.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L220)
 
 Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line).
 
@@ -8197,7 +8197,7 @@ Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line).
 
 > **resolveMemoryFromEnv**(`env`): [`ResolvedMemoryEnv`](#resolvedmemoryenv)
 
-Defined in: [src/mcp/memory-server.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L272)
+Defined in: [src/mcp/memory-server.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/memory-server.ts#L271)
 
 Resolve the bin's memory from `AGENT_MEMORY_FILE` (durable store) and/or
 `AGENT_MEMORY_ITEMS` (inline JSON rows; wins on id collision). Zero rows is

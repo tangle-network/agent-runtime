@@ -75,10 +75,11 @@ interface CellTrace {
  * FILESYSTEM CONTEXT — paths into the prior generation's real run traces plus a
  * grep/cat-to-diagnose instruction — instead of a pre-summarized digest.
  *
- * Drop-in for `opts.analyzeGeneration` on `improve()` / `selfImprove()`:
+ * Drop-in for `analyzeGeneration` on `improve({ surface: 'code' })`:
  *
- *   await improve(profile, seedFindings, {
+ *   await improve(profile, {
  *     surface: 'code',
+ *     findings: seedFindings,
  *     code: { repoRoot },
  *     runDir: '/abs/run',                 // MUST be a real path — the traces live here
  *     analyzeGeneration: rawTraceDistiller(),

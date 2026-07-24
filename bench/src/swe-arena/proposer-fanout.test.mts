@@ -567,7 +567,6 @@ describe('defaultGen5Config', () => {
     expect(config.briefing).toBe('map-toolbox-v1')
     expect(config.activationGate).toBe(true)
     expect(config.rolloutLedger).toEqual({ enabled: true })
-    expect(config.lineage).toBe(true)
     expect(config.priorEvidenceDirs!.some((d) => d.includes('gen4'))).toBe(true)
   })
 

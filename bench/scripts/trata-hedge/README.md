@@ -13,9 +13,9 @@ sparse (1 iff all themes). No deployable ground-truth checker — it's an **orac
 - **NOT** the verifier-grounded selector gate (our HumanEval/commit0 headline). The only
   checker is the judge itself, so selecting by it = selecting by the eval metric (an
   oracle, a Goodhart trap). See `docs/results.md`.
-- **IS** admissible: (1) more-compute headroom (pass@k), (2) the **improvement loop**
-  (`selfImprove`/GEPA optimizing the analyst directive *against this judge*, held-out
-  gated — the legitimate use of a judge domain), with the honest caveat that an
+- **IS** admissible: (1) more-compute headroom (pass@k), (2) prompt optimization
+  (`improve` with agent-eval's official GEPA method, using disjoint train, selection,
+  and final-test partitions), with the honest caveat that an
   LLM-judge can be *gamed*, so a held-out lift means "higher judge score," which without
   ground truth we can't independently certify as "better analysis."
 
@@ -52,5 +52,6 @@ dotenvx run -f ~/company/devops/secrets/.env.keys -f ~/company/devops/secrets/ag
 ## Next steps
 
 1. Agentic solver: our sandbox runtime browses the corpus + cites (fair baseline).
-2. The improvement loop: `selfImprove` on the analyst directive vs this judge, held-out
-   gated, across the 102 tasks — with the judge-gaming caveat stated.
+2. Prompt optimization: run `bench/src/trata-gepa.mts` across all 102 tasks with
+   explicit train, selection, and final-test partitions, and state the judge-gaming
+   caveat with every result.

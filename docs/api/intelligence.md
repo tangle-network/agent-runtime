@@ -4766,7 +4766,7 @@ Analyze, search, then remeasure the resulting exact candidate before proposing i
 
 > **createAgentImprovementProposal**(`options`): `AgentImprovementProposal`
 
-Defined in: [src/intelligence/improvement-cycle.ts:417](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L417)
+Defined in: [src/intelligence/improvement-cycle.ts:422](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L422)
 
 Create the reviewable record only from a complete, recomputable experiment result.
 
@@ -4786,7 +4786,7 @@ Create the reviewable record only from a complete, recomputable experiment resul
 
 > **reviewAgentImprovementProposal**(`inputProposal`, `input`): `AgentImprovementReview`
 
-Defined in: [src/intelligence/improvement-cycle.ts:448](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L448)
+Defined in: [src/intelligence/improvement-cycle.ts:453](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L453)
 
 Persist a human or tenant-policy decision bound to one exact proposal.
 
@@ -4810,7 +4810,7 @@ Persist a human or tenant-policy decision bound to one exact proposal.
 
 > **createAgentImprovementActivation**(`inputProposal`, `inputReview`, `options`): `AgentImprovementActivation`
 
-Defined in: [src/intelligence/improvement-cycle.ts:476](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L476)
+Defined in: [src/intelligence/improvement-cycle.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L481)
 
 Authorize product-owned writes only after the exact candidate was measured and approved.
 
@@ -4838,7 +4838,7 @@ Authorize product-owned writes only after the exact candidate was measured and a
 
 > **verifyAgentImprovementProposal**(`input`): `AgentImprovementProposal`
 
-Defined in: [src/intelligence/improvement-cycle.ts:518](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L518)
+Defined in: [src/intelligence/improvement-cycle.ts:523](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L523)
 
 Validate a proposal and recompute every binding to its measured experiment.
 
@@ -4858,7 +4858,7 @@ Validate a proposal and recompute every binding to its measured experiment.
 
 > **verifyAgentImprovementReview**(`input`): `AgentImprovementReview`
 
-Defined in: [src/intelligence/improvement-cycle.ts:542](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L542)
+Defined in: [src/intelligence/improvement-cycle.ts:547](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L547)
 
 Validate the canonical identity and wire shape of an improvement review.
 
@@ -4878,7 +4878,7 @@ Validate the canonical identity and wire shape of an improvement review.
 
 > **verifyAgentImprovementActivation**(`input`): `AgentImprovementActivation`
 
-Defined in: [src/intelligence/improvement-cycle.ts:550](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L550)
+Defined in: [src/intelligence/improvement-cycle.ts:555](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L555)
 
 Validate activation authority against the exact proposal, review, experiment, and base state.
 
@@ -4908,7 +4908,7 @@ Validate activation authority against the exact proposal, review, experiment, an
 
 > **verifyCandidateExecutionEvidence**(`input`, `options`): `CandidateExecutionEvidence`
 
-Defined in: [src/intelligence/improvement-cycle.ts:584](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L584)
+Defined in: [src/intelligence/improvement-cycle.ts:589](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L589)
 
 Recheck one Runtime receipt against its exact signed experiment cell.
 

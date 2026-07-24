@@ -10,7 +10,7 @@
  *   review       → caller-registered runner — a `code` runner with an approval gate over candidates
  *   research     → research-in-a-loop with valid-only KB growth (createKbGate)
  *   audit        → analyze trace/run data → findings (runAnalystLoop, caller-wired)
- *   self-improve → closed-loop text/config optimization (selfImprove, held-out gated)
+ *   self-improve → caller-registered `improve(profile, options)` run
  *
  * It is intentionally a thin façade: the value is that EVERY product reuses the
  * one hardened engine instead of forking delegation logic. The dispatcher owns
@@ -21,12 +21,6 @@
  * @experimental
  */
 
-import type { Scenario } from '@tangle-network/agent-eval/campaign'
-import {
-  type SelfImproveOptions,
-  type SelfImproveResult,
-  selfImprove,
-} from '@tangle-network/agent-eval/contract'
 import { runAnalystLoop } from './analyst-loop'
 import type { RunAnalystLoopOpts, RunAnalystLoopResult } from './analyst-loop/types'
 import { ConfigError } from './errors'
@@ -270,17 +264,6 @@ export function researchLoopRunner(
     }
     return { accepted, vetoed, rounds }
   }
-}
-
-/**
- * `self-improve` mode — agent-eval's one-call closed improvement loop (held-out gated).
- *
- * @experimental
- */
-export function selfImproveLoopRunner<TScenario extends Scenario, TArtifact>(
-  options: SelfImproveOptions<TScenario, TArtifact>,
-): DelegatedLoopRunner<SelfImproveResult<TScenario, TArtifact>> {
-  return async () => selfImprove<TScenario, TArtifact>(options)
 }
 
 /**

@@ -78,6 +78,6 @@ To see a real promotion, give the loop a task with a middle band — some attemp
 
 ## Related examples
 
-- [`../improve`](../improve) — the one-call `improve(profile, findings)` shortcut over this same loop.
+- [`../improve`](../improve) shows the complete-method `improve(profile, options)` path.
 - [`../self-improving-loop`](../self-improving-loop) — the same held-out gate on a text/prompt task, fully offline.
 - [`../strategy-evolution`](../strategy-evolution) — the multi-generation search in isolation, without the coding task.

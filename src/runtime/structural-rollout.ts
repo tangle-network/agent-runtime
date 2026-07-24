@@ -20,7 +20,7 @@
  *    poison repair at saturation — the glm /47,/116 regressions).
  *
  * Placement rule: this is an INFERENCE-TIME capability (it wraps the model call via the
- * strategy seam). It does not belong in improve()/selfImprove (training-time); improve()
+ * strategy seam). It does not belong in `improve()` (training-time); `improve()`
  * may later tune `StructuralRolloutPolicy` as an optimizable surface.
  */
 

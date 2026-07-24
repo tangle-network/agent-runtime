@@ -50,11 +50,16 @@ Do not move product storage transactions into a provider-neutral package.
 
 ## Improvement flow
 
-`improve(profile, findings, options)` searches one surface and returns a detached winner.
+`improve(profile, options)` searches one surface and returns a detached winner.
 It never changes a profile, document, repository, memory store, or knowledge base.
 
-Supported profile surfaces are prompt, one named inline skill, tools, MCP, hooks, subagents, whole profile, and curated memory in `profile.resources.instructions`.
-Code uses isolated worktrees and returns a sealed patch candidate.
+For a profile field, pass one complete agent-eval `OptimizationMethod`, explicit train, selection, and final-test partitions, judges, and the candidate execution function.
+Use `officialGepa(...)` with an explicit recipe when upstream GEPA should own search.
+Use `officialSkillOpt(...)` when Microsoft's SkillOpt should own search.
+Both require `evaluationId`; change it whenever dispatch, judges, models, or scoring behavior changes.
+Resumable runs accept `never`, `if-compatible`, or `required` and reuse state only when agent-eval derives the same run identity.
+Runtime has no local prompt, skill, memory, or profile optimizer fallback.
+Code uses Runtime's isolated worktrees and returns a sealed patch candidate.
 Knowledge uses `runKnowledgeImprovementJob(...)` and returns paired snapshots.
 
 Use `proposeAgentImprovement(...)` for a production proposal.
@@ -80,12 +85,12 @@ Never treat a lost response as a failed write without reconciling it.
 
 ## Surface rules
 
-- Prompt changes `profile.prompt` only.
-- Skill optimization selects one inline skill by `skills.resourceName`; profile resources must fail closed.
+- Prompt changes `profile.prompt` only and requires a complete method.
+- Skill optimization selects one inline skill by `skills.resourceName`, requires a complete method, and requires profile resources to fail closed.
 - Curated memory changes `profile.resources.instructions`; retrieval stores and memory databases belong in the knowledge flow.
-- Tools, MCP, hooks, subagents, and whole-profile changes require an explicit proposer because Runtime cannot invent domain capabilities safely.
+- Tools, MCP, hooks, subagents, curated memory, rollout policy, and whole-profile changes require a complete method.
 - Code candidates must come from the Runtime worktree path so patch identity and cleanup stay intact.
-- Workflow and policy files are code surfaces; parameter sweeps come from agent-eval.
+- Workflow files are code surfaces. Parameter sweeps belong in a complete agent-eval method.
 - Knowledge candidates remain detached until the shared activation path applies or restores their frozen snapshots.
 
 ## Product integration
@@ -104,7 +109,8 @@ The product must not recreate candidate hashing, paired comparison, confidence i
 ## Do not duplicate
 
 - Do not write a provider-specific profile wrapper; extend `AgentProfile` and its materializer.
-- Do not write a second optimizer loop; compose Eval proposers through `improve(...)`.
+- Do not write a second optimizer loop; pass a complete agent-eval method to `improve(...)`.
+- Do not use Runtime's code generator to approximate GEPA, SkillOpt, or another upstream profile optimizer.
 - Do not write a second candidate catalog; persist the immutable proposal records.
 - Do not let an analyst or adapter commit, push, open a pull request, or edit a live store.
 - Do not hand-roll SSE parsing, usage totals, profile matrices, bootstrap statistics, sandbox acquisition, or worktree cleanup.

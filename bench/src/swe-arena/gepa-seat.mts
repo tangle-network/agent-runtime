@@ -1,5 +1,5 @@
 /**
- * GEN-6 GEPA proposer seat using agent-eval's official
+ * GEPA proposer seat using agent-eval's official
  * `gepaOptimizationMethod` as one author in the swe-arena fan-out.
  *
  * Two-tier evaluator, the critical shape:
@@ -30,7 +30,7 @@
  *     (`gepa_bridge.py` `_validate_input`: `if "testSet" in value ... raise`).
  *     This module never mentions holdout instances to begin with.
  *
- * RUNTIME SEAM (fails at provenance time, before a candidate slot is used):
+ * OPTIONAL RUNTIME (fails at provenance time, before a candidate slot is used):
  *   - Python: `agent_eval_rpc.gepa_bridge` + a GEPA build with
  *     `optimize_anything`/`OptimizeAnythingConfig` must import —
  *     `probeGepaRuntime` throws with the pip install instruction otherwise.
@@ -54,6 +54,7 @@ import {
   type OptimizationMethodProvenance,
   type Scenario,
 } from '@tangle-network/agent-eval/campaign'
+import { officialOptimizerModel } from '../official-optimizer-config.mts'
 import { ACTIVATION_PREDICATE_RELPATH, type ActivationPredicate } from './activation.mts'
 import { changeSpaceViolations, type OuterLoopConfig } from './outer-loop.mts'
 import type { AuthorFn, ProposerSpec, SmokeRunner, SmokeVerdict } from './proposer-fanout.mts'
@@ -206,7 +207,7 @@ export function innerSmokeComposite(verdict: Pick<SmokeVerdict, 'resolved' | 've
 export function innerSmokeJudge(): JudgeConfig<SmokeVerdict, GepaSeatScenario> {
   return {
     name: 'gepa-inner-smoke',
-    judgeVersion: 'gepa-inner-smoke.v1',
+    judgeVersion: 'gepa-inner-smoke',
     dimensions: [
       { key: 'resolved', description: 'Official SWE-bench judge verdict for the smoke cell (1 resolved / 0 not).' },
       { key: 'verifyPass', description: 'Committed verify fixture passed for the smoke cell (tiebreak).' },
@@ -552,7 +553,7 @@ function assertCompleteCost(
 }
 
 // ---------------------------------------------------------------------------
-// Mechanical activation predicate (gen-5 activation gate).
+// Mechanical activation predicate.
 // ---------------------------------------------------------------------------
 
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -577,7 +578,6 @@ export function mechanicalActivationPredicate(
   if (added.length === 0) return null
   const line = added.reduce((a, b) => (b.length > a.length ? b : a))
   return {
-    version: 'v1',
     description: `gepa-author surface change fired: candidate text from ${surface} appears in run artifacts`,
     kind: 'grep',
     pattern: escapeRegExp(line),
@@ -594,8 +594,12 @@ export interface GepaSeatDeps {
    *  split's public set; re-asserted here fail-closed). */
   smokeInstanceId: string
   scoreSplit: Pick<ScoreSplit, 'privateInstances'> | null
-  /** Test seam. Default: agent-eval's official GEPA method. */
+  /** Test override. Default: agent-eval's official GEPA method. */
   methodFactory?: GepaMethodFactory
+  /** Explicit model override. Production otherwise resolves the metered model from env. */
+  optimizer?: NonNullable<
+    GepaOptimizationMethodConfig<GepaSeatScenario, SmokeVerdict>['optimizer']
+  >
   log?: (msg: string) => void
 }
 
@@ -683,6 +687,24 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
 
     const factory: GepaMethodFactory =
       deps.methodFactory ?? gepaOptimizationMethod<GepaSeatScenario, SmokeVerdict>
+    const optimizer =
+      deps.optimizer ??
+      (deps.methodFactory
+        ? undefined
+        : officialOptimizerModel({
+            env: process.env,
+            envPrefix: 'GEPA_OPTIMIZER',
+            model: process.env.GEPA_OPTIMIZER_MODEL ?? config.arm.driverModel,
+            baseUrl:
+              process.env.GEPA_OPTIMIZER_BASE_URL ??
+              process.env.ROUTER_BASE ??
+              'https://router.tangle.tools/v1',
+            apiKey: process.env.GEPA_OPTIMIZER_API_KEY ?? process.env.TANGLE_API_KEY ?? '',
+            maxCostUsd: spec.maxProposerCostUsd ?? DEFAULT_MAX_PROPOSER_COST_USD,
+            maxOutputTokensPerRequest: Number(
+              process.env.GEPA_OPTIMIZER_MAX_OUTPUT_TOKENS ?? 16_384,
+            ),
+          }))
     const method = factory({
       name: `gepa-seat:${spec.name}`,
       recipe,
@@ -695,7 +717,8 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
       ].join('|'),
       background,
       describeScenario: (scenario) => ({ id: scenario.id }),
-      // Ceiling, not expectation: every inner call is a real arm cell.
+      ...(optimizer ? { optimizer } : {}),
+      // Upper bound, not expectation: every inner call is a real arm cell.
       timeoutMs: budget * config.dispatchTimeoutMs,
       resume: 'if-compatible',
       trustResumeState: true,

@@ -1,47 +1,23 @@
 /**
+ * `improve` runs one complete optimization method against an exact profile
+ * surface. Runtime extracts and materializes the profile value; agent-eval owns
+ * optimization, disjoint data partitions, final-test scoring, and uncertainty.
  *
- * `improve` — the ONE public, surface-pluggable RSI verb.
- *
- * A thin facade over agent-eval's `selfImprove` (the held-out-gated closed
- * loop). It removes the two things a caller otherwise has to know to drive the
- * loop by hand: WHICH `MutableSurface` of the profile is being optimized, and
- * WHICH `SurfaceProposer` mutates that surface. You name a `surface`; the
- * facade picks the matching default proposer, extracts the baseline surface from
- * the profile, and runs `selfImprove`. It returns a frozen candidate and never
- * changes the input profile or caller-owned state.
- *
- *   - `surface: 'prompt'` → `gepaProposer` mutates `profile.prompt.systemPrompt`.
- *   - `surface: 'skills'` → `skillOptProposer` mutates one named inline skill.
- *   - `surface: 'memory'` → `memoryCurationProposer` curates the profile's
- *     additional instructions as bounded durable lessons.
- *   - `surface: 'rollout-policy'` → `rolloutPolicyProposer` mutates the
- *     inference-time `StructuralRolloutPolicy` dials ({ k, repairRounds, testgen })
- *     persisted in `profile.extensions['structural-rollout']` — deterministic
- *     bounded neighbor enumeration; the held-out gate does the deciding. No-op
- *     (nothing proposed, nothing shipped) when the profile has no such extension.
- *   - `surface: 'agent-profile'` → caller-supplied proposer mutates the complete
- *     canonical AgentProfile JSON in one candidate.
- *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `subagents`, `agent-profile`} → no zero-config default
- *     proposer exists (a code/config proposer needs caller-supplied wiring — a
- *     worktree repo root, a candidate generator, a serializer). The facade
- *     requires an explicit `opts.generator` for these and throws a `ConfigError`
- *     otherwise. This is a designed boundary, not a missing default: there is
- *     no safe value the facade could invent for those surfaces. Code instead
- *     requires `opts.code.repoRoot` and accepts only the runtime-owned
- *     `opts.code.generator` path so every isolated checkout can be released.
- *
- * Everything else (`scenarios`, `judge`, `agent`, `budget`, `llm`) passes
- * straight through to `selfImprove`.
+ * Code is the sole exception. It uses Runtime's isolated git worktrees because
+ * checkout ownership and cleanup cannot cross a generic optimizer boundary.
  *
  * @experimental
  */
 
+import { randomUUID } from 'node:crypto'
 import { canonicalJson, makeFinding } from '@tangle-network/agent-eval'
 import {
-  gepaProposer,
+  type CompareOptimizationMethodsOptions,
+  campaignSplitDigest,
+  compareOptimizationMethods,
   gitWorktreeAdapter,
-  memoryCurationProposer,
-  skillOptProposer,
+  type OptimizationMethod,
+  type OptimizationMethodComparison,
   type Worktree,
   type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
@@ -50,7 +26,6 @@ import {
   type MutableSurface,
   type Scenario,
   type SelfImproveBudget,
-  type SelfImproveLlm,
   type SelfImproveOptions,
   type SelfImproveResult,
   type SurfaceProposer,
@@ -60,11 +35,11 @@ import {
   type AgentProfile,
   type AgentProfileResourceRef,
   agentProfileSchema,
+  type Sha256Digest,
 } from '@tangle-network/agent-interface'
-import { immutableCandidateValue } from '../candidate-execution/digest'
+import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
 import type { LocalHarness } from '../mcp/local-harness'
-import { assertModelAllowed } from '../runtime/supervise/model-policy'
 import { agenticGenerator, type Verifier } from './agentic-generator'
 import { rethrowAfterCleanup } from './cleanup'
 import {
@@ -76,7 +51,6 @@ import { rawTraceDistiller } from './raw-trace-distiller'
 import {
   applyRolloutPolicyToProfile,
   normalizeRolloutPolicy,
-  rolloutPolicyProposer,
   serializeRolloutPolicy,
   structuralRolloutPolicyFromProfile,
 } from './rollout-policy'
@@ -98,65 +72,111 @@ export type ImproveSurface =
   | 'code'
   | 'rollout-policy'
 
-export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
-  SelfImproveOptions<TScenario, TArtifact>,
-  'analyzeGeneration' | 'baselineSurface' | 'findings' | 'gate' | 'proposer'
+export type ImproveProfileSurface = Exclude<ImproveSurface, 'code'>
+
+export interface ImproveMethodContext {
+  /** Validated baseline profile. */
+  readonly profile: Readonly<AgentProfile>
+  /** Exact profile coordinate being optimized. */
+  readonly surface: ImproveProfileSurface
+  /** Exact bytes supplied to the optimization method. */
+  readonly baselineSurface: MutableSurface
+  /** Findings produced before this search, if any. */
+  readonly findings: readonly unknown[]
+}
+
+/** Build a complete method after trace findings are available. */
+export type ImproveMethodFactory<TScenario extends Scenario, TArtifact> = (
+  context: ImproveMethodContext,
+) => OptimizationMethod<TScenario, TArtifact>
+
+export type ImproveMethodSource<TScenario extends Scenario, TArtifact> =
+  | OptimizationMethod<TScenario, TArtifact>
+  | ImproveMethodFactory<TScenario, TArtifact>
+
+/** Complete-method configuration for every non-code profile surface. */
+export type ImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
+  CompareOptimizationMethodsOptions<TScenario, TArtifact>,
+  'baselineSurface' | 'dispatchWithSurface' | 'methods' | 'optimizationConcurrency'
 > & {
-  /** Which profile lever to optimize. Default `'prompt'`. Selects the default
-   *  generator + the baseline-surface extraction shape. */
-  surface?: ImproveSurface
-  /** The `SurfaceProposer` that mutates a profile surface. When unset, the facade
-   *  picks the default for prompt, skills, and memory; surfaces
-   *  with no default REQUIRE this (fail-loud otherwise). Forbidden for code;
-   *  use `code.generator` so the runtime owns candidate cleanup. */
-  generator?: SurfaceProposer
+  /** Exact profile coordinate optimized by `method`. Default `'prompt'`. */
+  surface?: ImproveProfileSurface
+  /** A complete optimizer or a factory that can incorporate current findings. */
+  method: ImproveMethodSource<TScenario, TArtifact>
+  /** Runs one candidate surface on one scenario. */
+  agent: (
+    surface: MutableSurface,
+    scenario: TScenario,
+    ctx: Parameters<
+      CompareOptimizationMethodsOptions<TScenario, TArtifact>['dispatchWithSurface']
+    >[2],
+  ) => Promise<TArtifact>
+  /** Trace or analyst findings available to a method factory. */
+  findings?: readonly unknown[]
+  /** Select the exact inline skill document for `surface: 'skills'`. */
+  skills?: ImproveSkillsOptions
+  /**
+   * Map a profile to named text components and apply the winning components.
+   * Valid only with `surface: 'agent-profile'`.
+   */
+  profileComponents?: ImproveProfileComponents
+  /** Ship only when the paired final-test interval is entirely above this lift. Default `0`. */
+  minimumLift?: number
+}
+
+/** Runtime-owned code search in isolated git worktrees. */
+export type ImproveCodeRunOptions<TScenario extends Scenario, TArtifact> = Omit<
+  SelfImproveOptions<TScenario, TArtifact>,
+  | 'analyzeGeneration'
+  | 'baselineSurface'
+  | 'budget'
+  | 'findings'
+  | 'gate'
+  | 'llm'
+  | 'method'
+  | 'mutationPrimitives'
+  | 'proposer'
+  | 'proposerTarget'
+  | 'selectionScenarios'
+> & {
+  surface: 'code'
+  /** Local code-search budget. Method-only selection controls do not apply. */
+  budget?: Omit<SelfImproveBudget, 'selectionFraction'>
+  /** Findings supplied to Runtime's code candidate driver. */
+  findings?: readonly unknown[]
   /** Gate mode. `'holdout'` (default) runs the held-out promotion gate;
    *  `'none'` is a baseline-only run (`budget.generations = 0`). */
   gate?: 'holdout' | 'none'
-  /** Restrict the run to this subset of models. When set, the reflection model
-   *  (`llm.model`, or the default when unset) must be a member, or `improve()` throws
-   *  a `ConfigError` before the generator is built. Unset = unrestricted. */
-  allowedModels?: readonly string[]
-  /** Per-generation findings producer passthrough (see selfImprove.analyzeGeneration).
-   *  DEFAULT: with a real (non-`mem://`) `runDir`, the raw-trace distiller
-   *  (`rawTraceDistiller`) — typed `AnalystFinding`s pointing the proposer at the
-   *  prior generation's actual on-disk traces; for in-memory runs (no traces on
-   *  disk to point at), the built-in failure distiller — the worst-scoring/errored
-   *  cells distilled into typed `AnalystFinding`s for the NEXT proposal round.
-   *  Pass your own producer to replace either; pass `null` to disable and keep the
-   *  static `findings` all the way through. */
+  /** Per-generation findings producer for Runtime's code search.
+   * Pass your own producer to replace the code-trace distiller; pass `null`
+   * to keep the static findings for every generation. */
   analyzeGeneration?: SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration'] | null
-  /** META-HARNESS mode: instead of the distilled findings, feed the proposer
-   *  RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
-   *  real run traces under `runDir` (per-cell `spans.jsonl` event logs +
-   *  `cached-result.json` scores + artifacts) plus a `grep`/`cat`-to-diagnose
-   *  instruction — so the coding agent reads the actual failures itself rather than
-   *  a pre-summary. Unset (default): raw-trace findings whenever the run is durable
-   *  (a real `runDir` — that is where the traces live), the distilled failure digest
-   *  otherwise; the `memory` surface always defaults to its curation distiller.
-   *  `true` forces `rawTraceDistiller()` even for an in-memory run (it emits a loud
-   *  warning finding instead of paths); `false` forces the digest distiller even
-   *  with a real `runDir`. Ignored when `analyzeGeneration` is set explicitly
-   *  (that wins) or is `null` (disabled). */
+  /** Feed code candidates paths to prior raw traces instead of a failure digest.
+   * Defaults to true for durable runs and false for in-memory runs. */
   rawTraceContext?: boolean
-  /** CODE-surface wiring: name `surface: 'code'`, point at a repo, and the
-   *  facade assembles the whole candidate pipeline — an isolated incumbent plus git worktrees
-   *  (`gitWorktreeAdapter`) driven by `improvementDriver` with the full agentic
-   *  generator (a real coding harness edits each candidate worktree; a `verify`
-   *  hook gates candidates before they are ever measured). Ignored when
-   *  `opts.generator` is supplied. Required for every code run because a real
-   *  repository and base ref are necessary to measure the incumbent. */
-  code?: ImproveCodeOptions
-  /** Select the exact inline skill document to optimize. */
-  skills?: ImproveSkillsOptions
+  /** Isolated repository and candidate generator settings. */
+  code: ImproveCodeOptions
   /** Custom held-back-exam decision. The string `gate` above controls whether
    *  the exam runs; this callback controls how its evidence decides promotion. */
   promotionGate?: SelfImproveOptions<TScenario, TArtifact>['gate']
 }
 
+/** The canonical improvement API: complete methods for profiles, worktrees for code. */
+export type ImproveOptions<TScenario extends Scenario, TArtifact> =
+  | ImproveMethodOptions<TScenario, TArtifact>
+  | ImproveCodeRunOptions<TScenario, TArtifact>
+
 export interface ImproveSkillsOptions {
   /** `name` of one inline entry in `profile.resources.skills`. */
   resourceName: string
+}
+
+/** Caller-owned mapping for optimizing several profile fields as one candidate. */
+export interface ImproveProfileComponents {
+  /** Extract the exact named text components optimized together. */
+  read(profile: Readonly<AgentProfile>): Readonly<Record<string, string>>
+  /** Apply a complete winning component map to a detached profile. */
+  apply(profile: Readonly<AgentProfile>, components: Readonly<Record<string, string>>): AgentProfile
 }
 
 export interface ImproveCodeOptions {
@@ -190,63 +210,72 @@ export interface ImprovementCandidate {
   profile?: AgentProfile
 }
 
-export interface ImproveResult<TScenario extends Scenario, TArtifact> {
+/** Normalized spend reported for one Runtime improvement run. */
+export interface ImproveCost {
+  totalCostUsd: number
+  accountingComplete: boolean
+  incompleteReasons: string[]
+}
+
+/** Optimizer ancestry sealed into downstream candidate experiments. */
+export interface ImproveLineage {
+  /** Upstream optimizer run when reported, otherwise this Runtime optimization invocation. */
+  runId: string
+  /** Exact train-plus-selection scenario payloads exposed to candidate selection. */
+  developmentSplitDigest: Sha256Digest
+}
+
+interface ImproveResultBase {
   /** Frozen candidate only. Live state is changed through an approved activation. */
   candidate: ImprovementCandidate
-  /** Held-out decision for this search result. */
-  decision: SelfImproveResult<TScenario, TArtifact>['gateDecision']
-  /** Held-out lift (`winner − baseline` composite). Absent iff
-   *  `budget.holdout === 'deferred'` — no held-out measurement ran, so there
-   *  is no lift to report (never a fabricated 0). */
+  /** Final-test decision for this search result. */
+  decision: SelfImproveResult<Scenario, unknown>['gateDecision']
+  /** Final-test lift when one was measured. */
   lift?: number
-  /** Full `selfImprove` result for advanced inspection. For code runs,
-   *  `raw.winner.surface.worktreeRef` remains live after return whether the
-   *  candidate passed or held; call `dispose()` after consuming it. */
-  raw: SelfImproveResult<TScenario, TArtifact>
+  /** Paired final-test confidence interval for method-based profile runs. */
+  liftInterval?: { low: number; high: number }
+  /** Full search and final-test spend. */
+  cost: ImproveCost
+  /** Full wall-clock duration. */
+  durationMs: number
+  /** Optimizer ancestry used when sealing a candidate experiment. */
+  lineage: ImproveLineage
+  /** Number of generations explored by Runtime's code path. */
+  generationsExplored?: number
   /** Release resources owned by this result. Idempotent; currently disposes
    *  the returned code worktree and is a no-op for profile-only surfaces. */
   dispose(): Promise<void>
 }
 
-/** Default model id for the reflective drivers when `llm.model` is unset — a model the Tangle
- *  router actually serves (callers should pass their own `llm.model`). */
-const defaultReflectionModel = 'deepseek-v4-flash'
-
-/** The reflective proposers (`gepaProposer`/`skillOptProposer`) take a full
- *  `LlmClientOptions`; `SelfImproveLlm` is the thin user-facing subset. */
-function llmClientOptions(llm: SelfImproveLlm | undefined): { baseUrl?: string; apiKey?: string } {
-  return { baseUrl: llm?.baseUrl, apiKey: llm?.apiKey }
+export interface ImproveMethodResult extends ImproveResultBase {
+  mode: 'method'
+  method: string
+  /** External optimizer package and resumable run identity, when reported. */
+  provenance?: OptimizationMethodComparison['best']['provenance']
+  decision: 'ship' | 'hold'
+  lift: number
+  liftInterval: { low: number; high: number }
+  raw: OptimizationMethodComparison
 }
 
-/** The default proposer for a surface, or `undefined` when the surface has no
- *  zero-config default (the caller must supply `opts.generator`). */
-function defaultGeneratorFor(
-  surface: ImproveSurface,
-  llm: SelfImproveLlm | undefined,
-): SurfaceProposer | undefined {
-  const model = llm?.model ?? defaultReflectionModel
-  switch (surface) {
-    case 'prompt':
-      return gepaProposer({ llm: llmClientOptions(llm), model, target: 'agent system prompt' })
-    case 'skills':
-      return skillOptProposer({ llm: llmClientOptions(llm), model, target: 'agent skill document' })
-    case 'memory':
-      return memoryCurationProposer()
-    case 'rollout-policy':
-      // Deterministic bounded enumeration — no LLM, so `llm` is unused here.
-      return rolloutPolicyProposer()
-    default:
-      return undefined
-  }
+export interface ImproveCodeResult<TScenario extends Scenario, TArtifact>
+  extends ImproveResultBase {
+  mode: 'code'
+  raw: SelfImproveResult<TScenario, TArtifact>
 }
 
-/** Extract the baseline surface a driver mutates from the profile field that
- *  backs `surface`. Prompt, skills, and memory are text surfaces; config
- *  surfaces serialize the matching profile record. */
+export type ImproveResult<TScenario extends Scenario, TArtifact> =
+  | ImproveMethodResult
+  | ImproveCodeResult<TScenario, TArtifact>
+
+/** Extract the baseline optimized by a method. Prompt, skills, and memory are
+ * text; config fields are JSON; a caller may map the full profile to named
+ * components explicitly. */
 function baselineSurfaceFor(
   profile: AgentProfile,
   surface: ImproveSurface,
   skills?: ImproveSkillsOptions,
+  profileComponents?: ImproveProfileComponents,
 ): MutableSurface {
   switch (surface) {
     case 'prompt':
@@ -254,23 +283,27 @@ function baselineSurfaceFor(
     case 'skills':
       return inlineSkill(profile, skills).content
     case 'tools':
-      return JSON.stringify(profile.tools ?? {})
+      return canonicalJson(profile.tools ?? {})
     case 'mcp':
-      return JSON.stringify(profile.mcp ?? {})
+      return canonicalJson(profile.mcp ?? {})
     case 'hooks':
-      return JSON.stringify(profile.hooks ?? {})
+      return canonicalJson(profile.hooks ?? {})
     case 'subagents':
-      return JSON.stringify(profile.subagents ?? {})
+      return canonicalJson(profile.subagents ?? {})
     case 'agent-profile':
-      return canonicalJson(profile)
+      return profileComponents
+        ? componentSurface(profileComponents.read(profile), 'profileComponents.read')
+        : canonicalJson(profile)
     case 'memory':
       return profileInstructions(profile)
     case 'rollout-policy': {
-      // Empty surface when the profile never opted into structural rollout: the
-      // proposer reads it as "propose nothing", so the loop runs baseline-only and
-      // holds — tuning dials nothing consumes would ship dead config.
       const policy = structuralRolloutPolicyFromProfile(profile)
-      return policy ? serializeRolloutPolicy(policy) : ''
+      if (!policy) {
+        throw new ConfigError(
+          "improve(): surface 'rollout-policy' requires an existing structural rollout policy",
+        )
+      }
+      return serializeRolloutPolicy(policy)
     }
     case 'code':
       throw new ConfigError(
@@ -366,34 +399,15 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
   }
 }
 
-/** Memory accumulates durable lessons, so keep the caller's seed findings while
- * adding fresh judge failures. Curator proposers consume `claim`; the generic
- * distiller retains the richer diagnostic fields for reflective proposers. */
-function memoryGenerationDistiller<TScenario extends Scenario, TArtifact>(
-  staticFindings: unknown[],
-): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
-  const distillFailures = generationFailureDistiller<TScenario, TArtifact>(staticFindings)
-  return async (input) => {
-    const fresh = await distillFailures(input)
-    return fresh === staticFindings ? staticFindings : [...staticFindings, ...fresh]
-  }
-}
-
-/** The default `analyzeGeneration` when the caller passed none: raw-trace context
- *  whenever the run is durable (a real `runDir` is where the traces live — see
- *  `rawTraceDistiller`), the failure digest for in-memory runs, with
- *  `rawTraceContext` as the explicit override in either direction. The `memory`
- *  surface keeps its curation distiller (its proposer consumes `claim` findings,
- *  not trace paths) unless `rawTraceContext: true` is explicit. */
+/** Default code-run analysis: raw trace paths for durable runs, otherwise a
+ * bounded digest of failed cells. */
 function defaultDistillerFor<TScenario extends Scenario, TArtifact>(
-  opts: ImproveOptions<TScenario, TArtifact>,
+  opts: ImproveCodeRunOptions<TScenario, TArtifact>,
   findings: unknown[],
 ): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
-  const surface = opts.surface ?? 'prompt'
   const durableRun = opts.runDir !== undefined && !opts.runDir.startsWith('mem://')
-  const useRawTraces = opts.rawTraceContext ?? (surface === 'memory' ? false : durableRun)
+  const useRawTraces = opts.rawTraceContext ?? durableRun
   if (useRawTraces) return rawTraceDistiller<TScenario, TArtifact>({ fallbackFindings: findings })
-  if (surface === 'memory') return memoryGenerationDistiller<TScenario, TArtifact>(findings)
   return generationFailureDistiller<TScenario, TArtifact>(findings)
 }
 
@@ -417,6 +431,44 @@ async function discardPreparedBaseline(
 
 function isCodeSurface(surface: MutableSurface | undefined): surface is CodeSurface {
   return typeof surface === 'object' && surface !== null && surface.kind === 'code'
+}
+
+type ComponentSurface = Extract<MutableSurface, { readonly kind: 'components' }>
+
+function isComponentSurface(surface: MutableSurface | undefined): surface is ComponentSurface {
+  return typeof surface === 'object' && surface !== null && surface.kind === 'components'
+}
+
+function componentSurface(
+  components: Readonly<Record<string, string>>,
+  source: string,
+): ComponentSurface {
+  const entries = validateComponents(components, source)
+  return immutableCandidateValue({
+    kind: 'components',
+    components: Object.fromEntries(entries),
+  } as ComponentSurface)
+}
+
+function validateComponents(
+  components: Readonly<Record<string, string>>,
+  source: string,
+): Array<[string, string]> {
+  if (typeof components !== 'object' || components === null || Array.isArray(components)) {
+    throw new ConfigError(`improve(): ${source} must return a component record`)
+  }
+  const entries = Object.entries(components)
+  if (entries.length === 0) {
+    throw new ConfigError(`improve(): ${source} must return at least one component`)
+  }
+  for (const [name, value] of entries) {
+    if (!name || name.trim() !== name || typeof value !== 'string') {
+      throw new ConfigError(
+        `improve(): ${source} must return trimmed component names with string values`,
+      )
+    }
+  }
+  return entries
 }
 
 /** Create a clean incumbent checkout and the candidate producer for a code run. */
@@ -505,11 +557,35 @@ function parseWinnerJson<T>(winner: string, surface: ImproveSurface): T {
 
 function assertCandidateSurfaceKind(
   surface: ImproveSurface,
+  baseline: MutableSurface,
   winner: MutableSurface,
 ): asserts winner is MutableSurface {
-  if (surface === 'code' ? typeof winner === 'string' : typeof winner !== 'string') {
+  if (surface === 'code') {
+    if (isCodeSurface(winner)) return
     throw new ConfigError(
       `improve(): the '${surface}' candidate returned an incompatible surface value`,
+    )
+  }
+  if (typeof baseline === 'string') {
+    if (typeof winner === 'string') return
+    throw new ConfigError(
+      `improve(): the '${surface}' candidate changed from a text surface to an incompatible surface value`,
+    )
+  }
+  if (!isComponentSurface(baseline) || !isComponentSurface(winner)) {
+    throw new ConfigError(
+      `improve(): the '${surface}' candidate returned an incompatible surface value`,
+    )
+  }
+  validateComponents(winner.components, `the '${surface}' candidate`)
+  const baselineNames = Object.keys(baseline.components).sort()
+  const winnerNames = Object.keys(winner.components).sort()
+  if (
+    baselineNames.length !== winnerNames.length ||
+    baselineNames.some((name, index) => name !== winnerNames[index])
+  ) {
+    throw new ConfigError(
+      `improve(): the '${surface}' candidate must preserve the exact component names`,
     )
   }
 }
@@ -520,9 +596,33 @@ function materializeImprovementProfileCandidate(
   surface: ImproveSurface,
   winner: MutableSurface,
   skills?: ImproveSkillsOptions,
+  profileComponents?: ImproveProfileComponents,
 ): AgentProfile | undefined {
-  if (typeof winner !== 'string') return undefined
   let candidate: AgentProfile
+  if (isComponentSurface(winner)) {
+    if (surface !== 'agent-profile' || !profileComponents) {
+      throw new ConfigError(
+        `improve(): the '${surface}' candidate has no profile component mapping`,
+      )
+    }
+    const winnerComponents = immutableCandidateValue({ ...winner.components })
+    candidate = profileComponents.apply(profile, winnerComponents)
+    const validated = validateProfileCandidate(candidate, surface)
+    const materializedComponents = Object.fromEntries(
+      validateComponents(profileComponents.read(validated), 'profileComponents.read after apply'),
+    )
+    const names = Object.keys(winnerComponents)
+    if (
+      names.length !== Object.keys(materializedComponents).length ||
+      names.some((name) => materializedComponents[name] !== winnerComponents[name])
+    ) {
+      throw new ConfigError(
+        'improve(): profileComponents.apply must round-trip every winning component exactly',
+      )
+    }
+    return validated
+  }
+  if (typeof winner !== 'string') return undefined
   switch (surface) {
     case 'prompt':
       candidate = { ...profile, prompt: { ...profile.prompt, systemPrompt: winner } }
@@ -565,11 +665,6 @@ function materializeImprovementProfileCandidate(
       }
       break
     case 'rollout-policy': {
-      // An empty winner is the never-opted-in baseline (see baselineSurfaceFor):
-      // nothing to apply, so no profile candidate — never a parse error.
-      if (winner === '') return undefined
-      // Parse + re-validate the winner against the policy's own invariants — a
-      // custom generator's malformed dial must fail loud, not persist silently.
       const policy = normalizeRolloutPolicy(parseWinnerJson(winner, surface))
       if (!policy) {
         throw new ConfigError(
@@ -583,6 +678,10 @@ function materializeImprovementProfileCandidate(
     case 'code':
       return undefined
   }
+  return validateProfileCandidate(candidate, surface)
+}
+
+function validateProfileCandidate(candidate: AgentProfile, surface: ImproveSurface): AgentProfile {
   const parsed = agentProfileSchema.safeParse(candidate)
   if (!parsed.success) {
     throw new ConfigError(
@@ -647,69 +746,155 @@ function assertFailClosedResources(profile: AgentProfile, surface: 'skills' | 'm
   }
 }
 
-/**
- * Run the held-out-gated self-improvement loop on ONE profile surface.
- *
- * @example Optimize the system prompt, default holdout gate:
- *
- *   const out = await improve(profile, findings, {
- *     surface: 'prompt',
- *     scenarios,
- *     judge,
- *     agent: (surface, scenario, ctx) => runAgent(surface, scenario, ctx.signal),
- *   })
- *   if (out.decision === 'ship') console.log(out.candidate)
- */
-export async function improve<TScenario extends Scenario, TArtifact>(
+function resolveOptimizationMethod<TScenario extends Scenario, TArtifact>(
+  source: ImproveMethodSource<TScenario, TArtifact>,
+  context: ImproveMethodContext,
+): OptimizationMethod<TScenario, TArtifact> {
+  const method = typeof source === 'function' ? source(context) : source
+  if (
+    !method ||
+    typeof method !== 'object' ||
+    typeof method.name !== 'string' ||
+    method.name.trim() !== method.name ||
+    method.name.length === 0 ||
+    typeof method.optimize !== 'function'
+  ) {
+    throw new ConfigError(
+      'improve(): method must be a complete OptimizationMethod with a trimmed name and optimize(input)',
+    )
+  }
+  return method
+}
+
+function copyCost(cost: {
+  totalCostUsd: number
+  accountingComplete: boolean
+  incompleteReasons: readonly string[]
+}): ImproveCost {
+  return {
+    totalCostUsd: cost.totalCostUsd,
+    accountingComplete: cost.accountingComplete,
+    incompleteReasons: [...cost.incompleteReasons],
+  }
+}
+
+function copyProvenance(
+  provenance: NonNullable<OptimizationMethodComparison['best']['provenance']>,
+): NonNullable<OptimizationMethodComparison['best']['provenance']> {
+  return {
+    ...provenance,
+    source: { ...provenance.source },
+    ...(provenance.tokenUsage ? { tokenUsage: { ...provenance.tokenUsage } } : {}),
+  }
+}
+
+function developmentSplitDigest<TScenario extends Scenario>(
+  trainScenarios: readonly TScenario[],
+  selectionScenarios: readonly TScenario[],
+  reps: number,
+): Sha256Digest {
+  return canonicalCandidateDigest({
+    train: campaignSplitDigest(trainScenarios, reps),
+    selection: campaignSplitDigest(selectionScenarios, reps),
+  })
+}
+
+async function runMethodImprovement<TScenario extends Scenario, TArtifact>(
   profile: AgentProfile,
-  findings: unknown[],
-  opts: ImproveOptions<TScenario, TArtifact>,
-): Promise<ImproveResult<TScenario, TArtifact>> {
+  opts: ImproveMethodOptions<TScenario, TArtifact>,
+): Promise<ImproveMethodResult> {
   const {
     surface = 'prompt',
-    gate = 'holdout',
-    generator,
-    allowedModels,
-    rawTraceContext,
-    code,
+    method: methodSource,
+    agent,
+    findings: inputFindings = [],
     skills,
+    profileComponents,
+    minimumLift = 0,
+    ...comparisonOptions
+  } = opts
+  if (!Number.isFinite(minimumLift) || minimumLift < 0) {
+    throw new ConfigError(
+      'improve(): minimumLift must be a finite number greater than or equal to 0',
+    )
+  }
+  if (profileComponents && surface !== 'agent-profile') {
+    throw new ConfigError("improve(): profileComponents is valid only with surface 'agent-profile'")
+  }
+  const findings = [...inputFindings]
+  const baselineSurface = baselineSurfaceFor(profile, surface, skills, profileComponents)
+  const runtimeRunId = `runtime-optimization:${randomUUID()}`
+  const splitDigest = developmentSplitDigest(
+    comparisonOptions.trainScenarios,
+    comparisonOptions.selectionScenarios,
+    comparisonOptions.optimizationRunOptions?.reps ?? 1,
+  )
+  const method = resolveOptimizationMethod(methodSource, {
+    profile,
+    surface,
+    baselineSurface,
+    findings,
+  })
+  const startedAt = Date.now()
+  const raw = await compareOptimizationMethods<TScenario, TArtifact>({
+    ...comparisonOptions,
+    methods: [method],
+    baselineSurface,
+    dispatchWithSurface: agent,
+  })
+  const score = raw.best
+  const winnerSurface = score.winnerSurface
+  assertCandidateSurfaceKind(surface, baselineSurface, winnerSurface)
+  const candidateProfile = materializeImprovementProfileCandidate(
+    profile,
+    surface,
+    winnerSurface,
+    skills,
+    profileComponents,
+  )
+  if (!candidateProfile) {
+    throw new ConfigError(`improve(): the '${surface}' method produced no profile candidate`)
+  }
+  const candidate = immutableCandidateValue<ImprovementCandidate>({
+    surface,
+    value: winnerSurface,
+    profile: candidateProfile,
+  })
+
+  return {
+    mode: 'method',
+    method: method.name,
+    ...(score.provenance ? { provenance: copyProvenance(score.provenance) } : {}),
+    candidate,
+    decision: score.liftCi.low > minimumLift ? 'ship' : 'hold',
+    lift: score.lift,
+    liftInterval: { ...score.liftCi },
+    cost: copyCost(raw.totalCost),
+    durationMs: Date.now() - startedAt,
+    lineage: Object.freeze({
+      runId: score.provenance?.runId ?? runtimeRunId,
+      developmentSplitDigest: splitDigest,
+    }),
+    raw,
+    async dispose() {},
+  }
+}
+
+async function runCodeImprovement<TScenario extends Scenario, TArtifact>(
+  opts: ImproveCodeRunOptions<TScenario, TArtifact>,
+): Promise<ImproveCodeResult<TScenario, TArtifact>> {
+  const {
+    gate = 'holdout',
+    findings: inputFindings = [],
+    rawTraceContext: _rawTraceContext,
+    code,
     promotionGate,
     analyzeGeneration,
+    surface: _surface,
     ...sharedOptions
   } = opts
-
-  const parsedProfile = agentProfileSchema.safeParse(profile)
-  if (!parsedProfile.success) {
-    throw new ConfigError(
-      `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
-    )
-  }
-  if (surface === 'code' && generator) {
-    throw new ConfigError(
-      "improve(): surface 'code' forbids opts.generator because an external SurfaceProposer cannot transfer checkout ownership; pass opts.code.generator instead",
-    )
-  }
-  const usesReflectionModel = !generator && (surface === 'prompt' || surface === 'skills')
-  if (usesReflectionModel) {
-    assertModelAllowed(sharedOptions.llm?.model ?? defaultReflectionModel, allowedModels)
-  }
-
-  let preparedCode: PreparedCodeRun | undefined
-  if (surface === 'code') {
-    if (!code) {
-      throw new ConfigError(
-        "improve(): surface 'code' requires opts.code.repoRoot so the incumbent can run from an isolated checkout",
-      )
-    }
-    preparedCode = await prepareCodeRun(code)
-  }
-  const proposer =
-    preparedCode?.proposer ?? generator ?? defaultGeneratorFor(surface, sharedOptions.llm)
-  if (!proposer) {
-    throw new ConfigError(
-      `improve(): surface '${surface}' has no default generator — pass opts.generator (a SurfaceProposer) explicitly`,
-    )
-  }
+  const findings = [...inputFindings]
+  const preparedCode = await prepareCodeRun(code)
 
   const budget: SelfImproveBudget =
     gate === 'none' ? { ...sharedOptions.budget, generations: 0 } : { ...sharedOptions.budget }
@@ -718,9 +903,8 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   try {
     raw = await selfImprove<TScenario, TArtifact>({
       ...sharedOptions,
-      baselineSurface:
-        preparedCode?.baseline ?? baselineSurfaceFor(parsedProfile.data, surface, skills),
-      proposer,
+      baselineSurface: preparedCode.baseline,
+      proposer: preparedCode.proposer,
       budget,
       findings,
       ...(promotionGate !== undefined ? { gate: promotionGate } : {}),
@@ -732,7 +916,6 @@ export async function improve<TScenario extends Scenario, TArtifact>(
           }),
     })
   } catch (cause) {
-    if (!preparedCode) throw cause
     return rethrowAfterCleanup(
       cause,
       () => preparedCode.cleanup(),
@@ -741,43 +924,74 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   }
 
   const winnerSurface = raw.winner.surface
-  assertCandidateSurfaceKind(surface, winnerSurface)
-  if (preparedCode) {
+  assertCandidateSurfaceKind('code', preparedCode.baseline, winnerSurface)
+  try {
+    await preparedCode.cleanup(winnerSurface)
+  } catch (cleanupCause) {
     try {
-      await preparedCode.cleanup(winnerSurface)
-    } catch (cleanupCause) {
-      try {
-        await preparedCode.cleanup()
-      } catch (finalCleanupCause) {
-        throw new AggregateError(
-          [cleanupCause, finalCleanupCause],
-          'improve(): code result cleanup failed, including the final all-worktree retry',
-        )
-      }
+      await preparedCode.cleanup()
+    } catch (finalCleanupCause) {
       throw new AggregateError(
-        [cleanupCause],
-        'improve(): code result cleanup failed; the final all-worktree retry succeeded',
+        [cleanupCause, finalCleanupCause],
+        'improve(): code result cleanup failed, including the final all-worktree retry',
       )
     }
+    throw new AggregateError(
+      [cleanupCause],
+      'improve(): code result cleanup failed; the final all-worktree retry succeeded',
+    )
   }
-  const dispose = idempotentDispose(async () => preparedCode?.cleanup())
-  const candidateProfile = materializeImprovementProfileCandidate(
-    parsedProfile.data,
-    surface,
-    winnerSurface,
-    skills,
-  )
+  const dispose = idempotentDispose(async () => preparedCode.cleanup())
   const candidate = immutableCandidateValue<ImprovementCandidate>({
-    surface,
+    surface: 'code',
     value: winnerSurface,
-    ...(candidateProfile ? { profile: candidateProfile } : {}),
   })
 
   return {
+    mode: 'code',
     candidate,
     decision: raw.gateDecision,
     ...(raw.lift !== undefined ? { lift: raw.lift } : {}),
+    cost: copyCost(raw.cost),
+    durationMs: raw.durationMs,
+    lineage: Object.freeze({
+      runId: raw.provenance.runId,
+      developmentSplitDigest: raw.provenance.evidence.search.splitDigest,
+    }),
+    generationsExplored: raw.generationsExplored,
     raw,
     dispose,
   }
+}
+
+/**
+ * Optimize one exact profile surface with a complete method, or optimize code
+ * through Runtime's isolated worktree path. The input profile is never changed.
+ */
+export function improve<TScenario extends Scenario, TArtifact>(
+  profile: AgentProfile,
+  opts: ImproveMethodOptions<TScenario, TArtifact>,
+): Promise<ImproveMethodResult>
+export function improve<TScenario extends Scenario, TArtifact>(
+  profile: AgentProfile,
+  opts: ImproveCodeRunOptions<TScenario, TArtifact>,
+): Promise<ImproveCodeResult<TScenario, TArtifact>>
+export function improve<TScenario extends Scenario, TArtifact>(
+  profile: AgentProfile,
+  opts: ImproveOptions<TScenario, TArtifact>,
+): Promise<ImproveResult<TScenario, TArtifact>>
+export async function improve<TScenario extends Scenario, TArtifact>(
+  profile: AgentProfile,
+  opts: ImproveOptions<TScenario, TArtifact>,
+): Promise<ImproveResult<TScenario, TArtifact>> {
+  const parsedProfile = agentProfileSchema.safeParse(profile)
+  if (!parsedProfile.success) {
+    throw new ConfigError(
+      `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
+    )
+  }
+  if (opts.surface === 'code') {
+    return runCodeImprovement(opts)
+  }
+  return runMethodImprovement(immutableCandidateValue(parsedProfile.data), opts)
 }

@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -47,7 +48,7 @@ const seat = (over: Partial<ProposerSpec> = {}): ProposerSpec => ({
 // ---------------------------------------------------------------------------
 
 describe('validateGepaSeat', () => {
-  it('accepts the gen-6 draft seat shape and isGepaSeat discriminates on engine', () => {
+  it('accepts an engine seat and isGepaSeat discriminates on engine', () => {
     expect(() => validateGepaSeat(seat())).not.toThrow()
     expect(() => validateGepaSeat(seat({ engine: 'omni', maxMetricCalls: 8 }))).not.toThrow()
     expect(isGepaSeat(seat())).toBe(true)
@@ -155,7 +156,7 @@ describe('inner smoke score', () => {
     expect(innerSmokeComposite(verdict({ resolved: false, verifyPass: true }))).toBe(0.25)
     expect(innerSmokeComposite(verdict({ resolved: true, verifyPass: false }))).toBe(1)
     expect(innerSmokeComposite(verdict({ resolved: true, verifyPass: true }))).toBe(1.25)
-    // Pre-gen-6 verdicts without the field score as no verify signal.
+    // Older verdicts without the field score as no verify signal.
     expect(innerSmokeComposite(verdict({ resolved: true }))).toBe(1)
   })
 
@@ -265,7 +266,7 @@ describe('captureProposerProvenance with a gepa seat', () => {
 // ---------------------------------------------------------------------------
 
 describe('mechanicalActivationPredicate', () => {
-  it('targets the longest added line and produces a parseable v1 grep predicate', () => {
+  it('targets the longest added line and produces a parseable grep predicate', () => {
     const seed = 'alpha\nshared line stays here\n'
     const winner = 'alpha\nshared line stays here\nAlways run the neighboring test file before finalizing.\nshort\n'
     const predicate = mechanicalActivationPredicate(seed, winner, SURFACE)!
@@ -419,6 +420,24 @@ describe('recordGepaSeatInnerRun', () => {
 // ---------------------------------------------------------------------------
 
 const fakeCtx = {} as unknown as DispatchContext
+const testOptimizer = {
+  model: 'optimizer-model',
+  baseUrl: 'http://127.0.0.1:1/v1',
+  apiKey: 'optimizer-key',
+  budget: {
+    maxCostUsd: 1,
+    maxRequests: 10,
+    maxRequestBytes: 100_000,
+    maxResponseBytes: 100_000,
+    maxOutputTokensPerRequest: 2_000,
+    pricing: {
+      inputUsdPerMillion: 1,
+      cachedInputUsdPerMillion: 0.1,
+      cacheWriteUsdPerMillion: 1.25,
+      outputUsdPerMillion: 5,
+    },
+  },
+}
 
 const fullProvenance = (
   runId = 'gepa-run',
@@ -572,6 +591,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
       smokeInstanceId: 'astropy__astropy-13033',
       scoreSplit: { privateInstances: ['django__django-11532'] },
       gepaMethodFactory: fakeGepaFactory([LOSER, WINNER], observed),
+      gepaOptimizer: testOptimizer,
     })
 
     const result = await gen.generate(generatorArgs(0))
@@ -599,6 +619,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
       evaluationId:
         `swe-arena-gepa-seat|smoke=astropy__astropy-13033|judge=gepa-inner-smoke|dispatchTimeoutMs=${config.dispatchTimeoutMs}`,
       recipe: { kind: 'engine', run: { engine: 'gepa', maxEvaluations: 5 } },
+      optimizer: testOptimizer,
       resume: 'if-compatible',
       trustResumeState: true,
     })
@@ -742,8 +763,8 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
 // bridge. The TypeScript adapter is a compile-time package dependency.
 // ---------------------------------------------------------------------------
 
-const pythonBridgeReady = (): { ok: boolean; reason: string } => {
-  const probe = spawnSync(DEFAULT_GEPA_PYTHON, [
+const pythonBridgeReady = (python: string): { ok: boolean; reason: string } => {
+  const probe = spawnSync(python, [
     '-c',
     'import agent_eval_rpc.gepa_bridge; from gepa.optimize_anything import optimize_anything, OptimizeAnythingConfig',
   ])
@@ -754,15 +775,44 @@ const pythonBridgeReady = (): { ok: boolean; reason: string } => {
 }
 
 describe('integration: real adapter roundtrip', () => {
-  it('runs the bridge but rejects its unmetered winner when the full runtime is installed', async (ctx) => {
-    const python = pythonBridgeReady()
-    if (!python.ok) {
-      ctx.skip(`skip-with-reason: ${python.reason}`)
+  it('runs a metered optimizer through the real bridge and applies its winner', async (ctx) => {
+    const python = process.env.AGENT_EVAL_TEST_PYTHON ?? DEFAULT_GEPA_PYTHON
+    const pythonRuntime = pythonBridgeReady(python)
+    if (!pythonRuntime.ok) {
+      ctx.skip(`skip-with-reason: ${pythonRuntime.reason}`)
       return
     }
 
-    // Full runtime present: drive the REAL adapter with a stub smoke runner
-    // (no arm spend) over a synthetic tiny surface in a temp repo.
+    const winner = 'tiny synthetic surface\nAlways run the neighboring test before finalizing.'
+    const modelServer = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: `\`\`\`\n${winner}\`\`\``,
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 20,
+            completion_tokens: 20,
+            total_tokens: 40,
+          },
+        }),
+      )
+    })
+    await new Promise<void>((resolve, reject) => {
+      modelServer.once('error', reject)
+      modelServer.listen(0, '127.0.0.1', resolve)
+    })
+    const address = modelServer.address()
+    if (!address || typeof address === 'string') {
+      throw new Error('test optimizer server did not bind')
+    }
+
     const loopsRepo = await mkdtemp(join(tmpdir(), 'gepa-int-repo-'))
     const outDir = await mkdtemp(join(tmpdir(), 'gepa-int-out-'))
     try {
@@ -776,24 +826,23 @@ describe('integration: real adapter roundtrip', () => {
       const driverWt = join(outDir, 'driver-wt')
       await runOk('git', ['-C', loopsRepo, 'worktree', 'add', '--detach', driverWt, 'HEAD'])
 
-      let innerCalls = 0
       const gen = fanOutLoopsGenerator(
         {
           ...defaultRound4Config(),
           loopsRepo,
           outDir,
           populationSize: 1,
-          proposers: [seat({ maxMetricCalls: 4 })],
+          proposers: [seat({ maxMetricCalls: 10, python })],
           prefilter: { enabled: true, smokeInstance: 'cheapest-of-set', requireResolved: false },
         },
         {
-          smokeRunner: async () => {
-            innerCalls += 1
+          smokeRunner: async ({ scratchPath }) => {
+            const candidate = await readFile(join(scratchPath, SURFACE), 'utf8')
             return {
               iid: 'astropy__astropy-13033',
               pass: true,
               reason: 'stub smoke (integration)',
-              resolved: innerCalls > 1,
+              resolved: candidate === winner,
               patchLines: 1,
               wallS: 0,
               verifyPass: true,
@@ -801,28 +850,48 @@ describe('integration: real adapter roundtrip', () => {
           },
           smokeInstanceId: 'astropy__astropy-13033',
           scoreSplit: null,
+          gepaOptimizer: {
+            model: 'test-optimizer',
+            baseUrl: `http://127.0.0.1:${address.port}/v1`,
+            apiKey: 'local-test-key',
+            budget: {
+              maxCostUsd: 1,
+              maxRequests: 10,
+              maxRequestBytes: 100_000,
+              maxResponseBytes: 100_000,
+              maxOutputTokensPerRequest: 2_000,
+              pricing: {
+                inputUsdPerMillion: 1,
+                cachedInputUsdPerMillion: 0.1,
+                cacheWriteUsdPerMillion: 1.25,
+                outputUsdPerMillion: 5,
+              },
+            },
+          },
         },
       )
-      await expect(
-        gen.generate({
-          worktreePath: driverWt,
-          report: undefined,
-          findings: [],
-          maxShots: 1,
-          signal: new AbortController().signal,
-          generation: 0,
-          candidateIndex: 0,
-        }),
-      ).rejects.toThrow(/cost accounting is incomplete/)
-      // The bridge ran and its result was retained even though activation was refused.
+      const result = await gen.generate({
+        worktreePath: driverWt,
+        report: undefined,
+        findings: [],
+        maxShots: 1,
+        signal: new AbortController().signal,
+        generation: 0,
+        candidateIndex: 0,
+      })
       const inner = JSON.parse(
         await readFile(join(outDir, 'gepa-seat', 'gen0-gepa-author', 'inner-provenance.json'), 'utf8'),
       )
+      expect(result.applied, `${result.summary}\n${JSON.stringify(inner.innerScores, null, 2)}`).toBe(true)
+      expect(await readFile(join(driverWt, SURFACE), 'utf8')).toBe(winner)
       expect(inner.innerCallCount).toBeGreaterThanOrEqual(1)
-      expect(inner.accountingComplete).toBe(false)
-      expect(inner.incompleteReasons.length).toBeGreaterThan(0)
-      expect((await runOk('git', ['-C', driverWt, 'status', '--porcelain'])).stdout.trim()).toBe('')
+      expect(inner.accountingComplete).toBe(true)
+      expect(inner.incompleteReasons).toEqual([])
+      expect(inner.tokenUsage.calls).toBeGreaterThan(0)
     } finally {
+      await new Promise<void>((resolve, reject) =>
+        modelServer.close((error) => (error ? reject(error) : resolve())),
+      )
       await rm(outDir, { recursive: true, force: true })
       await rm(loopsRepo, { recursive: true, force: true })
     }
