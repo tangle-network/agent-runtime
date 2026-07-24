@@ -43,6 +43,12 @@ import {
   type ToolLoopCompaction,
   type ToolLoopCompactionOptions,
 } from '../tool-loop'
+import {
+  createProgressTracker,
+  type ProgressTracker,
+  type StopDecision,
+  type StopRule,
+} from './stop-rules'
 import type { Agent, Budget, NodeSnapshot, ResultBlobStore, Scope, Spend, TreeView } from './types'
 
 export interface DriverAgentOptions {
@@ -100,6 +106,24 @@ export interface DriverAgentOptions {
   /** Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
    *  deterministic in tests. Defaults to `Date.now`. */
   readonly now?: () => number
+  /**
+   * PROGRESS-derived stop (mechanic D). Today a run ends on a ceiling — iterations, tokens,
+   * dollars, deadline, turn cap — which answers "may it continue?" and never "is it still getting
+   * anywhere?". A stop rule reads the run's own progress (best-so-far over settled work, time
+   * since the last settle, the live worker feed) and ends a run that has stopped learning BEFORE
+   * it exhausts a budget.
+   *
+   * Composes with, and can never override, the hard guards: `poolStarved` / `deadlinePassed` /
+   * abort / the driver's own stop are evaluated first, so a rule can only ADD a stop.
+   *
+   * THRESHOLDS are the caller's judgment, not this module's — build the rule with
+   * `plateau({window, minDelta})` / `noProgressFor({...})` / `allWorkersStalled({...})` from
+   * `supervise/stop-rules`. Omit ⇒ ceilings only (unchanged behavior).
+   */
+  readonly stopRule?: StopRule
+  /** Called once with the rule's reason when a `stopRule` ends the run — so a caller can record
+   *  WHY a run stopped early instead of inferring it from an unexhausted budget. */
+  readonly onProgressStop?: (reason: string) => void
   /** Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
    *  lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
    *  turn — the same context overflow a single steered agent suffers, one level up. With this set,
@@ -165,6 +189,37 @@ function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
 function deadlinePassed(scope: Scope<unknown>, now: () => number): boolean {
   const b = scope.budget
   return b.deadlineMs > 0 && now() >= b.deadlineMs
+}
+
+/**
+ * The PROGRESS-derived stop, evaluated strictly AFTER the hard ceilings above.
+ *
+ * Ordering is the contract, not a detail: `poolStarved` / `deadlinePassed` / abort / the driver's
+ * own stop are checked first and independently, so a stop rule can only ever ADD a stop — it can
+ * never keep a run alive past a budget it has exhausted. The rule reads the settled-work ledger
+ * (via the tracker) plus the live worker feed off the scope; it spends nothing to do so.
+ */
+function progressStop(
+  tracker: ProgressTracker,
+  rule: StopRule,
+  coord: { settled(): ReadonlyArray<SettledWorker> },
+  scope: Scope<unknown>,
+  now: () => number,
+  stallAfterMs: number | undefined,
+): StopDecision {
+  // Fold every settlement the coordination ledger has recorded. `record` is idempotent by worker
+  // id, so pushing the whole roster each turn costs O(settled) and never double-counts. The
+  // timestamp is when the DRIVER observed the settlement, which is the resolution a per-turn guard
+  // has; `SettledWorker.settledAt` carries the real instant when the ledger recorded one.
+  for (const w of coord.settled()) {
+    tracker.record({
+      id: w.id,
+      at: w.settledAt ?? now(),
+      ...(w.score !== undefined ? { objective: w.score } : {}),
+      delivered: w.status === 'done' && w.valid === true,
+    })
+  }
+  return tracker.evaluate(rule, scope, stallAfterMs !== undefined ? { stallAfterMs } : undefined)
 }
 
 /**
@@ -242,6 +297,10 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       ]
       const system =
         typeof opts.systemPrompt === 'function' ? opts.systemPrompt(task) : opts.systemPrompt
+
+      // Built only when a rule is configured, so a run without one allocates and evaluates nothing.
+      const tracker = opts.stopRule ? createProgressTracker({ now }) : undefined
+      let progressStopReason: string | undefined
 
       // Meter the driver's OWN inference each turn into the conserved pool — the largest single
       // token consumer in the loop, and what makes maxTurns=0 genuinely bounded (a thinking driver
@@ -337,11 +396,35 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         // that can no longer spawn (pool starved) or has run past the deadline stops here instead of
         // burning turns. Checked before each inference turn.
         hooks: {
-          stopBefore: () =>
-            coord.isStopped() ||
-            scope.signal.aborted ||
-            poolStarved(scope, opts.perWorker) ||
-            deadlinePassed(scope, now),
+          stopBefore: () => {
+            // HARD CEILINGS FIRST, and independently — a progress rule may never keep a run alive
+            // past one, so they are not folded into the same expression.
+            if (
+              coord.isStopped() ||
+              scope.signal.aborted ||
+              poolStarved(scope, opts.perWorker) ||
+              deadlinePassed(scope, now)
+            ) {
+              return true
+            }
+            if (!opts.stopRule || !tracker) return false
+            const decision = progressStop(
+              tracker,
+              opts.stopRule,
+              coord,
+              scope,
+              now,
+              opts.stallAfterMs,
+            )
+            if (!decision.stop) return false
+            // `stopBefore` is a predicate the loop may consult more than once; the callback is a
+            // one-shot notification, so it fires on the FIRST stop only.
+            if (progressStopReason === undefined) {
+              progressStopReason = decision.reason
+              opts.onProgressStop?.(decision.reason)
+            }
+            return true
+          },
         },
       })
       // Drain every already-settled child the brain never pulled — a gate-verified delivery must

@@ -10,7 +10,7 @@
 
 ### InMemoryResultBlobStore
 
-Defined in: [src/durable/spawn-journal.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L70)
+Defined in: [src/durable/spawn-journal.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L71)
 
 In-memory `ResultBlobStore`. Content-addressed: `put` verifies the supplied
 `outRef` matches the artifact's hash so a stale/forged ref fails loud rather than
@@ -36,7 +36,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 > **put**(`outRef`, `artifact`): `Promise`\<`void`\>
 
-Defined in: [src/durable/spawn-journal.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L73)
+Defined in: [src/durable/spawn-journal.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L74)
 
 ###### Parameters
 
@@ -60,7 +60,7 @@ Defined in: [src/durable/spawn-journal.ts:73](https://github.com/tangle-network/
 
 > **get**(`outRef`): `Promise`\<`unknown`\>
 
-Defined in: [src/durable/spawn-journal.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L78)
+Defined in: [src/durable/spawn-journal.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L79)
 
 ###### Parameters
 
@@ -80,7 +80,7 @@ Defined in: [src/durable/spawn-journal.ts:78](https://github.com/tangle-network/
 
 ### FileResultBlobStore
 
-Defined in: [src/durable/spawn-journal.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L88)
+Defined in: [src/durable/spawn-journal.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L89)
 
 FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a
 filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`).
@@ -96,7 +96,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 > **new FileResultBlobStore**(`dir`): [`FileResultBlobStore`](#fileresultblobstore)
 
-Defined in: [src/durable/spawn-journal.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L89)
+Defined in: [src/durable/spawn-journal.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L90)
 
 ###### Parameters
 
@@ -114,7 +114,7 @@ Defined in: [src/durable/spawn-journal.ts:89](https://github.com/tangle-network/
 
 > **put**(`outRef`, `artifact`): `Promise`\<`void`\>
 
-Defined in: [src/durable/spawn-journal.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L91)
+Defined in: [src/durable/spawn-journal.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L92)
 
 ###### Parameters
 
@@ -138,7 +138,7 @@ Defined in: [src/durable/spawn-journal.ts:91](https://github.com/tangle-network/
 
 > **get**(`outRef`): `Promise`\<`unknown`\>
 
-Defined in: [src/durable/spawn-journal.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L104)
+Defined in: [src/durable/spawn-journal.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L105)
 
 ###### Parameters
 
@@ -158,7 +158,7 @@ Defined in: [src/durable/spawn-journal.ts:104](https://github.com/tangle-network
 
 ### InMemorySpawnJournal
 
-Defined in: [src/durable/spawn-journal.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L140)
+Defined in: [src/durable/spawn-journal.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L141)
 
 In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces
 the corruption guards a durable replay rests on:
@@ -186,7 +186,7 @@ the corruption guards a durable replay rests on:
 
 > **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
 
-Defined in: [src/durable/spawn-journal.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L143)
+Defined in: [src/durable/spawn-journal.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L144)
 
 ###### Parameters
 
@@ -206,7 +206,7 @@ Defined in: [src/durable/spawn-journal.ts:143](https://github.com/tangle-network
 
 > **beginTree**(`root`, `at`): `Promise`\<`void`\>
 
-Defined in: [src/durable/spawn-journal.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L149)
+Defined in: [src/durable/spawn-journal.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L150)
 
 ###### Parameters
 
@@ -230,7 +230,7 @@ Defined in: [src/durable/spawn-journal.ts:149](https://github.com/tangle-network
 
 > **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
 
-Defined in: [src/durable/spawn-journal.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L162)
+Defined in: [src/durable/spawn-journal.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L163)
 
 ###### Parameters
 
@@ -254,7 +254,7 @@ Defined in: [src/durable/spawn-journal.ts:162](https://github.com/tangle-network
 
 ### FileSpawnJournal
 
-Defined in: [src/durable/spawn-journal.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L179)
+Defined in: [src/durable/spawn-journal.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L180)
 
 JSONL on disk. One line per record: the first record is `begin`, subsequent records
 are `event` envelopes wrapping a `SpawnEvent`. `loadTree` replays the whole file,
@@ -272,7 +272,7 @@ writes never loses an acknowledged event.
 
 > **new FileSpawnJournal**(`path`): [`FileSpawnJournal`](#filespawnjournal)
 
-Defined in: [src/durable/spawn-journal.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L180)
+Defined in: [src/durable/spawn-journal.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L181)
 
 ###### Parameters
 
@@ -290,7 +290,7 @@ Defined in: [src/durable/spawn-journal.ts:180](https://github.com/tangle-network
 
 > **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
 
-Defined in: [src/durable/spawn-journal.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L182)
+Defined in: [src/durable/spawn-journal.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L183)
 
 ###### Parameters
 
@@ -310,7 +310,7 @@ Defined in: [src/durable/spawn-journal.ts:182](https://github.com/tangle-network
 
 > **beginTree**(`root`, `at`): `Promise`\<`void`\>
 
-Defined in: [src/durable/spawn-journal.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L212)
+Defined in: [src/durable/spawn-journal.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L213)
 
 ###### Parameters
 
@@ -334,7 +334,7 @@ Defined in: [src/durable/spawn-journal.ts:212](https://github.com/tangle-network
 
 > **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
 
-Defined in: [src/durable/spawn-journal.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L225)
+Defined in: [src/durable/spawn-journal.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L226)
 
 ###### Parameters
 
@@ -655,7 +655,7 @@ Defined in: node\_modules/.pnpm/typescript@5.9.3/node\_modules/typescript/lib/li
 
 ### AnalystRegistry
 
-Defined in: [src/mcp/tools/coordination.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L66)
+Defined in: [src/mcp/tools/coordination.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L70)
 
 #### Properties
 
@@ -663,13 +663,13 @@ Defined in: [src/mcp/tools/coordination.ts:66](https://github.com/tangle-network
 
 > `readonly` **kinds**: readonly `object`[]
 
-Defined in: [src/mcp/tools/coordination.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L67)
+Defined in: [src/mcp/tools/coordination.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L71)
 
 ##### run
 
 > `readonly` **run**: (`kindId`, `trace`) => `Promise`\<`unknown`\>
 
-Defined in: [src/mcp/tools/coordination.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L68)
+Defined in: [src/mcp/tools/coordination.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L72)
 
 ###### Parameters
 
@@ -5285,17 +5285,18 @@ Defined in: [src/runtime/personify/wave-types.ts:523](https://github.com/tangle-
 
 ##### status
 
-> `readonly` **status**: `"failed"` \| `"cancelled"` \| `"pending"` \| `"done"`
+> `readonly` **status**: `"failed"` \| `"cancelled"` \| `"pending"` \| `"done"` \| `"waiting"`
 
-Defined in: [src/runtime/personify/wave-types.ts:525](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L525)
+Defined in: [src/runtime/personify/wave-types.ts:526](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L526)
 
-Terminal status the journal recorded for this node.
+Terminal status the journal recorded for this node. `'waiting'` is a wait-state node that was
+ armed and never woken — the journal's record of a run that died mid-wait.
 
 ##### ownSpend
 
 > `readonly` **ownSpend**: [`Spend`](#spend)
 
-Defined in: [src/runtime/personify/wave-types.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L527)
+Defined in: [src/runtime/personify/wave-types.ts:528](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L528)
 
 This node's OWN conserved spend (from its `settled` event).
 
@@ -5303,7 +5304,7 @@ This node's OWN conserved spend (from its `settled` event).
 
 > `readonly` **rolledUpSpend**: [`Spend`](#spend)
 
-Defined in: [src/runtime/personify/wave-types.ts:530](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L530)
+Defined in: [src/runtime/personify/wave-types.ts:531](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L531)
 
 This node's spend PLUS every descendant's — the rolled-up subtree cost. The cost a parent
  "really" consumed inclusive of its children's fanout (the equal-k-on-cost basis).
@@ -5312,7 +5313,7 @@ This node's spend PLUS every descendant's — the rolled-up subtree cost. The co
 
 > `readonly` `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [src/runtime/personify/wave-types.ts:532](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L532)
+Defined in: [src/runtime/personify/wave-types.ts:533](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L533)
 
 The node's verdict, when its settlement carried one (observability — NOT a steer input).
 
@@ -5320,7 +5321,7 @@ The node's verdict, when its settlement carried one (observability — NOT a ste
 
 > `readonly` `optional` **output?**: `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:534](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L534)
+Defined in: [src/runtime/personify/wave-types.ts:535](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L535)
 
 The rehydrated output artifact, when `withOutputs` was requested + the blob resolved.
 
@@ -5328,13 +5329,13 @@ The rehydrated output artifact, when `withOutputs` was requested + the blob reso
 
 > `readonly` `optional` **outRef?**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:535](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L535)
+Defined in: [src/runtime/personify/wave-types.ts:536](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L536)
 
 ***
 
 ### TrajectoryReport
 
-Defined in: [src/runtime/personify/wave-types.ts:540](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L540)
+Defined in: [src/runtime/personify/wave-types.ts:541](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L541)
 
 The whole reconstructed trajectory — the realized tree + its root-rolled-up total. The
  per-node + rolled-up `Spend` is the evidence both the trace viewer and `equalKOnCost` read.
@@ -5345,13 +5346,13 @@ The whole reconstructed trajectory — the realized tree + its root-rolled-up to
 
 > `readonly` **root**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:541](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L541)
+Defined in: [src/runtime/personify/wave-types.ts:542](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L542)
 
 ##### nodes
 
 > `readonly` **nodes**: readonly [`TrajectoryNode`](#trajectorynode)[]
 
-Defined in: [src/runtime/personify/wave-types.ts:543](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L543)
+Defined in: [src/runtime/personify/wave-types.ts:544](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L544)
 
 Every node, in cursor/spawn order — the realized tree (`parent`/`children` are the real edges).
 
@@ -5359,7 +5360,7 @@ Every node, in cursor/spawn order — the realized tree (`parent`/`children` are
 
 > `readonly` **total**: [`Spend`](#spend)
 
-Defined in: [src/runtime/personify/wave-types.ts:545](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L545)
+Defined in: [src/runtime/personify/wave-types.ts:546](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L546)
 
 The root's rolled-up spend — the whole run's conserved total (tokens + usd + iterations + ms).
 
@@ -5367,7 +5368,7 @@ The root's rolled-up spend — the whole run's conserved total (tokens + usd + i
 
 > `readonly` **statusCounts**: `Readonly`\<`Record`\<[`TrajectoryNode`](#trajectorynode)\[`"status"`\], `number`\>\>
 
-Defined in: [src/runtime/personify/wave-types.ts:547](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L547)
+Defined in: [src/runtime/personify/wave-types.ts:548](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L548)
 
 Count of nodes by terminal status — a quick "how did the tree end" readout.
 
@@ -5375,7 +5376,7 @@ Count of nodes by terminal status — a quick "how did the tree end" readout.
 
 ### TrajectoryReportOptions
 
-Defined in: [src/runtime/personify/wave-types.ts:557](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L557)
+Defined in: [src/runtime/personify/wave-types.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L558)
 
 `trajectoryReport(journal, blobs, root, { withOutputs? })` — reconstruct the whole tree with
 per-node + rolled-up `Spend`. Reads the journal for structure + spend and (when `withOutputs`)
@@ -5389,7 +5390,7 @@ impl lives in `trajectory.ts`.
 
 > `readonly` `optional` **withOutputs?**: `boolean`
 
-Defined in: [src/runtime/personify/wave-types.ts:559](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L559)
+Defined in: [src/runtime/personify/wave-types.ts:560](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L560)
 
 Rehydrate each `done` node's `output` from the blob store. Off by default (cost-only report).
 
@@ -5397,7 +5398,7 @@ Rehydrate each `done` node's `output` from the blob store. Off by default (cost-
 
 ### EqualKArm
 
-Defined in: [src/runtime/personify/wave-types.ts:578](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L578)
+Defined in: [src/runtime/personify/wave-types.ts:579](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L579)
 
 One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole
 run). The arm's conserved COST is `report.total` (tokens + usd), which the sandbox executor
@@ -5412,19 +5413,19 @@ iteration count.
 
 > `readonly` **label**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:579](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L579)
+Defined in: [src/runtime/personify/wave-types.ts:580](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L580)
 
 ##### report
 
 > `readonly` **report**: [`TrajectoryReport`](#trajectoryreport-3)
 
-Defined in: [src/runtime/personify/wave-types.ts:580](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L580)
+Defined in: [src/runtime/personify/wave-types.ts:581](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L581)
 
 ***
 
 ### EqualKVerdict
 
-Defined in: [src/runtime/personify/wave-types.ts:589](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L589)
+Defined in: [src/runtime/personify/wave-types.ts:590](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L590)
 
 The equal-k-on-cost verdict: whether every arm spent within `tolerance` of the others on the
 CONSERVED cost channels (tokens + usd), so a downstream metric comparison is "at equal k". Per-
@@ -5437,13 +5438,13 @@ NOT comparable at equal compute — a confound to report, not a result to publis
 
 > `readonly` **withinTolerance**: `boolean`
 
-Defined in: [src/runtime/personify/wave-types.ts:590](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L590)
+Defined in: [src/runtime/personify/wave-types.ts:591](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L591)
 
 ##### arms
 
 > `readonly` **arms**: readonly `object`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:592](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L592)
+Defined in: [src/runtime/personify/wave-types.ts:593](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L593)
 
 Per-arm conserved cost (the basis: tokens total + usd).
 
@@ -5451,7 +5452,7 @@ Per-arm conserved cost (the basis: tokens total + usd).
 
 > `readonly` **spread**: `object`
 
-Defined in: [src/runtime/personify/wave-types.ts:599](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L599)
+Defined in: [src/runtime/personify/wave-types.ts:600](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L600)
 
 The realized spread on each channel (max − min across arms), for the report.
 
@@ -5467,7 +5468,7 @@ The realized spread on each channel (max − min across arms), for the report.
 
 > `readonly` **tolerance**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:601](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L601)
+Defined in: [src/runtime/personify/wave-types.ts:602](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L602)
 
 The fractional tolerance the check used (spread / median ≤ tolerance per channel).
 
@@ -5475,7 +5476,7 @@ The fractional tolerance the check used (spread / median ≤ tolerance per chann
 
 ### EqualKOnCostOptions
 
-Defined in: [src/runtime/personify/wave-types.ts:611](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L611)
+Defined in: [src/runtime/personify/wave-types.ts:612](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L612)
 
 `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST
 (tokens + usd), NOT raw iteration count. The conserved-pool guarantees `Σk` equal by
@@ -5489,7 +5490,7 @@ impl lives in `trajectory.ts`. Pure over the reports — no I/O.
 
 > `readonly` `optional` **tolerance?**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:614](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L614)
+Defined in: [src/runtime/personify/wave-types.ts:615](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L615)
 
 Max fractional spread (spread/median) per channel for arms to count as equal-k. Default in
  the impl (e.g. 0.05). A tighter tolerance = a stricter equal-compute claim.
@@ -10417,7 +10418,7 @@ What the spawn was supposed to produce — surfaced in traces/reports.
 
 ### DriverAgentOptions
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L48)
+Defined in: [src/runtime/supervise/coordination-driver.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L54)
 
 #### Properties
 
@@ -10425,13 +10426,13 @@ Defined in: [src/runtime/supervise/coordination-driver.ts:48](https://github.com
 
 > `readonly` **name**: `string`
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L49)
+Defined in: [src/runtime/supervise/coordination-driver.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L55)
 
 ##### brain
 
 > `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L53)
+Defined in: [src/runtime/supervise/coordination-driver.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L59)
 
 The driver-LLM seam — ONE inference turn over the conversation + the coordination tool specs
  (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
@@ -10441,7 +10442,7 @@ The driver-LLM seam — ONE inference turn over the conversation + the coordinat
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L55)
+Defined in: [src/runtime/supervise/coordination-driver.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L61)
 
 Shared blob store — `observe_agent` reads settled outputs through it.
 
@@ -10449,7 +10450,7 @@ Shared blob store — `observe_agent` reads settled outputs through it.
 
 > `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L57)
+Defined in: [src/runtime/supervise/coordination-driver.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L63)
 
 Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam).
 
@@ -10457,7 +10458,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 > `readonly` **perWorker**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L59)
+Defined in: [src/runtime/supervise/coordination-driver.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L65)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -10465,7 +10466,7 @@ Per-child budget reserved from the conserved pool on each spawn.
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L62)
+Defined in: [src/runtime/supervise/coordination-driver.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L68)
 
 Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
@@ -10474,7 +10475,7 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L65)
+Defined in: [src/runtime/supervise/coordination-driver.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L71)
 
 The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
  Unset → no analyst feed (status quo: the driver gets settled outputs, no findings).
@@ -10483,7 +10484,7 @@ The analyst lenses available to the driver. Required for `analyzeOnSettle` (and 
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L69)
+Defined in: [src/runtime/supervise/coordination-driver.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L75)
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
@@ -10493,7 +10494,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result 
 
 > `readonly` `optional` **watchWorkers?**: `WorkerWatchOptions`
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L73)
+Defined in: [src/runtime/supervise/coordination-driver.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L79)
 
 Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
@@ -10503,7 +10504,7 @@ Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `fi
 
 > `readonly` `optional` **stallAfterMs?**: `number`
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L76)
+Defined in: [src/runtime/supervise/coordination-driver.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L82)
 
 Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
  killed). Omit = the runtime default.
@@ -10512,7 +10513,7 @@ Idle time after which `observe_agent` reports a worker as stalled (a derived rea
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L79)
+Defined in: [src/runtime/supervise/coordination-driver.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L85)
 
 The driver's stance — a string, or built from the task (the worker-driver prompt /
  the generator). INJECTED so the prompt is a pluggable, optimizable role.
@@ -10521,7 +10522,7 @@ The driver's stance — a string, or built from the task (the worker-driver prom
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L84)
+Defined in: [src/runtime/supervise/coordination-driver.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L90)
 
 WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
  not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
@@ -10532,7 +10533,7 @@ WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — s
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L91)
+Defined in: [src/runtime/supervise/coordination-driver.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L97)
 
 Runs an `extraTools` call. Returns a string result, or null/undefined to signal "not handled"
  so the call falls through to the coordination dispatch. Required iff `extraTools` is set.
@@ -10555,7 +10556,7 @@ Runs an `extraTools` call. Returns a string result, or null/undefined to signal 
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L99)
+Defined in: [src/runtime/supervise/coordination-driver.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L105)
 
 Max driver turns before the loop force-finalizes on the best settled child. Default 16.
  `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
@@ -10566,7 +10567,7 @@ Max driver turns before the loop force-finalizes on the best settled child. Defa
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L102)
+Defined in: [src/runtime/supervise/coordination-driver.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L108)
 
 Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
  deterministic in tests. Defaults to `Date.now`.
@@ -10575,11 +10576,49 @@ Injected clock for the in-loop absolute-deadline guard — keeps the deadline ch
 
 `number`
 
+##### stopRule?
+
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+
+Defined in: [src/runtime/supervise/coordination-driver.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L123)
+
+PROGRESS-derived stop (mechanic D). Today a run ends on a ceiling — iterations, tokens,
+dollars, deadline, turn cap — which answers "may it continue?" and never "is it still getting
+anywhere?". A stop rule reads the run's own progress (best-so-far over settled work, time
+since the last settle, the live worker feed) and ends a run that has stopped learning BEFORE
+it exhausts a budget.
+
+Composes with, and can never override, the hard guards: `poolStarved` / `deadlinePassed` /
+abort / the driver's own stop are evaluated first, so a rule can only ADD a stop.
+
+THRESHOLDS are the caller's judgment, not this module's — build the rule with
+`plateau({window, minDelta})` / `noProgressFor({...})` / `allWorkersStalled({...})` from
+`supervise/stop-rules`. Omit ⇒ ceilings only (unchanged behavior).
+
+##### onProgressStop?
+
+> `readonly` `optional` **onProgressStop?**: (`reason`) => `void`
+
+Defined in: [src/runtime/supervise/coordination-driver.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L126)
+
+Called once with the rule's reason when a `stopRule` ends the run — so a caller can record
+ WHY a run stopped early instead of inferring it from an unexhausted budget.
+
+###### Parameters
+
+###### reason
+
+`string`
+
+###### Returns
+
+`void`
+
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L111)
+Defined in: [src/runtime/supervise/coordination-driver.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L135)
 
 Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
  lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
@@ -12130,9 +12169,385 @@ Defined in: [src/runtime/supervise/sandbox-session.ts:76](https://github.com/tan
 
 ***
 
+### ProgressSample
+
+Defined in: [src/runtime/supervise/stop-rules.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L47)
+
+One settled unit of work, reduced to what a stop rule reads. `objective` is the run's own
+ quality signal (a verdict score, a test pass-rate, a judge rating); `undefined` = this
+ settlement produced no measurable objective (it failed, or nothing scored it).
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L48)
+
+##### at
+
+> `readonly` **at**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L50)
+
+Epoch ms the settlement was observed.
+
+##### objective?
+
+> `readonly` `optional` **objective?**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L51)
+
+##### delivered
+
+> `readonly` **delivered**: `boolean`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L54)
+
+True when the settlement passed its deliverable check — a scored-but-undelivered result is
+ not progress.
+
+***
+
+### ProgressView
+
+Defined in: [src/runtime/supervise/stop-rules.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L58)
+
+The read-model a `StopRule` decides from — the run's progress, not its budget.
+
+#### Properties
+
+##### now
+
+> `readonly` **now**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L59)
+
+##### settles
+
+> `readonly` **settles**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L61)
+
+Settlements observed so far, in the order they landed.
+
+##### delivered
+
+> `readonly` **delivered**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L63)
+
+Of those, how many passed their deliverable check.
+
+##### curve
+
+> `readonly` **curve**: readonly `number`[]
+
+Defined in: [src/runtime/supervise/stop-rules.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L65)
+
+Best-so-far objective after each settlement (`anytime.bestSoFar`).
+
+##### best
+
+> `readonly` **best**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L67)
+
+The current best objective; `0` when nothing has scored.
+
+##### auc
+
+> `readonly` **auc**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L69)
+
+Mean of the best-so-far curve — how EARLY the run climbed (`anytime.areaUnderCurve`).
+
+##### lastSettleAt
+
+> `readonly` **lastSettleAt**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L71)
+
+Epoch ms of the most recent settlement; `0` when none has landed.
+
+##### lastImprovementAt
+
+> `readonly` **lastImprovementAt**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L73)
+
+Epoch ms of the most recent improvement in best-so-far; `0` when none.
+
+##### settlesSinceImprovement
+
+> `readonly` **settlesSinceImprovement**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L75)
+
+Settlements since the last improvement — `0` right after one improves.
+
+##### workers
+
+> `readonly` **workers**: readonly [`WorkerProgress`](#workerprogress)[]
+
+Defined in: [src/runtime/supervise/stop-rules.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L78)
+
+Live read of every non-terminal worker (the `Scope.progress` feed). Empty when the caller
+ supplied no scope.
+
+##### inFlight
+
+> `readonly` **inFlight**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L80)
+
+Nodes running or acquiring.
+
+##### waiting
+
+> `readonly` **waiting**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L83)
+
+Armed wait-state nodes — deliberately separate from `inFlight`: a tree whose only remaining
+ nodes are waits is NOT stalled, it is waiting on the world.
+
+***
+
+### ProgressTracker
+
+Defined in: [src/runtime/supervise/stop-rules.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L101)
+
+Accumulates settlements and materializes a `ProgressView`. Idempotent by settlement id, so a
+ caller may re-push its whole roster every turn (the driver does exactly that) without
+ double-counting or moving a recorded timestamp.
+
+#### Methods
+
+##### record()
+
+> **record**(`sample`): `boolean`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L104)
+
+Record a settlement. A second call with the same `id` is ignored. Returns true when it was
+ new.
+
+###### Parameters
+
+###### sample
+
+[`ProgressSample`](#progresssample)
+
+###### Returns
+
+`boolean`
+
+##### view()
+
+> **view**(`scope?`, `opts?`): [`ProgressView`](#progressview)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L106)
+
+Materialize the view. Pass the live `Scope` to include the worker feed and tree shape.
+
+###### Parameters
+
+###### scope?
+
+[`Scope`](#scope-1)\<`unknown`\>
+
+###### opts?
+
+###### stallAfterMs?
+
+`number`
+
+###### Returns
+
+[`ProgressView`](#progressview)
+
+##### evaluate()
+
+> **evaluate**(`rule`, `scope?`, `opts?`): [`StopDecision`](#stopdecision)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L108)
+
+Evaluate a rule against the current view.
+
+###### Parameters
+
+###### rule
+
+[`StopRule`](#stoprule-1)
+
+###### scope?
+
+[`Scope`](#scope-1)\<`unknown`\>
+
+###### opts?
+
+###### stallAfterMs?
+
+`number`
+
+###### Returns
+
+[`StopDecision`](#stopdecision)
+
+##### samples()
+
+> **samples**(): readonly [`ProgressSample`](#progresssample)[]
+
+Defined in: [src/runtime/supervise/stop-rules.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L114)
+
+The samples recorded so far, in order.
+
+###### Returns
+
+readonly [`ProgressSample`](#progresssample)[]
+
+***
+
+### ProgressTrackerOptions
+
+Defined in: [src/runtime/supervise/stop-rules.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L117)
+
+#### Properties
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L119)
+
+Clock for `view().now`. Defaults to `Date.now`.
+
+###### Returns
+
+`number`
+
+##### requireDelivered?
+
+> `readonly` `optional` **requireDelivered?**: `boolean`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L123)
+
+Treat a settlement that did NOT pass its deliverable check as having no objective. Default
+ true — "scored 0.9 but never delivered" is not progress, and counting it as progress is the
+ exact way a plateau rule gets talked out of firing.
+
+##### minImprovement?
+
+> `readonly` `optional` **minImprovement?**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L126)
+
+How much the best-so-far must rise for a settlement to count as an IMPROVEMENT. Default 0
+ (any strict rise counts). Raise it to ignore score noise.
+
+***
+
+### NoProgressForOptions
+
+Defined in: [src/runtime/supervise/stop-rules.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L225)
+
+#### Properties
+
+##### ms?
+
+> `readonly` `optional` **ms?**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L227)
+
+Stop when this many ms have passed since the last SETTLEMENT. Omit to not bound on time.
+
+##### settles?
+
+> `readonly` `optional` **settles?**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L230)
+
+Stop when this many settlements have landed with no improvement in best-so-far. Omit to not
+ bound on settles.
+
+##### minSettles?
+
+> `readonly` `optional` **minSettles?**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L233)
+
+Never stop before this many settlements have landed — the warm-up that stops a rule from
+ firing on an empty run. Default 1.
+
+***
+
+### PlateauOptions
+
+Defined in: [src/runtime/supervise/stop-rules.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L275)
+
+#### Properties
+
+##### window
+
+> `readonly` **window**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L278)
+
+How many trailing settlements to judge. The rule fires when the whole window failed to lift
+ the best-so-far by more than `minDelta`.
+
+##### minDelta
+
+> `readonly` **minDelta**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L281)
+
+The rise that counts as an improvement — the domain's noise floor. `0` means any strict rise
+ counts.
+
+##### minSettles?
+
+> `readonly` `optional` **minSettles?**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L284)
+
+Never fire before this many settlements. Defaults to `window` (so the first decision is made
+ on a full window, not on a partial one).
+
+***
+
+### AllWorkersStalledOptions
+
+Defined in: [src/runtime/supervise/stop-rules.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L316)
+
+#### Properties
+
+##### minWorkers?
+
+> `readonly` `optional` **minWorkers?**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L319)
+
+Require at least this many live workers before the rule can fire — one stalled worker in a
+ one-worker tree is a weaker signal than a whole fleet going quiet. Default 1.
+
+##### stallAfterMs?
+
+> `readonly` `optional` **stallAfterMs?**: `number`
+
+Defined in: [src/runtime/supervise/stop-rules.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L322)
+
+Idle time that counts as stalled, passed through to the live progress read. Omit = the
+ runtime default (`DEFAULT_STALL_AFTER_MS`).
+
+***
+
 ### SuperviseOptions
 
-Defined in: [src/runtime/supervise/supervise.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L57)
+Defined in: [src/runtime/supervise/supervise.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L59)
 
 #### Properties
 
@@ -12140,7 +12555,7 @@ Defined in: [src/runtime/supervise/supervise.ts:57](https://github.com/tangle-ne
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/supervise.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L59)
+Defined in: [src/runtime/supervise/supervise.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L61)
 
 The conserved compute pool for the whole run.
 
@@ -12148,7 +12563,7 @@ The conserved compute pool for the whole run.
 
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
 
-Defined in: [src/runtime/supervise/supervise.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L61)
+Defined in: [src/runtime/supervise/supervise.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L63)
 
 WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`.
 
@@ -12156,7 +12571,7 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
-Defined in: [src/runtime/supervise/supervise.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L65)
+Defined in: [src/runtime/supervise/supervise.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L67)
 
 The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
@@ -12166,7 +12581,7 @@ The completion oracle for backend-derived workers (settled ⟺ delivered). Stron
 
 > `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [src/runtime/supervise/supervise.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L67)
+Defined in: [src/runtime/supervise/supervise.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L69)
 
 Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
 
@@ -12174,7 +12589,7 @@ Override the worker seam directly (tests / advanced) instead of deriving it from
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [src/runtime/supervise/supervise.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L69)
+Defined in: [src/runtime/supervise/supervise.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L71)
 
 The supervisor's router substrate (`harness` null). The profile's model wins.
 
@@ -12182,7 +12597,7 @@ The supervisor's router substrate (`harness` null). The profile's model wins.
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [src/runtime/supervise/supervise.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L71)
+Defined in: [src/runtime/supervise/supervise.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L73)
 
 Inject the supervisor brain directly (tests / advanced).
 
@@ -12190,7 +12605,7 @@ Inject the supervisor brain directly (tests / advanced).
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
-Defined in: [src/runtime/supervise/supervise.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L73)
+Defined in: [src/runtime/supervise/supervise.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L75)
 
 Run a sandboxed-harness supervisor (`harness` set).
 
@@ -12198,7 +12613,7 @@ Run a sandboxed-harness supervisor (`harness` set).
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [src/runtime/supervise/supervise.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L77)
+Defined in: [src/runtime/supervise/supervise.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L79)
 
 WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do simple work
  itself) OR SPAWN (delegate when it needs parallelism), not be a pure manager. Pair with
@@ -12208,7 +12623,7 @@ WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do 
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [src/runtime/supervise/supervise.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L83)
+Defined in: [src/runtime/supervise/supervise.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L85)
 
 Runs an `extraTools` call; null/undefined falls through to the coordination dispatch.
 
@@ -12230,7 +12645,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **perWorker?**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/supervise.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L88)
+Defined in: [src/runtime/supervise/supervise.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L90)
 
 Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
 
@@ -12238,7 +12653,7 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L92)
+Defined in: [src/runtime/supervise/supervise.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L94)
 
 Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
  flight. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work (live boxes/
@@ -12248,7 +12663,7 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
 
-Defined in: [src/runtime/supervise/supervise.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L95)
+Defined in: [src/runtime/supervise/supervise.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L97)
 
 Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
  (the driver receives settled worker outputs, no analyst findings).
@@ -12257,7 +12672,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [src/runtime/supervise/supervise.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L100)
+Defined in: [src/runtime/supervise/supervise.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L102)
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
@@ -12268,7 +12683,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 
 > `readonly` `optional` **watchWorkers?**: `WorkerWatchOptions`
 
-Defined in: [src/runtime/supervise/supervise.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L110)
+Defined in: [src/runtime/supervise/supervise.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L112)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
 moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
@@ -12282,7 +12697,7 @@ Omit = off (status quo — no online watching, no extra events).
 
 > `readonly` `optional` **stallAfterMs?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L113)
+Defined in: [src/runtime/supervise/supervise.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L115)
 
 Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
  at observation time — nothing is killed or retried. Omit = the runtime default.
@@ -12291,7 +12706,7 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 
 > `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [src/runtime/supervise/supervise.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L115)
+Defined in: [src/runtime/supervise/supervise.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L117)
 
 Worker output store. Defaults to in-memory.
 
@@ -12299,7 +12714,7 @@ Worker output store. Defaults to in-memory.
 
 > `readonly` `optional` **runDir?**: `string`
 
-Defined in: [src/runtime/supervise/supervise.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L133)
+Defined in: [src/runtime/supervise/supervise.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L135)
 
 Make the run DURABLE: journal + result blobs are file-backed under this directory
 (`createFileRunContext`), fsynced per write, and the supervisor reads the prior tree first.
@@ -12321,28 +12736,72 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **journal?**: [`SpawnJournal`](#spawnjournal)
 
-Defined in: [src/runtime/supervise/supervise.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L136)
+Defined in: [src/runtime/supervise/supervise.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L138)
 
 Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
  with `blobs` — a journal whose result payloads live in a different store cannot replay.
+
+##### probes?
+
+> `readonly` `optional` **probes?**: [`WaitProbeRegistry`](#waitproberegistry)
+
+Defined in: [src/runtime/supervise/supervise.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L142)
+
+Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
+ wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
+ refused `unknown-probe` and `timer` waits still work.
+
+##### stopRule?
+
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+
+Defined in: [src/runtime/supervise/supervise.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L153)
+
+PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
+before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
+not because it ran out". It composes with the budget guards and can never override one.
+
+Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
+`noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
+thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
+only (unchanged behavior).
+
+##### onProgressStop?
+
+> `readonly` `optional` **onProgressStop?**: (`reason`) => `void`
+
+Defined in: [src/runtime/supervise/supervise.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L156)
+
+One-shot notification of WHY a `stopRule` ended the run — so a caller records the reason
+ instead of inferring an early stop from an unexhausted budget.
+
+###### Parameters
+
+###### reason
+
+`string`
+
+###### Returns
+
+`void`
 
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L137)
+Defined in: [src/runtime/supervise/supervise.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L157)
 
 ##### maxTurns?
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L138)
+Defined in: [src/runtime/supervise/supervise.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L158)
 
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [src/runtime/supervise/supervise.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L144)
+Defined in: [src/runtime/supervise/supervise.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L164)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
  its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
@@ -12354,13 +12813,13 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [src/runtime/supervise/supervise.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L145)
+Defined in: [src/runtime/supervise/supervise.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L165)
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L146)
+Defined in: [src/runtime/supervise/supervise.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L166)
 
 ###### Returns
 
@@ -12370,7 +12829,7 @@ Defined in: [src/runtime/supervise/supervise.ts:146](https://github.com/tangle-n
 
 > `readonly` `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [src/runtime/supervise/supervise.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L150)
+Defined in: [src/runtime/supervise/supervise.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L170)
 
 Restrict the run to this subset of models. When set, every configured model — the
  supervisor router model, the profile's model, and the backend's model — must be a member,
@@ -12380,7 +12839,7 @@ Restrict the run to this subset of models. When set, every configured model — 
 
 ### SupervisorProfile
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L52)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L53)
 
 The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
  `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
@@ -12391,13 +12850,13 @@ The supervisor's profile — the subset of an `AgentProfile` that selects + shap
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L53)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L54)
 
 ##### harness?
 
 > `readonly` `optional` **harness?**: `string` \| `null`
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L55)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L56)
 
 null/undefined → router brain (in-process tool-loop); a coding-CLI harness → sandboxed brain.
 
@@ -12405,7 +12864,7 @@ null/undefined → router brain (in-process tool-loop); a coding-CLI harness →
 
 > `readonly` `optional` **model?**: `string`
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L57)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L58)
 
 The router model when the brain is router-driven (falls back to the deps router config).
 
@@ -12413,7 +12872,7 @@ The router model when the brain is router-driven (falls back to the deps router 
 
 > `readonly` `optional` **systemPrompt?**: `string`
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L59)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L60)
 
 The standing instructions ("you delegate, you do not solve").
 
@@ -12421,7 +12880,7 @@ The standing instructions ("you delegate, you do not solve").
 
 ### SupervisorAgentDeps
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L73)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L74)
 
 #### Properties
 
@@ -12429,13 +12888,13 @@ Defined in: [src/runtime/supervise/supervisor-agent.ts:73](https://github.com/ta
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L74)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L75)
 
 ##### makeWorkerAgent
 
 > `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L76)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L77)
 
 Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms).
 
@@ -12443,7 +12902,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 > `readonly` **perWorker**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L78)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L79)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -12451,7 +12910,7 @@ Per-child budget reserved from the conserved pool on each spawn.
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L82)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L83)
 
 Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
@@ -12461,7 +12920,7 @@ Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L84)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L85)
 
 Router substrate for a router-brained supervisor (`harness` null). The profile's model wins.
 
@@ -12469,7 +12928,7 @@ Router substrate for a router-brained supervisor (`harness` null). The profile's
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L86)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L87)
 
 Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile.
 
@@ -12477,7 +12936,7 @@ Inject the brain directly (tests / advanced) instead of resolving `routerBrain` 
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L88)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L89)
 
 Required for a sandboxed-harness supervisor (`harness` set): runs the harness as the driver.
 
@@ -12485,7 +12944,7 @@ Required for a sandboxed-harness supervisor (`harness` set): runs the harness as
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L91)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L92)
 
 WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple work ITSELF and
  only delegate when it needs parallelism. Pair with `executeExtraTool`.
@@ -12494,7 +12953,7 @@ WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L97)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L98)
 
 Runs an `extraTools` call; null/undefined falls through to the coordination dispatch.
 
@@ -12516,7 +12975,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L102)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L103)
 
 Analyst lenses available to the driver (both arms). Required for `analyzeOnSettle`.
 
@@ -12524,7 +12983,7 @@ Analyst lenses available to the driver (both arms). Required for `analyzeOnSettl
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L105)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L106)
 
 Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`.
@@ -12533,7 +12992,7 @@ Analyst kinds run on each worker-settle → a `finding` the driver composes its 
 
 > `readonly` `optional` **watchWorkers?**: `WorkerWatchOptions`
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L108)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L109)
 
 Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
  learns a worker is looping mid-run instead of at settle. Omit = no online watching.
@@ -12542,21 +13001,50 @@ Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so 
 
 > `readonly` `optional` **stallAfterMs?**: `number`
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L110)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L111)
 
 Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default.
+
+##### stopRule?
+
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+
+Defined in: [src/runtime/supervise/supervisor-agent.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L116)
+
+PROGRESS-derived stop rule (router arm). Ends a run that has stopped learning BEFORE it
+ exhausts a ceiling; it can never keep a run alive past one. Build it with `plateau` /
+ `noProgressFor` / `allWorkersStalled` from `supervise/stop-rules` — the thresholds are the
+ caller's judgment. Omit = ceilings only.
+
+##### onProgressStop?
+
+> `readonly` `optional` **onProgressStop?**: (`reason`) => `void`
+
+Defined in: [src/runtime/supervise/supervisor-agent.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L118)
+
+One-shot notification of WHY a `stopRule` ended the run.
+
+###### Parameters
+
+###### reason
+
+`string`
+
+###### Returns
+
+`void`
 
 ##### maxTurns?
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L111)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L119)
 
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L115)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L123)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
  distills its coordination transcript to a compact progress note once it exceeds the threshold,
@@ -12667,7 +13155,7 @@ Wasted-vs-total tool-call ratio for the run.
 
 ### Agent
 
-Defined in: [src/runtime/supervise/types.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L52)
+Defined in: [src/runtime/supervise/types.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L69)
 
 One self-similar atom. A leaf is an `Agent` that never calls `scope.spawn`; a driver
 is an `Agent` whose `act` spawns children and reacts to them via `scope.next()`. An
@@ -12694,7 +13182,7 @@ unordered collection. `scope.next()` delivers strictly in recorded `seq` order.
 
 > `readonly` **name**: `string`
 
-Defined in: [src/runtime/supervise/types.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L53)
+Defined in: [src/runtime/supervise/types.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L70)
 
 #### Methods
 
@@ -12702,7 +13190,7 @@ Defined in: [src/runtime/supervise/types.ts:53](https://github.com/tangle-networ
 
 > **act**(`task`, `scope`): `Promise`\<`Out`\>
 
-Defined in: [src/runtime/supervise/types.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L54)
+Defined in: [src/runtime/supervise/types.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L71)
 
 ###### Parameters
 
@@ -12722,7 +13210,7 @@ Defined in: [src/runtime/supervise/types.ts:54](https://github.com/tangle-networ
 
 ### Executor
 
-Defined in: [src/runtime/supervise/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L73)
+Defined in: [src/runtime/supervise/types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L90)
 
 The leaf runtime — ONE open interface, not a closed union. `execute` returns a
 `Promise<ExecutorResult>` for one-shot executors OR an `AsyncIterable<UsageEvent>` for
@@ -12749,7 +13237,7 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 > `readonly` **runtime**: [`Runtime`](#runtime-3)
 
-Defined in: [src/runtime/supervise/types.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L75)
+Defined in: [src/runtime/supervise/types.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L92)
 
 Stable runtime tag for traces + the equal-k exemption check.
 
@@ -12757,7 +13245,7 @@ Stable runtime tag for traces + the equal-k exemption check.
 
 > `readonly` `optional` **budgetExempt?**: `boolean`
 
-Defined in: [src/runtime/supervise/types.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L81)
+Defined in: [src/runtime/supervise/types.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L98)
 
 When true, this executor's spend is NOT metered against the conserved pool and its
 iterations are excluded from the equal-k assertion (a `cli` subprocess without
@@ -12769,7 +13257,7 @@ token accounting). Fail-loud everywhere else: a metered executor MUST report usa
 
 > **execute**(`task`, `signal`): `AsyncIterable`\<[`UsageEvent`](#usageevent), `any`, `any`\> \| `Promise`\<[`ExecutorResult`](#executorresult)\<`Out`\>\>
 
-Defined in: [src/runtime/supervise/types.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L87)
+Defined in: [src/runtime/supervise/types.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L104)
 
 One-shot → resolves a `ExecutorResult`; streaming → yields incremental `UsageEvent`s and
 the terminal artifact is read from `resultArtifact()` after the stream drains.
@@ -12793,7 +13281,7 @@ the terminal artifact is read from `resultArtifact()` after the stream drains.
 
 > `optional` **deliver**(`msg`): `void`
 
-Defined in: [src/runtime/supervise/types.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L98)
+Defined in: [src/runtime/supervise/types.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L115)
 
 Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
 verb). A streaming executor drains pending messages between turns and folds them into the next
@@ -12815,7 +13303,7 @@ executor's to ignore.
 
 > `optional` **progress**(): [`ExecutorProgress`](#executorprogress) \| `undefined`
 
-Defined in: [src/runtime/supervise/types.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L111)
+Defined in: [src/runtime/supervise/types.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L128)
 
 Optional LIVE progress: what this worker is doing RIGHT NOW, read synchronously and
 cheaply while `execute` is still streaming. The scope already derives activity timing,
@@ -12836,7 +13324,7 @@ mid-flight — it can only be waited on.
 
 > `optional` **traceSource**(): [`TraceSource`](#tracesource-1) \| `undefined`
 
-Defined in: [src/runtime/supervise/types.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L119)
+Defined in: [src/runtime/supervise/types.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L136)
 
 Optional live tool-call trace for the ONLINE detectors (`watchTrace`). An executor that
 can see its worker's tool calls exposes them here, so a supervisor can run the streaming
@@ -12852,7 +13340,7 @@ this runtime (the settle-time analyzers still work).
 
 > **teardown**(`grace`): `Promise`\<\{ `destroyed`: `boolean`; \}\>
 
-Defined in: [src/runtime/supervise/types.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L124)
+Defined in: [src/runtime/supervise/types.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L141)
 
 Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
 (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
@@ -12871,7 +13359,7 @@ Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
 
 > **resultArtifact**(): `object`
 
-Defined in: [src/runtime/supervise/types.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L129)
+Defined in: [src/runtime/supervise/types.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L146)
 
 The replay source (B1): the content-addressed `outRef` + the materialized output the
 driver branched on, its verdict, and the conserved spend. Read once, after settle.
@@ -12900,7 +13388,7 @@ driver branched on, its verdict, and the conserved spend. Read once, after settl
 
 > `optional` **metered**(): [`Spend`](#spend) \| `undefined`
 
-Defined in: [src/runtime/supervise/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L138)
+Defined in: [src/runtime/supervise/types.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L155)
 
 A driver-executor's OWN-inference subtree total (rolled up from its nested tree's `metered`
 events) — the parent scope journals it as a `metered` event for this node on settle, on BOTH
@@ -12917,7 +13405,7 @@ executors omit it (returns `undefined`).
 
 ### ExecutorResult
 
-Defined in: [src/runtime/supervise/types.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L142)
+Defined in: [src/runtime/supervise/types.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L159)
 
 Terminal artifact of a one-shot `Executor.execute`.
 
@@ -12933,31 +13421,31 @@ Terminal artifact of a one-shot `Executor.execute`.
 
 > **outRef**: `string`
 
-Defined in: [src/runtime/supervise/types.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L143)
+Defined in: [src/runtime/supervise/types.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L160)
 
 ##### out
 
 > **out**: `Out`
 
-Defined in: [src/runtime/supervise/types.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L144)
+Defined in: [src/runtime/supervise/types.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L161)
 
 ##### verdict?
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [src/runtime/supervise/types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L145)
+Defined in: [src/runtime/supervise/types.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L162)
 
 ##### spent
 
 > **spent**: [`Spend`](#spend)
 
-Defined in: [src/runtime/supervise/types.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L146)
+Defined in: [src/runtime/supervise/types.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L163)
 
 ***
 
 ### AgentSpec
 
-Defined in: [src/runtime/supervise/types.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L176)
+Defined in: [src/runtime/supervise/types.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L193)
 
 `AgentProfile` does NOT carry a `harness`/backend field — `harness` lives on the
 sandbox SDK's `BackendConfig`, not the portable profile. So an agent is mapped to its
@@ -12975,13 +13463,13 @@ Fail loud on an unresolvable spec (no executor and an unknown harness).
 
 > `readonly` **profile**: `AgentProfile`
 
-Defined in: [src/runtime/supervise/types.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L177)
+Defined in: [src/runtime/supervise/types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L194)
 
 ##### harness
 
 > `readonly` **harness**: `BackendType` \| `null`
 
-Defined in: [src/runtime/supervise/types.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L179)
+Defined in: [src/runtime/supervise/types.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L196)
 
 `null` selects router/inline; a `BackendType` selects the sandboxed harness.
 
@@ -12989,7 +13477,7 @@ Defined in: [src/runtime/supervise/types.ts:179](https://github.com/tangle-netwo
 
 > `readonly` `optional` **executor?**: [`Executor`](#executor)\<`unknown`\>
 
-Defined in: [src/runtime/supervise/types.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L181)
+Defined in: [src/runtime/supervise/types.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L198)
 
 Bring-your-own executor: when set, overrides harness-based resolution entirely.
 
@@ -12997,7 +13485,7 @@ Bring-your-own executor: when set, overrides harness-based resolution entirely.
 
 ### ExecutorContext
 
-Defined in: [src/runtime/supervise/types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L194)
+Defined in: [src/runtime/supervise/types.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L211)
 
 Construction context handed to a `ExecutorFactory` — the seams a built-in needs
  (sandbox client for the sandbox executor, router config for router/inline) without
@@ -13009,13 +13497,13 @@ Construction context handed to a `ExecutorFactory` — the seams a built-in need
 
 > `readonly` **signal**: `AbortSignal`
 
-Defined in: [src/runtime/supervise/types.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L195)
+Defined in: [src/runtime/supervise/types.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L212)
 
 ##### seams
 
 > `readonly` **seams**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
-Defined in: [src/runtime/supervise/types.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L197)
+Defined in: [src/runtime/supervise/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L214)
 
 Opaque seams the registry threads through; a built-in narrows what it needs.
 
@@ -13023,7 +13511,7 @@ Opaque seams the registry threads through; a built-in narrows what it needs.
 
 ### ExecutorRegistry
 
-Defined in: [src/runtime/supervise/types.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L206)
+Defined in: [src/runtime/supervise/types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L223)
 
 The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
 registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
@@ -13036,7 +13524,7 @@ point, mirroring the open `Executor` interface.
 
 > **register**\<`Out`\>(`runtime`, `factory`): `void`
 
-Defined in: [src/runtime/supervise/types.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L208)
+Defined in: [src/runtime/supervise/types.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L225)
 
 Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
@@ -13064,7 +13552,7 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 > **resolve**\<`Out`\>(`spec`): \{ `succeeded`: `true`; `value`: [`ExecutorFactory`](#executorfactory)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
 
-Defined in: [src/runtime/supervise/types.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L215)
+Defined in: [src/runtime/supervise/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L232)
 
 Resolve a spec to a factory. Precedence: a BYO `spec.executor` → a trivial factory
 returning it; else `harness === null` → the `'router'` factory; else a registered
@@ -13091,7 +13579,7 @@ inspects `succeeded` before `value` (no silent fallback).
 
 ### Budget
 
-Defined in: [src/runtime/supervise/types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L223)
+Defined in: [src/runtime/supervise/types.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L240)
 
 A budget envelope on a spawn or the root. All ceilings; the pool reserves against them.
 
@@ -13101,31 +13589,31 @@ A budget envelope on a spawn or the root. All ceilings; the pool reserves agains
 
 > `readonly` **maxIterations**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L224)
+Defined in: [src/runtime/supervise/types.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L241)
 
 ##### maxTokens
 
 > `readonly` **maxTokens**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L225)
+Defined in: [src/runtime/supervise/types.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L242)
 
 ##### maxUsd?
 
 > `readonly` `optional` **maxUsd?**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L226)
+Defined in: [src/runtime/supervise/types.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L243)
 
 ##### deadlineMs?
 
 > `readonly` `optional` **deadlineMs?**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L227)
+Defined in: [src/runtime/supervise/types.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L244)
 
 ***
 
 ### Spend
 
-Defined in: [src/runtime/supervise/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L232)
+Defined in: [src/runtime/supervise/types.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L249)
 
 Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd
  are separate channels (never folded).
@@ -13136,19 +13624,19 @@ Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and 
 
 > **iterations**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L233)
+Defined in: [src/runtime/supervise/types.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L250)
 
 ##### tokens
 
 > **tokens**: [`LoopTokenUsage`](#looptokenusage)
 
-Defined in: [src/runtime/supervise/types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L234)
+Defined in: [src/runtime/supervise/types.ts:251](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L251)
 
 ##### usdKnown?
 
 > `optional` **usdKnown?**: `boolean`
 
-Defined in: [src/runtime/supervise/types.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L237)
+Defined in: [src/runtime/supervise/types.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L254)
 
 Dollar accounting is known unless explicitly false. A false value must not be treated as $0
  when enforcing a dollar-denominated comparison or limit.
@@ -13157,19 +13645,19 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 > **usd**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L238)
+Defined in: [src/runtime/supervise/types.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L255)
 
 ##### ms
 
 > **ms**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L239)
+Defined in: [src/runtime/supervise/types.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L256)
 
 ***
 
 ### SpawnOpts
 
-Defined in: [src/runtime/supervise/types.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L254)
+Defined in: [src/runtime/supervise/types.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L281)
 
 #### Properties
 
@@ -13177,25 +13665,25 @@ Defined in: [src/runtime/supervise/types.ts:254](https://github.com/tangle-netwo
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/types.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L255)
+Defined in: [src/runtime/supervise/types.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L282)
 
 ##### label
 
 > `readonly` **label**: `string`
 
-Defined in: [src/runtime/supervise/types.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L256)
+Defined in: [src/runtime/supervise/types.ts:283](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L283)
 
 ##### restart?
 
 > `readonly` `optional` **restart?**: `Restart`
 
-Defined in: [src/runtime/supervise/types.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L257)
+Defined in: [src/runtime/supervise/types.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L284)
 
 ##### shutdown?
 
 > `readonly` `optional` **shutdown?**: `number` \| `"brutalKill"` \| `"infinity"`
 
-Defined in: [src/runtime/supervise/types.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L259)
+Defined in: [src/runtime/supervise/types.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L286)
 
 Teardown grace handed to the executor when this node is reaped.
 
@@ -13203,7 +13691,7 @@ Teardown grace handed to the executor when this node is reaped.
 
 ### Scope
 
-Defined in: [src/runtime/supervise/types.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L310)
+Defined in: [src/runtime/supervise/types.ts:337](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L337)
 
 The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves
 budget atomically from the shared pool and fails closed when the pool cannot cover it.
@@ -13222,7 +13710,7 @@ not the replay log.
 
 > `readonly` **signal**: `AbortSignal`
 
-Defined in: [src/runtime/supervise/types.ts:361](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L361)
+Defined in: [src/runtime/supervise/types.ts:411](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L411)
 
 This scope's abort signal — aborted when the run is cancelled, a breaker trips, the pool
  is exhausted, or a parent scope cascades. A long-running driver `act` over this scope reads
@@ -13233,7 +13721,7 @@ This scope's abort signal — aborted when the run is cancelled, a breaker trips
 
 > `readonly` `optional` **resume?**: [`ResumedWork`](#resumedwork)\<`Out`\>
 
-Defined in: [src/runtime/supervise/types.ts:383](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L383)
+Defined in: [src/runtime/supervise/types.ts:433](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L433)
 
 Prior committed work, present ONLY on a resumed run (`undefined` on a fresh run, which is
 every run that did not pass `SupervisorOpts.resume`). The supervisor `loadTree`s the journal
@@ -13247,7 +13735,7 @@ maxima, so any NEW spawn appends without colliding with a journaled event.
 
 > `readonly` **view**: [`TreeView`](#treeview)
 
-Defined in: [src/runtime/supervise/types.ts:385](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L385)
+Defined in: [src/runtime/supervise/types.ts:435](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L435)
 
 The live tree — reads the in-memory nursery, not the journal.
 
@@ -13255,7 +13743,7 @@ The live tree — reads the in-memory nursery, not the journal.
 
 > `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
-Defined in: [src/runtime/supervise/types.ts:387](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L387)
+Defined in: [src/runtime/supervise/types.ts:437](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L437)
 
 Conserved-pool readouts (post-reservation).
 
@@ -13265,7 +13753,7 @@ Conserved-pool readouts (post-reservation).
 
 > **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: `Handle`\<`C`\>; \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"` \| `"depth-exceeded"`; \}
 
-Defined in: [src/runtime/supervise/types.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L316)
+Defined in: [src/runtime/supervise/types.ts:343](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L343)
 
 Spawn a child. Reserves `opts.budget` from the conserved pool atomically; refunds the
 unspent remainder on settle. Returns a typed outcome — fail-closed on an exhausted
@@ -13299,7 +13787,7 @@ pool or an exceeded depth ceiling (the caller inspects `ok` before `handle`).
 
 > **next**(): `Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
 
-Defined in: [src/runtime/supervise/types.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L323)
+Defined in: [src/runtime/supervise/types.ts:350](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L350)
 
 ray.wait n=1 over this scope's in-memory live set; resolves as each child settles;
  `null` when the live set is empty.
@@ -13312,7 +13800,7 @@ ray.wait n=1 over this scope's in-memory live set; resolves as each child settle
 
 > **nextResolved**(): `Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
 
-Defined in: [src/runtime/supervise/types.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L330)
+Defined in: [src/runtime/supervise/types.ts:357](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L357)
 
 Non-blocking twin of `next()`: deliver an ALREADY-settled, undelivered child, or `null`
 when none is ready — never awaits a live child. The driver's post-loop drain reads this so
@@ -13327,7 +13815,7 @@ the finalize ledger instead of being silently lost.
 
 > **send**(`nodeId`, `msg`): `boolean`
 
-Defined in: [src/runtime/supervise/types.ts:339](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L339)
+Defined in: [src/runtime/supervise/types.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L366)
 
 Steer a RUNNING child out-of-band — deliver a message to its executor's inbox (the driver's
 `send` verb: next-instruction, interrupt, or resume). Returns `true` if the message was
@@ -13350,11 +13838,49 @@ is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an M
 
 `boolean`
 
+##### wait()
+
+> **wait**(`spec`, `opts`): \{ `ok`: `true`; `handle`: `Handle`\<[`WaitOutcome`](#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](#waitrejection); \}
+
+Defined in: [src/runtime/supervise/types.ts:386](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L386)
+
+Arm a WAIT-STATE node: a first-class tree node that waits on wall-clock time (`timer`) or on
+a named external predicate (`poll`) and settles through THIS scope's `next()` cursor like any
+other child — but holds no executor, no sandbox, and no conserved budget. Waiting costs zero
+tokens and zero dollars by construction.
+
+It is journaled (`waiting` → `woken`) with its ABSOLUTE deadline, so a run that dies mid-wait
+resumes still waiting: the supervisor surfaces the un-woken waits on `Scope.resume.waits`, and
+re-arming the same `label` adopts the recorded node id and original instant instead of
+restarting the countdown.
+
+Fail-closed admission, mirroring `spawn`: `invalid-spec`, `unknown-probe` (a `poll` naming a
+predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
+the pool's hard wall-clock ceiling — a wait never extends a budget guard).
+
+NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 15s fence makes
+the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
+and nothing about it survives a restart. See `supervise/wait.ts`.
+
+###### Parameters
+
+###### spec
+
+[`WaitSpec`](#waitspec)
+
+###### opts
+
+`WaitOpts`
+
+###### Returns
+
+\{ `ok`: `true`; `handle`: `Handle`\<[`WaitOutcome`](#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](#waitrejection); \}
+
 ##### progress()
 
 > **progress**(`nodeId`, `opts?`): [`WorkerProgress`](#workerprogress) \| `undefined`
 
-Defined in: [src/runtime/supervise/types.ts:350](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L350)
+Defined in: [src/runtime/supervise/types.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L400)
 
 The LIVE read-model of one child, valid WHILE it runs: last-activity timestamp, idle time,
 a derived `stalled` flag, tokens/turns spent so far, whether a steer can even reach it
@@ -13389,7 +13915,7 @@ Pull-based and side-effect free — reading it starts no timer and spends nothin
 
 > **traceSource**(`nodeId`): [`TraceSource`](#tracesource-1) \| `undefined`
 
-Defined in: [src/runtime/supervise/types.ts:356](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L356)
+Defined in: [src/runtime/supervise/types.ts:406](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L406)
 
 The live tool-call trace of one child when its executor exposes one (`Executor.traceSource`),
  for running the online detector panel over a RUNNING worker. `undefined` otherwise.
@@ -13408,7 +13934,7 @@ The live tool-call trace of one child when its executor exposes one (`Executor.t
 
 > **meter**(`spend`, `detail?`): `Promise`\<`void`\>
 
-Defined in: [src/runtime/supervise/types.ts:373](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L373)
+Defined in: [src/runtime/supervise/types.ts:423](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L423)
 
 Meter the driver's OWN compute against the conserved pool — its inference turns, which are
 real tokens/usd but not a spawned child (no reserve/reconcile). A direct `free → committed`
@@ -13438,7 +13964,7 @@ metered event is cost-critical, so it lands before the join-barrier roll-up).
 
 ### ResumedWork
 
-Defined in: [src/runtime/supervise/types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L402)
+Defined in: [src/runtime/supervise/types.ts:452](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L452)
 
 The committed work a resumed run inherits from its journal. `settled` is the replayed
 `Settled[]` (cursor-ordered, rehydrated from the blob store by `replaySpawnTree`); `view`
@@ -13457,19 +13983,30 @@ resume-aware `act` reads `scope.resume?.settled` to pick up where the crashed ru
 
 > `readonly` **settled**: readonly [`Settled`](#settled-3)\<`Out`\>[]
 
-Defined in: [src/runtime/supervise/types.ts:403](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L403)
+Defined in: [src/runtime/supervise/types.ts:453](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L453)
 
 ##### view
 
 > `readonly` **view**: [`TreeView`](#treeview)
 
-Defined in: [src/runtime/supervise/types.ts:404](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L404)
+Defined in: [src/runtime/supervise/types.ts:454](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L454)
+
+##### waits
+
+> `readonly` **waits**: readonly [`PendingWait`](#pendingwait)[]
+
+Defined in: [src/runtime/supervise/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L461)
+
+Wait-state nodes the journal shows as ARMED but never woken — the run died mid-wait. Each
+carries the ORIGINAL arm instant and absolute deadline, so re-arming the same `label` through
+`Scope.wait` resumes the countdown instead of restarting it. Empty on a fresh run and on a
+resumed run that was not waiting.
 
 ***
 
 ### TreeView
 
-Defined in: [src/runtime/supervise/types.ts:423](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L423)
+Defined in: [src/runtime/supervise/types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L480)
 
 The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer.
 
@@ -13479,27 +14016,37 @@ The live tree — what `scope.view` / `RootHandle.view()` materialize for a view
 
 > `readonly` **root**: `string`
 
-Defined in: [src/runtime/supervise/types.ts:424](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L424)
+Defined in: [src/runtime/supervise/types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L481)
 
 ##### nodes
 
 > `readonly` **nodes**: readonly `NodeSnapshot`[]
 
-Defined in: [src/runtime/supervise/types.ts:425](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L425)
+Defined in: [src/runtime/supervise/types.ts:482](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L482)
 
 ##### inFlight
 
 > `readonly` **inFlight**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L427)
+Defined in: [src/runtime/supervise/types.ts:484](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L484)
 
 Count of nodes in `running` or `acquiring` — the "what's in flow?" answer.
+
+##### waiting
+
+> `readonly` **waiting**: `number`
+
+Defined in: [src/runtime/supervise/types.ts:488](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L488)
+
+Count of nodes in `waiting` — armed wait-states. Deliberately NOT folded into `inFlight`:
+ a wait burns no executor and no budget, so counting it as flow would misreport both idle
+ capacity and how much work is actually running.
 
 ***
 
 ### SpawnJournal
 
-Defined in: [src/runtime/supervise/types.ts:478](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L478)
+Defined in: [src/runtime/supervise/types.ts:565](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L565)
 
 The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape).
 `loadTree` returns events for inspection and completed-settlement replay, not live process
@@ -13511,7 +14058,7 @@ recovery; `appendEvent` runs only AFTER the event is observed-committed (never s
 
 > **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
 
-Defined in: [src/runtime/supervise/types.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L479)
+Defined in: [src/runtime/supervise/types.ts:566](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L566)
 
 ###### Parameters
 
@@ -13527,7 +14074,7 @@ Defined in: [src/runtime/supervise/types.ts:479](https://github.com/tangle-netwo
 
 > **beginTree**(`root`, `at`): `Promise`\<`void`\>
 
-Defined in: [src/runtime/supervise/types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L480)
+Defined in: [src/runtime/supervise/types.ts:567](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L567)
 
 ###### Parameters
 
@@ -13547,7 +14094,7 @@ Defined in: [src/runtime/supervise/types.ts:480](https://github.com/tangle-netwo
 
 > **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
 
-Defined in: [src/runtime/supervise/types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L481)
+Defined in: [src/runtime/supervise/types.ts:568](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L568)
 
 ###### Parameters
 
@@ -13567,7 +14114,7 @@ Defined in: [src/runtime/supervise/types.ts:481](https://github.com/tangle-netwo
 
 ### ResultBlobStore
 
-Defined in: [src/runtime/supervise/types.ts:487](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L487)
+Defined in: [src/runtime/supervise/types.ts:574](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L574)
 
 Content-addressed result blobs (the `outRef` → artifact map) backing the replay
  invariant. Split from the journal so the journal stays small (decisions) and the
@@ -13579,7 +14126,7 @@ Content-addressed result blobs (the `outRef` → artifact map) backing the repla
 
 > **put**(`outRef`, `artifact`): `Promise`\<`void`\>
 
-Defined in: [src/runtime/supervise/types.ts:488](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L488)
+Defined in: [src/runtime/supervise/types.ts:575](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L575)
 
 ###### Parameters
 
@@ -13599,7 +14146,7 @@ Defined in: [src/runtime/supervise/types.ts:488](https://github.com/tangle-netwo
 
 > **get**(`outRef`): `Promise`\<`unknown`\>
 
-Defined in: [src/runtime/supervise/types.ts:489](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L489)
+Defined in: [src/runtime/supervise/types.ts:576](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L576)
 
 ###### Parameters
 
@@ -13615,7 +14162,7 @@ Defined in: [src/runtime/supervise/types.ts:489](https://github.com/tangle-netwo
 
 ### Supervisor
 
-Defined in: [src/runtime/supervise/types.ts:499](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L499)
+Defined in: [src/runtime/supervise/types.ts:586](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L586)
 
 Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker,
 and the root handle. `run` executes the root `Agent` to completion; `attach` wires a
@@ -13637,7 +14184,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 > **run**(`root`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`Out`\>\>
 
-Defined in: [src/runtime/supervise/types.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L500)
+Defined in: [src/runtime/supervise/types.ts:587](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L587)
 
 ###### Parameters
 
@@ -13661,7 +14208,7 @@ Defined in: [src/runtime/supervise/types.ts:500](https://github.com/tangle-netwo
 
 > **attach**(`h`): `void`
 
-Defined in: [src/runtime/supervise/types.ts:501](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L501)
+Defined in: [src/runtime/supervise/types.ts:588](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L588)
 
 ###### Parameters
 
@@ -13677,7 +14224,7 @@ Defined in: [src/runtime/supervise/types.ts:501](https://github.com/tangle-netwo
 
 ### SupervisorOpts
 
-Defined in: [src/runtime/supervise/types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L504)
+Defined in: [src/runtime/supervise/types.ts:591](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L591)
 
 #### Properties
 
@@ -13685,7 +14232,7 @@ Defined in: [src/runtime/supervise/types.ts:504](https://github.com/tangle-netwo
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/types.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L506)
+Defined in: [src/runtime/supervise/types.ts:593](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L593)
 
 The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
@@ -13693,7 +14240,7 @@ The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
 > `readonly` **runId**: `string`
 
-Defined in: [src/runtime/supervise/types.ts:508](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L508)
+Defined in: [src/runtime/supervise/types.ts:595](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L595)
 
 Trace-correlation root + the journal/blob root key.
 
@@ -13701,7 +14248,7 @@ Trace-correlation root + the journal/blob root key.
 
 > `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
 
-Defined in: [src/runtime/supervise/types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L510)
+Defined in: [src/runtime/supervise/types.ts:597](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L597)
 
 Event source — defaults to the in-memory journal in the impl; pass JSONL/FS for durability.
 
@@ -13709,7 +14256,7 @@ Event source — defaults to the in-memory journal in the impl; pass JSONL/FS fo
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [src/runtime/supervise/types.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L512)
+Defined in: [src/runtime/supervise/types.ts:599](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L599)
 
 Result payload store backing `outRef` rehydration.
 
@@ -13717,15 +14264,25 @@ Result payload store backing `outRef` rehydration.
 
 > `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [src/runtime/supervise/types.ts:514](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L514)
+Defined in: [src/runtime/supervise/types.ts:601](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L601)
 
 Executor resolution — the open registry mapping `AgentSpec` → `Executor`.
+
+##### probes?
+
+> `readonly` `optional` **probes?**: [`WaitProbeRegistry`](#waitproberegistry)
+
+Defined in: [src/runtime/supervise/types.ts:605](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L605)
+
+Predicate resolution for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so
+ the wait can be journaled and re-armed by a later process; this is what the name resolves
+ against. Unset ⇒ `poll` waits are refused (`unknown-probe`); `timer` waits are unaffected.
 
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L516)
+Defined in: [src/runtime/supervise/types.ts:607](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L607)
 
 Runtime recursion-depth ceiling (paired with the conserved pool per R3).
 
@@ -13733,7 +14290,7 @@ Runtime recursion-depth ceiling (paired with the conserved pool per R3).
 
 > `readonly` `optional` **maxRestarts?**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:521](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L521)
+Defined in: [src/runtime/supervise/types.ts:612](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L612)
 
 OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
 trips the supervisor to `no-winner` rather than restarting forever.
@@ -13742,13 +14299,13 @@ trips the supervisor to `no-winner` rather than restarting forever.
 
 > `readonly` `optional` **withinMs?**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L522)
+Defined in: [src/runtime/supervise/types.ts:613](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L613)
 
 ##### resume?
 
 > `readonly` `optional` **resume?**: `boolean`
 
-Defined in: [src/runtime/supervise/types.ts:533](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L533)
+Defined in: [src/runtime/supervise/types.ts:624](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L624)
 
 Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
 one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`
@@ -13763,7 +14320,7 @@ consumer has. Resume is a durability contract the caller opts into, never a sile
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [src/runtime/supervise/types.ts:534](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L534)
+Defined in: [src/runtime/supervise/types.ts:625](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L625)
 
 ###### Returns
 
@@ -13773,13 +14330,13 @@ Defined in: [src/runtime/supervise/types.ts:534](https://github.com/tangle-netwo
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [src/runtime/supervise/types.ts:535](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L535)
+Defined in: [src/runtime/supervise/types.ts:626](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L626)
 
 ##### hooks?
 
 > `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [src/runtime/supervise/types.ts:538](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L538)
+Defined in: [src/runtime/supervise/types.ts:629](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L629)
 
 Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
  same `agent.spawn`/`agent.child` stream `runLoop` feeds — one observable recursive tree.
@@ -13788,7 +14345,7 @@ Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle em
 
 ### WidenGate
 
-Defined in: [src/runtime/supervise/types.ts:594](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L594)
+Defined in: [src/runtime/supervise/types.ts:685](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L685)
 
 The progressive-widening gate (MCTS-PW). Decides whether a settled child is
 `promising` enough to spawn another under the remaining pool. DEFAULTS TO FLAT
@@ -13809,7 +14366,7 @@ an explicit, argued `judgeExempt: true` (the documented escape hatch, off by def
 
 > `readonly` `optional` **judgeExempt?**: `boolean`
 
-Defined in: [src/runtime/supervise/types.ts:599](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L599)
+Defined in: [src/runtime/supervise/types.ts:690](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L690)
 
 When true, widening may read `verdict` directly (collides with the steer firewall —
  must be explicitly argued per cell, never defaulted on).
@@ -13820,7 +14377,7 @@ When true, widening may read `verdict` directly (collides with the steer firewal
 
 > **shouldWiden**(`settled`, `budget`): `boolean`
 
-Defined in: [src/runtime/supervise/types.ts:596](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L596)
+Defined in: [src/runtime/supervise/types.ts:687](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L687)
 
 Default impl returns false for every settlement (flat — never widens).
 
@@ -13837,6 +14394,164 @@ Default impl returns false for every settlement (flat — never widens).
 ###### Returns
 
 `boolean`
+
+***
+
+### WaitProbeRegistry
+
+Defined in: [src/runtime/supervise/wait.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L110)
+
+Resolves a `poll` spec's `probe` name to its predicate. Threaded through `SupervisorOpts` so
+ the SAME registry a fresh run used is what a resumed run re-resolves against.
+
+#### Methods
+
+##### resolve()
+
+> **resolve**(`name`): [`WaitProbe`](#waitprobe) \| `undefined`
+
+Defined in: [src/runtime/supervise/wait.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L111)
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### Returns
+
+[`WaitProbe`](#waitprobe) \| `undefined`
+
+***
+
+### WaitOutcome
+
+Defined in: [src/runtime/supervise/wait.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L124)
+
+The `out` a settled wait node delivers through `Scope.next()`. `settled` is the outcome the
+ caller branches on: `'fired'` = the timer reached its instant or the predicate flipped;
+ `'timeout'` = a bounded poll gave up. A timeout is a first-class ANSWER, not a failure — a
+ wait only settles `down` when it is cancelled or aborted.
+
+#### Properties
+
+##### waitOutcome
+
+> `readonly` **waitOutcome**: `true`
+
+Defined in: [src/runtime/supervise/wait.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L126)
+
+Tag for `isWaitOutcome` — a wait outcome arrives on the same cursor as worker outputs.
+
+##### kind
+
+> `readonly` **kind**: `"poll"` \| `"timer"`
+
+Defined in: [src/runtime/supervise/wait.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L127)
+
+##### settled
+
+> `readonly` **settled**: `"timeout"` \| `"fired"`
+
+Defined in: [src/runtime/supervise/wait.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L128)
+
+##### label
+
+> `readonly` **label**: `string`
+
+Defined in: [src/runtime/supervise/wait.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L129)
+
+##### untilMs?
+
+> `readonly` `optional` **untilMs?**: `number`
+
+Defined in: [src/runtime/supervise/wait.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L132)
+
+The absolute instant this wait was armed for (timer `untilMs` / poll `timeoutAtMs`); absent
+ for an unbounded poll.
+
+##### armedAt
+
+> `readonly` **armedAt**: `number`
+
+Defined in: [src/runtime/supervise/wait.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L135)
+
+Epoch ms the wait was FIRST armed — preserved across a resume, so `wokenAt - armedAt` is
+ the true end-to-end wait even when it spanned several processes.
+
+##### wokenAt
+
+> `readonly` **wokenAt**: `number`
+
+Defined in: [src/runtime/supervise/wait.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L136)
+
+##### polls
+
+> `readonly` **polls**: `number`
+
+Defined in: [src/runtime/supervise/wait.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L138)
+
+Predicate checks performed in the process that settled it (a resume restarts this count).
+
+##### probeErrors
+
+> `readonly` **probeErrors**: `number`
+
+Defined in: [src/runtime/supervise/wait.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L140)
+
+Probe checks that threw (counted, not fatal).
+
+##### resumed
+
+> `readonly` **resumed**: `boolean`
+
+Defined in: [src/runtime/supervise/wait.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L142)
+
+True when a later process re-armed this wait from the journal instead of creating it.
+
+***
+
+### PendingWait
+
+Defined in: [src/runtime/supervise/wait.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L156)
+
+A wait recorded in the journal that never woke — what a resumed run re-arms.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+Defined in: [src/runtime/supervise/wait.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L157)
+
+##### label
+
+> `readonly` **label**: `string`
+
+Defined in: [src/runtime/supervise/wait.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L158)
+
+##### spec
+
+> `readonly` **spec**: [`WaitSpec`](#waitspec)
+
+Defined in: [src/runtime/supervise/wait.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L159)
+
+##### armedAt
+
+> `readonly` **armedAt**: `number`
+
+Defined in: [src/runtime/supervise/wait.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L161)
+
+The ORIGINAL arm instant. A re-armed wait keeps it, so its deadline never slides.
+
+##### ordinal
+
+> `readonly` **ordinal**: `number`
+
+Defined in: [src/runtime/supervise/wait.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L163)
+
+The wait ordinal in its parent scope, so a resumed scope continues past it.
 
 ***
 
@@ -16541,7 +17256,7 @@ Present when a commit was attempted (valid, or `commitOnInvalid`).
 
 > **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: `AnalystFindingEvent`; \} \| \{ `type`: `"steer"`; `down`: `DownMessageEvent`; \} \| \{ `type`: `"answer"`; `down`: `DownMessageEvent`; `questionId`: `string`; \}
 
-Defined in: [src/mcp/tools/coordination.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L89)
+Defined in: [src/mcp/tools/coordination.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L93)
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. DOWN (parent→child): steer / answer — record-only (history + subscribers),
@@ -16553,7 +17268,7 @@ Every message on the one typed pipe. UP (child→parent): question / settled / f
 
 > **MakeWorkerAgent** = (`profile`) => [`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
-Defined in: [src/mcp/tools/coordination.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L96)
+Defined in: [src/mcp/tools/coordination.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L100)
 
 #### Parameters
 
@@ -17091,7 +17806,7 @@ Defined in: [src/runtime/personify/wave-types.ts:504](https://github.com/tangle-
 
 > **TrajectoryReportFn** = (`journal`, `blobs`, `root`, `options?`) => `Promise`\<[`TrajectoryReport`](#trajectoryreport-3)\>
 
-Defined in: [src/runtime/personify/wave-types.ts:563](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L563)
+Defined in: [src/runtime/personify/wave-types.ts:564](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L564)
 
 `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs).
 
@@ -17123,7 +17838,7 @@ Defined in: [src/runtime/personify/wave-types.ts:563](https://github.com/tangle-
 
 > **EqualKOnCost** = (`arms`, `options?`) => [`EqualKVerdict`](#equalkverdict)
 
-Defined in: [src/runtime/personify/wave-types.ts:618](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L618)
+Defined in: [src/runtime/personify/wave-types.ts:619](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L619)
 
 `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost.
 
@@ -17427,11 +18142,43 @@ variant carries its backend's seam (router/router-tools/bridge/cli/cli-worktree/
 
 ***
 
+### StopDecision
+
+> **StopDecision** = \{ `stop`: `false`; \} \| \{ `stop`: `true`; `reason`: `string`; \}
+
+Defined in: [src/runtime/supervise/stop-rules.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L88)
+
+A stop rule's answer. `reason` is required when stopping — a run that ends must be able to say
+ why in the result, and an unexplained early stop is indistinguishable from a bug.
+
+***
+
+### StopRule
+
+> **StopRule** = (`view`) => [`StopDecision`](#stopdecision)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L94)
+
+Evaluated from the progress feed, never from the budget. Pure and synchronous: it is called on
+ the driver's hot path, once per turn.
+
+#### Parameters
+
+##### view
+
+[`ProgressView`](#progressview)
+
+#### Returns
+
+[`StopDecision`](#stopdecision)
+
+***
+
 ### DriveHarness
 
 > **DriveHarness** = (`args`) => `Promise`\<`void`\>
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L66)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L67)
 
 How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
@@ -17468,7 +18215,7 @@ How to run a sandboxed harness as the DRIVER, with the coordination verbs mounte
 
 > **UsageEvent** = \{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
-Defined in: [src/runtime/supervise/types.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L154)
+Defined in: [src/runtime/supervise/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L171)
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
@@ -17480,7 +18227,7 @@ conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage
 
 > **Runtime** = `"router"` \| `"inline"` \| `"sandbox"` \| `"cli"` \| `string` & `object`
 
-Defined in: [src/runtime/supervise/types.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L161)
+Defined in: [src/runtime/supervise/types.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L178)
 
 The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name.
 External executors can register additional runtime strings without widening this type.
@@ -17491,7 +18238,7 @@ External executors can register additional runtime strings without widening this
 
 > **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](#executor)\<`Out`\>
 
-Defined in: [src/runtime/supervise/types.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L189)
+Defined in: [src/runtime/supervise/types.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L206)
 
 Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not
 shared) so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a
@@ -17523,7 +18270,7 @@ user supply construction args without pre-instantiating.
 
 > **NodeId** = `string`
 
-Defined in: [src/runtime/supervise/types.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L252)
+Defined in: [src/runtime/supervise/types.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L279)
 
 Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-clock.
 
@@ -17533,7 +18280,7 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 > **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: `Handle`\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: `Handle`\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `seq`: `number`; \}
 
-Defined in: [src/runtime/supervise/types.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L282)
+Defined in: [src/runtime/supervise/types.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L309)
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -17587,9 +18334,9 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `budget`: [`Budget`](#budget-12); `runtime`: [`Runtime`](#runtime-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-1); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `infra?`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-1); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-1); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `budget`: [`Budget`](#budget-12); `runtime`: [`Runtime`](#runtime-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-1); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `infra?`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-1); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-1); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-1); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
 
-Defined in: [src/runtime/supervise/types.ts:434](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L434)
+Defined in: [src/runtime/supervise/types.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L495)
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -17654,6 +18401,84 @@ Content-addressed result pointer; rehydrates `out` from `ResultBlobStore`.
 
 ##### Type Literal
 
+\{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"waiting"`
+
+A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the wait
+ ordinal within its parent scope), exactly like `spawned` — it creates a node, it does not
+ settle one. It carries the whole `spec` and the original `armedAt` so a brand-new process
+ re-arms the identical wait with the identical ABSOLUTE deadline.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-1)
+
+###### parent?
+
+> `optional` **parent?**: [`NodeId`](#nodeid-1)
+
+###### label
+
+> **label**: `string`
+
+###### spec
+
+> **spec**: [`WaitSpec`](#waitspec)
+
+###### armedAt
+
+> **armedAt**: `number`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-1); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"woken"`
+
+A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept distinct so a
+ reader can tell zero-cost waiting apart from paid work without inspecting payloads. A
+ wait carries no `spent` (it is free by construction, not by measurement); `outRef`
+ rehydrates its `WaitOutcome`, absent when the wait was cancelled.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-1)
+
+###### by
+
+> **by**: `"fired"` \| `"timeout"` \| `"cancelled"`
+
+###### outRef?
+
+> `optional` **outRef?**: `string`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
 \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-1); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
@@ -17690,7 +18515,7 @@ A driver's OWN inference spend, journaled separately from spawned-child work —
 
 > **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
 
-Defined in: [src/runtime/supervise/types.ts:542](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L542)
+Defined in: [src/runtime/supervise/types.ts:633](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L633)
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -17775,6 +18600,108 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 The conserved spend incurred before the run failed — real cost is paid even when no
  worker delivers, so the caller always learns what the delegation actually spent. Summed
  off the same journal the `winner` path reads.
+
+***
+
+### WaitSpec
+
+> **WaitSpec** = \{ `kind`: `"timer"`; `untilMs`: `number`; \} \| \{ `kind`: `"poll"`; `probe`: `string`; `intervalMs`: `number`; `timeoutAtMs?`: `number`; `args?`: `Record`\<`string`, `unknown`\>; \}
+
+Defined in: [src/runtime/supervise/wait.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L50)
+
+What a wait node is waiting for. Both variants carry ABSOLUTE epoch-ms instants so a wait
+ re-armed by a later process keeps the deadline the first process set.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"timer"`; `untilMs`: `number`; \}
+
+###### kind
+
+> `readonly` **kind**: `"timer"`
+
+###### untilMs
+
+> `readonly` **untilMs**: `number`
+
+Absolute epoch ms to wake at. A past instant fires immediately.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"poll"`; `probe`: `string`; `intervalMs`: `number`; `timeoutAtMs?`: `number`; `args?`: `Record`\<`string`, `unknown`\>; \}
+
+###### kind
+
+> `readonly` **kind**: `"poll"`
+
+###### probe
+
+> `readonly` **probe**: `string`
+
+Name of the predicate in the run's `WaitProbeRegistry`. Named (not a closure) so a
+ resumed process can re-resolve it — see the module header.
+
+###### intervalMs
+
+> `readonly` **intervalMs**: `number`
+
+How often to re-run the predicate, in ms. Must be > 0.
+
+###### timeoutAtMs?
+
+> `readonly` `optional` **timeoutAtMs?**: `number`
+
+Absolute epoch ms after which an unfired poll settles `timeout`. Omit = no timeout
+ (then the run's own deadline is the only bound, and a run WITH a deadline refuses an
+ unbounded poll — see `assertWaitWithinDeadline`).
+
+###### args?
+
+> `readonly` `optional` **args?**: `Record`\<`string`, `unknown`\>
+
+Opaque JSON handed to the probe on every check. Journaled with the spec, so a resumed
+ probe gets the same arguments.
+
+***
+
+### WaitProbe
+
+> **WaitProbe** = (`args`, `signal`) => `boolean` \| `Promise`\<`boolean`\>
+
+Defined in: [src/runtime/supervise/wait.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L103)
+
+A named predicate a `poll` node re-checks. Returns true when the condition it watches has
+flipped. A throw is treated as "not yet" (an unreachable CI endpoint is not a settled answer),
+and is counted in the outcome's `probeErrors` so a probe that never works is visible rather
+than silently polling forever.
+
+#### Parameters
+
+##### args
+
+`Record`\<`string`, `unknown`\> \| `undefined`
+
+##### signal
+
+`AbortSignal`
+
+#### Returns
+
+`boolean` \| `Promise`\<`boolean`\>
+
+***
+
+### WaitRejection
+
+> **WaitRejection** = `"invalid-spec"` \| `"unknown-probe"` \| `"deadline-exceeded"`
+
+Defined in: [src/runtime/supervise/wait.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L167)
+
+Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission shape.
 
 ***
 
@@ -18105,7 +19032,7 @@ Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded 
 
 > **contentAddress**(`artifact`): `string`
 
-Defined in: [src/durable/spawn-journal.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L49)
+Defined in: [src/durable/spawn-journal.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L50)
 
 Mint the content-addressed `outRef` for a result artifact: `sha256:<hex>` over a
 stable JSON encoding. Producers call this to derive the `outRef` they journal and
@@ -18131,7 +19058,7 @@ artifacts hash identically regardless of key insertion order.
 
 > **replaySpawnTree**(`journal`, `blobs`, `root`): `Promise`\<[`Settled`](#settled-3)\<`unknown`\>[]\>
 
-Defined in: [src/durable/spawn-journal.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L302)
+Defined in: [src/durable/spawn-journal.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L311)
 
 Re-feed a journaled spawn tree in strict `seq` order, rehydrating each settled
 child's `out` from the blob store by `outRef`, and return the `Settled[]` exactly
@@ -18167,7 +19094,7 @@ rehydrate — a silent gap would let `act` branch on the wrong evidence.
 
 > **materializeTreeView**(`events`): [`TreeView`](#treeview)
 
-Defined in: [src/durable/spawn-journal.ts:384](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L384)
+Defined in: [src/durable/spawn-journal.ts:424](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L424)
 
 Materialize a recorded `TreeView` from a journaled event list for inspection. Folds
 `spawned`/`settled`/`cancelled` into a per-node snapshot in `seq` order, then adds each
@@ -18186,11 +19113,110 @@ matches the recorded cursor. It does not recover live executors or driver state 
 
 ***
 
+### pendingWaits()
+
+> **pendingWaits**(`events`): [`PendingWait`](#pendingwait)[]
+
+Defined in: [src/durable/spawn-journal.ts:502](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L502)
+
+The waits a journaled tree shows as ARMED but never woken — what a resumed run re-arms with the
+ORIGINAL absolute deadline. Reading it from the journal (rather than from any live state) is
+what makes "SIGKILL a waiting tree, a new process keeps waiting to the same instant" true.
+
+#### Parameters
+
+##### events
+
+[`SpawnEvent`](#spawnevent)[]
+
+#### Returns
+
+[`PendingWait`](#pendingwait)[]
+
+***
+
+### bestSoFar()
+
+> **bestSoFar**(`values`): `number`[]
+
+Defined in: [src/runtime/anytime.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L72)
+
+The best-so-far fold — the ONE definition of "how good was the run after k results", shared by
+the post-run anytime report below and by the LIVE progress-based stop rules
+(`supervise/stop-rules.ts`). Given the observed objective per settled result in order, it returns
+the running maximum. A result with no objective (`undefined` — it failed, or it was never
+scored) carries the previous best forward rather than resetting it.
+
+It is extracted rather than duplicated on purpose: a stop rule that decides a run has plateaued
+must agree, number for number, with the report that later says whether stopping was right.
+
+#### Parameters
+
+##### values
+
+readonly (`number` \| `undefined`)[]
+
+#### Returns
+
+`number`[]
+
+***
+
+### areaUnderCurve()
+
+> **areaUnderCurve**(`curve`): `number`
+
+Defined in: [src/runtime/anytime.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L84)
+
+Mean of a best-so-far curve — the anytime AUC when the curve is normalized to [0,1]. Higher =
+ the run climbed earlier. Shared with the stop rules so "improving" means one thing.
+
+#### Parameters
+
+##### curve
+
+readonly `number`[]
+
+#### Returns
+
+`number`
+
+***
+
+### plateauLength()
+
+> **plateauLength**(`curve`, `minDelta`): `number`
+
+Defined in: [src/runtime/anytime.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L97)
+
+How many trailing entries of a best-so-far curve are within `minDelta` of the curve's value
+`window` steps back — i.e. the length of the current PLATEAU, in settles. `0` means the most
+recent settle improved the best by more than `minDelta`.
+
+The plateau math the live stop rules read. Defined here, beside the report that measures whether
+the plateau was real, so there is exactly one notion of "not improving".
+
+#### Parameters
+
+##### curve
+
+readonly `number`[]
+
+##### minDelta
+
+`number`
+
+#### Returns
+
+`number`
+
+***
+
 ### anytimeReport()
 
 > **anytimeReport**(`spans`, `opts?`): [`AnytimeReport`](#anytimereport)
 
-Defined in: [src/runtime/anytime.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L73)
+Defined in: [src/runtime/anytime.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L116)
 
 Derive anytime metrics from waterfall spans. `targets` are the satisficing score
  bars (default [1] = fully resolved; COCO-style multi-target: [0.5, 0.8, 1]);
@@ -18223,7 +19249,7 @@ Derive anytime metrics from waterfall spans. `targets` are the satisficing score
 
 > **renderAnytimeTable**(`report`): `string`
 
-Defined in: [src/runtime/anytime.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L164)
+Defined in: [src/runtime/anytime.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/anytime.ts#L207)
 
 One row per (strategy, satisficing target): the shareable time-to-satisfactory table.
 
@@ -19487,7 +20513,7 @@ store cannot rehydrate (a silent gap would mis-cost or mis-evidence the tree).
 
 > **equalKOnCost**(`arms`, `options?`): [`EqualKVerdict`](#equalkverdict)
 
-Defined in: [src/runtime/personify/trajectory.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/trajectory.ts#L144)
+Defined in: [src/runtime/personify/trajectory.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/trajectory.ts#L154)
 
 Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration
 count. Compares each arm's root-rolled-up `total` on the two conserved channels: an arm is
@@ -21269,7 +22295,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 > **driverAgent**(`opts`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L174)
+Defined in: [src/runtime/supervise/coordination-driver.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L229)
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -21290,7 +22316,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
 
-Defined in: [src/runtime/supervise/coordination-driver.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L388)
+Defined in: [src/runtime/supervise/coordination-driver.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L471)
 
 Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
  output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
@@ -21877,7 +22903,7 @@ One steerable sandbox worker. The returned session is inert until `stream()` is 
 
 > **createScope**\<`Out`\>(`args`): [`Scope`](#scope-1)\<`Out`\>
 
-Defined in: [src/runtime/supervise/scope.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L225)
+Defined in: [src/runtime/supervise/scope.ts:251](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L251)
 
 Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay.
 
@@ -21903,7 +22929,7 @@ Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children o
 
 > **settledToIteration**\<`Out`\>(`settled`): [`Iteration`](#iteration-1)\<`unknown`, `Out`\>
 
-Defined in: [src/runtime/supervise/scope.ts:780](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L780)
+Defined in: [src/runtime/supervise/scope.ts:1028](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L1028)
 
 The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's
 `Iteration` shape so `defaultSelectWinner` stays single-sourced — the supervisor selects
@@ -21933,11 +22959,171 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 ***
 
+### createProgressTracker()
+
+> **createProgressTracker**(`opts?`): [`ProgressTracker`](#progresstracker)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L131)
+
+Build the settled-work ledger a `StopRule` decides from: record each settlement (idempotent by
+ id) and materialize a `ProgressView` combining the best-so-far curve with the live worker feed.
+
+#### Parameters
+
+##### opts?
+
+[`ProgressTrackerOptions`](#progresstrackeroptions) = `{}`
+
+#### Returns
+
+[`ProgressTracker`](#progresstracker)
+
+***
+
+### sampleFromSettled()
+
+> **sampleFromSettled**(`settled`, `at`): [`ProgressSample`](#progresssample)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L208)
+
+Build a `ProgressSample` from a scope settlement. The objective is the verdict score and
+ `delivered` is the verdict's `valid` — the SAME single delivery signal `finalizeBestDelivered`
+ and `defaultSelectWinner` use, so "progress" and "winner" cannot disagree.
+
+#### Parameters
+
+##### settled
+
+[`Settled`](#settled-3)\<`unknown`\>
+
+##### at
+
+`number`
+
+#### Returns
+
+[`ProgressSample`](#progresssample)
+
+***
+
+### noProgressFor()
+
+> **noProgressFor**(`opts`): [`StopRule`](#stoprule-1)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L243)
+
+"Nothing new has happened." Fires when the run has produced no new settled work for `ms`, or no
+IMPROVEMENT over the last `settles` settlements.
+
+A tree whose only remaining nodes are armed WAITS is exempt from the time bound: a run waiting
+on CI is not a run that stopped making progress, and killing it there would defeat mechanic C.
+
+#### Parameters
+
+##### opts
+
+[`NoProgressForOptions`](#noprogressforoptions)
+
+#### Returns
+
+[`StopRule`](#stoprule-1)
+
+***
+
+### plateau()
+
+> **plateau**(`opts`): [`StopRule`](#stoprule-1)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L295)
+
+"The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than
+`minDelta` across the last `window` settlements.
+
+Built on `anytime.plateauLength` — the same plateau math the post-run anytime report uses, so a
+rule that stops a run and a report that grades the decision cannot disagree about whether the
+run was flat.
+
+#### Parameters
+
+##### opts
+
+[`PlateauOptions`](#plateauoptions)
+
+#### Returns
+
+[`StopRule`](#stoprule-1)
+
+***
+
+### allWorkersStalled()
+
+> **allWorkersStalled**(`opts?`): [`StopRule`](#stoprule-1)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L332)
+
+"Everyone is stuck." Fires when every live worker reads `stalled` — no metered activity for
+longer than the stall threshold — and none of the tree is merely waiting.
+
+`stalled` is a derived read at observation time, never a background watchdog; this rule only
+reads it. A tree with armed waits never fires: waiting is not stalling.
+
+#### Parameters
+
+##### opts?
+
+[`AllWorkersStalledOptions`](#allworkersstalledoptions) = `{}`
+
+#### Returns
+
+[`StopRule`](#stoprule-1)
+
+***
+
+### anyOf()
+
+> **anyOf**(...`rules`): [`StopRule`](#stoprule-1)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L347)
+
+Stop when ANY rule stops — the ordinary composition (each rule is a separate reason to end).
+
+#### Parameters
+
+##### rules
+
+...readonly [`StopRule`](#stoprule-1)[]
+
+#### Returns
+
+[`StopRule`](#stoprule-1)
+
+***
+
+### allOf()
+
+> **allOf**(...`rules`): [`StopRule`](#stoprule-1)
+
+Defined in: [src/runtime/supervise/stop-rules.ts:358](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/stop-rules.ts#L358)
+
+Stop only when EVERY rule stops — for a conservative gate that needs corroboration.
+
+#### Parameters
+
+##### rules
+
+...readonly [`StopRule`](#stoprule-1)[]
+
+#### Returns
+
+[`StopRule`](#stoprule-1)
+
+***
+
 ### workerFromBackend()
 
 > **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [src/runtime/supervise/supervise.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L37)
+Defined in: [src/runtime/supervise/supervise.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L39)
 
 Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
@@ -21963,7 +23149,7 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
 
-Defined in: [src/runtime/supervise/supervise.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L162)
+Defined in: [src/runtime/supervise/supervise.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L182)
 
 One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use.
 
@@ -21991,7 +23177,7 @@ One-call supervisor: build + run a supervisor from its profile with sensible def
 
 > **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
-Defined in: [src/runtime/supervise/supervisor-agent.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L119)
+Defined in: [src/runtime/supervise/supervisor-agent.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L127)
 
 Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker.
 
@@ -22015,7 +23201,7 @@ Build a supervisor `Agent` from its profile: the brain resolves from `profile.ha
 
 > **createSupervisor**\<`Task`, `Out`\>(): [`Supervisor`](#supervisor-1)\<`Task`, `Out`\>
 
-Defined in: [src/runtime/supervise/supervisor.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor.ts#L83)
+Defined in: [src/runtime/supervise/supervisor.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor.ts#L91)
 
 #### Type Parameters
 
@@ -22172,6 +23358,150 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 #### Returns
 
 `Promise`\<[`TrajectoryAnalysis`](#trajectoryanalysis)\>
+
+***
+
+### timerAt()
+
+> **timerAt**(`ms`, `now`): [`WaitSpec`](#waitspec)
+
+Defined in: [src/runtime/supervise/wait.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L74)
+
+Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed
+ wait re-uses the journaled instant, never a fresh `now + ms`.
+
+#### Parameters
+
+##### ms
+
+`number`
+
+##### now
+
+`number`
+
+#### Returns
+
+[`WaitSpec`](#waitspec)
+
+***
+
+### pollFor()
+
+> **pollFor**(`probe`, `opts`, `now`): [`WaitSpec`](#waitspec)
+
+Defined in: [src/runtime/supervise/wait.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L79)
+
+Build a bounded `poll` spec from a duration.
+
+#### Parameters
+
+##### probe
+
+`string`
+
+##### opts
+
+###### intervalMs
+
+`number`
+
+###### timeoutMs?
+
+`number`
+
+###### args?
+
+`Record`\<`string`, `unknown`\>
+
+##### now
+
+`number`
+
+#### Returns
+
+[`WaitSpec`](#waitspec)
+
+***
+
+### createWaitProbes()
+
+> **createWaitProbes**(`entries`): [`WaitProbeRegistry`](#waitproberegistry)
+
+Defined in: [src/runtime/supervise/wait.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L115)
+
+Registry over a plain name→predicate record.
+
+#### Parameters
+
+##### entries
+
+`Record`\<`string`, [`WaitProbe`](#waitprobe)\>
+
+#### Returns
+
+[`WaitProbeRegistry`](#waitproberegistry)
+
+***
+
+### isWaitOutcome()
+
+> **isWaitOutcome**(`value`): `value is WaitOutcome`
+
+Defined in: [src/runtime/supervise/wait.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L147)
+
+Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cursor as workers,
+ so a driver that mixes them tags them apart with this.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+#### Returns
+
+`value is WaitOutcome`
+
+***
+
+### waitUntil()
+
+> **waitUntil**(`spec`): `number` \| `undefined`
+
+Defined in: [src/runtime/supervise/wait.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L170)
+
+The absolute instant a spec is bounded by, or `undefined` for an unbounded poll.
+
+#### Parameters
+
+##### spec
+
+[`WaitSpec`](#waitspec)
+
+#### Returns
+
+`number` \| `undefined`
+
+***
+
+### validateWaitSpec()
+
+> **validateWaitSpec**(`spec`): `string` \| `null`
+
+Defined in: [src/runtime/supervise/wait.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/wait.ts#L175)
+
+Structural validation, independent of the run. Returns null when the spec is usable.
+
+#### Parameters
+
+##### spec
+
+[`WaitSpec`](#waitspec)
+
+#### Returns
+
+`string` \| `null`
 
 ***
 

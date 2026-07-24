@@ -34,7 +34,12 @@
  * @experimental
  */
 
-import { contentAddress, materializeTreeView, replaySpawnTree } from '../../durable/spawn-journal'
+import {
+  contentAddress,
+  materializeTreeView,
+  pendingWaits,
+  replaySpawnTree,
+} from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { createScope } from './scope'
@@ -52,6 +57,7 @@ import type {
   SupervisorOpts,
   TreeView,
 } from './types'
+import type { PendingWait } from './wait'
 
 /** The committed work + cursor maxima the supervisor hands a resumed scope. Shaped to spread
  *  into `ScopeArgs.resumeFrom`. */
@@ -60,6 +66,8 @@ interface ResumeFrom {
   readonly view: TreeView
   readonly maxSpawnOrdinal: number
   readonly maxCursorSeq: number
+  readonly maxWaitOrdinal: number
+  readonly waits: ReadonlyArray<PendingWait>
 }
 
 /** Highest `seq` among events matching `pred`, or `-1` when none match (so a resumed scope's
@@ -110,7 +118,15 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         settled,
         view,
         maxSpawnOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'spawned'),
-        maxCursorSeq: maxSeqOf(prior, (ev) => ev.kind === 'settled' || ev.kind === 'cancelled'),
+        maxCursorSeq: maxSeqOf(
+          prior,
+          (ev) => ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken',
+        ),
+        maxWaitOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'waiting'),
+        // Waits armed but never woken: the run died mid-wait. They ride onto `Scope.resume.waits`,
+        // and re-arming the same label adopts the ORIGINAL absolute deadline rather than
+        // restarting the countdown from this process's clock.
+        waits: pendingWaits(prior),
       }
     } else {
       // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
@@ -170,6 +186,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       signal: controller.signal,
       now,
       hooks: opts.hooks,
+      ...(opts.probes ? { probes: opts.probes } : {}),
       ...(resumeFrom ? { resumeFrom } : {}),
     })
 
@@ -413,7 +430,11 @@ async function drainLiveChildren(
   scope: Scope<unknown>,
   controller: AbortController,
 ): Promise<void> {
-  const hasLive = scope.view.inFlight > 0
+  // Armed wait-states count here even though they are deliberately excluded from `inFlight`: a
+  // wait holds no executor, but it DOES hold a live timer, so a run that returns without
+  // cancelling one would leave the process pinned to a deadline nobody is reading anymore.
+  const view = scope.view
+  const hasLive = view.inFlight > 0 || view.waiting > 0
   if (!hasLive) return
   // Cascade the abort into every live child's executor before draining.
   if (!controller.signal.aborted) controller.abort()

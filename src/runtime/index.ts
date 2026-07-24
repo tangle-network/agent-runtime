@@ -45,6 +45,10 @@ export {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   materializeTreeView,
+  // The waits a journaled tree shows as armed but never woken — what a resumed run re-arms with
+  // the ORIGINAL deadline. Exported for the same reason the replay readers are: a durable wait a
+  // consumer cannot read back is only a log line.
+  pendingWaits,
   replaySpawnTree,
 } from '../durable/spawn-journal'
 // The typed coordination-bus event (up: settled/question/finding; down: steer/answer) — surfaced
@@ -62,6 +66,11 @@ export {
   type AnytimeStrategySummary,
   type AnytimeTaskCurve,
   anytimeReport,
+  // The best-so-far / AUC / plateau math, extracted so the LIVE progress-based stop rules
+  // (`supervise/stop-rules`) decide from the SAME numbers the post-run report grades them by.
+  areaUnderCurve,
+  bestSoFar,
+  plateauLength,
   renderAnytimeTable,
 } from './anytime'
 export {
@@ -598,6 +607,27 @@ export {
   type SteerableSandboxSession,
 } from './supervise/sandbox-session'
 export { createScope, settledToIteration } from './supervise/scope'
+// PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
+// out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
+// override) the conserved-pool / deadline / abort ceilings.
+export {
+  type AllWorkersStalledOptions,
+  allOf,
+  allWorkersStalled,
+  anyOf,
+  createProgressTracker,
+  type NoProgressForOptions,
+  noProgressFor,
+  type PlateauOptions,
+  type ProgressSample,
+  type ProgressTracker,
+  type ProgressTrackerOptions,
+  type ProgressView,
+  plateau,
+  type StopDecision,
+  type StopRule,
+  sampleFromSettled,
+} from './supervise/stop-rules'
 // The one-call "just invoke the supervisor": `supervise(profile, task, { backend, budget })` with
 // sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam
 // from a backend config + an optional completion oracle (settled⟺delivered).
@@ -654,6 +684,24 @@ export type {
   UsageEvent,
   WidenGate,
 } from './supervise/types'
+// WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
+// (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute
+// deadline, so a killed run resumes still waiting to the same instant. Not `await_event`: that is
+// an in-run rendezvous whose re-polls each cost a driver turn and vanish with the process.
+export {
+  createWaitProbes,
+  isWaitOutcome,
+  type PendingWait,
+  pollFor,
+  timerAt,
+  validateWaitSpec,
+  type WaitOutcome,
+  type WaitProbe,
+  type WaitProbeRegistry,
+  type WaitRejection,
+  type WaitSpec,
+  waitUntil,
+} from './supervise/wait'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)
 // driving a local harness CLI on its own git worktree, surfaced as the open `Executor` port.
 export {
