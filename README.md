@@ -317,7 +317,7 @@ Measure the returned bundle pair, record the review, then activate through `exec
 
 ### Run on PrimeIntellect
 
-`@tangle-network/agent-runtime/primeintellect` packages typed train and eval tasks as a Verifiers v1 environment.
+`@tangle-network/agent-runtime/primeintellect` packages typed train and eval tasks as a PrimeIntellect Verifiers environment.
 Prime launches your actual runtime program against an intercepted model endpoint, so `runPersonified`, `runAgentic`, product agents, tool calls, and multiple rounds stay intact.
 Reference answers remain in Prime's task process and never enter the agent workspace.
 The runner file must be one executable bundle containing the app and its runtime dependencies.
@@ -331,7 +331,7 @@ import {
 
 const bundledRunner = await readFile('./dist/prime-runner.mjs', 'utf8')
 const bundle = createPrimeIntellectPackage({
-  name: 'support-agent-v1',
+  name: 'support-agent',
   version: '1.0.0',
   tasks: [
     {
@@ -355,7 +355,7 @@ const bundle = createPrimeIntellectPackage({
   },
 })
 
-await writePrimeIntellectPackage(bundle, './prime/support-agent-v1')
+await writePrimeIntellectPackage(bundle, './prime/support-agent')
 ```
 
 The runner reads the episode and uses the normal runtime APIs:

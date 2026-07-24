@@ -69,7 +69,7 @@ const ownSurfaceLabels = {
   './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',
   './analyst-loop': 'Analyst loop — trace findings on a running loop',
   './knowledge': 'Knowledge orchestration — supervised KB updates',
-  './primeintellect': 'PrimeIntellect: Verifiers v1 package and trace adapter',
+  './primeintellect': 'PrimeIntellect: Verifiers package and trace adapter',
   './profiles': 'Built-in agent profiles',
   './platform': 'Platform glue',
   './candidate-execution': 'Candidate execution — immutable prepare, run, grade, and receipt',

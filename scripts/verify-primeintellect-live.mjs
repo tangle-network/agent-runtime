@@ -59,7 +59,7 @@ const scoringProgram = `import json
 import sys
 
 request = json.load(sys.stdin)
-assert request["protocol"] == "tangle.primeintellect.score/v1"
+assert request["kind"] == "tangle.primeintellect.score"
 trace = request["trace"]
 sampled = [node for node in trace["nodes"] if node.get("sampled") is True]
 contents = [str((node.get("message") or {}).get("content") or "").strip() for node in sampled]

@@ -18,7 +18,7 @@ import type { PrimeIntellectPackageOptions } from './types'
 
 function packageOptions(): PrimeIntellectPackageOptions {
   return {
-    name: 'support-agent-v1',
+    name: 'support-agent',
     version: '1.0.0',
     tasks: [
       {
@@ -44,18 +44,19 @@ function packageOptions(): PrimeIntellectPackageOptions {
   }
 }
 
-describe('PrimeIntellect v1 package', () => {
+describe('PrimeIntellect package', () => {
   it('builds a split-safe package around the caller runtime program', () => {
     const bundle = createPrimeIntellectPackage(packageOptions())
 
     expect(bundle.manifest.splits).toEqual({ train: 1, eval: 1 })
+    expect(bundle.manifest.kind).toBe('tangle.primeintellect.package')
     expect(bundle.manifest.verifiers).toBe('>=0.2.0,<0.3.0')
     expect(bundle.files['prime.eval.toml']).toContain('max_turns = 16')
     expect(bundle.files['prime.eval.toml']).toContain('type = "docker"')
-    expect(bundle.files['support_agent_v1/taskset.py']).toContain('import verifiers.v1 as vf')
-    expect(bundle.files['support_agent_v1/harness.py']).toContain('runtime.run_program')
-    expect(bundle.files['support_agent_v1/harness.py']).not.toContain('data.answer')
-    expect(bundle.files['support_agent_v1/harness.py']).not.toContain('reference')
+    expect(bundle.files['support_agent/taskset.py']).toContain('import verifiers.v1 as vf')
+    expect(bundle.files['support_agent/harness.py']).toContain('runtime.run_program')
+    expect(bundle.files['support_agent/harness.py']).not.toContain('data.answer')
+    expect(bundle.files['support_agent/harness.py']).not.toContain('reference')
   })
 
   it('requires both splits and rejects duplicate ids and unsafe runner files', () => {

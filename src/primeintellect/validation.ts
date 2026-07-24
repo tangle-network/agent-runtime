@@ -1,6 +1,6 @@
 import type { PrimeIntellectJson, PrimeIntellectMessage } from './types'
 
-/** Validate the Verifiers v1 prompt schema shared by package creation and runner input. */
+/** Validate the PrimeIntellect prompt shape shared by package creation and runner input. */
 export function validatePrimeIntellectPrompt(
   value: unknown,
   path: string,
