@@ -1,8 +1,26 @@
 # run-report evidence
 
-Reports produced by `src/swe-arena/run-report.mts` over completed runs, committed as the
-measured record behind the supervisor-behavior claims. Both source run directories were read
-READ-ONLY (`--report-dir` wrote the reports here, never into the run).
+Reports over completed runs, committed as the measured record behind the supervisor-behavior
+claims. Both source run directories were read READ-ONLY (`--report-dir` wrote the reports
+here, never into the run).
+
+The reader is `@tangle-network/agent-eval/supervisor-run` — a supervision tree is a rollout
+trace with one more dimension, so it lives in the trace-analysis layer next to single-rollout
+analysis. `src/swe-arena/run-report.mts` is only the CLI over it.
+
+These files were captured before that move, so they are the pre-move record, not current
+library output. Every metric key and value below was reproduced from the same run bytes with
+zero diffs when the reader moved (tangle-network/agent-eval#417); what a re-run today would
+change is the envelope and the metric set, never these numbers:
+
+- `schema` is `swe-arena/run-report@1` / `swe-arena/run-report-rollup@1` here; the library
+  now emits `tangle.supervisor-run@1` / `tangle.supervisor-run-rollup@1`.
+- the per-run envelope names the source `cellDir`; the library names it `runRef`, because the
+  input contract is a reader over bytes rather than a directory.
+- `economics.brainTruncations` did not exist at capture time and is absent here.
+
+Re-capturing them means re-reading the source run directories, which are not part of this
+repo — so they stay as committed evidence rather than being regenerated in place.
 
 | File | Source run | Command |
 |---|---|---|

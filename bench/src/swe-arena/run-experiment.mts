@@ -52,7 +52,10 @@ import {
   type JudgeVerdict,
   type SerializedJudge,
 } from './serialized-judge.ts'
-import { reportRound, writeRunReportSafe } from './run-report.mts'
+import {
+  reportSupervisorRound,
+  writeSupervisorRunReportSafe,
+} from '@tangle-network/agent-eval/supervisor-run'
 import type { LedgerRow } from './types.ts'
 
 const fixturesDir = fileURLToPath(new URL('./fixtures', import.meta.url))
@@ -257,7 +260,7 @@ export async function runExperiment(config: ExperimentConfig): Promise<void> {
 
     // Deterministic run observability: never hand-grep a journal for steers/waves/
     // idle/cost again. Best-effort — a reporting failure can't lose a finished cell.
-    await writeRunReportSafe(join(config.outDir, 'runs', iid, sup.name), {
+    await writeSupervisorRunReportSafe(join(config.outDir, 'runs', iid, sup.name), {
       appendHeadlineTo: config.runLogPath ?? join(config.outDir, 'run.log'),
       ledgerPath: config.ledgerPath,
     })
@@ -265,7 +268,7 @@ export async function runExperiment(config: ExperimentConfig): Promise<void> {
     await new Promise((r) => setTimeout(r, config.cooldownMs ?? 15_000))
   }
 
-  await reportRound(config.outDir, {
+  await reportSupervisorRound(config.outDir, {
     appendHeadlineTo: config.runLogPath ?? join(config.outDir, 'run.log'),
     ledgerPath: config.ledgerPath,
     title: 'Round rollup — paired solo/supervisor experiment',
@@ -650,7 +653,7 @@ export async function runFactoryExperiment(
       await appendFile(config.ledgerPath, JSON.stringify(row) + '\n')
       log(`LEDGER_ROW ${key} resolved=${row.resolved} score=${row.score} (${row.passed}/${row.total})`)
 
-      await writeRunReportSafe(row.runDir, {
+      await writeSupervisorRunReportSafe(row.runDir, {
         appendHeadlineTo: config.runLogPath ?? join(config.outDir, 'run.log'),
         ledgerPath: config.ledgerPath,
         patchPath: armRes.patchPath,
@@ -660,7 +663,7 @@ export async function runFactoryExperiment(
     }
   }
 
-  await reportRound(config.outDir, {
+  await reportSupervisorRound(config.outDir, {
     appendHeadlineTo: config.runLogPath ?? join(config.outDir, 'run.log'),
     ledgerPath: config.ledgerPath,
     title: `Round rollup — factory ${config.armName}`,
