@@ -1110,7 +1110,7 @@ Abort the request after this many ms. Default 10000.
 
 ### SubmitAgentImprovementProposalOptions
 
-Defined in: [src/intelligence/delivery.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L133)
+Defined in: [src/intelligence/delivery.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L134)
 
 Submit a completed measured proposal for product-side review.
 
@@ -1120,13 +1120,13 @@ Submit a completed measured proposal for product-side review.
 
 > **proposal**: `AgentImprovementProposal`
 
-Defined in: [src/intelligence/delivery.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L134)
+Defined in: [src/intelligence/delivery.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L135)
 
 ##### apiKey?
 
 > `optional` **apiKey?**: `string`
 
-Defined in: [src/intelligence/delivery.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L136)
+Defined in: [src/intelligence/delivery.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L137)
 
 Bearer key. Defaults to `process.env.TANGLE_API_KEY`.
 
@@ -1134,7 +1134,7 @@ Bearer key. Defaults to `process.env.TANGLE_API_KEY`.
 
 > `optional` **baseUrl?**: `string`
 
-Defined in: [src/intelligence/delivery.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L139)
+Defined in: [src/intelligence/delivery.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L140)
 
 Plane base URL. Defaults to `process.env.TANGLE_INTELLIGENCE_URL` then
 `https://intelligence.tangle.tools`.
@@ -1143,7 +1143,7 @@ Plane base URL. Defaults to `process.env.TANGLE_INTELLIGENCE_URL` then
 
 > `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
 
-Defined in: [src/intelligence/delivery.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L141)
+Defined in: [src/intelligence/delivery.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L142)
 
 fetch impl (tests / non-global-fetch runtimes). Defaults to global fetch.
 
@@ -1165,7 +1165,7 @@ fetch impl (tests / non-global-fetch runtimes). Defaults to global fetch.
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [src/intelligence/delivery.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L143)
+Defined in: [src/intelligence/delivery.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L144)
 
 Abort the request after this many ms. Default 10000.
 
@@ -1173,7 +1173,7 @@ Abort the request after this many ms. Default 10000.
 
 ### CertifiedPromptSource
 
-Defined in: [src/intelligence/delivery.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L438)
+Defined in: [src/intelligence/delivery.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L444)
 
 A cached, self-refreshing source of a target's certified prompt additions —
  the prompt-only delivery lane for callers that assemble their OWN system
@@ -1188,7 +1188,7 @@ A cached, self-refreshing source of a target's certified prompt additions —
 
 > **compose**(`base`): `Promise`\<`string`\>
 
-Defined in: [src/intelligence/delivery.ts:441](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L441)
+Defined in: [src/intelligence/delivery.ts:447](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L447)
 
 Refresh (window-respecting) then fold the certified additions into a
  base system prompt. Returns `base` unchanged when nothing is promoted.
@@ -1207,7 +1207,7 @@ Refresh (window-respecting) then fold the certified additions into a
 
 > **current**(): [`CertifiedProfile`](#certifiedprofile) \| `null`
 
-Defined in: [src/intelligence/delivery.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L443)
+Defined in: [src/intelligence/delivery.ts:449](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L449)
 
 The certified profile currently in effect (`null` = none pulled yet).
 
@@ -1219,7 +1219,7 @@ The certified profile currently in effect (`null` = none pulled yet).
 
 > **refresh**(): `Promise`\<`void`\>
 
-Defined in: [src/intelligence/delivery.ts:445](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L445)
+Defined in: [src/intelligence/delivery.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L451)
 
 Pull now if the refresh window has elapsed; coalesced and fail-closed.
 
@@ -1231,7 +1231,7 @@ Pull now if the refresh window has elapsed; coalesced and fail-closed.
 
 ### CertifiedPromptSourceOptions
 
-Defined in: [src/intelligence/delivery.ts:450](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L450)
+Defined in: [src/intelligence/delivery.ts:456](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L456)
 
 Options for [createCertifiedPromptSource](#createcertifiedpromptsource) — the pull coordinates plus
  the refresh cadence.
@@ -1321,7 +1321,7 @@ Abort the request after this many ms. Default 10000.
 
 > `optional` **refreshMs?**: `number`
 
-Defined in: [src/intelligence/delivery.ts:452](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L452)
+Defined in: [src/intelligence/delivery.ts:458](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L458)
 
 Min interval between certified-profile pulls. Default 5m.
 
@@ -4088,13 +4088,14 @@ Typed outcome for the pull — inspect `succeeded` before `value`. A 404
 
 ### AgentImprovementProposalSubmissionState
 
-> **AgentImprovementProposalSubmissionState** = `"not-sent"` \| `"unconfirmed"`
+> **AgentImprovementProposalSubmissionState** = `"not-sent"` \| `"rejected"` \| `"unconfirmed"`
 
-Defined in: [src/intelligence/delivery.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L130)
+Defined in: [src/intelligence/delivery.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L131)
 
-What Runtime knows about an attempted proposal submission. Only an exact
-returned proposal confirms storage; every attempted request without one is
-`unconfirmed`, so retry the same immutable proposal rather than creating another.
+What Runtime knows about a failed proposal submission.
+`not-sent` means no request began, `rejected` means Intelligence returned a
+definitive 4xx response, and `unconfirmed` means the caller may safely retry
+the same immutable proposal.
 
 ***
 
@@ -4102,7 +4103,7 @@ returned proposal confirms storage; every attempted request without one is
 
 > **SubmitAgentImprovementProposalOutcome** = \{ `succeeded`: `true`; `value`: `AgentImprovementProposal`; `status`: `number`; \} \| \{ `succeeded`: `false`; `submission`: [`AgentImprovementProposalSubmissionState`](#agentimprovementproposalsubmissionstate); `error`: `string`; `status?`: `number`; `code?`: `string`; \}
 
-Defined in: [src/intelligence/delivery.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L148)
+Defined in: [src/intelligence/delivery.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L149)
 
 Typed result for proposal submission. A successful result contains the
 exact immutable proposal Intelligence recorded.
@@ -4514,7 +4515,7 @@ This delivers the spine against today's wire before the plane changes.
 
 > **resolveIntelligenceBaseUrl**(`baseUrl`): `string`
 
-Defined in: [src/intelligence/delivery.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L179)
+Defined in: [src/intelligence/delivery.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L181)
 
 Resolve the ONE Intelligence base URL — the single knob both the send and
  receive paths derive from. Env fallback: `TANGLE_INTELLIGENCE_URL`.
@@ -4535,7 +4536,7 @@ Resolve the ONE Intelligence base URL — the single knob both the send and
 
 > **normalizeCertifiedProfile**(`raw`): [`CertifiedProfile`](#certifiedprofile)
 
-Defined in: [src/intelligence/delivery.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L249)
+Defined in: [src/intelligence/delivery.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L255)
 
 Deserialize the composed-endpoint response into a `CertifiedProfile`. The
 previously-dropped `agentProfileDiffs`/`capabilities`/`agentProfile` are read
@@ -4558,7 +4559,7 @@ diffs simply yields empty arrays / a null profile (fail-closed, never a crash).
 
 > **pullCertified**(`opts`): `Promise`\<[`PullOutcome`](#pulloutcome)\>
 
-Defined in: [src/intelligence/delivery.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L279)
+Defined in: [src/intelligence/delivery.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L285)
 
 Pull the certified composed profile for a target. Fail-closed: a network
 error or a non-2xx returns a typed `succeeded: false` (never throws), so a
@@ -4581,12 +4582,13 @@ the normal "nothing promoted yet" signal, carried as `status: 404`.
 
 > **submitAgentImprovementProposal**(`opts`): `Promise`\<[`SubmitAgentImprovementProposalOutcome`](#submitagentimprovementproposaloutcome)\>
 
-Defined in: [src/intelligence/delivery.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L322)
+Defined in: [src/intelligence/delivery.ts:329](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L329)
 
 Submit a completed Runtime proposal to Intelligence for product-side review.
 This never runs an experiment, approves a proposal, or applies a candidate.
-Any attempted request without an exact returned proposal is `unconfirmed`:
-callers can retry the same digest because Intelligence stores proposals idempotently.
+A 4xx response is a confirmed `rejected` request. Network failures, timeouts,
+5xx responses, and invalid success responses are `unconfirmed`, so callers
+can retry the same digest because Intelligence stores proposals idempotently.
 
 #### Parameters
 
@@ -4604,7 +4606,7 @@ callers can retry the same digest because Intelligence stores proposals idempote
 
 > **composeCertifiedPrompt**(`base`, `certified`): `string`
 
-Defined in: [src/intelligence/delivery.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L415)
+Defined in: [src/intelligence/delivery.ts:421](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L421)
 
 Fold the certified prompt surface (and any certified prompt-folding artifacts:
 `prompt-surface` / `skill` / `instructions`) into a base system prompt under a
@@ -4634,7 +4636,7 @@ usable certified content. Reads only the prompt-folding slice of a profile.
 
 > **createCertifiedPromptSource**(`opts`): [`CertifiedPromptSource`](#certifiedpromptsource)
 
-Defined in: [src/intelligence/delivery.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L461)
+Defined in: [src/intelligence/delivery.ts:467](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L467)
 
 Create the cached certified-prompt source — the ONE module-scope-cache +
 coalesced-refresh + keep-last-known implementation. Product wiring uses this

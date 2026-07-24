@@ -263,10 +263,12 @@ describe('submitAgentImprovementProposal', () => {
     }
   })
 
-  it('returns an HTTP rejection without claiming whether it persisted', async () => {
+  it.each([
+    400, 403, 409, 422, 499,
+  ])('marks a confirmed HTTP %i client rejection as rejected', async (status) => {
     const proposal = loadAgentImprovementProposalFixture()
     const fetchImpl = vi.fn(async () =>
-      jsonResponse({ error: 'source_changed', message: 'Profile changed.' }, 409),
+      jsonResponse({ error: 'source_changed', message: 'Profile changed.' }, status),
     ) as unknown as typeof fetch
 
     const outcome = await submitAgentImprovementProposal({
@@ -278,9 +280,33 @@ describe('submitAgentImprovementProposal', () => {
 
     expect(outcome).toMatchObject({
       succeeded: false,
-      submission: 'unconfirmed',
-      status: 409,
+      submission: 'rejected',
+      status,
       code: 'source_changed',
+    })
+  })
+
+  it('caps server-supplied error messages and codes at 200 characters', async () => {
+    const proposal = loadAgentImprovementProposalFixture()
+    const longMessage = 'm'.repeat(500)
+    const longCode = 'c'.repeat(500)
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: longCode, message: longMessage }, 400),
+    ) as unknown as typeof fetch
+
+    const outcome = await submitAgentImprovementProposal({
+      proposal,
+      apiKey: 'k_test',
+      baseUrl: 'https://plane.test',
+      fetchImpl,
+    })
+
+    expect(outcome).toEqual({
+      succeeded: false,
+      submission: 'rejected',
+      error: `proposal submission 400: ${longMessage.slice(0, 200)}`,
+      status: 400,
+      code: longCode.slice(0, 200),
     })
   })
 
@@ -314,6 +340,29 @@ describe('submitAgentImprovementProposal', () => {
     })
 
     expect(outcome).toMatchObject({ succeeded: false, submission: 'unconfirmed' })
+  })
+
+  it('marks a timed-out request as unconfirmed so callers retry the same proposal', async () => {
+    const proposal = loadAgentImprovementProposalFixture()
+    const fetchImpl = ((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(new Error('The operation was aborted')),
+          { once: true },
+        )
+      })) as unknown as typeof fetch
+
+    const outcome = await submitAgentImprovementProposal({
+      proposal,
+      apiKey: 'k_test',
+      baseUrl: 'https://plane.test',
+      timeoutMs: 20,
+      fetchImpl,
+    })
+
+    expect(outcome).toMatchObject({ succeeded: false, submission: 'unconfirmed' })
+    if (!outcome.succeeded) expect(outcome.error).toMatch(/abort|timeout/i)
   })
 
   it('marks an unreadable success response as unconfirmed rather than confirming a write', async () => {

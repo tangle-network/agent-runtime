@@ -124,10 +124,11 @@ export interface PullCertifiedOptions {
   timeoutMs?: number
 }
 
-/** What Runtime knows about an attempted proposal submission. Only an exact
- * returned proposal confirms storage; every attempted request without one is
- * `unconfirmed`, so retry the same immutable proposal rather than creating another. */
-export type AgentImprovementProposalSubmissionState = 'not-sent' | 'unconfirmed'
+/** What Runtime knows about a failed proposal submission.
+ * `not-sent` means no request began, `rejected` means Intelligence returned a
+ * definitive 4xx response, and `unconfirmed` means the caller may safely retry
+ * the same immutable proposal. */
+export type AgentImprovementProposalSubmissionState = 'not-sent' | 'rejected' | 'unconfirmed'
 
 /** Submit a completed measured proposal for product-side review. */
 export interface SubmitAgentImprovementProposalOptions {
@@ -156,6 +157,7 @@ export type SubmitAgentImprovementProposalOutcome =
     }
 
 const defaultPlaneRequestTimeoutMs = 10_000
+const maxPlaneErrorTextLength = 200
 
 type PlaneRequestOptions = Pick<
   PullCertifiedOptions,
@@ -228,6 +230,10 @@ async function requestPlane(input: PlaneRequestInput): Promise<PlaneRequestResul
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+}
+
+function capPlaneErrorText(value: string): string {
+  return value.slice(0, maxPlaneErrorTextLength)
 }
 
 function toDiffProvenance(value: unknown): DiffProvenance {
@@ -316,8 +322,9 @@ export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOut
 /**
  * Submit a completed Runtime proposal to Intelligence for product-side review.
  * This never runs an experiment, approves a proposal, or applies a candidate.
- * Any attempted request without an exact returned proposal is `unconfirmed`:
- * callers can retry the same digest because Intelligence stores proposals idempotently.
+ * A 4xx response is a confirmed `rejected` request. Network failures, timeouts,
+ * 5xx responses, and invalid success responses are `unconfirmed`, so callers
+ * can retry the same digest because Intelligence stores proposals idempotently.
  */
 export async function submitAgentImprovementProposal(
   opts: SubmitAgentImprovementProposalOptions,
@@ -354,18 +361,17 @@ export async function submitAgentImprovementProposal(
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     let code: string | undefined
-    let message = body.slice(0, 200)
+    let message = capPlaneErrorText(body)
     try {
       const parsed = asRecord(JSON.parse(body))
-      if (typeof parsed.error === 'string') code = parsed.error
-      if (typeof parsed.message === 'string') message = parsed.message
+      if (typeof parsed.error === 'string') code = capPlaneErrorText(parsed.error)
+      if (typeof parsed.message === 'string') message = capPlaneErrorText(parsed.message)
     } catch {
-      // The response body is optional; the attempted request remains unconfirmed either way.
+      // The response body is optional; the HTTP status still determines the outcome.
     }
     return {
       succeeded: false,
-      // HTTP status explains the response but does not prove the write did not happen.
-      submission: 'unconfirmed',
+      submission: res.status >= 400 && res.status < 500 ? 'rejected' : 'unconfirmed',
       error: `proposal submission ${res.status}: ${message}`,
       status: res.status,
       ...(code === undefined ? {} : { code }),
@@ -388,9 +394,9 @@ export async function submitAgentImprovementProposal(
     return {
       succeeded: false,
       submission: 'unconfirmed',
-      error: `proposal submission response parse failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      error: `proposal submission response parse failed: ${capPlaneErrorText(
+        err instanceof Error ? err.message : String(err),
+      )}`,
       status: res.status,
     }
   }

@@ -424,7 +424,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 141 exports.
 | `AgentImprovementActivationReconciliation` | type | Target-read-only check for a prior exact write. |
 | `AgentImprovementActivationTransition` | type | Product-owned or Runtime-composed transition. |
 | `AgentImprovementExperimentMaterial` | type | Product-supplied experiment material. Runtime supplies optimizer ancestry and the final digest. |
-| `AgentImprovementProposalSubmissionState` | type | What Runtime knows about an attempted proposal submission. Only an exact |
+| `AgentImprovementProposalSubmissionState` | type | What Runtime knows about a failed proposal submission. |
 | `CapabilityAuth` | type | How a binding authenticates at resolve time. Declared as a REQUIREMENT in the |
 | `CapabilityInterface` | type | What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each |
 | `CapabilitySurface` | type | Every interface surface tag — the closed set the resolver fans into slots. |
