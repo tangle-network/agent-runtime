@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.8
+
+- Resolve package-owned fixtures and scripts from both source and compiled installs, and prove ToolLLM fixture loading from the packed package.
+
 ## 0.3.7
 
 - Declare the public executable search path for Pier candidate entrypoints so the exact process contract can replay them against `@tangle-network/agent-runtime@0.102.0`.

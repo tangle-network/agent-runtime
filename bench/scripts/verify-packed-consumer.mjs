@@ -120,7 +120,7 @@ try {
   )
   await writeFile(
     path.join(consumerDir, 'index.mjs'),
-    "import { resolveAdapter, runBenchmarks } from '@tangle-network/agent-bench'\nimport { ADAPTERS } from '@tangle-network/agent-bench/adapters'\nimport { createCragAdapter } from '@tangle-network/agent-bench/benchmarks/crag'\n\nif (typeof resolveAdapter !== 'function' || typeof runBenchmarks !== 'function') throw new Error('root exports are not executable')\nif (typeof ADAPTERS !== 'object' || typeof createCragAdapter !== 'function') throw new Error('subpath exports are not executable')\nif (resolveAdapter('crag').name !== 'crag') throw new Error('compiled adapter registry returned the wrong adapter')\n",
+    "import { resolveAdapter, runBenchmarks } from '@tangle-network/agent-bench'\nimport { ADAPTERS } from '@tangle-network/agent-bench/adapters'\nimport { createCragAdapter } from '@tangle-network/agent-bench/benchmarks/crag'\n\nif (typeof resolveAdapter !== 'function' || typeof runBenchmarks !== 'function') throw new Error('root exports are not executable')\nif (typeof ADAPTERS !== 'object' || typeof createCragAdapter !== 'function') throw new Error('subpath exports are not executable')\nif (resolveAdapter('crag').name !== 'crag') throw new Error('compiled adapter registry returned the wrong adapter')\nprocess.env.TOOLLM_FIXTURES = '1'\nconst toolLlmTasks = await resolveAdapter('toollm').loadTasks({ limit: 1 })\nif (toolLlmTasks.length !== 1 || toolLlmTasks[0]?.id !== '1') throw new Error('packed ToolLLM fixture loading failed')\n",
   )
   await writeFile(
     path.join(consumerDir, 'tsconfig.json'),

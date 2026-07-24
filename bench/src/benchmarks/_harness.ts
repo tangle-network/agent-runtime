@@ -18,6 +18,7 @@
 
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   cp,
   lstat,
@@ -42,8 +43,25 @@ import type {
 
 const execFileAsync = promisify(execFile)
 
-/** Repo root for the bench package (…/bench), so `.venv` and `fixtures` resolve. */
-export const benchRoot = fileURLToPath(new URL('../..', import.meta.url))
+/** Locate the package by identity because source files and compiled chunks have different depths. */
+function resolveBenchRoot(moduleUrl: string): string {
+  let current = dirname(fileURLToPath(moduleUrl))
+  while (true) {
+    const manifestPath = join(current, 'package.json')
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name?: unknown }
+      if (manifest.name === '@tangle-network/agent-bench') return current
+    }
+    const parent = dirname(current)
+    if (parent === current) {
+      throw new Error(`Unable to locate @tangle-network/agent-bench from ${moduleUrl}`)
+    }
+    current = parent
+  }
+}
+
+/** Package root for agent-bench, so `.venv`, scripts, and fixtures resolve. */
+export const benchRoot = resolveBenchRoot(import.meta.url)
 
 /** Resolve the shared interpreter without requiring an installed package to contain a venv. */
 export function resolveBenchPython(
