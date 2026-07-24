@@ -16,7 +16,13 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
-import { createActivityLog, readWorkerProgress } from '../../src/runtime/supervise/progress'
+import { gateOnDeliverable } from '../../src/runtime/supervise/completion-gate'
+import {
+  type ActivityLog,
+  createActivityLog,
+  type ExecutorProgress,
+  readWorkerProgress,
+} from '../../src/runtime/supervise/progress'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'
 import { createPushTraceSource } from '../../src/runtime/supervise/trace-source'
@@ -140,6 +146,107 @@ describe('scope.progress — a running worker is observable without any executor
 
   it('returns undefined for an unknown worker instead of throwing at the driver', () => {
     expect(scopeOf().progress('nope')).toBeUndefined()
+  })
+})
+
+// Both halves of the blind-supervisor fix, end-to-end through the deliverable gate:
+//   - scope layer (BUG 2, already landed via foldStream): tokens/turns advance BEFORE settle.
+//   - executor layer (BUG 1, this fix): `gateOnDeliverable` forwards `progress()`, so recentActivity
+//     is non-empty AND a live tool call keeps idleMs at 0 even when no usage event has fired for
+//     minutes. This is the exact scenario that produced the false-stall steer.
+describe('a GATED active worker stays fully observable mid-flight (BUG 1 + BUG 2 together)', () => {
+  /** A streaming worker wrapped by `gateOnDeliverable`, whose `progress()` reports a live tool log
+   *  the test drives by hand — modelling a harness minutes-deep inside one tool call. */
+  function gatedActiveLeaf(
+    name: string,
+    log: ActivityLog,
+    pause: Promise<void>,
+  ): Agent<unknown, unknown> {
+    const inner: Executor<unknown> = {
+      runtime: 'router',
+      execute() {
+        return (async function* () {
+          yield { kind: 'tokens', input: 100, output: 20 } as UsageEvent
+          yield { kind: 'iteration' } as UsageEvent
+          await pause
+          yield { kind: 'tokens', input: 50, output: 10 } as UsageEvent
+          yield { kind: 'iteration' } as UsageEvent
+        })()
+      },
+      teardown: () => Promise.resolve({ destroyed: true }),
+      resultArtifact: (): ExecutorResult<unknown> => ({
+        outRef: `w:${name}`,
+        out: { done: true },
+        spent: { iterations: 2, tokens: { input: 150, output: 30 }, usd: 0, ms: 0 },
+      }),
+      // The executor-only enrichment the gate must forward — a bare scope read cannot know the
+      // harness's tool activity.
+      progress: (): ExecutorProgress => ({ recentActivity: log.read(), note: 'running tests' }),
+    }
+    const gated = gateOnDeliverable(inner, { check: () => true })
+    const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: gated }
+    return { name, act: async () => 0, executorSpec: spec } as Agent<unknown, unknown> & {
+      executorSpec: AgentSpec
+    }
+  }
+
+  it('reports non-zero turns/tokens AND non-empty recentActivity, and idleMs stays 0 while active', async () => {
+    const g = gate()
+    let clock = 1_000
+    const log = createActivityLog(12)
+    log.push({ at: clock, kind: 'tool', label: 'edit', detail: 'src/x.ts' })
+    const scope = scopeOf(() => clock)
+    const res = scope.spawn(gatedActiveLeaf('w', log, g.opened), 'go', { budget })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+
+    // First usage batch lands; the worker then parks inside its (paused) tool call.
+    await new Promise((r) => setImmediate(r))
+
+    const mid = scope.progress(res.handle.id)
+    expect(mid?.live).toBe(true)
+    expect(mid?.status).toBe('running')
+    // Scope layer — the foldStream fix: real spend before settle, not a zeroed row.
+    expect(mid?.tokens).toEqual({ input: 100, output: 20 })
+    expect(mid?.turns).toBe(1)
+    // Executor layer — the gate-forward fix: the harness's own activity survived the wrapper.
+    expect(mid?.recentActivity?.length ?? 0).toBeGreaterThan(0)
+    expect(mid?.recentActivity?.some((a) => a.label === 'edit')).toBe(true)
+    expect(mid?.idleMs).toBe(0)
+
+    // Minutes pass with NO usage event — the worker is still inside one long tool call and says so
+    // through progress(). The forwarded activity beats the stale usage stamp, so idle stays 0.
+    clock = 1_000 + 120_000
+    log.push({ at: clock, kind: 'tool', label: 'bash', detail: 'pnpm test' })
+    const deep = scope.progress(res.handle.id, { stallAfterMs: 60_000 })
+    expect(deep?.idleMs).toBe(0)
+    expect(deep?.stalled).toBe(false)
+    expect(deep?.recentActivity?.some((a) => a.label === 'bash')).toBe(true)
+
+    // Falsification: with the pre-fix gate `progress()` was dropped, so this note never reached the
+    // fold — the scope's last usage stamp (t=1_000) would read idleMs 120_000 and stalled:true, the
+    // false stall that steered the live run. Prove that counterfactual directly.
+    const blind = readWorkerProgress(
+      {
+        id: 'w',
+        status: 'running',
+        steerable: false,
+        startedAt: 1_000,
+        lastActivityAt: 1_000,
+        turns: 1,
+        tokens: { input: 100, output: 20 },
+        usd: 0,
+      },
+      undefined,
+      clock,
+      60_000,
+    )
+    expect(blind.idleMs).toBe(120_000)
+    expect(blind.stalled).toBe(true)
+
+    g.open()
+    const settled = await scope.next()
+    expect(settled?.kind).toBe('done')
   })
 })
 

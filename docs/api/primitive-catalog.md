@@ -333,7 +333,7 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 141 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -369,6 +369,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
 | `resolveRedactor` | function | Resolve the redactor a client uses. A caller-supplied hook replaces the |
 | `reviewAgentImprovementProposal` | function | Persist a human or tenant-policy decision bound to one exact proposal. |
 | `runAgentCandidateExperiment` | function | Execute both arms of one immutable experiment and derive its paired result. |
+| `submitAgentImprovementProposal` | function | Submit a completed Runtime proposal to Intelligence for product-side review. |
 | `verifyAgentImprovementActivation` | function | Validate activation authority against the exact proposal, review, experiment, and base state. |
 | `verifyAgentImprovementActivationResult` | function | Recompute one historical activation result against the exact measured proposal and authority. |
 | `verifyAgentImprovementProposal` | function | Validate a proposal and recompute every binding to its measured experiment. |
@@ -419,6 +420,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
 | `ResolvedSurface` | interface | What `composeCertifiedProfile` produces. Every binding fans into the same |
 | `RunRecord` | interface | The typed record `withIntelligence` sends per call — serialized through the |
 | `RunReport` | interface | What an agent reports (via `applied.record`) to enrich the {@link RunRecord} |
+| `SubmitAgentImprovementProposalOptions` | interface | Submit a completed measured proposal for product-side review. |
 | `TraceHandle` | interface | The trace handle a `traceRun` body records into. `recordOutput` captures the |
 | `TraceMeta` | interface | Metadata describing one traced run. `runId`/`traceId` default to fresh ids. |
 | `TraceOutcome` | interface | The resolved outcome of one traced run, surfaced on the export span and |
@@ -427,6 +429,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
 | `AgentImprovementActivationReconciliation` | type | Target-read-only check for a prior exact write. |
 | `AgentImprovementActivationTransition` | type | Product-owned or Runtime-composed transition. |
 | `AgentImprovementExperimentMaterial` | type | Product-supplied experiment material. Runtime supplies optimizer ancestry and the final digest. |
+| `AgentImprovementProposalSubmissionState` | type | What Runtime knows about a failed proposal submission. |
 | `CapabilityAuth` | type | How a binding authenticates at resolve time. Declared as a REQUIREMENT in the |
 | `CapabilityInterface` | type | What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each |
 | `CapabilitySurface` | type | Every interface surface tag — the closed set the resolver fans into slots. |
@@ -441,13 +444,14 @@ Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
 | `JsonSchema` | type | A JSON Schema object describing a tool's parameters. Kept structural — the |
 | `PullOutcome` | type | Typed outcome for the pull — inspect `succeeded` before `value`. A 404 |
 | `Redactor` | type | A redactor maps an arbitrary trace value to a safe-to-export value. Pure; |
+| `SubmitAgentImprovementProposalOutcome` | type | Typed result for proposal submission. A successful result contains the |
 | `UsageClass` | type | Usage class for billing. Base-stream tokens bill `'inference'`; every |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementActivationTransitionInput`, `AgentImprovementProfileReplacement`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 541 exports.
+Import from `@tangle-network/agent-runtime/loops` — 543 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -495,6 +499,7 @@ Import from `@tangle-network/agent-runtime/loops` — 541 exports.
 | `createShapeRegistry` | function | Build a fresh open `ShapeRegistry`. A factory is stored type-erased and re-cast on resolve — the |
 | `createSteerableSandboxSession` | function | One steerable sandbox worker. The returned session is inert until `stream()` is drained. |
 | `createSupervisor` | function | The `Supervisor` impl (KEYSTONE, build step 5). |
+| `createTangleSandboxExactProcessProvider` | function | Adapt Tangle Sandbox's managed control runtime to Runtime's exact-process provider. |
 | `createVerifierEnvironment` | function | Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it. |
 | `createWaitProbes` | function | Registry over a plain name→predicate record. |
 | `createWaterfallCollector` | function | Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. |
@@ -875,15 +880,16 @@ Import from `@tangle-network/agent-runtime/loops` — 541 exports.
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NoProgressForOptions`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `RepairStop`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NoProgressForOptions`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `RepairStop`, `WorkspaceCommit`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 
-Import from `@tangle-network/agent-runtime/environment-provider` — 32 exports.
+Import from `@tangle-network/agent-runtime/environment-provider` — 34 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `createAgentEnvironmentProviderRegistry` | function | Create a registry that resolves provider names to concrete provider instances. |
+| `createTangleSandboxExactProcessProvider` | function | Adapt Tangle Sandbox's managed control runtime to Runtime's exact-process provider. |
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
@@ -895,7 +901,7 @@ Import from `@tangle-network/agent-runtime/environment-provider` — 32 exports.
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
 | `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `CheckpointRef`, `CheckpointRequest`, `CreateAgentEnvironmentInput`, `ExecRequest`, `ExecResult`, `ForkRequest`, `PlacementInfo`, `ResourceRequest`, `WorkspaceRequest`, `AgentEnvironmentStatus`, `AgentSessionStatus`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `CheckpointRef`, `CheckpointRequest`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `ExecRequest`, `ExecResult`, `ForkRequest`, `PlacementInfo`, `ResourceRequest`, `WorkspaceRequest`, `AgentEnvironmentStatus`, `AgentSessionStatus`.
 
 ### Analyst loop — trace findings on a running loop
 

@@ -13,8 +13,8 @@ describe('HumanEval Python isolation', () => {
     writeFileSync(
       fakeDocker,
       `#!/usr/bin/env node
-import fs from 'node:fs'
-import path from 'node:path'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 const args = process.argv.slice(2)
 if (args[0] === 'rm') process.exit(0)
 if (process.env.FAKE_DOCKER_MISSING === '1') {

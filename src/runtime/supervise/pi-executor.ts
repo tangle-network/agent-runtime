@@ -10,7 +10,7 @@
  * verb pi already has:
  *
  *   `execute`        → `prompt`, draining pi's event stream until `agent_end`
- *   `deliver`        → `steer` (forceful) / `follow_up` (queued) — pi owns the queue, we do not
+ *   `deliver`        → `prompt` with `streamingBehavior` — pi owns the queue, we do not
  *   `teardown`       → `abort`, then close stdin and reap the process
  *   `progress`       → pi's `tool_execution_start`/`_end` + `turn_end` events, plus `get_state`'s
  *                      `pendingMessageCount` mirrored locally so the read stays synchronous
@@ -102,9 +102,9 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
 
   return {
     runtime: PI_RUNTIME,
-    // pi owns the queue; `deliver` only routes. A forceful message becomes pi's `steer` (which
-    // pi delivers after the current tool batch and before the next model call); a queued one
-    // becomes `follow_up` (after the turn finishes). Never throws — the inbox contract.
+    // pi owns the queue; `deliver` only routes through its state-safe `prompt` command. Its
+    // streaming behavior chooses steer versus follow-up atomically in pi, rather than trusting
+    // this adapter's delayed view of whether the current run has already ended.
     deliver: (m) => inbox.deliver(m),
     progress: (): ExecutorProgress => ({
       turns: state.turns,
@@ -192,6 +192,7 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
 
   const stdoutLines = readJsonLines(proc, (value) => {
     const ev = value as PiEvent
+    if (ev.type === 'agent_start') idle = false
     if (ev.type === 'agent_end') idle = true
     events.push(ev)
     notify()
@@ -233,7 +234,7 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     for (;;) {
       // Forward anything the driver delivered — pi's own queue is the single source of truth
       // for ordering, so this is a route, not a second queue.
-      forwardPending(proc, inbox, activity)
+      if (!idle) forwardPending(proc, inbox, activity)
 
       // Drain what pi has emitted so far, projecting usage + activity.
       while (events.length > 0) {
@@ -289,13 +290,14 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   }
 }
 
-/** Route delivered messages onto pi's OWN queue: forceful → `steer`, queued → `follow_up`. */
+/** Route messages through pi's state-safe prompt command; pi owns the queue and idle transition. */
 function forwardPending(proc: ChildProcess, inbox: Inbox, activity: ActivityLog): void {
   const pending = inbox.drain()
   for (const m of pending) {
     sendCommand(proc, {
-      type: m.interrupt ? 'steer' : 'follow_up',
+      type: 'prompt',
       message: renderOne(m),
+      streamingBehavior: m.interrupt ? 'steer' : 'followUp',
     })
     activity.push({
       at: Date.now(),

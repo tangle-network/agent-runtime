@@ -7,6 +7,7 @@
 - Keep code improvement on Runtime-owned isolated Git worktrees.
 - Remove the retired local prompt, profile-diff, campaign OTLP, and record-only optimizer paths.
 - Require `@tangle-network/agent-eval` 0.126.x.
+- Add the Tangle Sandbox exact-process environment provider for verified candidate execution.
 
 ## 0.103.1
 
