@@ -265,6 +265,8 @@ export interface RunLocalHarnessOptions {
   codexReadDeniedPaths?: ReadonlyArray<string>
   /** Wall-clock kill deadline (ms). Default 5 min. Subprocess SIGTERMed on expiry. */
   timeoutMs?: number
+  /** Newest stdout/stderr bytes retained per stream. Default 64 MiB. */
+  maxOutputBytes?: number
   /** Caller cancellation. SIGTERM is sent on abort. */
   signal?: AbortSignal
   /** Override env (defaults to inheriting from the parent). */
@@ -355,6 +357,11 @@ export interface LocalHarnessResult {
   durationMs: number
   /** Set when timeoutMs elapsed before exit. */
   timedOut: boolean
+  /**
+   * Set when the caller's AbortSignal fired before this result settled.
+   * Optional so injected runners and stored results from older releases remain valid.
+   */
+  aborted?: boolean
   /** Present for a reproducible Codex run; parsed from the real terminal JSONL event. */
   usage?: CodexTokenUsage
   /** Present for reproducible Codex runs; generated and checked before model execution. */
@@ -362,7 +369,41 @@ export interface LocalHarnessResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 const processKillGraceMs = 250
+const processGroupExitConfirmMs = 1_000
+const processGroupExitPollMs = 10
+
+class RollingByteCapture {
+  private readonly chunks: Buffer[] = []
+  private bytes = 0
+
+  constructor(private readonly maxBytes: number) {}
+
+  append(chunk: unknown): void {
+    if (this.maxBytes === 0) return
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+    this.chunks.push(buffer)
+    this.bytes += buffer.length
+    let excess = this.bytes - this.maxBytes
+    while (excess > 0 && this.chunks.length > 0) {
+      const first = this.chunks[0]!
+      if (first.length <= excess) {
+        this.chunks.shift()
+        this.bytes -= first.length
+        excess -= first.length
+      } else {
+        this.chunks[0] = first.subarray(excess)
+        this.bytes -= excess
+        excess = 0
+      }
+    }
+  }
+
+  text(): string {
+    return Buffer.concat(this.chunks, this.bytes).toString('utf8')
+  }
+}
 
 /**
  * Spawn a local coding harness CLI as a subprocess + collect its output.
@@ -375,11 +416,16 @@ const processKillGraceMs = 250
  * Fails loud — throws when:
  *   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
  *   - the harness binary is not on PATH (ENOENT)
+ *   - the caller signal was already aborted before process launch
  *
  * Does NOT throw when:
  *   - the subprocess exits non-zero (`result.exitCode` carries the code)
- *   - the subprocess is aborted / timed out (`result.killedBySignal` /
- *     `result.timedOut` carries the reason)
+ *   - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+ *     `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+ *
+ * Reproducible Codex additionally requires a terminal usage event. If cancellation
+ * prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+ * returning an incomplete reproducibility receipt.
  *
  * @experimental
  */
@@ -397,6 +443,10 @@ export async function runLocalHarness(
     throw new Error('runLocalHarness: codexReadDeniedPaths requires codexReproducible')
   }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
+  if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 0) {
+    throw new Error('runLocalHarness: maxOutputBytes must be a non-negative safe integer')
+  }
   const spawnImpl = options.spawn ?? spawn
 
   const invocation = HARNESS_INVOCATIONS[harness]
@@ -410,6 +460,7 @@ export async function runLocalHarness(
     ? [...options.invocation.args]
     : buildHarnessArgs(harness, taskPrompt, options)
   if (options.codexReproducible) assertCodexReproducibleInvocation(requestedCommand, args)
+  options.signal?.throwIfAborted()
 
   // We spawn the harness with `cwd`, but a harness that resolves its working
   // directory from `$PWD` rather than `getcwd()` (opencode does; the others may)
@@ -471,6 +522,7 @@ export async function runLocalHarness(
     return await new Promise<LocalHarnessResult>((resolve, reject) => {
       let child: ChildProcess
       try {
+        options.signal?.throwIfAborted()
         child = spawnImpl(command, args, {
           cwd,
           env,
@@ -489,26 +541,38 @@ export async function runLocalHarness(
       // subprocess sees EOF and proceeds (the `cliExecutor` leaf does the same).
       child.stdin?.end()
 
-      let stdout = ''
-      let stderr = ''
+      const stdoutCapture = new RollingByteCapture(maxOutputBytes)
+      const stderrCapture = new RollingByteCapture(maxOutputBytes)
       let timedOut = false
+      let aborted = false
       let settled = false
-      let forceKillTimer: ReturnType<typeof setTimeout> | null = null
-      let terminationStarted = false
+      let leaderClosed = false
+      let timer: ReturnType<typeof setTimeout> | null = null
+      let termination: Promise<void> | null = null
 
-      const terminate = () => {
-        if (terminationStarted) return
-        terminationStarted = true
-        signalProcessTree(child, 'SIGTERM')
-        forceKillTimer = setTimeout(() => signalProcessTree(child, 'SIGKILL'), processKillGraceMs)
-        forceKillTimer.unref?.()
+      const clearLifecycle = () => {
+        if (timer) clearTimeout(timer)
+        options.signal?.removeEventListener('abort', onAbort)
+      }
+      const rejectOnce = (err: unknown) => {
+        if (settled) return
+        settled = true
+        clearLifecycle()
+        reject(err instanceof Error ? err : new Error(String(err)))
+      }
+      const terminate = (): Promise<void> => {
+        if (!termination) {
+          termination = terminateProcessTreeAndConfirm(child, () => leaderClosed)
+          void termination.catch(rejectOnce)
+        }
+        return termination
       }
 
-      const timer =
+      timer =
         timeoutMs > 0
           ? setTimeout(() => {
               timedOut = true
-              terminate()
+              void terminate()
             }, timeoutMs)
           : null
       if (timer && typeof (timer as { unref?: () => void }).unref === 'function') {
@@ -516,7 +580,8 @@ export async function runLocalHarness(
       }
 
       const onAbort = () => {
-        terminate()
+        aborted = true
+        void terminate()
       }
       if (options.signal) {
         if (options.signal.aborted) onAbort()
@@ -524,70 +589,88 @@ export async function runLocalHarness(
       }
 
       child.stdout?.on('data', (chunk) => {
-        stdout += String(chunk)
+        stdoutCapture.append(chunk)
       })
       child.stderr?.on('data', (chunk) => {
-        stderr += String(chunk)
+        stderrCapture.append(chunk)
       })
 
       const finalize = (result: LocalHarnessResult) => {
         if (settled) return
         settled = true
-        if (timer) clearTimeout(timer)
-        if (forceKillTimer) clearTimeout(forceKillTimer)
-        options.signal?.removeEventListener('abort', onAbort)
+        clearLifecycle()
         resolve(result)
       }
 
       child.on('error', (err) => {
-        if (settled) return
-        settled = true
+        leaderClosed = true
         if (timer) clearTimeout(timer)
-        if (forceKillTimer) clearTimeout(forceKillTimer)
-        options.signal?.removeEventListener('abort', onAbort)
-        reject(err)
+        void (async () => {
+          try {
+            if (termination) await termination
+            rejectOnce(err)
+          } catch (terminationError) {
+            rejectOnce(terminationError)
+          }
+        })()
       })
 
       child.on('close', (code, signal) => {
-        const durationMs = Date.now() - startedAt
-        try {
-          const usage = options.codexReproducible ? parseCodexTokenUsage(stdout) : undefined
-          finalize({
-            exitCode: code,
-            stdout,
-            stderr: redactCodexHome(stderr, env.CODEX_HOME),
-            killedBySignal: signal,
-            durationMs,
-            timedOut,
-            ...(usage ? { usage } : {}),
-            ...(evidence ? { evidence } : {}),
-          })
-        } catch (err) {
-          if (settled) return
-          settled = true
-          if (timer) clearTimeout(timer)
-          if (forceKillTimer) clearTimeout(forceKillTimer)
-          options.signal?.removeEventListener('abort', onAbort)
-          const reason = err instanceof Error ? err.message : String(err)
-          reject(
-            options.codexReproducible
-              ? createCodexExecutionDiagnosticError({
-                  reason,
-                  exitCode: code,
-                  killedBySignal: signal,
-                  timedOut,
-                  durationMs,
-                  stdout,
-                  stderr,
-                  codexHome: env.CODEX_HOME,
-                  redactionValues: isolated.diagnosticRedactionValues,
-                  cause: err,
-                })
-              : err instanceof Error
-                ? err
-                : new Error(reason),
-          )
-        }
+        leaderClosed = true
+        if (timer) clearTimeout(timer)
+        void (async () => {
+          const stdout = stdoutCapture.text()
+          const stderr = stderrCapture.text()
+          try {
+            if (
+              !termination &&
+              process.platform !== 'win32' &&
+              typeof child.pid === 'number' &&
+              processGroupExists(child.pid)
+            ) {
+              await terminate()
+            }
+            if (termination) await termination
+            const durationMs = Date.now() - startedAt
+            const usage = options.codexReproducible ? parseCodexTokenUsage(stdout) : undefined
+            finalize({
+              exitCode: code,
+              stdout,
+              stderr: redactCodexHome(stderr, env.CODEX_HOME),
+              killedBySignal: signal,
+              durationMs,
+              timedOut,
+              aborted,
+              ...(usage ? { usage } : {}),
+              ...(evidence ? { evidence } : {}),
+            })
+          } catch (err) {
+            if (settled) return
+            settled = true
+            clearLifecycle()
+            const durationMs = Date.now() - startedAt
+            const reason = err instanceof Error ? err.message : String(err)
+            reject(
+              options.codexReproducible
+                ? createCodexExecutionDiagnosticError({
+                    reason,
+                    exitCode: code,
+                    killedBySignal: signal,
+                    timedOut,
+                    aborted,
+                    durationMs,
+                    stdout,
+                    stderr,
+                    codexHome: env.CODEX_HOME,
+                    redactionValues: isolated.diagnosticRedactionValues,
+                    cause: err,
+                  })
+                : err instanceof Error
+                  ? err
+                  : new Error(reason),
+            )
+          }
+        })()
       })
     })
   } finally {
@@ -849,19 +932,33 @@ function runCodexProbe(
     let stdout = ''
     let stderr = ''
     let settled = false
-    let forceKillTimer: ReturnType<typeof setTimeout> | null = null
+    let leaderClosed = false
+    let termination: Promise<void> | null = null
+    let terminationReason: 'aborted' | 'timed out' | null = null
+    const clearLifecycle = () => {
+      clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', onAbort)
+    }
+    const rejectOnce = (err: unknown) => {
+      if (settled) return
+      settled = true
+      clearLifecycle()
+      reject(err instanceof Error ? err : new Error(String(err)))
+    }
+    const terminate = (reason?: 'aborted' | 'timed out'): Promise<void> => {
+      if (reason) terminationReason ??= reason
+      if (!termination) {
+        termination = terminateProcessTreeAndConfirm(child, () => leaderClosed)
+        void termination.catch(rejectOnce)
+      }
+      return termination
+    }
     const timer = setTimeout(() => {
-      signalProcessTree(child, 'SIGTERM')
-      forceKillTimer = setTimeout(() => signalProcessTree(child, 'SIGKILL'), processKillGraceMs)
-      forceKillTimer.unref?.()
+      void terminate('timed out')
     }, 10_000)
     timer.unref?.()
     const onAbort = () => {
-      signalProcessTree(child, 'SIGTERM')
-      if (!forceKillTimer) {
-        forceKillTimer = setTimeout(() => signalProcessTree(child, 'SIGKILL'), processKillGraceMs)
-        forceKillTimer.unref?.()
-      }
+      void terminate('aborted')
     }
     if (opts.signal) {
       if (opts.signal.aborted) onAbort()
@@ -874,29 +971,48 @@ function runCodexProbe(
       stderr += String(chunk)
     })
     child.on('error', (err) => {
-      if (settled) return
-      settled = true
+      leaderClosed = true
       clearTimeout(timer)
-      if (forceKillTimer) clearTimeout(forceKillTimer)
-      opts.signal?.removeEventListener('abort', onAbort)
-      reject(err)
+      void (async () => {
+        try {
+          if (termination) await termination
+          rejectOnce(err)
+        } catch (terminationError) {
+          rejectOnce(terminationError)
+        }
+      })()
     })
     child.on('close', (code, signal) => {
-      if (settled) return
-      settled = true
+      leaderClosed = true
       clearTimeout(timer)
-      if (forceKillTimer) clearTimeout(forceKillTimer)
-      opts.signal?.removeEventListener('abort', onAbort)
-      if (code !== 0) {
-        const safeStderr = redactCodexHome(stderr, opts.env.CODEX_HOME)
-        reject(
-          new Error(
-            `runLocalHarness: Codex evidence probe failed (exit ${String(code)}, signal ${String(signal)}): ${safeStderr.trim()}`,
-          ),
-        )
-        return
-      }
-      resolve({ stdout, stderr })
+      void (async () => {
+        try {
+          if (
+            !termination &&
+            process.platform !== 'win32' &&
+            typeof child.pid === 'number' &&
+            processGroupExists(child.pid)
+          ) {
+            await terminate()
+          }
+          if (termination) await termination
+          if (settled) return
+          settled = true
+          clearLifecycle()
+          if (code !== 0 || terminationReason) {
+            const safeStderr = redactCodexHome(stderr, opts.env.CODEX_HOME)
+            reject(
+              new Error(
+                `runLocalHarness: Codex evidence probe ${terminationReason ?? 'failed'} (exit ${String(code)}, signal ${String(signal)}): ${safeStderr.trim()}`,
+              ),
+            )
+            return
+          }
+          resolve({ stdout, stderr })
+        } catch (err) {
+          rejectOnce(err)
+        }
+      })()
     })
   })
 }
@@ -1343,6 +1459,53 @@ function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
     child.kill(signal)
   } catch {
     // The process may have exited between the timer and signal delivery.
+  }
+}
+
+export async function terminateProcessTreeAndConfirm(
+  child: ChildProcess,
+  leaderClosed: () => boolean,
+  context = 'runLocalHarness',
+): Promise<void> {
+  signalProcessTree(child, 'SIGTERM')
+  if (process.platform === 'win32' || typeof child.pid !== 'number') {
+    const graceDeadline = Date.now() + processKillGraceMs
+    while (!leaderClosed() && Date.now() < graceDeadline) {
+      await delayUntilNextProcessCheck(graceDeadline)
+    }
+    if (!leaderClosed()) signalProcessTree(child, 'SIGKILL')
+    return
+  }
+  const processGroupId = child.pid
+  const graceDeadline = Date.now() + processKillGraceMs
+  if (await waitForProcessGroupExit(processGroupId, graceDeadline)) return
+
+  signalProcessTree(child, 'SIGKILL')
+  const killDeadline = Date.now() + processGroupExitConfirmMs
+  if (await waitForProcessGroupExit(processGroupId, killDeadline)) return
+  throw new Error(`${context}: process group ${processGroupId} survived SIGKILL`)
+}
+
+async function waitForProcessGroupExit(processGroupId: number, deadline: number): Promise<boolean> {
+  while (processGroupExists(processGroupId)) {
+    if (Date.now() >= deadline) return false
+    await delayUntilNextProcessCheck(deadline)
+  }
+  return true
+}
+
+async function delayUntilNextProcessCheck(deadline: number): Promise<void> {
+  const delayMs = Math.min(processGroupExitPollMs, Math.max(0, deadline - Date.now()))
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
+}
+
+function processGroupExists(processGroupId: number): boolean {
+  try {
+    process.kill(-processGroupId, 0)
+    return true
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ESRCH') return false
+    return true
   }
 }
 

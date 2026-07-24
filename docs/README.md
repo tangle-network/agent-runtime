@@ -4,7 +4,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 
 ## Start here
 
-1. [The README](../README.md) — what the package is + the three things you do with it.
+1. [The README](../README.md) — what the package is, a runnable offline quickstart, and the primitives catalog.
 2. [concepts.md](./concepts.md) — the mental model (chat turns, tasks, runs) in plain terms.
 3. [canonical-api.md](./canonical-api.md) — find the right primitive: "I want to ___ → use ___".
 4. [../examples/](../examples) — copy a runnable example near your task.
@@ -13,14 +13,17 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 
 ## Architecture & research track — *not required to use the package*
 
+These are internal working documents: design theses, research narrative, and roadmap bookkeeping for the team building the package. [design.md](./design.md) is the plain-terms front door to all of them.
+
 | # | Doc | Role | Purpose |
 |---|---|---|---|
+| 0 | [design.md](./design.md) | **front door** | The design philosophy in plain terms + the map of the internal docs below. Start here for background. |
 | 1 | [architecture.md](./architecture.md) | **canonical spine** | One recursive agent tree, two timescales, many benchmarks — the visual mental model (`act`/`Scope`/recursion, the up-flow, the three improvement timescales) folded in. The single source of truth; wins on conflict. |
 | 1a | [agent-managed-compute/](./agent-managed-compute/) | **distributed execution plan** | Current-state audit, converged design, failure behavior, dependency-ordered roadmap, and measurable completion criteria for agents that allocate and steer compute. |
 | 2 | [architecture-interpretations.md](./architecture-interpretations.md) | coherence verdict | Stress-tests the spine through five lenses + the decision gate. Answers "does it cohere?" — and where it doesn't. |
 | 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build plan | The dependency-ordered sequence from scaffold to a measured surface. Phases, exit gates, open decisions. |
-| 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. |
-| 5 | [eval-substrate.md](./eval-substrate.md) | north star + discipline | The neutral measurement substrate, the data engine, and the measurement non-negotiables. |
+| 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The cross-run learning thesis: why the outer improvement loop, not any single run, is the product. |
+| 5 | [eval-substrate.md](./eval-substrate.md) | measurement principles | Neutral scoring, honest graders, and the claims discipline the team holds itself to. |
 | 6 | [../bench/HARNESS.md](../bench/HARNESS.md) | empirical harness map | Commands, the data flow, the wired/needs-creds matrix, the canonical-suite runbook. |
 
 ## Reference track

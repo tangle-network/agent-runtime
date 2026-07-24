@@ -13,6 +13,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 
+import { assertCandidateProfileBinding } from '../src/candidate-execution'
 import {
   type BuildAgentCandidateBundleInput,
   buildAgentCandidateBundle,
@@ -314,6 +315,56 @@ describe('public agent candidate bundle builder', () => {
       modes: { review: { model: 'provider/model' } },
       confidential: { tee: 'tdx', sealed: true },
     })
+    expect(() => assertCandidateProfileBinding(profile, bundle.profile)).not.toThrow()
+  })
+
+  it('exports the exact profile binding check for product activation boundaries', () => {
+    const fixture = createCandidateExecutionFixture(false)
+    const profile = simpleProfile()
+    const bundle = buildAgentCandidateBundle({
+      profile: { kind: 'profile', profile },
+      code: { kind: 'disabled' },
+      execution: fixture.bundle.execution,
+      memory: { mode: 'disabled' },
+    })
+
+    expect(() => assertCandidateProfileBinding(profile, bundle.profile)).not.toThrow()
+    expect(() =>
+      assertCandidateProfileBinding(
+        { ...profile, prompt: { instructions: ['Use a different instruction.'] } },
+        bundle.profile,
+      ),
+    ).toThrow(/does not match/)
+    expect(() =>
+      assertCandidateProfileBinding(
+        { ...profile, metadata: { tenant: 'tenant-1' } },
+        bundle.profile,
+      ),
+    ).toThrow(/not representable/)
+    expect(() =>
+      assertCandidateProfileBinding(
+        {
+          ...profile,
+          connections: [{ connectionId: 'connection-1', capabilities: ['read'] }],
+        },
+        bundle.profile,
+      ),
+    ).toThrow(/not representable/)
+    expect(() =>
+      assertCandidateProfileBinding(
+        { ...profile, extensions: { codex: { feature: true } } },
+        bundle.profile,
+      ),
+    ).toThrow(/not representable/)
+    expect(() =>
+      assertCandidateProfileBinding(
+        {
+          ...profile,
+          model: { ...profile.model, metadata: { routing: 'private' } },
+        },
+        bundle.profile,
+      ),
+    ).toThrow(/model\.metadata.*not representable/)
   })
 
   it('accepts an already closed candidate profile for behavior generic profiles cannot encode', () => {

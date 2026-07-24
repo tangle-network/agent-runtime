@@ -254,6 +254,12 @@ Re-exports [applyExactAgentProfileDiff](index.md#applyexactagentprofilediff)
 
 ***
 
+### assertCandidateProfileBinding
+
+Re-exports [assertCandidateProfileBinding](index.md#assertcandidateprofilebinding)
+
+***
+
 ### parseExactAgentProfile
 
 Re-exports [parseExactAgentProfile](index.md#parseexactagentprofile)

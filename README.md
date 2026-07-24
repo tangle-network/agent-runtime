@@ -1,8 +1,8 @@
 # @tangle-network/agent-runtime
 
-The engine Tangle's AI agents run on. It runs an agent as a **chat turn**, a **one-shot task**, or a **team of agents** working toward a goal, records every run, and uses those records to **measure and improve** agents against real pass/fail checks.
+A TypeScript runtime for running AI agents — as a **chat turn**, a **one-shot task**, or a **team of agents** working toward a goal — that records every run and uses those records to **measure and improve** agents against real pass/fail checks. It is the engine Tangle's own production agents run on.
 
-One loop, used four common ways. Domain behavior (models, tools, knowledge) plugs in as adapters; the scoring statistics and the ship decision come from [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval); sandboxed execution from [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox).
+Domain behavior (models, tools, knowledge) plugs in as adapters; the scoring statistics and the ship decision come from [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval); sandboxed execution from [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox).
 
 ```bash
 pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-network/sandbox
@@ -10,6 +10,7 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-networ
 
 ## Contents
 
+- [Quickstart](#quickstart-offline-no-api-keys)
 - [What you do with it](#what-you-do-with-it)
 - [Run a chat turn](#run-a-chat-turn)
 - [Supervise a team of agents](#supervise-a-team-of-agents)
@@ -17,14 +18,50 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-networ
 - [Improve a knowledge base](#improve-a-knowledge-base)
 - [Run on PrimeIntellect](#run-on-primeintellect)
 - [How it works](#how-it-works-the-short-version)
+- [Primitives](#primitives)
 - [Examples](#examples)
 - [Where to go next](#where-to-go-next)
 
-**See it run in 30 seconds** (offline, no keys): the one move everything else builds on, a driver reading a worker's output and composing the next step from it:
+## Quickstart (offline, no API keys)
+
+The core move everything else builds on: a driver runs a worker, reads the worker's real output, and writes the next prompt from it until a check passes. This is the full working loop from [`examples/quickstart/quickstart.ts`](./examples/quickstart/quickstart.ts) (the worker is a scripted stand-in so it runs with zero credentials; swap it for a real sandbox, CLI-harness, or router backend without changing the driver):
+
+```ts
+import { inProcessSandboxClient, runLoop } from '@tangle-network/agent-runtime/loops'
+
+const result = await runLoop<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
+  task: { prompt: 'Write a one-line release note for one-click restore.' },
+  driver: {
+    name: 'refine',
+    plan: async (task, history) => {
+      const last = history[history.length - 1]
+      if (!last) return [task] // shot 0: run the task as written
+      if (last.verdict?.valid || history.length >= 3) return [] // done, or out of shots
+      // The core move: read the last worker's real output, write the next prompt FROM it.
+      return [{ prompt: `Rewrite "${last.output?.note}" to mention the rollback path.` }]
+    },
+    decide: (history) =>
+      history.some((shot) => shot.verdict?.valid) ? 'pick-winner' : history.length < 3 ? 'refine' : 'fail',
+  },
+  agentRun: { profile: { name: 'note-writer' } as AgentProfile, taskToPrompt: (t) => t.prompt },
+  output,    // parses the worker's event stream into { note }
+  validator, // pass/fail check: does the note mention "rollback"?
+  ctx: { sandboxClient: worker },
+  maxIterations: 3,
+})
+```
+
+Run it from a clone of this repo and you get exactly this:
 
 ```bash
-pnpm tsx examples/driver-loop/driver-loop.ts
+$ pnpm i && pnpm build
+$ pnpm tsx examples/quickstart/quickstart.ts
+shot 0: reject — "Shipped one-click restore."
+shot 1: PASS — "Shipped one-click restore with an instant rollback path."
+decision: pick-winner — winner: shot 1
 ```
+
+The fully annotated version of this loop, with every seam explained, is [`examples/driver-loop`](./examples/driver-loop).
 
 ## What you do with it
 
@@ -232,12 +269,31 @@ Use `importPrimeIntellectTraces(...)` to convert them to agent-eval `RunRecord`s
 - **Improvement is gated.** A change ships only after it beats the current agent on fresh tasks no tuning step ever saw, with a statistical test, not a single lucky run.
 - **The grader is honest.** Whatever gives feedback never sees the answer key, and scores are recomputed from the attempts actually run. An agent cannot fabricate its own win.
 
+## Primitives
+
+The general-purpose pieces, by import path. Every export with its one-line summary lives in the generated [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md) — check it before building anything new.
+
+| Primitive | What it does | Import |
+|---|---|---|
+| Chat-turn runtime | Stream, trace, and persist one production chat turn (`handleChatTurn`); normalize any backend's stream into one event shape (`streamAgentTurn`) | root · `/loops` |
+| Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/loops` · `/mcp` |
+| Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runLoop`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/loops` |
+| Improvement driver | Optimize one part of an agent and ship only if it wins on tasks it never practiced on (`improve`); production proposal/review/activation flow | root · `/intelligence` |
+| Benchmarks + leaderboards | Compare strategies with significance stats (`runBenchmark`), stand up a harness×model leaderboard (`defineLeaderboard`, `leaderboard`) | `/loops` |
+| Knowledge improvement | Produce a measured candidate copy of a KB/wiki/RAG corpus without touching the live one (`runKnowledgeImprovementJob`) | `/knowledge` |
+| MCP tool servers | Give an agent a `delegate` tool or live worker-coordination tools over MCP | `/mcp` |
+| Conversations + durability | Multi-turn two-agent sessions with SQL-backed resume (D1/pg/sqlite/libSQL adapters) | `/conversation` |
+| Training/eval adapter | Package the same runtime program as a PrimeIntellect Verifiers environment; import its traces back | `/primeintellect` |
+
+Remaining subpaths: `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`, `/testing` (validated fixture records for consumer tests).
+
 ## Examples
 
 Runnable, grouped by what they show. Copy the one nearest your task:
 
 | Do this | Example |
 |---|---|
+| The smallest complete loop (start here) | [`quickstart`](./examples/quickstart) · [`driver-loop`](./examples/driver-loop) |
 | Run a product chat turn | [`chat-handler`](./examples/chat-handler) |
 | Drive a team of agents to a goal | [`supervise`](./examples/supervise) · [`recursive-supervisor`](./examples/recursive-supervisor) |
 | Benchmark strategies on your own domain | [`coding-benchmark`](./examples/coding-benchmark) |
@@ -249,15 +305,14 @@ Runnable, grouped by what they show. Copy the one nearest your task:
 | Evaluate or train a runtime program on PrimeIntellect | `@tangle-network/agent-runtime/primeintellect` |
 | Study coordination vs raw compute | [`ablation-suite`](./examples/ablation-suite) |
 
-All 28 live in [`examples/`](./examples).
+All 29 live in [`examples/`](./examples).
 
 ## Where to go next
 
 - New here? [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
 - [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
 - [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
-- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/conversation` (multi-turn conversations), `/knowledge` (KB improvement), `/primeintellect` (Prime task, runtime, and trace adapter), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/testing` (validated fixture records for consumer tests), `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
-- [`docs/architecture.md`](./docs/architecture.md), the design, end to end.
+- [`docs/design.md`](./docs/design.md), the design philosophy and the internal research docs behind it — background reading, not required to use the package.
 - [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
 
-**Contributing:** `pnpm i && pnpm test` gets you running; the full local gate is the [`package.json`](./package.json) scripts (`lint`, `typecheck`, `docs:check`).
+**Contributing:** `pnpm i && pnpm build && pnpm test` gets you running; the full local gate is the [`package.json`](./package.json) scripts (`lint`, `typecheck`, `docs:check`).
