@@ -6,6 +6,6 @@ import { defineConfig } from 'vitest/config'
 //   ../node_modules/.bin/vitest run
 export default defineConfig({
   test: {
-    include: ['src/swe-arena/**/*.test.mts'],
+    include: ['src/swe-arena/**/*.test.mts', 'src/quant-arena/**/*.test.mts'],
   },
 })
