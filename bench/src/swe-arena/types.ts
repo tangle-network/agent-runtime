@@ -56,6 +56,8 @@ export interface FactoryInstance {
   judge_tests: string[]
   /** Flaky/env-dependent tests excluded at calibration, reasons in calibration.md. */
   excluded_tests: string[]
+  /** Immutable Node container image used for setup and judge commands. */
+  command_image: string
   setup_cmds: string[]
   judge_cmds: string[]
   /** e.g. "all 30 judge tests pass; partial score = passed/30" — the /NN is parsed. */
@@ -63,7 +65,6 @@ export interface FactoryInstance {
   timeout_s: number
   worker_visible_paths_note?: string
   runtime?: string
-  hermetic?: boolean
   calibration?: { gold: string; base: string; receipts: string }
 }
 

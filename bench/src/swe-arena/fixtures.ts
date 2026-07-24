@@ -1,5 +1,5 @@
 /**
- * Hermetic fixture loaders. All artifacts live under `./fixtures/` (copied
+ * Pinned fixture loaders. All artifacts live under `./fixtures/` (copied
  * from the live experiment's scratchpad on 2026-07-15 so the replay survives
  * scratchpad deletion). Loaders fail loud on shape drift — a silent default
  * here would let the pinned reproduction pass against corrupted fixtures.
@@ -104,6 +104,7 @@ export interface LoadedFactoryInstance extends FactoryInstance {
 }
 
 const SHA_RE = /^[0-9a-f]{40}$/
+const IMAGE_DIGEST_RE = /^.+@sha256:[0-9a-f]{64}$/
 
 function requireStringArray(dir: string, field: string, v: unknown, minLen: number): string[] {
   if (!Array.isArray(v) || v.length < minLen || v.some((x) => typeof x !== 'string' || x.length === 0)) {
@@ -122,7 +123,16 @@ export function loadFactoryInstance(dir: string): LoadedFactoryInstance {
     throw new Error(`${manifestPath}: unreadable or invalid JSON — ${(err as Error).message}`)
   }
   const m = raw as Record<string, unknown>
-  for (const field of ['id', 'repo', 'repo_local_mirror', 'base_commit', 'judge_ref', 'spec_md', 'resolved_criterion'] as const) {
+  for (const field of [
+    'id',
+    'repo',
+    'repo_local_mirror',
+    'base_commit',
+    'judge_ref',
+    'spec_md',
+    'command_image',
+    'resolved_criterion',
+  ] as const) {
     if (typeof m[field] !== 'string' || (m[field] as string).length === 0) {
       throw new Error(`${manifestPath}: missing or empty required string field '${field}'`)
     }
@@ -134,6 +144,11 @@ export function loadFactoryInstance(dir: string): LoadedFactoryInstance {
     if (!SHA_RE.test(m[field] as string)) {
       throw new Error(`${manifestPath}: ${field} '${m[field] as string}' is not a full 40-hex sha`)
     }
+  }
+  if (!IMAGE_DIGEST_RE.test(m.command_image as string)) {
+    throw new Error(
+      `${manifestPath}: command_image must be pinned as '<image>@sha256:<64 hex>'`,
+    )
   }
   const judge_tests = requireStringArray(dir, 'judge_tests', m.judge_tests, 1)
   const excluded_tests = requireStringArray(dir, 'excluded_tests', m.excluded_tests ?? [], 0)
@@ -167,13 +182,13 @@ export function loadFactoryInstance(dir: string): LoadedFactoryInstance {
     spec_md: m.spec_md as string,
     judge_tests,
     excluded_tests,
+    command_image: m.command_image as string,
     setup_cmds,
     judge_cmds,
     resolved_criterion: m.resolved_criterion as string,
     timeout_s: m.timeout_s,
     ...(typeof m.worker_visible_paths_note === 'string' ? { worker_visible_paths_note: m.worker_visible_paths_note } : {}),
     ...(typeof m.runtime === 'string' ? { runtime: m.runtime } : {}),
-    ...(typeof m.hermetic === 'boolean' ? { hermetic: m.hermetic } : {}),
     ...(m.calibration !== undefined ? { calibration: m.calibration as FactoryInstance['calibration'] } : {}),
     dir,
     spec,

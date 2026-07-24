@@ -40,7 +40,7 @@ All three fail at collection: `src/best-effort.ts`, `src/worker-clone.ts`, `src/
 
 ## Judge-set notes
 
-- Tests spawn a real local `git` in tmpdirs (identity passed inline via `-c user.email/-c user.name`, so global git config cannot break them) and use symlink/chmod — **hermetic but POSIX-only**; no network, no env keys, no docker. **Excluded: none.**
+- Tests spawn `git` in temporary directories with identity passed inline, and use symlink/chmod, so they are POSIX-only. The judge runs in the pinned factory container with network disabled and no operator environment. **Excluded: none.**
 - `tests/worker-evidence.test.ts` imports the bound constants (`EVIDENCE_MAX_CHARS` etc.) and asserts **relative to them** (`length ≤ EVIDENCE_MAX_CHARS`, tail contains `'v'.repeat(VERIFY_TAIL_CHARS)`) — exact values are the builder's choice; the names and semantics are contract and are in `spec.md`. Not trimmed: self-referencing bounds have behavioral content (bounding + tail retention).
 - One pinned prose contract: the best-effort delivery commit subject must contain `best-effort delivery from <label>` and `no worker passed the verify gate` — promoted into `spec.md` as acceptance criteria.
 - Judge imports `@tangle-network/agent-runtime/loops` (`gitWorkspace`, `runInWorkspace`) — a published npm dependency already in the base lockfile, not sibling unmerged work.
