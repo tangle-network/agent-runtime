@@ -2,13 +2,37 @@ import assert from 'node:assert/strict'
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { AgentSpec, ExecutorContext } from '@tangle-network/agent-runtime/loops'
-import { buildTbDockerExecArgs, createTbContainerExecutor } from './tb-container-executor.mts'
+import type {
+  AgentSpec,
+  Executor,
+  ExecutorContext,
+  ExecutorResult,
+} from '@tangle-network/agent-runtime/loops'
+import {
+  buildTbDockerExecArgs,
+  createTbContainerExecutor,
+  type TbExecOutput,
+} from './tb-container-executor.mts'
 
 const spec: AgentSpec = { profile: { name: 'tb-test-worker' }, harness: null }
 
 function context(): ExecutorContext {
   return { signal: new AbortController().signal, seams: {} }
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return typeof value === 'object' && value !== null && Symbol.asyncIterator in value
+}
+
+async function executeOneShot(
+  executor: Executor<TbExecOutput>,
+  task: unknown,
+): Promise<ExecutorResult<TbExecOutput>> {
+  const result = executor.execute(task, new AbortController().signal)
+  if (isAsyncIterable(result)) {
+    throw new Error('tb-container-executor returned a stream instead of a one-shot result')
+  }
+  return await result
 }
 
 async function executable(name: string, body: string): Promise<string> {
@@ -52,7 +76,7 @@ printf 'argv:%s\\n' "$*"
   })(spec, context())
 
   assert.equal(metered.budgetExempt, false, 'usage parser makes the executor metered')
-  const meteredResult = await metered.execute({ command: 'echo hello' }, new AbortController().signal)
+  const meteredResult = await executeOneShot(metered, { command: 'echo hello' })
   assert.equal(meteredResult.out.containerId, 'cid')
   assert.equal(meteredResult.out.command, 'echo hello')
   assert.match(
@@ -65,7 +89,7 @@ printf 'argv:%s\\n' "$*"
 
   const free = createTbContainerExecutor({ containerId: 'cid', dockerBin: fakeDocker })(spec, context())
   assert.equal(free.budgetExempt, true, 'unmetered shell commands are explicit budget-exempt work')
-  const freeResult = await free.execute('printf ok', new AbortController().signal)
+  const freeResult = await executeOneShot(free, 'printf ok')
   assert.equal(freeResult.spent.iterations, 0)
   assert.deepEqual(freeResult.spent.tokens, { input: 0, output: 0 })
   assert.equal(freeResult.spent.usd, 0)
@@ -83,13 +107,13 @@ exit 7
     failOnNonZeroExit: true,
   })(spec, context())
   await assert.rejects(
-    strict.execute('do work', new AbortController().signal),
+    executeOneShot(strict, 'do work'),
     /command exited 7/,
     'strict mode treats non-zero command exit as infrastructure failure',
   )
 
   const lenient = createTbContainerExecutor({ containerId: 'cid', dockerBin: failingDocker })(spec, context())
-  const lenientResult = await lenient.execute('do work', new AbortController().signal)
+  const lenientResult = await executeOneShot(lenient, 'do work')
   assert.equal(lenientResult.out.exitCode, 7, 'default mode returns non-zero exits as task artifacts')
   assert.match(lenientResult.out.stderr, /failed/)
 

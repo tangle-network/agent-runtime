@@ -700,6 +700,8 @@ async function acquireRepro(
 // hands the worker a no-code plan. Primitives replicated from supervisor-arena.mts (that file runs
 // main() on import, so it cannot be imported) — evidence from execution-verified inputs only. ----------
 
+type RepairFailureKind = 'wrong-fix' | 'apply-failed' | 'empty-diff'
+
 /** Evidence for the supervisor: the issue, the worker's own candidate diff, and the tail of the
  *  gold-verified reproduction's output on that diff. Execution-verified / model-visible ONLY — never
  *  FAIL_TO_PASS, never the gold patch, never any worker self-report. Bounded to maxChars. */
@@ -709,7 +711,7 @@ function renderRepairEvidence(
   reproTail: string,
   reproExit: number | null,
   maxChars: number,
-  failureKind: 'wrong-fix' | 'apply-failed' = 'wrong-fix',
+  failureKind: RepairFailureKind = 'wrong-fix',
 ): string {
   const header =
     failureKind === 'apply-failed'
@@ -789,7 +791,7 @@ async function superviseRepair(
   reproExit: number | null,
   marks: readonly string[],
   deadlineAt: number,
-  failureKind: 'wrong-fix' | 'apply-failed' = 'wrong-fix',
+  failureKind: RepairFailureKind = 'wrong-fix',
 ): Promise<SupervisorPlanReceipt> {
   const md = bt.metadata as Record<string, string>
   const evidence = renderRepairEvidence(String(md.problem_statement ?? ''), candidateDiff, reproTail, reproExit, 14_000, failureKind)

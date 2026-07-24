@@ -427,7 +427,7 @@ export async function runGate(opts: RunGateOptions): Promise<GateReport> {
       root: a.label,
       nodes: [],
       total: acc.get(a.label)!.spend,
-      statusCounts: { done: 0, failed: 0, cancelled: 0, pending: 0 },
+      statusCounts: { done: 0, failed: 0, cancelled: 0, pending: 0, waiting: 0 },
     },
   }))
   const equalK = equalKOnCost(equalKArms)

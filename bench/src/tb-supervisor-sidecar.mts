@@ -159,12 +159,13 @@ async function main(): Promise<void> {
             | undefined
           if (out) {
             const usage = out.stdout ? parseWorkerUsage({ stdout: out.stdout, stderr: '', exitCode: null }) : undefined
+            const workerId = 'id' in w && typeof w.id === 'string' ? w.id : undefined
             if (usage) {
               workerInput += usage.input
               workerOutput += usage.output
             }
             workerOutputs.push({
-              id: w.id,
+              id: workerId,
               status: w.status,
               command: out.command,
               exitCode: out.exitCode ?? null,
