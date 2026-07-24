@@ -153,6 +153,7 @@ import {
   type ScoreSplitConfig,
 } from './score-split.mts'
 import { recordLineageGeneration, type LineageCandidateInput } from './lineage-record.mts'
+import { reportRound, writeRunReportSafe } from './run-report.mts'
 import {
   campaignCoordsFromCellPath,
   createSettleCapture,
@@ -1728,6 +1729,14 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         await writeFile(join(runDir, 'judge.json'), JSON.stringify({ ...verdict, wallS: judgeWallS }, null, 1))
         log(`${config.armName} ${rec.tag} ${iid} judged: resolved=${verdict.resolved} (attempts=${verdict.attempts})`)
 
+        // Deterministic run observability, per cell: steer count, waves, concurrency,
+        // idle, evidence→respawn, cost by role. The headline lands in the run log so
+        // the answers are in the tail without a follow-up command.
+        await writeRunReportSafe(runDir, {
+          appendHeadlineTo: join(config.outDir, 'run.log'),
+          patchPath: armRes.patchPath,
+        })
+
         const spend = armRes.recoveredSpend
         const recovered =
           armRes.spentTokens === null && (spend?.workerTokSqlite ?? null) === null
@@ -2577,6 +2586,18 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     const summaryPath = join(config.roundsDir, `round${config.round}-summary-${runId}.json`)
     await writeFile(summaryPath, JSON.stringify(summary, null, 2))
     log(`round summary → ${summaryPath}`)
+
+    // Round rollup at gate time: every cell's orchestration/economics in one table,
+    // written next to the round summary and echoed into the run log.
+    await reportRound(join(config.outDir, 'arm-runs'), {
+      appendHeadlineTo: join(config.outDir, 'run.log'),
+      reportDir: config.roundsDir,
+      title: `Round ${config.round} rollup — ${runId}`,
+      echo: true,
+    }).catch((err: unknown) => {
+      log(`round rollup failed: ${err instanceof Error ? err.message : String(err)}`)
+    })
+
     log(`gate: ${result.decision} — ${loop.gateResult.reasons[0] ?? ''}`)
   } finally {
     await result.dispose()

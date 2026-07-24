@@ -1,0 +1,551 @@
+{
+ "schema": "swe-arena/run-report-rollup@1",
+ "cells": 51,
+ "steersTotal": 0,
+ "cellsWithSteers": 0,
+ "cellsWithUnavailableSteers": 9,
+ "wavesMean": 3.137,
+ "maxConcurrencyMax": 2,
+ "utilizationMean": 0.474,
+ "idlePctMean": 52.618,
+ "workersSpawnedTotal": 161,
+ "acceptedTotal": 35,
+ "usdTotal": 3.258497,
+ "resolvedCount": 17,
+ "perCell": [
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.803,
+   "idlePct": 19.7,
+   "resolved": false,
+   "usd": 0.049903
+  },
+  {
+   "instanceId": "django__django-11532",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.702,
+   "idlePct": 29.8,
+   "resolved": false,
+   "usd": 0.036822
+  },
+  {
+   "instanceId": "matplotlib__matplotlib-20826",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 10,
+   "utilization": 0.801,
+   "idlePct": 19.9,
+   "resolved": false,
+   "usd": 0.224134
+  },
+  {
+   "instanceId": "pydata__xarray-4687",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 5,
+   "utilization": 0.831,
+   "idlePct": 16.9,
+   "resolved": false,
+   "usd": 0.096077
+  },
+  {
+   "instanceId": "pytest-dev__pytest-6197",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 14,
+   "utilization": 0.308,
+   "idlePct": 69.9,
+   "resolved": false,
+   "usd": 0.189169
+  },
+  {
+   "instanceId": "sphinx-doc__sphinx-9658",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 4,
+   "utilization": 0.574,
+   "idlePct": 42.6,
+   "resolved": true,
+   "usd": 0.085226
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.833,
+   "idlePct": 16.7,
+   "resolved": false,
+   "usd": 0.033692
+  },
+  {
+   "instanceId": "django__django-11532",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.546,
+   "idlePct": 45.4,
+   "resolved": false,
+   "usd": 0.079202
+  },
+  {
+   "instanceId": "matplotlib__matplotlib-20826",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 4,
+   "utilization": 0.749,
+   "idlePct": 25.1,
+   "resolved": false,
+   "usd": 0.107538
+  },
+  {
+   "instanceId": "pydata__xarray-4687",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.722,
+   "idlePct": 27.8,
+   "resolved": true,
+   "usd": 0.040083
+  },
+  {
+   "instanceId": "pytest-dev__pytest-6197",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 4,
+   "utilization": 0.458,
+   "idlePct": 54.2,
+   "resolved": false,
+   "usd": 0.072682
+  },
+  {
+   "instanceId": "sphinx-doc__sphinx-9658",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 5,
+   "utilization": 0.611,
+   "idlePct": 38.9,
+   "resolved": true,
+   "usd": 0.063746
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 3,
+   "utilization": 0.817,
+   "idlePct": 18.3,
+   "resolved": true,
+   "usd": 0.064968
+  },
+  {
+   "instanceId": "django__django-11532",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/31fc08bd3a/rep-0/runs/django__django-11532/R4/ws/.loops/supervisor/sup-1-4b0be0"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "matplotlib__matplotlib-20826",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/31fc08bd3a/rep-0/runs/matplotlib__matplotlib-20826/R4/ws/.loops/supervisor/sup-1-2c15b1"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "pydata__xarray-4687",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.473,
+   "idlePct": 52.7,
+   "resolved": true,
+   "usd": 0.043101
+  },
+  {
+   "instanceId": "pytest-dev__pytest-6197",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 13,
+   "utilization": 0.352,
+   "idlePct": 64.8,
+   "resolved": false,
+   "usd": 0.222542
+  },
+  {
+   "instanceId": "sphinx-doc__sphinx-9658",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/31fc08bd3a/rep-0/runs/sphinx-doc__sphinx-9658/R4/ws/.loops/supervisor/sup-1-cd137b"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 1,
+   "utilization": 0.321,
+   "idlePct": 67.9,
+   "resolved": false,
+   "usd": 0.014523
+  },
+  {
+   "instanceId": "django__django-11532",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/31fc08bd3a/rep-1/runs/django__django-11532/R4/ws/.loops/supervisor/sup-1-c84e92"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "matplotlib__matplotlib-20826",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.305,
+   "idlePct": 69.5,
+   "resolved": true,
+   "usd": 0.028989
+  },
+  {
+   "instanceId": "pydata__xarray-4687",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 4,
+   "utilization": 0.648,
+   "idlePct": 35.2,
+   "resolved": true,
+   "usd": 0.081441
+  },
+  {
+   "instanceId": "pytest-dev__pytest-6197",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/31fc08bd3a/rep-1/runs/pytest-dev__pytest-6197/R4/ws/.loops/supervisor/sup-1-d7b670"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "sphinx-doc__sphinx-9658",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/31fc08bd3a/rep-1/runs/sphinx-doc__sphinx-9658/R4/ws/.loops/supervisor/sup-1-37e35d"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/a7a2a982e5/rep-0/runs/astropy__astropy-13033/R4/ws/.loops/supervisor/sup-1-4b8aff"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "django__django-11532",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.447,
+   "idlePct": 55.3,
+   "resolved": true,
+   "usd": 0.042501
+  },
+  {
+   "instanceId": "matplotlib__matplotlib-20826",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.233,
+   "idlePct": 76.7,
+   "resolved": false,
+   "usd": 0.028501
+  },
+  {
+   "instanceId": "pydata__xarray-4687",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 3,
+   "utilization": 0.847,
+   "idlePct": 15.3,
+   "resolved": true,
+   "usd": 0.070831
+  },
+  {
+   "instanceId": "pytest-dev__pytest-6197",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.14,
+   "idlePct": 86,
+   "resolved": false,
+   "usd": 0.029033
+  },
+  {
+   "instanceId": "sphinx-doc__sphinx-9658",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/a7a2a982e5/rep-0/runs/sphinx-doc__sphinx-9658/R4/ws/.loops/supervisor/sup-1-d97029"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.482,
+   "idlePct": 51.8,
+   "resolved": false,
+   "usd": 0.037866
+  },
+  {
+   "instanceId": "django__django-11532",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 3,
+   "utilization": 0.388,
+   "idlePct": 61.2,
+   "resolved": true,
+   "usd": 0.059868
+  },
+  {
+   "instanceId": "matplotlib__matplotlib-20826",
+   "arm": "R4",
+   "steers": {
+    "unavailable": "workers/ directory absent under /tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen3/arm-runs/a7a2a982e5/rep-1/runs/matplotlib__matplotlib-20826/R4/ws/.loops/supervisor/sup-1-eab778"
+   },
+   "waves": 0,
+   "utilization": 0,
+   "idlePct": 100,
+   "resolved": false,
+   "usd": 0
+  },
+  {
+   "instanceId": "pydata__xarray-4687",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.714,
+   "idlePct": 28.6,
+   "resolved": true,
+   "usd": 0.044491
+  },
+  {
+   "instanceId": "pytest-dev__pytest-6197",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 5,
+   "utilization": 0.566,
+   "idlePct": 43.4,
+   "resolved": false,
+   "usd": 0.108311
+  },
+  {
+   "instanceId": "sphinx-doc__sphinx-9658",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 4,
+   "utilization": 0.359,
+   "idlePct": 64.1,
+   "resolved": true,
+   "usd": 0.060977
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.834,
+   "idlePct": 16.6,
+   "resolved": false,
+   "usd": 0.04263
+  },
+  {
+   "instanceId": "django__django-11532",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 3,
+   "utilization": 0.394,
+   "idlePct": 60.6,
+   "resolved": false,
+   "usd": 0.068403
+  },
+  {
+   "instanceId": "matplotlib__matplotlib-20826",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 5,
+   "utilization": 0.588,
+   "idlePct": 41.2,
+   "resolved": false,
+   "usd": 0.110963
+  },
+  {
+   "instanceId": "pydata__xarray-4687",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 3,
+   "utilization": 0.82,
+   "idlePct": 18,
+   "resolved": true,
+   "usd": 0.084503
+  },
+  {
+   "instanceId": "pytest-dev__pytest-6197",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 3,
+   "utilization": 0.281,
+   "idlePct": 71.9,
+   "resolved": false,
+   "usd": 0.079547
+  },
+  {
+   "instanceId": "sphinx-doc__sphinx-9658",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 5,
+   "utilization": 0.649,
+   "idlePct": 35.1,
+   "resolved": true,
+   "usd": 0.068044
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 4,
+   "utilization": 0.85,
+   "idlePct": 15,
+   "resolved": false,
+   "usd": 0.096642
+  },
+  {
+   "instanceId": "django__django-11532",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.244,
+   "idlePct": 75.6,
+   "resolved": false,
+   "usd": 0.047655
+  },
+  {
+   "instanceId": "matplotlib__matplotlib-20826",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 7,
+   "utilization": 0.76,
+   "idlePct": 24,
+   "resolved": false,
+   "usd": 0.161885
+  },
+  {
+   "instanceId": "pydata__xarray-4687",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 5,
+   "utilization": 0.528,
+   "idlePct": 47.2,
+   "resolved": true,
+   "usd": 0.084818
+  },
+  {
+   "instanceId": "pytest-dev__pytest-6197",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 5,
+   "utilization": 0.263,
+   "idlePct": 73.7,
+   "resolved": true,
+   "usd": 0.122129
+  },
+  {
+   "instanceId": "sphinx-doc__sphinx-9658",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.514,
+   "idlePct": 48.6,
+   "resolved": true,
+   "usd": 0.0709
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 3,
+   "utilization": 0.789,
+   "idlePct": 21.1,
+   "resolved": {
+    "unavailable": "judge.json absent"
+   },
+   "usd": 0.079491
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 2,
+   "utilization": 0.846,
+   "idlePct": 15.4,
+   "resolved": {
+    "unavailable": "judge.json absent"
+   },
+   "usd": 0.040525
+  },
+  {
+   "instanceId": "astropy__astropy-13033",
+   "arm": "R4",
+   "steers": 0,
+   "waves": 3,
+   "utilization": 0.782,
+   "idlePct": 21.8,
+   "resolved": {
+    "unavailable": "judge.json absent"
+   },
+   "usd": 0.084145
+  }
+ ]
+}

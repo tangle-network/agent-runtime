@@ -71,6 +71,48 @@ this codebase. `agent-lab/runs/RUNS.md` is the index mapping artifacts → verdi
 findings gist. **Set `OUT=runs/<date>/<name>.json` (in agent-lab) on every run — never `/tmp`**
 (a reboot erases ramdisk; ~20 runs nearly died there once).
 
+## Run observability — never hand-grep a journal again
+
+Every supervisor cell writes `run-report.json` + `run-report.md` next to its artifacts, and
+appends a headline block to the run log, automatically: `outer-loop.mts` and both
+`run-experiment.mts` paths call `writeRunReportSafe` after each cell and `reportRound` at
+the gate. Source: `swe-arena/run-report.mts` (pure `computeRunReport` + an I/O collector).
+
+What it answers, all deterministic, all from artifacts already on disk (`journal.jsonl`,
+`workers/*.ndjson`, `workers/*.inbox.ndjson`, `state.json`, `result.json`, `judge.json`,
+the ledger, `driver.log`, the delivered patch, the opencode session store):
+
+- **orchestration** — workers spawned/settled/cancelled, **steer count with a per-worker
+  breakdown**, spawn waves + sizes, max concurrency, respawns, repeated labels, delegation
+  depth, time-to-first-spawn, supervisor wall, idle wall (zero live workers), worker
+  utilization (Σ worker wall ÷ supervisor wall).
+- **decision quality** — settled by status/verdict, accepted vs rejected vs empty-pass,
+  evidence→respawn sequences vs blind respawns, review actions, evidence bytes returned.
+- **economics** — tokens + USD by role (brain from journal `metered`; workers from journal
+  `settled` spend plus the opencode session join), per-worker rows, cost per accepted patch,
+  worker wall distribution.
+- **outcome** — supervisor status/verdict/delivered, judge verdict + score (from `judge.json`
+  or the matching ledger row, with provenance), verify gate, patch file/line/test-touch stats.
+
+Every metric is UNAVAILABLE-aware: a missing artifact yields `{"unavailable": "<reason>"}`
+and renders as `unavailable — <reason>`, never `0`. A supervisor that steered nobody and a
+supervisor whose worker logs were lost are visually different, because they have driven
+opposite conclusions about the same architecture.
+
+Standalone / backfill (use `--report-dir` when the run directory must stay READ-ONLY):
+```
+tsx src/swe-arena/run-report.mts <cellDir> [--patch p.diff] [--ledger ledger.jsonl] [--log run.log] [--report-dir out/]
+tsx src/swe-arena/run-report.mts --round <outDir> [--report-dir out/]
+```
+
+Relationship to the published `traces` CLI (`npx @tangle-network/traces analyze`): traces
+covers the HARNESS-SESSION layer — per-session model calls, token/cost tables, latency
+distributions, stuck-loop detection, tool-error rates, skill/subagent adoption — reading the
+opencode/claude-code/codex session stores. It has no supervision-tree reader: no journal
+parsing, no steer/wave/concurrency/utilization/delegation-depth metric, no accepted-vs-rejected
+worker accounting. The two are complementary; run-report prints the traces command for the
+same cell rather than re-deriving session-level facts.
+
 ## Data flow (the whole experiment in one line)
 `rollout (worker → answer) → adapter.judge (valid?) → CORPUS RunRecord (k attempts, output+valid each) → corpus-replay --selector (pick WITHOUT the judge) → corpus-report CI → gate verdict`
 The expensive part (rollouts) produces a **reusable corpus**; selection + stats are free
@@ -135,6 +177,7 @@ the gate + measurement tools:
   commit0-env-run.mts  the HARD domain through `runBenchmark` (the optimization suite)
   terminal-compare.ts  Terminal-Bench compare (own main)
   pnpm verify:pier  zero-model failure/pass Pier controls through a separate verifier
+  swe-arena/run-report.mts  deterministic per-cell run report (steers, waves, idle, cost by role) + round rollup
 unit tests (the only fully-green, cred-free runnable surface besides offline replay):
   node --test --import tsx src/{selector,refine-loop}.test.mts
   tsx src/gate.test.mts   # offline plumbing test (no creds)
