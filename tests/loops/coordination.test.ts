@@ -73,12 +73,17 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
+    // No `maxLiveWorkers` cap ⇒ `freeSlots: null` (uncapped; the conserved pool is the fence).
     expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w0',
+      live: 1,
+      freeSlots: null,
     })
     setAdmit(false)
     expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       error: 'budget-exhausted',
+      live: 1,
+      freeSlots: null,
     })
   })
 
@@ -119,14 +124,16 @@ describe('coordination tools', () => {
       maxLiveWorkers: 2,
     })
     const spawn = () => tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })
-    expect(await spawn()).toEqual({ workerId: 'w0' })
-    expect(await spawn()).toEqual({ workerId: 'w1' })
+    // `freeSlots` counts down as the cap fills — the reading that tells the driver capacity is
+    // still idle, so it can fill slots instead of opening one worker per turn.
+    expect(await spawn()).toEqual({ workerId: 'w0', live: 1, freeSlots: 1 })
+    expect(await spawn()).toEqual({ workerId: 'w1', live: 2, freeSlots: 0 })
     // The 2 live workers fill the cap → the 3rd fails closed BEFORE scope.spawn is called.
-    expect(await spawn()).toEqual({ error: 'max-live-workers' })
+    expect(await spawn()).toEqual({ error: 'max-live-workers', live: 2, freeSlots: 0 })
     expect(spawns).toHaveLength(2)
     // A settled worker frees a slot — mark one terminal and the next spawn admits again.
     live[0]!.status = 'done'
-    expect(await spawn()).toEqual({ workerId: 'w2' })
+    expect(await spawn()).toEqual({ workerId: 'w2', live: 2, freeSlots: 0 })
 
     // No cap (omitted) → the pool stays the only fence; the same scope admits past the prior cap.
     const uncapped = createCoordinationTools({
@@ -137,6 +144,8 @@ describe('coordination tools', () => {
     })
     expect(await tool(uncapped, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w3',
+      live: 3,
+      freeSlots: null,
     })
   })
 
@@ -168,7 +177,7 @@ describe('coordination tools', () => {
         task: 'hard',
         budget: { maxTokens: 5000, maxUsd: 0.5 },
       }),
-    ).toEqual({ workerId: 'w0' })
+    ).toEqual({ workerId: 'w0', live: 1, freeSlots: null })
     expect(spawns[0].opts.budget).toEqual({ maxIterations: 2, maxTokens: 5000, maxUsd: 0.5 })
   })
 
@@ -257,6 +266,8 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
+    // Every reply carries `freeSlots` — a settlement is exactly when capacity frees up, so the
+    // reading travels with the event that freed it (`null` here: no cap configured).
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
       type: 'settled',
       settled: 'w7',
@@ -264,8 +275,12 @@ describe('coordination tools', () => {
       score: 0.83,
       valid: true,
       outRef: 'blob:w7',
+      freeSlots: null,
     })
-    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({ idle: true })
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
+      idle: true,
+      freeSlots: null,
+    })
     expect(tb.settled()).toEqual([
       { id: 'w7', status: 'done', score: 0.83, valid: true, outRef: 'blob:w7' },
     ])
@@ -472,7 +487,7 @@ describe('coordination tools', () => {
     expect(emitted.map((e) => e.type)).toEqual(['steer', 'steer'])
     expect(tb.history().map((r) => r.event.type)).toEqual(['steer', 'steer'])
     // ...but the parent never pulls its own outbound messages back.
-    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true })
+    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true, freeSlots: null })
   })
 
   it('answer_question routes the answer down to a LIVE worker and surfaces delivered:true', async () => {
@@ -550,6 +565,7 @@ describe('coordination tools', () => {
       score: 0.1,
       valid: false,
       outRef: 'blob:w7',
+      freeSlots: null,
     })
     // The analyze-on-settle finding is now queued; the next pull surfaces it.
     expect(await tool(tb, 'await_event').handler({})).toEqual({
@@ -557,9 +573,10 @@ describe('coordination tools', () => {
       fromWorker: 'w7',
       analyst: 'completeness',
       findings: [{ claim: 'stub left in place' }],
+      freeSlots: null,
     })
     // Cursor dry and queue empty → idle.
-    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true })
+    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true, freeSlots: null })
     // Pass-through lane saw both events, in order.
     expect(emitted).toEqual(['settled', 'finding'])
   })
@@ -589,7 +606,10 @@ describe('coordination tools', () => {
       settled: 'w8',
       valid: true,
     })
-    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({ idle: true })
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
+      idle: true,
+      freeSlots: null,
+    })
   })
 
   it('await_event returns idle when the only live event mismatches the kinds filter', async () => {
@@ -613,7 +633,10 @@ describe('coordination tools', () => {
     })
     // A worker is settle-able, but the driver only wants questions: await_event drains the cursor
     // (progress was made → not idle) WITHOUT leaking the settled event to a question-only pull.
-    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toEqual({ idle: false })
+    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toEqual({
+      idle: false,
+      freeSlots: null,
+    })
     // The drained settled event was queued, not lost — a caller that asks for it still gets it.
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toMatchObject({
       settled: 'w9',

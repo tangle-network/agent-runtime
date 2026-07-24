@@ -331,6 +331,16 @@ export interface Scope<Out> {
    * metered event is cost-critical, so it lands before the join-barrier roll-up).
    */
   meter(spend: Spend, detail?: Record<string, unknown>): Promise<void>
+  /**
+   * Prior committed work, present ONLY on a resumed run (`undefined` on a fresh run, which is
+   * every run that did not pass `SupervisorOpts.resume`). The supervisor `loadTree`s the journal
+   * first; when a non-empty tree exists it rehydrates the already-settled children (via
+   * `replaySpawnTree`) and hands them here so a resume-aware `act` re-uses them instead of
+   * re-spawning committed work. A resume-blind driver simply ignores it and re-spawns — correct
+   * but redundant. The scope's spawn ordinal + cursor seq are already advanced past the recorded
+   * maxima, so any NEW spawn appends without colliding with a journaled event.
+   */
+  readonly resume?: ResumedWork<Out>
   /** The live tree — reads the in-memory nursery, not the journal. */
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
@@ -341,6 +351,17 @@ export interface Scope<Out> {
     deadlineMs: number
     reservedTokens: number
   }>
+}
+
+/**
+ * The committed work a resumed run inherits from its journal. `settled` is the replayed
+ * `Settled[]` (cursor-ordered, rehydrated from the blob store by `replaySpawnTree`); `view`
+ * is the tree as `materializeTreeView` folded it at the recorded cursor position. A
+ * resume-aware `act` reads `scope.resume?.settled` to pick up where the crashed run left off.
+ */
+export interface ResumedWork<Out> {
+  readonly settled: ReadonlyArray<Settled<Out>>
+  readonly view: TreeView
 }
 
 // ── Observability view (read off the in-memory nursery) ────────────────────────
@@ -459,6 +480,17 @@ export interface SupervisorOpts {
    */
   readonly maxRestarts?: number
   readonly withinMs?: number
+  /**
+   * Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
+   * one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`
+   * (`replaySpawnTree` + `materializeTreeView`) instead of starting over. Requires a journal +
+   * blob store that OUTLIVE the process (`createFileRunContext(dir)`); against the in-memory
+   * stores there is never a prior tree, so it is a no-op.
+   *
+   * Default `false` — a run always begins a fresh tree, which is the behavior every existing
+   * consumer has. Resume is a durability contract the caller opts into, never a silent default.
+   */
+  readonly resume?: boolean
   readonly now?: () => number
   readonly signal?: AbortSignal
   /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the

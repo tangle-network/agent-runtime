@@ -442,7 +442,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 473 exports.
+Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -471,6 +471,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `createEventBus` | function | Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane. |
 | `createExecutor` | function | The single built-in executor factory. Picks a leaf backend by data (`config.backend`), |
 | `createExecutorRegistry` | function | The open resolver/registry. Pre-registers the three built-ins under their |
+| `createFileRunContext` | function | Build a DURABLE run context: the spawn journal and the result blobs are file-backed (fsynced |
 | `createInbox` | function | Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle. |
 | `createInMemoryRunContext` | function | Build a fresh in-memory run context. Every call returns NEW stores (no shared global |
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
@@ -497,6 +498,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `discriminatingMeans` | function | Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field |
 | `driverAgent` | function | Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a |
 | `dumbDriver` | function | `dumbDriver` — the pass/fail-only steering control. |
+| `effectiveConcurrency` | function | The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually |
 | `envKeyProvider` | function | The env-backed provider: reads the (dotenvx-loaded) process env. Empty / |
 | `equalKOnCost` | function | Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration |
 | `extractLlmCallEvent` | function | Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when |
@@ -505,6 +507,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `filterAuthoredAsserts` | function | The proven authored-assert filter (lifted from the rigs' generateTests): keep only |
 | `finalizeBestDelivered` | function | Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's |
 | `flatWidenGate` | function | The flat default `ScopeWidenGate` — never widens, keeping the R2 selector≠judge collision |
+| `freeSlots` | function | Free worker slots under a simultaneity cap: `cap - live`, floored at 0, or `null` when there is |
 | `gateOnDeliverable` | function | Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the |
 | `gitWorkspace` | function | A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned. |
 | `harvestCorpus` | function | Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. |
@@ -521,6 +524,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `mapSandboxEvent` | function | Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary, |
 | `mapSandboxToolEvent` | function | Project one `SandboxEvent` onto the `tool_call` / `tool_result` variants of |
 | `materializeLocalMcp` | function | Spawn every explicitly trusted stdio server in `profile.mcp` as a same-host |
+| `materializeTreeView` | function | Materialize a recorded `TreeView` from a journaled event list for inspection. Folds |
 | `modelAuthoredChecks` | function | Default authored-check source: one metered LLM call per task, before sampling, |
 | `naiveDriver` | function | `naiveDriver` — the no-signal steering control. |
 | `observe` | function | The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus. |
@@ -537,6 +541,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `promotionGate` | function | Statistical promotion decision over a holdout benchmark: a seeded paired bootstrap (`heldoutSignificance`) whose CI lower bound must clear `deltaThreshold`. |
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
+| `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
 | `renderAnytimeTable` | function | One row per (strategy, satisficing target): the shareable time-to-satisfactory table. |
@@ -546,11 +551,13 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `renderLeaderboardSvg` | function | Render a self-contained SVG: a ranked score bar chart on top, the profile×axis heatmap below. No deps, |
 | `renderPairwiseMarkdown` | function | Render the pairwise-significance table — every profile pair's paired delta, CI, and BH-corrected |
 | `renderReport` | function | Operator-facing report, split by who should act. The agent block is the |
+| `replaySpawnTree` | function | Re-feed a journaled spawn tree in strict `seq` order, rehydrating each settled |
 | `reportLoopUsage` | function | Forward a `LoopResult`'s aggregated cost + token usage into a campaign cost |
 | `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
 | `resolveEntrySymbol` | function | The symbol authored checks are pinned to: `task.meta.entryPoint` when the surface |
 | `resolveSandboxClient` | function | Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core |
 | `resolveSecretEnv` | function | Resolve a declared secret-env map into the real env entries for a server |
+| `rollingDispatch` | function | Run the refilling dispatch loop over `scope` until the queue is dry (or a stop fires) and every |
 | `routerBrain` | function | The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's |
 | `routerChatWithTools` | function | A router completion WITH tool-calling — the operator driver's LLM seam. Passes OpenAI-shape |
 | `routerChatWithUsage` | function | One OpenAI-compatible chat completion through the Tangle router, returning text + REAL token usage (`undefined` when the provider omits it — never a fabricated 0). |
@@ -603,6 +610,8 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
 | `FileCorpus` | class | JSONL on disk — one validated `CorpusRecord` per line, append-only. `query` replays the whole |
+| `FileResultBlobStore` | class | FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a |
+| `FileSpawnJournal` | class | JSONL on disk. One line per record: the first record is `begin`, subsequent records |
 | `InMemoryCorpus` | class | In-memory `Corpus`. Keyed by record `id`; `append` validates the record, is idempotent on an |
 | `InMemoryResultBlobStore` | class | In-memory `ResultBlobStore`. Content-addressed: `put` verifies the supplied |
 | `InMemorySpawnJournal` | class | In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces |
@@ -637,6 +646,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `CompletionEvidence` | interface | Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric, |
 | `CompletionPolicy` | interface | When a verdict authorizes the driver to END. Deterministic → trust (ground truth); |
 | `CompletionVerdict` | interface | The "is it done?" verdict an analyst returns to the parent. |
+| `ConcurrencyCaps` | interface | The caps a host can set on simultaneous work. See the ledger in this module's header for what |
 | `CoordinationMcpHandle` | interface | Serve the coordination verbs (spawn_agent / await_event / observe_agent / steer_agent / stop) |
 | `Corpus` | interface | The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal` |
 | `CorpusFilter` | interface | A corpus query filter — every field is an AND-narrowing; an omitted field does not constrain. |
@@ -648,6 +658,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `DefinePersonaInput` | interface | The minimal input to build a `Persona`. Mirrors `Persona` but lets the builder default |
 | `DelegateOptions` | interface | Inputs to {@link delegate}. The intent is the first positional arg; everything here is optional |
 | `DeliverableSpec` | interface | The deployable completion oracle passed to {@link gateOnDeliverable}: a `check` that |
+| `DispatchUnit` | interface | One unit of queued work: the agent to run, its task, and the spawn options (budget + label). |
 | `DriverAgentOptions` | interface | `driverAgent` — the driver's BRAIN. |
 | `DumbDriverOptions` | interface | Options for {@link dumbDriver}. |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
@@ -665,7 +676,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `HarvestCorpusOptions` | interface | harvestCorpus — production traces → corpus, the G2 bridge (the playbook's step 6). |
 | `InboxMessage` | interface | The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as |
 | `InMemoryRunContext` | interface | The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`. |
-| `InMemoryRunContextOptions` | interface | Options for the in-memory run context. |
+| `InMemoryRunContextOptions` | interface | Options for a supervised run context. |
 | `InProcessPromptCtx` | interface | Context handed to each `onPrompt` / `onTask` call. |
 | `Interval` | interface | A 95%-by-default confidence interval. |
 | `KeyProvider` | interface | Resolve named secrets. The ONE seam every secret store adapts to. |
@@ -713,6 +724,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |
 | `ResolveSandboxClientOptions` | interface | The product-facing backend selector: one call picks the execution transport a |
 | `ResultBlobStore` | interface | Content-addressed result blobs (the `outRef` → artifact map) backing the replay |
+| `ResumedWork` | interface | The committed work a resumed run inherits from its journal. `settled` is the replayed |
 | `RouterConfig` | interface | The one router chat client: direct OpenAI-compatible completions through the |
 | `RouterToolCall` | interface | A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallRequest). |
 | `RunPersonifiedOptions` | interface | The end-to-end entrypoint. Builds the persona's root `Agent` from the chosen shape, then |
@@ -735,6 +747,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `ShapeContext` | interface | The construction context a `LoopShape` factory receives. Carries the persona's resolved |
 | `ShapeRegistry` | interface | The open shape registry — the extension point that makes a new loop-shape ONE file + one |
 | `ShotPersona` | interface | A role for one shot — multi-agent loops (researcher + engineer, a panel of k |
+| `SpawnJournal` | interface | The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape). |
 | `Spend` | interface | Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd |
 | `StdioMcpServerSpec` | interface | Same-host stdio MCP: the ONE persistent newline-delimited JSON-RPC 2.0 |
 | `SteerContext` | interface | How a combinator's `act` consumes findings to steer — the SINGLE firewalled steer surface a |
@@ -775,6 +788,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `CoordinationEvent` | type | Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for |
 | `DefinePersona` | type | Builds a frozen `Persona`, failing loud on the executors-supplied invariant (neither a |
 | `Deliverable` | type | How a typed deliverable `Out` is materialized from a finished turn. |
+| `DispatchStopReason` | type | Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end); |
 | `DriveHarness` | type | How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
@@ -788,15 +802,18 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
 | `LoopUntil` | type | `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state. |
 | `MountRecorder` | type | Records a mounted resource into the run's provenance manifest. Passed to |
+| `NodeId` | type | Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-clock. |
 | `OpenSandboxRunPromptOptions` | type | Prompt options forwarded to every sandbox prompt turn in this run. The |
 | `Outcome` | type | The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete |
 | `Panel` | type | `panel(spec)` — build the M-judge write-only-merge combinator. |
 | `Pipeline` | type | `pipeline(stages)` — build the sequential combinator from an ordered stage list. The first |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
+| `RunContext` | type | The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the |
 | `RunPersonified` | type | The composed run signature. |
 | `Runtime` | type | The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name. |
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `Shell` | type | Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`. |
+| `SpawnEvent` | type | Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO |
 | `SteeringDecision` | type | Terminal-or-continue decision shared by all three steering drivers. The |
 | `SupervisedResult` | type | Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. |
 | `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |
@@ -809,7 +826,7 @@ Import from `@tangle-network/agent-runtime/loops` — 473 exports.
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `DefinedLeaderboard`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `StdioMcpConnection`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `RepairStop`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `RepairStop`, `WorkspaceCommit`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 

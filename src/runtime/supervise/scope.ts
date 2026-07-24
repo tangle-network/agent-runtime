@@ -44,6 +44,7 @@ import type {
   NodeSnapshot,
   NodeStatus,
   ResultBlobStore,
+  ResumedWork,
   Scope,
   Settled,
   SpawnJournal,
@@ -83,6 +84,20 @@ export interface ScopeArgs {
    *  SAME stream `runLoop`/`tool-loop` feed, so the recursive tree is ONE observable stream
    *  (the topology viewer reads it). Undefined ⇒ the journal stays the only record. */
   readonly hooks?: RuntimeHooks
+  /**
+   * Resume seam — set ONLY by the supervisor when `SupervisorOpts.resume` is on AND a non-empty
+   * journal tree exists for this root. It carries the replayed committed work (so `scope.resume`
+   * exposes it to a resume-aware `act`) and the recorded ordinal/cursor maxima the new counters
+   * continue past, so a freshly-spawned child never reuses a journaled `seq`. Absent ⇒ fresh run.
+   */
+  readonly resumeFrom?: {
+    readonly settled: ReadonlyArray<Settled<unknown>>
+    readonly view: TreeView
+    /** Highest `spawned` ordinal already journaled; new spawns start at `+1`. */
+    readonly maxSpawnOrdinal: number
+    /** Highest cursor `seq` already journaled; new settlements start at `+1`. */
+    readonly maxCursorSeq: number
+  }
 }
 
 /**
@@ -200,8 +215,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   //    `settled`/`cancelled` event's `seq` and the `Settled.seq` the driver branches on.
   // They are separate so a `spawned` event never collides with a `settled` event in the
   // journal's per-tree uniqueness guard (which is scoped to the cursor namespace).
-  let spawnOrdinal = 0
-  let cursorSeq = 0
+  // On a resumed scope, continue both monotonic namespaces PAST the recorded maxima so a
+  // freshly-spawned child or settlement never reuses a journaled `seq` (the per-tree
+  // uniqueness guard would otherwise fail loud). On a fresh scope both start at 0.
+  let spawnOrdinal = args.resumeFrom ? args.resumeFrom.maxSpawnOrdinal + 1 : 0
+  let cursorSeq = args.resumeFrom ? args.resumeFrom.maxCursorSeq + 1 : 0
   let meterSeq = 0
   const now = args.now ?? Date.now
 
@@ -434,6 +452,15 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     )
   }
 
+  // The replayed committed work, frozen once at construction — a resume-aware `act` reads it
+  // to skip re-spawning settled children. Absent on a fresh scope.
+  const resume: ResumedWork<Out> | undefined = args.resumeFrom
+    ? {
+        settled: args.resumeFrom.settled as ReadonlyArray<Settled<Out>>,
+        view: args.resumeFrom.view,
+      }
+    : undefined
+
   return {
     spawn,
     next,
@@ -441,6 +468,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     send,
     signal: args.signal,
     meter,
+    ...(resume ? { resume } : {}),
     get view(): TreeView {
       return makeTreeView(args.parentId, children)
     },

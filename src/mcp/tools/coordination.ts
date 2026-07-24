@@ -15,6 +15,7 @@ import type {
   Settled,
   Agent as SuperviseAgent,
 } from '../../runtime'
+import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import type { McpToolDescriptor } from '../server'
 
@@ -436,6 +437,14 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       .filter((n) => isLive(n.status))
       .map((n) => ({ id: n.id, status: n.status, spent: n.spent }))
 
+  // How many workers the driver could open RIGHT NOW without hitting the simultaneity fence, or
+  // `null` when no cap is set (the conserved pool is then the only fence, so there is no finite
+  // slot count). Without this the brain could see WHO is running but never that capacity was idle,
+  // so filling N slots meant emitting N blind tool calls with no feedback telling it to — the
+  // mechanical reason a 5-worker run peaked at 2 live workers. Policy (whether to fill) stays with
+  // the driver; this is only the reading.
+  const freeWorkerSlots = (): number | null => freeSlots(liveWorkerCount(), maxLiveWorkers)
+
   // The blocking `scope.next()` (via `drainSettlement`) waits on a LIVE worker for its whole run.
   // Keep at most ONE such drain in flight and let every concurrent `await_event` race THAT single
   // promise against a timeout — so a bounded call never starts a second unbounded block, and the
@@ -477,7 +486,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'Pass an optional `budget` (per-field) to give a hard sub-task more than the default — it ' +
         'merges over the per-worker default; the conserved pool is still the hard fence. When a ' +
         'max-live-workers cap is set it also fails closed (`error: "max-live-workers"`) while that ' +
-        'many workers are still in flight — settle or steer one before spawning another.',
+        'many workers are still in flight — settle or steer one before spawning another. ' +
+        'Returns `freeSlots`: how many MORE workers you can start right now (`null` = uncapped). ' +
+        'While `freeSlots > 0` there is idle capacity — call this again to fill it rather than ' +
+        'waiting; parallel workers finish the run sooner than one at a time.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -508,7 +520,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           maxLiveWorkers > 0 &&
           liveWorkerCount() >= maxLiveWorkers
         )
-          return Promise.resolve({ error: 'max-live-workers' as const })
+          return Promise.resolve({
+            error: 'max-live-workers' as const,
+            live: liveWorkerCount(),
+            freeSlots: freeWorkerSlots(),
+          })
         const agent = opts.makeWorkerAgent(a.profile)
         const budget =
           a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget)
@@ -516,7 +532,14 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           budget,
           label: typeof a.label === 'string' ? a.label : 'worker',
         })
-        return Promise.resolve(res.ok ? { workerId: res.handle.id } : { error: res.reason })
+        // Report the REMAINING capacity alongside the spawn, so one tool call tells the driver
+        // both "it started" and "you can still open N more" — the feedback that lets it fill
+        // slots instead of opening one worker per turn. `null` = uncapped.
+        return Promise.resolve(
+          res.ok
+            ? { workerId: res.handle.id, live: liveWorkerCount(), freeSlots: freeWorkerSlots() }
+            : { error: res.reason, live: liveWorkerCount(), freeSlots: freeWorkerSlots() },
+        )
       },
     },
     {
@@ -578,7 +601,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'worker; omit `kinds` to also receive questions and findings. Returns { idle: true } when ' +
         'nothing is queued and no workers are live. If a worker is still running when the wait ' +
         'elapses, returns { pending: true, live: [...] } (the workers still in flight) instead of ' +
-        'blocking indefinitely — call await_event again to keep waiting; the settlement is not lost.',
+        'blocking indefinitely — call await_event again to keep waiting; the settlement is not lost. ' +
+        'Every reply carries `freeSlots`: how many more workers you can start right now (`null` = ' +
+        'uncapped). A settled worker frees its slot, so `freeSlots > 0` means capacity is sitting ' +
+        'idle — spawn into it before waiting again.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -598,7 +624,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           : undefined
         // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
         let ev = bus.pull(kinds)
-        if (ev) return projectEvent(ev)
+        // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
+        // capacity frees up, so the answer travels with the event that freed it.
+        if (ev) return { ...projectEvent(ev), freeSlots: freeWorkerSlots() }
         // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
         // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
         // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
@@ -606,10 +634,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         // fence: if it settles in time, re-pull and return the event (or idle when the cursor is dry);
         // if the fence wins, return a non-error liveness snapshot the supervisor can re-poll on.
         const raced = await raceDrainWithTimeout(ensureDrain())
-        if (raced === undefined) return { pending: true, live: liveSnapshot() }
+        if (raced === undefined)
+          return { pending: true, live: liveSnapshot(), freeSlots: freeWorkerSlots() }
         ev = bus.pull(kinds)
-        if (!ev) return { idle: !raced.drained }
-        return projectEvent(ev)
+        if (!ev) return { idle: !raced.drained, freeSlots: freeWorkerSlots() }
+        return { ...projectEvent(ev), freeSlots: freeWorkerSlots() }
       },
     },
     {

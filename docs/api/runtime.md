@@ -54,7 +54,7 @@ Defined in: [src/durable/spawn-journal.ts:73](https://github.com/tangle-network/
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`put`](#put-1)
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
 
 ##### get()
 
@@ -74,7 +74,85 @@ Defined in: [src/durable/spawn-journal.ts:78](https://github.com/tangle-network/
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-2)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-3)
+
+***
+
+### FileResultBlobStore
+
+Defined in: [src/durable/spawn-journal.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L88)
+
+FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a
+filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`).
+`put` fsyncs so a crash between writes never loses an acknowledged blob.
+
+#### Implements
+
+- [`ResultBlobStore`](#resultblobstore)
+
+#### Constructors
+
+##### Constructor
+
+> **new FileResultBlobStore**(`dir`): [`FileResultBlobStore`](#fileresultblobstore)
+
+Defined in: [src/durable/spawn-journal.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L89)
+
+###### Parameters
+
+###### dir
+
+`string`
+
+###### Returns
+
+[`FileResultBlobStore`](#fileresultblobstore)
+
+#### Methods
+
+##### put()
+
+> **put**(`outRef`, `artifact`): `Promise`\<`void`\>
+
+Defined in: [src/durable/spawn-journal.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L91)
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### artifact
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`put`](#put-2)
+
+##### get()
+
+> **get**(`outRef`): `Promise`\<`unknown`\>
+
+Defined in: [src/durable/spawn-journal.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L104)
+
+###### Parameters
+
+###### outRef
+
+`string`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+###### Implementation of
+
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-3)
 
 ***
 
@@ -90,7 +168,7 @@ the corruption guards a durable replay rests on:
 
 #### Implements
 
-- `SpawnJournal`
+- [`SpawnJournal`](#spawnjournal)
 
 #### Constructors
 
@@ -106,7 +184,7 @@ the corruption guards a durable replay rests on:
 
 ##### loadTree()
 
-> **loadTree**(`root`): `Promise`\<`SpawnEvent`[] \| `undefined`\>
+> **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
 
 Defined in: [src/durable/spawn-journal.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L143)
 
@@ -118,11 +196,11 @@ Defined in: [src/durable/spawn-journal.ts:143](https://github.com/tangle-network
 
 ###### Returns
 
-`Promise`\<`SpawnEvent`[] \| `undefined`\>
+`Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
 
 ###### Implementation of
 
-`SpawnJournal.loadTree`
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
 
 ##### beginTree()
 
@@ -146,7 +224,7 @@ Defined in: [src/durable/spawn-journal.ts:149](https://github.com/tangle-network
 
 ###### Implementation of
 
-`SpawnJournal.beginTree`
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
 
 ##### appendEvent()
 
@@ -162,7 +240,7 @@ Defined in: [src/durable/spawn-journal.ts:162](https://github.com/tangle-network
 
 ###### ev
 
-`SpawnEvent`
+[`SpawnEvent`](#spawnevent)
 
 ###### Returns
 
@@ -170,7 +248,111 @@ Defined in: [src/durable/spawn-journal.ts:162](https://github.com/tangle-network
 
 ###### Implementation of
 
-`SpawnJournal.appendEvent`
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
+
+***
+
+### FileSpawnJournal
+
+Defined in: [src/durable/spawn-journal.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L179)
+
+JSONL on disk. One line per record: the first record is `begin`, subsequent records
+are `event` envelopes wrapping a `SpawnEvent`. `loadTree` replays the whole file,
+filtering by `root`, and applies the same begin-precedes-events + unique-seq
+corruption guards as the in-memory impl. Each append fsyncs so a crash between
+writes never loses an acknowledged event.
+
+#### Implements
+
+- [`SpawnJournal`](#spawnjournal)
+
+#### Constructors
+
+##### Constructor
+
+> **new FileSpawnJournal**(`path`): [`FileSpawnJournal`](#filespawnjournal)
+
+Defined in: [src/durable/spawn-journal.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L180)
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### Returns
+
+[`FileSpawnJournal`](#filespawnjournal)
+
+#### Methods
+
+##### loadTree()
+
+> **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+Defined in: [src/durable/spawn-journal.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L182)
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### Returns
+
+`Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`loadTree`](#loadtree-2)
+
+##### beginTree()
+
+> **beginTree**(`root`, `at`): `Promise`\<`void`\>
+
+Defined in: [src/durable/spawn-journal.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L212)
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### at
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`beginTree`](#begintree-2)
+
+##### appendEvent()
+
+> **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
+
+Defined in: [src/durable/spawn-journal.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L225)
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### ev
+
+[`SpawnEvent`](#spawnevent)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`SpawnJournal`](#spawnjournal).[`appendEvent`](#appendevent-2)
 
 ***
 
@@ -473,7 +655,7 @@ Defined in: node\_modules/.pnpm/typescript@5.9.3/node\_modules/typescript/lib/li
 
 ### AnalystRegistry
 
-Defined in: [src/mcp/tools/coordination.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L63)
+Defined in: [src/mcp/tools/coordination.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L64)
 
 #### Properties
 
@@ -481,13 +663,13 @@ Defined in: [src/mcp/tools/coordination.ts:63](https://github.com/tangle-network
 
 > `readonly` **kinds**: readonly `object`[]
 
-Defined in: [src/mcp/tools/coordination.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L64)
+Defined in: [src/mcp/tools/coordination.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L65)
 
 ##### run
 
 > `readonly` **run**: (`kindId`, `trace`) => `Promise`\<`unknown`\>
 
-Defined in: [src/mcp/tools/coordination.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L65)
+Defined in: [src/mcp/tools/coordination.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L66)
 
 ###### Parameters
 
@@ -3098,7 +3280,7 @@ firewall is enforced afterwards by `createScopeAnalyst`, not by the analyst itse
 
 ##### analyst
 
-> `readonly` **analyst**: [`Agent`](#agent)\<`unknown`, readonly `AnalystFinding`[]\>
+> `readonly` **analyst**: [`Agent`](#agent-1)\<`unknown`, readonly `AnalystFinding`[]\>
 
 Defined in: [src/runtime/personify/analyst.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L73)
 
@@ -3473,7 +3655,7 @@ The scope analyst (selector≠judge firewall) the combinator steers from. Absent
 
 ##### spawnChild()
 
-> **spawnChild**(`name`, `spec`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`D`\>\>
+> **spawnChild**(`name`, `spec`): [`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-1)\<`D`\>\>
 
 Defined in: [src/runtime/personify/types.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L177)
 
@@ -3494,7 +3676,7 @@ spec drives the resolved `Executor`; `act` exists only to satisfy the `Agent` sh
 
 ###### Returns
 
-[`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`D`\>\>
+[`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-1)\<`D`\>\>
 
 ##### childSpec()
 
@@ -3670,7 +3852,7 @@ Trace/journal root key. Defaults to the persona name + a run discriminator in th
 
 ##### journal?
 
-> `readonly` `optional` **journal?**: `SpawnJournal`
+> `readonly` `optional` **journal?**: [`SpawnJournal`](#spawnjournal)
 
 Defined in: [src/runtime/personify/types.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L233)
 
@@ -3826,7 +4008,7 @@ Read this stage's settled child output into the typed `StepOut` the next stage f
 
 ###### settled
 
-[`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`StepOut`\>\>
+[`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`StepOut`\>\>
 
 ###### Returns
 
@@ -3884,6 +4066,21 @@ Receives the SAME `Iteration[]` the default selector reads (each child's output 
 …) over the candidates — NEVER a re-rank behind a judge. Default = `defaultSelectWinner`
 semantics (best-valid-score, ties→earliest). Mutually exclusive with `synthesize` (a
 synthesis child IS the selection); supplying both is a config error.
+
+##### width?
+
+> `optional` **width?**: `number`
+
+Defined in: [src/runtime/personify/wave-types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L145)
+
+Cap on how many item children run AT ONCE. When set, the fanout dispatches through
+`rollingDispatch`: it fills `width` slots and admits the next item the moment one settles,
+instead of opening every item in a single round. Same items, same selection, same conserved
+pool — only the simultaneity changes.
+
+Unset (the default) keeps the single-round batch behavior every existing caller has. Set it
+when the items outnumber the live capacity a host can actually afford, so the pool is not
+spent opening children that then queue behind a real fence.
 
 #### Methods
 
@@ -3969,7 +4166,7 @@ leaf). Absent ⇒ every item runs against the persona's root spec (the homogeneo
 
 ### FanoutSynthesis
 
-Defined in: [src/runtime/personify/wave-types.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L150)
+Defined in: [src/runtime/personify/wave-types.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L161)
 
 How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child
  settlements into the synthesis child's task; `collect` reads its settled output into the
@@ -3987,13 +4184,13 @@ How a fanout's synthesis child is built + read. `synthesisTask` projects the dra
 
 > **synthesisTask**(`gathered`, `ctx`): `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L151)
+Defined in: [src/runtime/personify/wave-types.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L162)
 
 ###### Parameters
 
 ###### gathered
 
-readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
+readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 ###### ctx
 
@@ -4007,13 +4204,13 @@ readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 > **collect**(`settled`): [`Outcome`](#outcome-1)\<`D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L152)
+Defined in: [src/runtime/personify/wave-types.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L163)
 
 ###### Parameters
 
 ###### settled
 
-[`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>
+[`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`D`\>\>
 
 ###### Returns
 
@@ -4023,7 +4220,7 @@ Defined in: [src/runtime/personify/wave-types.ts:152](https://github.com/tangle-
 
 ### LoopUntilSpec
 
-Defined in: [src/runtime/personify/wave-types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L171)
+Defined in: [src/runtime/personify/wave-types.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L182)
 
 `loopUntil({ until, step })` — iterative deepening inside the conserved pool: spawn one `step`
 child per round, ask `until` whether the accumulated state satisfies the goal, and stop when it
@@ -4054,7 +4251,7 @@ and an `until` that reads the test-finding; the combinator owns only the round/s
 
 > **step**(`rootTask`, `state`, `ctx`): `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L173)
+Defined in: [src/runtime/personify/wave-types.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L184)
 
 Build the next step child's task from the root task + the state accumulated so far.
 
@@ -4080,7 +4277,7 @@ Build the next step child's task from the root task + the state accumulated so f
 
 > **fold**(`prior`, `settled`): [`LoopUntilState`](#loopuntilstate-2)\<`State`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L175)
+Defined in: [src/runtime/personify/wave-types.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L186)
 
 Fold one settled step into the accumulated state (the loop's running deliverable candidate).
 
@@ -4092,7 +4289,7 @@ Fold one settled step into the accumulated state (the loop's running deliverable
 
 ###### settled
 
-[`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>
+[`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`D`\>\>
 
 ###### Returns
 
@@ -4102,7 +4299,7 @@ Fold one settled step into the accumulated state (the loop's running deliverable
 
 > **until**(`state`, `findings`): [`Outcome`](#outcome-1)\<`D`\> \| `null`
 
-Defined in: [src/runtime/personify/wave-types.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L181)
+Defined in: [src/runtime/personify/wave-types.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L192)
 
 The satisfiability gate: given the accumulated state + the round's trace findings, has the
 goal been reached? Returns the terminal deliverable when satisfied, or `null` to keep going.
@@ -4126,7 +4323,7 @@ readonly `AnalystFinding`[]
 
 > `optional` **label**(`round`): `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L183)
+Defined in: [src/runtime/personify/wave-types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L194)
 
 Per-round step label (defaults to `step:<round>` in the impl).
 
@@ -4144,7 +4341,7 @@ Per-round step label (defaults to `step:<round>` in the impl).
 
 ### LoopUntilState
 
-Defined in: [src/runtime/personify/wave-types.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L188)
+Defined in: [src/runtime/personify/wave-types.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L199)
 
 The accumulated state `loopUntil` threads across rounds — the running candidate + the round
  index, so `step`/`fold`/`until` are pure functions of it (replay-safe, no wall-clock).
@@ -4161,19 +4358,19 @@ The accumulated state `loopUntil` threads across rounds — the running candidat
 
 > `readonly` **round**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L189)
+Defined in: [src/runtime/personify/wave-types.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L200)
 
 ##### value
 
 > `readonly` **value**: `State`
 
-Defined in: [src/runtime/personify/wave-types.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L190)
+Defined in: [src/runtime/personify/wave-types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L201)
 
 ***
 
 ### PanelSpec
 
-Defined in: [src/runtime/personify/wave-types.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L209)
+Defined in: [src/runtime/personify/wave-types.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L220)
 
 `panel(judges)` — M judges over ONE artifact, merged WRITE-ONLY (selector≠judge taken to its
 limit). The combinator spawns the M judge children over the same input artifact, drains their
@@ -4200,7 +4397,7 @@ different personas; the rubric lives in each judge persona's profile, not the co
 
 > `readonly` **judges**: readonly [`PanelJudge`](#paneljudge)[]
 
-Defined in: [src/runtime/personify/wave-types.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L213)
+Defined in: [src/runtime/personify/wave-types.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L224)
 
 The M judge child specs: each is a persona-derived child (a narrower judge profile). The
  combinator spawns one child per entry over the SAME `artifact` and never lets one judge's
@@ -4212,7 +4409,7 @@ The M judge child specs: each is a persona-derived child (a narrower judge profi
 
 > **judgeTask**(`artifact`, `judge`, `ctx`): `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L215)
+Defined in: [src/runtime/personify/wave-types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L226)
 
 Build one judge child's task from the shared artifact under review + the judge descriptor.
 
@@ -4238,7 +4435,7 @@ Build one judge child's task from the shared artifact under review + the judge d
 
 > **merge**(`verdicts`, `artifact`): [`Outcome`](#outcome-1)\<`D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L221)
+Defined in: [src/runtime/personify/wave-types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L232)
 
 Write-only merge: fold the M settled judge verdicts into the panel's terminal `Outcome<D>`.
 Pure over the drained settlements — it MUST NOT spawn, re-judge, or feed one verdict into
@@ -4262,7 +4459,7 @@ readonly [`PanelVerdict`](#panelverdict)[]
 
 ### PanelJudge
 
-Defined in: [src/runtime/personify/wave-types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L226)
+Defined in: [src/runtime/personify/wave-types.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L237)
 
 One judge in a panel — a labeled persona-derived judge child. Content (the rubric) lives in
  the judge's profile; this carries only the label + the optional weight the merge may read.
@@ -4273,13 +4470,13 @@ One judge in a panel — a labeled persona-derived judge child. Content (the rub
 
 > `readonly` **label**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L227)
+Defined in: [src/runtime/personify/wave-types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L238)
 
 ##### weight?
 
 > `readonly` `optional` **weight?**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L229)
+Defined in: [src/runtime/personify/wave-types.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L240)
 
 Optional merge weight (a write-only hint the `merge` fold may use; default-equal in the impl).
 
@@ -4287,7 +4484,7 @@ Optional merge weight (a write-only hint the `merge` fold may use; default-equal
 
 ### PanelVerdict
 
-Defined in: [src/runtime/personify/wave-types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L234)
+Defined in: [src/runtime/personify/wave-types.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L245)
 
 One judge child's settled verdict, surfaced to the write-only `merge`. `down` judges carry no
  verdict (excluded from the merge `n`, like an infra-errored cell).
@@ -4298,19 +4495,19 @@ One judge child's settled verdict, surfaced to the write-only `merge`. `down` ju
 
 > `readonly` **judge**: [`PanelJudge`](#paneljudge)
 
-Defined in: [src/runtime/personify/wave-types.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L235)
+Defined in: [src/runtime/personify/wave-types.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L246)
 
 ##### verdict?
 
 > `readonly` `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [src/runtime/personify/wave-types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L236)
+Defined in: [src/runtime/personify/wave-types.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L247)
 
 ##### output?
 
 > `readonly` `optional` **output?**: `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L238)
+Defined in: [src/runtime/personify/wave-types.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L249)
 
 The judge child's raw output — what it was asked to assess, for a merge that quotes it.
 
@@ -4318,7 +4515,7 @@ The judge child's raw output — what it was asked to assess, for a merge that q
 
 > `readonly` **down**: `boolean`
 
-Defined in: [src/runtime/personify/wave-types.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L240)
+Defined in: [src/runtime/personify/wave-types.ts:251](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L251)
 
 True when the judge child went `down` (no usable verdict — kept out of the merge denominator).
 
@@ -4326,7 +4523,7 @@ True when the judge child went `down` (no usable verdict — kept out of the mer
 
 ### VerifySpec
 
-Defined in: [src/runtime/personify/wave-types.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L257)
+Defined in: [src/runtime/personify/wave-types.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L268)
 
 `verify({ implement, verifier })` — the 2-node sequential gate: an IMPLEMENT child produces a
 candidate, then a SEPARATE VERIFIER child's verdict GATES shippability. A `valid` verifier
@@ -4358,7 +4555,7 @@ shape under different personas; the gate rubric is the verifier persona's, not t
 
 > `readonly` `optional` **implementLabel?**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L265)
+Defined in: [src/runtime/personify/wave-types.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L276)
 
 Implement / verifier child labels (default `implement` / `verify` in the impl).
 
@@ -4366,7 +4563,7 @@ Implement / verifier child labels (default `implement` / `verify` in the impl).
 
 > `readonly` `optional` **verifierLabel?**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L266)
+Defined in: [src/runtime/personify/wave-types.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L277)
 
 #### Methods
 
@@ -4374,7 +4571,7 @@ Defined in: [src/runtime/personify/wave-types.ts:266](https://github.com/tangle-
 
 > **implement**(`rootTask`, `ctx`): `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L259)
+Defined in: [src/runtime/personify/wave-types.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L270)
 
 Build the implement child's task from the root task.
 
@@ -4396,7 +4593,7 @@ Build the implement child's task from the root task.
 
 > **verifier**(`candidate`, `ctx`): `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L261)
+Defined in: [src/runtime/personify/wave-types.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L272)
 
 Build the verifier child's task from the implement child's settled candidate.
 
@@ -4404,7 +4601,7 @@ Build the verifier child's task from the implement child's settled candidate.
 
 ###### candidate
 
-[`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`Candidate`\>\>
+[`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`Candidate`\>\>
 
 ###### ctx
 
@@ -4418,7 +4615,7 @@ Build the verifier child's task from the implement child's settled candidate.
 
 > **collect**(`candidate`, `verdict`): [`Outcome`](#outcome-1)\<`D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L263)
+Defined in: [src/runtime/personify/wave-types.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L274)
 
 Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
@@ -4426,7 +4623,7 @@ Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
 ###### candidate
 
-[`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`Candidate`\>\>
+[`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`Candidate`\>\>
 
 ###### verdict
 
@@ -4440,7 +4637,7 @@ Project the gated (verifier-`valid`) candidate into the terminal deliverable.
 
 ### WidenSpec
 
-Defined in: [src/runtime/personify/wave-types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L287)
+Defined in: [src/runtime/personify/wave-types.ts:298](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L298)
 
 `widen({ gate })` (G5) — the STREAMING spawn-on-completion driver. Unlike the static-fanout
 combinators above, the widener REACTS to each `scope.next()`: as each child settles it consults
@@ -4470,7 +4667,7 @@ mechanism ahead of the gate).
 
 > `readonly` **seeds**: readonly `Seed`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L290)
+Defined in: [src/runtime/personify/wave-types.ts:301](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L301)
 
 The initial children to spawn before any widening — the seed lineages the gate widens from.
  One child task per seed; bounded by the conserved pool's fail-closed admission.
@@ -4479,7 +4676,7 @@ The initial children to spawn before any widening — the seed lineages the gate
 
 > `readonly` **gate**: [`ScopeWidenGate`](#scopewidengate)\<`D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L297)
+Defined in: [src/runtime/personify/wave-types.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L308)
 
 The progressive-widening gate. Consulted on EVERY settled child with the round's
 trace-derived `findings`; returns a widen decision (spawn one more toward a lineage) or a
@@ -4491,7 +4688,7 @@ stop. DEFAULTS to flat via `flatWidenGate` — never widens, so the firewall sta
 
 > **seedTask**(`seed`, `index`, `ctx`): `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L291)
+Defined in: [src/runtime/personify/wave-types.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L302)
 
 ###### Parameters
 
@@ -4515,7 +4712,7 @@ Defined in: [src/runtime/personify/wave-types.ts:291](https://github.com/tangle-
 
 > **widenTask**(`toward`, `ctx`): `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L299)
+Defined in: [src/runtime/personify/wave-types.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L310)
 
 Build the widened child's task from the lineage the gate chose to extend.
 
@@ -4537,7 +4734,7 @@ Build the widened child's task from the lineage the gate chose to extend.
 
 > **synthesize**(`gathered`, `ctx`): [`Outcome`](#outcome-1)\<`D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L302)
+Defined in: [src/runtime/personify/wave-types.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L313)
 
 Synthesize the terminal deliverable from every settled lineage (selector≠judge: the
  single-sourced selector over the gathered children, never a re-judge).
@@ -4546,7 +4743,7 @@ Synthesize the terminal deliverable from every settled lineage (selector≠judge
 
 ###### gathered
 
-readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
+readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 ###### ctx
 
@@ -4560,7 +4757,7 @@ readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 ### ScopeWidenGate
 
-Defined in: [src/runtime/personify/wave-types.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L311)
+Defined in: [src/runtime/personify/wave-types.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L322)
 
 The runtime widening gate (the reactive analogue of the keystone's `WidenGate`, lifted to read
 trace FINDINGS instead of a raw verdict). `decide` is consulted per settled child; it MUST
@@ -4579,7 +4776,7 @@ explicitly argued (the documented off-by-default escape hatch). Flat default nev
 
 > `readonly` `optional` **judgeExempt?**: `boolean`
 
-Defined in: [src/runtime/personify/wave-types.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L319)
+Defined in: [src/runtime/personify/wave-types.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L330)
 
 When true, `decide` may read `settled.verdict` directly — collides with the steer firewall,
  so it must be argued per cell, never defaulted on (mirrors the keystone `WidenGate`).
@@ -4590,13 +4787,13 @@ When true, `decide` may read `settled.verdict` directly — collides with the st
 
 > **decide**(`settled`, `findings`, `budget`): [`WidenDecision`](#widendecision)\<`D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L312)
+Defined in: [src/runtime/personify/wave-types.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L323)
 
 ###### Parameters
 
 ###### settled
 
-[`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>
+[`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`D`\>\>
 
 ###### findings
 
@@ -4614,7 +4811,7 @@ readonly `AnalystFinding`[]
 
 ### WidenLineage
 
-Defined in: [src/runtime/personify/wave-types.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L330)
+Defined in: [src/runtime/personify/wave-types.ts:341](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L341)
 
 A lineage the gate may widen toward — the settled child that looked promising + the findings
  that justified it (the trace-derived provenance the firewall requires).
@@ -4631,7 +4828,7 @@ A lineage the gate may widen toward — the settled child that looked promising 
 
 > `readonly` **settled**: `object`
 
-Defined in: [src/runtime/personify/wave-types.ts:331](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L331)
+Defined in: [src/runtime/personify/wave-types.ts:342](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L342)
 
 ###### kind
 
@@ -4665,13 +4862,13 @@ Defined in: [src/runtime/personify/wave-types.ts:331](https://github.com/tangle-
 
 > `readonly` **findings**: readonly `AnalystFinding`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L332)
+Defined in: [src/runtime/personify/wave-types.ts:343](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L343)
 
 ***
 
 ### ScopeAnalyst
 
-Defined in: [src/runtime/personify/wave-types.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L359)
+Defined in: [src/runtime/personify/wave-types.ts:370](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L370)
 
 The reactive analyst seam — the PORT of the round-synchronous driver's `analyze` hook
 (dynamic.ts) onto the reactive `Scope`. The old driver wired the analyst at round
@@ -4696,7 +4893,7 @@ raw `verdict`. Fail loud — a throwing or non-array analyst aborts (no silent e
 
 > **analyze**(`input`): `Promise`\<readonly `AnalystFinding`[]\>
 
-Defined in: [src/runtime/personify/wave-types.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L366)
+Defined in: [src/runtime/personify/wave-types.ts:377](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L377)
 
 Turn the children settled so far into trace-derived findings. `settledSoFar` is the cursor-
 ordered settlement list a combinator has drained (the reactive analogue of the old driver's
@@ -4717,7 +4914,7 @@ returning — a judge-derived finding is rejected, not filtered.
 
 ### ScopeAnalyzeInput
 
-Defined in: [src/runtime/personify/wave-types.ts:370](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L370)
+Defined in: [src/runtime/personify/wave-types.ts:381](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L381)
 
 Input to a `ScopeAnalyst.analyze` — the root task framing + the children settled so far.
 
@@ -4733,15 +4930,15 @@ Input to a `ScopeAnalyst.analyze` — the root task framing + the children settl
 
 > `readonly` **task**: `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:372](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L372)
+Defined in: [src/runtime/personify/wave-types.ts:383](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L383)
 
 Opaque root-task framing (whatever the combinator was invoked with).
 
 ##### settledSoFar
 
-> `readonly` **settledSoFar**: readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
+> `readonly` **settledSoFar**: readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
-Defined in: [src/runtime/personify/wave-types.ts:374](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L374)
+Defined in: [src/runtime/personify/wave-types.ts:385](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L385)
 
 The children this combinator has drained off `scope.next()`, in cursor order.
 
@@ -4749,7 +4946,7 @@ The children this combinator has drained off `scope.next()`, in cursor order.
 
 > `readonly` **nodeId**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:376](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L376)
+Defined in: [src/runtime/personify/wave-types.ts:387](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L387)
 
 This combinator's scope id (the trace-correlation root for the analyst).
 
@@ -4757,7 +4954,7 @@ This combinator's scope id (the trace-correlation root for the analyst).
 
 ### SteerContext
 
-Defined in: [src/runtime/personify/wave-types.ts:387](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L387)
+Defined in: [src/runtime/personify/wave-types.ts:398](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L398)
 
 How a combinator's `act` consumes findings to steer — the SINGLE firewalled steer surface a
 reactive combinator reads. `loopUntil.until`, `widen` gate, and any future steer all funnel
@@ -4778,19 +4975,19 @@ explicitly NOT for steering — reading it to steer is the coupling the architec
 
 > `readonly` **findings**: readonly `AnalystFinding`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L388)
+Defined in: [src/runtime/personify/wave-types.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L399)
 
 ##### settledSoFar
 
-> `readonly` **settledSoFar**: readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
+> `readonly` **settledSoFar**: readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
-Defined in: [src/runtime/personify/wave-types.ts:389](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L389)
+Defined in: [src/runtime/personify/wave-types.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L400)
 
 ##### lastValidScore?
 
 > `readonly` `optional` **lastValidScore?**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:392](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L392)
+Defined in: [src/runtime/personify/wave-types.ts:403](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L403)
 
 Observability-only: the best valid score seen so far. Rendering/trace use ONLY — steering
  off this re-introduces selector=judge. Marked so a reviewer catches a misuse.
@@ -4799,7 +4996,7 @@ Observability-only: the best valid score seen so far. Rendering/trace use ONLY �
 
 ### CorpusRecord
 
-Defined in: [src/runtime/personify/wave-types.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L415)
+Defined in: [src/runtime/personify/wave-types.ts:426](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L426)
 
 One accreted fact in the cross-run corpus — the learning-flywheel's durable unit. DISTINCT from
 a `SpawnEvent` (a per-run decision record): a `CorpusRecord` is a fact a run LEARNED that a
@@ -4813,13 +5010,13 @@ relevant, high-confidence subset.
 
 > `readonly` **schemaVersion**: `"1.0.0"`
 
-Defined in: [src/runtime/personify/wave-types.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L416)
+Defined in: [src/runtime/personify/wave-types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L427)
 
 ##### id
 
 > `readonly` **id**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:418](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L418)
+Defined in: [src/runtime/personify/wave-types.ts:429](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L429)
 
 Stable id over identity-defining fields (claim + tags) so a re-learned fact dedups.
 
@@ -4827,7 +5024,7 @@ Stable id over identity-defining fields (claim + tags) so a re-learned fact dedu
 
 > `readonly` **runId**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:420](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L420)
+Defined in: [src/runtime/personify/wave-types.ts:431](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L431)
 
 The run that produced this fact (the journal `runId`/`root`) — provenance back to the trace.
 
@@ -4835,13 +5032,13 @@ The run that produced this fact (the journal `runId`/`root`) — provenance back
 
 > `readonly` **producedAt**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:421](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L421)
+Defined in: [src/runtime/personify/wave-types.ts:432](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L432)
 
 ##### area
 
 > `readonly` **area**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:423](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L423)
+Defined in: [src/runtime/personify/wave-types.ts:434](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L434)
 
 Coarse classification the query/render filters on (free-form, mirrors `AnalystFinding.area`).
 
@@ -4849,7 +5046,7 @@ Coarse classification the query/render filters on (free-form, mirrors `AnalystFi
 
 > `readonly` **claim**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:425](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L425)
+Defined in: [src/runtime/personify/wave-types.ts:436](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L436)
 
 The accreted fact — the instruction-shaped statement the next run reads back.
 
@@ -4857,7 +5054,7 @@ The accreted fact — the instruction-shaped statement the next run reads back.
 
 > `readonly` `optional` **rationale?**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L427)
+Defined in: [src/runtime/personify/wave-types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L438)
 
 Optional supporting detail the renderer may include under the claim.
 
@@ -4865,7 +5062,7 @@ Optional supporting detail the renderer may include under the claim.
 
 > `readonly` **tags**: readonly `string`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:429](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L429)
+Defined in: [src/runtime/personify/wave-types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L440)
 
 Free-form tags for `query` filtering (domain, persona, surface).
 
@@ -4873,7 +5070,7 @@ Free-form tags for `query` filtering (domain, persona, surface).
 
 > `readonly` **confidence**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:431](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L431)
+Defined in: [src/runtime/personify/wave-types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L442)
 
 0..1 — the producing run's confidence in this fact (the render threshold reads it).
 
@@ -4881,7 +5078,7 @@ Defined in: [src/runtime/personify/wave-types.ts:431](https://github.com/tangle-
 
 > `readonly` `optional` **evidence?**: readonly `object`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:433](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L433)
+Defined in: [src/runtime/personify/wave-types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L444)
 
 Optional provenance back into the run that learned it (a finding id / outRef / span).
 
@@ -4889,7 +5086,7 @@ Optional provenance back into the run that learned it (a finding id / outRef / s
 
 ### CorpusFilter
 
-Defined in: [src/runtime/personify/wave-types.ts:437](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L437)
+Defined in: [src/runtime/personify/wave-types.ts:448](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L448)
 
 A corpus query filter — every field is an AND-narrowing; an omitted field does not constrain.
 
@@ -4899,13 +5096,13 @@ A corpus query filter — every field is an AND-narrowing; an omitted field does
 
 > `readonly` `optional` **area?**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L438)
+Defined in: [src/runtime/personify/wave-types.ts:449](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L449)
 
 ##### tags?
 
 > `readonly` `optional` **tags?**: readonly `string`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L440)
+Defined in: [src/runtime/personify/wave-types.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L451)
 
 Match records carrying ALL of these tags.
 
@@ -4913,7 +5110,7 @@ Match records carrying ALL of these tags.
 
 > `readonly` `optional` **minConfidence?**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L442)
+Defined in: [src/runtime/personify/wave-types.ts:453](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L453)
 
 Minimum confidence a record must clear to be returned (the render gate).
 
@@ -4921,7 +5118,7 @@ Minimum confidence a record must clear to be returned (the render gate).
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L444)
+Defined in: [src/runtime/personify/wave-types.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L455)
 
 Only records from this run (rare — usually a cross-run read).
 
@@ -4929,7 +5126,7 @@ Only records from this run (rare — usually a cross-run read).
 
 > `readonly` `optional` **limit?**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:446](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L446)
+Defined in: [src/runtime/personify/wave-types.ts:457](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L457)
 
 Cap the result count (most-confident first in the impl).
 
@@ -4937,7 +5134,7 @@ Cap the result count (most-confident first in the impl).
 
 ### Corpus
 
-Defined in: [src/runtime/personify/wave-types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L459)
+Defined in: [src/runtime/personify/wave-types.ts:470](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L470)
 
 The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal`
 (per-run decisions, replay) and `ResultBlobStore` (per-run payloads): `Corpus` holds accreted
@@ -4954,7 +5151,7 @@ Fail-loud, typed-outcome boundary: `append` is idempotent on an identical record
 
 > **append**(`record`): `Promise`\<\{ `succeeded`: `true`; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
 
-Defined in: [src/runtime/personify/wave-types.ts:462](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L462)
+Defined in: [src/runtime/personify/wave-types.ts:473](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L473)
 
 Append one accreted fact. Idempotent on an identical record; returns a typed outcome —
  inspect `succeeded` before treating it as durable (no silent write-through on conflict).
@@ -4973,7 +5170,7 @@ Append one accreted fact. Idempotent on an identical record; returns a typed out
 
 > **query**(`filter`): `Promise`\<readonly [`CorpusRecord`](#corpusrecord)[]\>
 
-Defined in: [src/runtime/personify/wave-types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L465)
+Defined in: [src/runtime/personify/wave-types.ts:476](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L476)
 
 Query accreted facts by filter — most-confident first. Returns the matching records (an
  empty array when none match is a valid result, NOT an error).
@@ -4992,7 +5189,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ### RenderCorpusToInstructionsOptions
 
-Defined in: [src/runtime/personify/wave-types.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L479)
+Defined in: [src/runtime/personify/wave-types.ts:490](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L490)
 
 Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel
 READ side. Reads the corpus through `filter`, renders the matching facts into instruction lines,
@@ -5010,19 +5207,19 @@ wants the single-blob `resources.instructions` form passes `target: 'resources'`
 
 > `readonly` **corpus**: [`Corpus`](#corpus-2)
 
-Defined in: [src/runtime/personify/wave-types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L480)
+Defined in: [src/runtime/personify/wave-types.ts:491](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L491)
 
 ##### filter
 
 > `readonly` **filter**: [`CorpusFilter`](#corpusfilter)
 
-Defined in: [src/runtime/personify/wave-types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L481)
+Defined in: [src/runtime/personify/wave-types.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L492)
 
 ##### profile
 
 > `readonly` **profile**: `AgentProfile`
 
-Defined in: [src/runtime/personify/wave-types.ts:483](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L483)
+Defined in: [src/runtime/personify/wave-types.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L494)
 
 The profile to project the facts into. The result is a fresh profile — the input is unchanged.
 
@@ -5030,7 +5227,7 @@ The profile to project the facts into. The result is a fresh profile — the inp
 
 > `readonly` `optional` **target?**: `"resources"` \| `"prompt"`
 
-Defined in: [src/runtime/personify/wave-types.ts:486](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L486)
+Defined in: [src/runtime/personify/wave-types.ts:497](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L497)
 
 Where the rendered facts land: appended to `prompt.instructions[]` (default) or folded into
  the single-blob `resources.instructions` string.
@@ -5039,7 +5236,7 @@ Where the rendered facts land: appended to `prompt.instructions[]` (default) or 
 
 > `readonly` `optional` **maxLines?**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:488](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L488)
+Defined in: [src/runtime/personify/wave-types.ts:499](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L499)
 
 Optional cap on rendered lines (most-confident first), independent of the query `limit`.
 
@@ -5047,7 +5244,7 @@ Optional cap on rendered lines (most-confident first), independent of the query 
 
 ### TrajectoryNode
 
-Defined in: [src/runtime/personify/wave-types.ts:507](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L507)
+Defined in: [src/runtime/personify/wave-types.ts:518](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L518)
 
 One node in the reconstructed trajectory tree — a driver OR a leaf, with its OWN spend and the
 spend ROLLED UP over its subtree. Reconstructed from the `SpawnJournal` (structure + per-node
@@ -5060,37 +5257,37 @@ shape: `parent`/`children` are the actual spawn edges the run took, not a planne
 
 > `readonly` **id**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:508](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L508)
+Defined in: [src/runtime/personify/wave-types.ts:519](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L519)
 
 ##### parent?
 
 > `readonly` `optional` **parent?**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:509](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L509)
+Defined in: [src/runtime/personify/wave-types.ts:520](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L520)
 
 ##### children
 
 > `readonly` **children**: readonly `string`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L510)
+Defined in: [src/runtime/personify/wave-types.ts:521](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L521)
 
 ##### label
 
 > `readonly` **label**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:511](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L511)
+Defined in: [src/runtime/personify/wave-types.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L522)
 
 ##### runtime
 
 > `readonly` **runtime**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L512)
+Defined in: [src/runtime/personify/wave-types.ts:523](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L523)
 
 ##### status
 
 > `readonly` **status**: `"failed"` \| `"cancelled"` \| `"pending"` \| `"done"`
 
-Defined in: [src/runtime/personify/wave-types.ts:514](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L514)
+Defined in: [src/runtime/personify/wave-types.ts:525](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L525)
 
 Terminal status the journal recorded for this node.
 
@@ -5098,7 +5295,7 @@ Terminal status the journal recorded for this node.
 
 > `readonly` **ownSpend**: [`Spend`](#spend)
 
-Defined in: [src/runtime/personify/wave-types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L516)
+Defined in: [src/runtime/personify/wave-types.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L527)
 
 This node's OWN conserved spend (from its `settled` event).
 
@@ -5106,7 +5303,7 @@ This node's OWN conserved spend (from its `settled` event).
 
 > `readonly` **rolledUpSpend**: [`Spend`](#spend)
 
-Defined in: [src/runtime/personify/wave-types.ts:519](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L519)
+Defined in: [src/runtime/personify/wave-types.ts:530](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L530)
 
 This node's spend PLUS every descendant's — the rolled-up subtree cost. The cost a parent
  "really" consumed inclusive of its children's fanout (the equal-k-on-cost basis).
@@ -5115,7 +5312,7 @@ This node's spend PLUS every descendant's — the rolled-up subtree cost. The co
 
 > `readonly` `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [src/runtime/personify/wave-types.ts:521](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L521)
+Defined in: [src/runtime/personify/wave-types.ts:532](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L532)
 
 The node's verdict, when its settlement carried one (observability — NOT a steer input).
 
@@ -5123,7 +5320,7 @@ The node's verdict, when its settlement carried one (observability — NOT a ste
 
 > `readonly` `optional` **output?**: `unknown`
 
-Defined in: [src/runtime/personify/wave-types.ts:523](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L523)
+Defined in: [src/runtime/personify/wave-types.ts:534](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L534)
 
 The rehydrated output artifact, when `withOutputs` was requested + the blob resolved.
 
@@ -5131,13 +5328,13 @@ The rehydrated output artifact, when `withOutputs` was requested + the blob reso
 
 > `readonly` `optional` **outRef?**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L524)
+Defined in: [src/runtime/personify/wave-types.ts:535](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L535)
 
 ***
 
 ### TrajectoryReport
 
-Defined in: [src/runtime/personify/wave-types.ts:529](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L529)
+Defined in: [src/runtime/personify/wave-types.ts:540](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L540)
 
 The whole reconstructed trajectory — the realized tree + its root-rolled-up total. The
  per-node + rolled-up `Spend` is the evidence both the trace viewer and `equalKOnCost` read.
@@ -5148,13 +5345,13 @@ The whole reconstructed trajectory — the realized tree + its root-rolled-up to
 
 > `readonly` **root**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:530](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L530)
+Defined in: [src/runtime/personify/wave-types.ts:541](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L541)
 
 ##### nodes
 
 > `readonly` **nodes**: readonly [`TrajectoryNode`](#trajectorynode)[]
 
-Defined in: [src/runtime/personify/wave-types.ts:532](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L532)
+Defined in: [src/runtime/personify/wave-types.ts:543](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L543)
 
 Every node, in cursor/spawn order — the realized tree (`parent`/`children` are the real edges).
 
@@ -5162,7 +5359,7 @@ Every node, in cursor/spawn order — the realized tree (`parent`/`children` are
 
 > `readonly` **total**: [`Spend`](#spend)
 
-Defined in: [src/runtime/personify/wave-types.ts:534](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L534)
+Defined in: [src/runtime/personify/wave-types.ts:545](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L545)
 
 The root's rolled-up spend — the whole run's conserved total (tokens + usd + iterations + ms).
 
@@ -5170,7 +5367,7 @@ The root's rolled-up spend — the whole run's conserved total (tokens + usd + i
 
 > `readonly` **statusCounts**: `Readonly`\<`Record`\<[`TrajectoryNode`](#trajectorynode)\[`"status"`\], `number`\>\>
 
-Defined in: [src/runtime/personify/wave-types.ts:536](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L536)
+Defined in: [src/runtime/personify/wave-types.ts:547](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L547)
 
 Count of nodes by terminal status — a quick "how did the tree end" readout.
 
@@ -5178,7 +5375,7 @@ Count of nodes by terminal status — a quick "how did the tree end" readout.
 
 ### TrajectoryReportOptions
 
-Defined in: [src/runtime/personify/wave-types.ts:546](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L546)
+Defined in: [src/runtime/personify/wave-types.ts:557](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L557)
 
 `trajectoryReport(journal, blobs, root, { withOutputs? })` — reconstruct the whole tree with
 per-node + rolled-up `Spend`. Reads the journal for structure + spend and (when `withOutputs`)
@@ -5192,7 +5389,7 @@ impl lives in `trajectory.ts`.
 
 > `readonly` `optional` **withOutputs?**: `boolean`
 
-Defined in: [src/runtime/personify/wave-types.ts:548](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L548)
+Defined in: [src/runtime/personify/wave-types.ts:559](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L559)
 
 Rehydrate each `done` node's `output` from the blob store. Off by default (cost-only report).
 
@@ -5200,7 +5397,7 @@ Rehydrate each `done` node's `output` from the blob store. Off by default (cost-
 
 ### EqualKArm
 
-Defined in: [src/runtime/personify/wave-types.ts:567](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L567)
+Defined in: [src/runtime/personify/wave-types.ts:578](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L578)
 
 One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole
 run). The arm's conserved COST is `report.total` (tokens + usd), which the sandbox executor
@@ -5215,19 +5412,19 @@ iteration count.
 
 > `readonly` **label**: `string`
 
-Defined in: [src/runtime/personify/wave-types.ts:568](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L568)
+Defined in: [src/runtime/personify/wave-types.ts:579](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L579)
 
 ##### report
 
 > `readonly` **report**: [`TrajectoryReport`](#trajectoryreport-3)
 
-Defined in: [src/runtime/personify/wave-types.ts:569](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L569)
+Defined in: [src/runtime/personify/wave-types.ts:580](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L580)
 
 ***
 
 ### EqualKVerdict
 
-Defined in: [src/runtime/personify/wave-types.ts:578](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L578)
+Defined in: [src/runtime/personify/wave-types.ts:589](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L589)
 
 The equal-k-on-cost verdict: whether every arm spent within `tolerance` of the others on the
 CONSERVED cost channels (tokens + usd), so a downstream metric comparison is "at equal k". Per-
@@ -5240,13 +5437,13 @@ NOT comparable at equal compute — a confound to report, not a result to publis
 
 > `readonly` **withinTolerance**: `boolean`
 
-Defined in: [src/runtime/personify/wave-types.ts:579](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L579)
+Defined in: [src/runtime/personify/wave-types.ts:590](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L590)
 
 ##### arms
 
 > `readonly` **arms**: readonly `object`[]
 
-Defined in: [src/runtime/personify/wave-types.ts:581](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L581)
+Defined in: [src/runtime/personify/wave-types.ts:592](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L592)
 
 Per-arm conserved cost (the basis: tokens total + usd).
 
@@ -5254,7 +5451,7 @@ Per-arm conserved cost (the basis: tokens total + usd).
 
 > `readonly` **spread**: `object`
 
-Defined in: [src/runtime/personify/wave-types.ts:588](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L588)
+Defined in: [src/runtime/personify/wave-types.ts:599](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L599)
 
 The realized spread on each channel (max − min across arms), for the report.
 
@@ -5270,7 +5467,7 @@ The realized spread on each channel (max − min across arms), for the report.
 
 > `readonly` **tolerance**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:590](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L590)
+Defined in: [src/runtime/personify/wave-types.ts:601](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L601)
 
 The fractional tolerance the check used (spread / median ≤ tolerance per channel).
 
@@ -5278,7 +5475,7 @@ The fractional tolerance the check used (spread / median ≤ tolerance per chann
 
 ### EqualKOnCostOptions
 
-Defined in: [src/runtime/personify/wave-types.ts:600](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L600)
+Defined in: [src/runtime/personify/wave-types.ts:611](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L611)
 
 `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST
 (tokens + usd), NOT raw iteration count. The conserved-pool guarantees `Σk` equal by
@@ -5292,7 +5489,7 @@ impl lives in `trajectory.ts`. Pure over the reports — no I/O.
 
 > `readonly` `optional` **tolerance?**: `number`
 
-Defined in: [src/runtime/personify/wave-types.ts:603](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L603)
+Defined in: [src/runtime/personify/wave-types.ts:614](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L614)
 
 Max fractional spread (spread/median) per channel for arms to count as equal-k. Default in
  the impl (e.g. 0.05). A tighter tolerance = a stricter equal-compute claim.
@@ -8525,7 +8722,7 @@ Defined in: [src/runtime/strategy.ts:759](https://github.com/tangle-network/agen
 
 ##### driver()
 
-> **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
+> **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
 Defined in: [src/runtime/strategy.ts:760](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L760)
 
@@ -8549,7 +8746,7 @@ Defined in: [src/runtime/strategy.ts:760](https://github.com/tangle-network/agen
 
 ###### Returns
 
-[`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
+[`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
 ***
 
@@ -10637,6 +10834,196 @@ Fired for each signal a detector raises — the seam that raises a `finding` on 
 
 ***
 
+### DispatchUnit
+
+Defined in: [src/runtime/supervise/dispatch.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L48)
+
+One unit of queued work: the agent to run, its task, and the spawn options (budget + label).
+ `nextUnit` mints these lazily so a queue can be generated, re-ordered, or grown while the
+ dispatcher runs.
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Properties
+
+##### agent
+
+> `readonly` **agent**: [`Agent`](#agent-1)\<`unknown`, `Out`\>
+
+Defined in: [src/runtime/supervise/dispatch.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L49)
+
+##### task
+
+> `readonly` **task**: `unknown`
+
+Defined in: [src/runtime/supervise/dispatch.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L50)
+
+##### opts
+
+> `readonly` **opts**: [`SpawnOpts`](#spawnopts)
+
+Defined in: [src/runtime/supervise/dispatch.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L51)
+
+***
+
+### RollingDispatchOptions
+
+Defined in: [src/runtime/supervise/dispatch.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L59)
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Properties
+
+##### width
+
+> `readonly` **width**: `number`
+
+Defined in: [src/runtime/supervise/dispatch.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L66)
+
+How many children to hold in flight. Must be a positive integer. This is a SIMULTANEITY fence
+only — the conserved pool still bounds total work, and a `width` larger than the pool can
+afford simply hits `not-admitted` sooner. Derive it with `effectiveConcurrency` when the host
+also runs a fleet-level box governor.
+
+#### Methods
+
+##### nextUnit()
+
+> **nextUnit**(): [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `Promise`\<[`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`\> \| `undefined`
+
+Defined in: [src/runtime/supervise/dispatch.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L72)
+
+Produce the next unit of work, or `undefined` when the queue is dry. Called only when a slot
+is free, so a caller may compute the next unit from what has already settled (the point of a
+refilling dispatcher: the queue is allowed to react). Never called after a stop.
+
+###### Returns
+
+[`DispatchUnit`](#dispatchunit)\<`Out`\> \| `Promise`\<[`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`\> \| `undefined`
+
+##### onSettled()?
+
+> `optional` **onSettled**(`settled`): `void` \| `Promise`\<`void`\>
+
+Defined in: [src/runtime/supervise/dispatch.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L77)
+
+Called once per settlement, in cursor order, BEFORE the freed slot is refilled — so an
+`onSettled` that appends to the caller's queue is visible to the very next `nextUnit`.
+
+###### Parameters
+
+###### settled
+
+[`Settled`](#settled-3)\<`Out`\>
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### shouldStop()?
+
+> `optional` **shouldStop**(): `boolean`
+
+Defined in: [src/runtime/supervise/dispatch.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L82)
+
+Consulted before each admission. `true` stops admitting; the already-live children are still
+drained to completion (no orphan, no lost settlement). Use it for a progress/plateau rule.
+
+###### Returns
+
+`boolean`
+
+***
+
+### DispatchReport
+
+Defined in: [src/runtime/supervise/dispatch.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L85)
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Properties
+
+##### settled
+
+> `readonly` **settled**: readonly [`Settled`](#settled-3)\<`Out`\>[]
+
+Defined in: [src/runtime/supervise/dispatch.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L87)
+
+Every settlement, in the order `scope.next()` yielded them.
+
+##### admitted
+
+> `readonly` **admitted**: `number`
+
+Defined in: [src/runtime/supervise/dispatch.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L89)
+
+How many children this dispatcher admitted.
+
+##### rejected
+
+> `readonly` **rejected**: readonly `string`[]
+
+Defined in: [src/runtime/supervise/dispatch.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L91)
+
+Admission rejections, in order — `label: reason`. Non-empty ⇒ the pool or depth fenced.
+
+##### stopReason
+
+> `readonly` **stopReason**: [`DispatchStopReason`](#dispatchstopreason)
+
+Defined in: [src/runtime/supervise/dispatch.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L92)
+
+##### peakLive
+
+> `readonly` **peakLive**: `number`
+
+Defined in: [src/runtime/supervise/dispatch.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L95)
+
+The highest simultaneous live count actually reached — the number to compare against
+ `width` when asking "did the slots really stay full?"
+
+***
+
+### ConcurrencyCaps
+
+Defined in: [src/runtime/supervise/dispatch.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L188)
+
+The caps a host can set on simultaneous work. See the ledger in this module's header for what
+ each one actually bounds.
+
+#### Properties
+
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+Defined in: [src/runtime/supervise/dispatch.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L190)
+
+Supervisor level: max spawned-but-unsettled workers.
+
+##### maxSandboxes?
+
+> `readonly` `optional` **maxSandboxes?**: `number`
+
+Defined in: [src/runtime/supervise/dispatch.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L193)
+
+Fleet level: max live sandboxes/boxes across the host process (a `ComputeGovernor`-style
+ cap). Applies to the worker layer, so it participates in the minimum.
+
+***
+
 ### BusEvent
 
 Defined in: [src/runtime/supervise/event-bus.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/event-bus.ts#L27)
@@ -11065,9 +11452,9 @@ that command). Default `[]` — gate on no-op / secret / forbidden / diff-size o
 
 ### InMemoryRunContextOptions
 
-Defined in: [src/runtime/supervise/run-context.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L33)
+Defined in: [src/runtime/supervise/run-context.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L38)
 
-Options for the in-memory run context.
+Options for a supervised run context.
 
 #### Properties
 
@@ -11075,7 +11462,7 @@ Options for the in-memory run context.
 
 > `readonly` `optional` **withDriver?**: `boolean`
 
-Defined in: [src/runtime/supervise/run-context.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L40)
+Defined in: [src/runtime/supervise/run-context.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L45)
 
 Wrap the executor registry with `withDriverExecutor` so a spawned child marked
 `role: 'driver'` resolves to the recursive driver-executor (agents driving agents
@@ -11086,7 +11473,7 @@ leaf workers. Default `false`.
 
 ### InMemoryRunContext
 
-Defined in: [src/runtime/supervise/run-context.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L47)
+Defined in: [src/runtime/supervise/run-context.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L52)
 
 The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`.
 The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
@@ -11095,21 +11482,31 @@ The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
 
 ##### journal
 
-> `readonly` **journal**: `SpawnJournal`
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
 
-Defined in: [src/runtime/supervise/run-context.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L48)
+Defined in: [src/runtime/supervise/run-context.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L53)
 
 ##### blobs
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [src/runtime/supervise/run-context.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L49)
+Defined in: [src/runtime/supervise/run-context.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L54)
 
 ##### executors
 
 > `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [src/runtime/supervise/run-context.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L50)
+Defined in: [src/runtime/supervise/run-context.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L55)
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Defined in: [src/runtime/supervise/run-context.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L61)
+
+Present (and `true`) only on a DURABLE context (`createFileRunContext`), so spreading the
+context into `SupervisorOpts` also opts the run into resume-first. An in-memory context
+leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
 
 ***
 
@@ -11217,7 +11614,7 @@ Defined in: [src/runtime/supervise/runtime.ts:203](https://github.com/tangle-net
 
 ### SuperviseOptions
 
-Defined in: [src/runtime/supervise/supervise.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L46)
+Defined in: [src/runtime/supervise/supervise.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L53)
 
 #### Properties
 
@@ -11225,7 +11622,7 @@ Defined in: [src/runtime/supervise/supervise.ts:46](https://github.com/tangle-ne
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/supervise.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L48)
+Defined in: [src/runtime/supervise/supervise.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L55)
 
 The conserved compute pool for the whole run.
 
@@ -11233,7 +11630,7 @@ The conserved compute pool for the whole run.
 
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
 
-Defined in: [src/runtime/supervise/supervise.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L50)
+Defined in: [src/runtime/supervise/supervise.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L57)
 
 WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`.
 
@@ -11241,7 +11638,7 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
-Defined in: [src/runtime/supervise/supervise.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L54)
+Defined in: [src/runtime/supervise/supervise.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L61)
 
 The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
@@ -11251,7 +11648,7 @@ The completion oracle for backend-derived workers (settled ⟺ delivered). Stron
 
 > `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [src/runtime/supervise/supervise.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L56)
+Defined in: [src/runtime/supervise/supervise.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L63)
 
 Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
 
@@ -11259,7 +11656,7 @@ Override the worker seam directly (tests / advanced) instead of deriving it from
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [src/runtime/supervise/supervise.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L58)
+Defined in: [src/runtime/supervise/supervise.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L65)
 
 The supervisor's router substrate (`harness` null). The profile's model wins.
 
@@ -11267,7 +11664,7 @@ The supervisor's router substrate (`harness` null). The profile's model wins.
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [src/runtime/supervise/supervise.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L60)
+Defined in: [src/runtime/supervise/supervise.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L67)
 
 Inject the supervisor brain directly (tests / advanced).
 
@@ -11275,7 +11672,7 @@ Inject the supervisor brain directly (tests / advanced).
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
-Defined in: [src/runtime/supervise/supervise.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L62)
+Defined in: [src/runtime/supervise/supervise.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L69)
 
 Run a sandboxed-harness supervisor (`harness` set).
 
@@ -11283,7 +11680,7 @@ Run a sandboxed-harness supervisor (`harness` set).
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [src/runtime/supervise/supervise.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L66)
+Defined in: [src/runtime/supervise/supervise.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L73)
 
 WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do simple work
  itself) OR SPAWN (delegate when it needs parallelism), not be a pure manager. Pair with
@@ -11293,7 +11690,7 @@ WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do 
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [src/runtime/supervise/supervise.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L72)
+Defined in: [src/runtime/supervise/supervise.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L79)
 
 Runs an `extraTools` call; null/undefined falls through to the coordination dispatch.
 
@@ -11315,7 +11712,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **perWorker?**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/supervise.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L77)
+Defined in: [src/runtime/supervise/supervise.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L84)
 
 Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
 
@@ -11323,7 +11720,7 @@ Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tok
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L81)
+Defined in: [src/runtime/supervise/supervise.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L88)
 
 Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
  flight. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work (live boxes/
@@ -11333,7 +11730,7 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
 
-Defined in: [src/runtime/supervise/supervise.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L84)
+Defined in: [src/runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
 
 Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
  (the driver receives settled worker outputs, no analyst findings).
@@ -11342,7 +11739,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [src/runtime/supervise/supervise.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L89)
+Defined in: [src/runtime/supervise/supervise.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L96)
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
@@ -11353,27 +11750,51 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 
 > `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [src/runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
+Defined in: [src/runtime/supervise/supervise.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L98)
 
 Worker output store. Defaults to in-memory.
+
+##### runDir?
+
+> `readonly` `optional` **runDir?**: `string`
+
+Defined in: [src/runtime/supervise/supervise.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L109)
+
+Make the run DURABLE and RESUMABLE: journal + result blobs are file-backed under this
+directory (`createFileRunContext`), and the supervisor reads the prior tree first. Re-running
+`supervise()` with the same `runDir` AND the same `runId` resumes — the children that already
+settled come back on `Scope.resume` instead of being re-executed. Unset = in-memory, fresh
+every call (the default every existing caller gets).
+
+`runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
+resumable run per directory but collides across concurrent runs sharing one `runDir`.
+
+##### journal?
+
+> `readonly` `optional` **journal?**: [`SpawnJournal`](#spawnjournal)
+
+Defined in: [src/runtime/supervise/supervise.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L112)
+
+Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
+ with `blobs` — a journal whose result payloads live in a different store cannot replay.
 
 ##### maxDepth?
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L92)
+Defined in: [src/runtime/supervise/supervise.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L113)
 
 ##### maxTurns?
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L93)
+Defined in: [src/runtime/supervise/supervise.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L114)
 
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [src/runtime/supervise/supervise.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L99)
+Defined in: [src/runtime/supervise/supervise.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L120)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
  its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
@@ -11385,13 +11806,13 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [src/runtime/supervise/supervise.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L100)
+Defined in: [src/runtime/supervise/supervise.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L121)
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L101)
+Defined in: [src/runtime/supervise/supervise.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L122)
 
 ###### Returns
 
@@ -11401,7 +11822,7 @@ Defined in: [src/runtime/supervise/supervise.ts:101](https://github.com/tangle-n
 
 > `readonly` `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [src/runtime/supervise/supervise.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L105)
+Defined in: [src/runtime/supervise/supervise.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L126)
 
 Restrict the run to this subset of models. When set, every configured model — the
  supervisor router model, the profile's model, and the backend's model — must be a member,
@@ -12144,6 +12565,40 @@ Defined in: [src/runtime/supervise/types.ts:216](https://github.com/tangle-netwo
 
 ***
 
+### SpawnOpts
+
+Defined in: [src/runtime/supervise/types.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L231)
+
+#### Properties
+
+##### budget
+
+> `readonly` **budget**: [`Budget`](#budget-12)
+
+Defined in: [src/runtime/supervise/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L232)
+
+##### label
+
+> `readonly` **label**: `string`
+
+Defined in: [src/runtime/supervise/types.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L233)
+
+##### restart?
+
+> `readonly` `optional` **restart?**: `Restart`
+
+Defined in: [src/runtime/supervise/types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L234)
+
+##### shutdown?
+
+> `readonly` `optional` **shutdown?**: `number` \| `"brutalKill"` \| `"infinity"`
+
+Defined in: [src/runtime/supervise/types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L236)
+
+Teardown grace handed to the executor when this node is reaped.
+
+***
+
 ### Scope
 
 Defined in: [src/runtime/supervise/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L287)
@@ -12172,11 +12627,25 @@ This scope's abort signal — aborted when the run is cancelled, a breaker trips
  it to break promptly (the conserved pool + driver-stop are the other bounds). A nested
  scope carries its own signal, chained off its driver child's abort.
 
+##### resume?
+
+> `readonly` `optional` **resume?**: [`ResumedWork`](#resumedwork)\<`Out`\>
+
+Defined in: [src/runtime/supervise/types.ts:343](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L343)
+
+Prior committed work, present ONLY on a resumed run (`undefined` on a fresh run, which is
+every run that did not pass `SupervisorOpts.resume`). The supervisor `loadTree`s the journal
+first; when a non-empty tree exists it rehydrates the already-settled children (via
+`replaySpawnTree`) and hands them here so a resume-aware `act` re-uses them instead of
+re-spawning committed work. A resume-blind driver simply ignores it and re-spawns — correct
+but redundant. The scope's spawn ordinal + cursor seq are already advanced past the recorded
+maxima, so any NEW spawn appends without colliding with a journaled event.
+
 ##### view
 
 > `readonly` **view**: [`TreeView`](#treeview)
 
-Defined in: [src/runtime/supervise/types.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L335)
+Defined in: [src/runtime/supervise/types.ts:345](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L345)
 
 The live tree — reads the in-memory nursery, not the journal.
 
@@ -12184,7 +12653,7 @@ The live tree — reads the in-memory nursery, not the journal.
 
 > `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
-Defined in: [src/runtime/supervise/types.ts:337](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L337)
+Defined in: [src/runtime/supervise/types.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L347)
 
 Conserved-pool readouts (post-reservation).
 
@@ -12210,7 +12679,7 @@ pool or an exceeded depth ceiling (the caller inspects `ok` before `handle`).
 
 ###### agent
 
-[`Agent`](#agent)\<`unknown`, `C`\>
+[`Agent`](#agent-1)\<`unknown`, `C`\>
 
 ###### task
 
@@ -12218,7 +12687,7 @@ pool or an exceeded depth ceiling (the caller inspects `ok` before `handle`).
 
 ###### opts
 
-`SpawnOpts`
+[`SpawnOpts`](#spawnopts)
 
 ###### Returns
 
@@ -12226,7 +12695,7 @@ pool or an exceeded depth ceiling (the caller inspects `ok` before `handle`).
 
 ##### next()
 
-> **next**(): `Promise`\<[`Settled`](#settled-2)\<`Out`\> \| `null`\>
+> **next**(): `Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
 
 Defined in: [src/runtime/supervise/types.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L300)
 
@@ -12235,11 +12704,11 @@ ray.wait n=1 over this scope's in-memory live set; resolves as each child settle
 
 ###### Returns
 
-`Promise`\<[`Settled`](#settled-2)\<`Out`\> \| `null`\>
+`Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
 
 ##### nextResolved()
 
-> **nextResolved**(): `Promise`\<[`Settled`](#settled-2)\<`Out`\> \| `null`\>
+> **nextResolved**(): `Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
 
 Defined in: [src/runtime/supervise/types.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L307)
 
@@ -12250,7 +12719,7 @@ the finalize ledger instead of being silently lost.
 
 ###### Returns
 
-`Promise`\<[`Settled`](#settled-2)\<`Out`\> \| `null`\>
+`Promise`\<[`Settled`](#settled-3)\<`Out`\> \| `null`\>
 
 ##### send()
 
@@ -12311,9 +12780,40 @@ metered event is cost-critical, so it lands before the join-barrier roll-up).
 
 ***
 
-### TreeView
+### ResumedWork
 
 Defined in: [src/runtime/supervise/types.ts:362](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L362)
+
+The committed work a resumed run inherits from its journal. `settled` is the replayed
+`Settled[]` (cursor-ordered, rehydrated from the blob store by `replaySpawnTree`); `view`
+is the tree as `materializeTreeView` folded it at the recorded cursor position. A
+resume-aware `act` reads `scope.resume?.settled` to pick up where the crashed run left off.
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Properties
+
+##### settled
+
+> `readonly` **settled**: readonly [`Settled`](#settled-3)\<`Out`\>[]
+
+Defined in: [src/runtime/supervise/types.ts:363](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L363)
+
+##### view
+
+> `readonly` **view**: [`TreeView`](#treeview)
+
+Defined in: [src/runtime/supervise/types.ts:364](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L364)
+
+***
+
+### TreeView
+
+Defined in: [src/runtime/supervise/types.ts:383](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L383)
 
 The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer.
 
@@ -12323,27 +12823,95 @@ The live tree — what `scope.view` / `RootHandle.view()` materialize for a view
 
 > `readonly` **root**: `string`
 
-Defined in: [src/runtime/supervise/types.ts:363](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L363)
+Defined in: [src/runtime/supervise/types.ts:384](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L384)
 
 ##### nodes
 
 > `readonly` **nodes**: readonly `NodeSnapshot`[]
 
-Defined in: [src/runtime/supervise/types.ts:364](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L364)
+Defined in: [src/runtime/supervise/types.ts:385](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L385)
 
 ##### inFlight
 
 > `readonly` **inFlight**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L366)
+Defined in: [src/runtime/supervise/types.ts:387](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L387)
 
 Count of nodes in `running` or `acquiring` — the "what's in flow?" answer.
 
 ***
 
+### SpawnJournal
+
+Defined in: [src/runtime/supervise/types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L438)
+
+The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape).
+`loadTree` returns events for inspection and completed-settlement replay, not live process
+recovery; `appendEvent` runs only AFTER the event is observed-committed (never speculative).
+
+#### Methods
+
+##### loadTree()
+
+> **loadTree**(`root`): `Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+Defined in: [src/runtime/supervise/types.ts:439](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L439)
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### Returns
+
+`Promise`\<[`SpawnEvent`](#spawnevent)[] \| `undefined`\>
+
+##### beginTree()
+
+> **beginTree**(`root`, `at`): `Promise`\<`void`\>
+
+Defined in: [src/runtime/supervise/types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L440)
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### at
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### appendEvent()
+
+> **appendEvent**(`root`, `ev`): `Promise`\<`void`\>
+
+Defined in: [src/runtime/supervise/types.ts:441](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L441)
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### ev
+
+[`SpawnEvent`](#spawnevent)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### ResultBlobStore
 
-Defined in: [src/runtime/supervise/types.ts:426](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L426)
+Defined in: [src/runtime/supervise/types.ts:447](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L447)
 
 Content-addressed result blobs (the `outRef` → artifact map) backing the replay
  invariant. Split from the journal so the journal stays small (decisions) and the
@@ -12355,7 +12923,7 @@ Content-addressed result blobs (the `outRef` → artifact map) backing the repla
 
 > **put**(`outRef`, `artifact`): `Promise`\<`void`\>
 
-Defined in: [src/runtime/supervise/types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L427)
+Defined in: [src/runtime/supervise/types.ts:448](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L448)
 
 ###### Parameters
 
@@ -12375,7 +12943,7 @@ Defined in: [src/runtime/supervise/types.ts:427](https://github.com/tangle-netwo
 
 > **get**(`outRef`): `Promise`\<`unknown`\>
 
-Defined in: [src/runtime/supervise/types.ts:428](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L428)
+Defined in: [src/runtime/supervise/types.ts:449](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L449)
 
 ###### Parameters
 
@@ -12391,7 +12959,7 @@ Defined in: [src/runtime/supervise/types.ts:428](https://github.com/tangle-netwo
 
 ### Supervisor
 
-Defined in: [src/runtime/supervise/types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L438)
+Defined in: [src/runtime/supervise/types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L459)
 
 Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker,
 and the root handle. `run` executes the root `Agent` to completion; `attach` wires a
@@ -12413,13 +12981,13 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 > **run**(`root`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`Out`\>\>
 
-Defined in: [src/runtime/supervise/types.ts:439](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L439)
+Defined in: [src/runtime/supervise/types.ts:460](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L460)
 
 ###### Parameters
 
 ###### root
 
-[`Agent`](#agent)\<`Task`, `Out`\>
+[`Agent`](#agent-1)\<`Task`, `Out`\>
 
 ###### task
 
@@ -12437,7 +13005,7 @@ Defined in: [src/runtime/supervise/types.ts:439](https://github.com/tangle-netwo
 
 > **attach**(`h`): `void`
 
-Defined in: [src/runtime/supervise/types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L440)
+Defined in: [src/runtime/supervise/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L461)
 
 ###### Parameters
 
@@ -12453,7 +13021,7 @@ Defined in: [src/runtime/supervise/types.ts:440](https://github.com/tangle-netwo
 
 ### SupervisorOpts
 
-Defined in: [src/runtime/supervise/types.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L443)
+Defined in: [src/runtime/supervise/types.ts:464](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L464)
 
 #### Properties
 
@@ -12461,7 +13029,7 @@ Defined in: [src/runtime/supervise/types.ts:443](https://github.com/tangle-netwo
 
 > `readonly` **budget**: [`Budget`](#budget-12)
 
-Defined in: [src/runtime/supervise/types.ts:445](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L445)
+Defined in: [src/runtime/supervise/types.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L466)
 
 The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
@@ -12469,15 +13037,15 @@ The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
 > `readonly` **runId**: `string`
 
-Defined in: [src/runtime/supervise/types.ts:447](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L447)
+Defined in: [src/runtime/supervise/types.ts:468](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L468)
 
 Trace-correlation root + the journal/blob root key.
 
 ##### journal
 
-> `readonly` **journal**: `SpawnJournal`
+> `readonly` **journal**: [`SpawnJournal`](#spawnjournal)
 
-Defined in: [src/runtime/supervise/types.ts:449](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L449)
+Defined in: [src/runtime/supervise/types.ts:470](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L470)
 
 Event source — defaults to the in-memory journal in the impl; pass JSONL/FS for durability.
 
@@ -12485,7 +13053,7 @@ Event source — defaults to the in-memory journal in the impl; pass JSONL/FS fo
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [src/runtime/supervise/types.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L451)
+Defined in: [src/runtime/supervise/types.ts:472](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L472)
 
 Result payload store backing `outRef` rehydration.
 
@@ -12493,7 +13061,7 @@ Result payload store backing `outRef` rehydration.
 
 > `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [src/runtime/supervise/types.ts:453](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L453)
+Defined in: [src/runtime/supervise/types.ts:474](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L474)
 
 Executor resolution — the open registry mapping `AgentSpec` → `Executor`.
 
@@ -12501,7 +13069,7 @@ Executor resolution — the open registry mapping `AgentSpec` → `Executor`.
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L455)
+Defined in: [src/runtime/supervise/types.ts:476](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L476)
 
 Runtime recursion-depth ceiling (paired with the conserved pool per R3).
 
@@ -12509,7 +13077,7 @@ Runtime recursion-depth ceiling (paired with the conserved pool per R3).
 
 > `readonly` `optional` **maxRestarts?**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:460](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L460)
+Defined in: [src/runtime/supervise/types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L481)
 
 OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
 trips the supervisor to `no-winner` rather than restarting forever.
@@ -12518,13 +13086,28 @@ trips the supervisor to `no-winner` rather than restarting forever.
 
 > `readonly` `optional` **withinMs?**: `number`
 
-Defined in: [src/runtime/supervise/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L461)
+Defined in: [src/runtime/supervise/types.ts:482](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L482)
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Defined in: [src/runtime/supervise/types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L493)
+
+Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
+one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`
+(`replaySpawnTree` + `materializeTreeView`) instead of starting over. Requires a journal +
+blob store that OUTLIVE the process (`createFileRunContext(dir)`); against the in-memory
+stores there is never a prior tree, so it is a no-op.
+
+Default `false` — a run always begins a fresh tree, which is the behavior every existing
+consumer has. Resume is a durability contract the caller opts into, never a silent default.
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [src/runtime/supervise/types.ts:462](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L462)
+Defined in: [src/runtime/supervise/types.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L494)
 
 ###### Returns
 
@@ -12534,13 +13117,13 @@ Defined in: [src/runtime/supervise/types.ts:462](https://github.com/tangle-netwo
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [src/runtime/supervise/types.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L463)
+Defined in: [src/runtime/supervise/types.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L495)
 
 ##### hooks?
 
 > `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [src/runtime/supervise/types.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L466)
+Defined in: [src/runtime/supervise/types.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L498)
 
 Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
  same `agent.spawn`/`agent.child` stream `runLoop` feeds — one observable recursive tree.
@@ -12549,7 +13132,7 @@ Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle em
 
 ### WidenGate
 
-Defined in: [src/runtime/supervise/types.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L522)
+Defined in: [src/runtime/supervise/types.ts:554](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L554)
 
 The progressive-widening gate (MCTS-PW). Decides whether a settled child is
 `promising` enough to spawn another under the remaining pool. DEFAULTS TO FLAT
@@ -12570,7 +13153,7 @@ an explicit, argued `judgeExempt: true` (the documented escape hatch, off by def
 
 > `readonly` `optional` **judgeExempt?**: `boolean`
 
-Defined in: [src/runtime/supervise/types.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L527)
+Defined in: [src/runtime/supervise/types.ts:559](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L559)
 
 When true, widening may read `verdict` directly (collides with the steer firewall —
  must be explicitly argued per cell, never defaulted on).
@@ -12581,7 +13164,7 @@ When true, widening may read `verdict` directly (collides with the steer firewal
 
 > **shouldWiden**(`settled`, `budget`): `boolean`
 
-Defined in: [src/runtime/supervise/types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L524)
+Defined in: [src/runtime/supervise/types.ts:556](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L556)
 
 Default impl returns false for every settlement (flat — never widens).
 
@@ -12589,7 +13172,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ###### settled
 
-[`Settled`](#settled-2)\<`Out`\>
+[`Settled`](#settled-3)\<`Out`\>
 
 ###### budget
 
@@ -15302,7 +15885,7 @@ Present when a commit was attempted (valid, or `commitOnInvalid`).
 
 > **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: `AnalystFindingEvent`; \} \| \{ `type`: `"steer"`; `down`: `DownMessageEvent`; \} \| \{ `type`: `"answer"`; `down`: `DownMessageEvent`; `questionId`: `string`; \}
 
-Defined in: [src/mcp/tools/coordination.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L86)
+Defined in: [src/mcp/tools/coordination.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L87)
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. DOWN (parent→child): steer / answer — record-only (history + subscribers),
@@ -15312,9 +15895,9 @@ Every message on the one typed pipe. UP (child→parent): question / settled / f
 
 ### MakeWorkerAgent
 
-> **MakeWorkerAgent** = (`profile`) => [`Agent`](#agent)\<`unknown`, `unknown`\>
+> **MakeWorkerAgent** = (`profile`) => [`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
-Defined in: [src/mcp/tools/coordination.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L93)
+Defined in: [src/mcp/tools/coordination.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L94)
 
 #### Parameters
 
@@ -15324,7 +15907,7 @@ Defined in: [src/mcp/tools/coordination.ts:93](https://github.com/tangle-network
 
 #### Returns
 
-[`Agent`](#agent)\<`unknown`, `unknown`\>
+[`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
 ***
 
@@ -15430,7 +16013,7 @@ Builds a frozen `Persona`, failing loud on the executors-supplied invariant (nei
 
 ### LoopShape
 
-> **LoopShape**\<`Task`, `D`\> = (`ctx`) => [`Agent`](#agent)\<`Task`, [`Outcome`](#outcome-1)\<`D`\>\>
+> **LoopShape**\<`Task`, `D`\> = (`ctx`) => [`Agent`](#agent-1)\<`Task`, [`Outcome`](#outcome-1)\<`D`\>\>
 
 Defined in: [src/runtime/personify/types.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L193)
 
@@ -15458,7 +16041,7 @@ synthesizes the terminal `Outcome<D>`. The shape is STRUCTURE; the persona is CO
 
 #### Returns
 
-[`Agent`](#agent)\<`Task`, [`Outcome`](#outcome-1)\<`D`\>\>
+[`Agent`](#agent-1)\<`Task`, [`Outcome`](#outcome-1)\<`D`\>\>
 
 ***
 
@@ -15552,7 +16135,7 @@ Defined in: [src/runtime/personify/wave-types.ts:90](https://github.com/tangle-n
 
 > **FanoutWinnerSelector**\<`D`\> = (`iterations`) => \{ `output?`: [`Outcome`](#outcome-1)\<`D`\>; \} \| `undefined`
 
-Defined in: [src/runtime/personify/wave-types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L139)
+Defined in: [src/runtime/personify/wave-types.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L150)
 
 A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the
  child's `Outcome<D>`), returning the chosen iteration or `undefined` when none qualifies.
@@ -15579,7 +16162,7 @@ A winner-selection strategy: argmax/sort over the gathered child iterations (eac
 
 > **WinnerStrategy** = `"highest-score"` \| `"smallest-artifact"` \| `"first-valid"`
 
-Defined in: [src/runtime/personify/wave-types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L145)
+Defined in: [src/runtime/personify/wave-types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L156)
 
 Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid
  score, the smallest delivered artifact (via a `sizeOf` extractor), or the earliest valid.
@@ -15590,7 +16173,7 @@ Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge)
 
 > **Fanout** = \<`Task`, `Item`, `D`\>(`items`, `opts`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L156)
+Defined in: [src/runtime/personify/wave-types.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L167)
 
 `fanout(items, opts)` — build the fanout combinator over a static item list.
 
@@ -15628,7 +16211,7 @@ Defined in: [src/runtime/personify/wave-types.ts:156](https://github.com/tangle-
 
 > **LoopUntil** = \<`Task`, `State`, `D`\>(`seed`, `spec`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L194)
+Defined in: [src/runtime/personify/wave-types.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L205)
 
 `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state.
 
@@ -15666,7 +16249,7 @@ Defined in: [src/runtime/personify/wave-types.ts:194](https://github.com/tangle-
 
 > **Panel** = \<`Task`, `Artifact`, `D`\>(`spec`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L244)
+Defined in: [src/runtime/personify/wave-types.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L255)
 
 `panel(spec)` — build the M-judge write-only-merge combinator.
 
@@ -15700,7 +16283,7 @@ Defined in: [src/runtime/personify/wave-types.ts:244](https://github.com/tangle-
 
 > **Verify** = \<`Task`, `Candidate`, `D`\>(`spec`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L270)
+Defined in: [src/runtime/personify/wave-types.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L281)
 
 `verify(spec)` — build the 2-node implement→verifier-gate combinator.
 
@@ -15734,7 +16317,7 @@ Defined in: [src/runtime/personify/wave-types.ts:270](https://github.com/tangle-
 
 > **WidenDecision**\<`D`\> = \{ `kind`: `"widen"`; `toward`: [`WidenLineage`](#widenlineage)\<`D`\>; \} \| \{ `kind`: `"stop"`; `rationale?`: `string`; \}
 
-Defined in: [src/runtime/personify/wave-types.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L324)
+Defined in: [src/runtime/personify/wave-types.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L335)
 
 A widening decision: extend one lineage by one child, or stop widening. `flatWidenGate`
  always returns `{ kind: 'stop' }`.
@@ -15751,7 +16334,7 @@ A widening decision: extend one lineage by one child, or stop widening. `flatWid
 
 > **Widen** = \<`Task`, `Seed`, `D`\>(`spec`) => [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:336](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L336)
+Defined in: [src/runtime/personify/wave-types.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L347)
 
 `widen(spec)` — build the streaming progressive-widening combinator.
 
@@ -15785,7 +16368,7 @@ Defined in: [src/runtime/personify/wave-types.ts:336](https://github.com/tangle-
 
 > **FlatWidenGate** = \<`D`\>() => [`ScopeWidenGate`](#scopewidengate)\<`D`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:341](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L341)
+Defined in: [src/runtime/personify/wave-types.ts:352](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L352)
 
 The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall
  conflict dormant. Exported so a gate run can pass it explicitly and a test can assert the
@@ -15807,7 +16390,7 @@ The flat default `ScopeWidenGate` factory contract — never widens, keeping the
 
 > **AssertTraceDerivedFindings** = (`findings`) => `void`
 
-Defined in: [src/runtime/personify/wave-types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L402)
+Defined in: [src/runtime/personify/wave-types.ts:413](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L413)
 
 The firewall assertion contract, re-stated for the reactive seam (PORT of
 `assertTraceDerivedFindings`). A PROVENANCE check, not a content check: span/event/artifact/
@@ -15831,7 +16414,7 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 > **RenderCorpusToInstructions** = (`opts`) => `Promise`\<`AgentProfile`\>
 
-Defined in: [src/runtime/personify/wave-types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L493)
+Defined in: [src/runtime/personify/wave-types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L504)
 
 `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the
  durable corpus); returns a fresh `AgentProfile` with the accreted facts merged in.
@@ -15852,7 +16435,7 @@ Defined in: [src/runtime/personify/wave-types.ts:493](https://github.com/tangle-
 
 > **TrajectoryReportFn** = (`journal`, `blobs`, `root`, `options?`) => `Promise`\<[`TrajectoryReport`](#trajectoryreport-3)\>
 
-Defined in: [src/runtime/personify/wave-types.ts:552](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L552)
+Defined in: [src/runtime/personify/wave-types.ts:563](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L563)
 
 `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs).
 
@@ -15860,7 +16443,7 @@ Defined in: [src/runtime/personify/wave-types.ts:552](https://github.com/tangle-
 
 ##### journal
 
-`SpawnJournal`
+[`SpawnJournal`](#spawnjournal)
 
 ##### blobs
 
@@ -15868,7 +16451,7 @@ Defined in: [src/runtime/personify/wave-types.ts:552](https://github.com/tangle-
 
 ##### root
 
-`NodeId`
+[`NodeId`](#nodeid-1)
 
 ##### options?
 
@@ -15884,7 +16467,7 @@ Defined in: [src/runtime/personify/wave-types.ts:552](https://github.com/tangle-
 
 > **EqualKOnCost** = (`arms`, `options?`) => [`EqualKVerdict`](#equalkverdict)
 
-Defined in: [src/runtime/personify/wave-types.ts:607](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L607)
+Defined in: [src/runtime/personify/wave-types.ts:618](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L618)
 
 `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost.
 
@@ -16153,6 +16736,29 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 ***
 
+### DispatchStopReason
+
+> **DispatchStopReason** = `"drained"` \| `"not-admitted"` \| `"stopped"` \| `"aborted"`
+
+Defined in: [src/runtime/supervise/dispatch.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L57)
+
+Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end);
+ `not-admitted` = the conserved pool or the depth ceiling refused a spawn; `stopped` = the
+ caller's `shouldStop` returned true; `aborted` = the scope's signal fired.
+
+***
+
+### RunContext
+
+> **RunContext** = [`InMemoryRunContext`](#inmemoryruncontext)
+
+Defined in: [src/runtime/supervise/run-context.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L66)
+
+The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the
+ historical name for the same shape.
+
+***
+
 ### ExecutorConfig
 
 > **ExecutorConfig** = `object` & `RouterSeam` \| `object` & `RouterToolsSeam` \| `object` & `BridgeSeam` \| `object` & `CliSeam` \| `object` & `CliWorktreeSeam` \| `object` & [`ProviderSeam`](#providerseam) \| `object` & `SandboxSeam`
@@ -16257,6 +16863,16 @@ user supply construction args without pre-instantiating.
 
 ***
 
+### NodeId
+
+> **NodeId** = `string`
+
+Defined in: [src/runtime/supervise/types.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L229)
+
+Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-clock.
+
+***
+
 ### Settled
 
 > **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: `Handle`\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: `Handle`\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `seq`: `number`; \}
@@ -16313,11 +16929,112 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 ***
 
+### SpawnEvent
+
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `budget`: [`Budget`](#budget-12); `runtime`: [`Runtime`](#runtime-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-1); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `infra?`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-1); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-1); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
+
+Defined in: [src/runtime/supervise/types.ts:394](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L394)
+
+Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
+ timestamp for human inspection only (NOT a replay input).
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `budget`: [`Budget`](#budget-12); `runtime`: [`Runtime`](#runtime-3); `seq`: `number`; `at`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-1); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `infra?`: `boolean`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"settled"`
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-1)
+
+###### status
+
+> **status**: `"done"` \| `"down"`
+
+###### outRef?
+
+> `optional` **outRef?**: `string`
+
+Content-addressed result pointer; rehydrates `out` from `ResultBlobStore`.
+
+###### verdict?
+
+> `optional` **verdict?**: `DefaultVerdict`
+
+###### spent
+
+> **spent**: [`Spend`](#spend)
+
+###### infra?
+
+> `optional` **infra?**: `boolean`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-1); `reason`: `string`; `seq`: `number`; `at`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-1); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"metered"`
+
+A driver's OWN inference spend, journaled separately from spawned-child work — the journal
+ TWIN of `BudgetPool.observe`, exactly as `settled` is the twin of `reconcile`. So every
+ journal-based cost reader sums it automatically — the journal is the single cost ledger.
+ It carries spend only and is NOT a settlement: replay + `materializeTreeView` skip it for
+ structure, and its `seq` lives outside the cursor-uniqueness namespace. A
+ driver re-homes its nested subtree's metered total up to its parent (like settled spend),
+ so summing any sub-tree root yields that sub-tree's true driver-inference cost.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-1)
+
+###### spend
+
+> **spend**: [`Spend`](#spend)
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
 ### SupervisedResult
 
 > **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
 
-Defined in: [src/runtime/supervise/types.ts:470](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L470)
+Defined in: [src/runtime/supervise/types.ts:502](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L502)
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -16698,6 +17415,65 @@ artifacts hash identically regardless of key insertion order.
 #### Returns
 
 `string`
+
+***
+
+### replaySpawnTree()
+
+> **replaySpawnTree**(`journal`, `blobs`, `root`): `Promise`\<[`Settled`](#settled-3)\<`unknown`\>[]\>
+
+Defined in: [src/durable/spawn-journal.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L302)
+
+Re-feed a journaled spawn tree in strict `seq` order, rehydrating each settled
+child's `out` from the blob store by `outRef`, and return the `Settled[]` exactly
+as `scope.next()` originally delivered them.
+
+Determinism (B2): the events are sorted by `seq` BEFORE any blob `get`, so the
+replay order is the recorded cursor order regardless of how fast each rehydration
+resolves. `at` (wall-clock) is never a replay input. Fail loud on a tree that was
+never begun, a settled-done event missing its `outRef`, or a blob the store can't
+rehydrate — a silent gap would let `act` branch on the wrong evidence.
+
+#### Parameters
+
+##### journal
+
+[`SpawnJournal`](#spawnjournal)
+
+##### blobs
+
+[`ResultBlobStore`](#resultblobstore)
+
+##### root
+
+`string`
+
+#### Returns
+
+`Promise`\<[`Settled`](#settled-3)\<`unknown`\>[]\>
+
+***
+
+### materializeTreeView()
+
+> **materializeTreeView**(`events`): [`TreeView`](#treeview)
+
+Defined in: [src/durable/spawn-journal.ts:384](https://github.com/tangle-network/agent-runtime/blob/main/src/durable/spawn-journal.ts#L384)
+
+Materialize a recorded `TreeView` from a journaled event list for inspection. Folds
+`spawned`/`settled`/`cancelled` into a per-node snapshot in `seq` order, then adds each
+`metered` event's driver-inference spend onto its node in a separate additive pass so the view
+matches the recorded cursor. It does not recover live executors or driver state after restart.
+
+#### Parameters
+
+##### events
+
+[`SpawnEvent`](#spawnevent)[]
+
+#### Returns
+
+[`TreeView`](#treeview)
 
 ***
 
@@ -17505,7 +18281,7 @@ readonly `AnalystFinding`[]
 
 ##### settledSoFar
 
-readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
+readonly [`Settled`](#settled-3)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 #### Returns
 
@@ -17517,7 +18293,7 @@ readonly [`Settled`](#settled-2)\<[`Outcome`](#outcome-1)\<`D`\>\>[]
 
 > **selectValidWinner**\<`D`\>(`opts?`): [`FanoutWinnerSelector`](#fanoutwinnerselector)\<`D`\>
 
-Defined in: [src/runtime/personify/combinators.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L59)
+Defined in: [src/runtime/personify/combinators.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L60)
 
 The single content-free valid-only winner selector. Among the gated-VALID children only
 (`verdict.valid === true`), pick by `strategy` — best score / smallest delivered artifact /
@@ -17555,7 +18331,7 @@ the selection logic previously copied per role.
 
 > **pipeline**\<`Task`, `D`\>(`stages`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/combinators.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L101)
+Defined in: [src/runtime/personify/combinators.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L102)
 
 `pipeline(stages)` — run the stages in order, feeding each stage's `done` deliverable into the
 next stage's task. The first stage that ends `blocked` (a child that went down, a child the
@@ -17589,13 +18365,17 @@ readonly [`PipelineStage`](#pipelinestage)\<`Task`, `unknown`, `unknown`\>[]
 
 > **fanout**\<`Task`, `Item`, `D`\>(`items`, `opts`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/combinators.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L139)
+Defined in: [src/runtime/personify/combinators.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L144)
 
 `fanout(items, opts)` — spawn one child per item in a single round (bounded by the conserved
 pool's fail-closed admission), drain via `scope.next()`, then either synthesize over the
 gathered settlements (one SEPARATE synthesis child) or return the best-valid child via the
 single-sourced selector. A round that admitted zero children, or whose synthesis child could
 not be admitted, is a concrete blocker.
+
+`opts.width` swaps the single round for `rollingDispatch`: at most `width` items live at once,
+refilled the instant one settles. Selection, blockers, and the conserved pool are unchanged —
+the refill behavior lives in the existing combinator rather than in a rival primitive.
 
 #### Type Parameters
 
@@ -17631,7 +18411,7 @@ readonly `Item`[]
 
 > **loopUntil**\<`Task`, `State`, `D`\>(`seed`, `spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/combinators.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L222)
+Defined in: [src/runtime/personify/combinators.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L259)
 
 `loopUntil(seed, spec)` — one `step` child per round; `fold` accumulates each settlement into
 the running state; `until` (reading the round's trace findings, NOT a fresh raw verdict) is
@@ -17677,7 +18457,7 @@ argument is the empty array — never a fabricated finding (fail-loud honesty ov
 
 > **panel**\<`Task`, `Artifact`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/combinators.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L274)
+Defined in: [src/runtime/personify/combinators.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L311)
 
 `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements,
 and fold them into a panel verdict via the pure WRITE-ONLY `merge` (a judge's output never
@@ -17715,7 +18495,7 @@ concrete blocker before `merge` is consulted.
 
 > **verify**\<`Task`, `Candidate`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/combinators.ts:334](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L334)
+Defined in: [src/runtime/personify/combinators.ts:371](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L371)
 
 `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades
 it; only a `valid` verifier verdict ships. Any other outcome (implement down, verifier down,
@@ -17752,7 +18532,7 @@ never a coerced "done". The implement child does not grade itself.
 
 > **widen**\<`Task`, `Seed`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
-Defined in: [src/runtime/personify/combinators.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L388)
+Defined in: [src/runtime/personify/combinators.ts:425](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L425)
 
 `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS
 to each `scope.next()`: on every settled child it consults `spec.gate.decide` and, when the gate
@@ -17800,7 +18580,7 @@ a scope whose siblings are quiesced, or read findings without the shared-cursor 
 
 > **flatWidenGate**\<`D`\>(): [`ScopeWidenGate`](#scopewidengate)\<`D`\>
 
-Defined in: [src/runtime/personify/combinators.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L451)
+Defined in: [src/runtime/personify/combinators.ts:488](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/combinators.ts#L488)
 
 The flat default `ScopeWidenGate` — never widens, keeping the R2 selector≠judge collision
 dormant. A gate run passes this explicitly; a test asserts the default is flat.
@@ -17974,7 +18754,7 @@ store cannot rehydrate (a silent gap would mis-cost or mis-evidence the tree).
 
 ##### journal
 
-`SpawnJournal`
+[`SpawnJournal`](#spawnjournal)
 
 ##### blobs
 
@@ -19032,7 +19812,7 @@ Multi-generation strategy search: author candidates from tournament losses, play
 
 ### depthStrategy()
 
-> **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
+> **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
 Defined in: [src/runtime/strategy.ts:630](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L630)
 
@@ -19060,13 +19840,13 @@ DEPTH: one persistent artifact, carried across analyst-steered shots.
 
 #### Returns
 
-[`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
+[`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
 ***
 
 ### breadthStrategy()
 
-> **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
+> **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
 Defined in: [src/runtime/strategy.ts:701](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L701)
 
@@ -19094,7 +19874,7 @@ BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
 #### Returns
 
-[`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
+[`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
 ***
 
@@ -19594,7 +20374,7 @@ The supervisor SKILL — the how-to the supervisor reads (its system prompt). TH
 
 ### authoredWorker()
 
-> **authoredWorker**(`profile`, `opts`): [`Agent`](#agent)\<`unknown`, `unknown`\>
+> **authoredWorker**(`profile`, `opts`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
 Defined in: [src/runtime/supervise/authoring.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L67)
 
@@ -19627,7 +20407,7 @@ Build a worker AGENT from a profile the supervisor authored: the authored `syste
 
 #### Returns
 
-[`Agent`](#agent)\<`unknown`, `unknown`\>
+[`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
 ***
 
@@ -19778,7 +20558,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 ### driverAgent()
 
-> **driverAgent**(`opts`): [`Agent`](#agent)\<`unknown`, `unknown`\>
+> **driverAgent**(`opts`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
 Defined in: [src/runtime/supervise/coordination-driver.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L166)
 
@@ -19793,7 +20573,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 #### Returns
 
-[`Agent`](#agent)\<`unknown`, `unknown`\>
+[`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
 ***
 
@@ -19986,6 +20766,127 @@ Subscribe to a `TraceSource` and run the streaming detectors over its live spans
 
 ***
 
+### rollingDispatch()
+
+> **rollingDispatch**\<`Out`\>(`scope`, `opts`): `Promise`\<[`DispatchReport`](#dispatchreport)\<`Out`\>\>
+
+Defined in: [src/runtime/supervise/dispatch.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L106)
+
+Run the refilling dispatch loop over `scope` until the queue is dry (or a stop fires) and every
+admitted child has settled. Returns the settlements in cursor order plus the admission ledger.
+
+The loop is: fill free slots from `nextUnit` → `await scope.next()` → deliver the settlement →
+refill → repeat. Because the refill happens immediately after each settlement rather than after
+a whole round, a slow child never idles the other slots.
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Parameters
+
+##### scope
+
+[`Scope`](#scope-1)\<`Out`\>
+
+##### opts
+
+[`RollingDispatchOptions`](#rollingdispatchoptions)\<`Out`\>
+
+#### Returns
+
+`Promise`\<[`DispatchReport`](#dispatchreport)\<`Out`\>\>
+
+***
+
+### freeSlots()
+
+> **freeSlots**(`liveCount`, `cap`): `number` \| `null`
+
+Defined in: [src/runtime/supervise/dispatch.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L181)
+
+Free worker slots under a simultaneity cap: `cap - live`, floored at 0, or `null` when there is
+no cap (the conserved pool is then the only fence and "free slots" is not a finite number).
+The one place the answer is computed, so the driver-facing tool payload and a dispatcher agree.
+
+#### Parameters
+
+##### liveCount
+
+`number`
+
+##### cap
+
+`number` \| `undefined`
+
+#### Returns
+
+`number` \| `null`
+
+***
+
+### effectiveConcurrency()
+
+> **effectiveConcurrency**(`caps`): `number` \| `undefined`
+
+Defined in: [src/runtime/supervise/dispatch.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L208)
+
+The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually
+bound the worker layer. Ignores unset/non-positive caps; returns `undefined` when no cap applies
+(uncapped — the conserved pool remains the only fence).
+
+Deliberately does NOT fold in `SandboxLineage`'s fork concurrency: that bounds boxes inside ONE
+leaf's fork wave, a different unit. Folding it in would report a 4-worker ceiling for what is
+really a 4-box fanout inside a single worker.
+
+Use it once, at the top of a run, and pass the result to BOTH `maxLiveWorkers` and a
+dispatcher's `width` — that is what turns three unrelated numbers into one.
+
+#### Parameters
+
+##### caps
+
+[`ConcurrencyCaps`](#concurrencycaps)
+
+#### Returns
+
+`number` \| `undefined`
+
+***
+
+### queueOf()
+
+> **queueOf**\<`Out`\>(`units`, `budget`): () => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
+
+Defined in: [src/runtime/supervise/dispatch.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L218)
+
+Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where
+ the queue is known up front and only the refill behavior is wanted.
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Parameters
+
+##### units
+
+readonly `object`[]
+
+##### budget
+
+[`Budget`](#budget-12)
+
+#### Returns
+
+() => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
+
+***
+
 ### createEventBus()
 
 > **createEventBus**\<`E`\>(`now?`): [`EventBus`](#eventbus)\<`E`\>
@@ -20080,12 +20981,46 @@ whether the patch is DELIVERED (the `valid` conjunction).
 
 > **createInMemoryRunContext**(`opts?`): [`InMemoryRunContext`](#inmemoryruncontext)
 
-Defined in: [src/runtime/supervise/run-context.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L57)
+Defined in: [src/runtime/supervise/run-context.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L72)
 
 Build a fresh in-memory run context. Every call returns NEW stores (no shared global
 state between runs), so two runs never cross-contaminate their journals/blobs.
 
 #### Parameters
+
+##### opts?
+
+[`InMemoryRunContextOptions`](#inmemoryruncontextoptions) = `{}`
+
+#### Returns
+
+[`InMemoryRunContext`](#inmemoryruncontext)
+
+***
+
+### createFileRunContext()
+
+> **createFileRunContext**(`dir`, `opts?`): [`InMemoryRunContext`](#inmemoryruncontext)
+
+Defined in: [src/runtime/supervise/run-context.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L94)
+
+Build a DURABLE run context: the spawn journal and the result blobs are file-backed (fsynced
+per append/write) under `dir`, and the context carries `resume: true` so spreading it into
+`SupervisorOpts` makes the supervisor `loadTree`-first. A run that dies mid-flight therefore
+resumes when it is re-run with the SAME `runId` and the SAME `dir`: the committed children come
+back on `Scope.resume` (rehydrated by `replaySpawnTree`) instead of being re-executed.
+
+Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event) and `${dir}/blobs/` (one
+content-addressed JSON file per settled result). The directory is created on first write.
+
+Opt-in by construction — `createInMemoryRunContext()` is unchanged and stays the default, so no
+existing consumer writes to disk or resumes unless it asks for this.
+
+#### Parameters
+
+##### dir
+
+`string`
 
 ##### opts?
 
@@ -20148,7 +21083,7 @@ harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
 
 > **createScope**\<`Out`\>(`args`): [`Scope`](#scope-1)\<`Out`\>
 
-Defined in: [src/runtime/supervise/scope.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L194)
+Defined in: [src/runtime/supervise/scope.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L209)
 
 Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay.
 
@@ -20174,7 +21109,7 @@ Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children o
 
 > **settledToIteration**\<`Out`\>(`settled`): [`Iteration`](#iteration-1)\<`unknown`, `Out`\>
 
-Defined in: [src/runtime/supervise/scope.ts:679](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L679)
+Defined in: [src/runtime/supervise/scope.ts:707](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L707)
 
 The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's
 `Iteration` shape so `defaultSelectWinner` stays single-sourced — the supervisor selects
@@ -20196,7 +21131,7 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 ##### settled
 
-[`Settled`](#settled-2)\<`Out`\>
+[`Settled`](#settled-3)\<`Out`\>
 
 #### Returns
 
@@ -20208,7 +21143,7 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 > **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [src/runtime/supervise/supervise.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L26)
+Defined in: [src/runtime/supervise/supervise.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L33)
 
 Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
@@ -20234,7 +21169,7 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
 
-Defined in: [src/runtime/supervise/supervise.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L117)
+Defined in: [src/runtime/supervise/supervise.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L138)
 
 One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use.
 
@@ -20260,7 +21195,7 @@ One-call supervisor: build + run a supervisor from its profile with sensible def
 
 ### supervisorAgent()
 
-> **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent)\<`unknown`, `unknown`\>
+> **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
 Defined in: [src/runtime/supervise/supervisor-agent.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L110)
 
@@ -20278,7 +21213,7 @@ Build a supervisor `Agent` from its profile: the brain resolves from `profile.ha
 
 #### Returns
 
-[`Agent`](#agent)\<`unknown`, `unknown`\>
+[`Agent`](#agent-1)\<`unknown`, `unknown`\>
 
 ***
 
@@ -20286,7 +21221,7 @@ Build a supervisor `Agent` from its profile: the brain resolves from `profile.ha
 
 > **createSupervisor**\<`Task`, `Out`\>(): [`Supervisor`](#supervisor-1)\<`Task`, `Out`\>
 
-Defined in: [src/runtime/supervise/supervisor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor.ts#L65)
+Defined in: [src/runtime/supervise/supervisor.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor.ts#L83)
 
 #### Type Parameters
 
