@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { waitForCapacity, type EndpointCapacityGate } from './capacity.ts'
-import { installProcessSignalAbort, run, TIMEOUT_RC } from './proc.ts'
+import {
+  installProcessSignalAbort,
+  isSecretEnvName,
+  run,
+  stripAmbientSecretEnv,
+  TIMEOUT_RC,
+} from './proc.ts'
 
 const dirs: string[] = []
 const cleanupPids: number[] = []
@@ -170,5 +176,59 @@ describe('cooperative process cancellation', () => {
     }
     await expect(waitForCapacity(gate, controller.signal)).rejects.toThrow('cancelled before probing')
     expect(probes).toBe(0)
+  })
+})
+
+// The hermetic env the verify/judge gate runs the repo's tests under: injected
+// inference secrets are stripped so a candidate cannot pass or fail on a leaked key.
+describe('stripAmbientSecretEnv — hermetic w.r.t. injected inference secrets', () => {
+  it('classifies the secret families and leaves ordinary vars alone', () => {
+    for (const name of [
+      'TANGLE_API_KEY',
+      'INTELLIGENCE_BASE',
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_BASE_URL',
+      'OPENAI_API_KEY',
+      'OPENAI_BASE_URL',
+      'ZAI_API_KEY',
+      'SOME_VENDOR_API_KEY',
+    ]) {
+      expect(isSecretEnvName(name), name).toBe(true)
+    }
+    for (const name of ['PATH', 'HOME', 'CI', 'npm_config_store_dir', 'TMPDIR', 'NODE_ENV']) {
+      expect(isSecretEnvName(name), name).toBe(false)
+    }
+  })
+
+  it('strips every injected secret from a base env but keeps the rest', () => {
+    const base: NodeJS.ProcessEnv = {
+      PATH: '/usr/bin',
+      HOME: '/home/x',
+      TANGLE_API_KEY: 'sk-tan-injected',
+      INTELLIGENCE_BASE: 'https://intel.example',
+      ANTHROPIC_API_KEY: 'sk-ant',
+      OPENAI_API_KEY: 'sk-oai',
+      npm_config_store_dir: '/tmp/store',
+    }
+    const clean = stripAmbientSecretEnv(base)
+    expect(clean.TANGLE_API_KEY).toBeUndefined()
+    expect(clean.INTELLIGENCE_BASE).toBeUndefined()
+    expect(clean.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(clean.OPENAI_API_KEY).toBeUndefined()
+    expect(clean.PATH).toBe('/usr/bin')
+    expect(clean.HOME).toBe('/home/x')
+    expect(clean.npm_config_store_dir).toBe('/tmp/store')
+    // Falsification: the raw base still carries the injected key — the gate would decide on it.
+    expect(base.TANGLE_API_KEY).toBe('sk-tan-injected')
+  })
+
+  it('a subprocess launched under the stripped env cannot read the injected key', async () => {
+    const base: NodeJS.ProcessEnv = { ...process.env, TANGLE_API_KEY: 'sk-tan-injected' }
+    const read = 'process.stdout.write(process.env.TANGLE_API_KEY ?? "ABSENT")'
+    const leaked = await run('node', ['-e', read], { env: base, timeoutMs: 20_000 })
+    expect(leaked.stdout).toBe('sk-tan-injected') // without the strip, the child sees the key
+    const hermetic = await run('node', ['-e', read], { env: stripAmbientSecretEnv(base), timeoutMs: 20_000 })
+    expect(hermetic.stdout).toBe('ABSENT') // under the gate env, the key is gone
   })
 })

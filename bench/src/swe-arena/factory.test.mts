@@ -16,6 +16,7 @@ import {
   goldImplPatch,
 } from './calibrate.ts'
 import {
+  judgeCmdEnv,
   judgeFactoryPatch,
   parseFactoryJudgeResult,
   parseVitestSummary,
@@ -215,6 +216,43 @@ describe('parseVitestSummary', () => {
   it('never mistakes the Test Files line for the Tests line, and returns undefined without a summary', () => {
     expect(parseVitestSummary(' Test Files  2 failed (2)\n')).toBeUndefined()
     expect(parseVitestSummary('some crash output\n')).toBeUndefined()
+  })
+})
+
+// The judge/setup subprocess env must be hermetic: it runs the repo's OWN tests, so a
+// dotenvx-injected TANGLE_API_KEY must not reach them. Otherwise a base test that asserts
+// "throws without an api key" passes on the leaked key and the gate becomes unpassable.
+describe('judgeCmdEnv — hermetic w.r.t. injected inference secrets', () => {
+  it('does not carry ambient TANGLE_API_KEY / INTELLIGENCE_BASE / provider keys, but keeps the store + CI knobs', () => {
+    const saved = {
+      TANGLE_API_KEY: process.env.TANGLE_API_KEY,
+      INTELLIGENCE_BASE: process.env.INTELLIGENCE_BASE,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    }
+    try {
+      process.env.TANGLE_API_KEY = 'sk-tan-injected'
+      process.env.INTELLIGENCE_BASE = 'https://intel.example'
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-injected'
+      process.env.OPENAI_API_KEY = 'sk-oai-injected'
+      const env = judgeCmdEnv()
+      expect(env.TANGLE_API_KEY).toBeUndefined()
+      expect(env.INTELLIGENCE_BASE).toBeUndefined()
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined()
+      expect(env.OPENAI_API_KEY).toBeUndefined()
+      // The non-secret gate knobs still ride through.
+      expect(env.CI).toBe('false')
+      expect(env.npm_config_store_dir).toContain('factory-bench-pnpm-store')
+      expect(env.PATH).toBe(process.env.PATH)
+      // Falsification: the ambient parent still has the injected key — the strip is the gate's,
+      // not the process's. A pre-fix judgeCmdEnv (spread of raw process.env) would expose it.
+      expect(process.env.TANGLE_API_KEY).toBe('sk-tan-injected')
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
   })
 })
 

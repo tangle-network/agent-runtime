@@ -30,7 +30,7 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { applyPatchWithFallback } from './calibrate.ts'
 import { loadFactoryInstance, type LoadedFactoryInstance } from './fixtures.ts'
-import { run, runOk, shq } from './proc.ts'
+import { run, runOk, shq, stripAmbientSecretEnv } from './proc.ts'
 
 /** Warm installs across judge/calibration runs (design: `--config.store-dir`). */
 export const SHARED_PNPM_STORE = join(tmpdir(), 'factory-bench-pnpm-store')
@@ -111,11 +111,14 @@ export async function overlayJudgeTests(inst: LoadedFactoryInstance, ws: string)
   }
 }
 
-/** Env for setup/judge commands: shared pnpm store, CI heuristics disabled. */
+/** Env for setup/judge commands: hermetic w.r.t. injected secrets, shared pnpm store,
+ *  CI heuristics disabled. The gate runs the repo's OWN tests, so it must not inherit
+ *  dotenvx-injected inference secrets — a base test asserting "throws without an api key"
+ *  has to decide on the candidate's code, never on a leaked TANGLE_API_KEY. */
 export function judgeCmdEnv(): NodeJS.ProcessEnv {
   // CI='false' keeps pnpm out of frozen-lockfile mode: a candidate patch may
   // legitimately edit package.json, and the judge must install it, not refuse.
-  return { ...process.env, CI: 'false', npm_config_store_dir: SHARED_PNPM_STORE }
+  return { ...stripAmbientSecretEnv(process.env), CI: 'false', npm_config_store_dir: SHARED_PNPM_STORE }
 }
 
 export interface FactoryJudgeOutcome {

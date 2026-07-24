@@ -258,3 +258,59 @@ export async function runOk(bin: string, argv: string[], opts: RunOptions = {}):
 export function shq(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
+
+/**
+ * Provider/API-secret env families a hermetic test or judge subprocess must not
+ * inherit. The verify/judge gate runs the repo's own tests under `dotenvx`, which
+ * injects the operator's secrets (TANGLE_API_KEY, INTELLIGENCE_BASE, provider
+ * keys) into the parent. A base test that asserts "throws without an api key"
+ * then passes only because a key leaked in — so the gate decides on the injected
+ * secret, not on the candidate's code, and becomes unpassable regardless of the
+ * feature. Stripping these makes the gate depend on the workspace alone.
+ *
+ * Same principle as `proposerShotEnv` (which strips the CLIs' ambient auth so an
+ * author shot runs on the CLI's own login) — here it is the verify/judge gate,
+ * and the families are the inference secrets rather than the CLI auth vars.
+ */
+export const HERMETIC_SECRET_ENV_PREFIXES = [
+  'ANTHROPIC_',
+  'OPENAI_',
+  'TANGLE_',
+  'INTELLIGENCE_',
+  'ZAI_',
+  'Z_AI_',
+  'OPENROUTER_',
+  'GROQ_',
+  'DEEPSEEK_',
+  'MOONSHOT_',
+  'XAI_',
+  'GEMINI_',
+] as const
+
+/** Any var in these suffix families is a secret regardless of provider prefix. */
+export const HERMETIC_SECRET_ENV_SUFFIXES = ['_API_KEY', '_AUTH_TOKEN'] as const
+
+/** Exact names that carry secrets but match no prefix/suffix family. */
+export const HERMETIC_SECRET_ENV_EXACT = ['INTELLIGENCE_BASE'] as const
+
+/** True when an env var name carries an injected inference secret. Case-insensitive. */
+export function isSecretEnvName(name: string): boolean {
+  const upper = name.toUpperCase()
+  if (HERMETIC_SECRET_ENV_EXACT.some((exact) => upper === exact)) return true
+  if (HERMETIC_SECRET_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix))) return true
+  if (HERMETIC_SECRET_ENV_SUFFIXES.some((suffix) => upper.endsWith(suffix))) return true
+  return false
+}
+
+/**
+ * A copy of `base` with every injected inference secret removed — the hermetic env
+ * a verify/judge gate runs the repo's tests under. Non-secret vars (PATH, HOME,
+ * pnpm store, CI heuristics) pass through untouched.
+ */
+export function stripAmbientSecretEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base }
+  for (const name of Object.keys(env)) {
+    if (isSecretEnvName(name)) delete env[name]
+  }
+  return env
+}
