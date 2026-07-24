@@ -8,6 +8,8 @@
  *  - the strategy is backtested over in-sample + holdout concatenated (so its
  *    lookbacks are warm when the holdout period begins), but SCORED only on
  *    the holdout days — a true walk-forward on data no candidate ever saw;
+ *  - scoring is the OFFICIAL vectorbt worker (vbt-client.ts); the TS engine
+ *    runs first as fail-closed contract prefilter only;
  *  - the three pinned baselines run under the identical protocol; the bar is
  *    the best baseline's holdout Sharpe;
  *  - the truncation leak audit re-runs on the full axis first (a leak that
@@ -24,13 +26,45 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import process from 'node:process'
-import { runBacktest, statsForRange, type BacktestConfig, type RangeStats } from './backtest.ts'
+import { runBacktest, statsForRange, type BacktestConfig, type BacktestResult, type RangeStats } from './backtest.ts'
 import { concatForCertification, loadBarsDir, loadHoldout, loadInSample } from './data.ts'
+import { loadStrategyFile } from './driver.ts'
 import { truncationInvariance } from './leak-audit.ts'
 import { PINNED_BASELINES } from './quant-loop.mts'
-import type { GenerateSignals } from './types.ts'
+import { scoreSignals, VbtWorker, type VbtWindowStats } from './vbt-client.ts'
+import type { Bar, Signal } from './types.ts'
 
 export const CERTIFICATION_SCHEMA = 'quant-arena.certification.v1'
+
+/** Official scores for [0, split) and [split, T) from the vectorbt worker.
+ *  The TS engine runs first as fail-closed contract prefilter and supplies
+ *  turnover (not carried by the worker protocol); every other number is the
+ *  worker's. */
+async function scoreOnRanges(
+  worker: VbtWorker,
+  bars: Bar[][],
+  signals: Signal[],
+  btConfig: BacktestConfig,
+  split: number,
+  T: number,
+): Promise<{ inSample: RangeStats; holdout: RangeStats }> {
+  const prefilter: BacktestResult = runBacktest(bars, signals, btConfig)
+  const vbt = await scoreSignals(worker, bars, signals, btConfig, [
+    [0, split],
+    [split, T],
+  ])
+  const toRange = (stats: VbtWindowStats, start: number, end: number): RangeStats => ({
+    start,
+    end,
+    days: end - start,
+    totalReturn: stats.totalReturn,
+    maxDrawdown: stats.maxDD,
+    sharpe: stats.sharpe,
+    tradeCount: stats.trades,
+    turnover: statsForRange(prefilter, start, end).turnover,
+  })
+  return { inSample: toRange(vbt.windows[0]!, 0, split), holdout: toRange(vbt.windows[1]!, split, T) }
+}
 
 export interface CertificationRecord {
   schema: typeof CERTIFICATION_SCHEMA
@@ -62,6 +96,9 @@ export async function certifyOnHoldout(opts: {
    *  CLI never sets these — the real run always uses the vendored split. */
   insampleDir?: string
   holdoutDir?: string
+  /** Reuse an already-warm vectorbt worker (tests / batch certification).
+   *  When omitted, one is spawned and closed inside this call. */
+  worker?: VbtWorker
 }): Promise<CertificationRecord> {
   const code = await readFile(opts.strategyPath, 'utf8')
   const sha256 = `sha256:${createHash('sha256').update(code).digest('hex')}`
@@ -75,28 +112,36 @@ export async function certifyOnHoldout(opts: {
     )
   }
 
-  const mod = (await import(pathToFileURL(opts.strategyPath).href)) as { generateSignals?: GenerateSignals }
-  if (typeof mod.generateSignals !== 'function') {
-    throw new Error(`holdout-certify: ${opts.strategyPath} does not export generateSignals(bars)`)
-  }
-  const strategy = mod.generateSignals
-
   const insample = opts.insampleDir ? await loadBarsDir(opts.insampleDir) : await loadInSample()
   const holdout = opts.holdoutDir ? await loadBarsDir(opts.holdoutDir) : await loadHoldout()
   const { aligned, holdoutStartIndex } = concatForCertification(insample, holdout)
   const btConfig: BacktestConfig = { costBps: opts.costBps ?? 10, slippageBps: opts.slippageBps ?? 5 }
   const T = aligned.dates.length
 
+  // v2 (`onBar`) and v1 (`generateSignals`) modules both certify; v2 runs
+  // through the incremental driver with structurally truncated history.
+  const { generateSignals: strategy } = await loadStrategyFile(opts.strategyPath, {
+    symbols: aligned.tickers,
+    costBps: btConfig.costBps,
+    slippageBps: btConfig.slippageBps,
+  })
+
   const truncation = truncationInvariance(strategy, aligned.bars, { warmupDays: 120 })
 
-  const result = runBacktest(aligned.bars, strategy(aligned.bars), btConfig)
-  const inSampleStats = statsForRange(result, 0, holdoutStartIndex)
-  const holdoutStats = statsForRange(result, holdoutStartIndex, T)
-
+  const worker = opts.worker ?? new VbtWorker()
+  let inSampleStats: RangeStats
+  let holdoutStats: RangeStats
   const baselinesHoldout: Record<string, RangeStats> = {}
-  for (const [name, baseline] of Object.entries(PINNED_BASELINES)) {
-    const baseResult = runBacktest(aligned.bars, baseline(aligned.bars), btConfig)
-    baselinesHoldout[name] = statsForRange(baseResult, holdoutStartIndex, T)
+  try {
+    const scored = await scoreOnRanges(worker, aligned.bars, strategy(aligned.bars), btConfig, holdoutStartIndex, T)
+    inSampleStats = scored.inSample
+    holdoutStats = scored.holdout
+    for (const [name, baseline] of Object.entries(PINNED_BASELINES)) {
+      const baseScored = await scoreOnRanges(worker, aligned.bars, baseline(aligned.bars), btConfig, holdoutStartIndex, T)
+      baselinesHoldout[name] = baseScored.holdout
+    }
+  } finally {
+    if (opts.worker === undefined) await worker.close()
   }
   const bestBaselineHoldoutSharpe = Math.max(...Object.values(baselinesHoldout).map((s) => s.sharpe))
   const holdoutExcessSharpe = holdoutStats.sharpe - bestBaselineHoldoutSharpe

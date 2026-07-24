@@ -9,7 +9,8 @@ Everything is plain TypeScript you can read in an afternoon: the backtester is o
 ## 1. Quickstart
 
 ```bash
-# from bench/ (needs node >= 20 and the `claude` CLI logged in)
+# from bench/ (needs node >= 20, the `claude` CLI logged in, and `uv` on PATH
+# — scoring runs in a pinned python environment, see "Two engines" below)
 npx tsx src/quant-arena/quant-loop.mts --out /tmp/quant-demo --candidates 2
 ```
 
@@ -27,10 +28,10 @@ npx vitest run src/quant-arena
 1. **Data loads.** ~8 years of daily bars for 11 tickers (an index `IDX` plus `S01`-`S10`) from `fixtures/data/insample/`. The final 2 years live in `fixtures/data/holdout/` and are **not** loaded — see step 8. The series are synthetic (regime-switching factor model, seeded, regenerable) because the free real-data source we checked licenses personal use only; `fixtures/data/PROVENANCE.md` has the details and how to drop in your own CSVs.
 2. **Evaluation windows are drawn.** 8 overlapping 504-day (~2-year) blocks, block-bootstrap sampled from the in-sample years with a fixed seed — every candidate in the campaign is scored on the same windows, and reruns reproduce bit-identically.
 3. **Benchmarks run.** Three pinned incumbents: buy-and-hold the index, equal-weight monthly rebalance, and a 20/100 moving-average crossover. Their per-window Sharpe ratios define the bar: "best benchmark" is the per-window maximum.
-4. **Strategy authors write code.** Each author is a Claude call with a pinned identity (one plain, one with a quant-researcher system prompt). It gets the strategy contract, the universe summary, the benchmarks' per-window Sharpes, and the current acceptance bar — and must reply with one self-contained TypeScript module exporting `generateSignals(bars)`. Model spend is metered into a durable cost log (`cost-ledger.jsonl`) with per-call receipts.
+4. **Strategy authors write code.** Each author is a Claude call with a pinned identity (one plain, one with a quant-researcher system prompt). It gets the strategy contract, the universe summary, the benchmarks' per-window Sharpes, and the current acceptance bar — and must reply with one self-contained TypeScript module exporting `onBar(ctx)`: the harness calls it once per trading day with the bars **up to that day only** (the arrays are physically sliced, so reading the future is structurally impossible), plus the strategy's current holdings and equity, and it answers with target portfolio weights or "hold". Strategies never place orders — a single shared rebalancer (`oms.ts`) turns everyone's target weights into orders under the same sizing rule, LEAN-style `(targetWeight x equity - currentPosition) / price`, long-only. Model spend is metered into a durable cost log (`cost-ledger.jsonl`) with per-call receipts.
 5. **Look-ahead screening, stage 1 (mechanical).** The candidate is re-run on data truncated at several cutoff days. Signals up to each cutoff must be bit-identical to the full-data run — any divergence proves the code read the future, and the candidate is killed with the divergence quoted.
 6. **Look-ahead screening, stage 2 (adversarial).** A second, cheap model reads the source with one job: find look-ahead — indexing past `t`, whole-series statistics feeding per-day decisions, hardcoded dates that smell like memorization. Verdict is JSON; anything but a clean verdict kills the candidate, and an unparseable reply kills it too (the rule fails closed).
-7. **Backtest and verdict.** Survivors are backtested once over the whole in-sample period (next-day-open fills, 15 bps one-way costs, no shorting, no leverage) and scored per window. The acceptance rule (section 3) decides. Accepted or not, the try is appended to `notebook.jsonl` with its window scores, audit evidence, code hash, and authoring cost.
+7. **Backtest and verdict.** Survivors are backtested over the whole in-sample period (next-day-open fills, 15 bps one-way costs, no shorting, no leverage) and scored per window. Two engines run: the one-file TypeScript reference engine first, as a fail-closed contract check, then the industry-standard **vectorbt** engine (a persistent python worker in a version-locked environment) produces the official numbers. A parity test suite holds the two engines to agreement on golden fixtures — exact on a no-trade book, within machine precision whenever the book holds cash, and within a documented 0.5% on fully-invested books (the engines differ only in whether fees may be financed by a slightly negative cash balance). The acceptance rule (section 3) decides. Accepted or not, the try is appended to `notebook.jsonl` with its window scores, audit evidence, code hash, and authoring cost.
 8. **Certification, later and by hand.** When you believe a winner, run it once against the untouched final 2 years:
 
    ```bash
@@ -115,26 +116,23 @@ A real excerpt from the committed demo campaign (`fixtures/demo-campaign/`): try
 
 ## 5. Plugging in your own backtester and data
 
-The lab needs exactly two functions from a market-simulation stack; everything else (authors, screening, acceptance rule, notebook) is agnostic to where the numbers come from.
-
-```ts
-// 1. Simulate: your engine, your data, your cost model.
-//    Must be deterministic for the same inputs.
-type Backtest = (bars: Bar[][], signals: Signal[], config: { costBps: number; slippageBps: number }) => BacktestResult
-
-// 2. Score a sub-range: lets the loop evaluate one simulation on many windows.
-type StatsForRange = (result: BacktestResult, start: number, end: number) => { sharpe: number /* + your stats */ }
-```
-
-Replace the imports of `runBacktest` / `statsForRange` in `quant-loop.mts` and `holdout-certify.mts` with your implementations, and point the data loader at your own Stooq-format CSVs (one file per ticker, `IDX.csv` as the benchmark asset, an `insample/` and a `holdout/` directory).
+Scoring goes through one narrow seam: a worker process that takes `{open prices, close prices, target-weight rows, costs, windows}` as JSON lines on stdin and answers `{per-window total return / max drawdown / Sharpe / trade count, full equity curve}` on stdout — see the protocol comment at the top of `python/vbt-worker.py` and the client in `vbt-client.ts`.
+The shipped worker is vectorbt (`Portfolio.from_orders`, target-percent sizing, shared cash, sells before buys), version-locked by `python/pyproject.toml` + `python/uv.lock`; to swap in your own engine, speak the same protocol and keep the fill model (decide at close, fill at next open, bps fees on traded dollars) or re-derive the parity fixtures in `vbt-parity.test.mts` for your model.
+Point the data loader at your own Stooq-format CSVs (one file per ticker, `IDX.csv` as the benchmark asset, an `insample/` and a `holdout/` directory).
 Keep the physical in-sample/out-of-sample split and the once-only certification rule — they are the point, not an implementation detail.
+A third engine is planned but not built: event-driven certification of a winner's order stream through Nautilus Trader (`nautilus-certify.ts` is the named stub).
 
 ## Files
 
 | file | what it is |
 | --- | --- |
-| `backtest.ts` | the whole execution model: next-open fills, bps costs, no shorting — zero dependencies |
-| `types.ts` | the strategy contract, including the no-look-ahead rule |
+| `types.ts` | the strategy contract (v2 `onBar` + the order types), including the no-look-ahead rule |
+| `driver.ts` | the incremental harness: feeds `onBar` day by day with physically truncated history; wraps old batch strategies unchanged |
+| `oms.ts` | the one shared rebalancer: target weights -> orders (strategies never place orders) |
+| `backtest.ts` | the TypeScript reference engine: next-open fills, bps costs, no shorting — zero dependencies; contract prefilter |
+| `vbt-client.ts` + `python/vbt-worker.py` | the official scorer: persistent vectorbt worker, pinned env (`python/uv.lock`), crash-safe request handling |
+| `vbt-parity.test.mts` | the two engines held to agreement on golden fixtures (prints both curves on any disagreement) |
+| `nautilus-certify.ts` | named stub for the planned event-driven certification engine (not implemented) |
 | `windows.ts` | seeded block-bootstrap evaluation windows |
 | `multiplicity.ts` | the rising acceptance bar (documented formula + citation) |
 | `leak-audit.ts` | the mechanical truncation-invariance check |
@@ -142,4 +140,5 @@ Keep the physical in-sample/out-of-sample split and the once-only certification 
 | `holdout-certify.mts` | the once-only out-of-sample certification |
 | `strategies/` | the three pinned benchmarks |
 | `fixtures/data/` | committed daily bars + provenance; `holdout/` is the locked final 2 years |
-| `fixtures/demo-campaign/` | a real captured campaign: notebook, authored strategies, cost receipts |
+| `fixtures/demo-campaign/` | a real captured campaign against the v1 batch contract: notebook, authored strategies, cost receipts |
+| `fixtures/demo-campaign-v2/` | a real captured campaign against the v2 `onBar` contract (1 candidate, honestly rejected: 0/8 windows) |
