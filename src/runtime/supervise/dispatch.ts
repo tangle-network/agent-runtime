@@ -36,6 +36,18 @@
  * passes it to BOTH `maxLiveWorkers` and this dispatcher's `width`, instead of leaving a fleet
  * governor of 4 and an unset worker fence as unrelated numbers.
  *
+ * ── Why this is not a copy of the kernel's batch loop ──────────────────────────────────────────
+ *
+ * `runBatch` (`src/runtime/run-loop.ts`) runs the same hold-N-slots-full shape over the KERNEL's
+ * substrate: bare promises in a `Set`, raced with `Promise.race`, bounded by `maxConcurrency`.
+ * This one runs it over the SUPERVISOR's substrate — `Scope.spawn`'s atomic reservation against
+ * the conserved pool, `Scope.next`'s journaled settlement cursor, and the blob store behind each
+ * result. Neither can be expressed in the other's terms without dragging its whole substrate
+ * along: the kernel loop has no budget to reserve and no cursor to order settlements by, and this
+ * one cannot race raw promises because a settlement is only real once it is journaled. The shape
+ * repeating across the two deliberate layers is resonance, not duplication — do not "unify" them
+ * into a shared helper that would have to know about both.
+ *
  * @experimental
  */
 

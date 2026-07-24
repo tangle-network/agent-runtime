@@ -97,11 +97,18 @@ export interface SuperviseOptions {
   /** Worker output store. Defaults to in-memory. */
   readonly blobs?: ResultBlobStore
   /**
-   * Make the run DURABLE and RESUMABLE: journal + result blobs are file-backed under this
-   * directory (`createFileRunContext`), and the supervisor reads the prior tree first. Re-running
-   * `supervise()` with the same `runDir` AND the same `runId` resumes — the children that already
-   * settled come back on `Scope.resume` instead of being re-executed. Unset = in-memory, fresh
-   * every call (the default every existing caller gets).
+   * Make the run DURABLE: journal + result blobs are file-backed under this directory
+   * (`createFileRunContext`), fsynced per write, and the supervisor reads the prior tree first.
+   * Re-running with the same `runDir` AND the same `runId` resumes — the children that already
+   * settled are replayed onto `Scope.resume` with their real outputs, and the scope's counters
+   * continue past the journaled maxima. Unset = in-memory, fresh every call.
+   *
+   * What that does and does not buy you, precisely: the run's history survives the process and is
+   * replayable, and a resumed run never corrupts the tree. It does NOT by itself make the built-in
+   * supervisor brain skip committed work — `supervisorAgent`'s driver does not read
+   * `Scope.resume`, so out of the box a resumed run re-spawns children it already paid for. Only a
+   * root `Agent.act` that reads `scope.resume.settled` (as the durable-resume test's root does)
+   * turns durability into work-skipping. Wiring that into the default brain is separate work.
    *
    * `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.

@@ -10836,7 +10836,7 @@ Fired for each signal a detector raises — the seam that raises a `finding` on 
 
 ### DispatchUnit
 
-Defined in: [src/runtime/supervise/dispatch.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L48)
+Defined in: [src/runtime/supervise/dispatch.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L60)
 
 One unit of queued work: the agent to run, its task, and the spawn options (budget + label).
  `nextUnit` mints these lazily so a queue can be generated, re-ordered, or grown while the
@@ -10854,25 +10854,25 @@ One unit of queued work: the agent to run, its task, and the spawn options (budg
 
 > `readonly` **agent**: [`Agent`](#agent-1)\<`unknown`, `Out`\>
 
-Defined in: [src/runtime/supervise/dispatch.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L49)
+Defined in: [src/runtime/supervise/dispatch.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L61)
 
 ##### task
 
 > `readonly` **task**: `unknown`
 
-Defined in: [src/runtime/supervise/dispatch.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L50)
+Defined in: [src/runtime/supervise/dispatch.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L62)
 
 ##### opts
 
 > `readonly` **opts**: [`SpawnOpts`](#spawnopts)
 
-Defined in: [src/runtime/supervise/dispatch.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L51)
+Defined in: [src/runtime/supervise/dispatch.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L63)
 
 ***
 
 ### RollingDispatchOptions
 
-Defined in: [src/runtime/supervise/dispatch.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L59)
+Defined in: [src/runtime/supervise/dispatch.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L71)
 
 #### Type Parameters
 
@@ -10886,7 +10886,7 @@ Defined in: [src/runtime/supervise/dispatch.ts:59](https://github.com/tangle-net
 
 > `readonly` **width**: `number`
 
-Defined in: [src/runtime/supervise/dispatch.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L66)
+Defined in: [src/runtime/supervise/dispatch.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L78)
 
 How many children to hold in flight. Must be a positive integer. This is a SIMULTANEITY fence
 only — the conserved pool still bounds total work, and a `width` larger than the pool can
@@ -10899,7 +10899,7 @@ also runs a fleet-level box governor.
 
 > **nextUnit**(): [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `Promise`\<[`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`\> \| `undefined`
 
-Defined in: [src/runtime/supervise/dispatch.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L72)
+Defined in: [src/runtime/supervise/dispatch.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L84)
 
 Produce the next unit of work, or `undefined` when the queue is dry. Called only when a slot
 is free, so a caller may compute the next unit from what has already settled (the point of a
@@ -10913,7 +10913,7 @@ refilling dispatcher: the queue is allowed to react). Never called after a stop.
 
 > `optional` **onSettled**(`settled`): `void` \| `Promise`\<`void`\>
 
-Defined in: [src/runtime/supervise/dispatch.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L77)
+Defined in: [src/runtime/supervise/dispatch.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L89)
 
 Called once per settlement, in cursor order, BEFORE the freed slot is refilled — so an
 `onSettled` that appends to the caller's queue is visible to the very next `nextUnit`.
@@ -10932,7 +10932,7 @@ Called once per settlement, in cursor order, BEFORE the freed slot is refilled �
 
 > `optional` **shouldStop**(): `boolean`
 
-Defined in: [src/runtime/supervise/dispatch.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L82)
+Defined in: [src/runtime/supervise/dispatch.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L94)
 
 Consulted before each admission. `true` stops admitting; the already-live children are still
 drained to completion (no orphan, no lost settlement). Use it for a progress/plateau rule.
@@ -10945,7 +10945,7 @@ drained to completion (no orphan, no lost settlement). Use it for a progress/pla
 
 ### DispatchReport
 
-Defined in: [src/runtime/supervise/dispatch.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L85)
+Defined in: [src/runtime/supervise/dispatch.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L97)
 
 #### Type Parameters
 
@@ -10959,7 +10959,7 @@ Defined in: [src/runtime/supervise/dispatch.ts:85](https://github.com/tangle-net
 
 > `readonly` **settled**: readonly [`Settled`](#settled-3)\<`Out`\>[]
 
-Defined in: [src/runtime/supervise/dispatch.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L87)
+Defined in: [src/runtime/supervise/dispatch.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L99)
 
 Every settlement, in the order `scope.next()` yielded them.
 
@@ -10967,7 +10967,7 @@ Every settlement, in the order `scope.next()` yielded them.
 
 > `readonly` **admitted**: `number`
 
-Defined in: [src/runtime/supervise/dispatch.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L89)
+Defined in: [src/runtime/supervise/dispatch.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L101)
 
 How many children this dispatcher admitted.
 
@@ -10975,7 +10975,7 @@ How many children this dispatcher admitted.
 
 > `readonly` **rejected**: readonly `string`[]
 
-Defined in: [src/runtime/supervise/dispatch.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L91)
+Defined in: [src/runtime/supervise/dispatch.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L103)
 
 Admission rejections, in order — `label: reason`. Non-empty ⇒ the pool or depth fenced.
 
@@ -10983,13 +10983,13 @@ Admission rejections, in order — `label: reason`. Non-empty ⇒ the pool or de
 
 > `readonly` **stopReason**: [`DispatchStopReason`](#dispatchstopreason)
 
-Defined in: [src/runtime/supervise/dispatch.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L92)
+Defined in: [src/runtime/supervise/dispatch.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L104)
 
 ##### peakLive
 
 > `readonly` **peakLive**: `number`
 
-Defined in: [src/runtime/supervise/dispatch.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L95)
+Defined in: [src/runtime/supervise/dispatch.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L107)
 
 The highest simultaneous live count actually reached — the number to compare against
  `width` when asking "did the slots really stay full?"
@@ -10998,7 +10998,7 @@ The highest simultaneous live count actually reached — the number to compare a
 
 ### ConcurrencyCaps
 
-Defined in: [src/runtime/supervise/dispatch.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L188)
+Defined in: [src/runtime/supervise/dispatch.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L200)
 
 The caps a host can set on simultaneous work. See the ledger in this module's header for what
  each one actually bounds.
@@ -11009,7 +11009,7 @@ The caps a host can set on simultaneous work. See the ledger in this module's he
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [src/runtime/supervise/dispatch.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L190)
+Defined in: [src/runtime/supervise/dispatch.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L202)
 
 Supervisor level: max spawned-but-unsettled workers.
 
@@ -11017,7 +11017,7 @@ Supervisor level: max spawned-but-unsettled workers.
 
 > `readonly` `optional` **maxSandboxes?**: `number`
 
-Defined in: [src/runtime/supervise/dispatch.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L193)
+Defined in: [src/runtime/supervise/dispatch.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L205)
 
 Fleet level: max live sandboxes/boxes across the host process (a `ComputeGovernor`-style
  cap). Applies to the worker layer, so it participates in the minimum.
@@ -11758,13 +11758,20 @@ Worker output store. Defaults to in-memory.
 
 > `readonly` `optional` **runDir?**: `string`
 
-Defined in: [src/runtime/supervise/supervise.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L109)
+Defined in: [src/runtime/supervise/supervise.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L116)
 
-Make the run DURABLE and RESUMABLE: journal + result blobs are file-backed under this
-directory (`createFileRunContext`), and the supervisor reads the prior tree first. Re-running
-`supervise()` with the same `runDir` AND the same `runId` resumes — the children that already
-settled come back on `Scope.resume` instead of being re-executed. Unset = in-memory, fresh
-every call (the default every existing caller gets).
+Make the run DURABLE: journal + result blobs are file-backed under this directory
+(`createFileRunContext`), fsynced per write, and the supervisor reads the prior tree first.
+Re-running with the same `runDir` AND the same `runId` resumes — the children that already
+settled are replayed onto `Scope.resume` with their real outputs, and the scope's counters
+continue past the journaled maxima. Unset = in-memory, fresh every call.
+
+What that does and does not buy you, precisely: the run's history survives the process and is
+replayable, and a resumed run never corrupts the tree. It does NOT by itself make the built-in
+supervisor brain skip committed work — `supervisorAgent`'s driver does not read
+`Scope.resume`, so out of the box a resumed run re-spawns children it already paid for. Only a
+root `Agent.act` that reads `scope.resume.settled` (as the durable-resume test's root does)
+turns durability into work-skipping. Wiring that into the default brain is separate work.
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -11773,7 +11780,7 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **journal?**: [`SpawnJournal`](#spawnjournal)
 
-Defined in: [src/runtime/supervise/supervise.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L112)
+Defined in: [src/runtime/supervise/supervise.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L119)
 
 Override the spawn journal directly (advanced; `runDir` is the ordinary durable path). Pair
  with `blobs` — a journal whose result payloads live in a different store cannot replay.
@@ -11782,19 +11789,19 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L113)
+Defined in: [src/runtime/supervise/supervise.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L120)
 
 ##### maxTurns?
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L114)
+Defined in: [src/runtime/supervise/supervise.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L121)
 
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [src/runtime/supervise/supervise.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L120)
+Defined in: [src/runtime/supervise/supervise.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L127)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
  its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
@@ -11806,13 +11813,13 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [src/runtime/supervise/supervise.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L121)
+Defined in: [src/runtime/supervise/supervise.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L128)
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [src/runtime/supervise/supervise.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L122)
+Defined in: [src/runtime/supervise/supervise.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L129)
 
 ###### Returns
 
@@ -11822,7 +11829,7 @@ Defined in: [src/runtime/supervise/supervise.ts:122](https://github.com/tangle-n
 
 > `readonly` `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [src/runtime/supervise/supervise.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L126)
+Defined in: [src/runtime/supervise/supervise.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L133)
 
 Restrict the run to this subset of models. When set, every configured model — the
  supervisor router model, the profile's model, and the backend's model — must be a member,
@@ -16740,7 +16747,7 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 > **DispatchStopReason** = `"drained"` \| `"not-admitted"` \| `"stopped"` \| `"aborted"`
 
-Defined in: [src/runtime/supervise/dispatch.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L57)
+Defined in: [src/runtime/supervise/dispatch.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L69)
 
 Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end);
  `not-admitted` = the conserved pool or the depth ceiling refused a spawn; `stopped` = the
@@ -20770,7 +20777,7 @@ Subscribe to a `TraceSource` and run the streaming detectors over its live spans
 
 > **rollingDispatch**\<`Out`\>(`scope`, `opts`): `Promise`\<[`DispatchReport`](#dispatchreport)\<`Out`\>\>
 
-Defined in: [src/runtime/supervise/dispatch.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L106)
+Defined in: [src/runtime/supervise/dispatch.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L118)
 
 Run the refilling dispatch loop over `scope` until the queue is dry (or a stop fires) and every
 admitted child has settled. Returns the settlements in cursor order plus the admission ledger.
@@ -20805,7 +20812,7 @@ a whole round, a slow child never idles the other slots.
 
 > **freeSlots**(`liveCount`, `cap`): `number` \| `null`
 
-Defined in: [src/runtime/supervise/dispatch.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L181)
+Defined in: [src/runtime/supervise/dispatch.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L193)
 
 Free worker slots under a simultaneity cap: `cap - live`, floored at 0, or `null` when there is
 no cap (the conserved pool is then the only fence and "free slots" is not a finite number).
@@ -20831,7 +20838,7 @@ The one place the answer is computed, so the driver-facing tool payload and a di
 
 > **effectiveConcurrency**(`caps`): `number` \| `undefined`
 
-Defined in: [src/runtime/supervise/dispatch.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L208)
+Defined in: [src/runtime/supervise/dispatch.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L220)
 
 The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually
 bound the worker layer. Ignores unset/non-positive caps; returns `undefined` when no cap applies
@@ -20860,7 +20867,7 @@ dispatcher's `width` — that is what turns three unrelated numbers into one.
 
 > **queueOf**\<`Out`\>(`units`, `budget`): () => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
 
-Defined in: [src/runtime/supervise/dispatch.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L218)
+Defined in: [src/runtime/supervise/dispatch.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/dispatch.ts#L230)
 
 Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where
  the queue is known up front and only the refill behavior is wanted.
@@ -21169,7 +21176,7 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
 
-Defined in: [src/runtime/supervise/supervise.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L138)
+Defined in: [src/runtime/supervise/supervise.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L145)
 
 One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use.
 
