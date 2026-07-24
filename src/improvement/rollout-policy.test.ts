@@ -7,6 +7,7 @@ import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/age
 import { describe, expect, it } from 'vitest'
 import type { StructuralRolloutPolicy } from '../runtime/structural-rollout'
 import { improve } from './improve'
+import type { ReadonlyAgentProfile } from './profile-types'
 import {
   applyRolloutPolicyToProfile,
   normalizeRolloutPolicy,
@@ -132,26 +133,67 @@ describe("improve surface 'rollout-policy'", () => {
     })
   })
 
-  it('rejects optimization when the profile has no active rollout policy', async () => {
-    await expect(
-      improve(
-        { name: 'fixture-agent' },
-        {
-          surface: 'rollout-policy',
-          executionRef,
-          method: policyMethod({ k: 7, repairRounds: 2, testgen: 6 }),
-          trainScenarios: train,
-          selectionScenarios: selection,
-          testScenarios: testCases,
-          judges: [judge],
-          agent: async (candidate) => ({ policy: structuralRolloutPolicyFromProfile(candidate) }),
-          runDir: 'mem://rollout-policy-missing',
-          storage: inMemoryCampaignStorage(),
-          resamples: 40,
-          confidence: 0.95,
-          expectUsage: 'off',
+  it('can initialize an explicitly selected rollout policy', async () => {
+    const result = await improve(
+      { name: 'fixture-agent' },
+      {
+        surface: 'rollout-policy',
+        executionRef,
+        method: policyMethod({ k: 7, repairRounds: 2, testgen: 6 }),
+        trainScenarios: train,
+        selectionScenarios: selection,
+        testScenarios: testCases,
+        judges: [judge],
+        agent: async (candidate) => ({ policy: structuralRolloutPolicyFromProfile(candidate) }),
+        runDir: 'mem://rollout-policy-missing',
+        storage: inMemoryCampaignStorage(),
+        resamples: 40,
+        confidence: 0.95,
+        expectUsage: 'off',
+      },
+    )
+
+    expect(result.decision).toBe('ship')
+    expect(structuralRolloutPolicyFromProfile(result.candidate.profile!)).toEqual({
+      k: 7,
+      repairRounds: 2,
+      testgen: 6,
+    })
+  })
+
+  it('runs the unchanged full profile for an unconfigured policy baseline', async () => {
+    const profile: AgentProfile = { name: 'fixture-agent', prompt: { systemPrompt: 'base' } }
+    const seen: ReadonlyAgentProfile[] = []
+    const result = await improve(profile, {
+      surface: 'rollout-policy',
+      executionRef,
+      method: {
+        name: 'no-policy-change',
+        async optimize(input) {
+          return {
+            winnerSurface: input.baselineSurface,
+            cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+          }
         },
-      ),
-    ).rejects.toThrow(/requires an existing structural rollout policy/)
+      },
+      trainScenarios: train,
+      selectionScenarios: selection,
+      testScenarios: testCases,
+      judges: [judge],
+      agent: async (candidate) => {
+        seen.push(candidate)
+        return { policy: structuralRolloutPolicyFromProfile(candidate) }
+      },
+      runDir: 'mem://rollout-policy-unconfigured',
+      storage: inMemoryCampaignStorage(),
+      resamples: 40,
+      confidence: 0.95,
+      expectUsage: 'off',
+    })
+
+    expect(result.decision).toBe('hold')
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every(Object.isFrozen)).toBe(true)
+    expect(seen).toEqual(Array.from({ length: seen.length }, () => profile))
   })
 })

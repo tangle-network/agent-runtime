@@ -414,9 +414,9 @@ Defined in: [src/primeintellect/types.ts:88](https://github.com/tangle-network/a
 
 #### Properties
 
-##### schema
+##### kind
 
-> **schema**: `"tangle.primeintellect.package/v1"`
+> **kind**: `"tangle.primeintellect.package"`
 
 Defined in: [src/primeintellect/types.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L89)
 
@@ -538,23 +538,17 @@ Defined in: [src/primeintellect/types.ts:115](https://github.com/tangle-network/
 
 #### Properties
 
-##### protocol
-
-> **protocol**: `"tangle.primeintellect.episode/v1"`
-
-Defined in: [src/primeintellect/types.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L116)
-
 ##### task
 
 > **task**: [`PrimeIntellectPublicTask`](#primeintellectpublictask)
 
-Defined in: [src/primeintellect/types.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L117)
+Defined in: [src/primeintellect/types.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L116)
 
 ##### model
 
 > **model**: `object`
 
-Defined in: [src/primeintellect/types.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L118)
+Defined in: [src/primeintellect/types.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L117)
 
 ###### name
 
@@ -572,7 +566,7 @@ Defined in: [src/primeintellect/types.ts:118](https://github.com/tangle-network/
 
 > **mcpServers**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [src/primeintellect/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L123)
+Defined in: [src/primeintellect/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L122)
 
 ## Type Aliases
 
@@ -646,7 +640,7 @@ Defined in: [src/primeintellect/types.ts:60](https://github.com/tangle-network/a
 
 Defined in: [src/primeintellect/package.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L29)
 
-Build a complete PrimeIntellect Verifiers v1 package without writing to disk.
+Build a complete PrimeIntellect Verifiers package without writing to disk.
 
 #### Parameters
 
@@ -712,7 +706,7 @@ Read and validate the private process contract installed by the generated Prime 
 
 > **createPrimeIntellectBackend**(`context`, `options?`): [`AgentExecutionBackend`](index.md#agentexecutionbackend)\<[`AgentBackendInput`](index.md#agentbackendinput)\>
 
-Defined in: [src/primeintellect/runner.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L50)
+Defined in: [src/primeintellect/runner.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L49)
 
 Build the existing runtime backend against Prime's intercepted model endpoint.
 
@@ -736,7 +730,7 @@ Build the existing runtime backend against Prime's intercepted model endpoint.
 
 > **runPrimeIntellectProgram**\<`Result`\>(`run`, `options?`): `Promise`\<`Result`\>
 
-Defined in: [src/primeintellect/runner.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L67)
+Defined in: [src/primeintellect/runner.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L66)
 
 Execute the caller's canonical runtime program inside a Prime rollout.
 The callback may call runPersonified, runAgentic, runLoop, or any product wrapper.
