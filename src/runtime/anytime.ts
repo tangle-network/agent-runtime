@@ -59,6 +59,49 @@ export interface AnytimeReport {
   perStrategy: AnytimeStrategySummary[]
 }
 
+/**
+ * The best-so-far fold — the ONE definition of "how good was the run after k results", shared by
+ * the post-run anytime report below and by the LIVE progress-based stop rules
+ * (`supervise/stop-rules.ts`). Given the observed objective per settled result in order, it returns
+ * the running maximum. A result with no objective (`undefined` — it failed, or it was never
+ * scored) carries the previous best forward rather than resetting it.
+ *
+ * It is extracted rather than duplicated on purpose: a stop rule that decides a run has plateaued
+ * must agree, number for number, with the report that later says whether stopping was right.
+ */
+export function bestSoFar(values: ReadonlyArray<number | undefined>): number[] {
+  const out: number[] = []
+  let best = 0
+  for (const v of values) {
+    if (typeof v === 'number' && v > best) best = v
+    out.push(best)
+  }
+  return out
+}
+
+/** Mean of a best-so-far curve — the anytime AUC when the curve is normalized to [0,1]. Higher =
+ *  the run climbed earlier. Shared with the stop rules so "improving" means one thing. */
+export function areaUnderCurve(curve: ReadonlyArray<number>): number {
+  if (curve.length === 0) return 0
+  return curve.reduce((s, v) => s + v, 0) / curve.length
+}
+
+/**
+ * How many trailing entries of a best-so-far curve are within `minDelta` of the curve's value
+ * `window` steps back — i.e. the length of the current PLATEAU, in settles. `0` means the most
+ * recent settle improved the best by more than `minDelta`.
+ *
+ * The plateau math the live stop rules read. Defined here, beside the report that measures whether
+ * the plateau was real, so there is exactly one notion of "not improving".
+ */
+export function plateauLength(curve: ReadonlyArray<number>, minDelta: number): number {
+  if (curve.length === 0) return 0
+  const last = curve[curve.length - 1] as number
+  let i = curve.length - 1
+  while (i > 0 && last - (curve[i - 1] as number) <= minDelta) i -= 1
+  return curve.length - 1 - i
+}
+
 const median = (xs: number[]): number | null => {
   if (xs.length === 0) return null
   const s = [...xs].sort((a, b) => a - b)
@@ -91,14 +134,15 @@ export function anytimeReport(
     const ordered = [...shots].sort((a, b) => (a.endMs ?? a.startMs) - (b.endMs ?? b.startMs))
     const t0 = Math.min(...ordered.map((s) => s.startMs))
     const taskTargets = opts?.targetFor ? [opts.targetFor(taskId)] : targets
-    let best = 0
+    // ONE best-so-far definition, shared with the live stop rules.
+    const bests = bestSoFar(ordered.map((s) => (typeof s.score === 'number' ? s.score : undefined)))
     let cumUsd = 0
     const points: AnytimeTaskCurve['points'] = []
     const hits: AnytimeTaskCurve['hits'] = {}
     for (const t of taskTargets) hits[String(t)] = null
-    for (const s of ordered) {
+    for (const [i, s] of ordered.entries()) {
       cumUsd += s.usd
-      if (typeof s.score === 'number' && s.score > best) best = s.score
+      const best = bests[i] as number
       const elapsedMs = (s.endMs ?? s.startMs) - t0
       points.push({ elapsedMs, cumUsd, best })
       for (const t of taskTargets) {
@@ -131,8 +175,7 @@ export function anytimeReport(
       )
       curveByShot.push(vals.reduce((s, v) => s + v, 0) / vals.length)
     }
-    const auc =
-      curveByShot.length > 0 ? curveByShot.reduce((s, v) => s + v, 0) / curveByShot.length : 0
+    const auc = areaUnderCurve(curveByShot)
     const summaryTargets = opts?.targetFor ? [Number.NaN] : targets
     for (const t of summaryTargets) {
       const key = (

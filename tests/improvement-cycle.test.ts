@@ -6,6 +6,10 @@ import type {
   Scenario,
   SurfaceProposer,
 } from '@tangle-network/agent-eval/contract'
+import {
+  sealCandidateBenchmarkSuite,
+  sealCandidateBenchmarkTask,
+} from '@tangle-network/agent-eval/contract'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
@@ -22,6 +26,7 @@ import {
   verifyAgentImprovementActivationResult,
 } from '../src/intelligence/activation'
 import {
+  type AgentImprovementExperimentMaterial,
   createAgentImprovementActivation,
   createAgentImprovementProposal,
   proposeAgentImprovement,
@@ -116,7 +121,18 @@ afterEach(() => {
   cleanupCandidateFixtures()
 })
 
-describe('agent improvement lifecycle', () => {
+function candidateExperimentMaterial(
+  experiment: CandidateExperimentFixture['experiment'],
+): AgentImprovementExperimentMaterial {
+  const { candidateLineage: _candidateLineage, digest: _digest, ...material } = experiment
+  return material
+}
+
+// These exercise the whole improvement lifecycle — real content-addressing, real file I/O, a
+// paired matrix — and on CI the slowest already burn ~4.3s of the 5s default. That leaves the
+// file one scheduling hiccup from red regardless of what changed. Size the timeout to the work
+// these tests actually do rather than leaving them at the edge of the default.
+describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
   it('runs analysis through exact activation using only public inputs', async () => {
     const seed = createCandidateExperimentFixture()
     const profile = agentCandidateProfileAsAgentProfile(seed.experiment.baseline.profile)
@@ -158,7 +174,7 @@ describe('agent improvement lifecycle', () => {
           baseline: seed.experiment.baseline,
           candidate,
         })
-        return measured.experiment
+        return candidateExperimentMaterial(measured.experiment)
       },
       placeCell: (input) => {
         if (!measured) throw new Error('experiment was not built')
@@ -208,6 +224,12 @@ describe('agent improvement lifecycle', () => {
 
     expect(result.proposal.changedSurfaces).toEqual(['prompt'])
     if (!measured) throw new Error('experiment was not built')
+    expect(result.experiment.candidateLineage).toEqual({
+      source: 'optimizer',
+      parentDigests: [measured.experiment.baseline.digest],
+      runIds: [result.improvement.raw.provenance.runId],
+      developmentSplitDigest: result.improvement.raw.provenance.evidence.search.splitDigest,
+    })
     expect(activation.targets[0].expectedBaseDigest).toBe(promptSurfaceDigest(measured))
     expect(activationResult.outcome.status).toBe('applied')
     expect(profile.prompt?.systemPrompt).not.toBe('PROMOTED')
@@ -256,16 +278,160 @@ describe('agent improvement lifecycle', () => {
           const candidate = redigestCandidateBundle(seed.experiment.baseline, {
             profile: freezeGenericAgentCandidateProfile(substituted),
           })
-          return createCandidateExperimentFixture({
-            baseline: seed.experiment.baseline,
-            candidate,
-          }).experiment
+          return candidateExperimentMaterial(
+            createCandidateExperimentFixture({
+              baseline: seed.experiment.baseline,
+              candidate,
+            }).experiment,
+          )
         },
         placeCell: () => {
           throw new Error('substituted candidates must fail before execution')
         },
       }),
     ).rejects.toThrow(/does not contain the improvement winner/)
+  })
+
+  it.each<
+    [string, (material: AgentImprovementExperimentMaterial) => AgentImprovementExperimentMaterial]
+  >([
+    [
+      'caller-supplied optimizer lineage',
+      (material) =>
+        Object.assign(material, {
+          candidateLineage: {
+            source: 'optimizer',
+            parentDigests: [material.baseline.digest],
+            runIds: ['forged-optimizer-run'],
+            developmentSplitDigest: candidateSha('forged-development-split'),
+            profileDiffIds: ['forged-profile-diff'],
+            modelSnapshots: ['forged-model-snapshot'],
+          },
+        }),
+    ],
+    [
+      'caller-supplied experiment digest',
+      (material) => Object.assign(material, { digest: candidateSha('forged-experiment-digest') }),
+    ],
+  ])('rejects %s before it executes', async (_label, tamper) => {
+    const seed = createCandidateExperimentFixture()
+    const profile = agentCandidateProfileAsAgentProfile(seed.experiment.baseline.profile)
+
+    await expect(
+      proposeAgentImprovement({
+        runId: 'human-lineage-run',
+        profile,
+        analysis: {
+          registry: {
+            list: () => [{ id: 'improvement' }],
+            run: async () => ({
+              run_id: 'human-lineage-run',
+              correlation_id: 'human-lineage-run',
+              started_at: '2026-07-10T00:00:00.000Z',
+              ended_at: '2026-07-10T00:00:01.000Z',
+              findings: [finding],
+              per_analyst: [],
+              total_cost_usd: 0,
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+          log: () => {},
+        },
+        improvement: {
+          surface: 'prompt',
+          generator: improvementProposer,
+          scenarios: improvementScenarios,
+          judge: improvementJudge,
+          agent: improvementAgent,
+          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+        },
+        buildExperiment: ({ improvement }) => {
+          if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
+          const candidate = redigestCandidateBundle(seed.experiment.baseline, {
+            profile: freezeGenericAgentCandidateProfile(improvement.candidate.profile),
+          })
+          const material = candidateExperimentMaterial(
+            createCandidateExperimentFixture({
+              baseline: seed.experiment.baseline,
+              candidate,
+            }).experiment,
+          )
+          return tamper(material)
+        },
+        placeCell: () => {
+          throw new Error('caller-supplied Runtime fields must fail before execution')
+        },
+      }),
+    ).rejects.toThrow(/must not supply Runtime-owned fields/)
+  })
+
+  it('rejects a held-out task from the optimizer development split before it executes', async () => {
+    const seed = createCandidateExperimentFixture()
+    const profile = agentCandidateProfileAsAgentProfile(seed.experiment.baseline.profile)
+
+    await expect(
+      proposeAgentImprovement({
+        runId: 'overlapping-split-run',
+        profile,
+        analysis: {
+          registry: {
+            list: () => [{ id: 'improvement' }],
+            run: async () => ({
+              run_id: 'overlapping-split-run',
+              correlation_id: 'overlapping-split-run',
+              started_at: '2026-07-10T00:00:00.000Z',
+              ended_at: '2026-07-10T00:00:01.000Z',
+              findings: [finding],
+              per_analyst: [],
+              total_cost_usd: 0,
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+          log: () => {},
+        },
+        improvement: {
+          surface: 'prompt',
+          generator: improvementProposer,
+          scenarios: improvementScenarios,
+          judge: improvementJudge,
+          agent: improvementAgent,
+          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+        },
+        buildExperiment: ({ improvement }) => {
+          if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
+          const candidate = redigestCandidateBundle(seed.experiment.baseline, {
+            profile: freezeGenericAgentCandidateProfile(improvement.candidate.profile),
+          })
+          const fixture = createCandidateExperimentFixture({
+            baseline: seed.experiment.baseline,
+            candidate,
+          })
+          const task = fixture.experiment.benchmark.tasks[0]
+          if (!task) throw new Error('expected a held-out task')
+          const { digest: _digest, ...taskMaterial } = task
+          const heldOutTask = sealCandidateBenchmarkTask({
+            ...taskMaterial,
+            benchmark: {
+              ...task.benchmark,
+              splitDigest: improvement.raw.provenance.evidence.search.splitDigest,
+            },
+          })
+          return {
+            ...candidateExperimentMaterial(fixture.experiment),
+            benchmark: sealCandidateBenchmarkSuite({
+              tasks: [heldOutTask],
+              reps: fixture.experiment.benchmark.suite.reps,
+              seeds: fixture.experiment.benchmark.suite.seeds,
+            }),
+          }
+        },
+        placeCell: () => {
+          throw new Error('overlapping development and held-out work must fail before execution')
+        },
+      }),
+    ).rejects.toThrow(/development and held-out splits must be disjoint/)
   })
 
   it('requires both knowledge arms to share one measured candidate identity', () => {

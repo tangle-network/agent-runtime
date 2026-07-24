@@ -65,6 +65,10 @@ import type {
 } from '../types'
 import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
+import { PI_RUNTIME, type PiSeam, piExecutor } from './pi-executor'
+import type { ExecutorProgress } from './progress'
+import { createSteerableSandboxSession, type SandboxSteeringOptions } from './sandbox-session'
+import type { TraceSource } from './trace-source'
 import type {
   AgentSpec,
   DefaultVerdict,
@@ -108,6 +112,18 @@ export interface SandboxSeam {
   /** Hard cap on the composed loop's iterations. The budget pool reserves against
    *  the spawn `Budget.maxIterations`; this is the leaf's own ceiling. Default 1. */
   maxIterations?: number
+  /**
+   * OPT-IN: run this worker as a multi-turn, STEERABLE session instead of the historical
+   * single-shot `runLoop` composition. Setting it gives the sandbox worker an `Executor.deliver`
+   * inbox (so `Scope.send` / `steer_agent` actually reach it), a live tool-activity trace, and a
+   * `progress()` read — turning the default cloud worker from something a supervisor can only
+   * wait on into something it can watch and correct.
+   *
+   * Absent, nothing changes: the same `runLoop` leaf, no inbox, `steer_agent` still reports
+   * `delivered:false`. Opt-in because a steerable worker holds ONE box across several turns,
+   * which is a different resource profile from a fire-and-forget shot.
+   */
+  steering?: SandboxSteeringOptions
 }
 
 /** CLI subprocess seam. `bin` + `args` describe the Halo/RLM process to spawn. */
@@ -589,6 +605,47 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
 
   let artifact: ExecutorResult<unknown> | undefined
 
+  // STEERABLE mode (opt-in): the worker becomes a multi-turn session on one box, with a real
+  // inbox, so a driver's steer has a turn boundary to be folded into. This is the path that
+  // makes `Scope.send` return `true` for the DEFAULT cloud worker.
+  if (seam.steering) {
+    const inbox = createInbox()
+    const session = createSteerableSandboxSession({
+      controller,
+      profile: spec.profile,
+      harness,
+      sandboxClient: seam.sandboxClient,
+      inbox,
+      taskToPrompt: (t) => taskToPrompt(t),
+      options: seam.steering,
+      ...(seam.loopCtx ? { loopCtx: seam.loopCtx } : {}),
+      contentRef,
+    })
+    return {
+      runtime: 'sandbox' as Runtime,
+      deliver: (m) => inbox.deliver(m),
+      progress: (): ExecutorProgress => session.progress(),
+      traceSource: (): TraceSource => session.traceSource(),
+      execute(task, signal): AsyncIterable<UsageEvent> {
+        return session.stream(task, signal)
+      },
+      async teardown(_grace): Promise<{ destroyed: boolean }> {
+        controller.abort()
+        await session.teardown()
+        return { destroyed: true }
+      },
+      resultArtifact() {
+        const a = session.artifact()
+        if (!a) {
+          throw new ValidationError(
+            'sandboxExecutor(steering): resultArtifact() read before stream drained',
+          )
+        }
+        return a
+      },
+    }
+  }
+
   // The leaf runs an opaque, self-parallelizing coding harness; the loop just
   // refines once over it. Output is the raw event stream parsed to its tail text.
   const output: OutputAdapter<SandboxLeafOut> = {
@@ -1060,7 +1117,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       for await (const chunk of parseSseChatStream(res.body)) {
         if (chunk.content) {
           turnText += chunk.content
-          yield { kind: 'iteration' }
         }
         if (chunk.toolCall) toolCalls.push(chunk.toolCall)
         if (chunk.usage) {
@@ -1077,6 +1133,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       cleanup()
     }
     turns += 1
+    yield { kind: 'iteration' }
     if (turnText) lastText = turnText
 
     // Before settling, drain once more — the worker can't finish while a steer it
@@ -1544,6 +1601,7 @@ export type ExecutorConfig =
   | ({ backend: 'cli' } & CliSeam)
   | ({ backend: 'cli-worktree' } & CliWorktreeSeam)
   | ({ backend: 'provider' } & ProviderSeam)
+  | ({ backend: 'pi' } & PiSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
 
 /**
@@ -1569,6 +1627,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         return cliExecutor(spec, seamed)
       case 'cli-worktree':
         return cliWorktreeExecutor(spec, seamed)
+      case 'pi':
+        return piExecutor(spec, seamed)
       case 'provider': {
         const providerSeam = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
         const provider = resolveAgentEnvironmentProvider(
@@ -1606,6 +1666,10 @@ export function createExecutorRegistry(): ExecutorRegistry {
   factories.set('inline', routerInlineExecutor)
   factories.set('sandbox', sandboxExecutor)
   factories.set('cli', cliExecutor)
+  // pi is wrapped, not forked: `piExecutor` speaks pi's own out-of-process RPC protocol, so its
+  // steering queue / session persistence / abort stay upstream's. Registered here through the
+  // documented extension point so a spec can select it by `AgentSpec.executor` or by name.
+  factories.set(PI_RUNTIME, piExecutor)
 
   return {
     register<Out>(runtime: Runtime, factory: ExecutorFactory<Out>): void {

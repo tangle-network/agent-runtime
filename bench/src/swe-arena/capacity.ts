@@ -15,7 +15,7 @@
 import { run } from './proc'
 import type { SecretsEnv } from './arms'
 
-export type CapacityProbe = () => Promise<boolean>
+export type CapacityProbe = (signal?: AbortSignal) => Promise<boolean>
 
 export interface EndpointCapacityGate {
   /** Human label for status lines (e.g. 'z.ai-coding', 'router'). */
@@ -34,15 +34,40 @@ export interface EndpointCapacityGate {
   onStatus?: (msg: string) => void
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+export function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout | undefined
+    const onAbort = () => {
+      if (timer) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(signal?.reason ?? new Error('capacity wait aborted'))
+    }
+    timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 /** One k-of-n probe window. Exported for direct reuse (bash probe-capacity.sh body). */
-export async function probeWindow(gate: EndpointCapacityGate): Promise<{ ok: number; passed: boolean }> {
+export async function probeWindow(
+  gate: EndpointCapacityGate,
+  signal?: AbortSignal,
+): Promise<{ ok: number; passed: boolean }> {
   const { k, n } = gate.kOfN
   let ok = 0
   for (let i = 0; i < n; i++) {
-    if (await gate.probe().catch(() => false)) ok += 1
-    if (i < n - 1) await sleep(gate.probeIntervalMs ?? 1000)
+    signal?.throwIfAborted()
+    try {
+      if (await gate.probe(signal)) ok += 1
+    } catch {
+      // Endpoint failures count as a failed probe; caller cancellation does not.
+      signal?.throwIfAborted()
+    }
+    signal?.throwIfAborted()
+    if (i < n - 1) await sleepWithSignal(gate.probeIntervalMs ?? 1000, signal)
   }
   return { ok, passed: ok >= k }
 }
@@ -52,12 +77,15 @@ export async function probeWindow(gate: EndpointCapacityGate): Promise<{ ok: num
  * k-of-n windows) or the ceiling elapses. Returns whether capacity was found —
  * callers decide whether a closed gate skips the instance or aborts the run.
  */
-export async function waitForCapacity(gate: EndpointCapacityGate): Promise<boolean> {
+export async function waitForCapacity(gate: EndpointCapacityGate, signal?: AbortSignal): Promise<boolean> {
+  signal?.throwIfAborted()
   const steadyM = gate.steadyM ?? 1
   const deadline = Date.now() + gate.waitCeilingMs
   let consecutive = 0
   for (;;) {
-    const { ok, passed } = await probeWindow(gate)
+    signal?.throwIfAborted()
+    const { ok, passed } = await probeWindow(gate, signal)
+    signal?.throwIfAborted()
     gate.onStatus?.(`[${gate.name}] capacity: ${ok}/${gate.kOfN.n}${passed ? '' : ' (below k)'} steady=${passed ? consecutive + 1 : 0}/${steadyM}`)
     if (passed) {
       consecutive += 1
@@ -66,7 +94,7 @@ export async function waitForCapacity(gate: EndpointCapacityGate): Promise<boole
       consecutive = 0
     }
     if (Date.now() >= deadline) return false
-    await sleep(gate.retryDelayMs ?? 30_000)
+    await sleepWithSignal(gate.retryDelayMs ?? 30_000, signal)
   }
 }
 
@@ -112,7 +140,8 @@ export function httpCapacityProbe(spec: HttpProbeSpec): CapacityProbe {
   }
   const body = probeBody(spec.model, spec.maxTokens ?? 8000)
   const maxTime = spec.maxTimeS ?? 40
-  return async () => {
+  return async (signal?: AbortSignal) => {
+    signal?.throwIfAborted()
     // Body via stdin (--data @-) so the payload never sits on a command line.
     // The HTTP code is marker-anchored because dotenvx writes its injection
     // banner to the same stdout stream.
@@ -127,7 +156,9 @@ export function httpCapacityProbe(spec: HttpProbeSpec): CapacityProbe {
       timeoutMs: (maxTime + 20) * 1000,
       stdin: body,
       env: { ...process.env, PROBE_URL: spec.url },
+      signal,
     })
+    signal?.throwIfAborted()
     return /HTTP_CODE=200\s*$/.test(res.stdout)
   }
 }

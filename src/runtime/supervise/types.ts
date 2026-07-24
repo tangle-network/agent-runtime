@@ -30,10 +30,29 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
+import type { ExecutorProgress, WorkerProgress } from './progress'
+import type { TraceSource } from './trace-source'
+import type { PendingWait, WaitOutcome, WaitProbeRegistry, WaitRejection, WaitSpec } from './wait'
 
 // `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
 // import the budget surface from one place. `usd` is a SEPARATE channel (see `UsageEvent`).
-export type { DefaultVerdict, LoopTokenUsage }
+/** Wait-state vocabulary, re-exported so the keystone surface stays one import. */
+export type {
+  DefaultVerdict,
+  LoopTokenUsage,
+  PendingWait,
+  WaitOutcome,
+  WaitProbeRegistry,
+  WaitRejection,
+  WaitSpec,
+}
+
+/** Options for `Scope.wait`. `label` is the wait's identity within its parent scope — it is what
+ *  a resumed run matches to re-adopt a journaled, still-unfired wait, so it must be stable across
+ *  processes (a label derived from wall-clock would resume as a NEW wait). */
+export interface WaitOpts {
+  readonly label: string
+}
 
 // ── The atom ────────────────────────────────────────────────────────────────
 
@@ -94,6 +113,27 @@ export interface Executor<Out> {
    * executor's to ignore.
    */
   deliver?(msg: unknown): void
+  /**
+   * Optional LIVE progress: what this worker is doing RIGHT NOW, read synchronously and
+   * cheaply while `execute` is still streaming. The scope already derives activity timing,
+   * turns, and spend from the metered usage stream for EVERY executor; this adds only what
+   * the executor alone knows — the harness's tool/file activity, its own turn count, and how
+   * many delivered steers it has not yet folded in. Never throws; a read that cannot be
+   * answered returns `undefined`.
+   *
+   * This is the observe half of steering: `deliver` lets a driver correct a worker, and this
+   * is the evidence it corrects FROM. An executor that implements neither cannot be supervised
+   * mid-flight — it can only be waited on.
+   */
+  progress?(): ExecutorProgress | undefined
+  /**
+   * Optional live tool-call trace for the ONLINE detectors (`watchTrace`). An executor that
+   * can see its worker's tool calls exposes them here, so a supervisor can run the streaming
+   * repeated-action / error-streak panel over a RUNNING worker and raise a `finding` the
+   * moment it loops, instead of discovering it at settle. Omitted = no online detection for
+   * this runtime (the settle-time analyzers still work).
+   */
+  traceSource?(): TraceSource | undefined
   /**
    * Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
    * (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
@@ -222,8 +262,18 @@ export interface Spend {
 export type Restart = 'temporary' | 'transient' | 'permanent'
 
 /** `'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box
- *  during sandbox acquire BEFORE it is `running`, so abort must be defined over it. */
-export type NodeStatus = 'pending' | 'acquiring' | 'running' | 'done' | 'failed' | 'cancelled'
+ *  during sandbox acquire BEFORE it is `running`, so abort must be defined over it.
+ *  `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
+ *  box, and no conserved budget — it is neither in flight nor settled, so neither `inFlight` nor
+ *  a terminal status describes it (see `Scope.wait`). */
+export type NodeStatus =
+  | 'pending'
+  | 'acquiring'
+  | 'running'
+  | 'waiting'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
 
 /** Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-clock. */
 export type NodeId = string
@@ -314,6 +364,46 @@ export interface Scope<Out> {
    * is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
    */
   send(nodeId: NodeId, msg: unknown): boolean
+  /**
+   * Arm a WAIT-STATE node: a first-class tree node that waits on wall-clock time (`timer`) or on
+   * a named external predicate (`poll`) and settles through THIS scope's `next()` cursor like any
+   * other child — but holds no executor, no sandbox, and no conserved budget. Waiting costs zero
+   * tokens and zero dollars by construction.
+   *
+   * It is journaled (`waiting` → `woken`) with its ABSOLUTE deadline, so a run that dies mid-wait
+   * resumes still waiting: the supervisor surfaces the un-woken waits on `Scope.resume.waits`, and
+   * re-arming the same `label` adopts the recorded node id and original instant instead of
+   * restarting the countdown.
+   *
+   * Fail-closed admission, mirroring `spawn`: `invalid-spec`, `unknown-probe` (a `poll` naming a
+   * predicate this run's registry cannot resolve), or `deadline-exceeded` (the wait would outlive
+   * the pool's hard wall-clock ceiling — a wait never extends a budget guard).
+   *
+   * NOT `await_event`: that is an in-run rendezvous on the coordination bus whose 15s fence makes
+   * the caller re-poll — each re-poll a driver inference turn against a process that must stay up,
+   * and nothing about it survives a restart. See `supervise/wait.ts`.
+   */
+  wait(
+    spec: WaitSpec,
+    opts: WaitOpts,
+  ): { ok: true; handle: Handle<WaitOutcome> } | { ok: false; reason: WaitRejection }
+  /**
+   * The LIVE read-model of one child, valid WHILE it runs: last-activity timestamp, idle time,
+   * a derived `stalled` flag, tokens/turns spent so far, whether a steer can even reach it
+   * (`steerable`), and whatever tool activity its executor exposes. `undefined` for an unknown
+   * id. This is the counterpart to `send`: a driver that can steer but cannot observe has
+   * nothing to steer on, which is precisely why steering went unused.
+   *
+   * Pull-based and side-effect free — reading it starts no timer and spends nothing. `now` and
+   * `stallAfterMs` are injectable so a caller (and a test) controls what counts as stalled.
+   */
+  progress(
+    nodeId: NodeId,
+    opts?: { now?: number; stallAfterMs?: number },
+  ): WorkerProgress | undefined
+  /** The live tool-call trace of one child when its executor exposes one (`Executor.traceSource`),
+   *  for running the online detector panel over a RUNNING worker. `undefined` otherwise. */
+  traceSource(nodeId: NodeId): TraceSource | undefined
   /** This scope's abort signal — aborted when the run is cancelled, a breaker trips, the pool
    *  is exhausted, or a parent scope cascades. A long-running driver `act` over this scope reads
    *  it to break promptly (the conserved pool + driver-stop are the other bounds). A nested
@@ -331,6 +421,16 @@ export interface Scope<Out> {
    * metered event is cost-critical, so it lands before the join-barrier roll-up).
    */
   meter(spend: Spend, detail?: Record<string, unknown>): Promise<void>
+  /**
+   * Prior committed work, present ONLY on a resumed run (`undefined` on a fresh run, which is
+   * every run that did not pass `SupervisorOpts.resume`). The supervisor `loadTree`s the journal
+   * first; when a non-empty tree exists it rehydrates the already-settled children (via
+   * `replaySpawnTree`) and hands them here so a resume-aware `act` re-uses them instead of
+   * re-spawning committed work. A resume-blind driver simply ignores it and re-spawns — correct
+   * but redundant. The scope's spawn ordinal + cursor seq are already advanced past the recorded
+   * maxima, so any NEW spawn appends without colliding with a journaled event.
+   */
+  readonly resume?: ResumedWork<Out>
   /** The live tree — reads the in-memory nursery, not the journal. */
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
@@ -341,6 +441,24 @@ export interface Scope<Out> {
     deadlineMs: number
     reservedTokens: number
   }>
+}
+
+/**
+ * The committed work a resumed run inherits from its journal. `settled` is the replayed
+ * `Settled[]` (cursor-ordered, rehydrated from the blob store by `replaySpawnTree`); `view`
+ * is the tree as `materializeTreeView` folded it at the recorded cursor position. A
+ * resume-aware `act` reads `scope.resume?.settled` to pick up where the crashed run left off.
+ */
+export interface ResumedWork<Out> {
+  readonly settled: ReadonlyArray<Settled<Out>>
+  readonly view: TreeView
+  /**
+   * Wait-state nodes the journal shows as ARMED but never woken — the run died mid-wait. Each
+   * carries the ORIGINAL arm instant and absolute deadline, so re-arming the same `label` through
+   * `Scope.wait` resumes the countdown instead of restarting it. Empty on a fresh run and on a
+   * resumed run that was not waiting.
+   */
+  readonly waits: ReadonlyArray<PendingWait>
 }
 
 // ── Observability view (read off the in-memory nursery) ────────────────────────
@@ -364,6 +482,10 @@ export interface TreeView {
   readonly nodes: ReadonlyArray<NodeSnapshot>
   /** Count of nodes in `running` or `acquiring` — the "what's in flow?" answer. */
   readonly inFlight: number
+  /** Count of nodes in `waiting` — armed wait-states. Deliberately NOT folded into `inFlight`:
+   *  a wait burns no executor and no budget, so counting it as flow would misreport both idle
+   *  capacity and how much work is actually running. */
+  readonly waiting: number
 }
 
 // ── Event source — the decision/payload split the replay argument rests on ─────
@@ -394,6 +516,32 @@ export type SpawnEvent =
       at: string
     }
   | { kind: 'cancelled'; id: NodeId; reason: string; seq: number; at: string }
+  | {
+      /** A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the wait
+       *  ordinal within its parent scope), exactly like `spawned` — it creates a node, it does not
+       *  settle one. It carries the whole `spec` and the original `armedAt` so a brand-new process
+       *  re-arms the identical wait with the identical ABSOLUTE deadline. */
+      kind: 'waiting'
+      id: NodeId
+      parent?: NodeId
+      label: string
+      spec: WaitSpec
+      armedAt: number
+      seq: number
+      at: string
+    }
+  | {
+      /** A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept distinct so a
+       *  reader can tell zero-cost waiting apart from paid work without inspecting payloads. A
+       *  wait carries no `spent` (it is free by construction, not by measurement); `outRef`
+       *  rehydrates its `WaitOutcome`, absent when the wait was cancelled. */
+      kind: 'woken'
+      id: NodeId
+      by: 'fired' | 'timeout' | 'cancelled'
+      outRef?: string
+      seq: number
+      at: string
+    }
   | {
       /** A driver's OWN inference spend, journaled separately from spawned-child work — the journal
        *  TWIN of `BudgetPool.observe`, exactly as `settled` is the twin of `reconcile`. So every
@@ -451,6 +599,10 @@ export interface SupervisorOpts {
   readonly blobs: ResultBlobStore
   /** Executor resolution — the open registry mapping `AgentSpec` → `Executor`. */
   readonly executors: ExecutorRegistry
+  /** Predicate resolution for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so
+   *  the wait can be journaled and re-armed by a later process; this is what the name resolves
+   *  against. Unset ⇒ `poll` waits are refused (`unknown-probe`); `timer` waits are unaffected. */
+  readonly probes?: WaitProbeRegistry
   /** Runtime recursion-depth ceiling (paired with the conserved pool per R3). */
   readonly maxDepth?: number
   /**
@@ -459,6 +611,17 @@ export interface SupervisorOpts {
    */
   readonly maxRestarts?: number
   readonly withinMs?: number
+  /**
+   * Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
+   * one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`
+   * (`replaySpawnTree` + `materializeTreeView`) instead of starting over. Requires a journal +
+   * blob store that OUTLIVE the process (`createFileRunContext(dir)`); against the in-memory
+   * stores there is never a prior tree, so it is a no-op.
+   *
+   * Default `false` — a run always begins a fresh tree, which is the behavior every existing
+   * consumer has. Resume is a durability contract the caller opts into, never a silent default.
+   */
+  readonly resume?: boolean
   readonly now?: () => number
   readonly signal?: AbortSignal
   /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the

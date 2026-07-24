@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
@@ -54,6 +57,54 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       { budget, makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }), brain },
     )
     expect(result.kind).toBe('winner')
+  })
+
+  it('runDir makes the run durable and resumable; unset stays in-memory', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'supervise-rundir-'))
+    try {
+      const script = () =>
+        scriptedBrain([
+          {
+            toolCalls: [
+              { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'done' },
+        ])
+      const opts = {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
+        runId: 'durable-run',
+        runDir: dir,
+      }
+
+      const first = await supervise({ name: 'root', harness: null }, 'solve it', {
+        ...opts,
+        brain: script(),
+      })
+      expect(first.kind).toBe('winner')
+
+      // The journal really landed on disk with the settled child, not in a process-lifetime map.
+      const journal = await readFile(join(dir, 'spawn-journal.jsonl'), 'utf8')
+      const records = journal
+        .split('\n')
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l) as { kind: string; event?: { kind: string } })
+      expect(records[0]?.kind).toBe('begin')
+      expect(records.some((r) => r.event?.kind === 'settled')).toBe(true)
+
+      // A second `supervise()` against the SAME runDir + runId takes the resume path. Without the
+      // `resume` flag threaded through, this would fail loud in `beginTree` ("already begun at …,
+      // refusing to overwrite") because the wall-clock `at` differs between the two calls.
+      const second = await supervise({ name: 'root', harness: null }, 'solve it', {
+        ...opts,
+        brain: script(),
+      })
+      expect(second.kind).toBe('winner')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('workerFromBackend builds a spawnable worker leaf with an executor (no network)', () => {

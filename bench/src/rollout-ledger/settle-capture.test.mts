@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readRolloutLedger } from './ledger.mts'
+import { readRolloutLedger } from '@tangle-network/agent-eval/rollout'
 import {
   campaignCoordsFromCellPath,
   createSettleCapture,
@@ -195,6 +195,9 @@ describe('createSettleCapture end-to-end (opencode store absent)', () => {
     expect(sup.outcome.reward_source).toBe('swe-arena-official-judge')
     expect(sup.generation).toBe(0)
     expect(sup.candidate_index).toBe(1)
+    expect(sup.candidate_id).toBe('gen0-cand1')
+    // The canonical trainable split, not the legacy `train` alias.
+    expect(sup.task.split).toBe('search')
     expect(sup.outcome.metrics.split_visibility).toBe('public')
     expect(sup.provenance.capture).toBe('settle-time')
 
@@ -202,10 +205,15 @@ describe('createSettleCapture end-to-end (opencode store absent)', () => {
     expect(workers).toHaveLength(2)
     for (const w of workers) {
       expect(w.parent_rollout_id).toBe(sup.rollout_id)
+      expect(w.candidate_id).toBe('gen0-cand1')
+      expect(w.task.split).toBe('search')
       expect(w.outcome.reward_source).toBe(WORKER_REWARD_SOURCE_V2)
       // Store absent → labeled gap, never a silent drop.
       expect(w.messages).toEqual([])
       expect(w.provenance.gap).toBeTruthy()
+      // No session at all, so no completed invocation to claim.
+      expect(w.outcome.metrics.has_session).toBe(false)
+      expect(w.outcome.is_completed).toBe(false)
     }
     const delivered = workers.find((w) => w.outcome.metrics.worker_label === 'w1')!
     const bystander = workers.find((w) => w.outcome.metrics.worker_label === 'w2')!

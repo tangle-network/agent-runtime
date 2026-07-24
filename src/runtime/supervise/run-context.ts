@@ -24,12 +24,17 @@
  * @experimental
  */
 
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
+import {
+  FileResultBlobStore,
+  FileSpawnJournal,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../durable/spawn-journal'
 import { withDriverExecutor } from './driver-executor'
 import { createExecutorRegistry } from './runtime'
 import type { ExecutorRegistry, ResultBlobStore, SpawnJournal } from './types'
 
-/** Options for the in-memory run context. */
+/** Options for a supervised run context. */
 export interface InMemoryRunContextOptions {
   /**
    * Wrap the executor registry with `withDriverExecutor` so a spawned child marked
@@ -48,7 +53,17 @@ export interface InMemoryRunContext {
   readonly journal: SpawnJournal
   readonly blobs: ResultBlobStore
   readonly executors: ExecutorRegistry
+  /**
+   * Present (and `true`) only on a DURABLE context (`createFileRunContext`), so spreading the
+   * context into `SupervisorOpts` also opts the run into resume-first. An in-memory context
+   * leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
+   */
+  readonly resume?: boolean
 }
+
+/** The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the
+ *  historical name for the same shape. */
+export type RunContext = InMemoryRunContext
 
 /**
  * Build a fresh in-memory run context. Every call returns NEW stores (no shared global
@@ -60,5 +75,31 @@ export function createInMemoryRunContext(opts: InMemoryRunContextOptions = {}): 
     journal: new InMemorySpawnJournal(),
     blobs: new InMemoryResultBlobStore(),
     executors: opts.withDriver ? withDriverExecutor(base) : base,
+  }
+}
+
+/**
+ * Build a DURABLE run context: the spawn journal and the result blobs are file-backed (fsynced
+ * per append/write) under `dir`, and the context carries `resume: true` so spreading it into
+ * `SupervisorOpts` makes the supervisor `loadTree`-first. A run that dies mid-flight therefore
+ * resumes when it is re-run with the SAME `runId` and the SAME `dir`: the committed children come
+ * back on `Scope.resume` (rehydrated by `replaySpawnTree`) instead of being re-executed.
+ *
+ * Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event) and `${dir}/blobs/` (one
+ * content-addressed JSON file per settled result). The directory is created on first write.
+ *
+ * Opt-in by construction — `createInMemoryRunContext()` is unchanged and stays the default, so no
+ * existing consumer writes to disk or resumes unless it asks for this.
+ */
+export function createFileRunContext(
+  dir: string,
+  opts: InMemoryRunContextOptions = {},
+): RunContext {
+  const base = createExecutorRegistry()
+  return {
+    journal: new FileSpawnJournal(`${dir}/spawn-journal.jsonl`),
+    blobs: new FileResultBlobStore(`${dir}/blobs`),
+    executors: opts.withDriver ? withDriverExecutor(base) : base,
+    resume: true,
   }
 }

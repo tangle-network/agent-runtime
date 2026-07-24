@@ -29,12 +29,27 @@ export type {
 // caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
 // Recursive execution atom (the keystone): the open `Executor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
-// journal. Substrate types come from `./supervise/types`; the in-memory journal +
-// blob store live in `../durable/spawn-journal`.
+// journal. Substrate types come from `./supervise/types`; the journal + blob store
+// impls live in `../durable/spawn-journal`.
+//
+// Both pairs are exported: the in-memory stores (tests / scratch / a run that need not
+// outlive its process) AND the file-backed stores that make a run RESUMABLE. Without the
+// durable pair on the public surface a consumer cannot resume at all — and the one that
+// tried wrote its own half-working copy, whose `loadTree` never read the file back. The
+// replay readers ship with them, because a durable journal you cannot fold back into a
+// tree is only a log.
 export {
   contentAddress,
+  FileResultBlobStore,
+  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  materializeTreeView,
+  // The waits a journaled tree shows as armed but never woken — what a resumed run re-arms with
+  // the ORIGINAL deadline. Exported for the same reason the replay readers are: a durable wait a
+  // consumer cannot read back is only a log line.
+  pendingWaits,
+  replaySpawnTree,
 } from '../durable/spawn-journal'
 // The typed coordination-bus event (up: settled/question/finding; down: steer/answer) — surfaced
 // here so a host folding the bus onto its own timeline (the supervise-topology observability) can
@@ -51,6 +66,11 @@ export {
   type AnytimeStrategySummary,
   type AnytimeTaskCurve,
   anytimeReport,
+  // The best-so-far / AUC / plateau math, extracted so the LIVE progress-based stop rules
+  // (`supervise/stop-rules`) decide from the SAME numbers the post-run report grades them by.
+  areaUnderCurve,
+  bestSoFar,
+  plateauLength,
   renderAnytimeTable,
 } from './anytime'
 export {
@@ -500,6 +520,21 @@ export {
   type WatchTraceOptions,
   watchTrace,
 } from './supervise/detector-monitor'
+// REFILLING dispatch: hold N children in flight and admit the next queued unit the moment one
+// settles, instead of draining a whole round (`fanout`) or opening one worker per driver turn.
+// `freeSlots` is the reading the driver sees; `effectiveConcurrency` collapses the supervisor and
+// fleet caps into the ONE number a host should pass to both `maxLiveWorkers` and `width`.
+export {
+  type ConcurrencyCaps,
+  type DispatchReport,
+  type DispatchStopReason,
+  type DispatchUnit,
+  effectiveConcurrency,
+  freeSlots,
+  queueOf,
+  type RollingDispatchOptions,
+  rollingDispatch,
+} from './supervise/dispatch'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {
@@ -518,13 +553,40 @@ export { assertModelAllowed } from './supervise/model-policy'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
-// The one-call in-memory store bundle for a supervised run: a fresh journal + blob store +
-// executor registry, shaped to spread straight into `SupervisorOpts`. `{ withDriver: true }`
-// wraps the registry for the recursive agents-drive-agents path.
+// pi WRAPPED, not forked: `piExecutor` speaks pi's own out-of-process RPC protocol, so its
+// steering queue, session persistence, abort, and compaction stay upstream's. Registered as
+// runtime `'pi'` through the documented `ExecutorRegistry.register` extension point.
 export {
+  PI_RUNTIME,
+  type PiSeam,
+  piExecutor,
+  piSeamKey,
+} from './supervise/pi-executor'
+// The LIVE read-model of a RUNNING worker — last activity, idle time, derived stall, turns,
+// tokens so far, recent tool/file activity, unread steers. What `observe_agent` now returns
+// mid-flight, and the evidence a supervisor steers FROM.
+export {
+  type ActivityLog,
+  type ActivityNote,
+  createActivityLog,
+  DEFAULT_STALL_AFTER_MS,
+  type ExecutorProgress,
+  readWorkerProgress,
+  type ScopeProgressInput,
+  type WorkerProgress,
+} from './supervise/progress'
+// The one-call store bundle for a supervised run: a journal + blob store + executor registry,
+// shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
+// (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
+// plus `resume: true`, so re-running the same `runId` against the same `dir` picks up the
+// children that already settled instead of re-running them. `{ withDriver: true }` wraps the
+// registry for the recursive agents-drive-agents path.
+export {
+  createFileRunContext,
   createInMemoryRunContext,
   type InMemoryRunContext,
   type InMemoryRunContextOptions,
+  type RunContext,
 } from './supervise/run-context'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
@@ -536,7 +598,36 @@ export {
   type ProviderSeam,
   type ToolSpec,
 } from './supervise/runtime'
+// The STEERABLE sandbox worker: one box, one server-side session, many turns — so a steer has a
+// turn boundary to be folded into and the default cloud worker becomes correctable mid-flight.
+export {
+  createSteerableSandboxSession,
+  DEFAULT_SANDBOX_STEERING_MAX_TURNS,
+  type SandboxSteeringOptions,
+  type SteerableSandboxSession,
+} from './supervise/sandbox-session'
 export { createScope, settledToIteration } from './supervise/scope'
+// PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
+// out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
+// override) the conserved-pool / deadline / abort ceilings.
+export {
+  type AllWorkersStalledOptions,
+  allOf,
+  allWorkersStalled,
+  anyOf,
+  createProgressTracker,
+  type NoProgressForOptions,
+  noProgressFor,
+  type PlateauOptions,
+  type ProgressSample,
+  type ProgressTracker,
+  type ProgressTrackerOptions,
+  type ProgressView,
+  plateau,
+  type StopDecision,
+  type StopRule,
+  sampleFromSettled,
+} from './supervise/stop-rules'
 // The one-call "just invoke the supervisor": `supervise(profile, task, { backend, budget })` with
 // sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam
 // from a backend config + an optional completion oracle (settled⟺delivered).
@@ -576,10 +667,15 @@ export type {
   ExecutorFactory,
   ExecutorRegistry,
   ExecutorResult,
+  NodeId,
   ResultBlobStore,
+  ResumedWork,
   Runtime,
   Scope,
   Settled,
+  SpawnEvent,
+  SpawnJournal,
+  SpawnOpts,
   Spend,
   SupervisedResult,
   Supervisor,
@@ -588,6 +684,24 @@ export type {
   UsageEvent,
   WidenGate,
 } from './supervise/types'
+// WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
+// (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute
+// deadline, so a killed run resumes still waiting to the same instant. Not `await_event`: that is
+// an in-run rendezvous whose re-polls each cost a driver turn and vanish with the process.
+export {
+  createWaitProbes,
+  isWaitOutcome,
+  type PendingWait,
+  pollFor,
+  timerAt,
+  validateWaitSpec,
+  type WaitOutcome,
+  type WaitProbe,
+  type WaitProbeRegistry,
+  type WaitRejection,
+  type WaitSpec,
+  waitUntil,
+} from './supervise/wait'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)
 // driving a local harness CLI on its own git worktree, surfaced as the open `Executor` port.
 export {
