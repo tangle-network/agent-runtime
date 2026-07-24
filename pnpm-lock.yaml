@@ -73,8 +73,8 @@ importers:
         specifier: workspace:*
         version: link:..
       '@tangle-network/sandbox':
-        specifier: ^0.11.1
-        version: 0.11.1(viem@2.54.6(typescript@5.9.3)(zod@4.4.3))
+        specifier: ^0.12.0
+        version: 0.12.0(viem@2.54.6(typescript@5.9.3)(zod@4.4.3))
     devDependencies:
       '@types/node':
         specifier: ^25.9.3
@@ -721,26 +721,6 @@ packages:
 
   '@tangle-network/agent-profile-materialize@0.5.1':
     resolution: {integrity: sha512-gU4J6mglvy9bpBAnErOruO1goF1cSzGGd06Oo5CFSj7RjR1SXWDFMYQtVLSd/O68ldCVAMVIMq5b4rwboMBbcw==}
-
-  '@tangle-network/sandbox@0.11.1':
-    resolution: {integrity: sha512-9I5G1UHNhwTNFToe+Y0iQO1Joemd+7ba3LXIjfYUj+apRww6Eqq+1UGV2a11XaWUTlEqyhAc37F5OHBUj/xxCg==}
-    peerDependencies:
-      '@mastra/core': ^1.36.0
-      '@modelcontextprotocol/sdk': ^1.29.0
-      ai: ^6.0.175
-      openai: ^6.36.0
-      viem: ^2.0.0
-    peerDependenciesMeta:
-      '@mastra/core':
-        optional: true
-      '@modelcontextprotocol/sdk':
-        optional: true
-      ai:
-        optional: true
-      openai:
-        optional: true
-      viem:
-        optional: true
 
   '@tangle-network/sandbox@0.12.0':
     resolution: {integrity: sha512-a9PuIuykGfxQrXxsMk7k5hzhdBY/HW0Qif4CZ3xKYDoeXsDEE5P1komzThwF5vncFeu5bBX3ywMQV6l5xv/8HQ==}
@@ -1806,7 +1786,7 @@ snapshots:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
       '@ax-llm/ax': 23.0.1(zod@4.4.3)
       '@hono/node-server': 2.0.8(hono@4.12.30)
-      '@tangle-network/agent-core': 0.4.11
+      '@tangle-network/agent-core': 0.4.19
       '@tangle-network/agent-interface': 0.31.0
       '@tangle-network/tcloud': 0.4.14(typescript@5.9.3)(zod@4.4.3)
       hono: 4.12.30
@@ -1885,13 +1865,6 @@ snapshots:
   '@tangle-network/agent-profile-materialize@0.5.1':
     dependencies:
       '@tangle-network/agent-interface': 0.30.0
-
-  '@tangle-network/sandbox@0.11.1(viem@2.54.6(typescript@5.9.3)(zod@4.4.3))':
-    dependencies:
-      '@tangle-network/agent-core': 0.4.11
-      '@tangle-network/agent-interface': 0.30.0
-    optionalDependencies:
-      viem: 2.54.6(typescript@5.9.3)(zod@4.4.3)
 
   '@tangle-network/sandbox@0.12.0(viem@2.54.6(typescript@5.9.3)(zod@4.4.3))':
     dependencies:

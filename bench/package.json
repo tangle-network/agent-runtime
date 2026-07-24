@@ -44,7 +44,7 @@
     "@tangle-network/agent-interface": "0.32.0",
     "@tangle-network/agent-knowledge": "^4.1.0",
     "@tangle-network/agent-runtime": "workspace:*",
-    "@tangle-network/sandbox": "^0.11.1"
+    "@tangle-network/sandbox": "^0.12.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",
