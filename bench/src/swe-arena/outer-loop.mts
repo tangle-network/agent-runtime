@@ -2047,10 +2047,9 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
   // ── the improve() call: the optimizer seat ───────────────────────────
   // Typed from improve()'s own parameter: the monorepo hoists two
   // agent-interface majors, so a nominal import can resolve to the wrong one.
-  const profile = { name: 'loops-pi-supervisor' } as Parameters<typeof improve>[0]
   signal?.throwIfAborted()
   log(`round ${config.round} runId=${runId}: improve(surface:'code') over ${config.loopsRepo}@${config.loopsBaseRef}`)
-  const result = await improve<Scenario, R4Artifact>(profile, {
+  const result = await improve<Scenario, R4Artifact>({
     surface: 'code',
     // analyzeGeneration wins over this flag; the composite above embeds
     // rawTraceDistiller directly so the raw-trace mechanism stays active.

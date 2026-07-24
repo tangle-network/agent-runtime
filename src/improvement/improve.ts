@@ -19,7 +19,6 @@ import type {
   ImproveCodeRunOptions,
   ImproveMethodOptions,
   ImproveMethodResult,
-  ImproveOptions,
   ImproveResult,
 } from './improve-types'
 import { runMethodImprovement } from './method-execution'
@@ -49,33 +48,37 @@ export type {
 } from './improve-types'
 
 /**
- * Optimize one exact profile surface with a complete method, or optimize code
- * through Runtime's isolated worktree path. The input profile is never changed.
+ * Optimize one exact profile surface with a complete method.
  */
 export function improve<TScenario extends Scenario, TArtifact>(
   profile: AgentProfile,
   opts: ImproveMethodOptions<TScenario, TArtifact>,
 ): Promise<ImproveMethodResult>
+/**
+ * Optimize repository code through Runtime's isolated worktree path.
+ */
 export function improve<TScenario extends Scenario, TArtifact>(
-  profile: AgentProfile,
   opts: ImproveCodeRunOptions<TScenario, TArtifact>,
 ): Promise<ImproveCodeResult<TScenario, TArtifact>>
-export function improve<TScenario extends Scenario, TArtifact>(
-  profile: AgentProfile,
-  opts: ImproveOptions<TScenario, TArtifact>,
-): Promise<ImproveResult<TScenario, TArtifact>>
 export async function improve<TScenario extends Scenario, TArtifact>(
-  profile: AgentProfile,
-  opts: ImproveOptions<TScenario, TArtifact>,
+  profileOrCode: AgentProfile | ImproveCodeRunOptions<TScenario, TArtifact>,
+  opts?: ImproveMethodOptions<TScenario, TArtifact>,
 ): Promise<ImproveResult<TScenario, TArtifact>> {
-  const parsedProfile = agentProfileSchema.safeParse(profile)
+  if (opts === undefined) {
+    const code = profileOrCode as ImproveCodeRunOptions<TScenario, TArtifact>
+    if (!code || code.surface !== 'code') {
+      throw new ConfigError("improve(): the one-argument form requires { surface: 'code', ... }")
+    }
+    return runCodeImprovement(code)
+  }
+  if ((opts as { surface?: string }).surface === 'code') {
+    throw new ConfigError("improve(): code takes one argument: improve({ surface: 'code', ... })")
+  }
+  const parsedProfile = agentProfileSchema.safeParse(profileOrCode)
   if (!parsedProfile.success) {
     throw new ConfigError(
       `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
     )
-  }
-  if (opts.surface === 'code') {
-    return runCodeImprovement(opts)
   }
   return runMethodImprovement(immutableCandidateValue(parsedProfile.data), opts)
 }

@@ -77,7 +77,7 @@ interface CellTrace {
  *
  * Drop-in for `analyzeGeneration` on `improve({ surface: 'code' })`:
  *
- *   await improve(profile, {
+ *   await improve({
  *     surface: 'code',
  *     findings: seedFindings,
  *     code: { repoRoot },

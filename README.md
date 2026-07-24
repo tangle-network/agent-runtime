@@ -1,6 +1,7 @@
 # @tangle-network/agent-runtime
 
-A TypeScript runtime for running AI agents: as a **chat turn**, a **one-shot task**, or a **team of agents** working toward a goal: that records every run and uses those records to **measure and improve** agents against real pass/fail checks. It is the engine Tangle's own production agents run on.
+A TypeScript runtime for chat agents, one-shot tasks, and agent teams.
+It records each run so you can measure changes against real pass/fail checks and improve the agent without changing your product integration.
 
 Domain behavior (models, tools, knowledge) plugs in as adapters; the scoring statistics and the ship decision come from [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval); sandboxed execution from [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox).
 
@@ -24,7 +25,10 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-networ
 
 ## Quickstart (offline, no API keys)
 
-The core move everything else builds on: a driver runs a worker, reads the worker's real output, and writes the next prompt from it until a check passes. This is the full working loop from [`examples/quickstart/quickstart.ts`](./examples/quickstart/quickstart.ts) (the worker is a scripted stand-in so it runs with zero credentials; swap it for a real sandbox, CLI-harness, or router backend without changing the driver):
+A driver runs a worker, reads its output, and writes the next prompt until a check passes.
+This excerpt shows the driver from the runnable [`examples/quickstart/quickstart.ts`](./examples/quickstart/quickstart.ts).
+That file defines the scripted `worker`, `output`, and `validator` used below so it runs without credentials.
+Replace the scripted worker with a sandbox, CLI bridge, or router backend without changing the driver.
 
 ```ts
 import { inProcessSandboxClient, runLoop } from '@tangle-network/agent-runtime/loops'
@@ -61,7 +65,7 @@ shot 1: PASS: "Shipped one-click restore with an instant rollback path."
 decision: pick-winner: winner: shot 1
 ```
 
-The fully annotated version of this loop, with every seam explained, is [`examples/driver-loop`](./examples/driver-loop).
+The annotated version is [`examples/driver-loop`](./examples/driver-loop).
 
 ## What you do with it
 
@@ -184,19 +188,25 @@ There is no local fallback.
 Install its optional Python process before using it:
 
 ```bash
-python -m pip install agent-eval-rpc
+python -m pip install "agent-eval-rpc==0.126.5"
+python -m pip install "gepa[full]==0.1.4"
+```
+
+The published GEPA 0.1.4 wheel supports the direct `gepa` engine.
+Sequential, adaptive, best-of, vote, Omni, AutoResearch, Meta Harness, and Best-of-N require the tested official source revision:
+
+```bash
 python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
 ```
 
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install agent-eval-rpc
+python -m pip install "agent-eval-rpc==0.126.5"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 
-The source pins are deliberate.
-The published GEPA wheel lacks Optimize Anything, and the published SkillOpt wheel lacks files required by `ReflACTTrainer`.
+SkillOpt 0.2.0's published wheel omits prompt files required by `ReflACTTrainer`, so the tested SkillOpt source revision remains necessary.
 SkillOpt and GEPA's standard reflection engine require `optimizer: { model, baseUrl, apiKey, budget }`.
 Agent-based GEPA engines may own their model connection instead.
 Agent Eval proxies those model calls, enforces the nested budget, and records their cost.
@@ -218,15 +228,24 @@ To optimize several named profile fields together, also provide `profileComponen
 Tools, MCP, hooks, subagents, curated instructions, and rollout policy are also exact profile coordinates.
 Runtime does not choose an optimizer for them.
 
-Official optimizer factories reject a selected profile surface containing common live credentials or private values.
-They redact common private values from findings, described scenarios, described artifacts, and judge notes before sending those values to Python.
-`describeScenario` still controls the exact train and selection fields sent to the external optimizer, so return only approved fields.
+Without `describeScenario`, the external optimizer receives only each development case ID.
+Without `describeArtifact`, evaluation feedback contains no artifact body.
+When either descriptor is present, its result passes through `redact` together with findings, background text, profile name, and judge notes.
+The built-in redactor removes common credentials and email addresses.
+Supply a domain redactor for customer names, account IDs, or other private data the built-in rules cannot identify.
+Runtime applies that hook first and then still applies its built-in scrubber.
+Set `redact: false` only when every outbound value is public and already reviewed.
+
+The selected profile surface is the optimizer's candidate and cannot be redacted without changing the measured candidate.
+Runtime always rejects recognized credentials in those bytes.
+It also rejects structurally sensitive fields such as MCP env, headers, URLs, metadata, and extensions unless `approveSensitiveProfileSurface: true`.
+That approval asserts the exact candidate contains only public values or safe references.
 
 Code is the exception.
 It uses Runtime's isolated git worktrees and coding-agent candidate execution:
 
 ```ts
-const result = await improve(baseProfile, {
+const result = await improve({
   surface: 'code',
   code: { repoRoot, baseRef, generator },
   scenarios,
@@ -296,7 +315,11 @@ Runtime owns candidate identity, measurement, review binding, expiry, retry iden
 
 ### Improve a knowledge base
 
-`runKnowledgeImprovementJob` is the runtime-owned front door for KB, wiki, memory-backed, and RAG improvement jobs. It creates a candidate copy, runs supervised agents against it, checks readiness through `@tangle-network/agent-knowledge`, and returns frozen baseline and candidate snapshots with spend and timing. It never changes the live knowledge base. Use `improve(..., { surface: 'memory' })` for the agent's curated lesson document; use this job for source, retrieval, and knowledge-store changes.
+`runKnowledgeImprovementJob` runs KB, wiki, memory-backed, and RAG improvement jobs.
+It creates a candidate copy, runs agents against it, checks it through `@tangle-network/agent-knowledge`, and returns frozen baseline and candidate snapshots with spend and timing.
+It never changes the live knowledge base.
+Use `improve(profile, { surface: 'memory', ... })` for the agent's curated lesson document.
+Use this job for source, retrieval, and knowledge-store changes.
 
 ```ts
 import { runKnowledgeImprovementJob } from '@tangle-network/agent-runtime/knowledge'
@@ -378,10 +401,10 @@ Use `importPrimeIntellectTraces(...)` to convert them to agent-eval `RunRecord`s
 
 ## How it works (the short version)
 
-- **One agent, run two ways.** The same agent runs at "do the task" speed and at "get better at the task" speed. "Driver", "worker", and "coordinator" are roles one agent plays, not separate types.
-- **Everything is measured.** Every run is a trace: tokens, dollars, time, and a pass/fail score from a real check. "Better" is a number with a denominator, not a vibe, and "equally good but cheaper" is a result you can prove.
-- **Improvement is gated.** A change ships only after it beats the current agent on fresh tasks no tuning step ever saw, with a statistical test, not a single lucky run.
-- **The grader is honest.** Whatever gives feedback never sees the answer key, and scores are recomputed from the attempts actually run. An agent cannot fabricate its own win.
+- **Roles are configuration.** Driver, worker, and coordinator describe what an agent does in a run. They are not separate agent types.
+- **Runs are recorded.** A run can report tokens, dollars, time, outputs, and scores.
+- **Candidates face fresh tasks.** The optimizer uses train and selection tasks. Promotion uses a separate final set.
+- **Scores come from executed attempts.** Runtime recomputes results from the recorded cells and rejects incomplete cost or source evidence.
 
 ## Primitives
 

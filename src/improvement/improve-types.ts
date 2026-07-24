@@ -216,6 +216,8 @@ export interface ImproveCost {
 
 /** Optimizer ancestry sealed into downstream candidate experiments. */
 export interface ImproveLineage {
+  /** Unique Runtime invocation used to isolate this run's cost receipts. */
+  invocationId: string
   /** Upstream optimizer run when reported, otherwise this Runtime optimization invocation. */
   runId: string
   /** Exact train-plus-selection scenario payloads exposed to candidate selection. */

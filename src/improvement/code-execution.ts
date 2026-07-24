@@ -282,6 +282,7 @@ export async function runCodeImprovement<TScenario extends Scenario, TArtifact>(
     cost: copyImproveCost(raw.cost),
     durationMs: raw.durationMs,
     lineage: Object.freeze({
+      invocationId: raw.provenance.runId,
       runId: raw.provenance.runId,
       developmentSplitDigest: raw.provenance.evidence.search.splitDigest,
     }),

@@ -33,7 +33,6 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { improve, agenticGenerator } from '@tangle-network/agent-runtime'
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
@@ -295,11 +294,10 @@ async function main(): Promise<void> {
     runHarness: runHarness as any,
   })
 
-  const profile: AgentProfile = { name: 'swe-scaffold', prompt: { systemPrompt: '' } }
   const scenarios: Scenario[] = allIds.map((id) => ({ id, kind: 'swe-bench-verified' }))
   const holdoutScenarios: Scenario[] = holdoutIds.map((id) => ({ id, kind: 'swe-bench-verified' }))
 
-  const out = await improve(profile, {
+  const out = await improve({
     surface: 'code',
     gate: 'holdout',
     code: { repoRoot: REPO_ROOT, baseRef, worktreeDir, generator },

@@ -140,7 +140,7 @@ function fakeRunner(
     '    python: { implementation: "CPython", version: "3.12.0" },',
     '    bridge: { package: "agent-eval-rpc", version: "0.126.1", sourceSha256: "a".repeat(64) },',
     '    optimizer: optimizerSource,',
-    '    engineModules: [],',
+    '    engineModules: [{ module: "fixture-engine", sourceSha256: "d".repeat(64) }],',
     '  } }))',
     '  process.exit(0)',
     '}',
@@ -178,6 +178,27 @@ function failingRunner(message: string) {
     command: process.execPath,
     args: ['-e', `process.stderr.write(${JSON.stringify(message)}); process.exit(1)`, '--'],
   }
+}
+
+function replacingRedactor(
+  replacements: ReadonlyArray<readonly [from: string, to: string]>,
+): (value: unknown) => unknown {
+  const redact = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      return replacements.reduce((result, [from, to]) => result.replaceAll(from, to), value)
+    }
+    if (Array.isArray(value)) return value.map(redact)
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+          key,
+          redact(child),
+        ]),
+      )
+    }
+    return value
+  }
+  return redact
 }
 
 const testOptimizer = {
@@ -242,7 +263,6 @@ describe('official optimizer methods', () => {
 
     const observed = JSON.parse(readFileSync(observedInputPath, 'utf8')) as Record<string, unknown>
     expect(observed).toMatchObject({
-      evaluationId: evaluationRef,
       resume: 'if-compatible',
       trustedResumeState: true,
       recipe: {
@@ -256,6 +276,7 @@ describe('official optimizer methods', () => {
       trainSet: [{ id: 'train', data: { prompt: 'visible train' } }],
       selectionSet: [{ id: 'selection', data: { prompt: 'visible selection' } }],
     })
+    expect(observed.evaluationId).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(observed).not.toHaveProperty('version')
     expect(String(observed.background)).toContain('answers omit citations')
     expect(JSON.stringify(observed)).not.toContain('SECRET')
@@ -263,10 +284,23 @@ describe('official optimizer methods', () => {
     expect(result.method).toBe('gepa:gepa')
     expect(result.provenance).toMatchObject({
       source: { package: 'gepa', version: 'test' },
+      bridge: { package: 'agent-eval-rpc', version: '0.126.1' },
+      modules: [{ module: 'fixture-engine', sourceSha256: 'd'.repeat(64) }],
+      python: { implementation: 'CPython', version: '3.12.0' },
       runId: observed.runId,
       resumed: false,
       evaluationCount: 0,
     })
+    expect(result.provenance).not.toBe(result.raw.best.provenance)
+    expect(result.provenance?.bridge).not.toBe(result.raw.best.provenance?.bridge)
+    expect(result.provenance?.modules).not.toBe(result.raw.best.provenance?.modules)
+    expect(Object.isFrozen(result.provenance)).toBe(true)
+    expect(Object.isFrozen(result.provenance?.bridge)).toBe(true)
+    expect(Object.isFrozen(result.provenance?.modules)).toBe(true)
+    expect(() => {
+      if (result.provenance?.bridge) result.provenance.bridge.version = 'mutated'
+    }).toThrow()
+    expect(result.raw.best.provenance?.bridge?.version).toBe('0.126.1')
     expect(result.decision).toBe('ship')
     expect(result.candidate.profile?.prompt?.systemPrompt).toBe('improved prompt')
   })
@@ -330,7 +364,6 @@ describe('official optimizer methods', () => {
 
     const observed = JSON.parse(readFileSync(observedInputPath, 'utf8')) as Record<string, unknown>
     expect(observed).toMatchObject({
-      evaluationId: evaluationRef,
       resume: 'if-compatible',
       trainer: {
         epochs: 1,
@@ -339,6 +372,7 @@ describe('official optimizer methods', () => {
       trainSet: [{ id: 'train', data: { prompt: 'visible train' } }],
       selectionSet: [{ id: 'selection', data: { prompt: 'visible selection' } }],
     })
+    expect(observed.evaluationId).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(observed).not.toHaveProperty('version')
     expect(observed.trainer).toEqual({ epochs: 1, batchSize: 1 })
     expect(String(observed.background)).toContain('answers omit citations')
@@ -355,10 +389,226 @@ describe('official optimizer methods', () => {
     expect(result.decision).toBe('ship')
   })
 
+  it('keeps ID-only scenarios and omits artifacts when descriptors are absent', async () => {
+    const root = runDir()
+    const observedInputPath = join(root, 'observed-default-input.json')
+    const observedResponsePath = join(root, 'observed-default-response.json')
+    const result = await improve(profile, {
+      ...commonOptions(
+        officialGepa<OptimizerScenario, Artifact>({
+          objective: 'Improve the agent prompt.',
+          recipe: {
+            kind: 'engine',
+            run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+          },
+          optimizer: testOptimizer,
+          runner: fakeRunner('gepa', observedInputPath, {
+            exampleId: 'train',
+            responsePath: observedResponsePath,
+          }),
+        }),
+      ),
+      agent: async (candidate, scenario, ctx) => ({
+        ...(await agent(candidate, scenario, ctx)),
+        privateDetail: `artifact for ${scenario.privateNote}`,
+      }),
+      runDir: join(root, 'run'),
+    })
+
+    const observedInput = JSON.parse(readFileSync(observedInputPath, 'utf8')) as {
+      trainSet: unknown
+      selectionSet: unknown
+    }
+    const observedResponse = JSON.parse(readFileSync(observedResponsePath, 'utf8')) as {
+      info: Record<string, unknown>
+    }
+    expect(observedInput.trainSet).toEqual([{ id: 'train', data: { id: 'train' } }])
+    expect(observedInput.selectionSet).toEqual([{ id: 'selection', data: { id: 'selection' } }])
+    expect(observedResponse.info).not.toHaveProperty('artifact')
+    expect(JSON.stringify(observedInput)).not.toContain('privateNote')
+    expect(JSON.stringify(observedInput)).not.toContain('SECRET')
+    expect(JSON.stringify(observedResponse)).not.toContain('SECRET')
+    expect(result.provenance?.evaluationCount).toBe(1)
+  })
+
+  it('applies a caller redactor to arbitrary PII in supplied descriptors', async () => {
+    const root = runDir()
+    const observedInputPath = join(root, 'observed-domain-redaction-input.json')
+    const observedResponsePath = join(root, 'observed-domain-redaction-response.json')
+    const customerName = 'Jane Example'
+    const accountReference = 'ACCT-8472-NORTH'
+    const redact = replacingRedactor([
+      [customerName, '[customer]'],
+      [accountReference, '[account]'],
+    ])
+    const result = await improve(profile, {
+      ...commonOptions(
+        officialGepa<OptimizerScenario, Artifact>({
+          objective: `Improve support for ${customerName}.`,
+          background: `Account ${accountReference}.`,
+          recipe: {
+            kind: 'engine',
+            run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+          },
+          optimizer: testOptimizer,
+          describeScenario: (scenario) => ({
+            prompt: scenario.prompt,
+            customerName,
+            accountReference,
+          }),
+          describeArtifact: (artifact) => ({
+            text: artifact.text,
+            customerName,
+            accountReference,
+          }),
+          redact,
+          runner: fakeRunner('gepa', observedInputPath, {
+            exampleId: 'train',
+            responsePath: observedResponsePath,
+          }),
+        }),
+      ),
+      runDir: join(root, 'run'),
+    })
+
+    const outbound = `${readFileSync(observedInputPath, 'utf8')}\n${readFileSync(
+      observedResponsePath,
+      'utf8',
+    )}`
+    expect(outbound).not.toContain(customerName)
+    expect(outbound).not.toContain(accountReference)
+    expect(outbound).toContain('[customer]')
+    expect(outbound).toContain('[account]')
+    expect(result.decision).toBe('ship')
+  })
+
+  it('keeps built-in credential redaction after a caller redactor', async () => {
+    const root = runDir()
+    const observedInputPath = join(root, 'observed-composed-redaction-input.json')
+    const customerName = 'Jane Example'
+    await improve(profile, {
+      ...commonOptions(
+        officialGepa<OptimizerScenario, Artifact>({
+          objective: `Improve support for ${customerName}.`,
+          background: 'Authorization: Bearer abcdefghijklmnop',
+          recipe: {
+            kind: 'engine',
+            run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+          },
+          optimizer: testOptimizer,
+          describeScenario: (scenario) => ({
+            prompt: scenario.prompt,
+            customerName,
+            apiKey: 'sk-abcdefghijklmnop',
+          }),
+          redact: replacingRedactor([[customerName, '[customer]']]),
+          runner: fakeRunner('gepa', observedInputPath),
+        }),
+      ),
+      runDir: join(root, 'run'),
+    })
+
+    const outbound = readFileSync(observedInputPath, 'utf8')
+    expect(outbound).not.toContain(customerName)
+    expect(outbound).not.toContain('abcdefghijklmnop')
+    expect(outbound).toContain('[customer]')
+    expect(outbound).toContain('[redacted]')
+  })
+
+  it.each([
+    [
+      'a signed MCP URL',
+      {
+        remote: {
+          transport: 'http' as const,
+          url: 'https://mcp.example.test/callback?signature=opaque-7f91d8e4',
+        },
+      },
+      '$.remote.url',
+    ],
+    [
+      'an opaque MCP header',
+      {
+        remote: {
+          transport: 'http' as const,
+          url: 'https://mcp.example.test',
+          headers: { 'x-workspace-proof': 'opaque-7f91d8e4-customer-value' },
+        },
+      },
+      '$.remote.headers',
+    ],
+    [
+      'opaque MCP metadata',
+      {
+        local: {
+          transport: 'stdio' as const,
+          command: 'mcp-server',
+          metadata: { customer: 'north-star-8472' },
+        },
+      },
+      '$.local.metadata',
+    ],
+  ])('rejects %s unless the selected surface is explicitly approved', async (_, mcp, path) => {
+    await expect(
+      improve(
+        {
+          name: 'optimizer-fixture',
+          mcp,
+        },
+        {
+          ...commonOptions(
+            officialGepa<OptimizerScenario, Artifact>({
+              objective: 'Improve the MCP profile.',
+              recipe: {
+                kind: 'engine',
+                run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+              },
+              optimizer: testOptimizer,
+              runner: failingRunner('runner must not start'),
+            }),
+          ),
+          surface: 'mcp',
+        },
+      ),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining(path),
+    })
+  })
+
+  it('allows a reviewed sensitive profile surface only with explicit approval', () => {
+    const mcp = {
+      remote: {
+        transport: 'http' as const,
+        url: 'https://public.example.test/mcp',
+      },
+    }
+    const method = officialGepa<OptimizerScenario, Artifact>({
+      objective: 'Improve the MCP profile.',
+      recipe: {
+        kind: 'engine',
+        run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+      },
+      optimizer: testOptimizer,
+      approveSensitiveProfileSurface: true,
+      runner: failingRunner('runner must not start'),
+    })
+
+    expect(() =>
+      method({
+        profile: { name: 'optimizer-fixture', mcp },
+        evaluationRef,
+        surface: 'mcp',
+        baselineSurface: JSON.stringify(mcp),
+        baselineValue: mcp,
+        findings: [],
+      }),
+    ).not.toThrow()
+  })
+
   it.each([
     [
       'gepa',
-      'gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f',
+      'gepa[full]==0.1.4',
       () =>
         officialGepa<OptimizerScenario, Artifact>({
           objective: 'Improve the agent prompt.',

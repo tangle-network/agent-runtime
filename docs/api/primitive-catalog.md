@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.104.0` and `@tangle-network/agent-eval@0.126.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.104.0` and `@tangle-network/agent-eval@0.126.5` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -66,7 +66,7 @@ Import from `@tangle-network/agent-runtime` — 386 exports.
 | `formatSupervisedKnowledgeTask` | function | Format the supervisor task with the KB root, readiness requirements, current findings, and metadata. |
 | `getModels` | function | Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
-| `improve` | function | Optimize one exact profile surface with a complete method, or optimize code |
+| `improve` | function | Optimize one exact profile surface with a complete method. |
 | `isAnalystFinding` | function | Structural guard for the schema-versioned `AnalystFinding` envelope. |
 | `isDelegatedLoopMode` | function | Type guard — returns true when `value` is a valid `DelegatedLoopMode` string. |
 | `isDepthExceeded` | function | Refuse further forwarding when the inbound depth has reached the limit. |
@@ -333,7 +333,7 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 141 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 143 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -360,13 +360,14 @@ Import from `@tangle-network/agent-runtime/intelligence` — 141 exports.
 | `isIntelligenceOff` | function | True when these settings admit NO intelligence spawn — the passthrough |
 | `manifestFromProfile` | function | Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`. |
 | `normalizeCertifiedProfile` | function | Deserialize the composed-endpoint response into a `CertifiedProfile`. The |
+| `optimizationActivationReceiptFromMetadata` | function | Read and verify the optimizer evidence carried by a measured proposal. |
 | `parseCandidateProfileMaterialization` | function | Parse and check every native file hash plus both canonical document digests. |
 | `prepareAgentImprovementProfileActivation` | function | Compare product-owned profiles with an exact measured transition and prepare |
 | `proposeAgentImprovement` | function | Analyze, search, then remeasure the resulting exact candidate before proposing it. |
 | `pullCertified` | function | Pull the certified composed profile for a target. Fail-closed: a network |
 | `resolveEffort` | function | Compile a named tier (plus optional per-field overrides) into the flat |
 | `resolveIntelligenceBaseUrl` | function | Resolve the ONE Intelligence base URL — the single knob both the send and |
-| `resolveRedactor` | function | Resolve the redactor a client uses. A caller-supplied hook replaces the |
+| `resolveRedactor` | function | Resolve the redactor a client uses. A caller-supplied hook handles |
 | `reviewAgentImprovementProposal` | function | Persist a human or tenant-policy decision bound to one exact proposal. |
 | `runAgentCandidateExperiment` | function | Execute both arms of one immutable experiment and derive its paired result. |
 | `submitAgentImprovementProposal` | function | Submit a completed Runtime proposal to Intelligence for product-side review. |
@@ -447,7 +448,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 141 exports.
 | `SubmitAgentImprovementProposalOutcome` | type | Typed result for proposal submission. A successful result contains the |
 | `UsageClass` | type | Usage class for billing. Base-stream tokens bill `'inference'`; every |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementActivationTransitionInput`, `AgentImprovementProfileReplacement`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementActivationTransitionInput`, `AgentImprovementProfileReplacement`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `OptimizationActivationReceipt`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
@@ -999,14 +1000,14 @@ Import from `@tangle-network/agent-runtime/platform` — 20 exports.
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `PlatformHubStatus`, `StartAuthInput`, `StartAuthResult`.
 
-### PrimeIntellect: Verifiers v1 package and trace adapter
+### PrimeIntellect: Verifiers package and trace adapter
 
 Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `createPrimeIntellectBackend` | function | Build the existing runtime backend against Prime's intercepted model endpoint. |
-| `createPrimeIntellectPackage` | function | Build a complete PrimeIntellect Verifiers v1 package without writing to disk. |
+| `createPrimeIntellectPackage` | function | Build a complete PrimeIntellect Verifiers package without writing to disk. |
 | `importPrimeIntellectTraces` | function | Convert all Prime traces to agent-eval RunRecords while retaining one shared run config. |
 | `parsePrimeIntellectTraces` | function | Parse Prime's durable `traces.jsonl` and reject malformed rows with a line number. |
 | `primeIntellectTraceToRunRecord` | function | Project one complete Prime trace into the common agent-eval analysis row. |
@@ -1341,7 +1342,7 @@ Import from `@tangle-network/agent-eval` — 51 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 320 exports.
+Import from `@tangle-network/agent-eval/campaign` — 322 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1364,6 +1365,7 @@ Import from `@tangle-network/agent-eval/campaign` — 320 exports.
 | `classifyUngroundedLiterals` | function | Scan revised artifact text for single-quoted single-word literals (the |
 | `codeSurfaceIdentityMaterial` | function | Canonical, location-independent identity of a finalized code candidate. |
 | `compareOptimizationMethods` | function | Compare complete optimization methods on disjoint train, selection, and final test data. |
+| `compareRankKeys` | function | Compare fixed-length lexicographic rank keys where each element is higher-is-better. |
 | `componentSurfaceIdentityMaterial` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `composeGate` | function | Compose gates — all must `ship` for the composite to `ship`. First |
 | `costFromLedgerSummary` | function | Keep the cost fields a custom optimization method must report. |
@@ -1440,6 +1442,7 @@ Import from `@tangle-network/agent-eval/campaign` — 320 exports.
 | `AnalystArtifact` | interface | The analyst's output for one scenario — the artifact the judge scores. |
 | `AnalystScenario` | interface | A labeled trace scenario: a FIXED trace corpus plus the failure modes a |
 | `CampaignArtifactWriter` | interface | Scoped artifact writer — `write(path, content)` lands under |
+| `CampaignCellFailureReceipt` | interface | Durable `<cell>/failure-receipt.json` written before a failed cell can |
 | `CampaignCostMeter` | interface | Cell-scoped paid-call entry point. The dispatch places every paid operation |
 | `CampaignScenarioIdentity` | interface | Redacted identity of a complete scenario payload retained in campaign results. |
 | `CampaignStorage` | interface | `CampaignStorage` — the filesystem seam `runCampaign` writes through |

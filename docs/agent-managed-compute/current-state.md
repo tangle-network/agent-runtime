@@ -1,4 +1,7 @@
-# Current State Audit
+# Agent-Managed Compute Audit (2026-07-18)
+
+> This is a dated audit record, not the current package manifest.
+> Check `package.json` and the generated API docs for the release in your checkout.
 
 ## Tested Baseline
 
@@ -197,13 +200,13 @@ There is no automated test that kills a coordinator, reconnects to a real remote
 
 ### 13. Package layering and direct release lines are aligned
 
-The current `agent-knowledge` main branch has no dependency or source import from `agent-runtime`.
+At the time of this audit, the `agent-knowledge` main branch had no dependency or source import from `agent-runtime`.
 
 `agent-runtime` now owns the batteries-included composition through `src/knowledge/improvement-job.ts`.
 
 That is the intended dependency direction and removes the former package cycle.
 
-The runtime manifest requires `agent-knowledge` `^4.1.0`, develops against `agent-eval` 0.122.8, and exposes matching peer ranges for `agent-eval`, `agent-interface`, and `sandbox`.
+The audited runtime manifest required `agent-knowledge` `^4.1.0`, developed against `agent-eval` 0.122.8, and exposed matching peer ranges for `agent-eval`, `agent-interface`, and `sandbox`.
 
 Older copies may still appear inside transitive dependencies that own their contracts internally.
 The direct runtime edges share the current public contract versions.

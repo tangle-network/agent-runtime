@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import {
-  campaignSplitDigest,
   compareOptimizationMethods,
   type OptimizationMethod,
   type OptimizationMethodComparison,
@@ -21,6 +20,8 @@ import type {
   ImproveMethodSource,
   ImprovementProfileCandidate,
 } from './improve-types'
+import { assertMethodCostRecorded, methodInputWithScopedCost } from './method-cost'
+import { buildMethodEvaluationIdentity } from './method-identity'
 import {
   assertCandidateSurfaceKind,
   createProfileCandidateMaterializer,
@@ -50,11 +51,7 @@ function resolveOptimizationMethod<TScenario extends Scenario, TArtifact>(
 function copyProvenance(
   provenance: NonNullable<OptimizationMethodComparison['best']['provenance']>,
 ): NonNullable<OptimizationMethodComparison['best']['provenance']> {
-  return {
-    ...provenance,
-    source: { ...provenance.source },
-    ...(provenance.tokenUsage ? { tokenUsage: { ...provenance.tokenUsage } } : {}),
-  }
+  return immutableCandidateValue(provenance)
 }
 
 function validateExecutionRef(value: unknown): Sha256Digest {
@@ -63,17 +60,6 @@ function validateExecutionRef(value: unknown): Sha256Digest {
     throw new ConfigError('improve(): executionRef must be a lowercase sha256:<64 hex> digest')
   }
   return parsed.data
-}
-
-function developmentSplitDigest<TScenario extends Scenario>(
-  trainScenarios: readonly TScenario[],
-  selectionScenarios: readonly TScenario[],
-  reps: number,
-): Sha256Digest {
-  return canonicalCandidateDigest({
-    train: campaignSplitDigest(trainScenarios, reps),
-    selection: campaignSplitDigest(selectionScenarios, reps),
-  })
 }
 
 export async function runMethodImprovement<TScenario extends Scenario, TArtifact>(
@@ -106,20 +92,29 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
   const baselineSurface = preparedSurface.surface
   const baselineValue = immutableCandidateValue(preparedSurface.value)
   const baselineProfileDigest = canonicalCandidateDigest(profile)
-  const evaluationRef = canonicalCandidateDigest({
+  const identity = buildMethodEvaluationIdentity({
     executionRef,
     baselineProfileDigest,
+    baselineSurface,
     surface,
+    skills,
+    findings,
+    trainScenarios: comparisonOptions.trainScenarios,
+    selectionScenarios: comparisonOptions.selectionScenarios,
+    judges: comparisonOptions.judges,
+    seed: comparisonOptions.seed,
+    reps: comparisonOptions.reps,
+    costCeiling: comparisonOptions.costCeiling,
+    optimizationRunOptions,
   })
+  const { evaluationRef, developmentSplitDigest } = identity
   const dispatchRef = `improve:${evaluationRef}`
-  const identifiedJudges = comparisonOptions.judges.map((judge) =>
+  const identifiedJudges = comparisonOptions.judges.map((judge, index) =>
     Object.freeze({
       ...judge,
       judgeVersion: canonicalCandidateDigest({
         evaluationRef,
-        name: judge.name,
-        dimensions: judge.dimensions,
-        declaredJudgeVersion: judge.judgeVersion ?? null,
+        descriptor: identity.judgeDescriptors[index],
       }),
     }),
   )
@@ -130,12 +125,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     skills,
     profileComponents,
   )
-  const runtimeRunId = `runtime-optimization:${randomUUID()}`
-  const splitDigest = developmentSplitDigest(
-    comparisonOptions.trainScenarios,
-    comparisonOptions.selectionScenarios,
-    optimizationRunOptions?.reps ?? 1,
-  )
+  const runtimeInvocationId = `runtime-optimization:${randomUUID()}`
   const method = resolveOptimizationMethod(methodSource, {
     profile,
     evaluationRef,
@@ -147,7 +137,17 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
   const measuredMethod: OptimizationMethod<TScenario, TArtifact> = {
     ...method,
     async optimize(input) {
-      const result = await method.optimize(input)
+      const scopedInput = methodInputWithScopedCost(input, {
+        evaluationRef,
+        invocationId: runtimeInvocationId,
+      })
+      const result = await method.optimize(scopedInput)
+      assertMethodCostRecorded(
+        method.name,
+        result.cost,
+        scopedInput.costLedger,
+        comparisonOptions.costCeiling,
+      )
       materializeProfile(result.winnerSurface)
       return result
     },
@@ -196,8 +196,9 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     cost,
     durationMs: Date.now() - startedAt,
     lineage: Object.freeze({
-      runId: score.provenance?.runId ?? runtimeRunId,
-      developmentSplitDigest: splitDigest,
+      invocationId: runtimeInvocationId,
+      runId: score.provenance?.runId ?? runtimeInvocationId,
+      developmentSplitDigest,
       executionRef,
       baselineProfileDigest,
     }),

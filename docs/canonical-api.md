@@ -1,8 +1,14 @@
 # `@tangle-network/agent-runtime`: Canonical API Reference
 
-<!-- This doc is the JUDGMENT layer: the mental model (§1), the AgentProfile law (§1.5), and the anti-reinvention decision table (§2): WHICH primitive to reach for and what NOT to build. The export INVENTORY (WHAT exists) and per-symbol signatures + `file:line` are GENERATED into `docs/api/` (TypeDoc + `scripts/gen-primitive-catalog.mjs`, do NOT hand-edit): that is the mechanical reference: `docs/api/primitive-catalog.md` is the never-stale list of every primitive to reuse. The freshness gate (`pnpm docs:freshness`) FAILS CI if a version pin, a cited `file:line`, a decision-table symbol, or the generated catalog drifts from source: see `docs/MAINTAINING.md`. Keep this file the small, hand-curated spine; never re-list the inventory here: point at the catalog. -->
+<!-- This file maps common jobs to the right public API.
+Generated signatures and the complete export list live in docs/api/.
+Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.104.0.** The export inventory + per-symbol signatures live in the generated `docs/api/` reference: **`docs/api/primitive-catalog.md`** is the never-stale, grouped list of every primitive to reuse (own surface + the agent-eval judge / authenticity / verification / statistics / campaign / token-usage surfaces), with each one's import path and one-line summary read live from source; the per-module pages hold the full signatures. The pinned dependency is agent-eval `>=0.126.1 <0.127.0`; `@tangle-network/sandbox` materializes profiles into execution environments (peer `>=0.12.0 <1.0.0`). The neutral contract types (`AgentProfile`, `AgentProfileMcpServer`, `HarnessType`, `ReasoningEffort`, `Part`/`ToolPart`/`ToolState`, plus environment-provider types) are owned by **`@tangle-network/agent-interface`** (peer `>=0.32.0 <0.33.0`): the single source of truth. Shared evaluation primitives are re-exported through `@tangle-network/agent-eval/contract` or `/campaign`: the catalog's §2 shows exactly which subpath each lives under.
+> **Version 0.104.0.**
+> [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
+> Agent Eval must satisfy `>=0.126.5 <0.127.0`.
+> Sandbox must satisfy `>=0.12.0 <1.0.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.32.0 <0.33.0`.
 >
 > **`./loops` is the runtime barrel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/loops` is the recursive-atom + loop-kernel surface.
 >
@@ -32,7 +38,8 @@ Two substrates implement the same recursive-atom over the one `Executor` port an
 
 ## 1.5 The AgentProfile rule: author the profile, the substrate materializes it
 
-**An agent IS its `AgentProfile`, and the profile is the WHOLE agent: not just a prompt.** The surface is `systemPrompt + skills + tools + mcp + subagents + hooks + permissions + memory/rag + model` (the `AgentProfile*` family in `@tangle-network/sandbox`, constructed via `defineAgentProfile`). **System prompt ≠ skills**: skills are separate, invokable how-tos the agent reads *when prompted to invoke them*; never concatenate a skill body into the system prompt.
+An `AgentProfile` contains the agent's system prompt, skills, tools, MCP servers, subagents, hooks, permissions, memory, retrieval configuration, and model settings.
+Skills remain separate resources that the runtime can invoke; do not concatenate them into the system prompt.
 
 **You change an agent's behavior by changing its PROFILE: never by writing orchestration code around it.** The behaviors we keep hand-rolling are profile properties:
 - **Self-verification** is a profile lever, three ways, all configuration and zero glue code: (1) *steered*: the prompt says "run the tests, read failures, fix, repeat"; (2) *process-defined*: its instructions make verify-after-every-change its standing process; or (3) a **post-finish hook** that auto-runs the check and feeds failures back. The harness runs that loop. **You do not write a per-round judge, a `while(!done)`, or a bash hill-climb.**
@@ -66,7 +73,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|
-| **Just run a supervisor to a goal (one call, scaffolding defaulted)**: START HERE (running agents) | `supervise(profile, task, { budget, backend? })`: `/loops` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for the lower-level run-verbs below before you need a specific counterparty |
+| Run a supervisor toward a goal with default setup | `supervise(profile, task, { budget, backend? })`: `/loops` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for lower-level calls before you need a specific counterparty |
 | **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })`: `/loops` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |
 | Run a profile through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })`: `/loops` | a hand-rolled `createSupervisor().run` + seam-wiring helper |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape`: `/loops` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |
@@ -80,7 +87,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Adaptive tree search / progressive widening | `widen(spec)` + `flatWidenGate()`: `/loops` | a best-first/MCTS that reads child *scores* to expand (selector=judge); keep `flatWidenGate()` until your gate is proven |
 | Define the profile record for a personified run | `definePersona(input)`: `/loops` | a "profile-seam" / agent-config wrapper carrying model+prompt+tools+role |
 | Make a worker self-verify / iterate / audit | a **hook / process / skill on its authored `AgentProfile`**: §1.5 | a per-round judge, a `while(!done)` loop, or a bash hill-climb (it's a profile lever) |
-| Run an authored profile on a real harness | author the `AgentProfile`, hand it to the **sandbox substrate**: `@tangle-network/sandbox` (`defineAgentProfile`) | a `profile → opencode.json` realizer or any harness-specific config writer |
+| Run an authored profile with Claude Code, Codex, OpenCode, or another supported harness | author the `AgentProfile`; `@tangle-network/sandbox` (`defineAgentProfile`) materializes it for the selected harness | a harness-specific profile or config writer |
 | Have the supervisor design its workers | author a **full `AgentProfile`** per sub-task (prompt+skills+tools+mcp+hooks+subagents): `/loops` | author a bare `systemPrompt` string (a worker can't act on levers it has no levers for) |
 | Write a custom driver Agent and run it directly | `createSupervisor().run(root, task, opts)`: `/loops` | a bespoke orchestrator that spawns sub-agents and tallies cost (equal-compute claim breaks there) |
 | Run depth-vs-breadth (or a custom strategy) over a stateful tool domain | `runAgentic({ surface, task, mode\|strategy, budget })`: `/loops` | a hand-rolled `Supervisor.run` + journal/registry, or a depth/breadth loop |
@@ -98,7 +105,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Optimize one text surface with Microsoft SkillOpt | `officialSkillOpt({ trainer, optimizer, ... })`, passed as `improve(...).method` from root `.` | Runtime-owned SkillOpt search or a silent local fallback |
 | Improve one profile coordinate | `improve(profile, { surface, executionRef, method, trainScenarios, selectionScenarios, testScenarios, judges, agent, costCeiling })` from root `.`; `executionRef` binds saved work to executable behavior, `agent` receives the exact complete candidate profile, and `costCeiling` limits the whole run | an implicit per-surface optimizer, a method that sees final-test cases, an unmeasured profile mutation, or separate optimizer and final-test spend limits |
 | Compare complete optimization methods directly | `compareOptimizationMethods(...)` from `agent-eval/campaign` | comparing one method's training score to another method's final score |
-| Improve repository code | `improve(profile, { surface: 'code', code, scenarios, judge, agent, budget })` from root `.` | passing code through a text optimizer or managing candidate worktrees in product code |
+| Improve repository code | `improve({ surface: 'code', code, scenarios, judge, agent, budget })` from root `.` | passing code through a text optimizer or managing candidate worktrees in product code |
 | Decide ship/hold on a candidate (campaign context) | `defaultProductionGate({ holdoutScenarios, deltaThreshold })`; compose with `heldOutGate` / `composeGate`: `agent-eval/contract` | a raw `h1>h0` point comparison on the training set |
 | Decide ship/hold from a **`BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })`: `/loops` | comparing two strategies' mean scores directly; re-deriving the bootstrap |
 | Run the full multi-generation strategy flywheel + certify | `runStrategyEvolution(config)`: `/loops` | a bespoke gen0→author→gen1→holdout loop with hand-rolled champion selection |

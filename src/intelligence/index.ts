@@ -180,6 +180,8 @@ export {
   buildAgentImprovementActivationTargets,
   isAgentImprovementProfileSurface,
 } from './improvement-surfaces'
+export type { OptimizationActivationReceipt } from './optimization-receipt'
+export { optimizationActivationReceiptFromMetadata } from './optimization-receipt'
 export type {
   AgentImprovementProfileActivationPreparation,
   AgentImprovementProfileActivationTarget,

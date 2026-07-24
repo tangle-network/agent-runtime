@@ -61,3 +61,26 @@ jobs:
 
       - name: Verify agent-bench against current agent-runtime
         run: pnpm run verify:bench
+
+  official-optimizers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install package set
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify packed Runtime with official GEPA and SkillOpt
+        run: pnpm run verify:official-optimizers

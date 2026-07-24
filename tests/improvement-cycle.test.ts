@@ -1,11 +1,3 @@
-import type { AnalystFinding } from '@tangle-network/agent-eval'
-import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-} from '@tangle-network/agent-eval/contract'
 import {
   sealCandidateBenchmarkSuite,
   sealCandidateBenchmarkTask,
@@ -20,7 +12,6 @@ import {
   agentCandidateProfileAsAgentProfile,
   freezeGenericAgentCandidateProfile,
 } from '../src/candidate-execution/profile'
-import type { ImproveMethodFactory } from '../src/improvement'
 import {
   createAgentImprovementActivationResult,
   executeAgentImprovementActivation,
@@ -55,106 +46,16 @@ import {
   cleanupCandidateExperimentFixtures,
   createCandidateExperimentFixture,
 } from './helpers/candidate-experiment-fixture'
-
-const finding: AnalystFinding = {
-  schema_version: '1.0.0',
-  finding_id: 'finding-1',
-  analyst_id: 'improvement',
-  produced_at: '2026-07-10T00:00:00.000Z',
-  severity: 'high',
-  area: 'prompt',
-  claim: 'The agent omits the required answer.',
-  evidence_refs: [{ kind: 'span', id: 'span-1' }],
-  recommended_action: 'Return the measured answer.',
-  confidence: 0.9,
-  subject: 'agent-profile:prompt.systemPrompt',
-}
-
-interface ImprovementScenario extends Scenario {
-  kind: 'improvement-test'
-}
-
-const improvementScenarios: ImprovementScenario[] = Array.from({ length: 12 }, (_, index) => ({
-  id: `improvement-${index}`,
-  kind: 'improvement-test',
-}))
-const improvementTrain = improvementScenarios.slice(0, 4)
-const improvementSelection = improvementScenarios.slice(4, 8)
-const improvementTest = improvementScenarios.slice(8)
-
-const improvementAgent = async (
-  surface: MutableSurface,
-  _scenario: ImprovementScenario,
-  context: DispatchContext,
-): Promise<string> => {
-  const paid = await context.cost.runPaidCall({
-    channel: 'agent',
-    actor: 'improvement-cycle-test',
-    model: 'deterministic-test',
-    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => String(surface),
-    receipt: () => ({
-      model: 'deterministic-test',
-      inputTokens: 1,
-      outputTokens: 1,
-      actualCostUsd: 0.0001,
-    }),
-  })
-  if (!paid.succeeded) throw paid.error
-  return paid.value
-}
-
-const improvementJudge: JudgeConfig<string, ImprovementScenario> = {
-  name: 'exact-prompt',
-  dimensions: [{ key: 'quality', description: 'Candidate prompt selected.' }],
-  score: ({ artifact }) => {
-    const composite = artifact === 'PROMOTED' ? 1 : 0
-    return { dimensions: { quality: composite }, composite, notes: '' }
-  },
-}
-
-const improvementMethod: ImproveMethodFactory<ImprovementScenario, string> = (context) => ({
-  name: 'deterministic-complete-method',
-  async optimize() {
-    if (
-      !context.findings.some((item) => (item as { finding_id?: string }).finding_id === 'finding-1')
-    ) {
-      throw new Error('analysis findings did not reach the optimization method')
-    }
-    return {
-      winnerSurface: 'PROMOTED',
-      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
-    }
-  },
-})
-
-function improvementOptions() {
-  return {
-    surface: 'prompt' as const,
-    method: improvementMethod,
-    trainScenarios: improvementTrain,
-    selectionScenarios: improvementSelection,
-    testScenarios: improvementTest,
-    judges: [improvementJudge],
-    agent: improvementAgent,
-    runDir: `mem://improvement-cycle-${Math.random()}`,
-    storage: inMemoryCampaignStorage(),
-    resamples: 40,
-    confidence: 0.95,
-  }
-}
+import {
+  candidateExperimentMaterial,
+  improvementFinding as finding,
+  improvementOptions,
+} from './helpers/improvement-method-fixture'
 
 afterEach(() => {
   cleanupCandidateExperimentFixtures()
   cleanupCandidateFixtures()
 })
-
-function candidateExperimentMaterial(
-  experiment: CandidateExperimentFixture['experiment'],
-): AgentImprovementExperimentMaterial {
-  const { candidateLineage: _candidateLineage, digest: _digest, ...material } = experiment
-  return material
-}
 
 // These exercise the whole improvement lifecycle — real content-addressing, real file I/O, a
 // paired matrix — and on CI the slowest already burn ~4.3s of the 5s default. That leaves the

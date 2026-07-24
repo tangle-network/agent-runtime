@@ -22,6 +22,10 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
@@ -39,6 +43,9 @@ jobs:
 
       - name: Verify packed package exports
         run: pnpm run verify:package
+
+      - name: Verify packed Runtime with official GEPA and SkillOpt
+        run: pnpm run verify:official-optimizers
 
       - name: Verify agent-bench against this release
         run: pnpm run verify:bench

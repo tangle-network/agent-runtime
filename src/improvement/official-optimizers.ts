@@ -10,16 +10,17 @@ import {
 } from '@tangle-network/agent-eval/campaign'
 import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
-import { defaultRedactor } from '../redact'
+import { defaultRedactor, type Redactor, resolveRedactor } from '../redact'
 import type { ImproveMethodContext, ImproveMethodFactory } from './improve'
 
 const defaultMaxFindingsChars = 50_000
 const pythonClientDocs = 'https://github.com/tangle-network/agent-eval/tree/main/clients/python'
-const gepaInstall =
-  '`python -m pip install agent-eval-rpc`, then ' +
+const bridgeInstall = '`python -m pip install "agent-eval-rpc==0.126.5"`'
+const gepaWheelInstall = '`python -m pip install "gepa[full]==0.1.4"`'
+const gepaSourceInstall =
   '`python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"`'
 const skillOptInstall =
-  '`python -m pip install agent-eval-rpc`, then ' +
+  `${bridgeInstall}, then ` +
   '`python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"`'
 
 /** Runtime context appended to an official optimizer's own configuration. */
@@ -30,6 +31,19 @@ export interface OfficialOptimizerContextOptions {
   includeFindings?: boolean
   /** Reject oversized serialized findings before starting Python. Default 50,000 characters. */
   maxFindingsChars?: number
+  /**
+   * Redact caller-supplied context and descriptors before they leave Runtime.
+   * The built-in redactor is the default. Pass `false` only for public data
+   * that has already been reviewed.
+   */
+  redact?: Redactor | false
+  /**
+   * Confirm that structurally sensitive candidate fields contain only safe
+   * references or public values. Required for fields such as MCP env, headers,
+   * URLs, metadata, and extensions because candidate bytes cannot be redacted
+   * without changing what the optimizer measures.
+   */
+  approveSensitiveProfileSurface?: boolean
 }
 
 /** Official GEPA configuration plus bounded Runtime findings context. */
@@ -54,7 +68,11 @@ export class OfficialOptimizerUnavailableError extends ConfigError {
     const detail = cause instanceof Error ? cause.message : String(cause)
     const install =
       optimizer === 'gepa'
-        ? `Install the Python bridge and pinned GEPA source: ${gepaInstall}.`
+        ? [
+            `Install the Python bridge: ${bridgeInstall}.`,
+            `The direct GEPA engine uses the published wheel: ${gepaWheelInstall}.`,
+            `Composed recipes and source-only engines use the tested source revision: ${gepaSourceInstall}.`,
+          ].join(' ')
         : `Install Microsoft SkillOpt: ${skillOptInstall}.`
     super(
       [
@@ -85,17 +103,24 @@ export function officialGepa<TScenario extends { id: string; kind: string }, TAr
     maxFindingsChars,
     describeScenario,
     describeArtifact,
+    redact,
+    approveSensitiveProfileSurface = false,
     ...config
   } = options
+  const redactor = resolveRedactor(redact)
+  const redactionPolicyRef = optimizerRedactionPolicyRef(redact)
   assertMaxFindingsChars('officialGepa', maxFindingsChars)
-  assertSafeCallerText('officialGepa', 'objective', config.objective)
+  const objective = redactOptimizerText('officialGepa', 'objective', config.objective, redactor)
   return (context) => {
-    assertSafeOptimizerSurface('officialGepa', context)
+    assertSafeOptimizerSurface('officialGepa', context, approveSensitiveProfileSurface)
     return withDependencyHelp(
       'gepa',
       context.evaluationRef,
+      redactor,
+      redactionPolicyRef,
       gepaOptimizationMethod<TScenario, TArtifact>({
         ...config,
+        objective,
         evaluationId: context.evaluationRef,
         background: methodBackground({
           context,
@@ -103,13 +128,30 @@ export function officialGepa<TScenario extends { id: string; kind: string }, TAr
           includeFindings,
           maxFindingsChars,
           label: 'officialGepa',
+          redactor,
         }),
-        describeScenario: (scenario) =>
-          redactOptimizerEvidence(describeScenario ? describeScenario(scenario) : scenario),
-        describeArtifact: (artifact, scenario) =>
-          redactOptimizerEvidence(
-            describeArtifact ? describeArtifact(artifact, scenario) : artifact,
-          ),
+        ...(describeScenario
+          ? {
+              describeScenario: (scenario) =>
+                redactOptimizerEvidence(
+                  'officialGepa',
+                  'scenario descriptor',
+                  describeScenario(scenario),
+                  redactor,
+                ),
+            }
+          : {}),
+        ...(describeArtifact
+          ? {
+              describeArtifact: (artifact, scenario) =>
+                redactOptimizerEvidence(
+                  'officialGepa',
+                  'artifact descriptor',
+                  describeArtifact(artifact, scenario),
+                  redactor,
+                ),
+            }
+          : {}),
       }),
     )
   }
@@ -128,17 +170,24 @@ export function officialSkillOpt<
     maxFindingsChars,
     describeScenario,
     describeArtifact,
+    redact,
+    approveSensitiveProfileSurface = false,
     ...config
   } = options
+  const redactor = resolveRedactor(redact)
+  const redactionPolicyRef = optimizerRedactionPolicyRef(redact)
   assertMaxFindingsChars('officialSkillOpt', maxFindingsChars)
-  assertSafeCallerText('officialSkillOpt', 'objective', config.objective)
+  const objective = redactOptimizerText('officialSkillOpt', 'objective', config.objective, redactor)
   return (context) => {
-    assertSafeOptimizerSurface('officialSkillOpt', context)
+    assertSafeOptimizerSurface('officialSkillOpt', context, approveSensitiveProfileSurface)
     return withDependencyHelp(
       'skillopt',
       context.evaluationRef,
+      redactor,
+      redactionPolicyRef,
       skillOptOptimizationMethod<TScenario, TArtifact>({
         ...config,
+        objective,
         evaluationId: context.evaluationRef,
         background: methodBackground({
           context,
@@ -146,13 +195,30 @@ export function officialSkillOpt<
           includeFindings,
           maxFindingsChars,
           label: 'officialSkillOpt',
+          redactor,
         }),
-        describeScenario: (scenario) =>
-          redactOptimizerEvidence(describeScenario ? describeScenario(scenario) : scenario),
-        describeArtifact: (artifact, scenario) =>
-          redactOptimizerEvidence(
-            describeArtifact ? describeArtifact(artifact, scenario) : artifact,
-          ),
+        ...(describeScenario
+          ? {
+              describeScenario: (scenario) =>
+                redactOptimizerEvidence(
+                  'officialSkillOpt',
+                  'scenario descriptor',
+                  describeScenario(scenario),
+                  redactor,
+                ),
+            }
+          : {}),
+        ...(describeArtifact
+          ? {
+              describeArtifact: (artifact, scenario) =>
+                redactOptimizerEvidence(
+                  'officialSkillOpt',
+                  'artifact descriptor',
+                  describeArtifact(artifact, scenario),
+                  redactor,
+                ),
+            }
+          : {}),
       }),
     )
   }
@@ -170,6 +236,7 @@ function methodBackground(options: {
   includeFindings: boolean
   maxFindingsChars: number | undefined
   label: string
+  redactor: Redactor
 }): string {
   const {
     context,
@@ -177,17 +244,28 @@ function methodBackground(options: {
     includeFindings,
     maxFindingsChars = defaultMaxFindingsChars,
     label,
+    redactor,
   } = options
-  assertSafeCallerText(label, 'background', background)
-  assertSafeCallerText(label, 'profile name', context.profile.name)
+  const safeBackground =
+    background === undefined
+      ? undefined
+      : redactOptimizerText(label, 'background', background, redactor)
+  const safeProfileName =
+    context.profile.name === undefined
+      ? undefined
+      : redactOptimizerText(label, 'profile name', context.profile.name, redactor)
   const sections = [
-    background?.trim(),
-    `Agent profile: ${context.profile.name}. Surface: ${context.surface}.`,
+    safeBackground?.trim(),
+    safeProfileName
+      ? `Agent profile: ${safeProfileName}. Surface: ${context.surface}.`
+      : `Agent surface: ${context.surface}.`,
   ].filter((value): value is string => Boolean(value))
   if (includeFindings && context.findings.length > 0) {
     let serialized: string
     try {
-      serialized = canonicalJson(defaultRedactor(context.findings))
+      serialized = canonicalJson(
+        redactOptimizerEvidence(label, 'findings', context.findings, redactor),
+      )
     } catch (cause) {
       throw new ConfigError(`${label}: findings must be JSON-serializable`, { cause })
     }
@@ -201,7 +279,11 @@ function methodBackground(options: {
   return sections.join('\n\n')
 }
 
-function assertSafeOptimizerSurface(label: string, context: ImproveMethodContext): void {
+function assertSafeOptimizerSurface(
+  label: string,
+  context: ImproveMethodContext,
+  approveSensitiveProfileSurface: boolean,
+): void {
   const redactedValue = defaultRedactor(context.baselineValue)
   const redactedSurface = defaultRedactor(context.baselineSurface)
   if (
@@ -213,31 +295,90 @@ function assertSafeOptimizerSurface(label: string, context: ImproveMethodContext
         'Store live credentials as provider references, or remove private data before starting an external optimizer.',
     )
   }
+  const sensitivePaths = sensitiveProfileSurfacePaths(context.baselineValue)
+  if (!approveSensitiveProfileSurface && sensitivePaths.length > 0) {
+    throw new ConfigError(
+      `${label}: the selected profile surface contains fields that may carry private values: ` +
+        `${sensitivePaths.slice(0, 8).join(', ')}. Remove them, replace values with safe references, ` +
+        'or set approveSensitiveProfileSurface: true after reviewing the exact candidate bytes.',
+    )
+  }
 }
 
-function redactOptimizerEvidence(value: unknown): unknown {
-  return defaultRedactor(value)
+function sensitiveProfileSurfacePaths(value: unknown): string[] {
+  const paths: string[] = []
+  const seen = new WeakSet<object>()
+  const visit = (current: unknown, path: string): void => {
+    if (current === null || typeof current !== 'object') return
+    if (seen.has(current)) return
+    seen.add(current)
+    if (Array.isArray(current)) {
+      current.forEach((child, index) => {
+        visit(child, `${path}[${index}]`)
+      })
+      return
+    }
+    for (const [key, child] of Object.entries(current as Record<string, unknown>)) {
+      const childPath = `${path}.${key}`
+      if (['env', 'headers', 'url', 'metadata', 'extensions'].includes(key.toLowerCase())) {
+        paths.push(childPath)
+        continue
+      }
+      visit(child, childPath)
+    }
+  }
+  visit(value, '$')
+  return paths
 }
 
-function redactJudgeScore(score: JudgeScore): JudgeScore {
-  const notes = defaultRedactor(score.notes)
+function redactOptimizerEvidence(
+  label: string,
+  field: string,
+  value: unknown,
+  redactor: Redactor,
+): unknown {
+  try {
+    return redactor(value)
+  } catch (cause) {
+    throw new ConfigError(`${label}: ${field} redaction failed`, { cause })
+  }
+}
+
+function redactOptimizerText(
+  label: string,
+  field: string,
+  value: string,
+  redactor: Redactor,
+): string {
+  const redacted = redactOptimizerEvidence(label, field, value, redactor)
+  if (typeof redacted !== 'string' || !redacted.trim()) {
+    throw new ConfigError(`${label}: ${field} redaction must return a non-empty string`)
+  }
+  return redacted
+}
+
+function redactJudgeScore(score: JudgeScore, redactor: Redactor): JudgeScore {
+  const notes = redactOptimizerEvidence('official optimizer', 'judge notes', score.notes, redactor)
   return {
     ...score,
     notes: typeof notes === 'string' ? notes : '[redacted]',
   }
 }
 
-function assertSafeCallerText(label: string, field: string, value: string | undefined): void {
-  if (value !== undefined && defaultRedactor(value) !== value) {
-    throw new ConfigError(
-      `${label}: ${field} contains a common credential or private value. Sanitize it before starting an external optimizer.`,
-    )
-  }
+function optimizerRedactionPolicyRef(redact: Redactor | false | undefined): string {
+  if (redact === undefined) return 'default-redactor'
+  if (redact === false) return 'caller-approved-raw'
+  return canonicalCandidateDigest({
+    kind: 'caller-redactor',
+    source: Function.prototype.toString.call(redact),
+  })
 }
 
 function withDependencyHelp<TScenario extends { id: string; kind: string }, TArtifact>(
   optimizer: 'gepa' | 'skillopt',
   evaluationRef: ImproveMethodContext['evaluationRef'],
+  redactor: Redactor,
+  redactionPolicyRef: string,
   method: OptimizationMethod<TScenario, TArtifact>,
 ): OptimizationMethod<TScenario, TArtifact> {
   return {
@@ -252,10 +393,10 @@ function withDependencyHelp<TScenario extends { id: string; kind: string }, TArt
               name: judge.name,
               dimensions: judge.dimensions,
               judgeVersion: judge.judgeVersion ?? null,
-              outwardEvidence: 'default-redactor',
+              outwardEvidence: redactionPolicyRef,
             }),
             async score(scoreInput: Parameters<typeof judge.score>[0]) {
-              return redactJudgeScore(await judge.score(scoreInput))
+              return redactJudgeScore(await judge.score(scoreInput), redactor)
             },
           }),
         )

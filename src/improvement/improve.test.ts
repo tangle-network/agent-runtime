@@ -131,28 +131,22 @@ const promptProfile = (): AgentProfile => ({
 describe('improve method execution', () => {
   it('runs a complete method without exposing final-test cases and materializes its prompt', async () => {
     let observed: OptimizationMethodInput<TestScenario, TextArtifact> | undefined
+    let observedEvaluationRef = ''
     const profile = promptProfile()
-    const expectedEvaluationRef = canonicalCandidateDigest({
-      executionRef,
-      baselineProfileDigest: canonicalCandidateDigest(profile),
-      surface: 'prompt',
-    })
+    const method = fixedMethod('improved prompt', (input) => (observed = input))
     const result = await improve(profile, {
-      ...methodOptions(fixedMethod('improved prompt', (input) => (observed = input))),
+      ...methodOptions(method),
       surface: 'prompt',
+      method: (context) => {
+        observedEvaluationRef = context.evaluationRef
+        return method
+      },
     })
 
     expect(observed?.trainScenarios.map((scenario) => scenario.id)).toEqual(['train'])
     expect(observed?.selectionScenarios.map((scenario) => scenario.id)).toEqual(['selection'])
-    expect(observed?.runOptions.dispatchRef).toBe(`improve:${expectedEvaluationRef}`)
-    expect(observed?.judges[0]?.judgeVersion).toBe(
-      canonicalCandidateDigest({
-        evaluationRef: expectedEvaluationRef,
-        name: improvementJudge.name,
-        dimensions: improvementJudge.dimensions,
-        declaredJudgeVersion: null,
-      }),
-    )
+    expect(observed?.runOptions.dispatchRef).toBe(`improve:${observedEvaluationRef}`)
+    expect(observed?.judges[0]?.judgeVersion).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(JSON.stringify(observed)).not.toContain('test-a')
     expect(result.mode).toBe('method')
     expect(result.method).toBe('fixed-method')
@@ -567,6 +561,7 @@ describe('improve method execution', () => {
   })
 
   it('rejects method-reported spend above the configured total limit', async () => {
+    let agentCalls = 0
     const method = fixedMethod('improved prompt')
     method.optimize = async () => ({
       winnerSurface: 'improved prompt',
@@ -581,8 +576,13 @@ describe('improve method execution', () => {
       improve(promptProfile(), {
         ...methodOptions(method),
         costCeiling: 1,
+        agent: async (candidate, scenario, context) => {
+          agentCalls += 1
+          return paidProfile(candidate, scenario, context)
+        },
       }),
-    ).rejects.toThrow(/reported total cost \$2\.\d+ exceeds costCeiling \$1/)
+    ).rejects.toThrow(/reported cost \$2 above costCeiling \$1; refusing final scoring/)
+    expect(agentCalls).toBe(0)
   })
 
   it('rejects an invalid method and malformed profile output', async () => {
@@ -676,7 +676,7 @@ describe('improve code execution', () => {
     const repo = createRepo('improve-code-')
     try {
       let generatorCalls = 0
-      const result = await improve(promptProfile(), {
+      const result = await improve({
         surface: 'code',
         findings: [{ claim: 'module.txt is stale' }],
         scenarios: allScenarios,
@@ -726,7 +726,7 @@ describe('improve code execution', () => {
   it('retains and disposes the incumbent for a baseline-only code run', async () => {
     const repo = createRepo('improve-code-baseline-')
     try {
-      const result = await improve(promptProfile(), {
+      const result = await improve({
         surface: 'code',
         gate: 'none',
         scenarios: allScenarios,
@@ -762,7 +762,7 @@ describe('improve code execution', () => {
     const repo = createRepo('improve-code-reject-')
     try {
       await expect(
-        improve(promptProfile(), {
+        improve({
           surface: 'code',
           scenarios: allScenarios,
           judge: improvementJudge,
@@ -802,7 +802,7 @@ describe('improve code execution', () => {
       }
 
       await expect(
-        improve(promptProfile(), {
+        improve({
           surface: 'code',
           scenarios: allScenarios,
           judge: improvementJudge,

@@ -157,6 +157,11 @@ describe('defaultRedactor', () => {
     const redacted = defaultRedactor('judge note: {"password":"hunter2"} token=plain-secret')
     expect(redacted).toBe('judge note: {"password":[redacted]} token=[redacted]')
   })
+
+  it('redacts a complete bearer token after an authorization label', () => {
+    const redacted = defaultRedactor('Authorization: Bearer abcdefghijklmnop')
+    expect(redacted).toBe('Authorization: [redacted]')
+  })
 })
 
 describe('createIntelligenceClient / traceRun — Observe', () => {

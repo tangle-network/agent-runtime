@@ -114,6 +114,7 @@
     "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
     "verify:bench:published": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
     "verify:package": "pnpm run check:testing-fixture && pnpm run check:skills && node scripts/verify-package-exports.mjs",
+    "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect.mjs",
     "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
     "docs:api": "pnpm run build && typedoc && node scripts/gen-primitive-catalog.mjs",
@@ -122,7 +123,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "0.126.1",
+    "@tangle-network/agent-eval": "0.126.5",
     "@tangle-network/agent-interface": "0.32.0",
     "@tangle-network/sandbox": "^0.12.0",
     "@types/node": "^25.9.3",
@@ -154,7 +155,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.126.1 <0.127.0",
+    "@tangle-network/agent-eval": ">=0.126.5 <0.127.0",
     "@tangle-network/agent-interface": ">=0.32.0 <0.33.0",
     "@tangle-network/sandbox": ">=0.12.0 <1.0.0",
     "playwright": "^1.40.0"
@@ -168,7 +169,7 @@
     }
   },
   "dependencies": {
-    "@tangle-network/agent-knowledge": "^4.1.0",
+    "@tangle-network/agent-knowledge": "5.0.0",
     "@tangle-network/agent-profile-materialize": "0.5.1",
     "tar-stream": "3.2.0"
   }

@@ -45,11 +45,11 @@ const secretAssignmentPattern =
 
 /** Scrub a single string of in-value secret/PII patterns. */
 function scrubString(input: string): string {
-  let out = input.replace(secretAssignmentPattern, `$1${redactedMarker}`)
+  let out = input
   for (const pattern of valuePatterns) {
     out = out.replace(pattern, redactedMarker)
   }
-  return out
+  return out.replace(secretAssignmentPattern, `$1${redactedMarker}`)
 }
 
 /**
@@ -87,13 +87,13 @@ function walk(value: unknown, seen: WeakSet<object>, depth: number): unknown {
 }
 
 /**
- * Resolve the redactor a client uses. A caller-supplied hook replaces the
- * default entirely (the customer owns their PII rules); absent one, the
- * built-in `defaultRedactor` runs. Returning `false` is the explicit opt-out —
- * NO redaction, for a caller who has already sanitized upstream and wants raw
- * fidelity. Opt-out is loud (an explicit `false`), never a silent default.
+ * Resolve the redactor a client uses. A caller-supplied hook handles
+ * domain-specific values first, then the built-in scrubber still removes
+ * common credentials and email addresses. Returning `false` is the explicit
+ * opt-out for already-reviewed public values.
  */
 export function resolveRedactor(redact: Redactor | false | undefined): Redactor {
   if (redact === false) return (value) => value
-  return redact ?? defaultRedactor
+  if (!redact) return defaultRedactor
+  return (value) => defaultRedactor(redact(value))
 }
