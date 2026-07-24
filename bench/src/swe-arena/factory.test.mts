@@ -476,8 +476,14 @@ describe('checkSpecReachability', () => {
     expect(withSource.unreachable).toBe(0)
   })
 
-  it('holds the 3 shipped pilots fully reachable from their specs', async () => {
-    for (const inst of loadFactoryInstances(FACTORY_INSTANCES_DIR)) {
+  // The pilots' hidden tests live in local mirrors that only exist on a
+  // harvesting machine, so this regression lock runs where the mirrors are
+  // (and is skipped in CI, which has no clone of agent-eval/loops).
+  const pilots = loadFactoryInstances(FACTORY_INSTANCES_DIR)
+  const mirrorsPresent = pilots.every((p) => existsSync(p.repo_local_mirror))
+
+  it.skipIf(!mirrorsPresent)('holds the 3 shipped pilots fully reachable from their specs', async () => {
+    for (const inst of pilots) {
       const r = await checkFactoryReachability(inst)
       expect([inst.id, r.unreachableTests.map((t) => t.name)]).toEqual([inst.id, []])
       expect(r.passed).toBe(true)
