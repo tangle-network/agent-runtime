@@ -1173,7 +1173,7 @@ Abort the request after this many ms. Default 10000.
 
 ### CertifiedPromptSource
 
-Defined in: [src/intelligence/delivery.ts:411](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L411)
+Defined in: [src/intelligence/delivery.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L438)
 
 A cached, self-refreshing source of a target's certified prompt additions —
  the prompt-only delivery lane for callers that assemble their OWN system
@@ -1188,7 +1188,7 @@ A cached, self-refreshing source of a target's certified prompt additions —
 
 > **compose**(`base`): `Promise`\<`string`\>
 
-Defined in: [src/intelligence/delivery.ts:414](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L414)
+Defined in: [src/intelligence/delivery.ts:441](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L441)
 
 Refresh (window-respecting) then fold the certified additions into a
  base system prompt. Returns `base` unchanged when nothing is promoted.
@@ -1207,7 +1207,7 @@ Refresh (window-respecting) then fold the certified additions into a
 
 > **current**(): [`CertifiedProfile`](#certifiedprofile) \| `null`
 
-Defined in: [src/intelligence/delivery.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L416)
+Defined in: [src/intelligence/delivery.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L443)
 
 The certified profile currently in effect (`null` = none pulled yet).
 
@@ -1219,7 +1219,7 @@ The certified profile currently in effect (`null` = none pulled yet).
 
 > **refresh**(): `Promise`\<`void`\>
 
-Defined in: [src/intelligence/delivery.ts:418](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L418)
+Defined in: [src/intelligence/delivery.ts:445](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L445)
 
 Pull now if the refresh window has elapsed; coalesced and fail-closed.
 
@@ -1231,7 +1231,7 @@ Pull now if the refresh window has elapsed; coalesced and fail-closed.
 
 ### CertifiedPromptSourceOptions
 
-Defined in: [src/intelligence/delivery.ts:423](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L423)
+Defined in: [src/intelligence/delivery.ts:450](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L450)
 
 Options for [createCertifiedPromptSource](#createcertifiedpromptsource) — the pull coordinates plus
  the refresh cadence.
@@ -1321,7 +1321,7 @@ Abort the request after this many ms. Default 10000.
 
 > `optional` **refreshMs?**: `number`
 
-Defined in: [src/intelligence/delivery.ts:425](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L425)
+Defined in: [src/intelligence/delivery.ts:452](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L452)
 
 Min interval between certified-profile pulls. Default 5m.
 
@@ -4514,7 +4514,7 @@ This delivers the spine against today's wire before the plane changes.
 
 > **resolveIntelligenceBaseUrl**(`baseUrl`): `string`
 
-Defined in: [src/intelligence/delivery.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L162)
+Defined in: [src/intelligence/delivery.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L179)
 
 Resolve the ONE Intelligence base URL — the single knob both the send and
  receive paths derive from. Env fallback: `TANGLE_INTELLIGENCE_URL`.
@@ -4535,7 +4535,7 @@ Resolve the ONE Intelligence base URL — the single knob both the send and
 
 > **normalizeCertifiedProfile**(`raw`): [`CertifiedProfile`](#certifiedprofile)
 
-Defined in: [src/intelligence/delivery.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L197)
+Defined in: [src/intelligence/delivery.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L249)
 
 Deserialize the composed-endpoint response into a `CertifiedProfile`. The
 previously-dropped `agentProfileDiffs`/`capabilities`/`agentProfile` are read
@@ -4558,7 +4558,7 @@ diffs simply yields empty arrays / a null profile (fail-closed, never a crash).
 
 > **pullCertified**(`opts`): `Promise`\<[`PullOutcome`](#pulloutcome)\>
 
-Defined in: [src/intelligence/delivery.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L227)
+Defined in: [src/intelligence/delivery.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L279)
 
 Pull the certified composed profile for a target. Fail-closed: a network
 error or a non-2xx returns a typed `succeeded: false` (never throws), so a
@@ -4581,7 +4581,7 @@ the normal "nothing promoted yet" signal, carried as `status: 404`.
 
 > **submitAgentImprovementProposal**(`opts`): `Promise`\<[`SubmitAgentImprovementProposalOutcome`](#submitagentimprovementproposaloutcome)\>
 
-Defined in: [src/intelligence/delivery.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L277)
+Defined in: [src/intelligence/delivery.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L322)
 
 Submit a completed Runtime proposal to Intelligence for product-side review.
 This never runs an experiment, approves a proposal, or applies a candidate.
@@ -4604,7 +4604,7 @@ callers can retry the same digest because Intelligence stores proposals idempote
 
 > **composeCertifiedPrompt**(`base`, `certified`): `string`
 
-Defined in: [src/intelligence/delivery.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L388)
+Defined in: [src/intelligence/delivery.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L415)
 
 Fold the certified prompt surface (and any certified prompt-folding artifacts:
 `prompt-surface` / `skill` / `instructions`) into a base system prompt under a
@@ -4634,7 +4634,7 @@ usable certified content. Reads only the prompt-folding slice of a profile.
 
 > **createCertifiedPromptSource**(`opts`): [`CertifiedPromptSource`](#certifiedpromptsource)
 
-Defined in: [src/intelligence/delivery.ts:434](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L434)
+Defined in: [src/intelligence/delivery.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L461)
 
 Create the cached certified-prompt source — the ONE module-scope-cache +
 coalesced-refresh + keep-last-known implementation. Product wiring uses this

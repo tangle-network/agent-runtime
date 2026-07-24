@@ -157,6 +157,23 @@ export type SubmitAgentImprovementProposalOutcome =
 
 const defaultPlaneRequestTimeoutMs = 10_000
 
+type PlaneRequestOptions = Pick<
+  PullCertifiedOptions,
+  'apiKey' | 'baseUrl' | 'fetchImpl' | 'timeoutMs'
+>
+
+interface PlaneRequestInput extends PlaneRequestOptions {
+  path: string
+  method?: 'POST'
+  headers?: Record<string, string>
+  body?: string
+}
+
+type PlaneRequestResult =
+  | { succeeded: true; response: Response }
+  | { succeeded: false; attempted: false; error: string }
+  | { succeeded: false; attempted: true; error: string }
+
 /** Resolve the ONE Intelligence base URL — the single knob both the send and
  *  receive paths derive from. Env fallback: `TANGLE_INTELLIGENCE_URL`. */
 export function resolveIntelligenceBaseUrl(baseUrl: string | undefined): string {
@@ -172,6 +189,41 @@ function resolveApiKey(apiKey: string | undefined): string {
   if (typeof process !== 'undefined' && process.env.TANGLE_API_KEY)
     return process.env.TANGLE_API_KEY
   return ''
+}
+
+/** Make one authenticated request and retain whether the network call began. */
+async function requestPlane(input: PlaneRequestInput): Promise<PlaneRequestResult> {
+  const doFetch = input.fetchImpl ?? (globalThis.fetch as typeof fetch | undefined)
+  if (!doFetch) {
+    return { succeeded: false, attempted: false, error: 'no fetch implementation available' }
+  }
+  const apiKey = resolveApiKey(input.apiKey)
+  if (!apiKey) {
+    return {
+      succeeded: false,
+      attempted: false,
+      error: 'no apiKey (set TANGLE_API_KEY or opts.apiKey)',
+    }
+  }
+
+  try {
+    const response = await doFetch(`${resolveIntelligenceBaseUrl(input.baseUrl)}${input.path}`, {
+      ...(input.method === undefined ? {} : { method: input.method }),
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        ...(input.headers ?? {}),
+      },
+      ...(input.body === undefined ? {} : { body: input.body }),
+      signal: AbortSignal.timeout(input.timeoutMs ?? defaultPlaneRequestTimeoutMs),
+    })
+    return { succeeded: true, response }
+  } catch (err) {
+    return {
+      succeeded: false,
+      attempted: true,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -225,24 +277,17 @@ export function normalizeCertifiedProfile(raw: unknown): CertifiedProfile {
  * the normal "nothing promoted yet" signal, carried as `status: 404`.
  */
 export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOutcome> {
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as typeof fetch | undefined)
-  if (!doFetch) return { succeeded: false, error: 'no fetch implementation available' }
-  const apiKey = resolveApiKey(opts.apiKey)
-  if (!apiKey) return { succeeded: false, error: 'no apiKey (set TANGLE_API_KEY or opts.apiKey)' }
-  const baseUrl = resolveIntelligenceBaseUrl(opts.baseUrl)
-  const url = `${baseUrl}/v1/profiles/${encodeURIComponent(opts.target)}/composed`
-  let res: Response
-  try {
-    res = await doFetch(url, {
-      headers: { authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(opts.timeoutMs ?? defaultPlaneRequestTimeoutMs),
-    })
-  } catch (err) {
+  const request = await requestPlane({
+    ...opts,
+    path: `/v1/profiles/${encodeURIComponent(opts.target)}/composed`,
+  })
+  if (!request.succeeded) {
     return {
       succeeded: false,
-      error: `pull request failed: ${err instanceof Error ? err.message : String(err)}`,
+      error: request.attempted ? `pull request failed: ${request.error}` : request.error,
     }
   }
+  const res = request.response
   if (res.status === 404) {
     return {
       succeeded: false,
@@ -288,41 +333,23 @@ export async function submitAgentImprovementProposal(
     }
   }
 
-  const doFetch = opts.fetchImpl ?? (globalThis.fetch as typeof fetch | undefined)
-  if (!doFetch) {
+  const request = await requestPlane({
+    ...opts,
+    path: '/v1/improvements/proposals',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ proposal }),
+  })
+  if (!request.succeeded) {
     return {
       succeeded: false,
-      submission: 'not-sent',
-      error: 'no fetch implementation available',
+      submission: request.attempted ? 'unconfirmed' : 'not-sent',
+      error: request.attempted
+        ? `proposal submission request failed: ${request.error}`
+        : request.error,
     }
   }
-  const apiKey = resolveApiKey(opts.apiKey)
-  if (!apiKey) {
-    return {
-      succeeded: false,
-      submission: 'not-sent',
-      error: 'no apiKey (set TANGLE_API_KEY or opts.apiKey)',
-    }
-  }
-
-  let res: Response
-  try {
-    res = await doFetch(`${resolveIntelligenceBaseUrl(opts.baseUrl)}/v1/improvements/proposals`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ proposal }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? defaultPlaneRequestTimeoutMs),
-    })
-  } catch (err) {
-    return {
-      succeeded: false,
-      submission: 'unconfirmed',
-      error: `proposal submission request failed: ${err instanceof Error ? err.message : String(err)}`,
-    }
-  }
+  const res = request.response
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
