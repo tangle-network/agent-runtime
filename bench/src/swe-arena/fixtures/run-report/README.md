@@ -1,8 +1,14 @@
 # run-report evidence
 
-Reports produced by `src/swe-arena/run-report.mts` over completed runs, committed as the
-measured record behind the supervisor-behavior claims. Both source run directories were read
-READ-ONLY (`--report-dir` wrote the reports here, never into the run).
+Reports over completed runs, committed as the measured record behind the supervisor-behavior
+claims. Both source run directories were read READ-ONLY (`--report-dir` wrote the reports
+here, never into the run).
+
+The reader is `@tangle-network/agent-eval/supervisor-run` — a supervision tree is a rollout
+trace with one more dimension, so it lives in the trace-analysis layer next to single-rollout
+analysis. `src/swe-arena/run-report.mts` is only the CLI over it, and these files were
+produced before that move; they reproduce byte-identically through the library, except that
+the newer `economics.brainTruncations` metric did not exist when they were captured.
 
 | File | Source run | Command |
 |---|---|---|

@@ -153,7 +153,10 @@ import {
   type ScoreSplitConfig,
 } from './score-split.mts'
 import { recordLineageGeneration, type LineageCandidateInput } from './lineage-record.mts'
-import { reportRound, writeRunReportSafe } from './run-report.mts'
+import {
+  reportSupervisorRound,
+  writeSupervisorRunReportSafe,
+} from '@tangle-network/agent-eval/supervisor-run'
 import {
   campaignCoordsFromCellPath,
   createSettleCapture,
@@ -1613,7 +1616,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
         // Deterministic run observability, per cell: steer count, waves, concurrency,
         // idle, evidence→respawn, cost by role. The headline lands in the run log so
         // the answers are in the tail without a follow-up command.
-        await writeRunReportSafe(runDir, {
+        await writeSupervisorRunReportSafe(runDir, {
           appendHeadlineTo: join(config.outDir, 'run.log'),
           patchPath: armRes.patchPath,
         })
@@ -2454,7 +2457,7 @@ export async function runRound(config: OuterLoopConfig): Promise<void> {
 
     // Round rollup at gate time: every cell's orchestration/economics in one table,
     // written next to the round summary and echoed into the run log.
-    await reportRound(join(config.outDir, 'arm-runs'), {
+    await reportSupervisorRound(join(config.outDir, 'arm-runs'), {
       appendHeadlineTo: join(config.outDir, 'run.log'),
       reportDir: config.roundsDir,
       title: `Round ${config.round} rollup — ${runId}`,
