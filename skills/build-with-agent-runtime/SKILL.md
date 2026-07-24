@@ -28,6 +28,12 @@ The goal is one portable agent definition, one execution path, one measurement s
 Do not move shared measurement into Runtime or product code.
 Do not move product storage transactions into a provider-neutral package.
 
+An `AgentProfile` is a recipe that materializes into a sandbox, not a prompt template.
+Skills, knowledge, corpora, playbooks, checklists, and any other large or static content belong in the resource channels (`resources.files` / `skills` / `knowledge` / `evolvable`) as file mounts: `agent-profile-materialize` writes each one as a real file into the run workspace, natively per harness, and the agent reads it on demand with its own file tools.
+`prompt.systemPrompt` carries only what the agent must obey without a tool call — identity, the tool-call contract, safety rules, output format — plus a short index naming each mount, its one-line purpose, and its path.
+Never concatenate file bodies into the prompt: `composeAgentProfile` enforces `DEFAULT_MAX_SYSTEM_PROMPT_BYTES = 40_000` and throws past it without an explicit `overBudgetReason`; needing that escape hatch is a signal the content belongs in a mount, not a reason to raise the ceiling.
+Because many profiles can materialize to the same sandbox bytes, prefer the cheapest encoding — a reference — over embedding content inline.
+
 ## Choose the entry point
 
 | Need | Use |
