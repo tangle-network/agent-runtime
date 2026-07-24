@@ -13,7 +13,7 @@
  *         driver ──prompt──▶ worker ──output (+ traces / analysis)──▶ driver
  *
  *     The driver sends a prompt, the worker runs, its output comes back, the driver reads it.
- *     (`runLoop` increments a "round"; the multi-turn conversation primitive calls it a "turn";
+ *     (`runAgentRounds` increments a "round"; the multi-turn conversation primitive calls it a "turn";
  *      people say "shot". Same atom — pick whichever word you like.)
  *
  *   • the loop ("many shots") — a SEQUENCE of shots where each output FOLDS into the next prompt:
@@ -35,7 +35,7 @@
  * Run:  pnpm tsx examples/driver-loop/driver-loop.ts
  */
 
-import { type Driver, runLoop } from '@tangle-network/agent-runtime/loops'
+import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/loops'
 import type { AgentProfile } from '@tangle-network/sandbox'
 import {
   type NoteOutput,
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
     prompt: 'Write a one-line release note for the one-click restore feature.',
   }
 
-  const result = await runLoop<NoteTask, NoteOutput, NoteDecision>({
+  const result = await runAgentRounds<NoteTask, NoteOutput, NoteDecision>({
     driver: refineDriver(3),
     agentRun: {
       profile: { name: 'note-writer' } as AgentProfile,

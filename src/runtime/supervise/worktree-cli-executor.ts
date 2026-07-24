@@ -4,11 +4,11 @@
  * coding-harness CLI (claude / codex / opencode) on its OWN git worktree, surfaced as the open
  * `Executor<Out>` port (`./types`). It is a LEAF executor: it plugs straight into the
  * `Scope`/`Supervisor` recursion and `gateOnDeliverable`, so it IS the canonical recursive path
- * (no `runLoop`/virtual-SandboxInstance shim in between).
+ * (no `runAgentRounds`/virtual-SandboxInstance shim in between).
  *
  * This is a THIN adapter: the physical act (worktree → profile-aware harness invocation → diff →
  * checks → cleanup) lives ONCE in `runWorktreeHarness` (`../../mcp/worktree-harness`), shared with
- * the `runLoop`/coder-delegate `createInProcessExecutor`. This executor only projects that core's
+ * the `runAgentRounds`/coder-delegate `createInProcessExecutor`. This executor only projects that core's
  * result onto the `Executor` port (artifact + spend) and owns the teardown point. The complete
  * profile delivery — direct prompt/model plus materialized file-backed resources — lives there.
  *

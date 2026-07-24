@@ -86,7 +86,7 @@ Live supervised-tree resume after coordinator restart is not implemented.
 are small: (1) the **MCP** the agents share (`spawn · observe · steer · stop` +
 `define_check · run_check`); (2) the **profiles** (markdown — the only customization;
 "Drew" is one); (3) the **orchestrator** (`src/runtime/supervise/` — `Scope` + the
-conserved budget pool that makes equal-compute true for the experiment). `runLoop` /
+conserved budget pool that makes equal-compute true for the experiment). `runAgentRounds` /
 `toolLoop` are **one execution backend each, not the center** — they, MCP delegation,
 and `Scope.spawn` all *produce* the same lifecycle stream (§1b).
 
@@ -108,7 +108,7 @@ an analyst may not cite the score/verdict metric; `assertTraceDerivedFindings`.)
 
 Every execution backend emits one **agent-centric event stream** (`src/runtime-hooks.ts`,
 merged #162/#163): targets `agent.{run, turn, tool_call, spawn, child, plan, decision}`
-× phases `{before, after, error, event}`. `runLoop`, `toolLoop`, **and the `Scope`
+× phases `{before, after, error, event}`. `runAgentRounds`, `toolLoop`, **and the `Scope`
 spawn/settle boundary** are **producers** — `Scope.spawn` emits `agent.spawn` (child id,
 label, runtime, budget, depth) and the settle cursor emits `agent.child` (status, score,
 reason, spend), threaded in through `SupervisorOpts.hooks`. Developers attach via
@@ -130,7 +130,7 @@ The same `Agent` loop runs at two timescales.
 | Steer output | ephemeral next-shot context | a persisted candidate surface |
 | Anchored by | the judge scores the answer | `heldOutGate` on a holdout set → PR |
 | `act → Program` is | a steer over the worker's next shot | a candidate generator (worktree) |
-| Where it lives today | the agent-driver over the `Scope`/`Supervisor` (`createCoordinationTools`) + `runAgentic`/`defineStrategy`; the `runLoop` kernel is one leaf backend | `improve()` + a complete agent-eval `OptimizationMethod`; code candidates use Runtime-owned worktrees |
+| Where it lives today | the agent-driver over the `Scope`/`Supervisor` (`createCoordinationTools`) + `runAgentic`/`defineStrategy`; the `runAgentRounds` kernel is one leaf backend | `improve()` + a complete agent-eval `OptimizationMethod`; code candidates use Runtime-owned worktrees |
 
 Both are *"a loop whose step contains a loop"* — `driver↔worker + analyze +
 propose`. The recursive `Agent` makes them the **same node** at different
@@ -425,7 +425,7 @@ the event bus; salience filtering and the cross-box durable mailbox are not. See
   `maxDepth` + the *same* pool) — recursion isn't a feature, it's the absence of a
   base case (`supervise/supervisor.ts`, `supervise/scope.ts`).
 - **REAL** — the **leaf** at the bottom is where a real coding harness runs, opaque and
-  self-parallelizing internally; the `runLoop` kernel (`src/runtime/run-loop.ts`) is
+  self-parallelizing internally; the `runAgentRounds` kernel (`src/runtime/run-loop.ts`) is
   composed as one leaf execution backend. Everything above it is the same `act`/`Scope`
   atom, observable as one lifecycle stream (`scope.spawn`/settle →
   `agent.spawn`/`agent.child`).

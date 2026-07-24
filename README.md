@@ -31,9 +31,9 @@ That file defines the scripted `worker`, `output`, and `validator` used below so
 Replace the scripted worker with a sandbox, CLI bridge, or router backend without changing the driver.
 
 ```ts
-import { inProcessSandboxClient, runLoop } from '@tangle-network/agent-runtime/loops'
+import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/loops'
 
-const result = await runLoop<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
+const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
   task: { prompt: 'Write a one-line release note for one-click restore.' },
   driver: {
     name: 'refine',
@@ -423,7 +423,7 @@ The general-purpose pieces, by import path. Every export with its one-line summa
 |---|---|---|
 | Chat-turn runtime | Stream, trace, and persist one production chat turn (`handleChatTurn`); normalize any backend's stream into one event shape (`streamAgentTurn`) | root · `/loops` |
 | Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/loops` · `/mcp` |
-| Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runLoop`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/loops` |
+| Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runAgentRounds`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/loops` |
 | Improvement driver | Optimize one part of an agent and ship only if it wins on tasks it never practiced on (`improve`); production proposal/review/activation flow | root · `/intelligence` |
 | Benchmarks + leaderboards | Compare strategies with significance stats (`runBenchmark`), stand up a harness×model leaderboard (`defineLeaderboard`, `leaderboard`) | `/loops` |
 | Knowledge improvement | Produce a measured candidate copy of a KB/wiki/RAG corpus without touching the live one (`runKnowledgeImprovementJob`) | `/knowledge` |

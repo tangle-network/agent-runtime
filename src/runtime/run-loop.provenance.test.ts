@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { runLoop } from './run-loop'
+import { runAgentRounds } from './run-loop'
 import type { AgentRunSpec, Driver, LoopWinner, OutputAdapter, SandboxClient } from './types'
 
 function makeBox(id: string, finalText: string): SandboxInstance {
@@ -21,7 +21,7 @@ const output: OutputAdapter<string> = {
   },
 }
 
-describe('runLoop provenance', () => {
+describe('runAgentRounds provenance', () => {
   it('surfaces a mount manifest recorded during prepareBox', async () => {
     const bytes = Buffer.from('fixture-contents')
     const sha256 = createHash('sha256').update(bytes).digest('hex')
@@ -52,7 +52,7 @@ describe('runLoop provenance', () => {
       decide: () => 'done',
     }
 
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver,
       agentRun,
       output,
@@ -84,7 +84,7 @@ describe('runLoop provenance', () => {
       decide: () => 'done',
     }
 
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver,
       agentRun: { profile: { name: 'plain-agent' }, taskToPrompt: (t) => t },
       output,
@@ -114,7 +114,7 @@ describe('runLoop provenance', () => {
       decide: () => 'done',
     }
 
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver,
       agentRun: { profile: { name: 'fanout-agent' }, taskToPrompt: (t) => t },
       output,
@@ -178,7 +178,7 @@ describe('runLoop provenance', () => {
       }
     }
 
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver,
       agentRun: { profile: { name: 'caller-select-agent' }, taskToPrompt: (t) => t },
       output,

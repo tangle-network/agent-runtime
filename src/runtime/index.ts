@@ -1,6 +1,6 @@
 /**
  *
- * Driven-loop substrate. `runLoop` orchestrates around the sandbox SDK; it
+ * Driven-loop substrate. `runAgentRounds` orchestrates around the sandbox SDK; it
  * does not invent its own notion of "what an agent is". Each iteration is
  * a `sandboxClient.create({ backend: { profile } })` + `box.streamPrompt`
  * call. The driver owns topology; the validator owns scoring; the output
@@ -25,7 +25,7 @@ export type {
 // Two substrates for the same "recursive agent decision" atom, both exported here (per
 // docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
 // combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
-// the round-synchronous `runLoop` kernel = the path most benches still drive, with a
+// the round-synchronous `runAgentRounds` kernel = the path most benches still drive, with a
 // caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
 // Recursive execution atom (the keystone): the open `Executor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
@@ -166,14 +166,14 @@ export {
   harvestCorpus,
 } from './harvest-corpus'
 // The in-process pseudo-box: a user `onPrompt` callback → a SandboxClient for
-// runLoop / openSandboxRun (the typed offline seam, no SandboxInstance cast).
+// runAgentRounds / openSandboxRun (the typed offline seam, no SandboxInstance cast).
 export {
   type InProcessOnPrompt,
   type InProcessPromptCtx,
   type InProcessSandboxClientOptions,
   inProcessSandboxClient,
 } from './in-process-sandbox-client'
-// The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
+// The one pseudo-box adapter: any non-box Executor → a SandboxClient for runAgentRounds.
 export { inlineSandboxClient } from './inline-sandbox-client'
 // API-key provisioning for adopted external MCP servers: secrets ride the
 // profile by NAME only; a KeyProvider resolves values at materialize time.
@@ -334,7 +334,17 @@ export {
   printBenchmarkReport,
   runBenchmark,
 } from './run-benchmark'
-export { defaultSelectWinner, runLoop } from './run-loop'
+// `runAgentRounds` is the multi-agent fanout/vote/refine kernel (many sandbox sessions per
+// call). It is NOT `runToolLoop`/`streamToolLoop` (package root: one chat turn, tool calls
+// folded back in) and NOT `routerToolLoop` (also on this subpath — router chat + tools).
+// `runLoop`/`RunLoopOptions` are the pre-rename names, kept as deprecated aliases.
+export {
+  defaultSelectWinner,
+  type RunAgentRoundsOptions,
+  type RunLoopOptions,
+  runAgentRounds,
+  runLoop,
+} from './run-loop'
 export { acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,

@@ -1029,7 +1029,7 @@ Defined in: [src/mcp/delegates.ts:158](https://github.com/tangle-network/agent-r
 **`Experimental`**
 
 The worker's authored `AgentProfile` (§1.5: the system authors profiles). Spread onto the
-sandbox-session run spec → `runLoop` → the executor's `harnessInvocation`, so the harness runs
+sandbox-session run spec → `runAgentRounds` → the executor's `harnessInvocation`, so the harness runs
 under the caller's stance. Omit to use a minimal model-only default (no hardcoded skills/tools);
 `harness` / `model` / `systemPrompt` below are convenience overrides layered onto whichever
 profile is used.
@@ -1063,7 +1063,7 @@ Defined in: [src/mcp/delegates.ts:168](https://github.com/tangle-network/agent-r
 **`Experimental`**
 
 The worker's authored system prompt (§1.5). Flows onto the run spec's
-`profile.prompt.systemPrompt` → through `runLoop` → the executor's `harnessInvocation`, so the
+`profile.prompt.systemPrompt` → through `runAgentRounds` → the executor's `harnessInvocation`, so the
 harness runs under this stance. Omit to keep the profile's own prompt.
 
 ##### fanoutHarnesses?
@@ -1127,14 +1127,14 @@ Defined in: [src/mcp/delegates.ts:195](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
-Loop trace emitter forwarded into every delegated `runLoop`. Wire
+Loop trace emitter forwarded into every delegated `runAgentRounds`. Wire
 `createPropagatingTraceEmitter(readTraceContextFromEnv())` here (the bin
 does) so delegated build-loops export their topology spans to the OTLP /
 Tangle Intelligence sink when `OTEL_EXPORTER_OTLP_ENDPOINT` is set — and
 are a cheap no-op when it isn't. Configurable by construction.
 
 Detached single-variant turns (taken when `ctx.detachedSessionRef` is set)
-bypass `runLoop`; `runDetachedTurn` synthesizes a single-iteration loop
+bypass `runAgentRounds`; `runDetachedTurn` synthesizes a single-iteration loop
 event stream for them so this emitter observes detached work too.
 
 ##### detachedTickIntervalMs?
@@ -1736,7 +1736,7 @@ Defined in: [src/mcp/detached-turn.ts:197](https://github.com/tangle-network/age
 Loop-trace sink. When set, the detached turn synthesizes a
 single-iteration loop span tree (`runId` = `sessionId`, driver
 `'detached-turn'`) so trace-context inheritance survives the detached
-path — the same events the streaming `runLoop` path would emit, minus
+path — the same events the streaming `runAgentRounds` path would emit, minus
 per-token telemetry: `driveTurn` yields one terminal payload, so token
 and cost figures are structurally unavailable and reported as 0 under
 this driver tag.
@@ -3424,7 +3424,7 @@ Defined in: [src/mcp/server.ts:77](https://github.com/tangle-network/agent-runti
 **`Experimental`**
 
 Required to enable delegate_ui_audit. Wire one that closes over your
-`runLoop` + `uiAuditorProfile` + a `SandboxClient` (the
+`runAgentRounds` + `uiAuditorProfile` + a `SandboxClient` (the
 canonical in-process choice is `createInProcessUiAuditClient` from
 `@tangle-network/agent-runtime/profiles`) + your vision judge.
 
@@ -4067,7 +4067,7 @@ Defined in: [src/mcp/task-queue.ts:154](https://github.com/tangle-network/agent-
 Per-delegation loop-trace sink, always provided by the queue. Events
 emitted here are journaled onto the record as a compact span tree
 (`record.trace`) when each loop run ends and at the delegation's
-terminal transition. Delegates forward it into their `runLoop` ctx,
+terminal transition. Delegates forward it into their `runAgentRounds` ctx,
 composed with any process-wide OTEL emitter
 (`composeLoopTraceEmitters`). Optional in the type so consumer-built
 contexts stay source-compatible.
@@ -7652,7 +7652,7 @@ Defined in: [src/mcp/delegates.ts:219](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
-Build the sandbox-session coder delegate. It drives `runLoop` against the project's
+Build the sandbox-session coder delegate. It drives `runAgentRounds` against the project's
 sandbox client + coder profile; when `args.variants > 1` it switches to the multi-harness fanout
 topology.
 
@@ -7718,7 +7718,7 @@ then the optional reviewer. Throws when nothing survives — a resumed or
 detached run must not return an unvalidated patch.
 
 SCOPE NOTE (detached/resume): the detached `driveTurn`-tick + cross-restart resume path is
-bound to the `runLoop` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
+bound to the `runAgentRounds` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
 journal→replay but no driveTurn-over-a-detached-sandbox-session equivalent yet, so resume is NOT
 advertised on the generic `worktreeFanout` path. This helper (with `coderTaskFromArgs` and
 `createDetachedTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.

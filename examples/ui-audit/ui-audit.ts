@@ -5,7 +5,7 @@
  *   - `uiAuditorProfile()` — output adapter + validator + envelope-prefixed prompt
  *   - `createInProcessUiAuditClient({ workspaceDir, judge })` — the in-process
  *     `SandboxClient` that drives Playwright + a vision judge
- *   - `runLoop({ ... })` — one iteration per (lens × route), validator-gated
+ *   - `runAgentRounds({ ... })` — one iteration per (lens × route), validator-gated
  *   - `appendFindings(...)` + `writeAuditIndex(...)` — persist self-contained
  *     GitHub-issue Markdown
  *
@@ -20,7 +20,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Driver } from '@tangle-network/agent-runtime/loops'
-import { runLoop } from '@tangle-network/agent-runtime/loops'
+import { runAgentRounds } from '@tangle-network/agent-runtime/loops'
 import {
   appendFindings,
   createInProcessUiAuditClient,
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     }
     const driver = lensCyclingDriver(lensesToRun, task)
 
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver,
       agentRun: agentRunSpec,
       output,

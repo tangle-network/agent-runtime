@@ -1,7 +1,7 @@
 /**
  * Bounded turn-level tool-dispatch loop.
  *
- * `runAgentTaskStream` runs ONE model turn; `runLoop` orchestrates DELEGATED
+ * `runAgentTaskStream` runs ONE model turn; `runAgentRounds` orchestrates DELEGATED
  * multi-agent topologies (refine / fanout-vote). Neither is the everyday
  * interactive shape: a chat turn where the model may emit tool calls, each is
  * executed, the results are folded back, and the turn re-runs until the model

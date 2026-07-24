@@ -145,7 +145,7 @@ export interface WorktreeLoopRunnerOptions {
  * `worktreeFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
  * `runPersonified` on the keystone Supervisor. The sandbox-session counterpart that drives the in-box
  * harness over a `SandboxClient` is `detachedSessionDelegate` (`./mcp/delegates`); here there is no
- * `runLoop` driver, no role-coupled delegate — the harness list is the fanout, the gate is
+ * `runAgentRounds` driver, no role-coupled delegate — the harness list is the fanout, the gate is
  * `patchDelivered`,
  * the winner is the shared valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback
  * would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the winning

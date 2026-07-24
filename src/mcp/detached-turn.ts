@@ -28,7 +28,7 @@
  * loop event stream (see `RunDetachedTurnOptions.traceEmitter`) so the span
  * topology joins the inherited trace context, with cost/tokens reported as 0
  * under the `'detached-turn'` driver tag. Multi-variant fanout stays on the
- * streaming `runLoop` path — N concurrent sessions cannot be expressed as one
+ * streaming `runAgentRounds` path — N concurrent sessions cannot be expressed as one
  * resume key, and winner selection needs every candidate.
  *
  * @experimental
@@ -189,7 +189,7 @@ export interface RunDetachedTurnOptions {
    * Loop-trace sink. When set, the detached turn synthesizes a
    * single-iteration loop span tree (`runId` = `sessionId`, driver
    * `'detached-turn'`) so trace-context inheritance survives the detached
-   * path — the same events the streaming `runLoop` path would emit, minus
+   * path — the same events the streaming `runAgentRounds` path would emit, minus
    * per-token telemetry: `driveTurn` yields one terminal payload, so token
    * and cost figures are structurally unavailable and reported as 0 under
    * this driver tag.
@@ -272,7 +272,7 @@ export async function runDetachedTurn(options: RunDetachedTurnOptions): Promise<
 /**
  * Synthesize the single-iteration loop event stream for one detached turn so
  * the trace sinks (OTEL exporter, delegation journal) observe detached work
- * exactly like a streamed `runLoop` run. `runId` = the deterministic session
+ * exactly like a streamed `runAgentRounds` run. `runId` = the deterministic session
  * id; cost/token figures are structurally unavailable on the `driveTurn`
  * surface and emitted as 0 under the `'detached-turn'` driver tag.
  */

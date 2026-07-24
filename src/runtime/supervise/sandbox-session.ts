@@ -3,7 +3,7 @@
  * The STEERABLE sandbox worker: one box, one server-side session, MANY turns — so a message
  * from the driver has a boundary to be folded into.
  *
- * The default cloud worker was built on `singleShotDriver`: one `runLoop` shot, no turn
+ * The default cloud worker was built on `singleShotDriver`: one `runAgentRounds` shot, no turn
  * boundary, and no `Executor.deliver`. `Scope.send` therefore returned `false` for it and
  * `steer_agent` reported `delivered:false` on every call — steering the DEFAULT worker was
  * mechanically impossible, not merely unused. This module is the missing continuation loop.
@@ -56,7 +56,7 @@ import type { Spend, UsageEvent } from './types'
 export const DEFAULT_SANDBOX_STEERING_MAX_TURNS = 24
 
 /** Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the
- *  sandbox executor keeps its historical single-shot `runLoop` composition verbatim. */
+ *  sandbox executor keeps its historical single-shot `runAgentRounds` composition verbatim. */
 export interface SandboxSteeringOptions {
   /** Max turns for one worker (turn 0 + folded steers). Default {@link DEFAULT_SANDBOX_STEERING_MAX_TURNS}. */
   readonly maxTurns?: number

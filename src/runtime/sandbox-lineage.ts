@@ -1,7 +1,7 @@
 /**
  *
  * `SandboxLineage` — the backend-blind owner of box + session handles for a
- * single `runLoop` invocation. It exists so `run-loop.ts` never references a
+ * single `runAgentRounds` invocation. It exists so `run-loop.ts` never references a
  * backend (Docker / Firecracker): the lineage turns "continue this session" and
  * "fork this branch" into capability-gated sandbox-SDK calls and degrades to
  * fresh boxes when a capability is absent.

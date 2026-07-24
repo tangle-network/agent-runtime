@@ -2,11 +2,11 @@ import { existsSync } from 'node:fs'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
-import { runLoop } from './run-loop'
+import { runAgentRounds } from './run-loop'
 import type { Driver, OutputAdapter } from './types'
 
 describe('inProcessSandboxClient', () => {
-  it('drives runLoop end-to-end from an onPrompt callback (no SandboxInstance cast at the call site)', async () => {
+  it('drives runAgentRounds end-to-end from an onPrompt callback (no SandboxInstance cast at the call site)', async () => {
     const client = inProcessSandboxClient({
       onPrompt: (prompt): SandboxEvent[] => [
         { type: 'llm_call', data: { tokensIn: 10, tokensOut: 5, costUsd: 0.001 } },
@@ -26,7 +26,7 @@ describe('inProcessSandboxClient', () => {
       parse: (events) => String(events.at(-1)?.data?.finalText ?? ''),
     }
 
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver,
       agentRun: { profile: { name: 'echo' }, taskToPrompt: (t) => t },
       output,

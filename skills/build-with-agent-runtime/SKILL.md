@@ -34,7 +34,7 @@ Do not move product storage transactions into a provider-neutral package.
 |---|---|
 | One product chat turn | `handleChatTurn(...)` |
 | One normalized streamed agent turn | `streamAgentTurn(...)` and `collectAgentTurn(...)` |
-| One task or multi-turn loop | `runAgentTask(...)`, `runAgentTaskStream(...)`, or `runLoop(...)` |
+| One task or multi-turn loop | `runAgentTask(...)`, `runAgentTaskStream(...)`, or `runAgentRounds(...)` |
 | Supervisor and workers | `supervise(...)` or `superviseSurface(...)` |
 | Parallel work with a shared budget | `fanout(...)` |
 | Fixed composition | `pipeline(...)`, `panel(...)`, or `verify(...)` |

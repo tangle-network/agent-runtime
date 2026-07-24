@@ -66,7 +66,7 @@ async function main(): Promise<void> {
       : `  ✗ does NOT separate (Δ=${(agentic - plain).toFixed(2)}) — the gap metric would be uninformative here.`,
   )
 
-  // 3. Cost — runLoop aggregated each worker loop; we rolled it into a CostLedger by role.
+  // 3. Cost — runAgentRounds aggregated each worker loop; we rolled it into a CostLedger by role.
   const summary = result.cost.summary()
   console.log('\n— Cost (composed via CostLedger, not a hand-built counter) —')
   console.log(

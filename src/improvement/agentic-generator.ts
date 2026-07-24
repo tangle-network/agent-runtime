@@ -15,7 +15,7 @@
  * problem that does not need solving here).
  *
  * `maxShots` is the DEPTH dial — a multi-shot verify-in-session loop, NOT the
- * kernel `runLoop`. Each shot runs one full harness session in the (persistent)
+ * kernel `runAgentRounds`. Each shot runs one full harness session in the (persistent)
  * worktree; between shots the loop refines based on what the last shot produced:
  *   - empty tree   → "you changed nothing, make the edits" → retry
  *   - dirty + `verify` fails → feed the verifier's failure into the next shot

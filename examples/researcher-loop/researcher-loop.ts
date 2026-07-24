@@ -1,5 +1,5 @@
 /**
- * researcherProfile + runLoop + an inline FANOUT driver — the smallest end-to-end researcher loop.
+ * researcherProfile + runAgentRounds + an inline FANOUT driver — the smallest end-to-end researcher loop.
  *
  * The SUBJECT is the wiring below: `researcherProfile({ task })` hands you the output adapter,
  * validator, and agent-run spec; a single-round fanout driver spawns two parallel researchers and
@@ -17,7 +17,7 @@ import {
   type ResearchTask,
   researcherProfile,
 } from '@tangle-network/agent-knowledge/profiles'
-import { type Driver, runLoop } from '@tangle-network/agent-runtime/loops'
+import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/loops'
 import { sandboxClient, task } from './synthetic-researcher'
 
 async function main(): Promise<void> {
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
     decide: (history) => (history.some((i) => i.verdict?.valid === true) ? 'pick-winner' : 'fail'),
   }
 
-  const result = await runLoop({
+  const result = await runAgentRounds({
     driver,
     agentRun: agentRunSpec,
     output,

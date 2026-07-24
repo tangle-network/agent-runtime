@@ -37,7 +37,7 @@
  *     `(task, text) => ({ ...task, prompt: text })`.
  *
  * They consume nothing the loop kernel does not already give `plan()`/`decide()`
- * — `runLoop` requires no change. A benchmark picks a driver by name and the
+ * — `runAgentRounds` requires no change. A benchmark picks a driver by name and the
  * kernel does the rest.
  *
  * @experimental
