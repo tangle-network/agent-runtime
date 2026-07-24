@@ -1,11 +1,12 @@
 /**
- * factory-bench runner tests — all hermetic: a synthetic two-commit "mirror"
+ * Factory-bench runner tests: a synthetic two-commit "mirror"
  * repo stands in for the real local mirrors, and its judge harness prints
  * vitest-format summary lines, so the full archive → apply → overlay → run →
- * parse pipeline is exercised without pnpm, docker, or network.
+ * parse pipeline is exercised through the same container boundary as real
+ * factory instances.
  */
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,6 +21,7 @@ import {
   parseFactoryJudgeResult,
   parseVitestSummary,
 } from './factory-judge-child.mts'
+import { runFactoryCommand } from './factory-command-container.ts'
 import {
   FACTORY_INSTANCES_DIR,
   loadFactoryInstance,
@@ -91,6 +93,136 @@ await runChecks([
 ])
 `
 
+const SYNTHETIC_COMMAND_IMAGE =
+  'node:24-bookworm-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5'
+
+function credentialProbe(hostRoot: string): string {
+  const knownAmbientFiles = [
+    join(hostRoot, 'ambient-home', '.config', 'gh', 'hosts.yml'),
+    join(hostRoot, 'ambient-home', '.aws', 'credentials'),
+    join(hostRoot, 'ambient-home', '.npmrc'),
+    join(hostRoot, 'ambient-xdg', 'gh', 'hosts.yml'),
+    '/home/drew/.config/gh/hosts.yml',
+    '/home/drew/.aws/credentials',
+    '/home/drew/.npmrc',
+    '/home/runner/.config/gh/hosts.yml',
+    '/home/runner/.aws/credentials',
+    '/home/runner/.npmrc',
+    '/root/.config/gh/hosts.yml',
+    '/root/.aws/credentials',
+    '/root/.npmrc',
+  ]
+  return `
+import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const secretNames = [
+  'ARBITRARY_FACTORY_SECRET',
+  'GH_TOKEN',
+  'TANGLETOOLS_GH_TOKEN',
+  'DREW_GH_TOKEN',
+  'AWS_SECRET_ACCESS_KEY',
+  'NPM_TOKEN',
+  'NODE_AUTH_TOKEN',
+  'SSH_AUTH_SOCK',
+  'GPG_AGENT_INFO',
+  'DBUS_SESSION_BUS_ADDRESS',
+]
+const knownAmbientFiles = ${JSON.stringify(knownAmbientFiles)}
+const leakedEnv = secretNames.filter((name) => process.env[name] !== undefined)
+const procLeaks = []
+const procRootFiles = []
+let pid = process.pid
+for (let depth = 0; depth < 32; depth += 1) {
+  let stat
+  try {
+    stat = readFileSync('/proc/' + pid + '/stat', 'utf8')
+  } catch {
+    break
+  }
+  try {
+    const environ = readFileSync('/proc/' + pid + '/environ')
+    const names = secretNames.filter((name) => environ.includes(Buffer.from(name + '=')))
+    if (names.length > 0) procLeaks.push({ depth, pid, names })
+  } catch {}
+  for (const path of knownAmbientFiles) {
+    const procPath = '/proc/' + pid + '/root' + path
+    try {
+      if (readFileSync(procPath).length > 0) procRootFiles.push(procPath)
+    } catch {}
+  }
+  const close = stat.lastIndexOf(')')
+  const parent = Number(stat.slice(close + 2).split(' ')[1])
+  if (!Number.isSafeInteger(parent) || parent < 1 || parent === pid) break
+  pid = parent
+}
+const candidateFiles = [
+  process.env.HOME && join(process.env.HOME, '.config', 'gh', 'hosts.yml'),
+  process.env.HOME && join(process.env.HOME, '.aws', 'credentials'),
+  process.env.HOME && join(process.env.HOME, '.npmrc'),
+  process.env.XDG_CONFIG_HOME && join(process.env.XDG_CONFIG_HOME, 'gh', 'hosts.yml'),
+  process.env.NPM_CONFIG_USERCONFIG,
+  process.env.npm_config_userconfig,
+  process.env.NPM_CONFIG_GLOBALCONFIG,
+  process.env.npm_config_globalconfig,
+  ...knownAmbientFiles,
+  ...procRootFiles,
+].filter(Boolean)
+const credentialFiles = []
+for (const path of new Set(candidateFiles)) {
+  try {
+    const content = readFileSync(path, 'utf8')
+    if (content.trim()) credentialFiles.push(path)
+  } catch {}
+}
+const hiddenJudgeFiles = ['tests/judge.mjs', 'tests/harness.mjs'].filter((path) => {
+  try {
+    return readFileSync(path).length > 0
+  } catch {
+    return false
+  }
+})
+const credentialSockets = ['/var/run/docker.sock', '/run/docker.sock'].filter((path) => {
+  try {
+    return lstatSync(path).isSocket()
+  } catch {
+    return false
+  }
+})
+let rootWritable = false
+try {
+  writeFileSync('/factory-root-write-probe', 'unexpected')
+  rootWritable = true
+} catch {}
+writeFileSync(
+  'credential-probe-result.json',
+  JSON.stringify({
+    leakedEnv,
+    procLeaks,
+    procRootFiles,
+    credentialFiles,
+    hiddenJudgeFiles,
+    credentialSockets,
+    rootWritable,
+    uid: process.getuid?.(),
+    home: process.env.HOME,
+    xdgConfigHome: process.env.XDG_CONFIG_HOME,
+    npmUserConfig: process.env.NPM_CONFIG_USERCONFIG ?? process.env.npm_config_userconfig,
+  }),
+)
+if (
+  leakedEnv.length > 0 ||
+  procLeaks.length > 0 ||
+  procRootFiles.length > 0 ||
+  credentialFiles.length > 0 ||
+  hiddenJudgeFiles.length > 0 ||
+  credentialSockets.length > 0 ||
+  rootWritable ||
+  process.getuid?.() === 0
+) process.exit(86)
+`
+}
+
 const IMPL = `export const add = (a, b) => a + b\nexport const mul = (a, b) => a * b\n`
 
 interface SyntheticMirror {
@@ -115,7 +247,15 @@ async function makeSyntheticMirror(root: string): Promise<SyntheticMirror> {
   await mkdir(mirror, { recursive: true })
   await runOk('git', ['-C', mirror, 'init', '-q', '-b', 'main'])
   await writeFile(join(mirror, 'README.md'), '# synthetic\n')
-  await writeFile(join(mirror, 'package.json'), JSON.stringify({ name: 'synthetic', type: 'module' }))
+  await writeFile(
+    join(mirror, 'package.json'),
+    JSON.stringify({
+      name: 'synthetic',
+      type: 'module',
+      scripts: { preinstall: 'node credential-probe.mjs' },
+    }),
+  )
+  await writeFile(join(mirror, 'credential-probe.mjs'), credentialProbe(root))
   await writeFile(join(mirror, '.gitignore'), 'node_modules\n')
   const baseCommit = await commitAll(mirror, 'base')
 
@@ -153,6 +293,7 @@ async function makeInstanceDir(
       spec_md: 'spec.md',
       judge_tests: ['tests/judge.mjs', 'tests/harness.mjs'],
       excluded_tests: [],
+      command_image: SYNTHETIC_COMMAND_IMAGE,
       setup_cmds: [],
       judge_cmds: ['node tests/judge.mjs'],
       resolved_criterion: 'all 2 judge tests pass; partial score = passed/2',
@@ -218,6 +359,106 @@ describe('parseVitestSummary', () => {
   })
 })
 
+describe('factory command credential isolation', () => {
+  it('blocks arbitrary env, auth sockets, npm config, and home credentials from a package lifecycle script', async () => {
+    const ambientHome = join(root, 'ambient-home')
+    const ambientXdg = join(root, 'ambient-xdg')
+    await mkdir(join(ambientHome, '.config', 'gh'), { recursive: true })
+    await mkdir(join(ambientHome, '.aws'), { recursive: true })
+    await mkdir(join(ambientXdg, 'gh'), { recursive: true })
+    await writeFile(join(ambientHome, '.config', 'gh', 'hosts.yml'), 'oauth_token: ambient-secret\n')
+    await writeFile(join(ambientHome, '.aws', 'credentials'), 'aws_secret_access_key=ambient-secret\n')
+    await writeFile(join(ambientHome, '.npmrc'), '//registry.npmjs.org/:_authToken=ambient-secret\n')
+    await writeFile(join(ambientXdg, 'gh', 'hosts.yml'), 'oauth_token: ambient-xdg-secret\n')
+
+    const injected: Record<string, string> = {
+      HOME: ambientHome,
+      XDG_CONFIG_HOME: ambientXdg,
+      ARBITRARY_FACTORY_SECRET: 'arbitrary-secret',
+      GH_TOKEN: 'github-secret',
+      TANGLETOOLS_GH_TOKEN: 'tangletools-secret',
+      DREW_GH_TOKEN: 'drew-secret',
+      AWS_SECRET_ACCESS_KEY: 'aws-secret',
+      NPM_TOKEN: 'npm-secret',
+      NODE_AUTH_TOKEN: 'node-auth-secret',
+      NPM_CONFIG_USERCONFIG: join(ambientHome, '.npmrc'),
+      SSH_AUTH_SOCK: join(ambientHome, 'agent.sock'),
+      GPG_AGENT_INFO: join(ambientHome, 'gpg-agent'),
+      DBUS_SESSION_BUS_ADDRESS: 'unix:path=/tmp/operator-bus',
+    }
+    const saved = new Map(Object.keys(injected).map((name) => [name, process.env[name]]))
+    for (const [name, value] of Object.entries(injected)) process.env[name] = value
+
+    const workDir = join(root, 'credential-probe-workspace')
+    try {
+      const instance = loadFactoryInstance(
+        await makeInstanceDir(root, 'credential-probe', mirror, mirror.refs.good, {
+          setup_cmds: ['npm install --no-audit --no-fund'],
+        }),
+      )
+      const patch = await makePatch(goodInst, IMPL)
+      const { result } = await judgeFactoryPatch(instance, patch, { workDir, keepWorkspace: true })
+      expect(result).toMatchObject({ resolved: true, passed: 2, total: 2 })
+
+      const report = JSON.parse(await readFile(join(workDir, 'credential-probe-result.json'), 'utf8')) as {
+        leakedEnv: string[]
+        procLeaks: Array<{ depth: number; pid: number; names: string[] }>
+        procRootFiles: string[]
+        credentialFiles: string[]
+        hiddenJudgeFiles: string[]
+        credentialSockets: string[]
+        rootWritable: boolean
+        uid: number
+        home: string
+        xdgConfigHome: string
+        npmUserConfig: string
+      }
+      expect(report.leakedEnv).toEqual([])
+      expect(report.procLeaks).toEqual([])
+      expect(report.procRootFiles).toEqual([])
+      expect(report.credentialFiles).toEqual([])
+      expect(report.hiddenJudgeFiles).toEqual([])
+      expect(report.credentialSockets).toEqual([])
+      expect(report.rootWritable).toBe(false)
+      expect(report.uid).toBeGreaterThan(0)
+      expect(report.home).not.toBe(ambientHome)
+      expect(report.xdgConfigHome).not.toBe(ambientXdg)
+      expect(report.npmUserConfig).not.toBe(join(ambientHome, '.npmrc'))
+    } finally {
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  }, 60_000)
+
+  it('does not reuse writable Corepack, npm, or pnpm caches between commands', async () => {
+    const workspace = join(root, 'cache-isolation-workspace')
+    await mkdir(workspace, { recursive: true })
+    const first = await runFactoryCommand(
+      workspace,
+      'touch "$COREPACK_HOME/poison" "$NPM_CONFIG_CACHE/poison" "$npm_config_store_dir/poison" && test -e "$COREPACK_HOME/poison" && test -e "$NPM_CONFIG_CACHE/poison" && test -e "$npm_config_store_dir/poison"',
+      {
+        image: SYNTHETIC_COMMAND_IMAGE,
+        network: 'none',
+        timeoutMs: 30_000,
+      },
+    )
+    expect(first.code).toBe(0)
+
+    const second = await runFactoryCommand(
+      workspace,
+      'test ! -e "$COREPACK_HOME/poison" && test ! -e "$NPM_CONFIG_CACHE/poison" && test ! -e "$npm_config_store_dir/poison"',
+      {
+        image: SYNTHETIC_COMMAND_IMAGE,
+        network: 'none',
+        timeoutMs: 30_000,
+      },
+    )
+    expect(second.code).toBe(0)
+  }, 60_000)
+})
+
 // ---------------------------------------------------------------------------
 // Manifest loader — fail-loud shape validation.
 // ---------------------------------------------------------------------------
@@ -241,8 +482,18 @@ describe('loadFactoryInstance', () => {
     expect(() => loadFactoryInstance(dir)).toThrow(/passed\/<N>/)
   })
 
+  it('rejects a mutable command image tag', async () => {
+    const dir = await makeInstanceDir(root, 'bad-image', mirror, mirror.refs.good, {
+      command_image: 'node:24-bookworm-slim',
+    })
+    expect(() => loadFactoryInstance(dir)).toThrow(/pinned.*sha256/)
+  })
+
   it('loads the 3 shipped pilot instances with their calibrated totals', () => {
     const pilots = loadFactoryInstances(FACTORY_INSTANCES_DIR)
+    expect(pilots.every((pilot) => /@sha256:[0-9a-f]{64}$/.test(pilot.command_image))).toBe(
+      true,
+    )
     expect(pilots.map((p) => [p.id, p.judgeTestTotal])).toEqual([
       ['factory.agent-eval.309', 30],
       ['factory.agent-runtime.232', 21],

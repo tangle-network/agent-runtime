@@ -2,13 +2,14 @@
  * Factory judge child — the factory-bench equivalent of `judge-child.mts`.
  * One candidate patch, one hidden-test verdict, printed as a single
  * `JUDGE_RESULT {...}` line so serialized-judge.ts (queue, retry, SIGKILL
- * ceiling) carries over unchanged. No docker, no Python venv: the judge
- * workspace is a `git archive` export of the instance's base commit from the
- * local mirror, with the PR's own added test files overlaid from the merge
- * commit — the tests the builder never saw.
+ * ceiling) carries over unchanged. The judge workspace is a `git archive`
+ * export of the instance's base commit from the local mirror. Setup and judge
+ * commands run in separate containers, and the PR's added test files are
+ * overlaid from the merge commit only after setup completes.
  *
- * Steps: export base tree → apply candidate patch → overlay judge tests from
- * `judge_ref` → run `setup_cmds` (shared pnpm store) → run `judge_cmds` →
+ * Steps: export base tree → apply candidate patch → run `setup_cmds` in a
+ * fresh container → overlay judge tests from `judge_ref` → run `judge_cmds`
+ * in a second network-disabled container →
  * parse vitest's pass/fail counts → JUDGE_RESULT with partial credit.
  *
  * Verdict semantics:
@@ -29,11 +30,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { applyPatchWithFallback } from './calibrate.ts'
+import { runFactoryCommand } from './factory-command-container.ts'
 import { loadFactoryInstance, type LoadedFactoryInstance } from './fixtures.ts'
-import { run, runOk, shq } from './proc.ts'
-
-/** Warm installs across judge/calibration runs (design: `--config.store-dir`). */
-export const SHARED_PNPM_STORE = join(tmpdir(), 'factory-bench-pnpm-store')
+import { runOk, shq } from './proc.ts'
 
 export interface VitestSummary {
   passed: number
@@ -111,13 +110,6 @@ export async function overlayJudgeTests(inst: LoadedFactoryInstance, ws: string)
   }
 }
 
-/** Env for setup/judge commands: shared pnpm store, CI heuristics disabled. */
-export function judgeCmdEnv(): NodeJS.ProcessEnv {
-  // CI='false' keeps pnpm out of frozen-lockfile mode: a candidate patch may
-  // legitimately edit package.json, and the judge must install it, not refuse.
-  return { ...process.env, CI: 'false', npm_config_store_dir: SHARED_PNPM_STORE }
-}
-
 export interface FactoryJudgeOutcome {
   result: FactoryJudgeResult
   /** Raw judge_cmds output, for post-mortem. */
@@ -164,11 +156,12 @@ export async function judgeFactoryPatch(
       }
     }
 
-    await overlayJudgeTests(inst, ws)
-
-    const env = judgeCmdEnv()
     for (const cmd of inst.setup_cmds) {
-      const res = await run('bash', ['-c', cmd], { cwd: ws, timeoutMs: cmdTimeoutMs, env })
+      const res = await runFactoryCommand(ws, cmd, {
+        image: inst.command_image,
+        network: 'enabled',
+        timeoutMs: cmdTimeoutMs,
+      })
       if (res.code !== 0) {
         throw new Error(
           `setup_cmd failed (rc=${res.code}${res.timedOut ? ', timeout' : ''}): ${cmd}\n${(res.stderr || res.stdout).slice(-2000)}`,
@@ -176,11 +169,17 @@ export async function judgeFactoryPatch(
       }
     }
 
+    await overlayJudgeTests(inst, ws)
+
     let passed = 0
     let failed = 0
     let output = ''
     for (const cmd of inst.judge_cmds) {
-      const res = await run('bash', ['-c', cmd], { cwd: ws, timeoutMs: cmdTimeoutMs, env })
+      const res = await runFactoryCommand(ws, cmd, {
+        image: inst.command_image,
+        network: 'none',
+        timeoutMs: cmdTimeoutMs,
+      })
       const combined = res.stdout + res.stderr
       output += combined
       if (res.timedOut) throw new Error(`judge_cmd timed out after ${cmdTimeoutMs}ms: ${cmd}`)
