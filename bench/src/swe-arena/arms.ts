@@ -346,6 +346,14 @@ export interface ArmRunContext {
   instanceId: string
   image: string
   baseCommit: string
+  /**
+   * Workspace materialization override. Default (undefined) = SWE instance
+   * image materialization (docker cp of /testbed). Factory instances inject
+   * their archive-export + synthetic-history materialization here so the arm
+   * runners themselves stay instance-kind-agnostic. Must leave `dest` a git
+   * repo whose HEAD is the diff base for patch extraction (`baseCommit`).
+   */
+  materialize?: (dest: string) => Promise<void>
   problemStatement: string
   /** Self-repro verify command (bash -c, cwd = ws) — the MEASUREMENT gate. */
   verifyCmd: string
@@ -448,13 +456,17 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const ws = join(runDir, 'ws')
   await mkdir(runDir, { recursive: true })
   const cell = await prepareIsolatedCellEnvironment(runDir)
-  await materializeWorkspace({
-    instanceId: ctx.instanceId,
-    image: ctx.image,
-    baseCommit: ctx.baseCommit,
-    dest: ws,
-    signal: ctx.signal,
-  })
+  // A caller-supplied materializer (synthetic-history factory cells) replaces the
+  // SWE-bench image checkout, but still runs inside the isolated cell above.
+  if (ctx.materialize) await ctx.materialize(ws)
+  else
+    await materializeWorkspace({
+      instanceId: ctx.instanceId,
+      image: ctx.image,
+      baseCommit: ctx.baseCommit,
+      dest: ws,
+      signal: ctx.signal,
+    })
 
   const promptFile = join(runDir, 'prompt.txt')
   await writeFile(promptFile, ctx.problemStatement + (spec.promptSuffix ?? WORKER_PROMPT_SUFFIX))
@@ -578,13 +590,17 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   const ws = join(runDir, 'ws')
   await mkdir(runDir, { recursive: true })
   const cell = await prepareIsolatedCellEnvironment(runDir)
-  await materializeWorkspace({
-    instanceId: ctx.instanceId,
-    image: ctx.image,
-    baseCommit: ctx.baseCommit,
-    dest: ws,
-    signal: ctx.signal,
-  })
+  // A caller-supplied materializer (synthetic-history factory cells) replaces the
+  // SWE-bench image checkout, but still runs inside the isolated cell above.
+  if (ctx.materialize) await ctx.materialize(ws)
+  else
+    await materializeWorkspace({
+      instanceId: ctx.instanceId,
+      image: ctx.image,
+      baseCommit: ctx.baseCommit,
+      dest: ws,
+      signal: ctx.signal,
+    })
 
   const paramsFile = join(runDir, 'params.json')
   await writeFile(

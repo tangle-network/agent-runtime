@@ -19,8 +19,11 @@
 
 import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { judgeFactoryPatch } from './factory-judge-child.mts'
+import { loadFactoryInstance, loadFactoryInstances, type LoadedFactoryInstance } from './fixtures'
 import { materializeWorkspace } from './materialize'
-import { run, shq } from './proc'
+import { run, runOk, shq } from './proc'
 import type { SerializedJudge } from './serialized-judge'
 
 export interface CalibrateOptions {
@@ -112,5 +115,103 @@ export async function calibrateInstance(opts: CalibrateOptions): Promise<Calibra
       await rm(baseWs, { recursive: true, force: true })
       await rm(goldWs, { recursive: true, force: true })
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Factory-bench admission gate — the same "calibrate through the OFFICIAL
+// judge" lesson, generalized: gold (the real PR's impl-only diff) must judge
+// resolved, and the bare base (empty patch) must judge unresolved. Both runs
+// go through the SAME judge code the arena uses (judgeFactoryPatch — the
+// factory-judge-child body), deliberately bypassing serialized-judge's
+// empty-patch short-circuit so the base direction really executes the judge
+// tests on the bare tree instead of trivially returning false.
+// ---------------------------------------------------------------------------
+
+export interface FactoryCalibrationResult {
+  iid: string
+  /** Gold = impl-only PR diff. Must be resolved with full score. */
+  goldResolved: boolean
+  goldPassed: number
+  /** Base = empty patch. Must be unresolved. */
+  baseResolved: boolean
+  basePassed: number
+  total: number
+  /** goldResolved && !baseResolved — the pool admission bar. */
+  admitted: boolean
+}
+
+/**
+ * The real PR's impl-only patch: full first-parent diff base→judge_ref minus
+ * the judge test files (they are the hidden judge, not the deliverable).
+ */
+export async function goldImplPatch(inst: LoadedFactoryInstance): Promise<string> {
+  const res = await runOk('git', [
+    '-C', inst.repo_local_mirror,
+    'diff', inst.base_commit, inst.judge_ref,
+    '--', '.',
+    ...inst.judge_tests.map((t) => `:(exclude)${t}`),
+  ])
+  if (res.stdout.trim().length === 0) {
+    throw new Error(`calibrate ${inst.id}: impl-only gold diff is empty — judge_tests exclude everything?`)
+  }
+  return res.stdout
+}
+
+/** Run both admission directions for one instance. Throws only on infra failure. */
+export async function calibrateFactoryInstance(inst: LoadedFactoryInstance): Promise<FactoryCalibrationResult> {
+  const gold = await judgeFactoryPatch(inst, await goldImplPatch(inst))
+  const base = await judgeFactoryPatch(inst, '')
+  return {
+    iid: inst.id,
+    goldResolved: gold.result.resolved,
+    goldPassed: gold.result.passed,
+    baseResolved: base.result.resolved,
+    basePassed: base.result.passed,
+    total: inst.judgeTestTotal,
+    admitted: gold.result.resolved && !base.result.resolved,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CLI:  tsx src/swe-arena/calibrate.ts --factory <instancesDirOrInstanceDir> [id ...]
+// Rejection is LOUD: any instance failing either direction exits nonzero.
+// ---------------------------------------------------------------------------
+
+const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isMain) {
+  const [mode, root, ...ids] = process.argv.slice(2)
+  if (mode !== '--factory' || !root) {
+    console.error('usage: tsx src/swe-arena/calibrate.ts --factory <instancesDir|instanceDir> [id ...]')
+    process.exit(2)
+  }
+  let instances: LoadedFactoryInstance[]
+  try {
+    instances = loadFactoryInstances(root)
+  } catch {
+    instances = [loadFactoryInstance(root)]
+  }
+  if (ids.length > 0) {
+    const byId = new Map(instances.map((i) => [i.id, i]))
+    instances = ids.map((id) => {
+      const inst = byId.get(id)
+      if (!inst) throw new Error(`unknown instance id ${id} (have: ${[...byId.keys()].join(', ')})`)
+      return inst
+    })
+  }
+  let rejected = 0
+  for (const inst of instances) {
+    const r = await calibrateFactoryInstance(inst)
+    const verdict = r.admitted ? 'ADMITTED' : 'REJECTED'
+    console.log(
+      `CALIBRATE ${r.iid}: gold ${r.goldPassed}/${r.total} resolved=${r.goldResolved}; ` +
+        `base ${r.basePassed}/${r.total} resolved=${r.baseResolved} → ${verdict}`,
+    )
+    if (!r.admitted) rejected += 1
+  }
+  if (rejected > 0) {
+    console.error(`calibration gate: ${rejected} instance(s) REJECTED (gold must pass AND base must fail)`)
+    process.exit(1)
   }
 }

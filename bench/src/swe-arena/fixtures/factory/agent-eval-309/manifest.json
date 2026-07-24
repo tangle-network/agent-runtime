@@ -1,0 +1,29 @@
+{
+  "id": "factory.agent-eval.309",
+  "repo": "tangle-network/agent-eval",
+  "repo_local_mirror": "/home/drew/code/agent-eval",
+  "base_commit": "5fe8d0c83a7e38f2893b2d7a0f6cd62dd5430521",
+  "judge_ref": "9b0a4f82257e07ac96d90d4af24364bc964ed178",
+  "spec_md": "spec.md",
+  "judge_tests": [
+    "src/paired-arms.test.ts",
+    "src/capability-headroom.test.ts"
+  ],
+  "excluded_tests": [],
+  "worker_visible_paths_note": "worker gets the base tree only (git archive of base_commit, no refs); judge tests overlaid at judge time",
+  "setup_cmds": [
+    "pnpm install"
+  ],
+  "judge_cmds": [
+    "npx vitest run src/paired-arms.test.ts src/capability-headroom.test.ts"
+  ],
+  "resolved_criterion": "all 30 judge tests pass; partial score = passed/30",
+  "timeout_s": 600,
+  "runtime": "node>=20, pnpm 11, vitest 3 (repo devDependency)",
+  "hermetic": true,
+  "calibration": {
+    "gold": "PASS 30/30 (twice, deterministic)",
+    "base": "FAIL 2/2 test files (unresolvable imports: modules do not exist at base)",
+    "receipts": "calibration.md"
+  }
+}
