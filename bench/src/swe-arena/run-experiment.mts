@@ -52,6 +52,7 @@ import {
   type JudgeVerdict,
   type SerializedJudge,
 } from './serialized-judge.ts'
+import { reportRound, writeRunReportSafe } from './run-report.mts'
 import type { LedgerRow } from './types.ts'
 
 const fixturesDir = fileURLToPath(new URL('./fixtures', import.meta.url))
@@ -168,6 +169,12 @@ export interface ExperimentConfig {
   capacityModel?: string
   /** Pause between instances (orchestrate.sh: 15s, gentle on the shared key). */
   cooldownMs?: number
+  /**
+   * Run log the per-cell run-report headline is appended to. Defaults to
+   * `<outDir>/run.log`; the headline is always echoed to stdout as well, so a
+   * shell-redirected log gets it either way.
+   */
+  runLogPath?: string
 }
 
 function armPair(arms: ExecutableArmSpec[]): { solo: SoloArmSpec; sup: SupervisorArmSpec } {
@@ -247,8 +254,23 @@ export async function runExperiment(config: ExperimentConfig): Promise<void> {
     const row = buildLedgerRow(soloResult, soloVerdict, supResult, supVerdict)
     await appendFile(config.ledgerPath, JSON.stringify(row) + '\n')
     log(`LEDGER_ROW ${iid} solo=${row.solo_resolved} sup=${row.sup_resolved}`)
+
+    // Deterministic run observability: never hand-grep a journal for steers/waves/
+    // idle/cost again. Best-effort — a reporting failure can't lose a finished cell.
+    await writeRunReportSafe(join(config.outDir, 'runs', iid, sup.name), {
+      appendHeadlineTo: config.runLogPath ?? join(config.outDir, 'run.log'),
+      ledgerPath: config.ledgerPath,
+    })
+
     await new Promise((r) => setTimeout(r, config.cooldownMs ?? 15_000))
   }
+
+  await reportRound(config.outDir, {
+    appendHeadlineTo: config.runLogPath ?? join(config.outDir, 'run.log'),
+    ledgerPath: config.ledgerPath,
+    title: 'Round rollup — paired solo/supervisor experiment',
+    echo: true,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +499,8 @@ export interface FactoryExperimentConfig {
   cooldownMs?: number
   gateWaitCeilingMs?: number
   capacityModel?: string
+  /** Run log the per-cell run-report headline is appended to (default `<outDir>/run.log`). */
+  runLogPath?: string
 }
 
 const factoryJudgeChildPath = fileURLToPath(new URL('./factory-judge-child.mts', import.meta.url))
@@ -586,8 +610,13 @@ export async function runFactoryExperiment(
         excludes: [':(exclude)SPEC.md'],
       })
 
+      const factoryRunDir = join(armOutDir, 'runs', inst.id, config.armName)
+      const { ws: _ws, ...armSummary } = armRes
+      await writeFile(join(factoryRunDir, 'result.json'), JSON.stringify(armSummary, null, 1)).catch(() => {})
+
       const verdict = await judge.judge(inst.id, armRes.patchPath, `${config.armName}-r${rep}`)
       log(`${inst.id} r${rep} judged: ${JSON.stringify(verdict)}`)
+      await writeFile(join(factoryRunDir, 'judge.json'), JSON.stringify(verdict, null, 1)).catch(() => {})
       if (verdict.resolved === null) {
         throw new Error(`inconclusive factory judge verdict for ${key} (${verdict.error ?? 'unknown'}) — not writing a fabricated boolean`)
       }
@@ -616,13 +645,27 @@ export async function runFactoryExperiment(
         workers: armRes.workers,
         settled: armRes.settled,
         patchPath: armRes.patchPath,
-        runDir: join(armOutDir, 'runs', inst.id, config.armName),
+        runDir: factoryRunDir,
       }
       await appendFile(config.ledgerPath, JSON.stringify(row) + '\n')
       log(`LEDGER_ROW ${key} resolved=${row.resolved} score=${row.score} (${row.passed}/${row.total})`)
+
+      await writeRunReportSafe(row.runDir, {
+        appendHeadlineTo: config.runLogPath ?? join(config.outDir, 'run.log'),
+        ledgerPath: config.ledgerPath,
+        patchPath: armRes.patchPath,
+      })
+
       await new Promise((r) => setTimeout(r, config.cooldownMs ?? 15_000))
     }
   }
+
+  await reportRound(config.outDir, {
+    appendHeadlineTo: config.runLogPath ?? join(config.outDir, 'run.log'),
+    ledgerPath: config.ledgerPath,
+    title: `Round rollup — factory ${config.armName}`,
+    echo: true,
+  })
 }
 
 // ---------------------------------------------------------------------------
