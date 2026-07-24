@@ -14,7 +14,8 @@ TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # 3. one function 
 ```
 
 `driver-loop` is the core move everything else builds on; `improve` is the self-improvement primitive;
-`supervise` is the one-call product entry point.
+`supervise` is the one-call product entry point. [`quickstart/`](./quickstart/) is the same loop as
+`driver-loop` compressed into one un-annotated file — it is the quickstart shown in the root README.
 
 ## A few words that appear everywhere
 

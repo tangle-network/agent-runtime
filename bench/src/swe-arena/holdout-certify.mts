@@ -48,7 +48,7 @@ import {
   runWithPostGateClock,
   type OuterLoopConfig,
 } from './outer-loop.mts'
-import { runOk } from './proc.ts'
+import { installProcessSignalAbort, runOk } from './proc.ts'
 import { loadInstanceImages } from './run-experiment.mts'
 import { createSerializedJudge, type SerializedJudge } from './serialized-judge.ts'
 
@@ -161,7 +161,9 @@ const log = (msg: string): void => console.log(`[${new Date().toISOString().slic
 export async function runHoldoutCertification(
   config: OuterLoopConfig,
   opts: { candidateCommit: string; outDir?: string },
+  signal?: AbortSignal,
 ): Promise<HoldoutCertification> {
+  signal?.throwIfAborted()
   assertFrozenArm(config.arm)
   const reps = holdoutReps(config)
   const iids = config.holdoutInstances
@@ -193,20 +195,22 @@ export async function runHoldoutCertification(
   )
   const prior = await loadHoldoutCells(cellsPath)
 
-  const awaitGates = async (): Promise<void> => {
+  const awaitGates = async (gateSignal: AbortSignal | undefined = signal): Promise<void> => {
     for (const gate of gatesForArmKind('supervisor', secrets, {
       ...(config.gateWaitCeilingMs !== undefined ? { waitCeilingMs: config.gateWaitCeilingMs } : {}),
       ...(config.capacityModel !== undefined ? { model: config.capacityModel } : {}),
       onStatus: log,
     })) {
-      if (!(await waitForCapacity(gate))) throw new Error(`no capacity on ${gate.name} within ceiling`)
+      if (!(await waitForCapacity(gate, gateSignal))) throw new Error(`no capacity on ${gate.name} within ceiling`)
     }
   }
 
   const runSide = async (side: 'candidate' | 'parent', commit: string): Promise<ReplicateRun[]> => {
+    signal?.throwIfAborted()
     const runs: ReplicateRun[] = []
     for (const iid of iids) {
       for (let rep = 0; rep < reps; rep++) {
+        signal?.throwIfAborted()
         const cached = prior.find(
           (r) => r.side === side && r.commit === commit && r.iid === iid && r.rep === rep && r.resolved !== null,
         )
@@ -220,8 +224,8 @@ export async function runHoldoutCertification(
         const armOutDir = join(outDir, 'arm-runs', tag, iid, `rep-${rep}`)
         let row: HoldoutCellRow
         try {
-          await addEvalWorktree(config.loopsRepo, commit, evalWt)
           try {
+            await addEvalWorktree(config.loopsRepo, commit, evalWt, signal)
             const spec: SupervisorArmSpec = {
               kind: 'supervisor',
               name: config.armName,
@@ -238,10 +242,10 @@ export async function runHoldoutCertification(
             }
             log(`>>> holdout ${side} ${iid} rep=${rep} @ ${commit.slice(0, 10)}`)
             const entry = images[iid]!
-            const armRes = await runWithPostGateClock({
+            const { armRes, verdict } = await runWithPostGateClock({
               awaitGates,
-              work: () =>
-                runSupervisorArm(spec, {
+              work: async (signal) => {
+                const armRes = await runSupervisorArm(spec, {
                   instanceId: iid,
                   image: entry.image,
                   baseCommit: entry.base_commit,
@@ -250,11 +254,16 @@ export async function runHoldoutCertification(
                   outDir: armOutDir,
                   secrets,
                   excludes,
-                }),
+                  signal,
+                })
+                signal.throwIfAborted()
+                const verdict = await judge.judge(iid, armRes.patchPath, `holdout-${tag}`, signal)
+                return { armRes, verdict }
+              },
               timeoutMs: config.dispatchTimeoutMs,
               label: `holdout ${side} ${iid} r${rep}`,
+              signal,
             })
-            const verdict = await judge.judge(iid, armRes.patchPath, `holdout-${tag}`)
             row = {
               schema: 'swe-arena.holdout-cell.v1',
               at: new Date().toISOString(),
@@ -272,6 +281,7 @@ export async function runHoldoutCertification(
             await removeEvalWorktree(config.loopsRepo, evalWt)
           }
         } catch (cause) {
+          if (signal?.aborted) throw cause
           // An errored cell is an INCONCLUSIVE replicate (resolved: null) —
           // fail-closed downstream, never a fabricated boolean.
           row = {
@@ -308,7 +318,7 @@ export async function runHoldoutCertification(
     parentSource = 'provided'
   } else {
     parentCommit = (
-      await runOk('git', ['-C', config.loopsRepo, 'rev-parse', config.loopsBaseRef])
+      await runOk('git', ['-C', config.loopsRepo, 'rev-parse', config.loopsBaseRef], { signal })
     ).stdout.trim()
     log(`holdout parent: measuring incumbent ${parentCommit.slice(0, 10)} under the same ${reps}-rep protocol`)
     const parentRuns = await runSide('parent', parentCommit)
@@ -324,6 +334,7 @@ export async function runHoldoutCertification(
   }
 
   const candidateRuns = await runSide('candidate', opts.candidateCommit)
+  signal?.throwIfAborted()
   const decision = decideHoldoutCertification({ candidateRuns, parentVerdicts, iids, reps })
 
   const record = {
@@ -344,6 +355,7 @@ export async function runHoldoutCertification(
   )
   for (const r of decision.reasons) log(`  - ${r}`)
   log(`certification record → ${recordPath}`)
+  signal?.throwIfAborted()
   return decision
 }
 
@@ -354,32 +366,43 @@ export async function runHoldoutCertification(
 const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
 
 if (isMain) {
-  const argv = process.argv.slice(2)
-  const configPath = argv[0]
-  const flag = (name: string): string | undefined => {
-    const i = argv.indexOf(name)
-    return i !== -1 ? argv[i + 1] : undefined
-  }
-  const candidate = flag('--candidate')
-  if (!configPath || configPath.startsWith('--') || !candidate) {
-    console.error(
-      'usage: tsx src/swe-arena/holdout-certify.mts <config.json> --candidate <loops-commit> [--out <dir>]  # SPENDS: arms + judges',
-    )
-    process.exit(2)
-  }
-  const config = JSON.parse(await readFile(configPath, 'utf8')) as OuterLoopConfig
-  assertLaunchEnv()
-  const out = flag('--out')
-  const lockDir = out ?? join(config.outDir, 'holdout-certification')
-  await mkdir(lockDir, { recursive: true })
-  const lock = await acquireInstanceLock(lockDir)
+  const interrupt = installProcessSignalAbort('holdout-certify')
   try {
-    const decision = await runHoldoutCertification(config, {
-      candidateCommit: candidate,
-      ...(out ? { outDir: out } : {}),
-    })
-    process.exitCode = decision.certified ? 0 : 1
+    const argv = process.argv.slice(2)
+    const configPath = argv[0]
+    const flag = (name: string): string | undefined => {
+      const i = argv.indexOf(name)
+      return i !== -1 ? argv[i + 1] : undefined
+    }
+    const candidate = flag('--candidate')
+    if (!configPath || configPath.startsWith('--') || !candidate) {
+      console.error(
+        'usage: tsx src/swe-arena/holdout-certify.mts <config.json> --candidate <loops-commit> [--out <dir>]  # SPENDS: arms + judges',
+      )
+      process.exit(2)
+    }
+    const config = JSON.parse(await readFile(configPath, 'utf8')) as OuterLoopConfig
+    assertLaunchEnv()
+    interrupt.signal.throwIfAborted()
+    const out = flag('--out')
+    const lockDir = out ?? join(config.outDir, 'holdout-certification')
+    await mkdir(lockDir, { recursive: true })
+    const lock = await acquireInstanceLock(lockDir)
+    try {
+      const decision = await runHoldoutCertification(config, {
+        candidateCommit: candidate,
+        ...(out ? { outDir: out } : {}),
+      }, interrupt.signal)
+      interrupt.signal.throwIfAborted()
+      process.exitCode = decision.certified ? 0 : 1
+    } finally {
+      await lock.release()
+    }
+  } catch (cause) {
+    if (!interrupt.signal.aborted) throw cause
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    console.error(`holdout-certify stopped after cleanup: ${detail}`)
   } finally {
-    await lock.release()
+    interrupt.dispose()
   }
 }

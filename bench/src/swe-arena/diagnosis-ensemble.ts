@@ -21,7 +21,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { type AnalystFinding, makeFinding } from '@tangle-network/agent-eval'
 import { findSupervisorRunDir, type SecretsEnv } from './arms'
-import { ROUTER_ENDPOINT } from './capacity'
+import { ROUTER_ENDPOINT, sleepWithSignal } from './capacity'
 import { run } from './proc'
 
 // ---------------------------------------------------------------------------
@@ -257,8 +257,9 @@ export async function runAnalyst(
   bundle: string,
   secrets: SecretsEnv,
   scratchDir: string,
-  opts: { timeoutMs?: number; retries?: number; retryDelayMs?: number } = {},
+  opts: { timeoutMs?: number; retries?: number; retryDelayMs?: number; signal?: AbortSignal } = {},
 ): Promise<AnalystReport> {
+  opts.signal?.throwIfAborted()
   const apiKeyEnv = spec.apiKeyEnv ?? 'TANGLE_API_KEY'
   if (!/^[A-Z_][A-Z0-9_]*$/.test(apiKeyEnv)) {
     return { analystId: spec.id, model: spec.model, ok: false, findings: [], error: `invalid apiKeyEnv name: ${apiKeyEnv}` }
@@ -270,6 +271,7 @@ export async function runAnalyst(
     temperature: spec.temperature ?? 0,
     max_tokens: spec.maxTokens ?? 16_000,
   })
+  opts.signal?.throwIfAborted()
   await mkdir(scratchDir, { recursive: true })
   const outFile = join(scratchDir, `analyst-${spec.id.replace(/[^a-zA-Z0-9._-]/g, '_')}.response.json`)
   const timeoutMs = opts.timeoutMs ?? 600_000
@@ -283,13 +285,16 @@ export async function runAnalyst(
   let transportError = ''
   let transported = false
   for (let attempt = 0; attempt < attempts && !transported; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, opts.retryDelayMs ?? 5_000))
+    opts.signal?.throwIfAborted()
+    if (attempt > 0) await sleepWithSignal(opts.retryDelayMs ?? 5_000, opts.signal)
     const res = await run('dotenvx', argv, {
       cwd: secrets.secretsDir,
       timeoutMs,
       stdin: body,
       env: { ...process.env, DIAG_URL: url, DIAG_OUT: outFile },
+      signal: opts.signal,
     })
+    opts.signal?.throwIfAborted()
     const codeMatch = res.stdout.match(/HTTP_CODE=(\d{3})\s*$/)
     if (codeMatch && codeMatch[1] === '200') {
       transported = true
@@ -441,23 +446,30 @@ export async function runDiagnosisEnsemble(input: {
   retriesPerAnalyst?: number
   retryDelayMs?: number
   onStatus?: (msg: string) => void
+  signal?: AbortSignal
 }): Promise<DiagnosisEnsembleResult> {
+  input.signal?.throwIfAborted()
   if (input.analysts.length === 0) throw new Error('diagnosis ensemble: no analysts configured')
   if (input.runs.length === 0) throw new Error('diagnosis ensemble: no run artifacts to diagnose')
   const bundle = await buildArtifactBundle(
     input.runs,
     input.maxBundleChars !== undefined ? { maxChars: input.maxBundleChars } : {},
   )
+  input.signal?.throwIfAborted()
   await mkdir(input.scratchDir, { recursive: true })
   await writeFile(join(input.scratchDir, 'bundle.txt'), bundle)
+  input.signal?.throwIfAborted()
   const reports: AnalystReport[] = []
   for (const spec of input.analysts) {
+    input.signal?.throwIfAborted()
     input.onStatus?.(`analyst ${spec.id} (${spec.model}) reading ${bundle.length} chars…`)
     const report = await runAnalyst(spec, bundle, input.secrets, input.scratchDir, {
       ...(input.timeoutMsPerAnalyst !== undefined ? { timeoutMs: input.timeoutMsPerAnalyst } : {}),
       ...(input.retriesPerAnalyst !== undefined ? { retries: input.retriesPerAnalyst } : {}),
       ...(input.retryDelayMs !== undefined ? { retryDelayMs: input.retryDelayMs } : {}),
+      ...(input.signal ? { signal: input.signal } : {}),
     })
+    input.signal?.throwIfAborted()
     input.onStatus?.(
       `analyst ${spec.id}: ${report.ok ? `${report.findings.length} finding(s)` : `FAILED (${report.error})`}` +
         (report.tokens ? ` [tokens in=${report.tokens.input} out=${report.tokens.output}]` : ''),

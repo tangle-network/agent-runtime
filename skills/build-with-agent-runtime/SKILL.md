@@ -1,6 +1,6 @@
 ---
 name: build-with-agent-runtime
-description: Use before adding an agent loop, benchmark, optimizer, trace wrapper, or candidate activation path. Find and compose the existing Runtime, Eval, Knowledge, and Interface primitives.
+description: Choose and compose current runtime, eval, knowledge, and interface APIs before adding wrappers.
 ---
 
 # Build with agent-runtime
@@ -62,10 +62,11 @@ It performs these steps in order:
 
 1. Analyze completed traces.
 2. Search for a candidate on development tasks.
-3. Freeze the baseline and winner into one exact experiment.
-4. Reject the experiment if its candidate differs from the search winner.
-5. Run baseline and candidate on the same held-back tasks.
-6. Produce findings, confidence intervals, quality, cost, latency, and a decision.
+3. Build the frozen baseline, candidate, and held-back work.
+4. Return only baseline, candidate, held-back tasks, and policy; Runtime adds the optimizer ancestry and seals the final experiment.
+5. Reject the experiment if its candidate differs from the search winner.
+6. Run baseline and candidate on the same held-back tasks.
+7. Produce findings, confidence intervals, quality, cost, latency, and a decision.
 
 After a person or tenant policy approves the proposal, call `createAgentImprovementActivation(...)` with target identities, funding owner, authority, intent, and expiry.
 Runtime derives the expected current digests from the measured experiment.
@@ -122,5 +123,6 @@ The product must not recreate candidate hashing, paired comparison, confidence i
 
 ## Then consider
 
+- Use `build-with-agent-knowledge` when agents should improve retrieval, memory, or a knowledge base.
 - Use `critical-audit` when the change introduces or alters a public contract.
 - Use `verify` before publishing or adopting the package in a product.

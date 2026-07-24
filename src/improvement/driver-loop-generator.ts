@@ -93,6 +93,7 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
   return {
     kind: `driver-loop:${harness}`,
     async generate({ worktreePath, report, findings, maxShots, signal }) {
+      signal.throwIfAborted()
       const briefing = buildPrompt({ report, findings })
       const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
       const sessionCap = Math.max(1, maxShots)
@@ -102,6 +103,7 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
       // code-owned gate — ONE definition of "delivered" so the driver can never see a different
       // check than the one that decides the keep.
       const groundVerify = async (): Promise<{ ok: boolean; feedback?: string }> => {
+        signal.throwIfAborted()
         if (changed(worktreePath).length === 0) {
           return { ok: false, feedback: 'the working tree has no changes — nothing to verify' }
         }
@@ -112,10 +114,13 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
         if (!verify) {
           return { ok: true, feedback: 'no verifier configured: a dirty tree is the candidate' }
         }
-        return await verify(worktreePath)
+        const result = await verify(worktreePath, signal)
+        signal.throwIfAborted()
+        return result
       }
 
       const execute = async (name: string, args: Record<string, unknown>): Promise<string> => {
+        signal.throwIfAborted()
         switch (name) {
           case 'run_worker': {
             const instruction = typeof args.instruction === 'string' ? args.instruction.trim() : ''
@@ -133,10 +138,15 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
               ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
               signal,
             })
+            signal.throwIfAborted()
+            if (result.aborted) {
+              throw new Error('driverLoopGenerator: worker session was cancelled by the caller')
+            }
             return JSON.stringify({
               session: `${sessionsUsed}/${sessionCap}`,
               exitCode: result.exitCode,
               timedOut: result.timedOut,
+              aborted: result.aborted ?? false,
               killedBySignal: result.killedBySignal,
               durationMs: result.durationMs,
               changedPaths: changed(worktreePath),
@@ -161,7 +171,9 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
             if (!opts.research) return 'error: research tool is not provisioned in this run'
             const query = typeof args.query === 'string' ? args.query.trim() : ''
             if (query.length === 0) return 'error: research requires a non-empty `query`'
-            return truncate(await opts.research(query), researchResultMaxChars)
+            const result = await opts.research(query)
+            signal.throwIfAborted()
+            return truncate(result, researchResultMaxChars)
           }
           case 'run_verifier': {
             const result = await groundVerify()
@@ -200,9 +212,11 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
         maxTurns: opts.maxTurns ?? Math.max(8, 2 + sessionCap * 3),
         hooks: { stopBefore: () => signal.aborted },
       })
+      signal.throwIfAborted()
 
       // The completion oracle: the driver stopped (or ran out of turns) — ground truth decides.
       const verdict = await groundVerify()
+      signal.throwIfAborted()
       if (!verdict.ok) return { applied: false, summary: '' }
       return { applied: true, summary: summarizeFindings(findings) }
     },
