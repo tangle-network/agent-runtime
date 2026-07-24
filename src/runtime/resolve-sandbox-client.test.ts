@@ -92,7 +92,11 @@ describe('resolveSandboxClient', () => {
   })
 
   it("backend 'local' wires the same-host client with the local options", () => {
-    const local = { router: { baseUrl: 'https://router.tangle.tools', key: 'sk-l', model: 'gem' } }
+    const keys = { get: vi.fn(async () => 'secret') }
+    const local = {
+      router: { baseUrl: 'https://router.tangle.tools', key: 'sk-l', model: 'gem' },
+      keys,
+    }
     const client = resolveSandboxClient({ backend: 'local', local })
     expect(localSandboxClient).toHaveBeenCalledWith(local)
     expect((client as unknown as { __local: unknown }).__local).toBe(local)

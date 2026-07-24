@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import { type ChildProcess, spawn as spawnChild } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import {
@@ -29,6 +29,7 @@ function makeFakeChild(opts: {
   signal?: NodeJS.Signals | null
   emitErrorBeforeClose?: Error
   delayCloseMs?: number
+  neverClose?: boolean
 }): ChildProcess {
   const emitter = new EventEmitter() as ChildProcess
   const stdout = new EventEmitter() as ChildProcess['stdout']
@@ -48,6 +49,7 @@ function makeFakeChild(opts: {
       emitter.emit('error', opts.emitErrorBeforeClose)
       return
     }
+    if (opts.neverClose) return
     const fire = () => emitter.emit('close', opts.exitCode ?? 0, opts.signal ?? null)
     if (opts.delayCloseMs && opts.delayCloseMs > 0) setTimeout(fire, opts.delayCloseMs)
     else fire()
@@ -219,6 +221,25 @@ describe('runLocalHarness', () => {
     expect(result.stderr).toBe('warn')
     expect(result.killedBySignal).toBeNull()
     expect(result.timedOut).toBe(false)
+    expect(result.aborted).toBe(false)
+  })
+
+  it('rejects a pre-aborted call before spawning a process', async () => {
+    const controller = new AbortController()
+    const reason = new Error('cancelled before launch')
+    controller.abort(reason)
+    const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
+
+    await expect(
+      runLocalHarness({
+        harness: 'claude',
+        cwd: '/tmp/wt',
+        taskPrompt: 'must not launch',
+        signal: controller.signal,
+        spawn: spawnSpy,
+      }),
+    ).rejects.toBe(reason)
+    expect(spawnSpy).not.toHaveBeenCalled()
   })
 
   it('captures non-zero exit code without throwing', async () => {
@@ -698,9 +719,17 @@ describe('runLocalHarness', () => {
       exitCode: 0,
     })
     Object.defineProperty(child, 'pid', { value: 43210 })
+    let groupAlive = true
     const processKill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
       expect(pid).toBe(-43210)
-      if (signal === 'SIGKILL') child.emit('close', null, 'SIGKILL')
+      if (signal === 'SIGKILL') {
+        groupAlive = false
+        child.emit('close', null, 'SIGKILL')
+      } else if (signal === 0 && !groupAlive) {
+        const err = new Error('no such process') as NodeJS.ErrnoException
+        err.code = 'ESRCH'
+        throw err
+      }
       return true
     })
     try {
@@ -715,13 +744,171 @@ describe('runLocalHarness', () => {
       const result = await promise
       expect(result.timedOut).toBe(true)
       expect(result.killedBySignal).toBe('SIGKILL')
-      expect(processKill).toHaveBeenNthCalledWith(1, -43210, 'SIGTERM')
-      expect(processKill).toHaveBeenNthCalledWith(2, -43210, 'SIGKILL')
+      expect(processKill).toHaveBeenCalledWith(-43210, 'SIGTERM')
+      expect(processKill).toHaveBeenCalledWith(-43210, 'SIGKILL')
+      const deliveredSignals = processKill.mock.calls
+        .map(([, signal]) => signal)
+        .filter((signal) => signal !== 0)
+      expect(deliveredSignals).toEqual(['SIGTERM', 'SIGKILL'])
       expect(child.kill).not.toHaveBeenCalled()
     } finally {
       processKill.mockRestore()
       vi.useRealTimers()
     }
+  })
+
+  it('lets a TERM-handling grandchild flush before an aborted harness resolves', async () => {
+    if (process.platform === 'win32') return
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-process-flush-'))
+    const readyFile = join(cwd, 'grandchild.ready')
+    const cleanupMarker = join(cwd, 'grandchild.cleaned')
+    const grandchildScript = [
+      `const fs=require('node:fs')`,
+      `process.on('SIGTERM',()=>setTimeout(()=>{fs.writeFileSync(process.argv[2],'clean');process.exit(0)},40))`,
+      `fs.writeFileSync(process.argv[1],String(process.pid))`,
+      `setInterval(()=>{},1000)`,
+    ].join(';')
+    const parentScript = [
+      `const {spawn}=require('node:child_process')`,
+      `process.on('SIGTERM',()=>process.exit(0))`,
+      `spawn(process.execPath,['-e',${JSON.stringify(grandchildScript)},process.argv[1],process.argv[2]],{stdio:'ignore'})`,
+      `setInterval(()=>{},1000)`,
+    ].join(';')
+    const ctl = new AbortController()
+    const run = runLocalHarness({
+      harness: 'claude',
+      cwd,
+      taskPrompt: 'graceful process-tree cancellation smoke',
+      invocation: {
+        command: process.execPath,
+        args: ['-e', parentScript, readyFile, cleanupMarker],
+      },
+      signal: ctl.signal,
+      timeoutMs: 2_000,
+    })
+
+    try {
+      for (let attempt = 0; attempt < 200 && !existsSync(readyFile); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      expect(existsSync(readyFile)).toBe(true)
+
+      ctl.abort()
+      const result = await run
+
+      expect(result.timedOut).toBe(false)
+      expect(result.killedBySignal).toBeNull()
+      expect(result.aborted).toBe(true)
+      expect(readFileSync(cleanupMarker, 'utf8')).toBe('clean')
+    } finally {
+      ctl.abort()
+      await run.catch(() => undefined)
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('cleans up same-group descendants after a harness leader exits normally', async () => {
+    if (process.platform === 'win32') return
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-process-normal-exit-'))
+    const pidFile = join(cwd, 'grandchild.pid')
+    const grandchildScript = [
+      `const fs=require('node:fs')`,
+      `process.on('SIGTERM',()=>{})`,
+      `fs.writeFileSync(process.argv[1],String(process.pid))`,
+      `setInterval(()=>{},1000)`,
+    ].join(';')
+    const parentScript = [
+      `const {spawn}=require('node:child_process')`,
+      `const fs=require('node:fs')`,
+      `spawn(process.execPath,['-e',${JSON.stringify(grandchildScript)},process.argv[1]],{stdio:'ignore'})`,
+      `const ready=setInterval(()=>{if(fs.existsSync(process.argv[1])){clearInterval(ready);process.exit(0)}},5)`,
+    ].join(';')
+    let grandchildPid: number | undefined
+
+    try {
+      const result = await runLocalHarness({
+        harness: 'claude',
+        cwd,
+        taskPrompt: 'normal-exit process-tree cleanup smoke',
+        invocation: { command: process.execPath, args: ['-e', parentScript, pidFile] },
+        timeoutMs: 2_000,
+      })
+      grandchildPid = Number(readFileSync(pidFile, 'utf8'))
+
+      expect(result.exitCode).toBe(0)
+      expect(result.timedOut).toBe(false)
+      expect(result.durationMs).toBeGreaterThanOrEqual(240)
+      expect(() => process.kill(grandchildPid!, 0)).toThrow(
+        expect.objectContaining({ code: 'ESRCH' }),
+      )
+    } finally {
+      if (grandchildPid !== undefined) {
+        try {
+          process.kill(grandchildPid, 'SIGKILL')
+        } catch {
+          // The expected path already reaped it.
+        }
+      }
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('kills a TERM-ignoring grandchild before a timed-out harness resolves', async () => {
+    if (process.platform === 'win32') return
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-process-tree-'))
+    const pidFile = join(cwd, 'grandchild.pid')
+    const grandchildScript = `process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)`
+    const parentScript = [
+      `const {spawn}=require('node:child_process')`,
+      `const fs=require('node:fs')`,
+      `const child=spawn(process.execPath,['-e',${JSON.stringify(grandchildScript)}],{stdio:'ignore'})`,
+      `fs.writeFileSync(process.argv[1],String(child.pid))`,
+      `process.on('SIGTERM',()=>process.exit(0))`,
+      `setInterval(()=>{},1000)`,
+    ].join(';')
+    let grandchildPid: number | undefined
+    try {
+      const result = await runLocalHarness({
+        harness: 'claude',
+        cwd,
+        taskPrompt: 'process-tree cancellation smoke',
+        invocation: { command: process.execPath, args: ['-e', parentScript, pidFile] },
+        timeoutMs: 100,
+      })
+      grandchildPid = Number(readFileSync(pidFile, 'utf8'))
+
+      expect(result.timedOut).toBe(true)
+      expect(result.killedBySignal).toBeNull()
+      expect(() => process.kill(grandchildPid!, 0)).toThrow(
+        expect.objectContaining({ code: 'ESRCH' }),
+      )
+    } finally {
+      if (grandchildPid !== undefined) {
+        try {
+          process.kill(grandchildPid, 'SIGKILL')
+        } catch {
+          // The expected path already reaped it.
+        }
+      }
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('retains only the newest configured bytes from noisy output', async () => {
+    const result = await runLocalHarness({
+      harness: 'claude',
+      cwd: process.cwd(),
+      taskPrompt: 'bounded output smoke',
+      invocation: {
+        command: process.execPath,
+        args: ['-e', `process.stdout.write('x'.repeat(100) + 'TAIL')`],
+      },
+      maxOutputBytes: 32,
+      timeoutMs: 1_000,
+    })
+
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(32)
+    expect(result.stdout.endsWith('TAIL')).toBe(true)
   })
 
   it('kills subprocess on AbortSignal', async () => {
@@ -736,6 +923,156 @@ describe('runLocalHarness', () => {
     setTimeout(() => ctl.abort(), 5)
     const result = await promise
     expect(result.killedBySignal).toBe('SIGTERM')
+    expect(result.aborted).toBe(true)
+  })
+
+  it('awaits Codex probe SIGKILL confirmation before rejecting an abort', async () => {
+    if (process.platform === 'win32') return
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-probe-abort-'))
+    const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
+    writeFileSync(join(authHome, 'auth.json'), '{}')
+    const staticCodex = makeStaticElfFixture(cwd)
+    const invocation = harnessInvocation(
+      'codex',
+      { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
+      'task',
+      { codexReproducible: true },
+    )
+    const ctl = new AbortController()
+    const probePid = 45678
+    let probeChild: ChildProcess | undefined
+    let killSent = false
+    let confirmedGone = false
+    let confirmationChecks = 0
+    const processKill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      expect(pid).toBe(-probePid)
+      if (signal === 'SIGKILL') {
+        killSent = true
+        setImmediate(() => probeChild?.emit('close', null, 'SIGKILL'))
+      } else if (signal === 0 && killSent) {
+        confirmationChecks += 1
+        if (confirmationChecks >= 2) {
+          confirmedGone = true
+          const err = new Error('no such process') as NodeJS.ErrnoException
+          err.code = 'ESRCH'
+          throw err
+        }
+      }
+      return true
+    })
+
+    try {
+      const run = runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        invocation,
+        codexReproducible: true,
+        signal: ctl.signal,
+        env: { CODEX_HOME: authHome },
+        resolveCodexExecutable: async () => staticCodex,
+        spawn: (_command, args) => {
+          expect(args[0]).toBe('--version')
+          probeChild = makeFakeChild({ neverClose: true })
+          Object.defineProperty(probeChild, 'pid', { value: probePid })
+          setImmediate(() => ctl.abort())
+          return probeChild
+        },
+      })
+
+      await expect(run).rejects.toThrow(/Codex evidence probe aborted/)
+      expect(processKill).toHaveBeenCalledWith(-probePid, 'SIGTERM')
+      expect(processKill).toHaveBeenCalledWith(-probePid, 'SIGKILL')
+      expect(confirmationChecks).toBe(2)
+      expect(confirmedGone).toBe(true)
+    } finally {
+      processKill.mockRestore()
+      rmSync(cwd, { recursive: true, force: true })
+      rmSync(authHome, { recursive: true, force: true })
+    }
+  })
+
+  it('cleans up same-group descendants after a Codex probe exits normally', async () => {
+    if (process.platform === 'win32') return
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-probe-normal-exit-'))
+    const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
+    const pidFile = join(cwd, 'probe-grandchild.pid')
+    writeFileSync(join(authHome, 'auth.json'), '{}')
+    const staticCodex = makeStaticElfFixture(cwd)
+    const invocation = harnessInvocation(
+      'codex',
+      { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
+      'task',
+      { codexReproducible: true },
+    )
+    const grandchildScript = [
+      `const fs=require('node:fs')`,
+      `process.on('SIGTERM',()=>{})`,
+      `fs.writeFileSync(process.argv[1],String(process.pid))`,
+      `setInterval(()=>{},1000)`,
+    ].join(';')
+    const probeScript = [
+      `const {spawn}=require('node:child_process')`,
+      `const fs=require('node:fs')`,
+      `spawn(process.execPath,['-e',${JSON.stringify(grandchildScript)},process.argv[1]],{stdio:'ignore'})`,
+      `const ready=setInterval(()=>{if(fs.existsSync(process.argv[1])){clearInterval(ready);console.log('codex-cli 0.144.1');process.exit(0)}},5)`,
+    ].join(';')
+    let grandchildPid: number | undefined
+
+    try {
+      const result = await runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        invocation,
+        codexReproducible: true,
+        env: { CODEX_HOME: authHome },
+        resolveCodexExecutable: async () => staticCodex,
+        spawn: (_command, args, opts) => {
+          if (args[0] === '--version') {
+            return spawnChild(process.execPath, ['-e', probeScript, pidFile], opts)
+          }
+          if (args[0] === 'sandbox') return makeFakeChild({ exitCode: 0 })
+          if (args[0] === 'debug') {
+            return makeFakeChild({
+              stdoutChunks: [
+                JSON.stringify([
+                  {
+                    content: [
+                      {
+                        text: '<permissions instructions>x</permissions instructions><environment_context>x</environment_context>',
+                      },
+                    ],
+                  },
+                  { content: [{ text: args.at(-1) }] },
+                ]),
+              ],
+            })
+          }
+          return makeFakeChild({
+            stdoutChunks: [
+              '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}\n',
+            ],
+          })
+        },
+      })
+      grandchildPid = Number(readFileSync(pidFile, 'utf8'))
+
+      expect(result.exitCode).toBe(0)
+      expect(() => process.kill(grandchildPid!, 0)).toThrow(
+        expect.objectContaining({ code: 'ESRCH' }),
+      )
+    } finally {
+      if (grandchildPid !== undefined) {
+        try {
+          process.kill(grandchildPid, 'SIGKILL')
+        } catch {
+          // The expected path already reaped it.
+        }
+      }
+      rmSync(cwd, { recursive: true, force: true })
+      rmSync(authHome, { recursive: true, force: true })
+    }
   })
 
   it('rejects unknown harness name', async () => {
