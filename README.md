@@ -126,6 +126,10 @@ const { candidate, decision, lift } = await improve(baseProfile, findings, {
 if (decision === 'ship') console.log({ candidate, lift })
 ```
 
+When the host runs complete profiles rather than mutable fields, use `profileDispatch(profile, scenario, ctx)` in place of `agent`.
+It is agent-eval's `ProfileDispatchFn`: Runtime gives it a frozen baseline or candidate profile and the same cost, trace, and cancellation context used for every measured cell.
+`profileDispatch` is unavailable for `surface: 'code'`, because code candidates require isolated worktrees.
+
 Skill and curated-memory candidates are exact profile changes, not free-floating text.
 Name one inline skill through `skills.resourceName`; curated memory uses `profile.resources.instructions`.
 Both require `profile.resources.failOnError: true` so an unsupported resource cannot silently disappear.

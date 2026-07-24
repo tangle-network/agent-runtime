@@ -41,6 +41,7 @@ import {
   gepaProposer,
   gitWorktreeAdapter,
   memoryCurationProposer,
+  type ProfileDispatchFn,
   skillOptProposer,
   type Worktree,
   type WorktreeAdapter,
@@ -98,10 +99,17 @@ export type ImproveSurface =
   | 'code'
   | 'rollout-policy'
 
-export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
-  SelfImproveOptions<TScenario, TArtifact>,
-  'analyzeGeneration' | 'baselineSurface' | 'findings' | 'gate' | 'proposer'
-> & {
+export interface ImproveOptions<TScenario extends Scenario, TArtifact>
+  extends Omit<
+    SelfImproveOptions<TScenario, TArtifact>,
+    'agent' | 'analyzeGeneration' | 'baselineSurface' | 'findings' | 'gate' | 'proposer'
+  > {
+  /** Dispatch the mutable surface directly when the host already owns that seam.
+   * Exactly one of `agent` or `profileDispatch` is required. */
+  agent?: SelfImproveOptions<TScenario, TArtifact>['agent']
+  /** Dispatch each baseline or candidate as its complete AgentProfile.
+   * Exactly one of `agent` or `profileDispatch` is required. */
+  profileDispatch?: ProfileDispatchFn<TScenario, TArtifact>
   /** Which profile lever to optimize. Default `'prompt'`. Selects the default
    *  generator + the baseline-surface extraction shape. */
   surface?: ImproveSurface
@@ -592,6 +600,39 @@ function materializeImprovementProfileCandidate(
   return immutableCandidateValue(parsed.data)
 }
 
+/** Build the mutable-surface callback expected by agent-eval from a host that
+ * runs complete profiles. The host sees the same immutable baseline/candidate
+ * profile Runtime reports as the result; it never needs to duplicate surface
+ * replacement rules. */
+function profileImprovementAgent<TScenario extends Scenario, TArtifact>(input: {
+  baselineProfile: AgentProfile
+  surface: ImproveSurface
+  skills?: ImproveSkillsOptions
+  dispatch: ProfileDispatchFn<TScenario, TArtifact>
+}): SelfImproveOptions<TScenario, TArtifact>['agent'] {
+  return (surfaceValue, scenario, ctx) => {
+    const profile = materializeImprovementProfileCandidate(
+      input.baselineProfile,
+      input.surface,
+      surfaceValue,
+      input.skills,
+    )
+    // An unset rollout policy deliberately uses the unchanged profile as its
+    // baseline. Every other unsupported surface must stop before a host run.
+    const dispatchedProfile =
+      profile ??
+      (input.surface === 'rollout-policy' && surfaceValue === ''
+        ? input.baselineProfile
+        : undefined)
+    if (!dispatchedProfile) {
+      throw new ConfigError(
+        `improve(): surface '${input.surface}' cannot run through profileDispatch; use opts.agent for a non-profile surface`,
+      )
+    }
+    return input.dispatch(dispatchedProfile, scenario, ctx)
+  }
+}
+
 function inlineSkill(
   profile: AgentProfile,
   options: ImproveSkillsOptions | undefined,
@@ -668,6 +709,8 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   const {
     surface = 'prompt',
     gate = 'holdout',
+    agent,
+    profileDispatch,
     generator,
     allowedModels,
     rawTraceContext,
@@ -682,6 +725,18 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   if (!parsedProfile.success) {
     throw new ConfigError(
       `improve(): input is not a valid AgentProfile: ${parsedProfile.error.message}`,
+    )
+  }
+  if (agent !== undefined && profileDispatch !== undefined) {
+    throw new ConfigError('improve(): provide exactly one of opts.agent or opts.profileDispatch')
+  }
+  if (agent === undefined && profileDispatch === undefined) {
+    throw new ConfigError('improve(): provide exactly one of opts.agent or opts.profileDispatch')
+  }
+  const baselineProfile = immutableCandidateValue(parsedProfile.data)
+  if (profileDispatch && surface === 'code') {
+    throw new ConfigError(
+      "improve(): surface 'code' cannot use profileDispatch because code candidates require isolated worktree execution; use opts.agent",
     )
   }
   if (surface === 'code' && generator) {
@@ -713,13 +768,26 @@ export async function improve<TScenario extends Scenario, TArtifact>(
 
   const budget: SelfImproveBudget =
     gate === 'none' ? { ...sharedOptions.budget, generations: 0 } : { ...sharedOptions.budget }
+  const effectiveAgent =
+    profileDispatch === undefined
+      ? agent
+      : profileImprovementAgent({
+          baselineProfile,
+          surface,
+          ...(skills === undefined ? {} : { skills }),
+          dispatch: profileDispatch,
+        })
+  if (!effectiveAgent) {
+    throw new ConfigError('improve(): provide exactly one of opts.agent or opts.profileDispatch')
+  }
 
   let raw: SelfImproveResult<TScenario, TArtifact>
   try {
     raw = await selfImprove<TScenario, TArtifact>({
       ...sharedOptions,
+      agent: effectiveAgent,
       baselineSurface:
-        preparedCode?.baseline ?? baselineSurfaceFor(parsedProfile.data, surface, skills),
+        preparedCode?.baseline ?? baselineSurfaceFor(baselineProfile, surface, skills),
       proposer,
       budget,
       findings,
@@ -762,7 +830,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   }
   const dispose = idempotentDispose(async () => preparedCode?.cleanup())
   const candidateProfile = materializeImprovementProfileCandidate(
-    parsedProfile.data,
+    baselineProfile,
     surface,
     winnerSurface,
     skills,
