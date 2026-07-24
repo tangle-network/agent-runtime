@@ -35,6 +35,7 @@ import {
   type LocalHarness,
   type LocalHarnessResult,
   runLocalHarness,
+  terminateProcessTreeAndConfirm,
 } from './local-harness'
 import {
   captureWorktreeDiff,
@@ -197,6 +198,7 @@ const defaultCheckOutputCap = 16_000
 export async function runWorktreeHarness(
   opts: RunWorktreeHarnessOptions,
 ): Promise<WorktreeHarnessRun> {
+  opts.signal?.throwIfAborted()
   const runHarness = opts.runHarness ?? runLocalHarness
   const runCommand = opts.runCommand ?? defaultRunCommand
   const checkTimeoutMs = opts.checkTimeoutMs ?? opts.harnessTimeoutMs ?? 5 * 60 * 1000
@@ -257,12 +259,20 @@ export async function runWorktreeHarness(
       ...(opts.signal ? { signal: opts.signal } : {}),
     })
 
+    if (harnessResult.aborted || opts.signal?.aborted) {
+      throw new Error('runWorktreeHarness: harness was cancelled by the caller', {
+        cause: opts.signal?.reason,
+      })
+    }
+    opts.signal?.throwIfAborted()
+
     // Diff BEFORE checks — the patch is the harness's output, not whatever a test run left behind.
     const diff = await captureWorktreeDiff({
       worktree,
       excludePaths: applied.written,
       ...(opts.runGit ? { runGit: opts.runGit } : {}),
     })
+    opts.signal?.throwIfAborted()
 
     const checks = await runWorktreeChecks({
       worktreePath: worktree.path,
@@ -273,6 +283,7 @@ export async function runWorktreeHarness(
       runCommand,
       ...(opts.signal ? { signal: opts.signal } : {}),
     })
+    opts.signal?.throwIfAborted()
 
     const result: WorktreeHarnessResult = {
       branch: worktree.branch,
@@ -486,15 +497,18 @@ export async function runWorktreeChecks(opts: {
   runCommand?: WorktreeCheckRunner
   signal?: AbortSignal
 }): Promise<WorktreeHarnessResult['checks'] | undefined> {
+  opts.signal?.throwIfAborted()
   if (opts.testCmd === undefined && opts.typecheckCmd === undefined) return undefined
   const runCommand = opts.runCommand ?? defaultRunCommand
   const run = async (command: string): Promise<WorktreeCommandResult> => {
+    opts.signal?.throwIfAborted()
     const res = await runCommand({
       command,
       cwd: opts.worktreePath,
       timeoutMs: opts.timeoutMs,
       ...(opts.signal ? { signal: opts.signal } : {}),
     })
+    opts.signal?.throwIfAborted()
     return {
       command,
       passed: res.exitCode === 0,
@@ -504,31 +518,56 @@ export async function runWorktreeChecks(opts: {
   }
   const checks: NonNullable<WorktreeHarnessResult['checks']> = {}
   if (opts.testCmd !== undefined) checks.tests = await run(opts.testCmd)
+  opts.signal?.throwIfAborted()
   if (opts.typecheckCmd !== undefined) checks.typecheck = await run(opts.typecheckCmd)
+  opts.signal?.throwIfAborted()
   return checks
 }
 
-/** Default verification-command runner — `/bin/sh -c <command>` in the worktree, capturing
- *  combined stdout+stderr. Never throws on a non-zero exit (that IS the fail signal); only a
- *  spawn failure (ENOENT shell) rejects. */
-export function defaultRunCommand(opts: {
+interface SettledCommandResult {
+  exitCode: number | null
+  stdout: string
+  stderr: string
+  killedBySignal: NodeJS.Signals | null
+  timedOut: boolean
+}
+
+/** Internal argv-safe process runner shared by worktree checks and improvement verifiers. */
+export async function runSettledCommand(opts: {
   command: string
+  args?: string[]
   cwd: string
   timeoutMs: number
   signal?: AbortSignal
-}): Promise<{ exitCode: number | null; output: string }> {
+}): Promise<SettledCommandResult> {
+  opts.signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
-    const child = spawn('/bin/sh', ['-c', opts.command], {
+    const child = spawn(opts.command, opts.args ?? [], {
       cwd: opts.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     })
-    const chunks: string[] = []
+    const stdout: string[] = []
+    const stderr: string[] = []
     let settled = false
-    const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs)
-    const onAbort = () => child.kill('SIGTERM')
-    opts.signal?.addEventListener('abort', onAbort, { once: true })
-    child.stdout?.on('data', (d) => chunks.push(String(d)))
-    child.stderr?.on('data', (d) => chunks.push(String(d)))
+    let leaderClosed = false
+    let timedOut = false
+    let termination: Promise<void> | null = null
+    const terminate = (): Promise<void> => {
+      termination ??= terminateProcessTreeAndConfirm(child, () => leaderClosed, 'defaultRunCommand')
+      return termination
+    }
+    const timer = setTimeout(() => {
+      timedOut = true
+      void terminate().catch(fail)
+    }, opts.timeoutMs)
+    const onAbort = () => void terminate().catch(fail)
+    if (opts.signal) {
+      if (opts.signal.aborted) onAbort()
+      else opts.signal.addEventListener('abort', onAbort, { once: true })
+    }
+    child.stdout?.on('data', (d) => stdout.push(String(d)))
+    child.stderr?.on('data', (d) => stderr.push(String(d)))
     const finish = (fn: () => void) => {
       if (settled) return
       settled = true
@@ -536,7 +575,52 @@ export function defaultRunCommand(opts: {
       opts.signal?.removeEventListener('abort', onAbort)
       fn()
     }
-    child.on('error', (err) => finish(() => reject(err)))
-    child.on('close', (code) => finish(() => resolve({ exitCode: code, output: chunks.join('') })))
+    function fail(err: unknown): void {
+      finish(() => reject(err instanceof Error ? err : new Error(String(err))))
+    }
+    child.on('error', (err) => {
+      leaderClosed = true
+      void (termination ?? Promise.resolve()).then(() => fail(err), fail)
+    })
+    child.on('close', (code, killedBySignal) => {
+      leaderClosed = true
+      void (async () => {
+        try {
+          await (termination ?? terminate())
+          opts.signal?.throwIfAborted()
+          finish(() =>
+            resolve({
+              exitCode: code,
+              stdout: stdout.join(''),
+              stderr: stderr.join(''),
+              killedBySignal,
+              timedOut,
+            }),
+          )
+        } catch (err) {
+          fail(err)
+        }
+      })()
+    })
   })
+}
+
+/** Default verification-command runner — `/bin/sh -c <command>` in the worktree, capturing
+ *  combined stdout+stderr. Never throws on a non-zero exit (that IS the fail signal); spawn
+ *  failures and caller cancellation reject. Timeout terminates and confirms the whole process
+ *  group before returning. */
+export async function defaultRunCommand(opts: {
+  command: string
+  cwd: string
+  timeoutMs: number
+  signal?: AbortSignal
+}): Promise<{ exitCode: number | null; output: string }> {
+  const result = await runSettledCommand({
+    command: '/bin/sh',
+    args: ['-c', opts.command],
+    cwd: opts.cwd,
+    timeoutMs: opts.timeoutMs,
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  })
+  return { exitCode: result.exitCode, output: result.stdout + result.stderr }
 }

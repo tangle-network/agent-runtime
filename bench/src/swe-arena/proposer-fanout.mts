@@ -38,7 +38,7 @@
 
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile as readFilePromise, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -58,6 +58,14 @@ import {
   round4BuildPrompt,
   type OuterLoopConfig,
 } from './outer-loop.mts'
+import {
+  ACTIVATION_PREDICATE_RELPATH,
+  activationPredicateInstruction,
+  parseActivationPredicate,
+} from './activation.mts'
+import { briefingPromptSection, type BriefingContext } from './briefing.mts'
+import { gepaSeatAuthor, isGepaSeat, validateGepaSeat, type GepaMethodFactory } from './gepa-seat.mts'
+import type { ScoreSplit } from './score-split.mts'
 import { run, runOk } from './proc.ts'
 
 // ---------------------------------------------------------------------------
@@ -70,7 +78,9 @@ export interface ProposerSpec {
   /** Path to an `AgentProfile` JSON. Absolute, or relative to this module's
    *  `profiles/` directory. Omitted = bare profile (legacy invocation). */
   profile?: string
-  harness: 'claude' | 'codex' | 'opencode'
+  /** Required for harness-authored seats. ABSENT on a GEN-6 engine seat
+   *  (`engine` set) — enforced both ways at generator construction. */
+  harness?: 'claude' | 'codex' | 'opencode'
   /** GEN-4 pinned model id, threaded to the harness CLI as `-m <model>` via
    *  the author profile's `model.default` (harnessInvocation maps it for all
    *  three harnesses). Unset = the CLI's own resolved model (its login/settings
@@ -88,6 +98,22 @@ export interface ProposerSpec {
   /** Which diagnosis findings this proposer sees. Protocol/steering and
    *  raw-trace-context findings always pass through. Default 'all'. */
   diagnosisSlice?: 'all' | 'mechanics' | 'prompts'
+  /** GEN-6 GEPA seat: this seat is an ENGINE invocation (agent-eval's
+   *  external-GEPA adapter), not a harness CLI. `gepa` = one bounded engine
+   *  run; `omni` = GEPA's published best-of-then-continue shape. Validation +
+   *  authoring live in gepa-seat.mts. */
+  engine?: 'gepa' | 'omni'
+  /** GEN-6 GEPA seat: the ONE repo-relative change-space file GEPA optimizes
+   *  as a string; the rest of the loops repo stays at the incumbent commit. */
+  surface?: string
+  /** GEN-6 GEPA seat: total inner-evaluation budget (each inner call is one
+   *  real smoke arm cell). Default 10. */
+  maxMetricCalls?: number
+  /** GEN-6 GEPA seat: requested GEPA proposer spend cap in USD (the adapter
+   *  reports GEPA's own model/CLI spend without an agent-eval receipt). */
+  maxProposerCostUsd?: number
+  /** GEN-6 GEPA seat: python executable for the bridge. Default 'python3'. */
+  python?: string
 }
 
 export interface PrefilterConfig {
@@ -111,6 +137,9 @@ export interface SmokeVerdict {
   resolved: boolean | null
   patchLines: number
   wallS: number
+  /** Committed verify fixture passed (GEN-6: the GEPA seat's inner-score
+   *  tiebreak). Absent on errored smokes and pre-gen-6 records. */
+  verifyPass?: boolean
 }
 
 export type SmokeRunner = (args: {
@@ -125,7 +154,7 @@ export interface PrefilterKill {
   candidateIndex: number
   proposer: string
   harness: ProposerSpec['harness']
-  stage: 'change-space' | 'smoke'
+  stage: 'change-space' | 'activation-predicate' | 'smoke'
   reason: string
   diffSha256: string | null
   /** Persisted kill-forensics patch under `<outDir>/proposer-patches/`. */
@@ -319,20 +348,37 @@ export function sliceFindings(findings: AnalystFinding[], slice: ProposerSpec['d
   })
 }
 
+/** GEN-5 prompt extensions shared by every seat (merge included): the
+ *  MAP+TOOLBOX+PERMISSION briefing (briefing.mts) and the activation-predicate
+ *  deliverable contract (activation.mts). */
+export interface Gen5PromptExtras {
+  briefing?: BriefingContext
+  activationGate?: boolean
+}
+
+function appendGen5Sections(prompt: string, extras: Gen5PromptExtras): string {
+  let out = prompt
+  if (extras.briefing) out = `${out}\n\n${briefingPromptSection(extras.briefing)}`
+  if (extras.activationGate) out = `${out}\n\n${activationPredicateInstruction()}`
+  return out
+}
+
 /** The proposer's task prompt: the shared round prompt plus this proposer's
  *  authoring lens (appended so the protocol change-space text stays intact),
- *  plus the gen-4 Pareto-parents section when parents are seeded. A merge-seat
- *  spec gets the dedicated merge prompt instead. */
+ *  plus the gen-4 Pareto-parents section when parents are seeded, plus the
+ *  gen-5 briefing/activation sections when configured. A merge-seat spec gets
+ *  the dedicated merge prompt instead (gen-5 sections still apply). */
 export function proposerBuildPrompt(
   args: { report: unknown; findings: Array<Record<string, unknown>> },
   spec: ProposerSpec,
   parents: ParetoParentContext[] = [],
+  extras: Gen5PromptExtras = {},
 ): string {
-  if (spec.merge) return mergeAuthorPrompt(args, spec, parents)
+  if (spec.merge) return appendGen5Sections(mergeAuthorPrompt(args, spec, parents), extras)
   let prompt = round4BuildPrompt(args)
   if (spec.lens) prompt = `${prompt}\n\nYOUR AUTHORING LENS (${spec.name}):\n${spec.lens}`
   if (parents.length > 0) prompt = `${prompt}\n\n${parentsPromptSection(parents)}`
-  return prompt
+  return appendGen5Sections(prompt, extras)
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +483,18 @@ export interface FanOutDeps {
   /** GEN-4: materialized Pareto parents seeded into every author's prompt (and
    *  the merge seat's explicit merge input). Empty/omitted = gen-3 behavior. */
   parents?: ParetoParentContext[]
+  /** GEN-5: MAP+TOOLBOX briefing context threaded into every author prompt. */
+  briefing?: BriefingContext
+  /** GEN-6: the resolved PUBLIC smoke instance — the GEPA seat's inner
+   *  evaluator target. Required (with `smokeRunner`) when a gepa seat is
+   *  configured and no custom `author` is injected. */
+  smokeInstanceId?: string
+  /** GEN-6: the gen-5 score split; private instance ids never reach the GEPA
+   *  bridge (gepa-seat.mts asserts, fail-closed). Null/omitted = no split. */
+  scoreSplit?: Pick<ScoreSplit, 'privateInstances'> | null
+  /** GEN-6 test seam: the adapter factory (default: checked dynamic import of
+   *  agent-eval's gepaOptimizationMethod, loud when the install predates it). */
+  gepaMethodFactory?: GepaMethodFactory
   log?: (msg: string) => void
 }
 
@@ -451,7 +509,25 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
   // its own profile, lens prompt, and shot-receipt home.
   const inners = new Map<string, CandidateGenerator>()
   const ledgers = new Map<string, { ledger?: CostLedgerHandle; phase?: string }>()
+  // GEN-6: the GEPA seat authors through the agent-eval adapter, not a
+  // harness CLI. Its inner evaluator is the SAME injected smoke runner the
+  // pre-filter uses (presence enforced at generator construction).
+  let gepaAuthor: AuthorFn | undefined
   return (proposer, args) => {
+    if (isGepaSeat(proposer)) {
+      gepaAuthor ??= gepaSeatAuthor(config, {
+        smokeRunner: deps.smokeRunner!,
+        smokeInstanceId: deps.smokeInstanceId!,
+        scoreSplit: deps.scoreSplit ?? null,
+        ...(deps.gepaMethodFactory ? { methodFactory: deps.gepaMethodFactory } : {}),
+        ...(deps.log ? { log: deps.log } : {}),
+      })
+      return gepaAuthor(proposer, args)
+    }
+    const harness = proposer.harness
+    if (harness === undefined) {
+      throw new Error(`proposer ${proposer.name}: harness is required for a non-engine seat`)
+    }
     let inner = inners.get(proposer.name)
     const slot = ledgers.get(proposer.name) ?? {}
     ledgers.set(proposer.name, slot)
@@ -460,7 +536,7 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
       // (`model.default` → the harness CLI's `-m` flag).
       const profile = resolveAuthorProfile(proposer)
       inner = agenticGenerator({
-        harness: proposer.harness,
+        harness,
         ...(profile ? { profile } : {}),
         timeoutMs: config.proposerTimeoutMs,
         buildPrompt: (a) =>
@@ -468,12 +544,16 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
             a as unknown as { report: unknown; findings: Array<Record<string, unknown>> },
             proposer,
             deps.parents ?? [],
+            {
+              ...(deps.briefing ? { briefing: deps.briefing } : {}),
+              ...(config.activationGate === true ? { activationGate: true } : {}),
+            },
           ),
         verify: loopsCandidateVerifier(config.loopsRepo),
-        runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(proposer.harness) }),
+        runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(harness) }),
         onShotCompleted: proposerShotHooks({
           shotDir: join(config.outDir, 'proposer-shots', sanitize(proposer.name)),
-          harness: proposer.harness,
+          harness,
           ledger: () => slot.ledger,
           phase: () => slot.phase,
         }),
@@ -504,6 +584,23 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
     throw new Error(
       `fanOutLoopsGenerator: merge proposer(s) ${mergeSeats.map((p) => p.name).join(', ')} configured but ` +
         `only ${(deps.parents ?? []).length} pareto parent(s) materialized — a merge seat needs >=2`,
+    )
+  }
+  // GEN-6: engine seats are validated fail-closed at construction, and the
+  // default author path requires the pre-filter smoke runner — it IS the GEPA
+  // seat's inner evaluator (spec: score = smoke resolve + verify-pass
+  // tiebreak). A custom injected `author` owns its own evaluator.
+  const gepaSeats = proposers.filter(isGepaSeat)
+  for (const seat of gepaSeats) validateGepaSeat(seat)
+  for (const seat of proposers) {
+    if (!isGepaSeat(seat) && seat.harness === undefined) {
+      throw new Error(`fanOutLoopsGenerator: proposer ${seat.name} has neither a harness nor an engine`)
+    }
+  }
+  if (gepaSeats.length > 0 && deps.author === undefined && (deps.smokeRunner === undefined || deps.smokeInstanceId === undefined)) {
+    throw new Error(
+      `fanOutLoopsGenerator: gepa seat(s) ${gepaSeats.map((p) => p.name).join(', ')} need the pre-filter smoke ` +
+        'cell as their inner evaluator — enable config.prefilter and provide smokeRunner + smokeInstanceId',
     )
   }
   const author = deps.author ?? defaultAuthor(config, deps)
@@ -568,6 +665,32 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
             return { proposer, applied: false, summary: authored.summary, patch: null, kill }
           }
 
+          // Pre-filter stage A.5 — GEN-5 activation gate: a candidate without
+          // a parseable machine-checkable predicate is killed before any
+          // evaluation spend (the post-eval quarantine needs it to exist).
+          if (config.activationGate === true) {
+            const raw = await readFilePromise(join(scratch, ACTIVATION_PREDICATE_RELPATH), 'utf8').catch(() => null)
+            const parsed = raw === null ? null : parseActivationPredicate(raw)
+            if (parsed === null || !parsed.ok) {
+              const kill: PrefilterKill = {
+                generation,
+                candidateIndex: index,
+                proposer: proposer.name,
+                harness: proposer.harness,
+                stage: 'activation-predicate',
+                reason:
+                  parsed === null
+                    ? `missing ${ACTIVATION_PREDICATE_RELPATH} (required activation predicate)`
+                    : `invalid ${ACTIVATION_PREDICATE_RELPATH}: ${parsed.error}`,
+                diffSha256,
+                patchPath,
+              }
+              kills.push(kill)
+              log(`prefilter KILL gen ${generation} ${proposer.name}: ${kill.reason}`)
+              return { proposer, applied: false, summary: authored.summary, patch: null, kill }
+            }
+          }
+
           // Pre-filter stage B — one smoke cell before any full-arm spend.
           if (config.prefilter?.enabled && deps.smokeRunner) {
             const smoke = await deps.smokeRunner({
@@ -603,7 +726,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
   }
 
   return {
-    kind: `gen3-fanout:${proposers.map((p) => `${p.name}@${p.harness}${p.model ? `:${p.model}` : ''}${p.merge ? ':merge' : ''}`).join('+')}`,
+    kind: `gen3-fanout:${proposers.map((p) => `${p.name}@${p.engine ? `engine:${p.engine}` : p.harness}${p.model ? `:${p.model}` : ''}${p.merge ? ':merge' : ''}`).join('+')}`,
     proposesWithoutFindings: true,
     drainPrefilterKills() {
       return kills.splice(0, kills.length)
@@ -637,7 +760,7 @@ export function fanOutLoopsGenerator(config: OuterLoopConfig, deps: FanOutDeps =
         summary: outcome.summary,
         label: outcome.proposer.name,
         rationale:
-          `proposer ${outcome.proposer.name} (${outcome.proposer.harness}` +
+          `proposer ${outcome.proposer.name} (${outcome.proposer.engine ? `engine ${outcome.proposer.engine}` : outcome.proposer.harness}` +
           `${outcome.proposer.profile ? `, profile ${outcome.proposer.profile}` : ''}` +
           `${outcome.proposer.diagnosisSlice && outcome.proposer.diagnosisSlice !== 'all' ? `, slice ${outcome.proposer.diagnosisSlice}` : ''}` +
           `): ${outcome.summary || 'authored change'}`,

@@ -414,7 +414,7 @@ The last artifact read error, if the abort fired during the retry loop.
 
 ### McpSpawnFault
 
-Defined in: [src/runtime/stdio-mcp-client.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L57)
+Defined in: [src/runtime/stdio-mcp-client.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L90)
 
 A missing start binary / spawn fault: a SETUP bug, never a failed candidate.
  Graders (the serve verifier) must rethrow this instead of scoring it.
@@ -507,7 +507,7 @@ Defined in: [src/mcp/tools/coordination.ts:65](https://github.com/tangle-network
 
 ### WorktreeCommandResult
 
-Defined in: [src/mcp/worktree-harness.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L48)
+Defined in: [src/mcp/worktree-harness.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L49)
 
 Outcome of one verification command run in the worktree (test or typecheck).
 
@@ -517,7 +517,7 @@ Outcome of one verification command run in the worktree (test or typecheck).
 
 > **command**: `string`
 
-Defined in: [src/mcp/worktree-harness.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L50)
+Defined in: [src/mcp/worktree-harness.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L51)
 
 The shell command line that was run.
 
@@ -525,7 +525,7 @@ The shell command line that was run.
 
 > **passed**: `boolean`
 
-Defined in: [src/mcp/worktree-harness.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L52)
+Defined in: [src/mcp/worktree-harness.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L53)
 
 Did the command exit 0? The PASS signal a deliverable gate / coder output reads.
 
@@ -533,7 +533,7 @@ Did the command exit 0? The PASS signal a deliverable gate / coder output reads.
 
 > **exitCode**: `number` \| `null`
 
-Defined in: [src/mcp/worktree-harness.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L54)
+Defined in: [src/mcp/worktree-harness.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L55)
 
 OS exit code, or `null` when killed before exit.
 
@@ -541,7 +541,7 @@ OS exit code, or `null` when killed before exit.
 
 > **output**: `string`
 
-Defined in: [src/mcp/worktree-harness.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L56)
+Defined in: [src/mcp/worktree-harness.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L57)
 
 Combined stdout+stderr (capped) — surfaced in traces for diagnosis.
 
@@ -549,7 +549,7 @@ Combined stdout+stderr (capped) — surfaced in traces for diagnosis.
 
 ### WorktreeProfileMaterializationReceipt
 
-Defined in: [src/mcp/worktree-harness.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L60)
+Defined in: [src/mcp/worktree-harness.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L61)
 
 Proof of the profile inputs delivered before the worker process started.
 
@@ -559,7 +559,7 @@ Proof of the profile inputs delivered before the worker process started.
 
 > **workspacePlanDigest**: `string`
 
-Defined in: [src/mcp/worktree-harness.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L62)
+Defined in: [src/mcp/worktree-harness.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L63)
 
 Digest of the exact materializer plan: files, modes, environment, flags, and unsupported rows.
 
@@ -567,7 +567,7 @@ Digest of the exact materializer plan: files, modes, environment, flags, and uns
 
 > **writtenPaths**: `string`[]
 
-Defined in: [src/mcp/worktree-harness.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L64)
+Defined in: [src/mcp/worktree-harness.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L65)
 
 Repository-relative profile input files written into the worker worktree.
 
@@ -575,7 +575,7 @@ Repository-relative profile input files written into the worker worktree.
 
 > **unsupported**: `Unsupported`[]
 
-Defined in: [src/mcp/worktree-harness.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L66)
+Defined in: [src/mcp/worktree-harness.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L67)
 
 Must be empty on a successful run because this path fails closed.
 
@@ -583,7 +583,7 @@ Must be empty on a successful run because this path fails closed.
 
 > **environmentNames**: `string`[]
 
-Defined in: [src/mcp/worktree-harness.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L68)
+Defined in: [src/mcp/worktree-harness.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L69)
 
 Environment variable names added to the worker process. Values remain out of telemetry.
 
@@ -591,7 +591,7 @@ Environment variable names added to the worker process. Values remain out of tel
 
 > **flags**: `string`[]
 
-Defined in: [src/mcp/worktree-harness.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L70)
+Defined in: [src/mcp/worktree-harness.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L71)
 
 Exact additional CLI arguments emitted by the materializer.
 
@@ -599,7 +599,7 @@ Exact additional CLI arguments emitted by the materializer.
 
 > **resourceInstructions**: `object`
 
-Defined in: [src/mcp/worktree-harness.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L72)
+Defined in: [src/mcp/worktree-harness.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L73)
 
 `resources.instructions` bypasses native project files so reproducible Codex cannot drop it.
 
@@ -2486,7 +2486,7 @@ The value for `name`, or `undefined` when this provider does not hold it.
 
 ### LocalSandboxClientOptions
 
-Defined in: [src/runtime/local-sandbox-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L30)
+Defined in: [src/runtime/local-sandbox-client.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L33)
 
 #### Properties
 
@@ -2494,7 +2494,7 @@ Defined in: [src/runtime/local-sandbox-client.ts:30](https://github.com/tangle-n
 
 > **router**: `object`
 
-Defined in: [src/runtime/local-sandbox-client.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L32)
+Defined in: [src/runtime/local-sandbox-client.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L35)
 
 The worker brain: router chat-completions with tool-calling. All three required.
 
@@ -2514,7 +2514,7 @@ The worker brain: router chat-completions with tool-calling. All three required.
 
 > `optional` **maxTurns?**: `number`
 
-Defined in: [src/runtime/local-sandbox-client.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L34)
+Defined in: [src/runtime/local-sandbox-client.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L37)
 
 Tool-loop turns per prompt. Default 8.
 
@@ -2522,7 +2522,7 @@ Tool-loop turns per prompt. Default 8.
 
 > `optional` **temperature?**: `number`
 
-Defined in: [src/runtime/local-sandbox-client.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L36)
+Defined in: [src/runtime/local-sandbox-client.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L39)
 
 Brain sampling temperature. Default: `routerBrain`'s (0.4).
 
@@ -2530,9 +2530,27 @@ Brain sampling temperature. Default: `routerBrain`'s (0.4).
 
 > `optional` **profile?**: `AgentProfile`
 
-Defined in: [src/runtime/local-sandbox-client.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L38)
+Defined in: [src/runtime/local-sandbox-client.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L41)
 
 Fallback profile when `create(options)` carries none on `backend.profile`.
+
+##### keys?
+
+> `optional` **keys?**: [`KeyProvider`](#keyprovider)
+
+Defined in: [src/runtime/local-sandbox-client.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L43)
+
+Resolves profile-declared MCP secret names at child-process spawn time.
+
+##### profileSecurityPolicy?
+
+> `optional` **profileSecurityPolicy?**: `AgentProfileSecurityPolicy`
+
+Defined in: [src/runtime/local-sandbox-client.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L47)
+
+Explicit trust decision for the exact `profile` bytes supplied here.
+Omit to refuse local processes. A permissive policy never transfers to a
+different per-create profile and provides no host isolation.
 
 ***
 
@@ -6898,7 +6916,7 @@ Base backoff (ms) for retrying a transient artifact `fs.read` failure; the i-th
 
 ### StdioMcpServerSpec
 
-Defined in: [src/runtime/stdio-mcp-client.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L43)
+Defined in: [src/runtime/stdio-mcp-client.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L72)
 
 #### Properties
 
@@ -6906,7 +6924,7 @@ Defined in: [src/runtime/stdio-mcp-client.ts:43](https://github.com/tangle-netwo
 
 > **command**: `string`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L45)
+Defined in: [src/runtime/stdio-mcp-client.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L74)
 
 Command that starts the MCP server (stdio transport).
 
@@ -6914,13 +6932,13 @@ Command that starts the MCP server (stdio transport).
 
 > `optional` **args?**: `string`[]
 
-Defined in: [src/runtime/stdio-mcp-client.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L46)
+Defined in: [src/runtime/stdio-mcp-client.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L75)
 
 ##### cwd?
 
 > `optional` **cwd?**: `string`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L48)
+Defined in: [src/runtime/stdio-mcp-client.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L77)
 
 Working directory the server starts in (a built candidate's worktree, typically).
 
@@ -6928,15 +6946,25 @@ Working directory the server starts in (a built candidate's worktree, typically)
 
 > `optional` **env?**: `Record`\<`string`, `string`\>
 
-Defined in: [src/runtime/stdio-mcp-client.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L50)
+Defined in: [src/runtime/stdio-mcp-client.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L80)
 
-Extra env for the server process (merged over `process.env`).
+Declared public env for the server process. Only a minimal non-sensitive
+subset of the parent env is inherited.
+
+##### protectedEnv?
+
+> `optional` **protectedEnv?**: `Record`\<`string`, `string`\>
+
+Defined in: [src/runtime/stdio-mcp-client.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L83)
+
+Sensitive env for the server process. These values override `env` and are
+redacted from child-supplied errors, tool metadata, and tool results.
 
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L52)
+Defined in: [src/runtime/stdio-mcp-client.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L85)
 
 Handshake AND per-request timeout (ms). Default 30s.
 
@@ -6944,7 +6972,7 @@ Handshake AND per-request timeout (ms). Default 30s.
 
 ### McpToolDescriptor
 
-Defined in: [src/runtime/stdio-mcp-client.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L59)
+Defined in: [src/runtime/stdio-mcp-client.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L92)
 
 #### Properties
 
@@ -6952,25 +6980,25 @@ Defined in: [src/runtime/stdio-mcp-client.ts:59](https://github.com/tangle-netwo
 
 > **name**: `string`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L60)
+Defined in: [src/runtime/stdio-mcp-client.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L93)
 
 ##### description?
 
 > `optional` **description?**: `string`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L61)
+Defined in: [src/runtime/stdio-mcp-client.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L94)
 
 ##### inputSchema?
 
 > `optional` **inputSchema?**: `unknown`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L62)
+Defined in: [src/runtime/stdio-mcp-client.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L95)
 
 ***
 
 ### StdioMcpConnection
 
-Defined in: [src/runtime/stdio-mcp-client.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L65)
+Defined in: [src/runtime/stdio-mcp-client.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L98)
 
 #### Properties
 
@@ -6978,7 +7006,7 @@ Defined in: [src/runtime/stdio-mcp-client.ts:65](https://github.com/tangle-netwo
 
 > `readonly` **tools**: readonly [`McpToolDescriptor`](#mcptooldescriptor)[]
 
-Defined in: [src/runtime/stdio-mcp-client.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L67)
+Defined in: [src/runtime/stdio-mcp-client.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L100)
 
 The tools the server exposed at connect time (`tools/list`).
 
@@ -6988,7 +7016,7 @@ The tools the server exposed at connect time (`tools/list`).
 
 > **callTool**(`name`, `args`): `Promise`\<`string`\>
 
-Defined in: [src/runtime/stdio-mcp-client.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L71)
+Defined in: [src/runtime/stdio-mcp-client.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L104)
 
 `tools/call` → the result's text content. A JSON-RPC error / `isError`
  result becomes an `ERROR: …` string (the agent's outcome); a dead
@@ -7012,7 +7040,7 @@ Defined in: [src/runtime/stdio-mcp-client.ts:71](https://github.com/tangle-netwo
 
 > **close**(): `Promise`\<`void`\>
 
-Defined in: [src/runtime/stdio-mcp-client.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L73)
+Defined in: [src/runtime/stdio-mcp-client.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L106)
 
 Kill the server child. Idempotent.
 
@@ -7024,7 +7052,7 @@ Kill the server child. Idempotent.
 
 ### MaterializeLocalMcpOptions
 
-Defined in: [src/runtime/stdio-mcp-client.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L236)
+Defined in: [src/runtime/stdio-mcp-client.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L293)
 
 #### Properties
 
@@ -7032,7 +7060,7 @@ Defined in: [src/runtime/stdio-mcp-client.ts:236](https://github.com/tangle-netw
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L238)
+Defined in: [src/runtime/stdio-mcp-client.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L295)
 
 Handshake / per-request timeout per server (ms). Default 30s.
 
@@ -7040,7 +7068,7 @@ Handshake / per-request timeout per server (ms). Default 30s.
 
 > `optional` **maxResultChars?**: `number`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L240)
+Defined in: [src/runtime/stdio-mcp-client.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L297)
 
 Cap on a tool result's text fed back to the worker. Default 2000 chars.
 
@@ -7048,7 +7076,7 @@ Cap on a tool result's text fed back to the worker. Default 2000 chars.
 
 > `optional` **keys?**: [`KeyProvider`](#keyprovider)
 
-Defined in: [src/runtime/stdio-mcp-client.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L246)
+Defined in: [src/runtime/stdio-mcp-client.ts:303](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L303)
 
 Resolves a server's DECLARED secrets (`metadata.secretEnv`: env var name →
  provider key name) at spawn time. The resolved values reach ONLY the child
@@ -7056,11 +7084,22 @@ Resolves a server's DECLARED secrets (`metadata.secretEnv`: env var name →
  a server declaring secrets without a provider (or with a missing key)
  throws instead of booting keyless.
 
+##### profileSecurityPolicy?
+
+> `optional` **profileSecurityPolicy?**: `AgentProfileSecurityPolicy`
+
+Defined in: [src/runtime/stdio-mcp-client.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L308)
+
+Required trust decision for profiles that declare local MCP processes.
+Omit to refuse all profile-controlled host execution. Passing
+`allowLocalMcp: true` is only safe for an author-controlled profile: the
+process receives this Runtime's filesystem and network privileges.
+
 ***
 
 ### LocalMcpMaterialization
 
-Defined in: [src/runtime/stdio-mcp-client.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L250)
+Defined in: [src/runtime/stdio-mcp-client.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L312)
 
 The live same-host materialization of a profile's `mcp` surface.
 
@@ -7070,7 +7109,7 @@ The live same-host materialization of a profile's `mcp` surface.
 
 > **tools**: [`AgenticTool`](#agentictool)[]
 
-Defined in: [src/runtime/stdio-mcp-client.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L252)
+Defined in: [src/runtime/stdio-mcp-client.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L314)
 
 Worker-facing tool specs: namespaced `<server>__<tool>`, provider-safe schemas.
 
@@ -7080,7 +7119,7 @@ Worker-facing tool specs: namespaced `<server>__<tool>`, provider-safe schemas.
 
 > **owns**(`name`): `boolean`
 
-Defined in: [src/runtime/stdio-mcp-client.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L254)
+Defined in: [src/runtime/stdio-mcp-client.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L316)
 
 Whether `name` is one of this materialization's namespaced tools.
 
@@ -7098,7 +7137,7 @@ Whether `name` is one of this materialization's namespaced tools.
 
 > **call**(`name`, `args`): `Promise`\<`string`\>
 
-Defined in: [src/runtime/stdio-mcp-client.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L256)
+Defined in: [src/runtime/stdio-mcp-client.ts:318](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L318)
 
 Route a namespaced call to its server's live stdio child.
 
@@ -7120,7 +7159,7 @@ Route a namespaced call to its server's live stdio child.
 
 > **close**(): `Promise`\<`void`\>
 
-Defined in: [src/runtime/stdio-mcp-client.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L258)
+Defined in: [src/runtime/stdio-mcp-client.ts:320](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L320)
 
 Kill every spawned server. Idempotent.
 
@@ -12739,11 +12778,16 @@ spawn, wait, capture, return.
 Fails loud — throws when:
   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
   - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
 
 Does NOT throw when:
   - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - the subprocess is aborted / timed out (`result.killedBySignal` /
-    `result.timedOut` carries the reason)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
 
 ###### Parameters
 
@@ -13011,11 +13055,16 @@ spawn, wait, capture, return.
 Fails loud — throws when:
   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
   - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
 
 Does NOT throw when:
   - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - the subprocess is aborted / timed out (`result.killedBySignal` /
-    `result.timedOut` carries the reason)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
 
 ###### Parameters
 
@@ -17155,9 +17204,10 @@ server for the error (e.g. `profile.mcp['exa']`).
 
 > **localSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [src/runtime/local-sandbox-client.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L42)
+Defined in: [src/runtime/local-sandbox-client.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/local-sandbox-client.ts#L52)
 
-A `SandboxClient` that runs the worker same-host with the profile's stdio MCP servers live.
+A same-host `SandboxClient` adapter with no process isolation. Local MCP is
+refused unless the caller explicitly supplies a policy that allows it.
 
 #### Parameters
 
@@ -18695,9 +18745,10 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 
 > **connectStdioMcp**(`spec`): `Promise`\<[`StdioMcpConnection`](#stdiomcpconnection)\>
 
-Defined in: [src/runtime/stdio-mcp-client.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L84)
+Defined in: [src/runtime/stdio-mcp-client.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L118)
 
-Spawn a stdio MCP server, complete the handshake, and return the LIVE connection.
+Spawn a trusted host command, complete the stdio MCP handshake, and return
+the live connection. This low-level function provides no process isolation.
 
 #### Parameters
 
@@ -18715,11 +18766,11 @@ Spawn a stdio MCP server, complete the handshake, and return the LIVE connection
 
 > **materializeLocalMcp**(`profile`, `opts?`): `Promise`\<[`LocalMcpMaterialization`](#localmcpmaterialization)\>
 
-Defined in: [src/runtime/stdio-mcp-client.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L266)
+Defined in: [src/runtime/stdio-mcp-client.ts:328](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stdio-mcp-client.ts#L328)
 
-Spawn every enabled stdio server in `profile.mcp` as a same-host child and
-expose their tools under `<server>__<tool>` names. A profile with no MCP
-surface materializes zero tools (a valid, cheap no-op).
+Spawn every explicitly trusted stdio server in `profile.mcp` as a same-host
+child and expose its tools under `<server>__<tool>` names. The default policy
+refuses local processes. A profile with no MCP surface returns zero tools.
 
 #### Parameters
 

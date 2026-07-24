@@ -1,0 +1,32 @@
+{
+  "instancesDir": "src/swe-arena/fixtures/factory",
+  "instances": [
+    "factory.agent-eval.309",
+    "factory.agent-runtime.232",
+    "factory.loops.28"
+  ],
+  "repsPerInstance": 2,
+  "armName": "FSUP0",
+  "arm": {
+    "workerModel": "zai-coding-plan/glm-5.2",
+    "driverModel": "glm-5.2",
+    "budget": 40,
+    "maxSandboxes": 4,
+    "maxUsd": 8,
+    "maxDepth": 3,
+    "timeoutMs": 2800000
+  },
+  "loopsRepo": "/home/drew/code/loops",
+  "ledgerPath": "/tmp/factory-gen0/ledger.jsonl",
+  "outDir": "/tmp/factory-gen0",
+  "secretsDir": "/home/drew/company/devops/secrets",
+  "envFiles": [
+    "agent-state.env",
+    "tangle-router.env"
+  ],
+  "verifyCmds": {
+    "factory.agent-eval.309": "pnpm typecheck && pnpm test",
+    "factory.agent-runtime.232": "pnpm typecheck && pnpm test",
+    "factory.loops.28": "pnpm typecheck && pnpm test"
+  }
+}

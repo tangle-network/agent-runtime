@@ -10,7 +10,7 @@
 
 ### CodexExecutionDiagnosticError
 
-Defined in: [src/mcp/codex-diagnostics.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L19)
+Defined in: [src/mcp/codex-diagnostics.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L20)
 
 Thrown when reproducible Codex exits without one valid terminal usage event.
 
@@ -24,7 +24,7 @@ Thrown when reproducible Codex exits without one valid terminal usage event.
 
 > **new CodexExecutionDiagnosticError**(`reason`, `diagnostic`, `cause?`): [`CodexExecutionDiagnosticError`](#codexexecutiondiagnosticerror)
 
-Defined in: [src/mcp/codex-diagnostics.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L22)
+Defined in: [src/mcp/codex-diagnostics.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L23)
 
 ###### Parameters
 
@@ -54,19 +54,19 @@ Defined in: [src/mcp/codex-diagnostics.ts:22](https://github.com/tangle-network/
 
 > `readonly` **code**: `"CODEX_EXECUTION_DIAGNOSTIC"` = `'CODEX_EXECUTION_DIAGNOSTIC'`
 
-Defined in: [src/mcp/codex-diagnostics.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L20)
+Defined in: [src/mcp/codex-diagnostics.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L21)
 
 ##### reason
 
 > `readonly` **reason**: `string`
 
-Defined in: [src/mcp/codex-diagnostics.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L23)
+Defined in: [src/mcp/codex-diagnostics.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L24)
 
 ##### diagnostic
 
 > `readonly` **diagnostic**: [`CodexExecutionFailureDiagnostic`](#codexexecutionfailurediagnostic)
 
-Defined in: [src/mcp/codex-diagnostics.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L24)
+Defined in: [src/mcp/codex-diagnostics.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L25)
 
 ***
 
@@ -816,35 +816,41 @@ Defined in: [src/mcp/codex-diagnostics.ts:9](https://github.com/tangle-network/a
 
 Defined in: [src/mcp/codex-diagnostics.ts:10](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L10)
 
+##### aborted?
+
+> `optional` **aborted?**: `boolean`
+
+Defined in: [src/mcp/codex-diagnostics.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L11)
+
 ##### durationMs
 
 > **durationMs**: `number`
 
-Defined in: [src/mcp/codex-diagnostics.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L11)
+Defined in: [src/mcp/codex-diagnostics.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L12)
 
 ##### stdout
 
 > **stdout**: `string`
 
-Defined in: [src/mcp/codex-diagnostics.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L12)
+Defined in: [src/mcp/codex-diagnostics.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L13)
 
 ##### stderr
 
 > **stderr**: `string`
 
-Defined in: [src/mcp/codex-diagnostics.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L13)
+Defined in: [src/mcp/codex-diagnostics.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L14)
 
 ##### stdoutTruncated
 
 > **stdoutTruncated**: `boolean`
 
-Defined in: [src/mcp/codex-diagnostics.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L14)
+Defined in: [src/mcp/codex-diagnostics.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L15)
 
 ##### stderrTruncated
 
 > **stderrTruncated**: `boolean`
 
-Defined in: [src/mcp/codex-diagnostics.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L15)
+Defined in: [src/mcp/codex-diagnostics.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/codex-diagnostics.ts#L16)
 
 ***
 
@@ -2294,11 +2300,16 @@ spawn, wait, capture, return.
 Fails loud — throws when:
   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
   - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
 
 Does NOT throw when:
   - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - the subprocess is aborted / timed out (`result.killedBySignal` /
-    `result.timedOut` carries the reason)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
 
 ###### Parameters
 
@@ -2732,11 +2743,21 @@ Defined in: [src/mcp/local-harness.ts:267](https://github.com/tangle-network/age
 
 Wall-clock kill deadline (ms). Default 5 min. Subprocess SIGTERMed on expiry.
 
+##### maxOutputBytes?
+
+> `optional` **maxOutputBytes?**: `number`
+
+Defined in: [src/mcp/local-harness.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L269)
+
+**`Experimental`**
+
+Newest stdout/stderr bytes retained per stream. Default 64 MiB.
+
 ##### signal?
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [src/mcp/local-harness.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L269)
+Defined in: [src/mcp/local-harness.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L271)
 
 **`Experimental`**
 
@@ -2746,7 +2767,7 @@ Caller cancellation. SIGTERM is sent on abort.
 
 > `optional` **env?**: `ProcessEnv`
 
-Defined in: [src/mcp/local-harness.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L271)
+Defined in: [src/mcp/local-harness.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L273)
 
 **`Experimental`**
 
@@ -2756,7 +2777,7 @@ Override env (defaults to inheriting from the parent).
 
 > `optional` **spawn?**: (`command`, `args`, `opts`) => `ChildProcess`
 
-Defined in: [src/mcp/local-harness.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L276)
+Defined in: [src/mcp/local-harness.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L278)
 
 **`Experimental`**
 
@@ -2799,7 +2820,7 @@ readonly `string`[]
 
 > `optional` **resolveCodexExecutable?**: (`command`, `env`) => `Promise`\<`string`\>
 
-Defined in: [src/mcp/local-harness.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L287)
+Defined in: [src/mcp/local-harness.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L289)
 
 **`Experimental`**
 
@@ -2823,7 +2844,7 @@ Test seam for locating the native Codex executable before it is staged in the wo
 
 ### CodexTokenUsage
 
-Defined in: [src/mcp/local-harness.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L291)
+Defined in: [src/mcp/local-harness.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L293)
 
 Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event.
 
@@ -2833,31 +2854,31 @@ Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event.
 
 > **inputTokens**: `number`
 
-Defined in: [src/mcp/local-harness.ts:292](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L292)
+Defined in: [src/mcp/local-harness.ts:294](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L294)
 
 ##### cachedInputTokens
 
 > **cachedInputTokens**: `number`
 
-Defined in: [src/mcp/local-harness.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L293)
+Defined in: [src/mcp/local-harness.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L295)
 
 ##### outputTokens
 
 > **outputTokens**: `number`
 
-Defined in: [src/mcp/local-harness.ts:294](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L294)
+Defined in: [src/mcp/local-harness.ts:296](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L296)
 
 ##### reasoningOutputTokens
 
 > **reasoningOutputTokens**: `number`
 
-Defined in: [src/mcp/local-harness.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L295)
+Defined in: [src/mcp/local-harness.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L297)
 
 ***
 
 ### CodexExecutionPolicy
 
-Defined in: [src/mcp/local-harness.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L299)
+Defined in: [src/mcp/local-harness.ts:301](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L301)
 
 Isolation settings asserted before a reproducible Codex run is allowed to start.
 
@@ -2867,163 +2888,163 @@ Isolation settings asserted before a reproducible Codex run is allowed to start.
 
 > **sessionPersistence**: `"ephemeral"`
 
-Defined in: [src/mcp/local-harness.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L300)
+Defined in: [src/mcp/local-harness.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L302)
 
 ##### userConfig
 
 > **userConfig**: `false`
 
-Defined in: [src/mcp/local-harness.ts:301](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L301)
+Defined in: [src/mcp/local-harness.ts:303](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L303)
 
 ##### rules
 
 > **rules**: `false`
 
-Defined in: [src/mcp/local-harness.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L302)
+Defined in: [src/mcp/local-harness.ts:304](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L304)
 
 ##### projectInstructions
 
 > **projectInstructions**: `false`
 
-Defined in: [src/mcp/local-harness.ts:303](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L303)
+Defined in: [src/mcp/local-harness.ts:305](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L305)
 
 ##### skillInstructions
 
 > **skillInstructions**: `false`
 
-Defined in: [src/mcp/local-harness.ts:304](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L304)
+Defined in: [src/mcp/local-harness.ts:306](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L306)
 
 ##### appInstructions
 
 > **appInstructions**: `false`
 
-Defined in: [src/mcp/local-harness.ts:305](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L305)
+Defined in: [src/mcp/local-harness.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L307)
 
 ##### toolSuggestions
 
 > **toolSuggestions**: `false`
 
-Defined in: [src/mcp/local-harness.ts:306](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L306)
+Defined in: [src/mcp/local-harness.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L308)
 
 ##### multiAgentInstructions
 
 > **multiAgentInstructions**: `false`
 
-Defined in: [src/mcp/local-harness.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L307)
+Defined in: [src/mcp/local-harness.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L309)
 
 ##### sandbox
 
 > **sandbox**: `"workspace-write"`
 
-Defined in: [src/mcp/local-harness.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L308)
+Defined in: [src/mcp/local-harness.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L310)
 
 ##### permissionProfile
 
 > **permissionProfile**: `"agent_runtime_reproducible"`
 
-Defined in: [src/mcp/local-harness.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L309)
+Defined in: [src/mcp/local-harness.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L311)
 
 ##### approvalPolicy
 
 > **approvalPolicy**: `"never"`
 
-Defined in: [src/mcp/local-harness.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L310)
+Defined in: [src/mcp/local-harness.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L312)
 
 ##### shellNetwork
 
 > **shellNetwork**: `false`
 
-Defined in: [src/mcp/local-harness.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L311)
+Defined in: [src/mcp/local-harness.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L313)
 
 ##### webSearch
 
 > **webSearch**: `false`
 
-Defined in: [src/mcp/local-harness.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L312)
+Defined in: [src/mcp/local-harness.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L314)
 
 ##### serviceTier
 
 > **serviceTier**: `"default"`
 
-Defined in: [src/mcp/local-harness.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L313)
+Defined in: [src/mcp/local-harness.ts:315](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L315)
 
 ##### shellEnvironment
 
 > **shellEnvironment**: `"core-filtered"`
 
-Defined in: [src/mcp/local-harness.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L314)
+Defined in: [src/mcp/local-harness.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L316)
 
 ##### loginShell
 
 > **loginShell**: `false`
 
-Defined in: [src/mcp/local-harness.ts:315](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L315)
+Defined in: [src/mcp/local-harness.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L317)
 
 ##### credentialsReadable
 
 > **credentialsReadable**: `false`
 
-Defined in: [src/mcp/local-harness.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L316)
+Defined in: [src/mcp/local-harness.ts:318](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L318)
 
 ##### hostHomeReadable
 
 > **hostHomeReadable**: `false`
 
-Defined in: [src/mcp/local-harness.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L317)
+Defined in: [src/mcp/local-harness.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L319)
 
 ##### procEnvironment
 
 > **procEnvironment**: `"private-sanitized"`
 
-Defined in: [src/mcp/local-harness.ts:318](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L318)
+Defined in: [src/mcp/local-harness.ts:320](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L320)
 
 ##### sensitiveEnvironmentNamesVisible
 
 > **sensitiveEnvironmentNamesVisible**: `false`
 
-Defined in: [src/mcp/local-harness.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L319)
+Defined in: [src/mcp/local-harness.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L321)
 
 ##### parentRepoRead
 
 > **parentRepoRead**: `false`
 
-Defined in: [src/mcp/local-harness.ts:320](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L320)
+Defined in: [src/mcp/local-harness.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L322)
 
 ##### gitMetadata
 
 > **gitMetadata**: `false`
 
-Defined in: [src/mcp/local-harness.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L321)
+Defined in: [src/mcp/local-harness.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L323)
 
 ##### temporaryDirectory
 
 > **temporaryDirectory**: `"workspace-private"`
 
-Defined in: [src/mcp/local-harness.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L322)
+Defined in: [src/mcp/local-harness.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L324)
 
 ##### stagedExecutable
 
 > **stagedExecutable**: `"static-elf-read-only"`
 
-Defined in: [src/mcp/local-harness.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L323)
+Defined in: [src/mcp/local-harness.ts:325](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L325)
 
 ##### callerReadDeniedPaths
 
 > **callerReadDeniedPaths**: `"enforced"`
 
-Defined in: [src/mcp/local-harness.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L324)
+Defined in: [src/mcp/local-harness.ts:326](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L326)
 
 ##### containerSockets
 
 > **containerSockets**: `false`
 
-Defined in: [src/mcp/local-harness.ts:325](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L325)
+Defined in: [src/mcp/local-harness.ts:327](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L327)
 
 ***
 
 ### CodexExecutionEvidence
 
-Defined in: [src/mcp/local-harness.ts:329](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L329)
+Defined in: [src/mcp/local-harness.ts:331](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L331)
 
 Zero-model-call evidence for the exact Codex process about to run.
 
@@ -3033,19 +3054,19 @@ Zero-model-call evidence for the exact Codex process about to run.
 
 > **cliVersion**: `string`
 
-Defined in: [src/mcp/local-harness.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L330)
+Defined in: [src/mcp/local-harness.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L332)
 
 ##### executableSha256
 
 > **executableSha256**: `string`
 
-Defined in: [src/mcp/local-harness.ts:331](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L331)
+Defined in: [src/mcp/local-harness.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L333)
 
 ##### requestedPromptSha256
 
 > **requestedPromptSha256**: `string`
 
-Defined in: [src/mcp/local-harness.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L333)
+Defined in: [src/mcp/local-harness.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L335)
 
 SHA-256 of the exact composed prompt argument proved present in the rendered prompt.
 
@@ -3053,25 +3074,25 @@ SHA-256 of the exact composed prompt argument proved present in the rendered pro
 
 > **effectivePromptSha256**: `string`
 
-Defined in: [src/mcp/local-harness.ts:334](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L334)
+Defined in: [src/mcp/local-harness.ts:336](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L336)
 
 ##### nonPromptArgsSha256
 
 > **nonPromptArgsSha256**: `string`
 
-Defined in: [src/mcp/local-harness.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L335)
+Defined in: [src/mcp/local-harness.ts:337](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L337)
 
 ##### controlledConfigSha256
 
 > **controlledConfigSha256**: `string`
 
-Defined in: [src/mcp/local-harness.ts:336](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L336)
+Defined in: [src/mcp/local-harness.ts:338](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L338)
 
 ##### readDeniedPaths
 
 > **readDeniedPaths**: `string`[]
 
-Defined in: [src/mcp/local-harness.ts:338](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L338)
+Defined in: [src/mcp/local-harness.ts:340](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L340)
 
 Sorted normalized paths compiled into the permission profile.
 
@@ -3079,25 +3100,25 @@ Sorted normalized paths compiled into the permission profile.
 
 > **readDeniedPathsSha256**: `string`
 
-Defined in: [src/mcp/local-harness.ts:339](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L339)
+Defined in: [src/mcp/local-harness.ts:341](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L341)
 
 ##### readDeniedPathCount
 
 > **readDeniedPathCount**: `number`
 
-Defined in: [src/mcp/local-harness.ts:340](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L340)
+Defined in: [src/mcp/local-harness.ts:342](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L342)
 
 ##### policy
 
 > **policy**: [`CodexExecutionPolicy`](#codexexecutionpolicy)
 
-Defined in: [src/mcp/local-harness.ts:341](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L341)
+Defined in: [src/mcp/local-harness.ts:343](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L343)
 
 ***
 
 ### LocalHarnessResult
 
-Defined in: [src/mcp/local-harness.ts:345](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L345)
+Defined in: [src/mcp/local-harness.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L347)
 
 **`Experimental`**
 
@@ -3107,7 +3128,7 @@ Defined in: [src/mcp/local-harness.ts:345](https://github.com/tangle-network/age
 
 > **exitCode**: `number` \| `null`
 
-Defined in: [src/mcp/local-harness.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L347)
+Defined in: [src/mcp/local-harness.ts:349](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L349)
 
 **`Experimental`**
 
@@ -3117,7 +3138,7 @@ OS exit code. `null` when killed before exit.
 
 > **stdout**: `string`
 
-Defined in: [src/mcp/local-harness.ts:349](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L349)
+Defined in: [src/mcp/local-harness.ts:351](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L351)
 
 **`Experimental`**
 
@@ -3127,7 +3148,7 @@ Concatenated stdout.
 
 > **stderr**: `string`
 
-Defined in: [src/mcp/local-harness.ts:351](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L351)
+Defined in: [src/mcp/local-harness.ts:353](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L353)
 
 **`Experimental`**
 
@@ -3137,7 +3158,7 @@ Concatenated stderr.
 
 > **killedBySignal**: `Signals` \| `null`
 
-Defined in: [src/mcp/local-harness.ts:353](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L353)
+Defined in: [src/mcp/local-harness.ts:355](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L355)
 
 **`Experimental`**
 
@@ -3147,7 +3168,7 @@ Set when the process exited via signal (timeout / abort).
 
 > **durationMs**: `number`
 
-Defined in: [src/mcp/local-harness.ts:355](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L355)
+Defined in: [src/mcp/local-harness.ts:357](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L357)
 
 **`Experimental`**
 
@@ -3157,17 +3178,28 @@ Wall-clock duration ms (spawn → exit).
 
 > **timedOut**: `boolean`
 
-Defined in: [src/mcp/local-harness.ts:357](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L357)
+Defined in: [src/mcp/local-harness.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L359)
 
 **`Experimental`**
 
 Set when timeoutMs elapsed before exit.
 
+##### aborted?
+
+> `optional` **aborted?**: `boolean`
+
+Defined in: [src/mcp/local-harness.ts:364](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L364)
+
+**`Experimental`**
+
+Set when the caller's AbortSignal fired before this result settled.
+Optional so injected runners and stored results from older releases remain valid.
+
 ##### usage?
 
 > `optional` **usage?**: [`CodexTokenUsage`](#codextokenusage)
 
-Defined in: [src/mcp/local-harness.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L359)
+Defined in: [src/mcp/local-harness.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L366)
 
 **`Experimental`**
 
@@ -3177,7 +3209,7 @@ Present for a reproducible Codex run; parsed from the real terminal JSONL event.
 
 > `optional` **evidence?**: [`CodexExecutionEvidence`](#codexexecutionevidence)
 
-Defined in: [src/mcp/local-harness.ts:361](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L361)
+Defined in: [src/mcp/local-harness.ts:368](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L368)
 
 **`Experimental`**
 
@@ -8039,7 +8071,7 @@ then any consumer judges, returning on the first veto.
 
 > **runLocalHarness**(`options`): `Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
 
-Defined in: [src/mcp/local-harness.ts:386](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L386)
+Defined in: [src/mcp/local-harness.ts:432](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L432)
 
 **`Experimental`**
 
@@ -8053,11 +8085,16 @@ spawn, wait, capture, return.
 Fails loud — throws when:
   - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
   - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
 
 Does NOT throw when:
   - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - the subprocess is aborted / timed out (`result.killedBySignal` /
-    `result.timedOut` carries the reason)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
 
 #### Parameters
 
@@ -8075,7 +8112,7 @@ Does NOT throw when:
 
 > **parseCodexTokenUsage**(`stdout`): [`CodexTokenUsage`](#codextokenusage)
 
-Defined in: [src/mcp/local-harness.ts:1350](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L1350)
+Defined in: [src/mcp/local-harness.ts:1513](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L1513)
 
 Parse and validate the one terminal usage event emitted by `codex exec --json`.
 

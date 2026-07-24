@@ -13,11 +13,11 @@
  * and invokes `spawn_supervisor` — no supervisor logic is reimplemented here.
  */
 
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { chmod, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { run, runOk, shq } from './proc'
+import { run, runOk, type RunResult, shq } from './proc'
 import { materializeWorkspace } from './materialize'
 import type { ArmSpec, SoloUsage } from './types'
 
@@ -45,21 +45,35 @@ export async function loadExcludes(): Promise<string[]> {
   return lines
 }
 
+const GIT_COMMAND_TIMEOUT_MS = 2 * 60_000
+
+async function runArenaGitOk(argv: string[], signal?: AbortSignal): Promise<Awaited<ReturnType<typeof runOk>>> {
+  signal?.throwIfAborted()
+  const result = await runOk('git', argv, { signal, timeoutMs: GIT_COMMAND_TIMEOUT_MS })
+  signal?.throwIfAborted()
+  return result
+}
+
 /**
  * Patch extraction — identical git invocation to solo.sh/sup4.sh: stage
  * everything, diff the index against base_commit, excluding test files and the
  * supervisor's own .loops state.
  */
-export async function extractPatch(ws: string, baseCommit: string, excludes: string[]): Promise<string> {
-  await runOk('git', ['-C', ws, 'add', '-A'])
-  const res = await runOk('git', [
+export async function extractPatch(
+  ws: string,
+  baseCommit: string,
+  excludes: string[],
+  signal?: AbortSignal,
+): Promise<string> {
+  await runArenaGitOk(['-C', ws, 'add', '-A'], signal)
+  const res = await runArenaGitOk([
     '-C', ws,
     'diff', '--cached', baseCommit,
     '--', '.',
     ...excludes,
     ':(exclude,glob).loops/**',
     ':(exclude,glob)**/.loops/**',
-  ])
+  ], signal)
   return res.stdout
 }
 
@@ -74,14 +88,99 @@ export interface SecretsEnv {
 export function dotenvxBash(
   secrets: SecretsEnv,
   script: string,
-  opts: { timeoutMs?: number; extraEnv?: NodeJS.ProcessEnv } = {},
+  opts: { timeoutMs?: number; killGraceMs?: number; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {},
 ): ReturnType<typeof run> {
-  const argv = ['run', ...secrets.envFiles.flatMap((f) => ['-f', f]), '--', 'bash', '-c', script]
+  const authBootstrap = [
+    'if [ -n "${SWE_ARENA_OPENCODE_AUTH_FILE:-}" ] && [ -r "$SWE_ARENA_OPENCODE_AUTH_FILE" ]; then',
+    '  export OPENCODE_AUTH_CONTENT="$(cat -- "$SWE_ARENA_OPENCODE_AUTH_FILE")"',
+    'fi',
+  ].join('\n')
+  const argv = [
+    'run',
+    ...secrets.envFiles.flatMap((f) => ['-f', f]),
+    '--',
+    'bash',
+    '-c',
+    `${authBootstrap}\n${script}`,
+  ]
   return run('dotenvx', argv, {
     cwd: secrets.secretsDir,
     timeoutMs: opts.timeoutMs,
-    env: opts.extraEnv ? { ...process.env, ...opts.extraEnv } : process.env,
+    killGraceMs: opts.killGraceMs,
+    env: opts.env ?? process.env,
+    signal: opts.signal,
   })
+}
+
+export interface IsolatedCellEnvironment {
+  env: NodeJS.ProcessEnv
+  opencodeDb: string
+}
+
+/** Give one cell private CLI state, caches, temp files, and Python installs. */
+export async function prepareIsolatedCellEnvironment(
+  runDir: string,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): Promise<IsolatedCellEnvironment> {
+  const ambientHome = baseEnv.HOME?.trim() || homedir()
+  const cellRoot = resolve(runDir)
+  const home = join(cellRoot, 'home')
+  const xdgRoot = join(cellRoot, 'xdg')
+  const configHome = join(xdgRoot, 'config')
+  const dataHome = join(xdgRoot, 'data')
+  const cacheHome = join(xdgRoot, 'cache')
+  const stateHome = join(xdgRoot, 'state')
+  const runtimeDir = join(xdgRoot, 'runtime')
+  const tmp = join(cellRoot, 'tmp')
+  const pythonUserBase = join(cellRoot, 'python-user')
+  const opencodeConfigDir = join(configHome, 'opencode')
+  const opencodeConfig = join(opencodeConfigDir, 'opencode.json')
+  const opencodeDb = join(dataHome, 'opencode', 'opencode.db')
+  const managedRoots = [home, xdgRoot, tmp, pythonUserBase]
+  await Promise.all(managedRoots.map((dir) => rm(dir, { recursive: true, force: true })))
+
+  const privateDirs = [home, configHome, dataHome, cacheHome, stateHome, runtimeDir, tmp, pythonUserBase, opencodeConfigDir]
+  await Promise.all(privateDirs.map((dir) => mkdir(dir, { recursive: true })))
+  await Promise.all(privateDirs.map((dir) => chmod(dir, 0o700)))
+
+  const ambientConfigHome = baseEnv.XDG_CONFIG_HOME?.trim() || join(ambientHome, '.config')
+  const configCandidates = [
+    baseEnv.OPENCODE_CONFIG?.trim(),
+    join(ambientConfigHome, 'opencode', 'opencode.json'),
+    join(ambientConfigHome, 'opencode', 'opencode.jsonc'),
+  ].filter((path): path is string => Boolean(path))
+  let configText = baseEnv.OPENCODE_CONFIG_CONTENT
+  if (configText === undefined) {
+    for (const candidate of configCandidates) {
+      configText = await readFile(candidate, 'utf8').catch(() => undefined)
+      if (configText !== undefined) break
+    }
+  }
+  await writeFile(opencodeConfig, configText ?? '{}\n', { mode: 0o600 })
+
+  const env: NodeJS.ProcessEnv = {
+    ...baseEnv,
+    HOME: home,
+    XDG_CONFIG_HOME: configHome,
+    XDG_DATA_HOME: dataHome,
+    XDG_CACHE_HOME: cacheHome,
+    XDG_STATE_HOME: stateHome,
+    XDG_RUNTIME_DIR: runtimeDir,
+    TMPDIR: tmp,
+    OPENCODE_CONFIG_DIR: opencodeConfigDir,
+    OPENCODE_CONFIG: opencodeConfig,
+    OPENCODE_DB: opencodeDb,
+    SWE_ARENA_OPENCODE_AUTH_FILE:
+      baseEnv.SWE_ARENA_OPENCODE_AUTH_FILE?.trim() ||
+      join(baseEnv.XDG_DATA_HOME?.trim() || join(ambientHome, '.local', 'share'), 'opencode', 'auth.json'),
+    PYTHONUSERBASE: pythonUserBase,
+  }
+  delete env.OPENCODE_CONFIG_CONTENT
+  delete env.OPENCODE_AUTH_CONTENT
+  delete env.PYTHONHOME
+  delete env.PYTHONPATH
+  delete env.PYTHONNOUSERSITE
+  return { env, opencodeDb }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +236,19 @@ export const SUP_DEFAULT_ENV_KNOBS: Record<string, string> = {
   DRIVER_DEADLINE_MS: '2600000',
 }
 
+export const DEFAULT_DRIVER_CANCEL_TIMEOUT_MS = 30_000
+export const DRIVER_CANCELLATION_SETTLEMENT_BUFFER_MS = 10_000
+
+/** Leave the driver more time than its own cancellation deadline to settle workers. */
+export function supervisorDriverKillGraceMs(envKnobs: Record<string, string>): number {
+  const raw = envKnobs.DRIVER_CANCEL_TIMEOUT_MS
+  const cancelTimeoutMs = raw === undefined ? DEFAULT_DRIVER_CANCEL_TIMEOUT_MS : Number(raw)
+  if (!Number.isFinite(cancelTimeoutMs) || cancelTimeoutMs <= 0) {
+    throw new Error('DRIVER_CANCEL_TIMEOUT_MS must be a positive number')
+  }
+  return cancelTimeoutMs + DRIVER_CANCELLATION_SETTLEMENT_BUFFER_MS
+}
+
 export interface ArmProvenance {
   repo: string
   commit: string
@@ -144,8 +256,12 @@ export interface ArmProvenance {
 }
 
 /** Runtime provenance: which loops commit actually sat in the supervisor seat. */
-export async function armProvenance(loopsRepo: string, envKnobs: Record<string, string>): Promise<ArmProvenance> {
-  const head = await runOk('git', ['-C', loopsRepo, 'rev-parse', 'HEAD'])
+export async function armProvenance(
+  loopsRepo: string,
+  envKnobs: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<ArmProvenance> {
+  const head = await runArenaGitOk(['-C', loopsRepo, 'rev-parse', 'HEAD'], signal)
   return { repo: loopsRepo, commit: head.stdout.trim(), envKnobs }
 }
 
@@ -230,6 +346,14 @@ export interface ArmRunContext {
   instanceId: string
   image: string
   baseCommit: string
+  /**
+   * Workspace materialization override. Default (undefined) = SWE instance
+   * image materialization (docker cp of /testbed). Factory instances inject
+   * their archive-export + synthetic-history materialization here so the arm
+   * runners themselves stay instance-kind-agnostic. Must leave `dest` a git
+   * repo whose HEAD is the diff base for patch extraction (`baseCommit`).
+   */
+  materialize?: (dest: string) => Promise<void>
   problemStatement: string
   /** Self-repro verify command (bash -c, cwd = ws) — the MEASUREMENT gate. */
   verifyCmd: string
@@ -237,6 +361,7 @@ export interface ArmRunContext {
   outDir: string
   secrets: SecretsEnv
   excludes: string[]
+  signal?: AbortSignal
 }
 
 export interface SoloArmResult {
@@ -277,8 +402,50 @@ export interface SupervisorArmResult {
 
 const patchLineCount = (patch: string): number => (patch.length === 0 ? 0 : patch.split('\n').length - (patch.endsWith('\n') ? 1 : 0))
 
-async function verifyWorkspace(verifyCmd: string, ws: string, logPath: string): Promise<number> {
-  const res = await run('bash', ['-c', verifyCmd], { cwd: ws, timeoutMs: 600_000 })
+type ProcessCompletion = Pick<RunResult, 'code' | 'timedOut' | 'aborted'>
+
+/** Reject a solo process outcome before its partial workspace can be scored. */
+export function assertSoloProcessCompleted(result: ProcessCompletion, label = 'runSoloArm'): void {
+  if (result.timedOut) {
+    throw new Error(`${label}: opencode timed out (exit ${result.code})`)
+  }
+  if (result.aborted) {
+    throw new Error(`${label}: opencode was cancelled (exit ${result.code})`)
+  }
+  if (result.code !== 0) {
+    throw new Error(`${label}: opencode exited ${result.code}`)
+  }
+}
+
+/** Reject a driver or unfinished supervisor state before its partial workspace can be scored. */
+export function assertSupervisorProcessCompleted(
+  driver: ProcessCompletion,
+  status: string | null,
+  label = 'runSupervisorArm',
+): void {
+  const state = status ?? 'missing'
+  if (driver.timedOut) {
+    throw new Error(`${label}: driver timed out (exit ${driver.code}, supervisor state ${state})`)
+  }
+  if (driver.aborted) {
+    throw new Error(`${label}: driver was cancelled (exit ${driver.code}, supervisor state ${state})`)
+  }
+  if (driver.code !== 0) {
+    throw new Error(`${label}: driver exited ${driver.code} (supervisor state ${state})`)
+  }
+  if (status !== 'completed') {
+    throw new Error(`${label}: supervisor state ${state}; expected completed`)
+  }
+}
+
+async function verifyWorkspace(
+  verifyCmd: string,
+  ws: string,
+  logPath: string,
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
+): Promise<number> {
+  const res = await run('bash', ['-c', verifyCmd], { cwd: ws, timeoutMs: 600_000, env, signal })
   await writeFile(logPath, res.stdout + res.stderr)
   return res.code
 }
@@ -288,7 +455,18 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const runDir = join(ctx.outDir, 'runs', ctx.instanceId, spec.name)
   const ws = join(runDir, 'ws')
   await mkdir(runDir, { recursive: true })
-  await materializeWorkspace({ instanceId: ctx.instanceId, image: ctx.image, baseCommit: ctx.baseCommit, dest: ws })
+  const cell = await prepareIsolatedCellEnvironment(runDir)
+  // A caller-supplied materializer (synthetic-history factory cells) replaces the
+  // SWE-bench image checkout, but still runs inside the isolated cell above.
+  if (ctx.materialize) await ctx.materialize(ws)
+  else
+    await materializeWorkspace({
+      instanceId: ctx.instanceId,
+      image: ctx.image,
+      baseCommit: ctx.baseCommit,
+      dest: ws,
+      signal: ctx.signal,
+    })
 
   const promptFile = join(runDir, 'prompt.txt')
   await writeFile(promptFile, ctx.problemStatement + (spec.promptSuffix ?? WORKER_PROMPT_SUFFIX))
@@ -297,18 +475,20 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const oc = await dotenvxBash(
     ctx.secrets,
     `cd ${shq(ws)} && opencode run "$(cat ${shq(promptFile)})" -m ${shq(spec.model)} --format json`,
-    { timeoutMs: spec.timeoutMs ?? 1_000_000 },
+    { timeoutMs: spec.timeoutMs ?? 1_000_000, env: cell.env, signal: ctx.signal },
   )
   const wall_s = Math.round((Date.now() - t0) / 1000)
   await writeFile(join(runDir, 'oc.jsonl'), oc.stdout)
   await writeFile(join(runDir, 'oc.err'), oc.stderr)
+  assertSoloProcessCompleted(oc, `runSoloArm ${ctx.instanceId}/${spec.name}`)
+  if (ctx.signal?.aborted) throw ctx.signal.reason
 
-  const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes)
+  const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes, ctx.signal)
   const patchPath = join(ctx.outDir, 'patches', `${ctx.instanceId}.${spec.name.toLowerCase()}.patch`)
   await mkdir(join(ctx.outDir, 'patches'), { recursive: true })
   await writeFile(patchPath, patch)
 
-  const verify_rc = await verifyWorkspace(ctx.verifyCmd, ws, join(runDir, 'verify.log'))
+  const verify_rc = await verifyWorkspace(ctx.verifyCmd, ws, join(runDir, 'verify.log'), cell.env, ctx.signal)
   return {
     arm: spec.name,
     iid: ctx.instanceId,
@@ -404,12 +584,23 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   const loopsRepo = spec.loopsRepo ?? DEFAULT_LOOPS_REPO
   const extensionPath = spec.extensionPath ?? join(loopsRepo, 'extensions', 'pi', 'loops.ts')
   const envKnobs = { ...SUP_DEFAULT_ENV_KNOBS, ...spec.envKnobs }
-  const provenance = await armProvenance(loopsRepo, envKnobs)
+  const provenance = await armProvenance(loopsRepo, envKnobs, ctx.signal)
 
   const runDir = join(ctx.outDir, 'runs', ctx.instanceId, spec.name)
   const ws = join(runDir, 'ws')
   await mkdir(runDir, { recursive: true })
-  await materializeWorkspace({ instanceId: ctx.instanceId, image: ctx.image, baseCommit: ctx.baseCommit, dest: ws })
+  const cell = await prepareIsolatedCellEnvironment(runDir)
+  // A caller-supplied materializer (synthetic-history factory cells) replaces the
+  // SWE-bench image checkout, but still runs inside the isolated cell above.
+  if (ctx.materialize) await ctx.materialize(ws)
+  else
+    await materializeWorkspace({
+      instanceId: ctx.instanceId,
+      image: ctx.image,
+      baseCommit: ctx.baseCommit,
+      dest: ws,
+      signal: ctx.signal,
+    })
 
   const paramsFile = join(runDir, 'params.json')
   await writeFile(
@@ -445,20 +636,33 @@ export async function runSupervisorArm(spec: SupervisorArmSpec, ctx: ArmRunConte
   ].join('\n')
 
   const t0 = Date.now()
-  const driver = await dotenvxBash(ctx.secrets, script, { timeoutMs: spec.timeoutMs ?? 2_800_000 })
+  const driver = await dotenvxBash(ctx.secrets, script, {
+    timeoutMs: spec.timeoutMs ?? 2_800_000,
+    killGraceMs: supervisorDriverKillGraceMs(envKnobs),
+    env: cell.env,
+    signal: ctx.signal,
+  })
   const wall_s = Math.round((Date.now() - t0) / 1000)
   await writeFile(join(runDir, 'driver.log'), driver.stdout + driver.stderr)
 
   const artifacts = await parseSupervisorArtifacts(ws)
+  assertSupervisorProcessCompleted(
+    driver,
+    artifacts.status,
+    `runSupervisorArm ${ctx.instanceId}/${spec.name}`,
+  )
+  if (ctx.signal?.aborted) throw ctx.signal.reason
 
-  const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes)
+  const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes, ctx.signal)
   const patchPath = join(ctx.outDir, 'patches', `${ctx.instanceId}.${spec.name.toLowerCase()}.patch`)
   await mkdir(join(ctx.outDir, 'patches'), { recursive: true })
   await writeFile(patchPath, patch)
 
-  const verify_rc = await verifyWorkspace(ctx.verifyCmd, ws, join(runDir, 'verify.log'))
+  const verify_rc = await verifyWorkspace(ctx.verifyCmd, ws, join(runDir, 'verify.log'), cell.env, ctx.signal)
 
-  const recoveredSpend = artifacts.supRunDir ? await recoverSupSpend(artifacts.supRunDir).catch(() => null) : null
+  const recoveredSpend = artifacts.supRunDir
+    ? await recoverSupSpend(artifacts.supRunDir, { opencodeDb: cell.opencodeDb }).catch(() => null)
+    : null
 
   return {
     arm: spec.name,

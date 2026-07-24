@@ -110,7 +110,7 @@ async function main(): Promise<void> {
   console.log(
     'improve() proposed a detached prompt candidate and measured it on held-out scenarios (offline: scripted proposer, deterministic judge):',
   )
-  console.log(`decision: ${out.decision}  lift: ${out.lift.toFixed(3)}`)
+  console.log(`decision: ${out.decision}  lift: ${out.lift?.toFixed(3) ?? 'deferred'}`)
   console.log(`candidate prompt: ${out.candidate.profile?.prompt?.systemPrompt}`)
   console.log(`live prompt unchanged: ${profile.prompt?.systemPrompt}`)
 }

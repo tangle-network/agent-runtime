@@ -1,0 +1,30 @@
+{
+  "id": "factory.loops.28",
+  "repo": "drewstone/loops",
+  "repo_local_mirror": "/home/drew/code/loops",
+  "base_commit": "3ca55b9eb24adae9d5c8383dc785bd610e1db5b0",
+  "judge_ref": "7805270fda9f82869028b197e9424292ec611245",
+  "spec_md": "spec.md",
+  "judge_tests": [
+    "tests/best-effort.test.ts",
+    "tests/worker-clone.test.ts",
+    "tests/worker-evidence.test.ts"
+  ],
+  "excluded_tests": [],
+  "worker_visible_paths_note": "worker gets the base tree only; judge tests overlaid at judge time",
+  "setup_cmds": [
+    "pnpm install"
+  ],
+  "judge_cmds": [
+    "npx vitest run tests/best-effort.test.ts tests/worker-clone.test.ts tests/worker-evidence.test.ts"
+  ],
+  "resolved_criterion": "all 20 judge tests pass; partial score = passed/20",
+  "timeout_s": 600,
+  "runtime": "node>=20, pnpm 11, vitest 4 (repo devDependency); requires local git binary; POSIX (symlink/chmod)",
+  "hermetic": true,
+  "calibration": {
+    "gold": "PASS 20/20 (twice, deterministic)",
+    "base": "FAIL 3/3 test files (src/best-effort.ts, src/worker-clone.ts, src/worker-evidence.ts do not exist at base)",
+    "receipts": "calibration.md"
+  }
+}

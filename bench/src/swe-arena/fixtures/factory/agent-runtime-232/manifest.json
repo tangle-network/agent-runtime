@@ -1,0 +1,29 @@
+{
+  "id": "factory.agent-runtime.232",
+  "repo": "tangle-network/agent-runtime",
+  "repo_local_mirror": "/home/drew/code/agent-runtime",
+  "base_commit": "ce6194a8e4e8468fb47d7a040f9df7366c0dda9b",
+  "judge_ref": "690a8fd0e0ed5eec3a2b1c19031717a087aabd5d",
+  "spec_md": "spec.md",
+  "judge_tests": [
+    "tests/mcp/delegation-store.test.ts",
+    "tests/mcp/task-queue-durable.test.ts"
+  ],
+  "excluded_tests": [],
+  "worker_visible_paths_note": "worker gets the base tree only; judge tests overlaid at judge time",
+  "setup_cmds": [
+    "pnpm install"
+  ],
+  "judge_cmds": [
+    "npx vitest run tests/mcp/delegation-store.test.ts tests/mcp/task-queue-durable.test.ts"
+  ],
+  "resolved_criterion": "all 21 judge tests pass; partial score = passed/21",
+  "timeout_s": 600,
+  "runtime": "node>=20, pnpm 11, vitest (repo devDependency)",
+  "hermetic": true,
+  "calibration": {
+    "gold": "PASS 21/21 (twice, deterministic)",
+    "base": "FAIL 2/2 test files (src/mcp/delegation-store does not exist; task-queue lacks durable exports)",
+    "receipts": "calibration.md"
+  }
+}

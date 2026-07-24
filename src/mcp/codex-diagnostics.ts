@@ -8,6 +8,7 @@ export interface CodexExecutionFailureDiagnostic {
   exitCode: number | null
   killedBySignal: NodeJS.Signals | null
   timedOut: boolean
+  aborted?: boolean
   durationMs: number
   stdout: string
   stderr: string
@@ -42,6 +43,7 @@ export function createCodexExecutionDiagnosticError(opts: {
   exitCode: number | null
   killedBySignal: NodeJS.Signals | null
   timedOut: boolean
+  aborted?: boolean
   durationMs: number
   stdout: string
   stderr: string
@@ -57,6 +59,7 @@ export function createCodexExecutionDiagnosticError(opts: {
     exitCode: opts.exitCode,
     killedBySignal: opts.killedBySignal,
     timedOut: opts.timedOut,
+    ...(opts.aborted !== undefined ? { aborted: opts.aborted } : {}),
     durationMs: opts.durationMs,
     stdout: boundedStdout.value,
     stderr: boundedStderr.value,

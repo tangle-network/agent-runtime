@@ -188,7 +188,7 @@ export async function runAblation(opts: {
       driverPrompt = opt.systemPrompt
       gepaUsd = opt.usd // the TRAIN-side GEPA cost, counted into this arm's $ (the fair-cost invariant)
       console.log(
-        `ablation: arm "${arm.name}" GEPA driver-prompt ${opt.shipped ? 'SHIPPED' : 'kept-baseline'} (train lift ${(100 * opt.lift).toFixed(0)}pp)`,
+        `ablation: arm "${arm.name}" GEPA driver-prompt ${opt.shipped ? 'SHIPPED' : 'kept-baseline'} (train lift ${opt.lift === undefined ? 'deferred' : `${(100 * opt.lift).toFixed(0)}pp`})`,
       )
     }
 
