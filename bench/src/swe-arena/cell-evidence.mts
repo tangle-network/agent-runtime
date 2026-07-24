@@ -113,6 +113,51 @@ export function resolvedInstanceCount(runs: ReplicateRun[], iids: string[], reps
   return count
 }
 
+/**
+ * The lexicographic winner-selection key for a candidate's cells — built from
+ * the SAME fail-closed `resolvedInstanceCount` reduction the ship-gate
+ * (`decideVerdict`) uses, so winner-SELECTION and the ship-GATE rank on the
+ * identical metric and CANNOT invert. Passed to the improvement loop as
+ * `runOptimization.selectionRankKey`; the loop ranks candidates by
+ * `compareRankKeys` (lexicographic, each element higher-is-better) and promotes
+ * the top, then this same file's gate scores that winner.
+ *
+ * Before this, the loop ranked by the lib's per-cell mean composite and could
+ * promote a candidate spread thin over one-off flaky passes (higher mean, fewer
+ * both-reps-confirmed instances) over one the gate would accept — gen-4 discarded
+ * a real 2-of-6 winner and reported rejected-no-gain.
+ *
+ * Elements (all higher-is-better):
+ *   1. fail-closed resolved instances (both-reps AND) — the gate's own
+ *      `resolvedCount`, the primary key.
+ *   2. −Σ wall seconds — ties broken toward the cheaper candidate.
+ *   3. Σ resolved replicate cells — the per-cell resolved-rate tiebreak (same
+ *      denominator across coverage-complete candidates, so count ⇔ mean).
+ */
+export function failClosedRankKey(cells: EvidenceCell[], iids: string[], reps: number): number[] {
+  const runs = replicateRunsFromCells(cells)
+  return [
+    resolvedInstanceCount(runs, iids, reps),
+    -sumWallSFromCells(cells),
+    runs.filter((r) => r.resolved === true).length,
+  ]
+}
+
+/** Compare two `failClosedRankKey` values — lexicographic, each element
+ *  higher-is-better. Positive ⇒ `a` ranks ABOVE `b`. The winner is the max under
+ *  this order. (Mirrors agent-eval's `compareRankKeys`; kept local so selection
+ *  and the gate share one file and one source of truth without a lib-version
+ *  dependency.) */
+export function compareRankKeys(a: readonly number[], b: readonly number[]): number {
+  const n = Math.min(a.length, b.length)
+  for (let i = 0; i < n; i++) {
+    const av = a[i] ?? 0
+    const bv = b[i] ?? 0
+    if (av !== bv) return av - bv
+  }
+  return a.length - b.length
+}
+
 /** Every instance has exactly `reps` replicates, each with a conclusive verdict. */
 export function replicateCoverageComplete(runs: ReplicateRun[], iids: string[], reps: number): boolean {
   return iids.every((iid) => {

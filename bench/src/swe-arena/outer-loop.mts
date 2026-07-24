@@ -89,6 +89,8 @@ import { createSweBenchAdapter } from '../benchmarks/swe-bench.ts'
 import {
   baselineDriftWarnings,
   cellsFromCampaign,
+  compareRankKeys,
+  failClosedRankKey,
   gateEvidenceFromCells,
   instanceVerdictsFromCells,
   loadCampaignCells,
@@ -2422,7 +2424,55 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       }
     }
 
-    const winnerSurface = result.raw.winner.surface
+    // WINNER RE-SELECTION (gen-4 selection-defect fix). The lib ranks candidates
+    // by its per-cell MEAN composite and sets result.raw.winner from that, which
+    // INVERTS against this bench's fail-closed both-reps ship gate: the mean can
+    // crown a candidate spread over one-off flaky passes over one with more
+    // both-reps-confirmed instances the gate would accept (gen-4 discarded a real
+    // 2/6 winner and reported rejected-no-gain). Re-select the run winner as the
+    // max fail-closed candidate — failClosedRankKey is built from the SAME
+    // resolvedInstanceCount the gate uses, so selection and gate rank on the
+    // identical metric and cannot invert. Only coverage-complete candidates are
+    // eligible; ties break lexicographically (cheaper wall, then per-cell rate).
+    // Falls back to the lib winner when no candidate is coverage-complete.
+    interface FailClosedPick {
+      surface: typeof result.raw.winner.surface
+      surfaceHash: string
+      label: string | null
+      rationale: string | null
+      key: number[]
+    }
+    const failClosedPicks: FailClosedPick[] = []
+    for (const gen of loop.generations) {
+      for (const cand of gen.record.candidates) {
+        const surface = gen.surfaces.find((s) => s.surfaceHash === cand.surfaceHash)?.surface
+        const campaign = campaignBySurface.get(cand.surfaceHash)
+        if (surface === undefined || campaign === undefined) continue
+        const cells = cellsFromCampaign(campaign)
+        if (!replicateCoverageComplete(replicateRunsFromCells(cells), config.instances, reps)) continue
+        failClosedPicks.push({
+          surface,
+          surfaceHash: cand.surfaceHash,
+          label: cand.label ?? null,
+          rationale: cand.rationale ?? null,
+          key: failClosedRankKey(cells, config.instances, reps),
+        })
+      }
+    }
+    failClosedPicks.sort((a, b) => compareRankKeys(b.key, a.key))
+    const failClosedWinner = failClosedPicks[0]
+    if (failClosedWinner && failClosedWinner.surface !== result.raw.winner.surface) {
+      log(
+        `winner re-selection: fail-closed winner ${failClosedWinner.surfaceHash} ` +
+          `(key ${JSON.stringify(failClosedWinner.key)}) overrides the lib mean-composite ` +
+          `winner — selection now matches the ship gate`,
+      )
+    }
+    const winnerSurface = failClosedWinner ? failClosedWinner.surface : result.raw.winner.surface
+    const winnerLabel = failClosedWinner ? failClosedWinner.label : (result.raw.winner.label ?? null)
+    const winnerRationale = failClosedWinner
+      ? failClosedWinner.rationale
+      : (result.raw.winner.rationale ?? null)
     const winnerCs =
       typeof winnerSurface === 'object' && winnerSurface !== null && winnerSurface.kind === 'code'
         ? winnerSurface
@@ -2504,8 +2554,8 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         ? {
             surfaceHash: winnerHash,
             commit: winnerCs.candidateCommit,
-            label: result.raw.winner.label ?? null,
-            rationale: result.raw.winner.rationale ?? null,
+            label: winnerLabel,
+            rationale: winnerRationale,
             patch: winnerPatch,
           }
         : null,
