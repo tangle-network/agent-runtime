@@ -11471,7 +11471,7 @@ that command). Default `[]` — gate on no-op / secret / forbidden / diff-size o
 
 ### PiSeam
 
-Defined in: src/runtime/supervise/pi-executor.ts:55
+Defined in: [src/runtime/supervise/pi-executor.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L55)
 
 How to launch pi in its out-of-process RPC mode, and how long to wait on it.
 
@@ -11481,7 +11481,7 @@ How to launch pi in its out-of-process RPC mode, and how long to wait on it.
 
 > `optional` **bin?**: `string`
 
-Defined in: src/runtime/supervise/pi-executor.ts:57
+Defined in: [src/runtime/supervise/pi-executor.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L57)
 
 The pi executable (default `'pi'`). Anything on PATH or an absolute path.
 
@@ -11489,7 +11489,7 @@ The pi executable (default `'pi'`). Anything on PATH or an absolute path.
 
 > `optional` **args?**: readonly `string`[]
 
-Defined in: src/runtime/supervise/pi-executor.ts:59
+Defined in: [src/runtime/supervise/pi-executor.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L59)
 
 Extra args appended after `--mode rpc`. `--provider` / `--model` are added from `model`.
 
@@ -11497,7 +11497,7 @@ Extra args appended after `--mode rpc`. `--provider` / `--model` are added from 
 
 > `optional` **model?**: `string`
 
-Defined in: src/runtime/supervise/pi-executor.ts:61
+Defined in: [src/runtime/supervise/pi-executor.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L61)
 
 `provider/model` or just `model` — split on the first `/` into pi's two flags.
 
@@ -11505,19 +11505,19 @@ Defined in: src/runtime/supervise/pi-executor.ts:61
 
 > `optional` **cwd?**: `string`
 
-Defined in: src/runtime/supervise/pi-executor.ts:62
+Defined in: [src/runtime/supervise/pi-executor.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L62)
 
 ##### env?
 
 > `optional` **env?**: `Record`\<`string`, `string`\>
 
-Defined in: src/runtime/supervise/pi-executor.ts:63
+Defined in: [src/runtime/supervise/pi-executor.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L63)
 
 ##### turnTimeoutMs?
 
 > `optional` **turnTimeoutMs?**: `number`
 
-Defined in: src/runtime/supervise/pi-executor.ts:65
+Defined in: [src/runtime/supervise/pi-executor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L65)
 
 Wall-clock ceiling for one `prompt` (the wait for `agent_end`). Omit = no timeout.
 
@@ -11525,7 +11525,7 @@ Wall-clock ceiling for one `prompt` (the wait for `agent_end`). Omit = no timeou
 
 > `optional` **activityWindow?**: `number`
 
-Defined in: src/runtime/supervise/pi-executor.ts:67
+Defined in: [src/runtime/supervise/pi-executor.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L67)
 
 Newest-last activity window `progress()` reports. Default 12.
 
@@ -11533,7 +11533,7 @@ Newest-last activity window `progress()` reports. Default 12.
 
 ### ActivityNote
 
-Defined in: src/runtime/supervise/progress.ts:35
+Defined in: [src/runtime/supervise/progress.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L35)
 
 The most recent activity the executor can name — one tool call, one turn, or a free-form note.
  `label` is the tool/file/turn name; `detail` is a short, already-truncated descriptor (a path,
@@ -11545,37 +11545,37 @@ The most recent activity the executor can name — one tool call, one turn, or a
 
 > `readonly` **at**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:36
+Defined in: [src/runtime/supervise/progress.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L36)
 
 ##### kind
 
 > `readonly` **kind**: `"tool"` \| `"turn"` \| `"note"`
 
-Defined in: src/runtime/supervise/progress.ts:37
+Defined in: [src/runtime/supervise/progress.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L37)
 
 ##### label
 
 > `readonly` **label**: `string`
 
-Defined in: src/runtime/supervise/progress.ts:38
+Defined in: [src/runtime/supervise/progress.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L38)
 
 ##### status?
 
 > `readonly` `optional` **status?**: `"error"` \| `"ok"`
 
-Defined in: src/runtime/supervise/progress.ts:39
+Defined in: [src/runtime/supervise/progress.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L39)
 
 ##### detail?
 
 > `readonly` `optional` **detail?**: `string`
 
-Defined in: src/runtime/supervise/progress.ts:40
+Defined in: [src/runtime/supervise/progress.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L40)
 
 ***
 
 ### ExecutorProgress
 
-Defined in: src/runtime/supervise/progress.ts:45
+Defined in: [src/runtime/supervise/progress.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L45)
 
 What an executor OPTIONALLY adds to the scope-derived progress (`Executor.progress()`). Every
  field is optional: an executor that knows only its own turn count reports only that.
@@ -11586,7 +11586,7 @@ What an executor OPTIONALLY adds to the scope-derived progress (`Executor.progre
 
 > `readonly` `optional` **turns?**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:47
+Defined in: [src/runtime/supervise/progress.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L47)
 
 The executor's own turn/step count when it is more meaningful than metered iterations.
 
@@ -11594,7 +11594,7 @@ The executor's own turn/step count when it is more meaningful than metered itera
 
 > `readonly` `optional` **pendingMessages?**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:49
+Defined in: [src/runtime/supervise/progress.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L49)
 
 Steers/answers delivered but not yet folded into the worker's conversation.
 
@@ -11602,7 +11602,7 @@ Steers/answers delivered but not yet folded into the worker's conversation.
 
 > `readonly` `optional` **recentActivity?**: readonly [`ActivityNote`](#activitynote)[]
 
-Defined in: src/runtime/supervise/progress.ts:51
+Defined in: [src/runtime/supervise/progress.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L51)
 
 Newest-last window of what the worker has been doing.
 
@@ -11610,7 +11610,7 @@ Newest-last window of what the worker has been doing.
 
 > `readonly` `optional` **note?**: `string`
 
-Defined in: src/runtime/supervise/progress.ts:53
+Defined in: [src/runtime/supervise/progress.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L53)
 
 A one-line human-readable state ("turn 3, running tests").
 
@@ -11618,7 +11618,7 @@ A one-line human-readable state ("turn 3, running tests").
 
 ### WorkerProgress
 
-Defined in: src/runtime/supervise/progress.ts:57
+Defined in: [src/runtime/supervise/progress.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L57)
 
 The full live view of one worker, as `observe_agent` returns it mid-flight.
 
@@ -11628,19 +11628,19 @@ The full live view of one worker, as `observe_agent` returns it mid-flight.
 
 > `readonly` **id**: `string`
 
-Defined in: src/runtime/supervise/progress.ts:58
+Defined in: [src/runtime/supervise/progress.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L58)
 
 ##### status
 
 > `readonly` **status**: `NodeStatus`
 
-Defined in: src/runtime/supervise/progress.ts:59
+Defined in: [src/runtime/supervise/progress.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L59)
 
 ##### live
 
 > `readonly` **live**: `boolean`
 
-Defined in: src/runtime/supervise/progress.ts:61
+Defined in: [src/runtime/supervise/progress.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L61)
 
 True while the node is neither done, failed, nor cancelled — i.e. a steer could still land.
 
@@ -11648,7 +11648,7 @@ True while the node is neither done, failed, nor cancelled — i.e. a steer coul
 
 > `readonly` **steerable**: `boolean`
 
-Defined in: src/runtime/supervise/progress.ts:64
+Defined in: [src/runtime/supervise/progress.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L64)
 
 True when this worker's executor exposes an inbox (`Executor.deliver`) — i.e. `steer_agent`
  can actually reach it. False means a steer would be recorded and dropped.
@@ -11657,13 +11657,13 @@ True when this worker's executor exposes an inbox (`Executor.deliver`) — i.e. 
 
 > `readonly` **startedAt**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:65
+Defined in: [src/runtime/supervise/progress.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L65)
 
 ##### lastActivityAt
 
 > `readonly` **lastActivityAt**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:67
+Defined in: [src/runtime/supervise/progress.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L67)
 
 Epoch ms of the last metered usage event or executor-reported activity.
 
@@ -11671,25 +11671,25 @@ Epoch ms of the last metered usage event or executor-reported activity.
 
 > `readonly` **idleMs**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:68
+Defined in: [src/runtime/supervise/progress.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L68)
 
 ##### stalled
 
 > `readonly` **stalled**: `boolean`
 
-Defined in: src/runtime/supervise/progress.ts:69
+Defined in: [src/runtime/supervise/progress.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L69)
 
 ##### stallAfterMs
 
 > `readonly` **stallAfterMs**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:70
+Defined in: [src/runtime/supervise/progress.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L70)
 
 ##### turns
 
 > `readonly` **turns**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:72
+Defined in: [src/runtime/supervise/progress.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L72)
 
 Metered iterations so far (the executor's own count when it reports one).
 
@@ -11697,7 +11697,7 @@ Metered iterations so far (the executor's own count when it reports one).
 
 > `readonly` **tokens**: `object`
 
-Defined in: src/runtime/supervise/progress.ts:73
+Defined in: [src/runtime/supervise/progress.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L73)
 
 ###### input
 
@@ -11711,13 +11711,13 @@ Defined in: src/runtime/supervise/progress.ts:73
 
 > `readonly` **usd**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:74
+Defined in: [src/runtime/supervise/progress.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L74)
 
 ##### pendingMessages
 
 > `readonly` **pendingMessages**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:76
+Defined in: [src/runtime/supervise/progress.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L76)
 
 Steers delivered but not yet read by the worker.
 
@@ -11725,7 +11725,7 @@ Steers delivered but not yet read by the worker.
 
 > `readonly` **recentActivity**: readonly [`ActivityNote`](#activitynote)[]
 
-Defined in: src/runtime/supervise/progress.ts:78
+Defined in: [src/runtime/supervise/progress.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L78)
 
 Newest-last window of tool/turn activity; empty when the executor exposes none.
 
@@ -11733,13 +11733,13 @@ Newest-last window of tool/turn activity; empty when the executor exposes none.
 
 > `readonly` `optional` **note?**: `string`
 
-Defined in: src/runtime/supervise/progress.ts:79
+Defined in: [src/runtime/supervise/progress.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L79)
 
 ***
 
 ### ActivityLog
 
-Defined in: src/runtime/supervise/progress.ts:83
+Defined in: [src/runtime/supervise/progress.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L83)
 
 A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progress()`.
 
@@ -11749,7 +11749,7 @@ A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progr
 
 > **push**(`note`): `void`
 
-Defined in: src/runtime/supervise/progress.ts:84
+Defined in: [src/runtime/supervise/progress.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L84)
 
 ###### Parameters
 
@@ -11765,7 +11765,7 @@ Defined in: src/runtime/supervise/progress.ts:84
 
 > **read**(): readonly [`ActivityNote`](#activitynote)[]
 
-Defined in: src/runtime/supervise/progress.ts:86
+Defined in: [src/runtime/supervise/progress.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L86)
 
 Newest-last, at most `limit` entries.
 
@@ -11777,7 +11777,7 @@ readonly [`ActivityNote`](#activitynote)[]
 
 > **last**(): [`ActivityNote`](#activitynote) \| `undefined`
 
-Defined in: src/runtime/supervise/progress.ts:87
+Defined in: [src/runtime/supervise/progress.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L87)
 
 ###### Returns
 
@@ -11787,7 +11787,7 @@ Defined in: src/runtime/supervise/progress.ts:87
 
 > **size**(): `number`
 
-Defined in: src/runtime/supervise/progress.ts:88
+Defined in: [src/runtime/supervise/progress.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L88)
 
 ###### Returns
 
@@ -11797,7 +11797,7 @@ Defined in: src/runtime/supervise/progress.ts:88
 
 ### ScopeProgressInput
 
-Defined in: src/runtime/supervise/progress.ts:107
+Defined in: [src/runtime/supervise/progress.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L107)
 
 The scope-side facts about a child, independent of whether its executor cooperates.
 
@@ -11807,43 +11807,43 @@ The scope-side facts about a child, independent of whether its executor cooperat
 
 > `readonly` **id**: `string`
 
-Defined in: src/runtime/supervise/progress.ts:108
+Defined in: [src/runtime/supervise/progress.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L108)
 
 ##### status
 
 > `readonly` **status**: `NodeStatus`
 
-Defined in: src/runtime/supervise/progress.ts:109
+Defined in: [src/runtime/supervise/progress.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L109)
 
 ##### steerable
 
 > `readonly` **steerable**: `boolean`
 
-Defined in: src/runtime/supervise/progress.ts:110
+Defined in: [src/runtime/supervise/progress.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L110)
 
 ##### startedAt
 
 > `readonly` **startedAt**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:111
+Defined in: [src/runtime/supervise/progress.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L111)
 
 ##### lastActivityAt
 
 > `readonly` **lastActivityAt**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:112
+Defined in: [src/runtime/supervise/progress.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L112)
 
 ##### turns
 
 > `readonly` **turns**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:113
+Defined in: [src/runtime/supervise/progress.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L113)
 
 ##### tokens
 
 > `readonly` **tokens**: `object`
 
-Defined in: src/runtime/supervise/progress.ts:114
+Defined in: [src/runtime/supervise/progress.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L114)
 
 ###### input
 
@@ -11857,7 +11857,7 @@ Defined in: src/runtime/supervise/progress.ts:114
 
 > `readonly` **usd**: `number`
 
-Defined in: src/runtime/supervise/progress.ts:115
+Defined in: [src/runtime/supervise/progress.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L115)
 
 ***
 
@@ -12025,7 +12025,7 @@ Defined in: [src/runtime/supervise/runtime.ts:219](https://github.com/tangle-net
 
 ### SandboxSteeringOptions
 
-Defined in: src/runtime/supervise/sandbox-session.ts:60
+Defined in: [src/runtime/supervise/sandbox-session.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L60)
 
 Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the
  sandbox executor keeps its historical single-shot `runLoop` composition verbatim.
@@ -12036,7 +12036,7 @@ Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). 
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: src/runtime/supervise/sandbox-session.ts:62
+Defined in: [src/runtime/supervise/sandbox-session.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L62)
 
 Max turns for one worker (turn 0 + folded steers). Default [DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS](#default_sandbox_steering_max_turns).
 
@@ -12044,7 +12044,7 @@ Max turns for one worker (turn 0 + folded steers). Default [DEFAULT\_SANDBOX\_ST
 
 > `readonly` `optional` **activityWindow?**: `number`
 
-Defined in: src/runtime/supervise/sandbox-session.ts:64
+Defined in: [src/runtime/supervise/sandbox-session.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L64)
 
 How many recent tool/turn notes `progress()` reports. Default 12.
 
@@ -12052,7 +12052,7 @@ How many recent tool/turn notes `progress()` reports. Default 12.
 
 > `readonly` `optional` **turnTimeoutMs?**: `number`
 
-Defined in: src/runtime/supervise/sandbox-session.ts:66
+Defined in: [src/runtime/supervise/sandbox-session.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L66)
 
 Per-turn wall-clock ceiling; the turn's stream is aborted when it elapses.
 
@@ -12060,7 +12060,7 @@ Per-turn wall-clock ceiling; the turn's stream is aborted when it elapses.
 
 ### SteerableSandboxSession
 
-Defined in: src/runtime/supervise/sandbox-session.ts:70
+Defined in: [src/runtime/supervise/sandbox-session.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L70)
 
 What the steerable session exposes to its executor: the usage stream plus the live reads.
 
@@ -12070,7 +12070,7 @@ What the steerable session exposes to its executor: the usage stream plus the li
 
 > **stream**(`task`, `signal`): `AsyncIterable`\<[`UsageEvent`](#usageevent)\>
 
-Defined in: src/runtime/supervise/sandbox-session.ts:72
+Defined in: [src/runtime/supervise/sandbox-session.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L72)
 
 Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `execute`.
 
@@ -12092,7 +12092,7 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 > **progress**(): [`ExecutorProgress`](#executorprogress)
 
-Defined in: src/runtime/supervise/sandbox-session.ts:73
+Defined in: [src/runtime/supervise/sandbox-session.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L73)
 
 ###### Returns
 
@@ -12102,7 +12102,7 @@ Defined in: src/runtime/supervise/sandbox-session.ts:73
 
 > **traceSource**(): [`TraceSource`](#tracesource-1)
 
-Defined in: src/runtime/supervise/sandbox-session.ts:74
+Defined in: [src/runtime/supervise/sandbox-session.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L74)
 
 ###### Returns
 
@@ -12112,7 +12112,7 @@ Defined in: src/runtime/supervise/sandbox-session.ts:74
 
 > **artifact**(): \{ `outRef`: `string`; `out`: `unknown`; `spent`: [`Spend`](#spend); \} \| `undefined`
 
-Defined in: src/runtime/supervise/sandbox-session.ts:75
+Defined in: [src/runtime/supervise/sandbox-session.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L75)
 
 ###### Returns
 
@@ -12122,7 +12122,7 @@ Defined in: src/runtime/supervise/sandbox-session.ts:75
 
 > **teardown**(): `Promise`\<`void`\>
 
-Defined in: src/runtime/supervise/sandbox-session.ts:76
+Defined in: [src/runtime/supervise/sandbox-session.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L76)
 
 ###### Returns
 
@@ -18040,7 +18040,7 @@ The conserved pool a `delegate()` call applies when the caller does not pass its
 
 > `const` **PI\_RUNTIME**: [`Runtime`](#runtime-3) = `'pi'`
 
-Defined in: src/runtime/supervise/pi-executor.ts:49
+Defined in: [src/runtime/supervise/pi-executor.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L49)
 
 The runtime name `piExecutor` registers under.
 
@@ -18050,7 +18050,7 @@ The runtime name `piExecutor` registers under.
 
 > `const` **piSeamKey**: `"pi"` = `'pi'`
 
-Defined in: src/runtime/supervise/pi-executor.ts:52
+Defined in: [src/runtime/supervise/pi-executor.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L52)
 
 Seam key the registry threads a `PiSeam` through (`ExecutorContext.seams['pi']`).
 
@@ -18060,7 +18060,7 @@ Seam key the registry threads a `PiSeam` through (`ExecutorContext.seams['pi']`)
 
 > `const` **piExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
-Defined in: src/runtime/supervise/pi-executor.ts:82
+Defined in: [src/runtime/supervise/pi-executor.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/pi-executor.ts#L82)
 
 Build the `Executor` for one pi worker. Registered as runtime `'pi'`.
 
@@ -18070,7 +18070,7 @@ Build the `Executor` for one pi worker. Registered as runtime `'pi'`.
 
 > `const` **DEFAULT\_STALL\_AFTER\_MS**: `180000` = `180_000`
 
-Defined in: src/runtime/supervise/progress.ts:30
+Defined in: [src/runtime/supervise/progress.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L30)
 
 How long a worker may produce no metered activity before a `progress()` read calls it stalled.
  Deliberately generous: a coding harness routinely spends minutes inside one tool call, and a
@@ -18094,7 +18094,7 @@ the other CLI leaves; the authored systemPrompt + model reach the harness via §
 
 > `const` **DEFAULT\_SANDBOX\_STEERING\_MAX\_TURNS**: `24` = `24`
 
-Defined in: src/runtime/supervise/sandbox-session.ts:56
+Defined in: [src/runtime/supervise/sandbox-session.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L56)
 
 Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
  this bounds how many times a supervisor may redirect ONE worker before it must respawn.
@@ -21702,7 +21702,7 @@ whether the patch is DELIVERED (the `valid` conjunction).
 
 > **createActivityLog**(`limit?`): [`ActivityLog`](#activitylog)
 
-Defined in: src/runtime/supervise/progress.ts:92
+Defined in: [src/runtime/supervise/progress.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L92)
 
 Create a bounded activity ring. `limit` caps memory for a worker that runs thousands of tools.
 
@@ -21722,7 +21722,7 @@ Create a bounded activity ring. `limit` caps memory for a worker that runs thous
 
 > **readWorkerProgress**(`scope`, `executor`, `now`, `stallAfterMs?`): [`WorkerProgress`](#workerprogress)
 
-Defined in: src/runtime/supervise/progress.ts:120
+Defined in: [src/runtime/supervise/progress.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/progress.ts#L120)
 
 Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the
  caller supplies `now`, so a test can observe a stall without waiting for one.
@@ -21857,7 +21857,7 @@ harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
 
 > **createSteerableSandboxSession**(`args`): [`SteerableSandboxSession`](#steerablesandboxsession)
 
-Defined in: src/runtime/supervise/sandbox-session.ts:93
+Defined in: [src/runtime/supervise/sandbox-session.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L93)
 
 One steerable sandbox worker. The returned session is inert until `stream()` is drained.
 
