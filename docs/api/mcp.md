@@ -2394,7 +2394,7 @@ Defined in: [src/runtime/types.ts:397](https://github.com/tangle-network/agent-r
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-4)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-5)
 
 ##### sandboxId?
 
@@ -4617,7 +4617,7 @@ Test/override seam — replace the LLM call. Default: a router chat completion.
 
 ### SettledWorker
 
-Defined in: [src/mcp/tools/coordination.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L23)
+Defined in: [src/mcp/tools/coordination.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L25)
 
 A worker the driver has drained via `await_event`.
 
@@ -4627,43 +4627,43 @@ A worker the driver has drained via `await_event`.
 
 > `readonly` **id**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L24)
+Defined in: [src/mcp/tools/coordination.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L26)
 
 ##### status
 
 > `readonly` **status**: `"done"` \| `"down"`
 
-Defined in: [src/mcp/tools/coordination.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L25)
+Defined in: [src/mcp/tools/coordination.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L27)
 
 ##### score?
 
 > `readonly` `optional` **score?**: `number`
 
-Defined in: [src/mcp/tools/coordination.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L26)
+Defined in: [src/mcp/tools/coordination.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L28)
 
 ##### valid?
 
 > `readonly` `optional` **valid?**: `boolean`
 
-Defined in: [src/mcp/tools/coordination.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L27)
+Defined in: [src/mcp/tools/coordination.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L29)
 
 ##### outRef?
 
 > `readonly` `optional` **outRef?**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L28)
+Defined in: [src/mcp/tools/coordination.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L30)
 
 ##### reason?
 
 > `readonly` `optional` **reason?**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L29)
+Defined in: [src/mcp/tools/coordination.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L31)
 
 ***
 
 ### Question
 
-Defined in: [src/mcp/tools/coordination.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L40)
+Defined in: [src/mcp/tools/coordination.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L42)
 
 #### Extended by
 
@@ -4675,49 +4675,49 @@ Defined in: [src/mcp/tools/coordination.ts:40](https://github.com/tangle-network
 
 > `readonly` **id**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L41)
+Defined in: [src/mcp/tools/coordination.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L43)
 
 ##### from
 
 > `readonly` **from**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L42)
+Defined in: [src/mcp/tools/coordination.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L44)
 
 ##### level
 
 > `readonly` **level**: `QuestionLevel`
 
-Defined in: [src/mcp/tools/coordination.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L43)
+Defined in: [src/mcp/tools/coordination.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L45)
 
 ##### question
 
 > `readonly` **question**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L44)
+Defined in: [src/mcp/tools/coordination.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L46)
 
 ##### reason
 
 > `readonly` **reason**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L45)
+Defined in: [src/mcp/tools/coordination.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L47)
 
 ##### urgency
 
 > `readonly` **urgency**: `QuestionUrgency`
 
-Defined in: [src/mcp/tools/coordination.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L46)
+Defined in: [src/mcp/tools/coordination.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L48)
 
 ##### options?
 
 > `readonly` `optional` **options?**: readonly `QuestionOption`[]
 
-Defined in: [src/mcp/tools/coordination.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L47)
+Defined in: [src/mcp/tools/coordination.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L49)
 
 ***
 
 ### QuestionRecord
 
-Defined in: [src/mcp/tools/coordination.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L55)
+Defined in: [src/mcp/tools/coordination.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L57)
 
 #### Extends
 
@@ -4729,7 +4729,7 @@ Defined in: [src/mcp/tools/coordination.ts:55](https://github.com/tangle-network
 
 > `readonly` **id**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L41)
+Defined in: [src/mcp/tools/coordination.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L43)
 
 ###### Inherited from
 
@@ -4739,7 +4739,7 @@ Defined in: [src/mcp/tools/coordination.ts:41](https://github.com/tangle-network
 
 > `readonly` **from**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L42)
+Defined in: [src/mcp/tools/coordination.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L44)
 
 ###### Inherited from
 
@@ -4749,7 +4749,7 @@ Defined in: [src/mcp/tools/coordination.ts:42](https://github.com/tangle-network
 
 > `readonly` **level**: `QuestionLevel`
 
-Defined in: [src/mcp/tools/coordination.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L43)
+Defined in: [src/mcp/tools/coordination.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L45)
 
 ###### Inherited from
 
@@ -4759,7 +4759,7 @@ Defined in: [src/mcp/tools/coordination.ts:43](https://github.com/tangle-network
 
 > `readonly` **question**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L44)
+Defined in: [src/mcp/tools/coordination.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L46)
 
 ###### Inherited from
 
@@ -4769,7 +4769,7 @@ Defined in: [src/mcp/tools/coordination.ts:44](https://github.com/tangle-network
 
 > `readonly` **reason**: `string`
 
-Defined in: [src/mcp/tools/coordination.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L45)
+Defined in: [src/mcp/tools/coordination.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L47)
 
 ###### Inherited from
 
@@ -4779,7 +4779,7 @@ Defined in: [src/mcp/tools/coordination.ts:45](https://github.com/tangle-network
 
 > `readonly` **urgency**: `QuestionUrgency`
 
-Defined in: [src/mcp/tools/coordination.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L46)
+Defined in: [src/mcp/tools/coordination.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L48)
 
 ###### Inherited from
 
@@ -4789,7 +4789,7 @@ Defined in: [src/mcp/tools/coordination.ts:46](https://github.com/tangle-network
 
 > `readonly` `optional` **options?**: readonly `QuestionOption`[]
 
-Defined in: [src/mcp/tools/coordination.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L47)
+Defined in: [src/mcp/tools/coordination.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L49)
 
 ###### Inherited from
 
@@ -4799,25 +4799,25 @@ Defined in: [src/mcp/tools/coordination.ts:47](https://github.com/tangle-network
 
 > `readonly` **status**: `"open"` \| `"answered"` \| `"deferred"` \| `"escalated"`
 
-Defined in: [src/mcp/tools/coordination.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L56)
+Defined in: [src/mcp/tools/coordination.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L58)
 
 ##### decision?
 
 > `readonly` `optional` **decision?**: [`QuestionDecision`](#questiondecision)
 
-Defined in: [src/mcp/tools/coordination.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L57)
+Defined in: [src/mcp/tools/coordination.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L59)
 
 ##### openedAt
 
 > `readonly` **openedAt**: `number`
 
-Defined in: [src/mcp/tools/coordination.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L58)
+Defined in: [src/mcp/tools/coordination.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L60)
 
 ***
 
 ### CoordinationToolsOptions
 
-Defined in: [src/mcp/tools/coordination.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L96)
+Defined in: [src/mcp/tools/coordination.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L98)
 
 #### Properties
 
@@ -4825,37 +4825,37 @@ Defined in: [src/mcp/tools/coordination.ts:96](https://github.com/tangle-network
 
 > `readonly` **scope**: [`Scope`](runtime.md#scope-1)\<`unknown`\>
 
-Defined in: [src/mcp/tools/coordination.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L97)
+Defined in: [src/mcp/tools/coordination.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L99)
 
 ##### blobs
 
 > `readonly` **blobs**: [`ResultBlobStore`](runtime.md#resultblobstore)
 
-Defined in: [src/mcp/tools/coordination.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L98)
+Defined in: [src/mcp/tools/coordination.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L100)
 
 ##### makeWorkerAgent
 
 > `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
-Defined in: [src/mcp/tools/coordination.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L99)
+Defined in: [src/mcp/tools/coordination.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L101)
 
 ##### perWorker
 
 > `readonly` **perWorker**: [`Budget`](runtime.md#budget-12)
 
-Defined in: [src/mcp/tools/coordination.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L100)
+Defined in: [src/mcp/tools/coordination.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L102)
 
 ##### analysts?
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](runtime.md#analystregistry)
 
-Defined in: [src/mcp/tools/coordination.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L101)
+Defined in: [src/mcp/tools/coordination.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L103)
 
 ##### onEvent?
 
 > `readonly` `optional` **onEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [src/mcp/tools/coordination.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L102)
+Defined in: [src/mcp/tools/coordination.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L104)
 
 ###### Parameters
 
@@ -4871,13 +4871,13 @@ Defined in: [src/mcp/tools/coordination.ts:102](https://github.com/tangle-networ
 
 > `readonly` `optional` **questionPolicy?**: [`QuestionPolicy`](#questionpolicy)
 
-Defined in: [src/mcp/tools/coordination.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L103)
+Defined in: [src/mcp/tools/coordination.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L105)
 
 ##### analyzeOnSettle?
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [src/mcp/tools/coordination.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L108)
+Defined in: [src/mcp/tools/coordination.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L110)
 
 Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle
  hook). Each result is published as a `finding` event on the bus — pass-through to subscribers
@@ -4888,7 +4888,7 @@ Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [src/mcp/tools/coordination.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L114)
+Defined in: [src/mcp/tools/coordination.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L116)
 
 Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_agent`
  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
@@ -4900,7 +4900,7 @@ Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. 
 
 > `readonly` `optional` **awaitTimeoutMs?**: `number`
 
-Defined in: [src/mcp/tools/coordination.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L124)
+Defined in: [src/mcp/tools/coordination.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L126)
 
 Max wall-clock ms a single `await_event` call may block waiting on a live worker to settle
  before it returns a non-error `{ pending: true, live }` snapshot and lets the caller re-poll.
@@ -4912,11 +4912,38 @@ Max wall-clock ms a single `await_event` call may block waiting on a live worker
  pulled by the next call — nothing is lost. Omit = DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS; `<= 0`
  restores the prior UNBOUNDED block (only safe for in-process drivers with no transport timeout).
 
+##### watchWorkers?
+
+> `readonly` `optional` **watchWorkers?**: `WorkerWatchOptions`
+
+Defined in: [src/mcp/tools/coordination.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L139)
+
+OPT-IN: run the ONLINE detector panel over each spawned worker's live tool trace and raise a
+`finding` on the bus the moment a detector fires — so the driver learns "this worker is
+looping" mid-run, from `await_event`, instead of at settle.
+
+This closes the `watchTrace` → `raiseFinding` wire whose own docstring already described it
+("the seam an ONLINE detector uses to tell the driver 'this worker is looping/erroring' the
+moment it happens") but which nothing connected. Workers whose executor exposes no
+`traceSource` are simply not watched; nothing fails.
+
+Omit = no online watching (the settle-time analysts are unaffected).
+
+##### stallAfterMs?
+
+> `readonly` `optional` **stallAfterMs?**: `number`
+
+Defined in: [src/mcp/tools/coordination.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L145)
+
+How long a worker may go without metered activity before `observe_agent` reports it as
+`stalled`. A derived read at observation time, never a background watchdog — nothing is
+killed or retried. Omit = the runtime default.
+
 ***
 
 ### CoordinationTools
 
-Defined in: [src/mcp/tools/coordination.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L139)
+Defined in: [src/mcp/tools/coordination.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L169)
 
 The supervisor-side toolbox returned by [createCoordinationTools](#createcoordinationtools): the MCP tool
 descriptors a driver `AgentProfile` calls to spawn, steer, observe, and settle workers
@@ -4930,7 +4957,7 @@ choice, steerable counterpart to the one-shot own-sandbox delegation MCP.
 
 > `readonly` **tools**: [`McpToolDescriptor`](#mcptooldescriptor)[]
 
-Defined in: [src/mcp/tools/coordination.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L140)
+Defined in: [src/mcp/tools/coordination.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L170)
 
 #### Methods
 
@@ -4938,7 +4965,7 @@ Defined in: [src/mcp/tools/coordination.ts:140](https://github.com/tangle-networ
 
 > **isStopped**(): `boolean`
 
-Defined in: [src/mcp/tools/coordination.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L141)
+Defined in: [src/mcp/tools/coordination.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L171)
 
 ###### Returns
 
@@ -4948,7 +4975,7 @@ Defined in: [src/mcp/tools/coordination.ts:141](https://github.com/tangle-networ
 
 > **stopReason**(): `string` \| `undefined`
 
-Defined in: [src/mcp/tools/coordination.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L142)
+Defined in: [src/mcp/tools/coordination.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L172)
 
 ###### Returns
 
@@ -4958,7 +4985,7 @@ Defined in: [src/mcp/tools/coordination.ts:142](https://github.com/tangle-networ
 
 > **settled**(): readonly [`SettledWorker`](#settledworker)[]
 
-Defined in: [src/mcp/tools/coordination.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L143)
+Defined in: [src/mcp/tools/coordination.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L173)
 
 ###### Returns
 
@@ -4968,7 +4995,7 @@ readonly [`SettledWorker`](#settledworker)[]
 
 > **questions**(): readonly [`QuestionRecord`](#questionrecord)[]
 
-Defined in: [src/mcp/tools/coordination.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L144)
+Defined in: [src/mcp/tools/coordination.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L174)
 
 ###### Returns
 
@@ -4978,7 +5005,7 @@ readonly [`QuestionRecord`](#questionrecord)[]
 
 > **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
 
-Defined in: [src/mcp/tools/coordination.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L148)
+Defined in: [src/mcp/tools/coordination.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L178)
 
 The full ordered log of every bus event — UP (settled / question / finding) and DOWN
  (steer / answer) — the observability audit + replay trail. Each record carries seq,
@@ -4992,7 +5019,7 @@ readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#c
 
 > **stats**(): [`BusStats`](runtime.md#busstats)
 
-Defined in: [src/mcp/tools/coordination.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L150)
+Defined in: [src/mcp/tools/coordination.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L180)
 
 Bus throughput counters (published / pulled / by-kind) for live dashboards.
 
@@ -5004,7 +5031,7 @@ Bus throughput counters (published / pulled / by-kind) for live dashboards.
 
 > **raiseFinding**(`finding`): `Promise`\<`void`\>
 
-Defined in: [src/mcp/tools/coordination.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L154)
+Defined in: [src/mcp/tools/coordination.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L184)
 
 Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
@@ -5024,7 +5051,7 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 > **drainResolved**(): `Promise`\<`number`\>
 
-Defined in: [src/mcp/tools/coordination.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L163)
+Defined in: [src/mcp/tools/coordination.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L193)
 
 Post-loop drain: pull every ALREADY-settled, unpulled child into the ledger (publishing each
 as a `settled` bus event for the audit trail) WITHOUT awaiting live children. The driver
@@ -6670,7 +6697,7 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 > **QuestionDecision** = \{ `kind`: `"answer"`; `answer`: `string`; `by`: `string`; \} \| \{ `kind`: `"defer"`; `reason`: `string`; \} \| \{ `kind`: `"escalate"`; `to`: `"parent"` \| `"user"` \| `string`; `reason`: `string`; \}
 
-Defined in: [src/mcp/tools/coordination.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L50)
+Defined in: [src/mcp/tools/coordination.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L52)
 
 ***
 
@@ -6678,7 +6705,7 @@ Defined in: [src/mcp/tools/coordination.ts:50](https://github.com/tangle-network
 
 > **QuestionPolicy** = `"auto"` \| `"mustDecide"` \| `"bubble"` \| `"failClosed"`
 
-Defined in: [src/mcp/tools/coordination.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L62)
+Defined in: [src/mcp/tools/coordination.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L64)
 
 ***
 
@@ -8445,7 +8472,7 @@ passed in because replay-safe paths must not read `Date.now`.
 
 > **createCoordinationTools**(`opts`): [`CoordinationTools`](#coordinationtools)
 
-Defined in: [src/mcp/tools/coordination.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L186)
+Defined in: [src/mcp/tools/coordination.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L216)
 
 Build the driver's MCP tools over a live scope.
 

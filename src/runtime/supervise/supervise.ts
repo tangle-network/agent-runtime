@@ -9,7 +9,11 @@
  */
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
-import type { AnalystRegistry, MakeWorkerAgent } from '../../mcp/tools/coordination'
+import type {
+  AnalystRegistry,
+  MakeWorkerAgent,
+  WorkerWatchOptions,
+} from '../../mcp/tools/coordination'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
@@ -94,6 +98,19 @@ export interface SuperviseOptions {
    *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
    *  Omit/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string>
+  /**
+   * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
+   * moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
+   * instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
+   * is the correction. Requires a backend whose executor exposes a trace source (the steerable
+   * sandbox worker and the pi wrapper do); other runtimes are simply not watched.
+   *
+   * Omit = off (status quo — no online watching, no extra events).
+   */
+  readonly watchWorkers?: WorkerWatchOptions
+  /** Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
+   *  at observation time — nothing is killed or retried. Omit = the runtime default. */
+  readonly stallAfterMs?: number
   /** Worker output store. Defaults to in-memory. */
   readonly blobs?: ResultBlobStore
   /**
@@ -184,6 +201,8 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+    ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
+    ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
     ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
     ...(opts.compaction ? { compaction: opts.compaction } : {}),
   })

@@ -34,6 +34,7 @@ import {
   createCoordinationTools,
   type MakeWorkerAgent,
   type SettledWorker,
+  type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
 import {
@@ -66,6 +67,13 @@ export interface DriverAgentOptions {
    *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
    *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string>
+  /** Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
+   *  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
+   *  Omit = no online watching. */
+  readonly watchWorkers?: WorkerWatchOptions
+  /** Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
+   *  killed). Omit = the runtime default. */
+  readonly stallAfterMs?: number
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -217,6 +225,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
         ...(opts.analysts ? { analysts: opts.analysts } : {}),
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+        ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
+        ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
       })
       const byName = new Map<string, McpToolDescriptor>(coord.tools.map((t) => [t.name, t]))
       const toolSpecs: ToolSpec[] = [

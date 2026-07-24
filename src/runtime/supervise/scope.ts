@@ -30,6 +30,13 @@ import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
 import type { BudgetPool, ReservationTicket } from './budget'
+import {
+  DEFAULT_STALL_AFTER_MS,
+  type ExecutorProgress,
+  readWorkerProgress,
+  type WorkerProgress,
+} from './progress'
+import type { TraceSource } from './trace-source'
 import type {
   Agent,
   AgentSpec,
@@ -127,6 +134,15 @@ interface LiveChild {
   delivered: boolean
   /** The executor's out-of-band inbox, captured at spawn — backs `scope.send`. */
   readonly deliver?: (msg: unknown) => void
+  /** The executor's optional live progress read, captured at spawn — backs `scope.progress`. */
+  readonly readProgress?: () => ExecutorProgress | undefined
+  /** The executor's optional live tool trace, captured at spawn — backs `scope.traceSource`. */
+  readonly readTraceSource?: () => TraceSource | undefined
+  /** Wall-clock of the spawn, and of the last metered usage event this child produced. Both are
+   *  stamped by the scope from the stream the conserved pool already meters, so EVERY executor —
+   *  including one that implements no progress read at all — has an observable liveness signal. */
+  readonly startedAt: number
+  lastActivityAt: number
 }
 
 /** A child's terminal settlement before the cursor stamps the monotonic `seq`. */
@@ -302,7 +318,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         settled: undefined as unknown as Promise<PreSeqSettled>,
         delivered: false,
         executorDone: false,
+        startedAt: now(),
+        lastActivityAt: now(),
         ...(executor.deliver ? { deliver: executor.deliver.bind(executor) } : {}),
+        ...(executor.progress ? { readProgress: executor.progress.bind(executor) } : {}),
+        ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
       }
       children.set(id, live)
 
@@ -350,6 +370,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         args.pool,
         reservation.ticket,
         args.blobs,
+        now,
       )
         .then((s) => {
           live.resolved = s
@@ -416,7 +437,51 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // accepts an inbox. A settled/unknown child, or a leaf with no `deliver`, cannot be steered.
     if (!child || child.delivered || !child.deliver) return false
     child.deliver(msg)
+    // A delivered steer IS activity: it resets the idle clock so a worker that was about to read
+    // as stalled is not immediately re-steered before it can act on the message it just got.
+    child.lastActivityAt = now()
     return true
+  }
+
+  function progress(
+    nodeId: NodeId,
+    opts: { now?: number; stallAfterMs?: number } = {},
+  ): WorkerProgress | undefined {
+    const child = children.get(nodeId)
+    if (!child) return undefined
+    // The executor's own read is best-effort enrichment on a live path — a throwing progress
+    // implementation must never break the driver's observation of an otherwise healthy worker.
+    let fromExecutor: ExecutorProgress | undefined
+    try {
+      fromExecutor = child.readProgress?.()
+    } catch {
+      fromExecutor = undefined
+    }
+    return readWorkerProgress(
+      {
+        id: child.id,
+        status: child.status,
+        steerable: child.deliver !== undefined && !child.delivered,
+        startedAt: child.startedAt,
+        lastActivityAt: child.lastActivityAt,
+        turns: child.spent.iterations,
+        tokens: child.spent.tokens,
+        usd: child.spent.usd,
+      },
+      fromExecutor,
+      opts.now ?? now(),
+      opts.stallAfterMs ?? DEFAULT_STALL_AFTER_MS,
+    )
+  }
+
+  function traceSource(nodeId: NodeId): TraceSource | undefined {
+    const child = children.get(nodeId)
+    if (!child) return undefined
+    try {
+      return child.readTraceSource?.()
+    } catch {
+      return undefined
+    }
   }
 
   async function meter(spend: Spend, detail?: Record<string, unknown>): Promise<void> {
@@ -466,6 +531,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     next,
     nextResolved,
     send,
+    progress,
+    traceSource,
     signal: args.signal,
     meter,
     ...(resume ? { resume } : {}),
@@ -624,6 +691,7 @@ async function runChild<C>(
   pool: BudgetPool,
   ticket: ReservationTicket,
   blobs: ResultBlobStore,
+  now: () => number,
 ): Promise<PreSeqSettled> {
   let reconciled = false
   const reconcileOnce = (spend: Spend) => {
@@ -639,8 +707,13 @@ async function runChild<C>(
     let artifact: ExecutorResult<C>
     if (isAsyncIterable(ran)) {
       // Streaming: fold the incremental usage events as they arrive (the conserved-pool
-      // authority), then read the terminal artifact after the stream drains.
-      const spend = await foldStream(ran)
+      // authority), then read the terminal artifact after the stream drains. Each event also
+      // republishes the running total + a fresh activity stamp onto the live child, so a
+      // concurrent `scope.progress(id)` sees a worker mid-flight rather than a zeroed row.
+      const spend = await foldStream(ran, (running) => {
+        live.spent = running
+        live.lastActivityAt = now()
+      })
       live.spent = spend
       artifact = executor.resultArtifact() as ExecutorResult<C>
       reconcileOnce(spend)
@@ -755,7 +828,20 @@ function frozenHandle<C>(child: LiveChild): Handle<C> {
   }
 }
 
-async function foldStream(stream: AsyncIterable<UsageEvent>): Promise<Spend> {
+/**
+ * Fold a streaming executor's normalized usage into the conserved `Spend`, publishing the
+ * running total after EVERY event via `onProgress`.
+ *
+ * The publish is what makes a running worker observable. Before it, `live.spent` was assigned
+ * once — after the whole stream drained — so `observe_agent` on a RUNNING worker reported
+ * `{tokens:0, iterations:0}` for the entire run and a driver had no way to tell a worker three
+ * turns deep from one that had produced nothing. It also means a worker that THROWS mid-stream
+ * now reconciles its real partial spend instead of refunding work the provider already billed.
+ */
+async function foldStream(
+  stream: AsyncIterable<UsageEvent>,
+  onProgress?: (running: Spend) => void,
+): Promise<Spend> {
   const tokens = { input: 0, output: 0 }
   let usd = 0
   let iterations = 0
@@ -768,6 +854,7 @@ async function foldStream(stream: AsyncIterable<UsageEvent>): Promise<Spend> {
     } else {
       iterations += 1
     }
+    onProgress?.({ iterations, tokens: { ...tokens }, usd, ms: 0 })
   }
   return { iterations, tokens, usd, ms: 0 }
 }

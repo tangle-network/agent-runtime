@@ -442,7 +442,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 493 exports.
+Import from `@tangle-network/agent-runtime/loops` — 509 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -466,6 +466,7 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `computeFindingId` | function | Compute the stable finding_id from the identity-defining fields. |
 | `connectStdioMcp` | function | Spawn a trusted host command, complete the stdio MCP handshake, and return |
 | `contentAddress` | function | Mint the content-addressed `outRef` for a result artifact: `sha256:<hex>` over a |
+| `createActivityLog` | function | Create a bounded activity ring. `limit` caps memory for a worker that runs thousands of tools. |
 | `createAgentEnvironmentProviderRegistry` | function | Create a registry that resolves provider names to concrete provider instances. |
 | `createBudgetPool` | function | Create a conserved reservation pool from a root `Budget`. `now()` is injected so the |
 | `createEventBus` | function | Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane. |
@@ -481,6 +482,7 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `createScope` | function | Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. |
 | `createScopeAnalyst` | function | Build a `ScopeAnalyst` that spawns the analyst agent through `Scope.spawn` (so its compute is |
 | `createShapeRegistry` | function | Build a fresh open `ShapeRegistry`. A factory is stored type-erased and re-cast on resolve — the |
+| `createSteerableSandboxSession` | function | One steerable sandbox worker. The returned session is inert until `stream()` is drained. |
 | `createSupervisor` | function | The `Supervisor` impl (KEYSTONE, build step 5). |
 | `createVerifierEnvironment` | function | Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it. |
 | `createWaterfallCollector` | function | Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. |
@@ -542,6 +544,7 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
+| `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
 | `renderAnytimeTable` | function | One row per (strategy, satisficing target): the shareable time-to-satisfactory table. |
@@ -599,12 +602,17 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `assertTraceDerivedFindings` | const | Analyst-on-scope (G1) — the analyze→findings→steer wire over the reactive `Scope`. |
 | `builtinShapes` | const | The default registry `runPersonified` resolves a shape name against. Empty by construction — |
 | `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
+| `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
+| `DEFAULT_STALL_AFTER_MS` | const | How long a worker may produce no metered activity before a `progress()` read calls it stalled. |
 | `defaultAnalystInstruction` | const | The default observer instruction — exported so an optimizer can seed its population. |
 | `defaultAuditorInstruction` | const | Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories. |
 | `defaultDelegateBudget` | const | The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`. |
 | `defaultProfileRichnessThresholds` | const | Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minimum system prompt. |
 | `defaultStructuralRolloutPolicy` | const | The measured default recipe: 5 samples, 2 guarded repair rounds, 6 authored checks. |
 | `mcpSecretEnvMetadataKey` | const | The `AgentProfileMcpServer.metadata` key the declarative secret-env map |
+| `PI_RUNTIME` | const | The runtime name `piExecutor` registers under. |
+| `piExecutor` | const | Build the `Executor` for one pi worker. Registered as runtime `'pi'`. |
+| `piSeamKey` | const | Seam key the registry threads a `PiSeam` through (`ExecutorContext.seams['pi']`). |
 | `refine` | const | Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). |
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
@@ -618,6 +626,8 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `McpSpawnFault` | class | A missing start binary / spawn fault: a SETUP bug, never a failed candidate. |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
+| `ActivityLog` | interface | A bounded newest-last ring of `ActivityNote`s an executor keeps to answer `progress()`. |
+| `ActivityNote` | interface | The most recent activity the executor can name — one tool call, one turn, or a free-form note. |
 | `Agent` | interface | One self-similar atom. A leaf is an `Agent` that never calls `scope.spawn`; a driver |
 | `AgentEnvironmentProviderRegistry` | interface | In-memory registry for named `AgentEnvironmentProvider` instances. |
 | `AgenticSurface` | interface | A stateful, checkable environment an agent operates over with tools. Open behind one interface. |
@@ -668,6 +678,7 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `ExecCtx` | interface | Execution context for `runLoop`: the sandbox client the kernel creates boxes through, plus optional runtime hooks. |
 | `Executor` | interface | The leaf runtime — ONE open interface, not a closed union. `execute` returns a |
 | `ExecutorContext` | interface | Construction context handed to a `ExecutorFactory` — the seams a built-in needs |
+| `ExecutorProgress` | interface | What an executor OPTIONALLY adds to the scope-derived progress (`Executor.progress()`). Every |
 | `ExecutorRegistry` | interface | The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default |
 | `ExecutorResult` | interface | Terminal artifact of a one-shot `Executor.execute`. |
 | `FanoutOptions` | interface | `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by |
@@ -714,6 +725,7 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `PersonaContext` | interface | The persona context blob — who the loop is acting as. Open by intent: a persona names its |
 | `PersonaExecutors` | interface | How a persona supplies executor resolution. Either a pre-built registry (factories already |
 | `PipelineStage` | interface | `pipeline(stages)` — sequential composition: each stage's `Outcome.deliverable` feeds the next |
+| `PiSeam` | interface | How to launch pi in its out-of-process RPC mode, and how long to wait on it. |
 | `ProfileRichness` | interface | Per-field verdict on one authored profile — the raw material the bench renders + scores. |
 | `ProfileRichnessThresholds` | interface | Thresholds below which a system prompt is treated as a thin stub. Tunable per call. |
 | `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
@@ -735,10 +747,12 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
 | `SandboxLineage` | interface | Owns box + session handles for one loop run and offers the three |
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |
+| `SandboxSteeringOptions` | interface | Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the |
 | `SandboxToolPartState` | interface | Cross-event state for {@link mapSandboxToolEvent}. Sandbox backends emit a |
 | `Scope` | interface | The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves |
 | `ScopeAnalyst` | interface | The reactive analyst seam — the PORT of the round-synchronous driver's `analyze` hook |
 | `ScopeAnalyzeInput` | interface | Input to a `ScopeAnalyst.analyze` — the root task framing + the children settled so far. |
+| `ScopeProgressInput` | interface | The scope-side facts about a child, independent of whether its executor cooperates. |
 | `ScopeWidenGate` | interface | The runtime widening gate (the reactive analogue of the keystone's `WidenGate`, lifted to read |
 | `SelectionReceipt` | interface | A record of one candidate-selection decision: which iteration the selector |
 | `SessionCapableBox` | interface | Loop-side widening of the box's optional session accessor. The real |
@@ -750,6 +764,7 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `SpawnJournal` | interface | The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape). |
 | `Spend` | interface | Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd |
 | `StdioMcpServerSpec` | interface | Same-host stdio MCP: the ONE persistent newline-delimited JSON-RPC 2.0 |
+| `SteerableSandboxSession` | interface | What the steerable session exposes to its executor: the usage stream plus the live reads. |
 | `SteerContext` | interface | How a combinator's `act` consumes findings to steer — the SINGLE firewalled steer surface a |
 | `Strategy` | interface | A Strategy is HOW you spend the compute budget to beat the Environment's check — it |
 | `StrategyCtx` | interface | What a strategy body composes with: the artifact lifecycle, the budget, and the two steps. |
@@ -776,6 +791,7 @@ Import from `@tangle-network/agent-runtime/loops` — 493 exports.
 | `WidenGate` | interface | The progressive-widening gate (MCTS-PW). Decides whether a settled child is |
 | `WidenLineage` | interface | A lineage the gate may widen toward — the settled child that looked promising + the findings |
 | `WidenSpec` | interface | `widen({ gate })` (G5) — the STREAMING spawn-on-completion driver. Unlike the static-fanout |
+| `WorkerProgress` | interface | The full live view of one worker, as `observe_agent` returns it mid-flight. |
 | `WorktreeCommandResult` | interface | Outcome of one verification command run in the worktree (test or typecheck). |
 | `WorktreeProfileMaterializationReceipt` | interface | Proof of the profile inputs delivered before the worker process started. |
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
