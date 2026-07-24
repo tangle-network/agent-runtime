@@ -26,7 +26,12 @@
  * @experimental
  */
 
-import type { AgentProfile, AgentProfileDiff } from '@tangle-network/agent-interface'
+import type {
+  AgentImprovementProposal,
+  AgentProfile,
+  AgentProfileDiff,
+} from '@tangle-network/agent-interface'
+import { verifyAgentImprovementProposal } from './improvement-cycle'
 
 const defaultPlaneBaseUrl = 'https://intelligence.tangle.tools'
 const defaultRefreshMs = 300_000
@@ -115,13 +120,42 @@ export interface PullCertifiedOptions {
   baseUrl?: string
   /** fetch impl (tests / non-global-fetch runtimes). Defaults to global fetch. */
   fetchImpl?: typeof fetch
-  /** Abort the pull after this many ms so a hung plane never blocks the caller.
-   *  Default 10000. The timeout surfaces as a normal fail-closed `succeeded:
-   *  false` (the agent runs on its base surface). */
+  /** Abort the request after this many ms. Default 10000. */
   timeoutMs?: number
 }
 
-const defaultPullTimeoutMs = 10_000
+/** What Runtime knows about an attempted proposal submission. Only an exact
+ * returned proposal confirms storage; every attempted request without one is
+ * `unconfirmed`, so retry the same immutable proposal rather than creating another. */
+export type AgentImprovementProposalSubmissionState = 'not-sent' | 'unconfirmed'
+
+/** Submit a completed measured proposal for product-side review. */
+export interface SubmitAgentImprovementProposalOptions {
+  proposal: AgentImprovementProposal
+  /** Bearer key. Defaults to `process.env.TANGLE_API_KEY`. */
+  apiKey?: string
+  /** Plane base URL. Defaults to `process.env.TANGLE_INTELLIGENCE_URL` then
+   * `https://intelligence.tangle.tools`. */
+  baseUrl?: string
+  /** fetch impl (tests / non-global-fetch runtimes). Defaults to global fetch. */
+  fetchImpl?: typeof fetch
+  /** Abort the request after this many ms. Default 10000. */
+  timeoutMs?: number
+}
+
+/** Typed result for proposal submission. A successful result contains the
+ * exact immutable proposal Intelligence recorded. */
+export type SubmitAgentImprovementProposalOutcome =
+  | { succeeded: true; value: AgentImprovementProposal; status: number }
+  | {
+      succeeded: false
+      submission: AgentImprovementProposalSubmissionState
+      error: string
+      status?: number
+      code?: string
+    }
+
+const defaultPlaneRequestTimeoutMs = 10_000
 
 /** Resolve the ONE Intelligence base URL — the single knob both the send and
  *  receive paths derive from. Env fallback: `TANGLE_INTELLIGENCE_URL`. */
@@ -201,7 +235,7 @@ export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOut
   try {
     res = await doFetch(url, {
       headers: { authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(opts.timeoutMs ?? defaultPullTimeoutMs),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? defaultPlaneRequestTimeoutMs),
     })
   } catch (err) {
     return {
@@ -230,6 +264,107 @@ export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOut
     return {
       succeeded: false,
       error: `pull response parse failed: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+/**
+ * Submit a completed Runtime proposal to Intelligence for product-side review.
+ * This never runs an experiment, approves a proposal, or applies a candidate.
+ * Any attempted request without an exact returned proposal is `unconfirmed`:
+ * callers can retry the same digest because Intelligence stores proposals idempotently.
+ */
+export async function submitAgentImprovementProposal(
+  opts: SubmitAgentImprovementProposalOptions,
+): Promise<SubmitAgentImprovementProposalOutcome> {
+  let proposal: AgentImprovementProposal
+  try {
+    proposal = verifyAgentImprovementProposal(opts.proposal)
+  } catch (err) {
+    return {
+      succeeded: false,
+      submission: 'not-sent',
+      error: `proposal validation failed: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as typeof fetch | undefined)
+  if (!doFetch) {
+    return {
+      succeeded: false,
+      submission: 'not-sent',
+      error: 'no fetch implementation available',
+    }
+  }
+  const apiKey = resolveApiKey(opts.apiKey)
+  if (!apiKey) {
+    return {
+      succeeded: false,
+      submission: 'not-sent',
+      error: 'no apiKey (set TANGLE_API_KEY or opts.apiKey)',
+    }
+  }
+
+  let res: Response
+  try {
+    res = await doFetch(`${resolveIntelligenceBaseUrl(opts.baseUrl)}/v1/improvements/proposals`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ proposal }),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? defaultPlaneRequestTimeoutMs),
+    })
+  } catch (err) {
+    return {
+      succeeded: false,
+      submission: 'unconfirmed',
+      error: `proposal submission request failed: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    let code: string | undefined
+    let message = body.slice(0, 200)
+    try {
+      const parsed = asRecord(JSON.parse(body))
+      if (typeof parsed.error === 'string') code = parsed.error
+      if (typeof parsed.message === 'string') message = parsed.message
+    } catch {
+      // The response body is optional; the attempted request remains unconfirmed either way.
+    }
+    return {
+      succeeded: false,
+      // HTTP status explains the response but does not prove the write did not happen.
+      submission: 'unconfirmed',
+      error: `proposal submission ${res.status}: ${message}`,
+      status: res.status,
+      ...(code === undefined ? {} : { code }),
+    }
+  }
+
+  try {
+    const response = asRecord(await res.json())
+    const recorded = verifyAgentImprovementProposal(response.proposal)
+    if (recorded.digest !== proposal.digest) {
+      return {
+        succeeded: false,
+        submission: 'unconfirmed',
+        error: 'proposal submission returned a different proposal digest',
+        status: res.status,
+      }
+    }
+    return { succeeded: true, value: recorded, status: res.status }
+  } catch (err) {
+    return {
+      succeeded: false,
+      submission: 'unconfirmed',
+      error: `proposal submission response parse failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+      status: res.status,
     }
   }
 }

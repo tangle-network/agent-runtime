@@ -1,10 +1,12 @@
 import type { AgentProfileDiff } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
+import { loadAgentImprovementProposalFixture } from '../testing'
 import {
   type CertifiedProfile,
   composeCertifiedPrompt,
   createCertifiedPromptSource,
   pullCertified,
+  submitAgentImprovementProposal,
 } from './delivery'
 
 const CERTIFIED: CertifiedProfile = {
@@ -196,6 +198,118 @@ describe('pullCertified', () => {
     })
     expect(outcome.succeeded).toBe(false)
     if (!outcome.succeeded) expect(outcome.error).toMatch(/abort|fail/i)
+  })
+})
+
+describe('submitAgentImprovementProposal', () => {
+  it('POSTs the exact Runtime proposal with tenant auth and returns the recorded proposal', async () => {
+    const proposal = loadAgentImprovementProposalFixture()
+    const fetchImpl = vi.fn(async () => jsonResponse({ proposal }, 201)) as unknown as typeof fetch
+
+    const outcome = await submitAgentImprovementProposal({
+      proposal,
+      apiKey: 'k_test',
+      baseUrl: 'https://plane.test/',
+      fetchImpl,
+    })
+
+    expect(outcome).toMatchObject({ succeeded: true, status: 201, value: proposal })
+    const call = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ]
+    expect(call[0]).toBe('https://plane.test/v1/improvements/proposals')
+    expect(call[1]).toMatchObject({
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer k_test',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ proposal }),
+    })
+  })
+
+  it('does not send an invalid proposal', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({})) as unknown as typeof fetch
+
+    const outcome = await submitAgentImprovementProposal({
+      proposal: {} as ReturnType<typeof loadAgentImprovementProposalFixture>,
+      apiKey: 'k_test',
+      baseUrl: 'https://plane.test',
+      fetchImpl,
+    })
+
+    expect(outcome).toMatchObject({ succeeded: false, submission: 'not-sent' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('returns an HTTP rejection without claiming whether it persisted', async () => {
+    const proposal = loadAgentImprovementProposalFixture()
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: 'source_changed', message: 'Profile changed.' }, 409),
+    ) as unknown as typeof fetch
+
+    const outcome = await submitAgentImprovementProposal({
+      proposal,
+      apiKey: 'k_test',
+      baseUrl: 'https://plane.test',
+      fetchImpl,
+    })
+
+    expect(outcome).toMatchObject({
+      succeeded: false,
+      submission: 'unconfirmed',
+      status: 409,
+      code: 'source_changed',
+    })
+  })
+
+  it('marks a server failure as unconfirmed because the write may have completed', async () => {
+    const proposal = loadAgentImprovementProposalFixture()
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: 'internal_error' }, 500),
+    ) as unknown as typeof fetch
+
+    const outcome = await submitAgentImprovementProposal({
+      proposal,
+      apiKey: 'k_test',
+      baseUrl: 'https://plane.test',
+      fetchImpl,
+    })
+
+    expect(outcome).toMatchObject({ succeeded: false, submission: 'unconfirmed', status: 500 })
+  })
+
+  it('marks a lost response as unconfirmed so callers retry the same proposal', async () => {
+    const proposal = loadAgentImprovementProposalFixture()
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('ECONNRESET')
+    }) as unknown as typeof fetch
+
+    const outcome = await submitAgentImprovementProposal({
+      proposal,
+      apiKey: 'k_test',
+      baseUrl: 'https://plane.test',
+      fetchImpl,
+    })
+
+    expect(outcome).toMatchObject({ succeeded: false, submission: 'unconfirmed' })
+  })
+
+  it('marks an unreadable success response as unconfirmed rather than confirming a write', async () => {
+    const proposal = loadAgentImprovementProposalFixture()
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ proposal: {} }, 201),
+    ) as unknown as typeof fetch
+
+    const outcome = await submitAgentImprovementProposal({
+      proposal,
+      apiKey: 'k_test',
+      baseUrl: 'https://plane.test',
+      fetchImpl,
+    })
+
+    expect(outcome).toMatchObject({ succeeded: false, submission: 'unconfirmed', status: 201 })
   })
 })
 
