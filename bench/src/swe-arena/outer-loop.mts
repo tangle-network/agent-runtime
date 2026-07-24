@@ -122,13 +122,18 @@ import {
 import {
   defaultProposers,
   fanOutLoopsGenerator,
+  materializeParetoParents,
   proposerShotHooks,
+  type ParetoParentContext,
+  type ParetoParentSeed,
   type PrefilterConfig,
   type PrefilterKill,
   type ProposerSpec,
   type SmokeRunner,
   type SmokeVerdict,
 } from './proposer-fanout.mts'
+import { captureProposerProvenance } from './proposer-provenance.mts'
+import { CRASH_ORPHAN_REASON, reconcileCrashOrphansOnDisk } from './ledger-orphans.mts'
 import { installProcessSignalAbort, run, runOk } from './proc.ts'
 import { loadInstanceImages } from './run-experiment.mts'
 import {
@@ -604,6 +609,13 @@ export interface OuterLoopConfig {
    *  verifier) plus ONE smoke arm cell before any full-evaluation spend.
    *  Killed candidates become `rejected-prefilter` staircase dots. */
   prefilter?: PrefilterConfig
+  /** GEN-4 Pareto parents: prior-run frontier candidates (loops commits +
+   *  measured per-instance results) seeded into every author's prompt and
+   *  the merge seat's explicit input. Seeded at OUR buildPrompt seam, not the
+   *  lib's `ctx.paretoParents` — the lib frontier is within-run only and a
+   *  prior campaign cannot be injected without its runDir + ledger receipts
+   *  (see proposer-fanout.mts). */
+  paretoParents?: ParetoParentSeed[]
   /** Replicates per holdout instance in the operator-approved certification
    *  run (holdout-certify.mts). Default 2 — the gen-2 winner failed 3/6 vs
    *  4/6 on a 1-rep holdout with exactly one discordant cell, a known
@@ -801,6 +813,77 @@ export function defaultGen3Config(
     prefilter: { enabled: true, smokeInstance: 'cheapest-of-set', requireResolved: false },
     holdoutRepsPerInstance: 2,
     holdoutBaseline: 'measure',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GEN-4 configuration — pinned per-proposer models (recorded in provenance),
+// Pareto-parent seeding from the gen-3 frontier, and a dedicated merge seat.
+// ---------------------------------------------------------------------------
+
+/** The gen-3 frontier (run r4-mrwc0awe): winner + runner-up, both 2/6 vs the
+ *  1/6 baseline on DIFFERENT instances — complementary lessons, the merge
+ *  seat's input. Per-instance verdicts are the fail-closed all-reps values
+ *  from `.evolve/rounds/gen-0.jsonl`. */
+export const GEN3_PARETO_PARENTS: ParetoParentSeed[] = [
+  {
+    commit: 'cc0d95584c7ea14324cd57c21fe946c7c0f53827',
+    label: 'default-author',
+    resolvedInstances: ['pydata__xarray-4687', 'sphinx-doc__sphinx-9658'],
+    note:
+      'mechanical patch-risk scan (patchRiskWarnings in src/worker-evidence.ts, threaded through ' +
+      'extensions/pi/loops.ts) + never-reword / test-seam / run-the-neighbors worker rules + 3-check ' +
+      'reviewer; pytest-dev__pytest-6197 split 0/1 across reps (near-miss)',
+  },
+  {
+    commit: 'a7a2a982e51551de3a8e796ee2efc448ed405e6a',
+    label: 'prompts-author',
+    resolvedInstances: ['django__django-11532', 'pydata__xarray-4687'],
+    note:
+      'prompt-only: hidden-suite bullet in the supervisor GOAL-authoring section (the django seam), ' +
+      'frozen-behavior worker section + run-the-repo-tests discipline, 2-check reviewer; ' +
+      'sphinx-doc__sphinx-9658 split 0/1 across reps (near-miss)',
+  },
+]
+
+/**
+ * The gen-4 config: protocol round 4 continues (frozen arm, same holdout
+ * registry, same roundsDir staircase) with three changes as a unit:
+ *
+ *  1. PINNED PER-PROPOSER MODELS — four seats: claude-author (claude CLI on
+ *     its own login; the resolved model + CLI version are captured into
+ *     `<outDir>/proposer-provenance.json` at t=0), glm-author (opencode
+ *     pinned to zai-coding-plan/glm-5.2 via `-m`), codex-author (codex CLI on
+ *     its ChatGPT login, auth provenance-gated at launch; drop the seat via
+ *     `includeCodex: false` when the CLI is absent), and merge-author (claude,
+ *     merge seat).
+ *  2. PARETO PARENTS — the gen-3 winner + runner-up diffs and their measured
+ *     per-instance results seed every author's prompt; the merge seat's task
+ *     is their coherent union. Seeded at the buildPrompt seam (our seam): the
+ *     lib's `ctx.paretoParents` frontier is within-run only, and a prior
+ *     campaign cannot cross runs without its runDir + ledger receipts.
+ *  3. PINNED BASELINE — the premeasured artifact at `hh/gen4/` is BUILT from
+ *     gen-3's measured baseline cells (premeasured-from-cells.mts; gen-3
+ *     measured astropy F, django F, matplotlib F, xarray F, pytest F,
+ *     sphinx T — matplotlib/django false under current weather), so gen-4
+ *     spends nothing re-measuring and fails loud if the loops tip moved.
+ */
+export function defaultGen4Config(
+  hh = DEFAULT_HH_SCRATCHPAD,
+  opts: { outDirName?: string; includeCodex?: boolean } = {},
+): OuterLoopConfig {
+  const base = defaultGen3Config(hh, { outDirName: opts.outDirName ?? 'gen4' })
+  const proposers: ProposerSpec[] = [
+    { name: 'claude-author', profile: 'default-author.profile.json', harness: 'claude' },
+    { name: 'glm-author', harness: 'opencode', model: 'zai-coding-plan/glm-5.2' },
+    ...(opts.includeCodex === false ? [] : [{ name: 'codex-author', harness: 'codex' } satisfies ProposerSpec]),
+    { name: 'merge-author', profile: 'default-author.profile.json', harness: 'claude', merge: true },
+  ]
+  return {
+    ...base,
+    populationSize: proposers.length,
+    proposers,
+    paretoParents: [...GEN3_PARETO_PARENTS],
   }
 }
 
@@ -1059,10 +1142,20 @@ export function loopsCandidateVerifier(loopsRepo: string): Verifier {
  *  only — the rest of the run keeps its env untouched. */
 const CLAUDE_AMBIENT_AUTH_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'] as const
 
+/** Same failure class for the gen-4 codex seat: agent-state.env injects an
+ *  OPENAI_API_KEY meant for other tooling, and the codex CLI prefers env-key
+ *  auth over its ChatGPT login. The codex author shot must run on the CLI's
+ *  own login (`codex login status` is provenance-gated at launch), so the
+ *  leaked auth is stripped for the shot subprocess only. */
+const CODEX_AMBIENT_AUTH_VARS = ['OPENAI_API_KEY', 'OPENAI_BASE_URL'] as const
+
 export function proposerShotEnv(harness: OuterLoopConfig['proposerHarness']): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
   if (harness === 'claude') {
     for (const name of CLAUDE_AMBIENT_AUTH_VARS) delete env[name]
+  }
+  if (harness === 'codex') {
+    for (const name of CODEX_AMBIENT_AUTH_VARS) delete env[name]
   }
   return env
 }
@@ -1150,6 +1243,33 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
   // this run depends on. Fails loud — a silent drop would re-spend the
   // premeasured baseline and pin the depth dial (see capabilities.mts).
   assertSubstratePassthroughs(log)
+
+  // GEN-4 model-identity provenance at t=0: harness CLI versions, the claude
+  // seat's resolved settings model, codex auth, and every explicit model pin.
+  // Fails loud on a missing/unauthed harness binary — populationSize equals
+  // proposers.length, so a dead seat cannot be skipped mid-run.
+  if (config.proposers !== undefined) {
+    const provenance = await captureProposerProvenance(config.proposers)
+    await mkdir(config.outDir, { recursive: true })
+    await writeFile(join(config.outDir, 'proposer-provenance.json'), JSON.stringify(provenance, null, 2))
+    for (const p of provenance.proposers) {
+      log(
+        `proposer ${p.name} (${p.harness}${p.merge ? ', merge seat' : ''}): ` +
+          `model=${p.pinnedModel ?? `cli-default${p.settingsModel ? `:${p.settingsModel}` : ''}`} ` +
+          `version=${p.harnessVersion.split('\n')[0]}`,
+      )
+    }
+  }
+
+  // GEN-4 Pareto parents: materialize the configured prior-run frontier
+  // (commit existence + full diffs) before any authoring.
+  const paretoParents: ParetoParentContext[] =
+    config.paretoParents !== undefined && config.paretoParents.length > 0
+      ? await materializeParetoParents(config.loopsRepo, config.paretoParents)
+      : []
+  if (paretoParents.length > 0) {
+    log(`pareto parents: ${paretoParents.map((p) => `${p.label}@${p.commit.slice(0, 10)}`).join(', ')}`)
+  }
 
   // The gate's only denominator: a stored prior baseline campaign the LIB
   // validates (surface hash, seed, reps, split digest, coverage) before
@@ -1638,12 +1758,30 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     'tsx src/swe-arena/holdout-certify.mts <config.json> --candidate <winner-loops-commit>'
   const improveRunDir = join(config.outDir, 'improve-run')
 
+  // ── crash recovery: a killed run leaves its in-flight paid call 'pending'
+  // in the durable cost ledger, and the ledger's fail-closed guard then
+  // refuses ALL new paid work on resume. Under the outDir instance lock
+  // (sole runner), every pending call restored from disk is provably from a
+  // dead process — settle each as a $0 failure receipt (reason
+  // 'process-crash-orphan') so the guard passes without erasing the crash
+  // from the durable record. ───────────────────────────────────────────
+  for (const receipt of reconcileCrashOrphansOnDisk(improveRunDir)) {
+    log(
+      `cost-ledger: reconciled crash-orphaned call '${receipt.callId}' ` +
+        `(${receipt.actor}, ${receipt.phase}) as ${CRASH_ORPHAN_REASON}`,
+    )
+  }
+
   // ── generator: the gen-3 proposer fan-out (parallel AgentProfile-pinned
   // authors + pre-filter) when `proposers` is configured; the legacy
   // single-author generator otherwise. ─────────────────────────────────
   const fanout =
     config.proposers !== undefined
-      ? fanOutLoopsGenerator(config, { ...(smokeRunner ? { smokeRunner } : {}), log })
+      ? fanOutLoopsGenerator(config, {
+          ...(smokeRunner ? { smokeRunner } : {}),
+          ...(paretoParents.length > 0 ? { parents: paretoParents } : {}),
+          log,
+        })
       : null
   const generator = withParentCancellation(fanout ?? constrainedLoopsGenerator(config), signal)
 
@@ -2087,17 +2225,31 @@ if (isMain) {
     if (argv[0] === '--write-config') {
       const path = argv[1]
       if (!path || path.startsWith('--')) {
-        console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3]')
+        console.error('usage: outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4]')
         process.exit(2)
       }
       const outDirName = flag('--out-name')
       const gen3 = argv.includes('--gen3')
-      const make = gen3 ? defaultGen3Config : defaultRound4Config
-      await writeFile(
-        path,
-        JSON.stringify(make(undefined, outDirName ? { outDirName } : {}), null, 2) + '\n',
-      )
-      console.log(`default ${gen3 ? 'gen-3' : 'round-4'} config → ${path}`)
+      const gen4 = argv.includes('--gen4')
+      let config: OuterLoopConfig
+      let flavor: string
+      if (gen4) {
+        // The codex seat rides only when the CLI is actually present — a config
+        // naming a missing harness would fail the whole launch at t=0.
+        const codexProbe = await run('codex', ['--version'])
+        const includeCodex = codexProbe.code === 0
+        if (!includeCodex) {
+          console.log(`codex CLI unavailable (rc=${codexProbe.code}) — gen-4 config written WITHOUT the codex-author seat`)
+        }
+        config = defaultGen4Config(undefined, { ...(outDirName ? { outDirName } : {}), includeCodex })
+        flavor = 'gen-4'
+      } else {
+        const make = gen3 ? defaultGen3Config : defaultRound4Config
+        config = make(undefined, outDirName ? { outDirName } : {})
+        flavor = gen3 ? 'gen-3' : 'round-4'
+      }
+      await writeFile(path, JSON.stringify(config, null, 2) + '\n')
+      console.log(`default ${flavor} config → ${path}`)
     } else if (argv[0] === '--calibration-smoke') {
       const dir = argv[1] && !argv[1].startsWith('--') ? argv[1] : undefined
       const n = flag('--analysts')
@@ -2130,7 +2282,7 @@ if (isMain) {
     } else {
       console.error(
         'usage: tsx src/swe-arena/outer-loop.mts <config.json>            # SPENDS: arms + judges + proposer\n' +
-          '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3]\n' +
+          '       tsx src/swe-arena/outer-loop.mts --write-config <path> [--out-name <dirname>] [--gen3|--gen4]\n' +
           '       tsx src/swe-arena/outer-loop.mts --calibration-smoke [supRunDir] [--analysts N] [--model M] [--endpoint router|zai] [--retries N]',
       )
       process.exit(2)
