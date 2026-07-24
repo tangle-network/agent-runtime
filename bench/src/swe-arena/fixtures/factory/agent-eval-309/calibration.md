@@ -73,3 +73,27 @@ CALIBRATE factory.agent-eval.309: gold 30/30 resolved=true; base 0/30 resolved=f
 ```
 
 Denominator is unchanged at **30** (authored 30, excluded 0) because enrichment was sufficient.
+
+### Gate-vs-measurement cross-check (per test, not just per count)
+
+The 7 measured runs' per-test breakdown (`/tmp/factory-control-arm/pertest.json`) against the gate's
+verdict on the ORIGINAL spec:
+
+| quantity | value |
+|---|---|
+| gate called unreachable | 17 |
+| failed by **every** one of the 7 runs | 17 |
+| **exact set overlap** | **15** |
+
+The 2 tests in each direction of the disagreement, and why:
+
+- **Gate flagged, but runs passed** — `throws on empty input` (7/7 runs passed) and
+  `throws on an unrecognized outcome value` (5/7). Both hang on one token: the type-only import
+  `HeadroomInput`, which the original spec never named. A builder can satisfy the runtime assertion
+  without ever naming the type, so a missing type-import over-flags. Known limitation; the repaired
+  spec names `HeadroomInput`, so both are now reachable.
+- **Runs all failed, but gate called reachable** — `reports correctness as null when no pair carries
+  pass on both sides` and `throws on a non-finite metric value`. The spec (plus `src/statistics.ts`,
+  which it names) does provide every token these assert on. Nobody implemented them anyway. That is
+  difficulty, not unreachability, and it belongs in the denominator — which is exactly what the gate
+  does with it.
