@@ -1,20 +1,22 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { DispatchContext } from '@tangle-network/agent-eval/campaign'
+import type {
+  DispatchContext,
+  OptimizationMethodProvenance,
+} from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ACTIVATION_PREDICATE_RELPATH, parseActivationPredicate } from './activation.mts'
 import {
   DEFAULT_GEPA_PYTHON,
   DEFAULT_MAX_METRIC_CALLS,
-  GEPA_ADAPTER_UPGRADE_HINT,
+  GEPA_INNER_RUNS_DIRNAME,
   gepaBridgeScenarios,
   innerSmokeComposite,
   innerSmokeJudge,
   isGepaSeat,
-  loadGepaMethodFactory,
   mechanicalActivationPredicate,
   probeGepaRuntime,
   recipeEvaluationBudget,
@@ -85,10 +87,10 @@ describe('recipeForSeat', () => {
     expect(recipeEvaluationBudget(recipe)).toBe(DEFAULT_MAX_METRIC_CALLS)
   })
 
-  it("'omni' is GEPA's best-of-then-continue shape and the four bounded runs sum EXACTLY to the budget", () => {
+  it("'omni' uses the official recipe and its four bounded runs preserve the budget", () => {
     const recipe = recipeForSeat(seat({ engine: 'omni', maxMetricCalls: 10 }) as GepaSeatSpec)
-    expect(recipe.kind).toBe('best-of-then-continue')
-    if (recipe.kind !== 'best-of-then-continue') throw new Error('unreachable')
+    expect(recipe.kind).toBe('omni')
+    if (recipe.kind !== 'omni') throw new Error('unreachable')
     expect(recipe.explore.map((r) => r.engine)).toEqual(['gepa', 'autoresearch', 'meta_harness'])
     expect(recipe.continueWith.engine).toBe('gepa')
     expect(recipeEvaluationBudget(recipe)).toBe(10)
@@ -169,20 +171,8 @@ describe('inner smoke score', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Runtime seams: loud fails with exact instructions.
+// Optional Python runtime: loud failures with exact instructions.
 // ---------------------------------------------------------------------------
-
-describe('loadGepaMethodFactory', () => {
-  it('throws the upgrade instruction when the installed agent-eval predates the adapter', async () => {
-    await expect(loadGepaMethodFactory(async () => ({}))).rejects.toThrow(/#408/)
-    await expect(loadGepaMethodFactory(async () => ({}))).rejects.toThrow(/gepaOptimizationMethod/)
-  })
-
-  it('returns the export when present', async () => {
-    const factory = (() => ({})) as unknown as GepaMethodFactory
-    await expect(loadGepaMethodFactory(async () => ({ gepaOptimizationMethod: factory }))).resolves.toBe(factory)
-  })
-})
 
 describe('probeGepaRuntime', () => {
   const execFailingOn =
@@ -196,7 +186,9 @@ describe('probeGepaRuntime', () => {
 
   it('fails loud with pip install instructions when the bridge module is missing', async () => {
     const exec = execFailingOn('agent_eval_rpc.gepa_bridge', "ModuleNotFoundError: No module named 'agent_eval_rpc'")
-    await expect(probeGepaRuntime('python3', exec, 'gepa-author')).rejects.toThrow(/pip install 'agent-eval-rpc\[gepa\]'/)
+    await expect(probeGepaRuntime('python3', exec, 'gepa-author')).rejects.toThrow(
+      /pip install agent-eval-rpc/,
+    )
     await expect(probeGepaRuntime('python3', exec, 'gepa-author')).rejects.toThrow(/not installed/)
   })
 
@@ -234,15 +226,10 @@ describe('captureProposerProvenance with a gepa seat', () => {
     }
     return { code: 0, stdout: 'source', stderr: '' }
   }
-  const withAdapter = async (): Promise<Record<string, unknown>> => ({
-    gepaOptimizationMethod: () => ({}),
-  })
-
   it('records engine, surface, gepa version, bridge module, and the python runtime as harnessVersion', async () => {
     const record = await captureProposerProvenance([{ name: 'claude-author', harness: 'claude' }, seat()], {
       exec: okExec,
       readSettingsModel: () => 'settings-model',
-      importCampaign: withAdapter,
     })
     const gepa = record.proposers.find((p) => p.name === 'gepa-author')!
     expect(gepa).toMatchObject({
@@ -267,15 +254,9 @@ describe('captureProposerProvenance with a gepa seat', () => {
       args.join(' ').includes('gepa_bridge')
         ? { code: 1, stdout: '', stderr: 'ModuleNotFoundError' }
         : { code: 0, stdout: 'Python 3.12.3', stderr: '' }
-    await expect(
-      captureProposerProvenance([seat()], { exec, importCampaign: withAdapter }),
-    ).rejects.toThrow(/pip install 'agent-eval-rpc\[gepa\]'/)
-  })
-
-  it('fails LOUD at t=0 when the installed agent-eval predates the adapter export', async () => {
-    await expect(
-      captureProposerProvenance([seat()], { exec: okExec, importCampaign: async () => ({}) }),
-    ).rejects.toThrow(GEPA_ADAPTER_UPGRADE_HINT.slice(0, 40))
+    await expect(captureProposerProvenance([seat()], { exec })).rejects.toThrow(
+      /pip install agent-eval-rpc/,
+    )
   })
 })
 
@@ -309,32 +290,126 @@ describe('mechanicalActivationPredicate', () => {
 })
 
 describe('recordGepaSeatInnerRun', () => {
-  it('appends to gepaInnerRuns while preserving the t=0 capture record', async () => {
+  const sourceHash = 'a'.repeat(64)
+  const bridgeHash = 'b'.repeat(64)
+  const moduleHash = 'c'.repeat(64)
+  const provenance = (runId: string): OptimizationMethodProvenance => ({
+    source: {
+      kind: 'package',
+      evidence: 'observed',
+      package: 'gepa',
+      version: '0.1.4',
+      sourceUrl: 'https://github.com/gepa-ai/gepa.git',
+      revision: 'f919db0a622e2e9f9204779b81fe00cc1b2d808f',
+      sourceSha256: sourceHash,
+    },
+    bridge: {
+      kind: 'package',
+      evidence: 'observed',
+      package: 'agent-eval-rpc',
+      version: '0.126.0',
+      sourceSha256: bridgeHash,
+    },
+    modules: [{ module: 'example.engine', sourceSha256: moduleHash }],
+    python: { implementation: 'CPython', version: '3.12.3' },
+    runId,
+    compatibleRunId: 'compatible-run',
+    resumed: false,
+    evaluationCount: 3,
+    tokenUsage: {
+      inputTokens: 120,
+      cachedInputTokens: 20,
+      outputTokens: 30,
+      reasoningTokens: 10,
+      totalTokens: 150,
+      calls: 2,
+    },
+    artifactDir: `/tmp/${runId}`,
+  })
+  const run = (runId: string, over: Partial<GepaSeatInnerRun> = {}): GepaSeatInnerRun => {
+    const result = provenance(runId)
+    if (
+      result.source.revision === undefined ||
+      result.source.sourceSha256 === undefined ||
+      result.bridge?.sourceSha256 === undefined ||
+      result.modules === undefined ||
+      result.python === undefined ||
+      result.compatibleRunId === undefined ||
+      result.tokenUsage === undefined
+    ) {
+      throw new Error('invalid test provenance')
+    }
+    return {
+      seat: 'gepa-author',
+      engine: 'gepa',
+      surface: SURFACE,
+      generation: 0,
+      budget: 10,
+      innerCallCount: 2,
+      innerScores: [],
+      bestComposite: 1,
+      source: {
+        ...result.source,
+        revision: result.source.revision,
+        sourceSha256: result.source.sourceSha256,
+      },
+      bridge: { ...result.bridge, sourceSha256: result.bridge.sourceSha256 },
+      modules: result.modules,
+      python: result.python,
+      runId: result.runId,
+      compatibleRunId: result.compatibleRunId,
+      resumed: result.resumed,
+      evaluationCount: result.evaluationCount,
+      tokenUsage: result.tokenUsage,
+      artifactDir: result.artifactDir,
+      totalCostUsd: 0.25,
+      accountingComplete: true,
+      incompleteReasons: [],
+      durationMs: 5,
+      ...over,
+    }
+  }
+
+  it('writes collision-free immutable records in parallel and preserves the launch record', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'gepa-prov-'))
     try {
-      await writeFile(join(dir, 'proposer-provenance.json'), JSON.stringify({ schema: 'swe-arena.proposer-provenance.v1', proposers: [] }))
-      const run: GepaSeatInnerRun = {
-        seat: 'gepa-author',
-        engine: 'gepa',
-        surface: SURFACE,
-        generation: 0,
-        budget: 10,
-        innerCallCount: 2,
-        innerScores: [],
-        bestComposite: 1,
-        adapterReportedCostUsd: 0,
-        adapterCostAccountingComplete: false,
-        durationMs: 5,
-      }
-      await recordGepaSeatInnerRun(dir, run)
-      await recordGepaSeatInnerRun(dir, { ...run, generation: 1 })
-      const record = JSON.parse(await readFile(join(dir, 'proposer-provenance.json'), 'utf8'))
-      expect(record.schema).toBe('swe-arena.proposer-provenance.v1')
-      expect(record.gepaInnerRuns).toHaveLength(2)
-      expect(record.gepaInnerRuns[0]).toMatchObject({ seat: 'gepa-author', innerCallCount: 2 })
-      expect(record.gepaInnerRuns[1]).toMatchObject({ generation: 1 })
+      const launchRecord = JSON.stringify({ capturedAt: '2026-07-24T00:00:00.000Z', proposers: [] }, null, 2)
+      await writeFile(join(dir, 'proposer-provenance.json'), launchRecord)
+      const paths = await Promise.all(
+        Array.from({ length: 24 }, (_, index) =>
+          recordGepaSeatInnerRun(dir, run(`run-${index}`, { generation: index })),
+        ),
+      )
+      expect(new Set(paths).size).toBe(24)
+      expect(await readFile(join(dir, 'proposer-provenance.json'), 'utf8')).toBe(launchRecord)
+
+      const names = (await readdir(join(dir, GEPA_INNER_RUNS_DIRNAME))).filter((name) => name.endsWith('.json'))
+      expect(names).toHaveLength(24)
+      const records = await Promise.all(
+        names.map(async (name) => JSON.parse(await readFile(join(dir, GEPA_INNER_RUNS_DIRNAME, name), 'utf8'))),
+      )
+      expect(new Set(records.map((record) => record.runId))).toEqual(
+        new Set(Array.from({ length: 24 }, (_, index) => `run-${index}`)),
+      )
+      expect(records.every((record) => record.source.sourceSha256 === sourceHash)).toBe(true)
     } finally {
       await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('fails on malformed existing launch or run data', async () => {
+    const launchDir = await mkdtemp(join(tmpdir(), 'gepa-prov-bad-launch-'))
+    const runDir = await mkdtemp(join(tmpdir(), 'gepa-prov-bad-run-'))
+    try {
+      await writeFile(join(launchDir, 'proposer-provenance.json'), '{not json')
+      await expect(recordGepaSeatInnerRun(launchDir, run('new-run'))).rejects.toThrow(/malformed JSON/)
+
+      await mkdir(join(runDir, GEPA_INNER_RUNS_DIRNAME), { recursive: true })
+      await writeFile(join(runDir, GEPA_INNER_RUNS_DIRNAME, 'broken.json'), '[]')
+      await expect(recordGepaSeatInnerRun(runDir, run('new-run'))).rejects.toThrow(/must contain a JSON object/)
+    } finally {
+      await rm(launchDir, { recursive: true, force: true })
+      await rm(runDir, { recursive: true, force: true })
     }
   })
 })
@@ -344,6 +419,45 @@ describe('recordGepaSeatInnerRun', () => {
 // ---------------------------------------------------------------------------
 
 const fakeCtx = {} as unknown as DispatchContext
+
+const fullProvenance = (
+  runId = 'gepa-run',
+  over: Partial<OptimizationMethodProvenance> = {},
+): OptimizationMethodProvenance => ({
+  source: {
+    kind: 'package',
+    evidence: 'observed',
+    package: 'gepa',
+    version: '0.1.4',
+    sourceUrl: 'https://github.com/gepa-ai/gepa.git',
+    revision: 'f919db0a622e2e9f9204779b81fe00cc1b2d808f',
+    sourceSha256: '1'.repeat(64),
+  },
+  bridge: {
+    kind: 'package',
+    evidence: 'observed',
+    package: 'agent-eval-rpc',
+    version: '0.126.0',
+    sourceSha256: '2'.repeat(64),
+  },
+  modules: [{ module: 'custom_gepa_engines', sourceSha256: '3'.repeat(64) }],
+  python: { implementation: 'CPython', version: '3.12.3' },
+  runId,
+  compatibleRunId: 'compatible-gepa-run',
+  resumed: false,
+  evaluationCount: 3,
+  tokenUsage: {
+    inputTokens: 100,
+    cachedInputTokens: 10,
+    cacheWriteInputTokens: 5,
+    outputTokens: 25,
+    reasoningTokens: 8,
+    totalTokens: 125,
+    calls: 2,
+  },
+  artifactDir: `/tmp/${runId}`,
+  ...over,
+})
 
 /** Mimics the adapter's loop: score the seed and each provided candidate via
  *  the seat's dispatch + judge, return the best-scoring candidate — exactly
@@ -365,8 +479,9 @@ const fakeGepaFactory =
         }
         return {
           winnerSurface: best.surface,
-          cost: { totalCostUsd: 0, accountingComplete: false, incompleteReasons: ['fake factory'] },
+          cost: { totalCostUsd: 0.125, accountingComplete: true, incompleteReasons: [] },
           durationMs: 1,
+          provenance: fullProvenance(),
         }
       },
     }
@@ -440,10 +555,10 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
   it('materializes each candidate into the scratch surface, applies the winner through the normal prefilter path, and records provenance', async () => {
     const WINNER = `${SEED}Always run the neighboring test file before finalizing.\n`
     const LOSER = `${SEED}delete all tests\n`
-    const seen: Array<{ content: string; scratch: string }> = []
-    const smokeRunner: SmokeRunner = async ({ scratchPath }) => {
+    const seen: Array<{ content: string; scratch: string; hasCostLedger: boolean }> = []
+    const smokeRunner: SmokeRunner = async ({ scratchPath, costLedger }) => {
       const content = await readFile(join(scratchPath, SURFACE), 'utf8')
-      seen.push({ content, scratch: scratchPath })
+      seen.push({ content, scratch: scratchPath, hasCostLedger: costLedger !== undefined })
       // The winner candidate resolves; the seed gets verify-pass only; the
       // loser gets nothing — exercising resolve-dominates + tiebreak.
       if (content === WINNER) return smokeVerdict({ resolved: true, verifyPass: true })
@@ -468,6 +583,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
     expect(seen).toHaveLength(4)
     for (const call of seen) expect(call.scratch).not.toBe(driverWt)
     expect(seen.map((c) => c.content)).toEqual([SEED, LOSER, WINNER, WINNER])
+    expect(seen.slice(0, 3).every((call) => call.hasCostLedger)).toBe(true)
     // The winner landed on the driver worktree with the mechanical predicate.
     expect(await readFile(join(driverWt, SURFACE), 'utf8')).toBe(WINNER)
     const predicate = parseActivationPredicate(await readFile(join(driverWt, ACTIVATION_PREDICATE_RELPATH), 'utf8'))
@@ -479,14 +595,97 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
       .filter(Boolean)
     expect(changed.sort()).toEqual([ACTIVATION_PREDICATE_RELPATH, SURFACE].sort())
     // Budget threaded into the adapter recipe.
-    expect(observed.config).toMatchObject({ recipe: { kind: 'engine', run: { engine: 'gepa', maxEvaluations: 5 } } })
-    // Inner-run provenance: per-seat file + the merged proposer-provenance.json.
+    expect(observed.config).toMatchObject({
+      evaluationId:
+        `swe-arena-gepa-seat|smoke=astropy__astropy-13033|judge=gepa-inner-smoke|dispatchTimeoutMs=${config.dispatchTimeoutMs}`,
+      recipe: { kind: 'engine', run: { engine: 'gepa', maxEvaluations: 5 } },
+      resume: 'if-compatible',
+      trustResumeState: true,
+    })
+    // Inner-run provenance: the seat-local file plus one immutable shared record.
     const inner = JSON.parse(await readFile(join(outDir, 'gepa-seat', 'gen0-gepa-author', 'inner-provenance.json'), 'utf8'))
-    expect(inner).toMatchObject({ seat: 'gepa-author', engine: 'gepa', budget: 5, innerCallCount: 3, bestComposite: 1.25 })
+    expect(inner).toMatchObject({
+      seat: 'gepa-author',
+      engine: 'gepa',
+      budget: 5,
+      innerCallCount: 3,
+      bestComposite: 1.25,
+      source: {
+        package: 'gepa',
+        version: '0.1.4',
+        revision: 'f919db0a622e2e9f9204779b81fe00cc1b2d808f',
+        sourceSha256: '1'.repeat(64),
+      },
+      bridge: {
+        package: 'agent-eval-rpc',
+        version: '0.126.0',
+        sourceSha256: '2'.repeat(64),
+      },
+      modules: [{ module: 'custom_gepa_engines', sourceSha256: '3'.repeat(64) }],
+      python: { implementation: 'CPython', version: '3.12.3' },
+      runId: 'gepa-run',
+      compatibleRunId: 'compatible-gepa-run',
+      resumed: false,
+      evaluationCount: 3,
+      tokenUsage: {
+        inputTokens: 100,
+        cachedInputTokens: 10,
+        cacheWriteInputTokens: 5,
+        outputTokens: 25,
+        reasoningTokens: 8,
+        totalTokens: 125,
+        calls: 2,
+      },
+      artifactDir: '/tmp/gepa-run',
+      totalCostUsd: 0.125,
+      accountingComplete: true,
+      incompleteReasons: [],
+    })
     expect(inner.innerScores.map((s: { composite: number }) => s.composite)).toEqual([0.25, 0, 1.25])
-    const merged = JSON.parse(await readFile(join(outDir, 'proposer-provenance.json'), 'utf8'))
-    expect(merged.gepaInnerRuns).toHaveLength(1)
+    const records = await readdir(join(outDir, GEPA_INNER_RUNS_DIRNAME))
+    expect(records.filter((name) => name.endsWith('.json'))).toHaveLength(1)
+    expect(JSON.parse(await readFile(join(outDir, GEPA_INNER_RUNS_DIRNAME, records[0]!), 'utf8'))).toEqual(inner)
     expect(gen.drainPrefilterKills()).toEqual([])
+  })
+
+  it('records but rejects a winner when cost accounting is incomplete', async () => {
+    const WINNER = `${SEED}Always run the neighboring test file before finalizing.\n`
+    const incomplete: GepaMethodFactory = () => ({
+      name: 'incomplete-cost',
+      async optimize(input) {
+        await input.dispatchWithSurface(WINNER, input.trainScenarios[0]!, fakeCtx)
+        return {
+          winnerSurface: WINNER,
+          cost: {
+            totalCostUsd: 0.25,
+            accountingComplete: false,
+            incompleteReasons: ['optimizer model receipt missing'],
+          },
+          durationMs: 1,
+          provenance: fullProvenance('incomplete-run', { evaluationCount: 1 }),
+        }
+      },
+    })
+    const gen = fanOutLoopsGenerator(baseConfig([seat()]), {
+      smokeRunner: async () => smokeVerdict({ resolved: true }),
+      smokeInstanceId: 'astropy__astropy-13033',
+      scoreSplit: null,
+      gepaMethodFactory: incomplete,
+    })
+
+    await expect(gen.generate(generatorArgs(0))).rejects.toThrow(
+      /cost accounting is incomplete: optimizer model receipt missing/,
+    )
+    expect(await readFile(join(driverWt, SURFACE), 'utf8')).toBe(SEED)
+    const inner = JSON.parse(
+      await readFile(join(outDir, 'gepa-seat', 'gen0-gepa-author', 'inner-provenance.json'), 'utf8'),
+    )
+    expect(inner).toMatchObject({
+      runId: 'incomplete-run',
+      totalCostUsd: 0.25,
+      accountingComplete: false,
+      incompleteReasons: ['optimizer model receipt missing'],
+    })
   })
 
   it('enforces the inner-call budget cap fail-closed', async () => {
@@ -500,6 +699,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
           winnerSurface: SEED,
           cost: { totalCostUsd: 0, accountingComplete: false, incompleteReasons: [] },
           durationMs: 1,
+          provenance: fullProvenance('runaway'),
         }
       },
     })
@@ -538,9 +738,8 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Integration: ONE real Node→Python→score roundtrip through the installed
-// adapter + bridge. Skips with an exact reason when either runtime is absent
-// (this is the same condition the t=0 provenance capture enforces loud).
+// Integration: one real Node-to-Python-to-score roundtrip through the installed
+// bridge. The TypeScript adapter is a compile-time package dependency.
 // ---------------------------------------------------------------------------
 
 const pythonBridgeReady = (): { ok: boolean; reason: string } => {
@@ -555,18 +754,10 @@ const pythonBridgeReady = (): { ok: boolean; reason: string } => {
 }
 
 describe('integration: real adapter roundtrip', () => {
-  it('runs one inner smoke roundtrip through gepaOptimizationMethod when the full runtime is installed', async (ctx) => {
-    const campaign = (await import('@tangle-network/agent-eval/campaign')) as Record<string, unknown>
-    const missing: string[] = []
-    if (typeof campaign.gepaOptimizationMethod !== 'function') {
-      missing.push(
-        'installed @tangle-network/agent-eval lacks gepaOptimizationMethod (needs a release after 0.123.5 containing PRs #408/#409)',
-      )
-    }
+  it('runs the bridge but rejects its unmetered winner when the full runtime is installed', async (ctx) => {
     const python = pythonBridgeReady()
-    if (!python.ok) missing.push(python.reason)
-    if (missing.length > 0) {
-      ctx.skip(`skip-with-reason: ${missing.join('; ')}`)
+    if (!python.ok) {
+      ctx.skip(`skip-with-reason: ${python.reason}`)
       return
     }
 
@@ -612,21 +803,25 @@ describe('integration: real adapter roundtrip', () => {
           scoreSplit: null,
         },
       )
-      const result = await gen.generate({
-        worktreePath: driverWt,
-        report: undefined,
-        findings: [],
-        maxShots: 1,
-        signal: new AbortController().signal,
-        generation: 0,
-        candidateIndex: 0,
-      })
-      // The bridge ran: inner provenance must show >= 1 scored callback.
+      await expect(
+        gen.generate({
+          worktreePath: driverWt,
+          report: undefined,
+          findings: [],
+          maxShots: 1,
+          signal: new AbortController().signal,
+          generation: 0,
+          candidateIndex: 0,
+        }),
+      ).rejects.toThrow(/cost accounting is incomplete/)
+      // The bridge ran and its result was retained even though activation was refused.
       const inner = JSON.parse(
         await readFile(join(outDir, 'gepa-seat', 'gen0-gepa-author', 'inner-provenance.json'), 'utf8'),
       )
       expect(inner.innerCallCount).toBeGreaterThanOrEqual(1)
-      expect(typeof result.applied).toBe('boolean')
+      expect(inner.accountingComplete).toBe(false)
+      expect(inner.incompleteReasons.length).toBeGreaterThan(0)
+      expect((await runOk('git', ['-C', driverWt, 'status', '--porcelain'])).stdout.trim()).toBe('')
     } finally {
       await rm(outDir, { recursive: true, force: true })
       await rm(loopsRepo, { recursive: true, force: true })
