@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.102.2` and `@tangle-network/agent-eval@0.123.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.103.0` and `@tangle-network/agent-eval@0.123.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 377 exports.
+Import from `@tangle-network/agent-runtime` — 378 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -23,6 +23,7 @@ Import from `@tangle-network/agent-runtime` — 377 exports.
 | `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
 | `applyRolloutPolicyToProfile` | function | Persist a policy into the profile's extensions namespace. Shallow copy; never |
 | `applyRunRecordDefaults` | function | Stamp cross-cutting defaults onto adapter-projected RunRecords without |
+| `assertCandidateProfileBinding` | function | Prove the measured generic profile and sealed candidate profile describe the same behavior. |
 | `auditLoopRunner` | function | `audit` mode — analyst loop over captured trace/run data. |
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
@@ -327,7 +328,7 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 133 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 137 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -346,6 +347,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 133 exports.
 | `createCertifiedPromptSource` | function | Create the cached certified-prompt source — the ONE module-scope-cache + |
 | `createExactProcessCandidateExperimentExecutor` | function | Execute one signed experiment cell through any declared exact-process provider. |
 | `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, the base URL, and |
+| `createProtectedExactProcessCandidateExperimentExecutor` | function | Compose host-owned execution ports with protected model access for one exact-process run. |
 | `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
 | `executeAgentCandidateExperimentCell` | function | Execute one exact arm, task, repetition, seed, and attempt through Runtime. |
 | `executeAgentImprovementActivation` | function | Validate and execute one product-owned activation transition. |
@@ -389,6 +391,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 133 exports.
 | `CertifiedPromptSourceOptions` | interface | Options for {@link createCertifiedPromptSource} — the pull coordinates plus |
 | `CertifiedPromptSurface` | interface | The active promoted prompt surface for a target. |
 | `CertProvenance` | interface | The certify lane's held-out lift travelling WITH delivery. The shipped |
+| `CreateProtectedExactProcessCandidateExperimentExecutorOptions` | interface | Builds the standard exact-process executor with model access that is scoped, |
 | `CredentialRef` | interface | A named secret a binding requires — declared, never carried. |
 | `DiffProvenance` | interface | The held-out provenance the plane's certify step stamps on a promoted diff. |
 | `DoctorReport` | interface | The `doctor()` readiness report — Mode-readiness without any network call. |
@@ -400,6 +403,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 133 exports.
 | `IntelligenceHookConfig` | interface | `withIntelligence` config = the Observe config plus the pull target, refresh |
 | `ModeReadiness` | interface | One mode's readiness verdict. |
 | `ProposedProfileDiff` | interface | A gate-certified profile diff the plane has already promoted, plus the |
+| `ProtectedExactProcessCandidateExperimentExecutor` | interface | Exact-process executor plus the ports required for durable recovery. |
 | `ProvisionedHost` | interface | A live, provisioned host the resolver tore up for a `process-on-infra` arm. |
 | `RecordTraceMeta` | interface | Metadata for {@link IntelligenceClient.recordTrace}. |
 | `RepoConfig` | interface | Repo coordinates a product may declare for the (later) Gated-PR mode. The |
@@ -414,6 +418,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 133 exports.
 | `TraceMeta` | interface | Metadata describing one traced run. `runId`/`traceId` default to fresh ids. |
 | `TraceOutcome` | interface | The resolved outcome of one traced run, surfaced on the export span and |
 | `UsageSplit` | interface | The per-class cost split carried by every trace and outcome. `off` ⇒ |
+| `AgentCandidateExecutionHostPorts` | type | Product-owned candidate ports other than protected model access. |
 | `AgentImprovementActivationReconciliation` | type | Target-read-only check for a prior exact write. |
 | `AgentImprovementActivationTransition` | type | Product-owned or Runtime-composed transition. |
 | `AgentImprovementExperimentMaterial` | type | Product-supplied experiment material. Runtime supplies optimizer ancestry and the final digest. |
@@ -944,11 +949,12 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 101 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 102 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `applyExactAgentProfileDiff` | function | Apply one exact diff and reject any value that cannot be preserved canonically. |
+| `assertCandidateProfileBinding` | function | Prove the measured generic profile and sealed candidate profile describe the same behavior. |
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
 | `candidateKnowledgeExecutionPaths` | function | Deterministic, signed locations used by every candidate executor. |

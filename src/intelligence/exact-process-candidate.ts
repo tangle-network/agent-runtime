@@ -6,6 +6,10 @@ import type { AgentExactProcessResources } from '@tangle-network/agent-interface
 import type { AgentCandidateExecutionClaimStore } from '../candidate-execution/claim'
 import { exactProcessProviderAsCandidateExecutor } from '../candidate-execution/exact-process-executor'
 import type { PrepareAgentCandidateExecutionOptions } from '../candidate-execution/prepare'
+import {
+  type CreateProtectedAgentCandidateModelPortOptions,
+  createProtectedAgentCandidateModelPort,
+} from '../candidate-execution/protected-model-port'
 import type {
   AgentCandidateBenchmarkGraderPort,
   AgentCandidateExecutionPorts,
@@ -54,6 +58,19 @@ export interface CreateExactProcessCandidateExperimentExecutorOptions {
   resultTimeoutMs?: number
 }
 
+/** Product-owned candidate ports other than protected model access. */
+export type AgentCandidateExecutionHostPorts = Omit<AgentCandidateExecutionPorts, 'models'>
+
+/**
+ * Builds the standard exact-process executor with model access that is scoped,
+ * metered, and settled by the caller's grant service.
+ */
+export interface CreateProtectedExactProcessCandidateExperimentExecutorOptions
+  extends Omit<CreateExactProcessCandidateExperimentExecutorOptions, 'ports'> {
+  hostPorts: AgentCandidateExecutionHostPorts
+  model: CreateProtectedAgentCandidateModelPortOptions
+}
+
 export interface ExactProcessCandidateExperimentExecution
   extends CandidateExperimentExecutionInput {
   executionId: string
@@ -67,6 +84,12 @@ export interface ExactProcessCandidateExperimentExecutor {
   /** Runtime's expired-attempt path reuses this port only to stop and dispose. */
   readonly executor: AgentCandidateExecutorPort
   execute(input: ExactProcessCandidateExperimentExecution): Promise<CandidateExecutionEvidence>
+}
+
+/** Exact-process executor plus the ports required for durable recovery. */
+export interface ProtectedExactProcessCandidateExperimentExecutor
+  extends ExactProcessCandidateExperimentExecutor {
+  readonly recoveryPorts: Pick<AgentCandidateExecutionPorts, 'models' | 'memory'>
 }
 
 /** Execute one signed experiment cell through any declared exact-process provider. */
@@ -113,5 +136,24 @@ export function createExactProcessCandidateExperimentExecutor(
         },
       })
     },
+  })
+}
+
+/** Compose host-owned execution ports with protected model access for one exact-process run. */
+export function createProtectedExactProcessCandidateExperimentExecutor(
+  options: CreateProtectedExactProcessCandidateExperimentExecutorOptions,
+): ProtectedExactProcessCandidateExperimentExecutor {
+  const { hostPorts, model, ...exactProcess } = options
+  const ports = Object.freeze({
+    ...hostPorts,
+    models: createProtectedAgentCandidateModelPort(model),
+  })
+  const execution = createExactProcessCandidateExperimentExecutor({
+    ...exactProcess,
+    ports,
+  })
+  return Object.freeze({
+    ...execution,
+    recoveryPorts: Object.freeze({ models: ports.models, memory: ports.memory }),
   })
 }
