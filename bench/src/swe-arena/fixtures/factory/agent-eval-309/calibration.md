@@ -97,3 +97,36 @@ The 2 tests in each direction of the disagreement, and why:
   which it names) does provide every token these assert on. Nobody implemented them anyway. That is
   difficulty, not unreachability, and it belongs in the denominator — which is exactly what the gate
   does with it.
+
+### Discrimination proof — one solo shot against the repaired spec
+
+Same instance, same hidden judge, same model as the control arm (`zai-coding-plan/glm-5.2` via
+opencode), one shot, no loop, no supervisor. Only the spec changed.
+
+| run | spec | judge | reachable ceiling | headroom above the score |
+|---|---|---|---|---|
+| SOLO1 r0 (control arm, 2026-07-24) | original | 12/30 | 13 | 1 test |
+| SOLO1 r1 (control arm) | original | 11/30 | 13 | 2 tests |
+| FSUP0 r0/r1 (supervisor, control arm) | original | 13/30 | 13 | **0 tests** |
+| **SOLO1REPAIRED (this run)** | **repaired** | **25/30** | **30** | **5 tests** |
+
+Cost: 1,042 s wall, 144,054 total tokens (104,211 in / 13,778 out / 26,065 reasoning, 43 steps),
+916 patch lines. Artifacts under `/tmp/factory-reach-proof/`.
+
+The remaining 5 failures are all in `comparePairedArms`, all reachable, and are real difficulty:
+
+```
+× feeds the discordant counts to mcnemar exactly (b10 = treatment wins, b01 = baseline wins)
+× reports correctness as null when no pair carries pass on both sides
+× reports a requested-but-absent metric with n = 0 and NaN deltas (visible, not vanished)
+× accounts for unpaired rows in the summary counts
+× regression: unequal rep counts on a null A/B report no effect (reps pair by repKey, surplus reported)
+```
+
+All 13 `capability-headroom` tests now pass; 11–12 of them failed in every one of the seven original
+runs. And `accounts for unpaired rows in the summary counts` — one of only two tests that ever
+differed between arms in the original comparison, and the single test the supervisor's +1 rested on —
+is still unpassed, so the discriminating signal survives the repair instead of being washed out.
+
+The instance now has a measurement band of 25–30 with a reachable ceiling of 30, instead of 11–13
+against a reachable ceiling of 13.
