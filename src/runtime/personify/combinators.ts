@@ -24,6 +24,7 @@
 
 import { ValidationError } from '../../errors'
 import { defaultSelectWinner } from '../run-loop'
+import { type DispatchUnit, rollingDispatch } from '../supervise/dispatch'
 import { settledToIteration } from '../supervise/scope'
 import type { Agent, Scope, Settled } from '../supervise/types'
 import type { Iteration } from '../types'
@@ -135,6 +136,10 @@ export function pipeline<Task, D>(
  * gathered settlements (one SEPARATE synthesis child) or return the best-valid child via the
  * single-sourced selector. A round that admitted zero children, or whose synthesis child could
  * not be admitted, is a concrete blocker.
+ *
+ * `opts.width` swaps the single round for `rollingDispatch`: at most `width` items live at once,
+ * refilled the instant one settles. Selection, blockers, and the conserved pool are unchanged —
+ * the refill behavior lives in the existing combinator rather than in a rival primitive.
  */
 export function fanout<Task, Item, D>(
   items: ReadonlyArray<Item>,
@@ -147,17 +152,50 @@ export function fanout<Task, Item, D>(
     name: `${ctx.persona.name}/fanout`,
     async act(_task, scope): Promise<Outcome<D>> {
       const rejected: string[] = []
-      let opened = 0
-      for (const [i, item] of items.entries()) {
+      // One unit per item — the same child, task, label, and per-child budget either dispatch
+      // path uses, so batch and rolling differ ONLY in when each unit is admitted.
+      const unitAt = (i: number): DispatchUnit<Outcome<D>> | undefined => {
+        const item = items[i]
+        if (item === undefined) return undefined
         const label = opts.label ? opts.label(item, i) : `item:${i}`
         const spec = opts.itemSpec ? opts.itemSpec(item, i, ctx) : ctx.persona.root
-        const child = ctx.spawnChild(label, spec)
-        const res = scope.spawn(child, opts.itemTask(item, i, ctx), {
-          budget: ctx.budget.perChild,
-          label,
+        return {
+          agent: ctx.spawnChild(label, spec),
+          task: opts.itemTask(item, i, ctx),
+          opts: { budget: ctx.budget.perChild, label },
+        }
+      }
+
+      let opened = 0
+      let drained: DrainedRound<D>
+      if (opts.width !== undefined) {
+        // Rolling: hold `width` items in flight, refill on each settle. `rollingDispatch` owns the
+        // admission ledger, so its settlements are projected into the same drained shape the batch
+        // path produces and everything downstream (selection, synthesis, blockers) is untouched.
+        let next = 0
+        const report = await rollingDispatch<Outcome<D>>(scope, {
+          width: opts.width,
+          nextUnit: () => {
+            const unit = unitAt(next)
+            next += 1
+            return unit
+          },
         })
-        if (res.ok) opened += 1
-        else rejected.push(`${label}: not admitted (${res.reason})`)
+        opened = report.admitted
+        for (const r of report.rejected) {
+          const [label, reason] = splitOnce(r, ': ')
+          rejected.push(`${label}: not admitted (${reason})`)
+        }
+        drained = projectDrain<D>(report.settled)
+      } else {
+        for (let i = 0; i < items.length; i += 1) {
+          const unit = unitAt(i)
+          if (unit === undefined) continue
+          const res = scope.spawn(unit.agent, unit.task, unit.opts)
+          if (res.ok) opened += 1
+          else rejected.push(`${unit.opts.label}: not admitted (${res.reason})`)
+        }
+        drained = opened === 0 ? emptyRound<D>() : await drain<D>(scope)
       }
       if (opened === 0) {
         return blocked(
@@ -167,7 +205,6 @@ export function fanout<Task, Item, D>(
         )
       }
 
-      const drained = await drain<D>(scope)
       if (drained.done.length === 0) {
         return blocked(
           orderedBlockers(
@@ -461,11 +498,42 @@ export function flatWidenGate<D>(): ScopeWidenGate<D> {
 /** Drain every remaining settlement: project `done` children into kernel `Iteration`s for the
  *  single-sourced selector + keep the `done` settlements (for a synthesis child), and collect
  *  `down` children as concrete blockers (their reason surfaced verbatim). */
-async function drain<D>(scope: Scope<Outcome<D>>): Promise<{
+/** The gathered result of one fanout round: the selector's candidates, the `done` settlements the
+ *  synthesis task reads, and the concrete blockers from every `down` child. */
+interface DrainedRound<D> {
   iterations: Iteration<unknown, Outcome<D>>[]
   done: Settled<Outcome<D>>[]
   blockers: string[]
-}> {
+}
+
+function emptyRound<D>(): DrainedRound<D> {
+  return { iterations: [], done: [], blockers: [] }
+}
+
+/** Fold an already-collected settlement list into the same shape `drain` produces, so the rolling
+ *  dispatch path and the batch path hand identical evidence to selection/synthesis. */
+function projectDrain<D>(settled: ReadonlyArray<Settled<Outcome<D>>>): DrainedRound<D> {
+  const round = emptyRound<D>()
+  for (const s of settled) {
+    if (s.kind === 'down') {
+      round.blockers.push(blockerFromDown(s))
+      continue
+    }
+    round.iterations.push(settledToIteration(s))
+    round.done.push(s)
+  }
+  return round
+}
+
+/** Split on the FIRST occurrence of `sep`, keeping any later occurrences in the tail — a reason
+ *  string may itself contain the separator. */
+function splitOnce(text: string, sep: string): [string, string] {
+  const at = text.indexOf(sep)
+  if (at < 0) return [text, '']
+  return [text.slice(0, at), text.slice(at + sep.length)]
+}
+
+async function drain<D>(scope: Scope<Outcome<D>>): Promise<DrainedRound<D>> {
   const iterations: Iteration<unknown, Outcome<D>>[] = []
   const done: Settled<Outcome<D>>[] = []
   const blockers: string[] = []

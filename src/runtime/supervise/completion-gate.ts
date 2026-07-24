@@ -62,6 +62,17 @@ export function gateOnDeliverable<Out>(
     runtime: inner.runtime,
     ...(inner.budgetExempt !== undefined ? { budgetExempt: inner.budgetExempt } : {}),
     ...(inner.deliver ? { deliver: (m: unknown) => inner.deliver?.(m) } : {}),
+    // Forward the OPTIONAL live-observation surfaces so a gated worker stays supervisable
+    // mid-flight. The scope captures `progress`/`traceSource` at spawn and only if the executor
+    // exposes them; a gate that drops them makes `observe_agent` read `recentActivity:[]` and
+    // loses online detection for a running worker (it saw the tokens/turns the fold derives, but
+    // none of the harness's own turn count or tool activity). `metered` is a driver-executor's
+    // OWN-inference subtree total, re-homed by the parent on settle — dropping it would leak a
+    // gated sub-driver's inference out of the journal. Preserve the "undefined ⟺ not implemented"
+    // contract: only expose a method the inner executor actually implements.
+    ...(inner.progress ? { progress: () => inner.progress?.() } : {}),
+    ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
+    ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
     execute(task, signal) {
       const r = inner.execute(task, signal)
       if (isAsyncIterable(r)) {

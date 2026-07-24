@@ -1,5 +1,12 @@
 /**
- * swe-arena → rollout-ledger backfill. Pure READ over one round's outDir
+ * swe-arena → rollout backfill — DOMAIN GLUE ONLY. Bench owns the JOIN
+ * (manifest + cached cells + judge.json + result.json workerCwds + proposer
+ * shot receipts → harness stores); the `tangle.rollout.v1` schema, line
+ * validation, serialization, readers, exporters, and release pipeline are
+ * owned by `@tangle-network/agent-eval/rollout` — bench never writes a
+ * rollout row through anything but that API.
+ *
+ * Pure READ over one round's outDir
  * (the same artifact tree `swe-arena/manifest.mts` joins) plus the harness
  * stores, emitting `tangle.rollout.v1` lines with capture:"backfill":
  *
@@ -26,23 +33,25 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { DatabaseSync } from 'node:sqlite'
+import { loadCampaignCellRecords } from '../swe-arena/cell-evidence.mts'
 import { buildRolloutManifest, type RolloutEntry } from '../swe-arena/manifest.mts'
 import {
+  DEFAULT_CLAUDE_PROJECTS_DIR,
   DEFAULT_OPENCODE_DB,
+  findClaudeTranscripts,
   findOpencodeSessionsByDirectory,
   openOpencodeDb,
-  readOpencodeSessionMessages,
-  type OpencodeSessionRow,
-} from './opencode-reader.mts'
-import {
-  DEFAULT_CLAUDE_PROJECTS_DIR,
-  findClaudeTranscripts,
   readClaudeTranscript,
-} from './claude-reader.mts'
-import { writeRolloutLedger } from './ledger.mts'
-import { ROLLOUT_LEDGER_SCHEMA, type RolloutLine } from './types.ts'
+  readOpencodeSessionMessages,
+  ROLLOUT_SCHEMA,
+  type OpencodeSessionRow,
+  type RolloutLine,
+  writeRolloutLedger,
+} from '@tangle-network/agent-eval/rollout'
+import { candidateId } from './settle-capture.mts'
 
 const OFFICIAL_JUDGE = 'swe-arena-official-judge'
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -60,24 +69,20 @@ interface CellRecord {
   cached?: boolean
 }
 
+/** The same cell caches `loadCampaignCells` reads, kept verbatim: the backfill
+ *  needs fields (judgeScores, resolvedModel, seed) the EvidenceCell slice drops.
+ *  Traversal and the fail-loud identity check are owned by cell-evidence — one
+ *  rule for what counts as a campaign cell.
+ *
+ *  Only scenarioId and rep are proven by that check; `artifact` is normalized to
+ *  a record-or-null here so the `artifact !== null` guards downstream cannot be
+ *  handed an `undefined` that passes them. Every remaining field is optional and
+ *  read behind its own typeof guard. */
 async function readCellRecords(campaignDir: string): Promise<CellRecord[]> {
-  const entries = await readdir(campaignDir, { withFileTypes: true }).catch(() => [])
-  const records: CellRecord[] = []
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const path = join(campaignDir, entry.name, 'cached-result.json')
-    const raw = await readFile(path, 'utf8').catch(() => null)
-    if (raw === null) continue
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      throw new Error(`backfill: corrupt cell cache ${path}`)
-    }
-    if (isRecord(parsed) && typeof parsed.scenarioId === 'string' && Number.isInteger(parsed.rep)) {
-      records.push(parsed as unknown as CellRecord)
-    }
-  }
+  const records = (await loadCampaignCellRecords(campaignDir)).map((record) => ({
+    ...record,
+    artifact: isRecord(record.artifact) ? record.artifact : null,
+  })) as unknown as CellRecord[]
   return records.sort((a, b) => a.scenarioId.localeCompare(b.scenarioId) || a.rep - b.rep)
 }
 
@@ -105,7 +110,10 @@ export interface BackfillStats {
   gapLines: number
   rewardLabeled: number
   workerSessionsJoined: number
+  /** Worker cwds with no opencode session row — a join failure. */
   workerCwdsMissed: number
+  /** Sessions found but carrying no readable message parts — a store failure. */
+  workerSessionsEmpty: number
   proposerShotsJoined: number
   proposerShotsMissed: number
   opencodeDbAvailable: boolean
@@ -135,7 +143,7 @@ interface Ctx {
 
 function baseLine(ctx: Ctx): Pick<RolloutLine, 'schema' | 'run_id' | 'provenance'> {
   return {
-    schema: ROLLOUT_LEDGER_SCHEMA,
+    schema: ROLLOUT_SCHEMA,
     run_id: ctx.runId,
     provenance: { captured_at: ctx.capturedAt, capture: 'backfill' },
   }
@@ -182,13 +190,14 @@ async function emitCellLines(
     ...baseLine(ctx),
     rollout_id: supervisorId,
     parent_rollout_id: null,
+    candidate_id: candidateId(entry.state.generation, entry.state.candidateIndex),
     generation: entry.state.generation,
     candidate_index: entry.state.candidateIndex,
     role: 'supervisor',
     task: {
       suite: 'swe-bench-verified',
       instance_id: cell.scenarioId,
-      split: 'train',
+      split: 'search',
       seed: typeof cell.seed === 'number' ? cell.seed : null,
       rep: cell.rep,
     },
@@ -258,9 +267,12 @@ async function emitCellLines(
 
   // Worker sessions: result.json recoveredSpend.workerCwds → opencode store.
   const recovered = result !== null && isRecord(result.recoveredSpend) ? result.recoveredSpend : null
+  // A respawned worker reuses its clone cwd, so the recovered list can name the
+  // same directory twice. Joining it twice would mint two rollout ids over one
+  // opencode session — duplicate training signal, inflated worker counts.
   const workerCwds =
     recovered !== null && Array.isArray(recovered.workerCwds)
-      ? recovered.workerCwds.filter((c): c is string => typeof c === 'string')
+      ? [...new Set(recovered.workerCwds.filter((c): c is string => typeof c === 'string'))]
       : []
   for (const cwd of workerCwds) {
     const sessions = ctx.db === null ? [] : findOpencodeSessionsByDirectory(ctx.db, cwd)
@@ -271,8 +283,11 @@ async function emitCellLines(
     }
     for (const session of sessions) {
       const messages = ctx.db === null ? [] : readOpencodeSessionMessages(ctx.db, session.id)
+      // Two distinct failures: no session row for the cwd (join failure) versus
+      // a session row whose parts are unreadable (store integrity). One counter
+      // for both would hide store corruption behind a cwd-join metric.
       if (messages.length > 0) ctx.stats.workerSessionsJoined += 1
-      else ctx.stats.workerCwdsMissed += 1
+      else ctx.stats.workerSessionsEmpty += 1
       push(ctx, lines, workerLine(ctx, entry, cell, supervisorId, reward, cwd, session, messages))
     }
   }
@@ -293,13 +308,14 @@ function workerLine(
     ...baseLine(ctx),
     rollout_id: randomUUID(),
     parent_rollout_id: supervisorId,
+    candidate_id: candidateId(entry.state.generation, entry.state.candidateIndex),
     generation: entry.state.generation,
     candidate_index: entry.state.candidateIndex,
     role: 'worker',
     task: {
       suite: 'swe-bench-verified',
       instance_id: cell.scenarioId,
-      split: 'train',
+      split: 'search',
       seed: typeof cell.seed === 'number' ? cell.seed : null,
       rep: cell.rep,
     },
@@ -323,8 +339,12 @@ function workerLine(
         worker_cwd: cwd,
         session_agent: session?.agent ?? null,
         session_parent_id: session?.parentId ?? null,
+        has_session: session !== null,
       },
-      is_completed: session !== null,
+      // A session row with no readable parts is a gap line, not a completed
+      // invocation — training filters that key on is_completed alone would
+      // otherwise pull empty transcripts.
+      is_completed: session !== null && messages.length > 0,
       is_truncated: false,
       error: null,
     },
@@ -455,6 +475,7 @@ async function emitProposerLines(ctx: Ctx, lines: RolloutLine[], entries: Rollou
       ...baseLine(ctx),
       rollout_id: randomUUID(),
       parent_rollout_id: null,
+      candidate_id: candidateId(shot.generation, shot.candidateIndex),
       generation: shot.generation,
       candidate_index: shot.candidateIndex,
       role: 'proposer',
@@ -462,9 +483,9 @@ async function emitProposerLines(ctx: Ctx, lines: RolloutLine[], entries: Rollou
         suite: 'swe-arena-proposer',
         instance_id:
           shot.author !== null
-            ? `gen${shot.generation}-cand${shot.candidateIndex}-${shot.author}`
-            : `gen${shot.generation}-cand${shot.candidateIndex}`,
-        split: 'train',
+            ? `${candidateId(shot.generation, shot.candidateIndex)}-${shot.author}`
+            : candidateId(shot.generation, shot.candidateIndex),
+        split: 'search',
         seed: null,
         rep: shot.shot,
       },
@@ -547,6 +568,7 @@ export async function backfillSweArena(outDir: string, opts: BackfillOptions = {
       rewardLabeled: 0,
       workerSessionsJoined: 0,
       workerCwdsMissed: 0,
+      workerSessionsEmpty: 0,
       proposerShotsJoined: 0,
       proposerShotsMissed: 0,
       opencodeDbAvailable: db !== null,

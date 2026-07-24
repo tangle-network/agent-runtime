@@ -128,7 +128,11 @@ function candidateExperimentMaterial(
   return material
 }
 
-describe('agent improvement lifecycle', () => {
+// These exercise the whole improvement lifecycle — real content-addressing, real file I/O, a
+// paired matrix — and on CI the slowest already burn ~4.3s of the 5s default. That leaves the
+// file one scheduling hiccup from red regardless of what changed. Size the timeout to the work
+// these tests actually do rather than leaving them at the edge of the default.
+describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
   it('runs analysis through exact activation using only public inputs', async () => {
     const seed = createCandidateExperimentFixture()
     const profile = agentCandidateProfileAsAgentProfile(seed.experiment.baseline.profile)

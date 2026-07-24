@@ -26,31 +26,31 @@
  *    scores are final.
  */
 
-// TODO(UNIFICATION, https://github.com/tangle-network/agent-runtime/issues/593):
-// tangle.rollout.v1 is now owned by @tangle-network/agent-eval/rollout (schema,
-// ledger, readers, exporters, release). These branch-local imports are the
-// pre-unification copies and MUST be swapped for the agent-eval API the moment
-// agent-eval 0.124.0 is published (blocked today only by publish timing — do
-// not extend the local copies). On swap: emit task.split 'search' (canonical
-// trainable split) and set candidate_id; the LABEL v2 reward logic stays here.
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import {
+  appendRolloutLines,
   DEFAULT_OPENCODE_DB,
   findOpencodeSessionsByDirectory,
   openOpencodeDb,
   readOpencodeSessionMessages,
+  ROLLOUT_SCHEMA,
+  type ChatMessage,
   type OpencodeSessionRow,
-} from './opencode-reader.mts'
-import { appendRolloutLines } from './ledger.mts'
-import { ROLLOUT_LEDGER_SCHEMA, type ChatMessage, type RolloutLine } from './types.ts'
+  type RolloutLine,
+} from '@tangle-network/agent-eval/rollout'
 
 export const OFFICIAL_JUDGE = 'swe-arena-official-judge'
 export const WORKER_REWARD_SOURCE_V2 = `${OFFICIAL_JUDGE}/contribution-v2`
 export const PROPOSER_REWARD_SOURCE_V2 = `${OFFICIAL_JUDGE}/baseline-relative-v2`
+
+/** Stable candidate identity from the improvement-loop coordinates. */
+export function candidateId(generation: number, candidateIndex: number): string {
+  return candidateIndex === -1 ? 'baseline' : `gen${generation}-cand${candidateIndex}`
+}
 
 // ---------------------------------------------------------------------------
 // Worker evidence — the supervisor run dir's per-worker record.
@@ -195,7 +195,7 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
   const dbPath = opts.opencodeDb ?? DEFAULT_OPENCODE_DB
 
   const base = (capturedAt: string): Pick<RolloutLine, 'schema' | 'run_id'> & { provenance: RolloutLine['provenance'] } => ({
-    schema: ROLLOUT_LEDGER_SCHEMA,
+    schema: ROLLOUT_SCHEMA,
     run_id: opts.runId,
     provenance: { captured_at: capturedAt, capture: 'settle-time' },
   })
@@ -213,10 +213,11 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
         ...base(capturedAt),
         rollout_id: supervisorId,
         parent_rollout_id: null,
+        candidate_id: candidateId(args.generation, args.candidateIndex),
         generation: args.generation,
         candidate_index: args.candidateIndex,
         role: 'supervisor',
-        task: { suite: 'swe-bench-verified', instance_id: args.iid, split: 'train', seed: args.seed, rep: args.rep },
+        task: { suite: 'swe-bench-verified', instance_id: args.iid, split: 'search', seed: args.seed, rep: args.rep },
         policy: {
           harness: 'pi-loops',
           harness_version: null,
@@ -285,13 +286,14 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
               ...base(capturedAt),
               rollout_id: randomUUID(),
               parent_rollout_id: supervisorId,
+              candidate_id: candidateId(args.generation, args.candidateIndex),
               generation: args.generation,
               candidate_index: args.candidateIndex,
               role: 'worker',
               task: {
                 suite: 'swe-bench-verified',
                 instance_id: args.iid,
-                split: 'train',
+                split: 'search',
                 seed: args.seed,
                 rep: args.rep,
               },
@@ -315,9 +317,12 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
                   bystander: v2.bystander,
                   delivered_match: v2.deliveredMatch,
                   has_patch: worker.patch !== null,
+                  has_session: session !== null,
                   ...(args.splitVisibility !== null ? { split_visibility: args.splitVisibility } : {}),
                 },
-                is_completed: session !== null,
+                // Matches the backfill rule: a session with no readable parts is
+                // a gap line, not a completed invocation.
+                is_completed: session !== null && messages.length > 0,
                 is_truncated: false,
                 error: null,
               },
@@ -370,13 +375,14 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
         ...base(capturedAt),
         rollout_id: randomUUID(),
         parent_rollout_id: null,
+        candidate_id: candidateId(args.generation, args.candidateIndex),
         generation: args.generation,
         candidate_index: args.candidateIndex,
         role: 'proposer',
         task: {
           suite: 'swe-arena-proposer',
-          instance_id: `gen${args.generation}-cand${args.candidateIndex}-${args.proposer}`,
-          split: 'train',
+          instance_id: `${candidateId(args.generation, args.candidateIndex)}-${args.proposer}`,
+          split: 'search',
           seed: null,
           rep: 0,
         },
