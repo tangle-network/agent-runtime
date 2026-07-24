@@ -327,7 +327,7 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 132 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 136 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -346,6 +346,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 132 exports.
 | `createCertifiedPromptSource` | function | Create the cached certified-prompt source — the ONE module-scope-cache + |
 | `createExactProcessCandidateExperimentExecutor` | function | Execute one signed experiment cell through any declared exact-process provider. |
 | `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, the base URL, and |
+| `createProtectedExactProcessCandidateExperimentExecutor` | function | Compose host-owned execution ports with protected model access for one exact-process run. |
 | `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
 | `executeAgentCandidateExperimentCell` | function | Execute one exact arm, task, repetition, seed, and attempt through Runtime. |
 | `executeAgentImprovementActivation` | function | Validate and execute one product-owned activation transition. |
@@ -389,6 +390,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 132 exports.
 | `CertifiedPromptSourceOptions` | interface | Options for {@link createCertifiedPromptSource} — the pull coordinates plus |
 | `CertifiedPromptSurface` | interface | The active promoted prompt surface for a target. |
 | `CertProvenance` | interface | The certify lane's held-out lift travelling WITH delivery. The shipped |
+| `CreateProtectedExactProcessCandidateExperimentExecutorOptions` | interface | Builds the standard exact-process executor with model access that is scoped, |
 | `CredentialRef` | interface | A named secret a binding requires — declared, never carried. |
 | `DiffProvenance` | interface | The held-out provenance the plane's certify step stamps on a promoted diff. |
 | `DoctorReport` | interface | The `doctor()` readiness report — Mode-readiness without any network call. |
@@ -400,6 +402,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 132 exports.
 | `IntelligenceHookConfig` | interface | `withIntelligence` config = the Observe config plus the pull target, refresh |
 | `ModeReadiness` | interface | One mode's readiness verdict. |
 | `ProposedProfileDiff` | interface | A gate-certified profile diff the plane has already promoted, plus the |
+| `ProtectedExactProcessCandidateExperimentExecutor` | interface | Exact-process executor plus the ports required for durable recovery. |
 | `ProvisionedHost` | interface | A live, provisioned host the resolver tore up for a `process-on-infra` arm. |
 | `RecordTraceMeta` | interface | Metadata for {@link IntelligenceClient.recordTrace}. |
 | `RepoConfig` | interface | Repo coordinates a product may declare for the (later) Gated-PR mode. The |
@@ -414,6 +417,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 132 exports.
 | `TraceMeta` | interface | Metadata describing one traced run. `runId`/`traceId` default to fresh ids. |
 | `TraceOutcome` | interface | The resolved outcome of one traced run, surfaced on the export span and |
 | `UsageSplit` | interface | The per-class cost split carried by every trace and outcome. `off` ⇒ |
+| `AgentCandidateExecutionHostPorts` | type | Product-owned candidate ports other than protected model access. |
 | `AgentImprovementActivationReconciliation` | type | Target-read-only check for a prior exact write. |
 | `AgentImprovementActivationTransition` | type | Product-owned or Runtime-composed transition. |
 | `CapabilityAuth` | type | How a binding authenticates at resolve time. Declared as a REQUIREMENT in the |

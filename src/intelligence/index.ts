@@ -122,12 +122,16 @@ export {
   resolveEffort,
 } from './effort'
 export type {
+  AgentCandidateExecutionHostPorts,
   CreateExactProcessCandidateExperimentExecutorOptions,
+  CreateProtectedExactProcessCandidateExperimentExecutorOptions,
   ExactProcessCandidateExperimentExecution,
   ExactProcessCandidateExperimentExecutor,
+  ProtectedExactProcessCandidateExperimentExecutor,
 } from './exact-process-candidate'
 export {
   createExactProcessCandidateExperimentExecutor,
+  createProtectedExactProcessCandidateExperimentExecutor,
   exactProcessCandidateExperimentExecutionSupport,
 } from './exact-process-candidate'
 export type {
