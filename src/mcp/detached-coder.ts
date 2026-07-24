@@ -80,7 +80,7 @@ function coderRunProfile(options: CoderRunSpecOptions): AgentProfile {
   }
 }
 
-/** @experimental Build the `AgentRunSpec<CoderTask>` the sandbox-session `runLoop` path drives. */
+/** @experimental Build the `AgentRunSpec<CoderTask>` the sandbox-session `runAgentRounds` path drives. */
 export function coderRunSpec(options: CoderRunSpecOptions = {}): AgentRunSpec<CoderTask> {
   return {
     name: options.name ?? `coder-${options.harness ?? 'claude-code'}`,

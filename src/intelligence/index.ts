@@ -414,7 +414,7 @@ export interface IntelligenceClient {
   traceRun<T>(meta: TraceMeta, fn: (trace: TraceHandle) => Promise<T>): Promise<T>
   /**
    * Export a run's full loop topology — the ordered `LoopTraceEvent` stream a
-   * `runLoop`/`Supervisor` run emits — as a nested OTLP span tree (loop → round →
+   * `runAgentRounds`/`Supervisor` run emits — as a nested OTLP span tree (loop → round →
    * iteration) into ONE trace. Reuses the shipped `buildLoopOtelSpans` builder
    * (NO second span builder), so the topology a viewer renders matches the
    * kernel's. `traceId` defaults to a fresh id; `rootParentSpanId` parents the

@@ -1,6 +1,6 @@
 /**
  *
- * `runLoop` — the topology-agnostic kernel built atop the sandbox SDK.
+ * `runAgentRounds` — the topology-agnostic kernel built atop the sandbox SDK.
  *
  * Each iteration:
  *   1. `driver.plan(task, history)` → N tasks (1 = refine, N = fanout, 0 = stop)
@@ -70,7 +70,7 @@ const DEFAULT_MAX_ITERATIONS = 10
 const DEFAULT_MAX_CONCURRENCY = 4
 
 /** @experimental */
-export interface RunLoopOptions<Task, Output, Decision> {
+export interface RunAgentRoundsOptions<Task, Output, Decision> {
   driver: Driver<Task, Output, Decision>
   /**
    * Single agent spec — every iteration uses this profile. Mutually
@@ -136,27 +136,35 @@ export interface RunLoopOptions<Task, Output, Decision> {
 }
 
 /**
- * The round-synchronous loop kernel: each round `driver.plan()` fans N tasks to sandboxes (bounded concurrency), parses + validates each output, and folds results through `driver.decide`.
+ * The round-synchronous MULTI-AGENT kernel: each round `driver.plan()` fans N tasks
+ * out to N sandboxes (bounded concurrency), parses + validates each output, and folds
+ * the round's results through `driver.decide` — fanout → validate → vote/select →
+ * refine, repeated until the driver says stop. One call spans many agent sessions.
+ *
+ * Not to be confused with `runToolLoop` / `streamToolLoop` (package root entry): those
+ * run ONE chat turn against ONE model, dispatching the tool calls that turn emits and
+ * folding the results back in until the model stops calling tools. No sandboxes, no
+ * rounds, no winner selection.
  *
  * @experimental
  */
-export async function runLoop<Task, Output, Decision>(
-  options: RunLoopOptions<Task, Output, Decision>,
+export async function runAgentRounds<Task, Output, Decision>(
+  options: RunAgentRoundsOptions<Task, Output, Decision>,
 ): Promise<LoopResult<Task, Output, Decision>> {
   const specs = resolveAgentRuns(options)
   const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS
   if (!Number.isFinite(maxIterations) || maxIterations <= 0) {
-    throw new ValidationError('runLoop: maxIterations must be > 0')
+    throw new ValidationError('runAgentRounds: maxIterations must be > 0')
   }
   const maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY
   if (!Number.isFinite(maxConcurrency) || maxConcurrency <= 0) {
-    throw new ValidationError('runLoop: maxConcurrency must be > 0')
+    throw new ValidationError('runAgentRounds: maxConcurrency must be > 0')
   }
   // Default fresh-box path streaming mode (read regardless of lineage activation,
   // which gates on sessionContinuity/forkFanout — the bench uses neither).
   const sandboxStreaming = options.lineage?.streaming ?? 'sse'
   if (!options.ctx?.sandboxClient || typeof options.ctx.sandboxClient.create !== 'function') {
-    throw new ValidationError('runLoop: ctx.sandboxClient.create is required')
+    throw new ValidationError('runAgentRounds: ctx.sandboxClient.create is required')
   }
   const now = options.now ?? Date.now
   const runId = options.runId ?? `loop-${randomSuffix()}`
@@ -388,6 +396,25 @@ export async function runLoop<Task, Output, Decision>(
 }
 
 /**
+ * Pre-rename name for {@link runAgentRounds}; identical function, kept so existing
+ * call sites keep working.
+ *
+ * @deprecated Use {@link runAgentRounds}. The clearer name says what it is: the
+ * multi-agent fanout/vote/refine kernel over sandboxes, NOT the one-turn tool loop
+ * (`runToolLoop` / `streamToolLoop`, package root entry). `runLoop` shipped on `/loops`
+ * next to `routerToolLoop`, which made the two read as variants of one thing. The alias
+ * is removed in the next major.
+ */
+export const runLoop = runAgentRounds
+
+/**
+ * Pre-rename name for {@link RunAgentRoundsOptions}.
+ *
+ * @deprecated Use {@link RunAgentRoundsOptions}. Removed in the next major.
+ */
+export type RunLoopOptions<Task, Output, Decision> = RunAgentRoundsOptions<Task, Output, Decision>
+
+/**
  * Per-loop lineage state: the backend-blind lineage, the caller's opt-in flags,
  * and the live handle for each completed iteration so a later round can continue
  * or fork from it. `undefined` ⇒ no lineage; the kernel uses the fresh-box path.
@@ -415,7 +442,7 @@ interface LineageState {
  * box-ownership channel, and silently honoring one would leak or double-free.
  */
 async function setUpLineage<Task, Output, Decision>(
-  options: RunLoopOptions<Task, Output, Decision>,
+  options: RunAgentRoundsOptions<Task, Output, Decision>,
   maxConcurrency: number,
   recordMount: MountRecorder,
 ): Promise<LineageState | undefined> {
@@ -423,7 +450,7 @@ async function setUpLineage<Task, Output, Decision>(
   if (!lineageOpts || (!lineageOpts.sessionContinuity && !lineageOpts.forkFanout)) return undefined
   if (options.onWorkerBox) {
     throw new ValidationError(
-      'runLoop: `lineage` and `onWorkerBox` both own worker boxes — pass only one',
+      'runAgentRounds: `lineage` and `onWorkerBox` both own worker boxes — pass only one',
     )
   }
   const capabilities = await probeSandboxCapabilities(options.ctx.sandboxClient)
@@ -478,12 +505,14 @@ function planLineageRound<Task>(
   const parent = parentIndex !== undefined ? state.handles.get(parentIndex) : undefined
   const promptFor = (offset: number): string => {
     const spec = specs[offset % specs.length]
-    if (!spec) throw new ValidationError('runLoop: no AgentRunSpec available for lineage iteration')
+    if (!spec)
+      throw new ValidationError('runAgentRounds: no AgentRunSpec available for lineage iteration')
     return spec.taskToPrompt(slice[offset] as Task)
   }
   const specAt = (offset: number): AgentRunSpec<unknown> => {
     const spec = specs[offset % specs.length]
-    if (!spec) throw new ValidationError('runLoop: no AgentRunSpec available for lineage iteration')
+    if (!spec)
+      throw new ValidationError('runAgentRounds: no AgentRunSpec available for lineage iteration')
     return spec as AgentRunSpec<unknown>
   }
 
@@ -518,7 +547,7 @@ function planLineageRound<Task>(
         const branches = await ensureForked()
         const branch = branches[offset]
         if (!branch)
-          throw new ValidationError('runLoop: lineage fork produced no branch for offset')
+          throw new ValidationError('runAgentRounds: lineage fork produced no branch for offset')
         return branch
       },
     }))
@@ -648,9 +677,9 @@ interface ExecuteIterationArgs<Task, Output> extends RunBatchArgs<Task, Output> 
 async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, Output>) {
   const slot = args.iterations[args.item.index]
   if (!slot)
-    throw new ValidationError(`runLoop: missing iteration slot at index ${args.item.index}`)
+    throw new ValidationError(`runAgentRounds: missing iteration slot at index ${args.item.index}`)
   const spec = args.specs[args.item.index % args.specs.length]
-  if (!spec) throw new ValidationError('runLoop: no AgentRunSpec available for iteration')
+  if (!spec) throw new ValidationError('runAgentRounds: no AgentRunSpec available for iteration')
   slot.startedAt = args.now()
   slot.agentRunName = spec.name ?? spec.profile.name ?? 'agent'
 
@@ -948,7 +977,7 @@ async function invokePrepareBox<Task>(
 const noopMountRecorder: MountRecorder = () => {}
 
 interface FinalizeArgs<Task, Output, Decision> {
-  options: RunLoopOptions<Task, Output, Decision>
+  options: RunAgentRoundsOptions<Task, Output, Decision>
   decision: Decision
   iterations: Iteration<Task, Output>[]
   startMs: number
@@ -1049,7 +1078,7 @@ function defaultSelectorReason<Task, Output>(
  * share this exact sequence.
  */
 async function decideAndFinalize<Task, Output, Decision>(
-  options: RunLoopOptions<Task, Output, Decision>,
+  options: RunAgentRoundsOptions<Task, Output, Decision>,
   iterations: Iteration<Task, Output>[],
   startMs: number,
   now: () => number,
@@ -1083,7 +1112,7 @@ async function decideAndFinalize<Task, Output, Decision>(
 /** Finalize the loop and emit the terminal `loop.ended` span. Used by the
  *  in-loop terminal path (decision trace already emitted) and decideAndFinalize. */
 async function finalizeAndEmitEnded<Task, Output, Decision>(
-  options: RunLoopOptions<Task, Output, Decision>,
+  options: RunAgentRoundsOptions<Task, Output, Decision>,
   decision: Decision,
   iterations: Iteration<Task, Output>[],
   startMs: number,
@@ -1106,7 +1135,7 @@ async function finalizeAndEmitEnded<Task, Output, Decision>(
     },
   })
   // Await the terminal span (unlike a fire-and-forget) so a process exiting
-  // right after runLoop resolves (MCP subprocess / CLI dispatch) can't drop it.
+  // right after runAgentRounds resolves (MCP subprocess / CLI dispatch) can't drop it.
   await emitTrace(options.ctx.traceEmitter, {
     kind: 'loop.ended',
     runId,
@@ -1150,14 +1179,14 @@ export function defaultSelectWinner<Task, Output>(
 }
 
 function resolveAgentRuns<Task, Output, Decision>(
-  options: RunLoopOptions<Task, Output, Decision>,
+  options: RunAgentRoundsOptions<Task, Output, Decision>,
 ): AgentRunSpec<Task>[] {
   if (options.agentRun && options.agentRuns) {
-    throw new ValidationError('runLoop: pass exactly one of `agentRun` or `agentRuns`')
+    throw new ValidationError('runAgentRounds: pass exactly one of `agentRun` or `agentRuns`')
   }
   if (options.agentRun) return [options.agentRun]
   if (options.agentRuns && options.agentRuns.length > 0) return options.agentRuns
-  throw new ValidationError('runLoop: `agentRun` or non-empty `agentRuns` is required')
+  throw new ValidationError('runAgentRounds: `agentRun` or non-empty `agentRuns` is required')
 }
 
 function isTerminalDecision(decision: unknown): boolean {
@@ -1167,7 +1196,7 @@ function isTerminalDecision(decision: unknown): boolean {
 }
 
 function emitRunLoopHook<Task, Output, Decision>(
-  options: RunLoopOptions<Task, Output, Decision>,
+  options: RunAgentRoundsOptions<Task, Output, Decision>,
   event: {
     target: 'agent.run' | 'agent.plan' | 'agent.decision'
     phase: 'before' | 'after' | 'error' | 'event'

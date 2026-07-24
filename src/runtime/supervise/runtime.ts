@@ -6,7 +6,7 @@
  *
  * The interface is the extension point, not a closed `inline|sandbox|cli` union:
  *   - router/inline : a direct OpenAI-compatible Router call, no box (one-shot).
- *   - sandbox       : COMPOSES the existing `runLoop` kernel as a single-task
+ *   - sandbox       : COMPOSES the existing `runAgentRounds` kernel as a single-task
  *                     leaf and surfaces its token/cost usage as `UsageEvent`s;
  *                     forwards PR #150's optional `lineage` passthrough WITHOUT
  *                     reinventing checkpoint/fork (streaming).
@@ -18,7 +18,7 @@
  * pass it as `AgentSpec.executor`.
  *
  * Layering: `estimateCost`/`isModelPriced` are substrate primitives from
- * `@tangle-network/agent-eval`; `runLoop`/`acquireSandbox` are runtime kernels
+ * `@tangle-network/agent-eval`; `runAgentRounds`/`acquireSandbox` are runtime kernels
  * from this package. No per-vendor adapters live here.
  *
  * @experimental
@@ -53,8 +53,8 @@ import {
   resolveAgentEnvironmentProvider,
 } from '../environment-provider'
 import { routerChatWithUsage, type ToolSpec } from '../router-client'
-import type { RunLoopOptions } from '../run-loop'
-import { runLoop } from '../run-loop'
+import type { RunAgentRoundsOptions } from '../run-loop'
+import { runAgentRounds } from '../run-loop'
 import type {
   AgentRunSpec,
   Driver,
@@ -97,29 +97,29 @@ export interface RouterSeam {
 }
 
 /**
- * Sandbox executor seam. The `sandboxClient` the composed `runLoop` creates
+ * Sandbox executor seam. The `sandboxClient` the composed `runAgentRounds` creates
  * boxes through, plus the optional trace/run/lineage wiring forwarded into the
- * loop. `lineage` is opaque here (PR #150's `RunLoopOptions.lineage`): forwarded
+ * loop. `lineage` is opaque here (PR #150's `RunAgentRoundsOptions.lineage`): forwarded
  * forward-compatibly, never inspected — this executor does NOT reinvent
  * checkpoint/fork.
  */
 export interface SandboxSeam {
   sandboxClient: SandboxClient
-  /** Forwarded into the composed `runLoop`'s `ctx` (trace emitter, run handle, etc.). */
+  /** Forwarded into the composed `runAgentRounds`'s `ctx` (trace emitter, run handle, etc.). */
   loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
-  /** PR #150 `RunLoopOptions.lineage` passthrough — opaque; forwarded, not parsed. */
+  /** PR #150 `RunAgentRoundsOptions.lineage` passthrough — opaque; forwarded, not parsed. */
   lineage?: unknown
   /** Hard cap on the composed loop's iterations. The budget pool reserves against
    *  the spawn `Budget.maxIterations`; this is the leaf's own ceiling. Default 1. */
   maxIterations?: number
   /**
    * OPT-IN: run this worker as a multi-turn, STEERABLE session instead of the historical
-   * single-shot `runLoop` composition. Setting it gives the sandbox worker an `Executor.deliver`
+   * single-shot `runAgentRounds` composition. Setting it gives the sandbox worker an `Executor.deliver`
    * inbox (so `Scope.send` / `steer_agent` actually reach it), a live tool-activity trace, and a
    * `progress()` read — turning the default cloud worker from something a supervisor can only
    * wait on into something it can watch and correct.
    *
-   * Absent, nothing changes: the same `runLoop` leaf, no inbox, `steer_agent` still reports
+   * Absent, nothing changes: the same `runAgentRounds` leaf, no inbox, `steer_agent` still reports
    * `delivered:false`. Opt-in because a steerable worker holds ONE box across several turns,
    * which is a different resource profile from a fire-and-forget shot.
    */
@@ -571,7 +571,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
 // ── sandbox executor (harness is a BackendType) ────────────────────────────────
 
 /**
- * COMPOSES `runLoop` as a single-task leaf: one box, a refine driver bounded to
+ * COMPOSES `runAgentRounds` as a single-task leaf: one box, a refine driver bounded to
  * the seam's `maxIterations` (default 1), the spec's profile as the agent run.
  * Surfaces the loop's aggregated `tokenUsage` + `costUsd` as `UsageEvent`s after
  * it drains, and yields one `iteration` event per loop iteration. Forwards the
@@ -675,7 +675,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       })
     },
     teardown(_grace): Promise<{ destroyed: boolean }> {
-      // The composed runLoop owns its box teardown (finally{allSettled(destroy)});
+      // The composed runAgentRounds owns its box teardown (finally{allSettled(destroy)});
       // aborting the loop's signal cascades into that barrier.
       controller.abort()
       return Promise.resolve({ destroyed: true })
@@ -724,7 +724,7 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
   }
   const started = Date.now()
 
-  // `lineage` is a PR #150 RunLoopOptions field absent on this branch — forwarded
+  // `lineage` is a PR #150 RunAgentRoundsOptions field absent on this branch — forwarded
   // forward-compatibly without coupling to its (not-yet-present) static type.
   const loopOptions = {
     driver: args.driver,
@@ -739,10 +739,10 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
       signal: linked.signal,
     } as ExecCtx,
     ...(args.seam.lineage !== undefined ? { lineage: args.seam.lineage } : {}),
-  } as RunLoopOptions<unknown, SandboxLeafOut, string>
+  } as RunAgentRoundsOptions<unknown, SandboxLeafOut, string>
 
   try {
-    const result = await runLoop(loopOptions)
+    const result = await runAgentRounds(loopOptions)
     const out = result.winner?.output ?? { events: [] }
     const verdict = result.winner?.verdict
     const spent: Spend = {
@@ -1692,7 +1692,7 @@ export function createExecutorRegistry(): ExecutorRegistry {
         if (!f) return { succeeded: false, error: 'executor registry: no "router" factory' }
         return { succeeded: true, value: f as ExecutorFactory<Out> }
       }
-      // sandbox: any BackendType maps to the sandbox-composing-runLoop executor.
+      // sandbox: any BackendType maps to the sandbox-composing-runAgentRounds executor.
       const runtimeTag: Runtime = 'sandbox'
       const f = factories.get(runtimeTag)
       if (!f) {
@@ -1743,7 +1743,7 @@ function taskToMessages(task: unknown, spec: AgentSpec): Array<{ role: string; c
 }
 
 /** A driver that refines a single task up to `maxIterations` times then stops —
- *  the minimal policy that lets the sandbox executor run `runLoop` as one leaf. */
+ *  the minimal policy that lets the sandbox executor run `runAgentRounds` as one leaf. */
 function singleShotDriver<Out>(maxIterations: number): Driver<unknown, Out, string> {
   return {
     name: 'leaf',

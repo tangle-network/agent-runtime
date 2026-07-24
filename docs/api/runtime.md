@@ -2770,7 +2770,7 @@ Defined in: [src/runtime/loop-dispatch.ts:49](https://github.com/tangle-network/
 
 Defined in: [src/runtime/loop-dispatch.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L57)
 
-Sandbox client used for every cell's `runLoop`. Supplied once.
+Sandbox client used for every cell's `runAgentRounds`. Supplied once.
 
 ##### toLoopOptions
 
@@ -2778,7 +2778,7 @@ Sandbox client used for every cell's `runLoop`. Supplied once.
 
 Defined in: [src/runtime/loop-dispatch.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L60)
 
-Build the per-cell runLoop options from the scenario (+ profile, when
+Build the per-cell runAgentRounds options from the scenario (+ profile, when
  used with `runProfileMatrix`).
 
 ###### Parameters
@@ -2874,7 +2874,7 @@ Resolve the model actually served from the completed loop.
 
 Defined in: [src/runtime/loop-dispatch.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L186)
 
-Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells.
+Options for adapting plain agent-eval campaign scenarios into runtime `runAgentRounds` cells.
 
 #### Type Parameters
 
@@ -2906,7 +2906,7 @@ Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` 
 
 Defined in: [src/runtime/loop-dispatch.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L194)
 
-Sandbox client used for every campaign cell's `runLoop`.
+Sandbox client used for every campaign cell's `runAgentRounds`.
 
 ##### toLoopOptions
 
@@ -2914,7 +2914,7 @@ Sandbox client used for every campaign cell's `runLoop`.
 
 Defined in: [src/runtime/loop-dispatch.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L196)
 
-Build the per-cell runLoop options from the campaign scenario.
+Build the per-cell runAgentRounds options from the campaign scenario.
 
 ###### Parameters
 
@@ -6416,6 +6416,208 @@ The non-dominated strategies on (score ↑, $/task ↓) — collapse-last, per t
 Defined in: [src/runtime/run-benchmark.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L108)
 
 The headline when both `refine` and `sample` ran: paired-bootstrap lift of refine over sample.
+
+***
+
+### RunAgentRoundsOptions
+
+Defined in: [src/runtime/run-loop.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L73)
+
+**`Experimental`**
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+##### Output
+
+`Output`
+
+##### Decision
+
+`Decision`
+
+#### Properties
+
+##### driver
+
+> **driver**: [`Driver`](#driver-2)\<`Task`, `Output`, `Decision`\>
+
+Defined in: [src/runtime/run-loop.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L74)
+
+**`Experimental`**
+
+##### agentRun?
+
+> `optional` **agentRun?**: [`AgentRunSpec`](#agentrunspec)\<`Task`\>
+
+Defined in: [src/runtime/run-loop.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L79)
+
+**`Experimental`**
+
+Single agent spec — every iteration uses this profile. Mutually
+exclusive with `agentRuns`.
+
+##### agentRuns?
+
+> `optional` **agentRuns?**: [`AgentRunSpec`](#agentrunspec)\<`Task`\>[]
+
+Defined in: [src/runtime/run-loop.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L85)
+
+**`Experimental`**
+
+Multiple specs for heterogeneous fanout. The kernel round-robins
+through them when the driver plans N tasks. Mutually exclusive with
+`agentRun`.
+
+##### output
+
+> **output**: [`OutputAdapter`](#outputadapter)\<`Output`\>
+
+Defined in: [src/runtime/run-loop.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L86)
+
+**`Experimental`**
+
+##### validator?
+
+> `optional` **validator?**: [`Validator`](#validator-1)\<`Output`, `DefaultVerdict`\>
+
+Defined in: [src/runtime/run-loop.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L87)
+
+**`Experimental`**
+
+##### task
+
+> **task**: `Task`
+
+Defined in: [src/runtime/run-loop.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L88)
+
+**`Experimental`**
+
+##### ctx
+
+> **ctx**: [`ExecCtx`](#execctx)
+
+Defined in: [src/runtime/run-loop.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L89)
+
+**`Experimental`**
+
+##### maxIterations?
+
+> `optional` **maxIterations?**: `number`
+
+Defined in: [src/runtime/run-loop.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L91)
+
+**`Experimental`**
+
+Default 10. Hard cap on total iterations across all `plan()` rounds.
+
+##### maxConcurrency?
+
+> `optional` **maxConcurrency?**: `number`
+
+Defined in: [src/runtime/run-loop.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L93)
+
+**`Experimental`**
+
+Default 4. In-flight worker cap within a single `plan()` batch.
+
+##### runId?
+
+> `optional` **runId?**: `string`
+
+Defined in: [src/runtime/run-loop.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L98)
+
+**`Experimental`**
+
+Pre-allocated id for trace correlation. Default = `loop-${random}`.
+Surfaces as `runId` on every emitted `LoopTraceEvent`.
+
+##### now?
+
+> `optional` **now?**: () => `number`
+
+Defined in: [src/runtime/run-loop.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L103)
+
+**`Experimental`**
+
+Clock override; default `Date.now`. Deterministic tests pass a
+monotonic counter to stabilize iteration timing fields.
+
+###### Returns
+
+`number`
+
+##### selectWinner?
+
+> `optional` **selectWinner?**: (`iterations`) => [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
+
+Defined in: [src/runtime/run-loop.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L108)
+
+**`Experimental`**
+
+Override the default winner selector (highest-valid-score, ties broken
+by earliest iteration).
+
+###### Parameters
+
+###### iterations
+
+[`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
+
+###### Returns
+
+[`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
+
+##### onWorkerBox?
+
+> `optional` **onWorkerBox?**: (`box`) => `void`
+
+Defined in: [src/runtime/run-loop.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L123)
+
+**`Experimental`**
+
+Same-sandbox driver mode — a kernel→caller out-channel, not a value handed
+in. When set, the kernel keeps each finished worker box alive across the
+`plan()` boundary and hands it here, so a same-sandbox planner
+(one that reuses the worker's box) can stream its move INTO the
+worker's live box — steering from the worker's real filesystem and state,
+not just a history summary. The kernel owns teardown: every box kept alive
+this way is destroyed at loop end (and the callback is invoked with
+`undefined` then as a teardown sentinel). Without it, worker boxes are torn
+down per-iteration (default) and a same-sandbox planner has nothing to
+reuse. Intended for single-worker (refine) loops: under fanout every box is
+still kept for teardown, but only the last-finishing box is handed here, so
+a planner sees an arbitrary branch's filesystem — pair it with refine.
+
+###### Parameters
+
+###### box
+
+`SandboxInstance` \| `undefined`
+
+###### Returns
+
+`void`
+
+##### lineage?
+
+> `optional` **lineage?**: [`LoopLineageOptions`](#looplineageoptions)
+
+Defined in: [src/runtime/run-loop.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L135)
+
+**`Experimental`**
+
+Opt-in box-lineage controls. Default OFF — unset means every iteration
+acquires a fresh box, streams once, and tears it down (today's behavior,
+byte-identical). With `sessionContinuity` on, a refine round continues the
+parent iteration's session on its live box; with `forkFanout` on (and a
+fork-capable platform), a fanout round forks the parent's checkpoint so the
+branches share a context prefix. The lineage owns every box it starts or
+forks and tears them all down at loop end — so these paths are mutually
+exclusive with `onWorkerBox`, which claims the same box-ownership channel.
 
 ***
 
@@ -12067,7 +12269,7 @@ Defined in: [src/runtime/supervise/runtime.ts:219](https://github.com/tangle-net
 Defined in: [src/runtime/supervise/sandbox-session.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/sandbox-session.ts#L60)
 
 Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the
- sandbox executor keeps its historical single-shot `runLoop` composition verbatim.
+ sandbox executor keeps its historical single-shot `runAgentRounds` composition verbatim.
 
 #### Properties
 
@@ -13220,7 +13422,7 @@ streaming ones; a streaming executor reports incremental normalized usage as it 
 meters every runtime identically.
 
 Built-in implementations (in `runtime.ts`, NOT variants here): router/inline (a direct
-Router/HTTP inference call, no box), sandbox (COMPOSES `runLoop` as a leaf, forwarding
+Router/HTTP inference call, no box), sandbox (COMPOSES `runAgentRounds` as a leaf, forwarding
 PR #150's optional `lineage` passthrough — does NOT reinvent checkpoint/fork), cli
 (Halo/RLM subprocess; `budgetExempt`, excluded from equal-k by construction). A user's
 own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this interface.
@@ -13454,7 +13656,7 @@ executor through this MINIMAL wrapper, never by fabricating a field onto `AgentP
 Resolution (in `runtime.ts`):
  - `executor` present        → BYO: use it verbatim (a user's own `Executor`).
  - `harness === null`        → router/inline: a direct Router call, no box.
- - `harness` is a `BackendType` → sandbox: compose `runLoop` against `profile` on that backend.
+ - `harness` is a `BackendType` → sandbox: compose `runAgentRounds` against `profile` on that backend.
 Fail loud on an unresolvable spec (no executor and an unknown harness).
 
 #### Properties
@@ -14339,7 +14541,7 @@ Defined in: [src/runtime/supervise/types.ts:626](https://github.com/tangle-netwo
 Defined in: [src/runtime/supervise/types.ts:629](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L629)
 
 Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
- same `agent.spawn`/`agent.child` stream `runLoop` feeds — one observable recursive tree.
+ same `agent.spawn`/`agent.child` stream `runAgentRounds` feeds — one observable recursive tree.
 
 ***
 
@@ -15828,7 +16030,7 @@ Defined in: [src/runtime/types.ts:254](https://github.com/tangle-network/agent-r
 
 Optional: the driver AUTHORS the winner instead of the kernel's argmax. The
 kernel consults this at finalize ONLY when the caller did not pass an explicit
-`selectWinner` to runLoop. Return the driver-declared winner (e.g. from a
+`selectWinner` to runAgentRounds. Return the driver-declared winner (e.g. from a
 `select` topology move) or `undefined` to fall through to the default
 (best-valid-score, earliest index). This is the SELECTOR role made
 agent-authorable — the planner runs the selection, not the kernel.
@@ -16121,7 +16323,7 @@ Defined in: [src/runtime/types.ts:350](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
-Opt-in box-lineage controls for `runLoop`. Default OFF — with both flags
+Opt-in box-lineage controls for `runAgentRounds`. Default OFF — with both flags
 unset the kernel's per-iteration behavior is byte-identical to acquiring a
 fresh box, streaming once, and tearing it down. The independence of N fresh
 boxes (e.g. `random@k`) is a compute-control invariant; these flags must
@@ -16753,7 +16955,7 @@ Defined in: [src/runtime/types.ts:558](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
-Execution context for `runLoop`: the sandbox client the kernel creates boxes through, plus optional runtime hooks.
+Execution context for `runAgentRounds`: the sandbox client the kernel creates boxes through, plus optional runtime hooks.
 
 #### Properties
 
@@ -17325,11 +17527,11 @@ async iterable for streaming. The callback may also write files into
 
 ### LoopOptionsForDispatch
 
-> **LoopOptionsForDispatch**\<`Task`, `Output`, `Decision`\> = `Omit`\<`RunLoopOptions`\<`Task`, `Output`, `Decision`\>, `"ctx"`\>
+> **LoopOptionsForDispatch**\<`Task`, `Output`, `Decision`\> = `Omit`\<[`RunAgentRoundsOptions`](#runagentroundsoptions)\<`Task`, `Output`, `Decision`\>, `"ctx"`\>
 
 Defined in: [src/runtime/loop-dispatch.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L44)
 
-runLoop options minus the `ctx` (loopDispatch builds the ctx).
+runAgentRounds options minus the `ctx` (loopDispatch builds the ctx).
 
 #### Type Parameters
 
@@ -17880,6 +18082,34 @@ Defined in: [src/runtime/run-benchmark.ts:30](https://github.com/tangle-network/
 
 A checkable task domain — implement these 5 hooks and the suite does the rest. The
  same seam as `AgenticSurface`; `Environment` is the RL/gym-standard name for it.
+
+***
+
+### ~~RunLoopOptions~~
+
+> **RunLoopOptions**\<`Task`, `Output`, `Decision`\> = [`RunAgentRoundsOptions`](#runagentroundsoptions)\<`Task`, `Output`, `Decision`\>
+
+Defined in: [src/runtime/run-loop.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L415)
+
+Pre-rename name for [RunAgentRoundsOptions](#runagentroundsoptions).
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+##### Output
+
+`Output`
+
+##### Decision
+
+`Decision`
+
+#### Deprecated
+
+Use [RunAgentRoundsOptions](#runagentroundsoptions). Removed in the next major.
 
 ***
 
@@ -18889,6 +19119,61 @@ The default registry `runPersonified` resolves a shape name against. Empty by co
 
 ***
 
+### ~~runLoop~~
+
+> `const` **runLoop**: \<`Task`, `Output`, `Decision`\>(`options`) => `Promise`\<[`LoopResult`](#loopresult)\<`Task`, `Output`, `Decision`\>\> = `runAgentRounds`
+
+Defined in: [src/runtime/run-loop.ts:408](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L408)
+
+Pre-rename name for [runAgentRounds](#runagentrounds); identical function, kept so existing
+call sites keep working.
+
+**`Experimental`**
+
+The round-synchronous MULTI-AGENT kernel: each round `driver.plan()` fans N tasks
+out to N sandboxes (bounded concurrency), parses + validates each output, and folds
+the round's results through `driver.decide` — fanout → validate → vote/select →
+refine, repeated until the driver says stop. One call spans many agent sessions.
+
+Not to be confused with `runToolLoop` / `streamToolLoop` (package root entry): those
+run ONE chat turn against ONE model, dispatching the tool calls that turn emits and
+folding the results back in until the model stops calling tools. No sandboxes, no
+rounds, no winner selection.
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+##### Output
+
+`Output`
+
+##### Decision
+
+`Decision`
+
+#### Parameters
+
+##### options
+
+[`RunAgentRoundsOptions`](#runagentroundsoptions)\<`Task`, `Output`, `Decision`\>
+
+#### Returns
+
+`Promise`\<[`LoopResult`](#loopresult)\<`Task`, `Output`, `Decision`\>\>
+
+#### Deprecated
+
+Use [runAgentRounds](#runagentrounds). The clearer name says what it is: the
+multi-agent fanout/vote/refine kernel over sandboxes, NOT the one-turn tool loop
+(`runToolLoop` / `streamToolLoop`, package root entry). `runLoop` shipped on `/loops`
+next to `routerToolLoop`, which made the two read as variants of one thing. The alias
+is removed in the next major.
+
+***
+
 ### strategyAuthorContract
 
 > `const` **strategyAuthorContract**: "\nYou author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to\nspend a compute budget to beat a task's deployable check. You compose exactly two steps:\n\n  shot(spec?: \{ handle?, messages?, steer?, persona?, tools? \}): Promise\<ShotResult \| null\>\n    Runs ONE worker attempt (a bounded tool loop) over an artifact.\n    - omit handle  =\> the shot opens its OWN fresh artifact and closes it after (a sample).\n    - pass handle  =\> the shot CONTINUES that artifact (state accumulates across shots).\n    - messages     =\> the carried conversation (pass the previous ShotResult.messages to continue).\n    - steer        =\> a corrective instruction injected before the shot.\n    - persona      =\> \{ systemPrompt?, model? \} — give THIS shot its own role and/or model\n      (multi-agent strategies: a researcher shot then an engineer shot, a panel of k\n      personas over one budget). On a fresh shot the systemPrompt replaces the task's; on\n      a carried conversation it arrives as a hand-off message. Same conserved budget.\n    - tools        =\> string\[\] — restrict THIS shot to a subset of the task's tools by\n      name (focus an explore shot on read-only tools, an execute shot on write tools).\n      Restriction-only; unknown names make the shot fail. ALWAYS select from\n      await listTools(handle) — never hardcode. Omitted =\> the shot sees every tool.\n    ShotResult = \{ messages, score (0..1 on the task's check), passes, total, completions, toolErrors \}\n    Returns null if the attempt failed infra-wise.\n\n  critique(messages): Promise\<string \| null\>\n    A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective\n    instruction (or null when it judges the work complete). Costs ~1 completion.\n\n  consult(messages, instruction): Promise\<string \| null\>\n    The RAW analyst channel: the same firewalled critic answers YOUR instruction over the\n    trajectory verbatim (no reformatting) — use it when you need a specific reply format\n    (a decision, a prediction). Costs ~1 completion.\n\n  surface.open(task) / surface.close(handle)\n    Open a persistent artifact you manage yourself (remember to close in a finally).\n    close is idempotent — closing an already-closed handle is a safe no-op.\n\n  listTools(handle): Promise\<Array\<\{ name, description? \}\>\>\n    The tools THIS task actually offers. TOOL SETS VARY PER TASK — if you restrict a\n    shot with \`tools\`, you MUST pick names from await listTools(handle); hardcoding\n    names from an example kills your shots on every task whose tools differ.\n\nRules:\n- ALWAYS await every shot/critique/surface call — a floating promise that rejects\n  crashes the whole benchmark run.\n- Stay within ~budget total shots; every shot/critique spends from a conserved pool.\n- For a FRESH attempt OMIT \`messages\` entirely (never pass \`\[\]\` — an empty array is a\n  fresh conversation too, but be explicit). To CONTINUE, pass the previous\n  ShotResult.messages unchanged.\n- Return \{ score, resolved, completions, progression, shots \} — score = the BEST checkpoint\n  you reached (keep-best, never final-state), progression = score after each shot.\n- The module must be EXACTLY this shape (no other imports, no commentary outside code):\n\nimport \{ defineStrategy \} from '@tangle-network/agent-runtime/loops'\nexport default defineStrategy('your-strategy-name', async (\{ surface, task, budget, shot, critique, listTools \}) =\> \{\n  // your composition (listTools comes from the destructured context — it is NOT a global)\n\})\n"
@@ -19614,7 +19899,7 @@ Defined in: [src/runtime/in-process-sandbox-client.ts:116](https://github.com/ta
 **`Experimental`**
 
 Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for
-`runLoop` / `openSandboxRun`. Returns a PROPERLY-TYPED `SandboxClient`: the
+`runAgentRounds` / `openSandboxRun`. Returns a PROPERLY-TYPED `SandboxClient`: the
 lone `SandboxInstance` cast (object literal → `declare class`) lives inside
 this function, so call sites stay cast-free.
 
@@ -19636,7 +19921,7 @@ this function, so call sites stay cast-free.
 
 Defined in: [src/runtime/inline-sandbox-client.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/inline-sandbox-client.ts#L44)
 
-Adapt an `ExecutorFactory` into a `SandboxClient` for `runLoop`. The factory is
+Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is
 instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
 run once on the prompt, emit the terminal result event, tear down.
 
@@ -19797,7 +20082,7 @@ the runtime loop here, and keep cost + token + trace reporting automatic.
 Defined in: [src/runtime/loop-dispatch.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L240)
 
 Adapter for `runProfileMatrix` (profile is an axis). Returns a
-`ProfileDispatchFn` that runs `runLoop` per (profile, scenario) cell and
+`ProfileDispatchFn` that runs `runAgentRounds` per (profile, scenario) cell and
 reports usage automatically.
 
 #### Type Parameters
@@ -20875,15 +21160,23 @@ Pretty-print a report — the "free optimization" verdict, with the cost vector.
 
 ***
 
-### runLoop()
+### runAgentRounds()
 
-> **runLoop**\<`Task`, `Output`, `Decision`\>(`options`): `Promise`\<[`LoopResult`](#loopresult)\<`Task`, `Output`, `Decision`\>\>
+> **runAgentRounds**\<`Task`, `Output`, `Decision`\>(`options`): `Promise`\<[`LoopResult`](#loopresult)\<`Task`, `Output`, `Decision`\>\>
 
-Defined in: [src/runtime/run-loop.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L143)
+Defined in: [src/runtime/run-loop.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L151)
 
 **`Experimental`**
 
-The round-synchronous loop kernel: each round `driver.plan()` fans N tasks to sandboxes (bounded concurrency), parses + validates each output, and folds results through `driver.decide`.
+The round-synchronous MULTI-AGENT kernel: each round `driver.plan()` fans N tasks
+out to N sandboxes (bounded concurrency), parses + validates each output, and folds
+the round's results through `driver.decide` — fanout → validate → vote/select →
+refine, repeated until the driver says stop. One call spans many agent sessions.
+
+Not to be confused with `runToolLoop` / `streamToolLoop` (package root entry): those
+run ONE chat turn against ONE model, dispatching the tool calls that turn emits and
+folding the results back in until the model stops calling tools. No sandboxes, no
+rounds, no winner selection.
 
 #### Type Parameters
 
@@ -20903,7 +21196,7 @@ The round-synchronous loop kernel: each round `driver.plan()` fans N tasks to sa
 
 ##### options
 
-`RunLoopOptions`\<`Task`, `Output`, `Decision`\>
+[`RunAgentRoundsOptions`](#runagentroundsoptions)\<`Task`, `Output`, `Decision`\>
 
 #### Returns
 
@@ -20915,7 +21208,7 @@ The round-synchronous loop kernel: each round `driver.plan()` fans N tasks to sa
 
 > **defaultSelectWinner**\<`Task`, `Output`\>(`iterations`): [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
 
-Defined in: [src/runtime/run-loop.ts:1131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1131)
+Defined in: [src/runtime/run-loop.ts:1160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1160)
 
 The kernel's winner argmax — best-valid-score, ties broken by earliest index,
 falling back to the best-scoring non-errored output when none is valid. Exported
@@ -21319,7 +21612,7 @@ refuses local processes. A profile with no MCP surface returns zero tools.
 
 ### naiveDriver()
 
-> **naiveDriver**\<`Task`, `Output`\>(`options`): [`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+> **naiveDriver**\<`Task`, `Output`\>(`options`): [`Driver`](#driver-2)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
 Defined in: [src/runtime/steering-drivers.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L109)
 
@@ -21351,13 +21644,13 @@ attributable to the grader's findings.
 
 #### Returns
 
-[`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+[`Driver`](#driver-2)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
 ***
 
 ### dumbDriver()
 
-> **dumbDriver**\<`Task`, `Output`\>(`options`): [`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+> **dumbDriver**\<`Task`, `Output`\>(`options`): [`Driver`](#driver-2)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
 Defined in: [src/runtime/steering-drivers.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L168)
 
@@ -21392,7 +21685,7 @@ exactly the value the findings add over a bare boolean.
 
 #### Returns
 
-[`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+[`Driver`](#driver-2)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
 ***
 

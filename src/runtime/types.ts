@@ -245,7 +245,7 @@ export interface Driver<Task, Output, Decision> {
   /**
    * Optional: the driver AUTHORS the winner instead of the kernel's argmax. The
    * kernel consults this at finalize ONLY when the caller did not pass an explicit
-   * `selectWinner` to runLoop. Return the driver-declared winner (e.g. from a
+   * `selectWinner` to runAgentRounds. Return the driver-declared winner (e.g. from a
    * `select` topology move) or `undefined` to fall through to the default
    * (best-valid-score, earliest index). This is the SELECTOR role made
    * agent-authorable — the planner runs the selection, not the kernel.
@@ -327,7 +327,7 @@ export interface SandboxClient {
 }
 
 /**
- * Opt-in box-lineage controls for `runLoop`. Default OFF — with both flags
+ * Opt-in box-lineage controls for `runAgentRounds`. Default OFF — with both flags
  * unset the kernel's per-iteration behavior is byte-identical to acquiring a
  * fresh box, streaming once, and tearing it down. The independence of N fresh
  * boxes (e.g. `random@k`) is a compute-control invariant; these flags must
@@ -551,7 +551,7 @@ export interface LoopTeardownFailedPayload {
 }
 
 /**
- * Execution context for `runLoop`: the sandbox client the kernel creates boxes through, plus optional runtime hooks.
+ * Execution context for `runAgentRounds`: the sandbox client the kernel creates boxes through, plus optional runtime hooks.
  *
  * @experimental
  */

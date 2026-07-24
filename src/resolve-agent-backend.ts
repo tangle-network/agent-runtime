@@ -4,7 +4,7 @@
  * sandbox}` choice into the `AgentExecutionBackend` the chat leg runs on.
  *
  * It is the `AgentExecutionBackend` sibling of `resolveSandboxClient` (which
- * resolves the `SandboxClient` a `runLoop` drives). Both exist for the same
+ * resolves the `SandboxClient` a `runAgentRounds` drives). Both exist for the same
  * reason: every in-process eval product hand-rolled the identical
  * "`backend-name` → `createOpenAICompatibleBackend`" branch, and the copies
  * drift. This is the single generic resolver they share.

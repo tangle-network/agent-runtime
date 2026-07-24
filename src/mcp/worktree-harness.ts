@@ -5,7 +5,7 @@
  * worktree off `repoRoot`, capture the diff, derive the test/typecheck PASS signals, then clean
  * up — lives here ONCE. Two executors adapt it to two ports without re-implementing it:
  *   - `createWorktreeCliExecutor` — the `Scope`/`Supervisor` leaf `Executor`.
- *   - `createInProcessExecutor`   — the `runLoop` `SandboxClient` / coder-delegate path.
+ *   - `createInProcessExecutor`   — the `runAgentRounds` `SandboxClient` / coder-delegate path.
  *
  * §1.5 by construction: prompt + model reach the direct invocation, while file-backed resources
  * are lowered by the shared profile materializer and applied before spawn. Resource instructions

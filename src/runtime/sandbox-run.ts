@@ -26,7 +26,7 @@
  * reconnect/replay (the SDK + platform own per-session buffering + `Last-Event-ID`);
  * no fork verb (platform CRIU is probe-gated and currently absent — fork lives in
  * `SandboxLineage.fork` behind the capability probe, surfaced only if it returns).
- * It is also distinct from `runLoop`: `runLoop` is the multi-round, driver-driven
+ * It is also distinct from `runAgentRounds`: `runAgentRounds` is the multi-round, driver-driven
  * kernel (fresh box per round, events deliverable); this is a SINGLE rollout +
  * artifact-or-events deliverable + resume over ONE persistent box.
  */

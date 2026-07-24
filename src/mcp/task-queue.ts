@@ -8,7 +8,7 @@
  * Each `submit` returns a `taskId` immediately and kicks the work off in the
  * background. The work function receives an `AbortSignal` the queue fires
  * when `cancel(taskId)` is called. The queue does NOT supervise runtime
- * timeouts — the underlying `runLoop` driver / sandbox imposes those.
+ * timeouts — the underlying `runAgentRounds` driver / sandbox imposes those.
  *
  * Idempotency: callers may supply an `idempotencyKey` (hash of the input).
  * A duplicate `submit` with a known key returns the existing task instead of
@@ -146,7 +146,7 @@ export interface DelegationRunContext {
    * Per-delegation loop-trace sink, always provided by the queue. Events
    * emitted here are journaled onto the record as a compact span tree
    * (`record.trace`) when each loop run ends and at the delegation's
-   * terminal transition. Delegates forward it into their `runLoop` ctx,
+   * terminal transition. Delegates forward it into their `runAgentRounds` ctx,
    * composed with any process-wide OTEL emitter
    * (`composeLoopTraceEmitters`). Optional in the type so consumer-built
    * contexts stay source-compatible.

@@ -1,7 +1,7 @@
 /**
- * `loopDispatch` — turn `runLoop` into an agent-eval campaign dispatch.
+ * `loopDispatch` — turn `runAgentRounds` into an agent-eval campaign dispatch.
  *
- * Without this adapter a consumer wiring `runLoop` into `runProfileMatrix` /
+ * Without this adapter a consumer wiring `runAgentRounds` into `runProfileMatrix` /
  * `runCampaign` has to, by hand, every time: (a) build an `ExecCtx` with a
  * sandbox client, (b) adapt the campaign `DispatchContext.trace` into a
  * `LoopTraceEmitter` (or lose all loop trace correlation), and (c) remember to
@@ -37,12 +37,12 @@ import type {
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
-import { type RunLoopOptions, runLoop } from './run-loop'
+import { type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 import type { LoopResult, LoopTraceEmitter, SandboxClient } from './types'
 
-/** runLoop options minus the `ctx` (loopDispatch builds the ctx). */
+/** runAgentRounds options minus the `ctx` (loopDispatch builds the ctx). */
 export type LoopOptionsForDispatch<Task, Output, Decision> = Omit<
-  RunLoopOptions<Task, Output, Decision>,
+  RunAgentRoundsOptions<Task, Output, Decision>,
   'ctx'
 >
 
@@ -53,9 +53,9 @@ export interface LoopDispatchOptions<
   TScenario extends Scenario,
   TArtifact,
 > {
-  /** Sandbox client used for every cell's `runLoop`. Supplied once. */
+  /** Sandbox client used for every cell's `runAgentRounds`. Supplied once. */
   sandboxClient: SandboxClient
-  /** Build the per-cell runLoop options from the scenario (+ profile, when
+  /** Build the per-cell runAgentRounds options from the scenario (+ profile, when
    *  used with `runProfileMatrix`). */
   toLoopOptions: (
     scenario: TScenario,
@@ -137,7 +137,7 @@ async function runLoopWithCampaignContext<Task, Output, Decision, TArtifact>(
     signal: ctx.signal,
     ...(cost.maximumCharge ? { maximumCharge: cost.maximumCharge } : {}),
     execute: (executionSignal) =>
-      runLoop<Task, Output, Decision>({
+      runAgentRounds<Task, Output, Decision>({
         ...loopOptions,
         ctx: {
           sandboxClient: opts.sandboxClient,
@@ -182,7 +182,7 @@ function modelFromLoopOptions<Task, Output, Decision>(
   return models.size > 1 ? 'mixed' : 'unknown'
 }
 
-/** Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. */
+/** Options for adapting plain agent-eval campaign scenarios into runtime `runAgentRounds` cells. */
 export interface LoopCampaignDispatchOptions<
   Task,
   Output,
@@ -190,9 +190,9 @@ export interface LoopCampaignDispatchOptions<
   TScenario extends Scenario,
   TArtifact,
 > {
-  /** Sandbox client used for every campaign cell's `runLoop`. */
+  /** Sandbox client used for every campaign cell's `runAgentRounds`. */
   sandboxClient: SandboxClient
-  /** Build the per-cell runLoop options from the campaign scenario. */
+  /** Build the per-cell runAgentRounds options from the campaign scenario. */
   toLoopOptions: (scenario: TScenario) => LoopOptionsForDispatch<Task, Output, Decision>
   /** Map the finished loop to the artifact the campaign judges score. */
   toArtifact?: (result: LoopResult<Task, Output, Decision>) => TArtifact
@@ -234,7 +234,7 @@ export function loopCampaignDispatch<Task, Output, Decision, TScenario extends S
 
 /**
  * Adapter for `runProfileMatrix` (profile is an axis). Returns a
- * `ProfileDispatchFn` that runs `runLoop` per (profile, scenario) cell and
+ * `ProfileDispatchFn` that runs `runAgentRounds` per (profile, scenario) cell and
  * reports usage automatically.
  */
 export function loopDispatch<Task, Output, Decision, TScenario extends Scenario, TArtifact>(

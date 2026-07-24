@@ -70,7 +70,7 @@ export interface McpServerOptions {
   delegateSupervisor?: DelegateHandlerOptions
   /**
    * Required to enable delegate_ui_audit. Wire one that closes over your
-   * `runLoop` + `uiAuditorProfile` + a `SandboxClient` (the
+   * `runAgentRounds` + `uiAuditorProfile` + a `SandboxClient` (the
    * canonical in-process choice is `createInProcessUiAuditClient` from
    * `@tangle-network/agent-runtime/profiles`) + your vision judge.
    */

@@ -1,9 +1,9 @@
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { runLoop } from './run-loop'
+import { runAgentRounds } from './run-loop'
 import type { AgentRunSpec, Driver, OutputAdapter, SandboxClient } from './types'
 
-describe('runLoop sandbox preparation', () => {
+describe('runAgentRounds sandbox preparation', () => {
   it('runs AgentRunSpec.prepareBox before the first prompt is streamed', async () => {
     const order: string[] = []
     const box = {
@@ -45,7 +45,7 @@ describe('runLoop sandbox preparation', () => {
     }
 
     let validatorBox: SandboxInstance | undefined
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver,
       agentRun,
       output,
@@ -66,7 +66,7 @@ describe('runLoop sandbox preparation', () => {
   })
 })
 
-describe('runLoop onSandboxEvent tee', () => {
+describe('runAgentRounds onSandboxEvent tee', () => {
   type Observer = (
     event: SandboxEvent,
     meta: { iterationIndex: number; agentRunName: string },
@@ -110,7 +110,7 @@ describe('runLoop onSandboxEvent tee', () => {
         return String(events.at(-1)?.data?.finalText ?? '')
       },
     }
-    return runLoop({
+    return runAgentRounds({
       driver,
       agentRun,
       output,

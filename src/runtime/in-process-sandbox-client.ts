@@ -1,6 +1,6 @@
 /**
  * The ONE in-process pseudo-box: present a plain user callback as a
- * `SandboxClient` so an example or test can drive `runLoop` / `openSandboxRun`
+ * `SandboxClient` so an example or test can drive `runAgentRounds` / `openSandboxRun`
  * with zero credentials and zero network — without re-faking a box at each call
  * site via `as unknown as SandboxInstance`.
  *
@@ -12,7 +12,7 @@
  * write `as unknown as SandboxInstance`. The one unavoidable cast now lives HERE,
  * documented and tested, instead of in every example.
  *
- * What the box implements is exactly the subset `runLoop` + `openSandboxRun`
+ * What the box implements is exactly the subset `runAgentRounds` + `openSandboxRun`
  * actually call on a box:
  *   - `id` — stable per box, used for trace correlation.
  *   - `streamPrompt(prompt, opts?)` — runs `onPrompt` and streams its events.
@@ -107,7 +107,7 @@ function isAsyncIterable(v: unknown): v is AsyncIterable<SandboxEvent> {
 
 /**
  * Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for
- * `runLoop` / `openSandboxRun`. Returns a PROPERLY-TYPED `SandboxClient`: the
+ * `runAgentRounds` / `openSandboxRun`. Returns a PROPERLY-TYPED `SandboxClient`: the
  * lone `SandboxInstance` cast (object literal → `declare class`) lives inside
  * this function, so call sites stay cast-free.
  *

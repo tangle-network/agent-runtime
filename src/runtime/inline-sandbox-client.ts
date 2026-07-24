@@ -1,6 +1,6 @@
 /**
  * The ONE pseudo-box adapter: present any one-shot `Executor` (router / bridge /
- * BYO) as a `SandboxClient` so the round-synchronous `runLoop` can drive it
+ * BYO) as a `SandboxClient` so the round-synchronous `runAgentRounds` can drive it
  * without each call site re-faking a box. This is the single shell that
  * `bench/src/router-executor.ts`, generate-eval's old `bridgeSandboxClient`, and
  * the search-bench bridge transport were each re-implementing.
@@ -37,7 +37,7 @@ async function settle(
 }
 
 /**
- * Adapt an `ExecutorFactory` into a `SandboxClient` for `runLoop`. The factory is
+ * Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is
  * instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
  * run once on the prompt, emit the terminal result event, tear down.
  */

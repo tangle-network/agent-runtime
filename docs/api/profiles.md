@@ -1979,7 +1979,7 @@ Build a source-grounded researcher profile with output parsing and validation.
 
 ##### validator
 
-> **validator**: [`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
+> **validator**: [`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
 
 ##### agentRunSpec
 
@@ -2019,17 +2019,17 @@ picks the highest-scoring valid output.
 
 ##### validator
 
-> **validator**: [`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
+> **validator**: [`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
 
 ##### driver
 
-> **driver**: [`Driver`](runtime.md#driver-1)\<[`ResearchTask`](#researchtask), [`ResearchOutput`](#researchoutput), `"done"`\>
+> **driver**: [`Driver`](runtime.md#driver-2)\<[`ResearchTask`](#researchtask), [`ResearchOutput`](#researchoutput), `"done"`\>
 
 ***
 
 ### createResearcherValidator()
 
-> **createResearcherValidator**(`task`, `config?`): [`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
+> **createResearcherValidator**(`task`, `config?`): [`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
 
 Defined in: [src/profiles/researcher.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L240)
 
@@ -2069,7 +2069,7 @@ Aggregate score:
 
 #### Returns
 
-[`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
+[`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
 
 ***
 
@@ -2145,7 +2145,7 @@ Defined in: [src/profiles/ui-auditor/profile.ts:46](https://github.com/tangle-ne
 
 **`Experimental`**
 
-Preset `runLoop` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs.
+Preset `runAgentRounds` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs.
 
 #### Parameters
 
@@ -2181,7 +2181,7 @@ Preset `runLoop` bundle for vision-driven UI audits: returns the `AgentRunSpec`,
 
 ##### validator
 
-> **validator**: [`Validator`](runtime.md#validator)\<[`UiAuditOutput`](#uiauditoutput)\>
+> **validator**: [`Validator`](runtime.md#validator-1)\<[`UiAuditOutput`](#uiauditoutput)\>
 
 ##### agentRunSpec
 
@@ -2259,7 +2259,7 @@ Produce the user message for one audit iteration: lens, captures to take, and th
 
 ### createUiAuditorValidator()
 
-> **createUiAuditorValidator**(`task`): [`Validator`](runtime.md#validator)\<[`UiAuditOutput`](#uiauditoutput)\>
+> **createUiAuditorValidator**(`task`): [`Validator`](runtime.md#validator-1)\<[`UiAuditOutput`](#uiauditoutput)\>
 
 Defined in: [src/profiles/ui-auditor/validator.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/validator.ts#L52)
 
@@ -2275,4 +2275,4 @@ Build a `Validator` that rejects off-lens findings and findings missing screensh
 
 #### Returns
 
-[`Validator`](runtime.md#validator)\<[`UiAuditOutput`](#uiauditoutput)\>
+[`Validator`](runtime.md#validator-1)\<[`UiAuditOutput`](#uiauditoutput)\>

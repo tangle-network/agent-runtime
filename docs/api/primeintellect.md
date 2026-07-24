@@ -739,7 +739,7 @@ Build the existing runtime backend against Prime's intercepted model endpoint.
 Defined in: [src/primeintellect/runner.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L67)
 
 Execute the caller's canonical runtime program inside a Prime rollout.
-The callback may call runPersonified, runAgentic, runLoop, or any product wrapper.
+The callback may call runPersonified, runAgentic, runAgentRounds, or any product wrapper.
 
 #### Type Parameters
 

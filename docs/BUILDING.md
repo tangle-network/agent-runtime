@@ -44,7 +44,7 @@ and the axis that must discriminate before optimizing anything.
 The blessed loop surface is the substrate:
 
 - fixed shapes: `fanout`, `pipeline`, `loopUntil`, `panel`
-- sandbox loops: `runLoop`
+- sandbox loops: `runAgentRounds`
 - dynamic recursive trees: `Scope` + Supervisor
 - sandbox driver binding: `createCoordinationTools`
 - durable workspace: `gitWorkspace` over a `Shell`
