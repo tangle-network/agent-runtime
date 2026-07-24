@@ -142,6 +142,7 @@ function sources(over: Partial<RunReportSources> = {}): RunReportSources {
     arm: 'ARM',
     supRunDir: '/tmp/cell/ws/.loops/supervisor/sup-1-test',
     journal: null,
+    brainLog: null,
     state: null,
     progress: null,
     workers: null,
@@ -384,6 +385,39 @@ describe('computeRunReport — decision quality and economics', () => {
     expect(r.economics.brain.tokensOut).toBe(500)
     expect(r.economics.brain.usd).toBeCloseTo(0.05, 6)
     expect(r.economics.brain.source).toContain('n=2')
+  })
+
+  it('counts truncated brain completions from the brain tap, and never reports 0 when the tap is absent', () => {
+    // A truncated brain turn means the supervisor acted on a half-written plan. It went
+    // unnoticed once because nothing recorded finish_reason; the journal's metered rows carry
+    // token counts only, so the count has to come from loops' brain.jsonl.
+    const withTap = computeRunReport(
+      sources({
+        journal: journal({ workers: [] }),
+        state: state({ startSec: 0, endSec: 10 }),
+        workers: [],
+        brainLog: [
+          JSON.stringify({ finish_reason: 'length', completion_tokens: 8192, req_max_tokens: null }),
+          JSON.stringify({ finish_reason: 'stop', completion_tokens: 120, req_max_tokens: 128000 }),
+        ].join('\n'),
+      }),
+    )
+    expect(withTap.economics.brainTruncations).toBe(1)
+
+    const clean = computeRunReport(
+      sources({
+        journal: journal({ workers: [] }),
+        state: state({ startSec: 0, endSec: 10 }),
+        workers: [],
+        brainLog: JSON.stringify({ finish_reason: 'stop', completion_tokens: 12_000 }),
+      }),
+    )
+    expect(clean.economics.brainTruncations).toBe(0)
+
+    // UNAVAILABLE ≠ ZERO: an older loops wrote no tap, so truncation cannot be ruled out.
+    expect(r.economics.brainTruncations).toEqual({
+      unavailable: 'brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out',
+    })
   })
 
   it('adds the opencode session join to journal-settled worker tokens', () => {

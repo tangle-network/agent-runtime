@@ -92,6 +92,8 @@ export interface RunReportSources {
   readonly supRunDir: string | null
   /** `journal.jsonl` text. */
   readonly journal: string | null
+  /** `brain.jsonl` text — loops' per-brain-call tap (finish_reason, max_tokens, tool calls). */
+  readonly brainLog: string | null
   /** `state.json` text. */
   readonly state: string | null
   /** `progress.ndjson` text. */
@@ -266,6 +268,14 @@ export interface RoleSpend {
 export interface EconomicsMetrics {
   /** Driver/brain inference — journal `metered` events. */
   readonly brain: RoleSpend
+  /**
+   * Brain completions that came back `finish_reason: "length"` — output TRUNCATED. Any value
+   * above 0 means the supervisor planned into a wall and then acted on the half-written plan,
+   * which is a defect and not a cost figure. The journal's `metered` rows carry token counts
+   * but no finish reason, so this reads loops' per-call brain tap (`brain.jsonl`); a run whose
+   * loops predates that tap reports `unavailable`, never 0.
+   */
+  readonly brainTruncations: Measured<number>
   /** Worker inference — journal `settled` spend plus the opencode session join. */
   readonly workers: RoleSpend
   readonly totalUsd: Measured<number>
@@ -684,6 +694,7 @@ export function computeRunReport(src: RunReportSources, now: () => number = Date
   })
   const walls = perWorker.map((w) => w.wallMs).filter((w): w is number => w !== null).sort((a, b) => a - b)
 
+  const brainCalls = parseJsonl(src.brainLog)
   const economics: EconomicsMetrics = {
     brain: {
       tokensIn: haveJournal ? brainIn : gap('brain.tokensIn', journalMissing),
@@ -691,6 +702,15 @@ export function computeRunReport(src: RunReportSources, now: () => number = Date
       usd: haveJournal ? round(brainUsd, 6) : unavailable(journalMissing),
       source: haveJournal ? `journal metered events (n=${meteredCount})` : journalMissing,
     },
+    brainTruncations:
+      src.brainLog === null
+        ? gap(
+            'brain.brainTruncations',
+            src.supRunDir === null
+              ? 'no supervisor run dir under <ws>/.loops/supervisor'
+              : 'brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out',
+          )
+        : brainCalls.filter((c) => c.finish_reason === 'length').length,
     workers: {
       tokensIn: workerIn,
       tokensOut: workerOut,
@@ -945,6 +965,7 @@ export async function collectRunReportSources(cellDir: string, opts: CollectOpti
     arm: typeof resultObj?.arm === 'string' ? resultObj.arm : basename(cellDir),
     supRunDir,
     journal: supRunDir === null ? null : await readMaybe(join(supRunDir, 'journal.jsonl')),
+    brainLog: supRunDir === null ? null : await readMaybe(join(supRunDir, 'brain.jsonl')),
     state: supRunDir === null ? null : await readMaybe(join(supRunDir, 'state.json')),
     progress: supRunDir === null ? null : await readMaybe(join(supRunDir, 'progress.ndjson')),
     workers,
@@ -1094,6 +1115,14 @@ export function renderRunReportMarkdown(r: RunReport): string {
     `| workers | ${showMeasured(e.workers.tokensIn)} | ${showMeasured(e.workers.tokensOut)} | ${showMeasured(e.workers.usd)} | ${e.workers.source} |`,
   )
   out.push('')
+  if (!isUnavailable(e.brainTruncations) && e.brainTruncations > 0) {
+    out.push(
+      `- **BRAIN OUTPUT TRUNCATED: ${e.brainTruncations} completion(s) hit \`finish_reason: "length"\`** — the supervisor ` +
+        'acted on a half-written plan. Its output ceiling is too low; see `brain.jsonl` for the per-call `req_max_tokens`.',
+    )
+  } else {
+    out.push(`- Brain completions truncated (finish_reason=length): ${showMeasured(e.brainTruncations)}`)
+  }
   out.push(`- Total USD: ${showMeasured(e.totalUsd)} (source: ${e.totalUsdSource})`)
   out.push(`- Cost per accepted patch: ${showMeasured(e.costPerAcceptedPatchUsd)}`)
   if (isUnavailable(e.workerWallMsDistribution)) {
