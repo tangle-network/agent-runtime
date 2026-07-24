@@ -32,7 +32,12 @@ import type {
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
-import { type ImproveSurface, improve } from './improve'
+import {
+  type ImproveOptions,
+  type ImproveSkillsOptions,
+  type ImproveSurface,
+  improve,
+} from './improve'
 
 // Four scenarios so the train/holdout split is non-empty at the default 0.25
 // holdout fraction (a single scenario yields an empty train split).
@@ -420,6 +425,121 @@ describe('improve() — default proposer resolution (substrate export drift guar
     expect(result.decision).toBe('ship')
     if (!result.candidate.profile) throw new Error('expected a profile candidate')
     expect(fixture.read(result.candidate.profile)).toEqual(fixture.expected)
+  })
+
+  it.each([
+    {
+      surface: 'skills' as const,
+      profile: skillProfile(),
+      skills: { resourceName: 'fixture-skill' },
+      baseline: skillDocument,
+      winner: 'improved skill instructions',
+      read: (profile: AgentProfile) => {
+        const resource = profile.resources?.skills?.[0]
+        return resource?.kind === 'inline' ? resource.content : undefined
+      },
+    },
+    {
+      surface: 'subagents' as const,
+      profile: { name: 'fixture-agent', subagents: {} },
+      baseline: undefined,
+      winner: JSON.stringify({ reviewer: { prompt: 'improved review instructions' } }),
+      read: (profile: AgentProfile) => profile.subagents?.reviewer?.prompt,
+    },
+  ] satisfies Array<{
+    surface: ImproveSurface
+    profile: AgentProfile
+    skills?: ImproveSkillsOptions
+    baseline: string | undefined
+    winner: string
+    read: (profile: AgentProfile) => string | undefined
+  }>)('profileDispatch runs the full immutable $surface profile for every cell', async (fixture) => {
+    const seen: AgentProfile[] = []
+    const result = await improve(fixture.profile, [{ finding: 'surface needs improvement' }], {
+      surface: fixture.surface,
+      scenarios,
+      judge: improvementJudge,
+      profileDispatch: async (profile, _scenario, ctx) =>
+        paidStubCall(ctx, 'profile-dispatch', () => {
+          seen.push(profile)
+          return { text: fixture.read(profile) ?? '' }
+        }),
+      generator: {
+        kind: `profile-dispatch-${fixture.surface}`,
+        propose: async () => [
+          { surface: fixture.winner, label: 'candidate', rationale: 'test candidate' },
+        ],
+      },
+      ...(fixture.skills === undefined ? {} : { skills: fixture.skills }),
+      promotionGate: {
+        name: 'test-ship',
+        decide: async () => ({
+          decision: 'ship',
+          reasons: ['test candidate'],
+          contributingGates: [],
+        }),
+      },
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+    })
+
+    expect(result.decision).toBe('ship')
+    expect(seen.some((profile) => fixture.read(profile) === fixture.baseline)).toBe(true)
+    expect(seen.some((profile) => fixture.read(profile)?.includes('improved'))).toBe(true)
+    expect(seen.every(Object.isFrozen)).toBe(true)
+    expect(fixture.read(fixture.profile)).toBe(fixture.baseline)
+  })
+
+  it("surface 'code' refuses profileDispatch before it can open a worktree", async () => {
+    let dispatched = 0
+    await expect(
+      improve(promptProfile(), [], {
+        surface: 'code',
+        scenarios,
+        judge,
+        profileDispatch: async (_profile, _scenario, ctx) => {
+          dispatched += 1
+          return paidStubCall(ctx, 'profile-dispatch', () => ({ text: 'unreachable' }))
+        },
+        code: { repoRoot: '/tmp/must-not-be-opened' },
+      }),
+    ).rejects.toThrow(/cannot use profileDispatch/)
+    expect(dispatched).toBe(0)
+  })
+
+  it('rejects both dispatch forms before a cell runs', async () => {
+    let dispatched = 0
+    const invalid = {
+      surface: 'prompt',
+      gate: 'none',
+      scenarios,
+      judge,
+      agent: async (surface: unknown, scenario: Scenario, ctx: DispatchContext) => {
+        dispatched += 1
+        return stubAgent(surface, scenario, ctx)
+      },
+      profileDispatch: async (
+        _profile: AgentProfile,
+        _scenario: Scenario,
+        ctx: DispatchContext,
+      ) => {
+        dispatched += 1
+        return paidStubCall(ctx, 'profile-dispatch', () => ({ text: 'unreachable' }))
+      },
+    } as unknown as ImproveOptions<Scenario, { text: string }>
+
+    await expect(improve(promptProfile(), [], invalid)).rejects.toThrow(/provide exactly one/)
+    expect(dispatched).toBe(0)
+  })
+
+  it('rejects a missing dispatch before a cell runs', async () => {
+    const invalid = {
+      surface: 'prompt',
+      gate: 'none',
+      scenarios,
+      judge,
+    } as ImproveOptions<Scenario, { text: string }>
+
+    await expect(improve(promptProfile(), [], invalid)).rejects.toThrow(/provide exactly one/)
   })
 
   it('rejects a config candidate that cannot form a valid AgentProfile', async () => {

@@ -274,4 +274,25 @@ describe("improve() surface 'rollout-policy'", () => {
     const heldProfile = result.candidate.profile ?? profile
     expect(structuralRolloutPolicyFromProfile(heldProfile)).toBeUndefined()
   })
+
+  it('runs the unchanged full profile when a host dispatches an unconfigured policy', async () => {
+    const profile: AgentProfile = { name: 'fixture-agent', prompt: { systemPrompt: 'base' } }
+    const seen: AgentProfile[] = []
+    const result = await improve(profile, [], {
+      surface: 'rollout-policy',
+      scenarios,
+      judge: kJudge,
+      profileDispatch: async (candidate, scenario, ctx) => {
+        seen.push(candidate)
+        const policy = structuralRolloutPolicyFromProfile(candidate)
+        return policyAgent(policy ? serializeRolloutPolicy(policy) : '', scenario, ctx)
+      },
+      budget: { generations: 1, populationSize: 4, holdoutFraction: 0.5 },
+    })
+
+    expect(result.decision).toBe('hold')
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every(Object.isFrozen)).toBe(true)
+    expect(seen).toEqual(Array.from({ length: seen.length }, () => profile))
+  })
 })
