@@ -4,17 +4,13 @@ import {
   type OptimizationMethod,
   skillOptOptimizationMethod,
 } from '@tangle-network/agent-eval/campaign'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-} from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../src/durable/spawn-journal'
 import * as runtimeImprovement from '../src/improvement'
 import { improve, officialGepa, officialSkillOpt } from '../src/improvement'
+import type { ReadonlyAgentProfile } from '../src/improvement/profile-types'
 import { loopUntil } from '../src/runtime/personify/combinators'
 import { definePersona, runPersonified } from '../src/runtime/personify/persona'
 import type { Outcome } from '../src/runtime/personify/wave-types'
@@ -39,6 +35,7 @@ const scenarios: ProfileScenario[] = Array.from({ length: 12 }, (_, i) => ({
 const trainScenarios = scenarios.slice(0, 4)
 const selectionScenarios = scenarios.slice(4, 8)
 const testScenarios = scenarios.slice(8)
+const executionRef = canonicalCandidateDigest({ fixture: 'profile-improvement-stack' })
 
 const baseProfile = (): AgentProfile => ({
   name: 'incident-responder',
@@ -66,7 +63,7 @@ const promptJudge: JudgeConfig<{ prompt: string }, ProfileScenario> = {
 }
 
 async function promptAgent(
-  surface: MutableSurface,
+  profile: ReadonlyAgentProfile,
   _scenario: ProfileScenario,
   ctx: DispatchContext,
 ): Promise<{ prompt: string }> {
@@ -75,7 +72,7 @@ async function promptAgent(
     actor: 'profile-stack-test',
     model: 'deterministic-test',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => ({ prompt: String(surface) }),
+    execute: async () => ({ prompt: profile.prompt?.systemPrompt ?? '' }),
     receipt: () => ({
       model: 'deterministic-test',
       inputTokens: 1,
@@ -181,6 +178,7 @@ describe('profile improvement stack', () => {
   it('runs a detached profile candidate through loopUntil()', async () => {
     const improved = await improve(baseProfile(), {
       surface: 'prompt',
+      executionRef,
       method: improvingMethod,
       findings: [{ failure: 'single draft gets stuck' }],
       trainScenarios,

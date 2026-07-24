@@ -23,6 +23,7 @@ import { createIntelligenceClient } from '@tangle-network/agent-runtime/intellig
 import type { LoopTraceEvent } from '@tangle-network/agent-runtime/loops'
 import {
   agent,
+  executionRef,
   judge,
   profile,
   scriptedWinner,
@@ -79,6 +80,7 @@ const findings = [
 async function main(): Promise<void> {
   const out = await improve(profile, {
     surface: 'prompt',
+    executionRef,
     method: scriptedWinner,
     findings,
     trainScenarios,
@@ -94,7 +96,7 @@ async function main(): Promise<void> {
   console.log(`trace recorded: ${traceId}`)
   console.log(`findings derived: ${findings.length}`)
   console.log(`candidate decision: ${out.decision}`)
-  console.log(`candidate prompt: ${out.candidate.profile?.prompt?.systemPrompt}`)
+  console.log(`candidate prompt: ${out.candidate.profile.prompt?.systemPrompt}`)
   console.log(`live prompt unchanged: ${profile.prompt?.systemPrompt}`)
 }
 

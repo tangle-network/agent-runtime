@@ -41,7 +41,11 @@ export {
   type ImproveMethodResult,
   type ImproveMethodSource,
   type ImprovementCandidate,
+  type ImprovementCodeCandidate,
+  type ImprovementProfileCandidate,
+  type ImproveOptimizationRunOptions,
   type ImproveOptions,
+  type ImproveProfileAgent,
   type ImproveProfileComponents,
   type ImproveProfileSurface,
   type ImproveResult,
@@ -65,6 +69,7 @@ export {
   researchDriverNote,
   strategyAuthorMethod,
 } from './optimizer-prompt'
+export type { DeepReadonly, ReadonlyAgentProfile } from './profile-types'
 export {
   type RawTraceDistillerOptions,
   rawTraceDistiller,

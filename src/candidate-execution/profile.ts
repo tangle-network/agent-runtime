@@ -181,7 +181,7 @@ function candidateProfileFromGenericProfile(profile: AgentProfile): AgentCandida
 
 /** Prove the measured generic profile and sealed candidate profile describe the same behavior. */
 export function assertCandidateProfileBinding(
-  measuredInput: AgentProfile,
+  measuredInput: unknown,
   bundled: AgentCandidateProfile,
 ): void {
   const measured = parseExactAgentProfile(measuredInput, 'measured agent profile')

@@ -12,14 +12,9 @@
  * check — there is no model in the scoring loop to flatter it.
  */
 
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-} from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import { improve, officialGepa } from '@tangle-network/agent-runtime'
+import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { improve, officialGepa, type ReadonlyAgentProfile } from '@tangle-network/agent-runtime'
 import {
   type AgenticSurface,
   type AgenticTask,
@@ -71,8 +66,6 @@ export async function optimizeDriverPrompt(opts: {
    *  inference). Defaults to the worker's router + model when omitted. */
   supervisorRouter?: { baseUrl: string; apiKey: string; model: string }
   reflectionModel?: string
-  /** Change when execution or scoring behavior changes outside the listed runtime knobs. */
-  evaluationId?: string
   maxEvaluations?: number
   maxProposerCostUsd?: number
   maxConcurrency?: number
@@ -118,21 +111,18 @@ export async function optimizeDriverPrompt(opts: {
   const selectionScenarios = mapScenarios(selectionTasks)
   const testScenarios = mapScenarios(testTasks)
 
-  // The agent under improvement: it receives the CURRENT candidate driver prompt (the surface string)
-  // and runs a REAL supervised rollout with that prompt as the supervisor brain's standing instruction.
+  // The agent under improvement receives the complete candidate profile and runs a real supervised
+  // rollout with its prompt as the supervisor brain's standing instruction.
   // The returned artifact is the harness-verified deployable outcome — `resolved`/`score` come from the
   // surface's completion oracle, not a self-report, so the candidate cannot fabricate a win.
   const agent = async (
-    candidate: MutableSurface,
+    candidate: ReadonlyAgentProfile,
     scenario: DriverPromptScenario,
     ctx: DispatchContext,
   ): Promise<SupervisedOutcome> => {
-    // The candidate is the driver prompt. A `CodeSurface` is not a prompt — this loop only optimizes the
-    // string driver prompt, so a non-string candidate is a wiring error that must fail loud.
-    if (typeof candidate !== 'string') {
-      throw new Error(
-        `optimizeDriverPrompt: candidate surface is a CodeSurface, not a driver prompt — this loop optimizes the string driver prompt only`,
-      )
+    const systemPrompt = candidate.prompt?.systemPrompt
+    if (systemPrompt === undefined) {
+      throw new Error('optimizeDriverPrompt: candidate profile has no system prompt')
     }
     const paid = await ctx.cost.runPaidCall({
       channel: 'agent',
@@ -140,7 +130,7 @@ export async function optimizeDriverPrompt(opts: {
       model: supervisorRouter.model,
       signal: ctx.signal,
       execute: () =>
-        superviseSurface({ name: 'driver', systemPrompt: candidate }, scenario.task, {
+        superviseSurface({ name: 'driver', systemPrompt }, scenario.task, {
           surface,
           worker,
           // A small conserved pool: enough for the driver's turns plus several worker spawns so the
@@ -210,19 +200,19 @@ export async function optimizeDriverPrompt(opts: {
   })
   const result = await improve(profile, {
     surface: 'prompt',
+    executionRef: canonicalCandidateDigest({
+      callback: 'examples/ablation-suite/gepa-driver-prompt',
+      workerModel: worker.model,
+      workerMaxTokens: worker.maxTokens ?? null,
+      workerTurns: worker.innerTurns ?? null,
+      workerShots: worker.budget ?? null,
+      supervisorModel: supervisorRouter.model,
+      workerEndpoint: new URL(worker.routerBaseUrl).origin,
+      supervisorEndpoint: new URL(supervisorRouter.baseUrl).origin,
+    }),
     method: officialGepa<DriverPromptScenario, SupervisedOutcome>({
       objective:
         'Improve the complete standing prompt used by a supervisor that spawns, steers, and verifies coding workers.',
-      evaluationId:
-        opts.evaluationId ??
-        [
-          'ablation-driver-prompt',
-          `worker=${worker.model}`,
-          `supervisor=${supervisorRouter.model}`,
-          `tokens=${worker.maxTokens ?? 'default'}`,
-          `turns=${worker.innerTurns ?? 'default'}`,
-          `shots=${worker.budget ?? 'default'}`,
-        ].join('|'),
       background: [
         'Return only the complete supervisor prompt.',
         'The supervisor must verify settled workers, target subsequent workers at observed failures, and stop only after the task check passes.',

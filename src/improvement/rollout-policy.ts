@@ -6,6 +6,7 @@ import {
   defaultStructuralRolloutPolicy,
   type StructuralRolloutPolicy,
 } from '../runtime/structural-rollout'
+import type { ReadonlyAgentProfile } from './profile-types'
 
 /** The profile extensions namespace the policy persists under. */
 export const ROLLOUT_POLICY_EXTENSION = 'structural-rollout'
@@ -64,7 +65,7 @@ export function serializeRolloutPolicy(policy: StructuralRolloutPolicy): string 
 /** Read the persisted policy off the profile. `undefined` when the profile does
  *  not opt into structural rollout. */
 export function structuralRolloutPolicyFromProfile(
-  profile: AgentProfile,
+  profile: ReadonlyAgentProfile,
 ): StructuralRolloutPolicy | undefined {
   const bag = profile.extensions?.[ROLLOUT_POLICY_EXTENSION]
   if (bag === undefined) return undefined
@@ -73,9 +74,10 @@ export function structuralRolloutPolicyFromProfile(
 
 /** Persist a detached policy under the profile extension without mutating the input. */
 export function applyRolloutPolicyToProfile(
-  profile: AgentProfile,
+  profile: ReadonlyAgentProfile,
   policy: StructuralRolloutPolicy,
 ): AgentProfile {
+  const candidate = structuredClone(profile) as AgentProfile
   const bag: Record<string, unknown> = {
     k: policy.k,
     repairRounds: policy.repairRounds,
@@ -84,7 +86,7 @@ export function applyRolloutPolicyToProfile(
     ...(policy.temperature !== undefined ? { temperature: policy.temperature } : {}),
   }
   return {
-    ...profile,
-    extensions: { ...profile.extensions, [ROLLOUT_POLICY_EXTENSION]: bag },
+    ...candidate,
+    extensions: { ...candidate.extensions, [ROLLOUT_POLICY_EXTENSION]: bag },
   }
 }

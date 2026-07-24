@@ -1,10 +1,9 @@
 /**
  *
- * Redaction for Intelligence trace export. The trace carries the customer's
- * real input/output; before any of it leaves the process it passes through a
- * `Redactor`. The default scrubs the obvious leak classes (API keys, bearer
- * tokens, emails, private keys) from strings and walks nested objects/arrays,
- * but a customer with domain-specific PII supplies their own `redact` hook.
+ * Redaction for values that may leave the Runtime process. The default scrubs
+ * common leak classes (API keys, bearer tokens, emails, private keys) from
+ * strings and walks nested objects and arrays. A customer with domain-specific
+ * PII supplies their own `redact` hook.
  *
  * This is intentionally narrower than `src/sanitize.ts` (which redacts the
  * runtime's *event envelope* field-by-field): here the value is opaque
@@ -39,9 +38,14 @@ const valuePatterns: ReadonlyArray<RegExp> = [
   /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
 ]
 
+/** Secret assignments embedded inside an otherwise opaque string, including
+ * serialized JSON and log-style `key=value` text. */
+const secretAssignmentPattern =
+  /((?:"|')?(?:api[-_]?key|secret|token|password|passwd|authorization|auth|private[-_]?key|credential|access[-_]?key|client[-_]?secret|session[-_]?(?:id|token)|cookie|bearer)(?:"|')?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}]+)/gi
+
 /** Scrub a single string of in-value secret/PII patterns. */
 function scrubString(input: string): string {
-  let out = input
+  let out = input.replace(secretAssignmentPattern, `$1${redactedMarker}`)
   for (const pattern of valuePatterns) {
     out = out.replace(pattern, redactedMarker)
   }

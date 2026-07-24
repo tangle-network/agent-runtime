@@ -1,6 +1,6 @@
 # @tangle-network/agent-runtime
 
-A TypeScript runtime for running AI agents — as a **chat turn**, a **one-shot task**, or a **team of agents** working toward a goal — that records every run and uses those records to **measure and improve** agents against real pass/fail checks. It is the engine Tangle's own production agents run on.
+A TypeScript runtime for running AI agents: as a **chat turn**, a **one-shot task**, or a **team of agents** working toward a goal: that records every run and uses those records to **measure and improve** agents against real pass/fail checks. It is the engine Tangle's own production agents run on.
 
 Domain behavior (models, tools, knowledge) plugs in as adapters; the scoring statistics and the ship decision come from [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval); sandboxed execution from [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox).
 
@@ -56,9 +56,9 @@ Run it from a clone of this repo and you get exactly this:
 ```bash
 $ pnpm i && pnpm build
 $ pnpm tsx examples/quickstart/quickstart.ts
-shot 0: reject — "Shipped one-click restore."
-shot 1: PASS — "Shipped one-click restore with an instant rollback path."
-decision: pick-winner — winner: shot 1
+shot 0: reject: "Shipped one-click restore."
+shot 1: PASS: "Shipped one-click restore with an instant rollback path."
+decision: pick-winner: winner: shot 1
 ```
 
 The fully annotated version of this loop, with every seam explained, is [`examples/driver-loop`](./examples/driver-loop).
@@ -114,6 +114,13 @@ The profile is never changed.
 
 ```ts
 import { improve, officialGepa } from '@tangle-network/agent-runtime'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+
+const executionRef = canonicalCandidateDigest({
+  deployment: process.env.AGENT_DEPLOYMENT_SHA!,
+  model: process.env.AGENT_MODEL!,
+  tools: process.env.AGENT_TOOLSET_SHA!,
+})
 
 const optimizer = {
   model: process.env.OPTIMIZER_MODEL!,
@@ -127,8 +134,6 @@ const optimizer = {
     maxOutputTokensPerRequest: 16_384,
     pricing: {
       inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
-      cachedInputUsdPerMillion: Number(process.env.OPTIMIZER_CACHED_INPUT_USD_PER_MILLION),
-      cacheWriteUsdPerMillion: Number(process.env.OPTIMIZER_CACHE_WRITE_USD_PER_MILLION),
       outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
     },
   },
@@ -136,9 +141,9 @@ const optimizer = {
 
 const result = await improve(baseProfile, {
   surface: 'prompt',
+  executionRef,
   method: officialGepa({
     objective: 'Improve the complete support-agent prompt.',
-    evaluationId: 'support-prompt',
     recipe: {
       kind: 'engine',
       run: {
@@ -149,6 +154,7 @@ const result = await improve(baseProfile, {
     },
     optimizer,
     resume: 'if-compatible',
+    trustResumeState: true,
     describeScenario: ({ input }) => ({ input }),
   }),
   findings,
@@ -156,8 +162,10 @@ const result = await improve(baseProfile, {
   selectionScenarios,
   testScenarios,
   judges: [judge],
-  agent,
+  agent: (candidateProfile, scenario, ctx) =>
+    runProfile(candidateProfile, scenario, ctx),
   runDir: '.runs/support-prompt',
+  costCeiling: 25,
 })
 
 if (result.decision === 'ship') {
@@ -167,9 +175,9 @@ if (result.decision === 'ship') {
 
 `officialGepa(...)` delegates the complete search to GEPA's upstream Optimize Anything API through agent-eval.
 Pass one explicit `engine`, `sequential`, `adaptive-sequential`, `best-of`, `vote`, or `omni` recipe.
-`evaluationId` identifies the dispatch, judges, models, and scoring logic.
-Change it whenever any of those behaviors change.
-With `resume: 'if-compatible'`, agent-eval resumes only when the saved run identity matches the candidate, recipe, data, optimizer settings, runner, and evaluation ID.
+Runtime derives the upstream resume identity from `executionRef`, the complete baseline profile, and the selected surface.
+With `resume: 'if-compatible'`, agent-eval resumes only when the saved run identity matches the candidate, recipe, data, optimizer settings, runner, and derived execution identity.
+Set `trustResumeState: true` only when that run directory is private to the current operator.
 Use `resume: 'required'` to fail when no matching run exists.
 `result.provenance` reports the upstream package, run ID, resume status, evaluation count, and artifact directory.
 There is no local fallback.
@@ -192,15 +200,27 @@ The published GEPA wheel lacks Optimize Anything, and the published SkillOpt whe
 SkillOpt and GEPA's standard reflection engine require `optimizer: { model, baseUrl, apiKey, budget }`.
 Agent-based GEPA engines may own their model connection instead.
 Agent Eval proxies those model calls, enforces the nested budget, and records their cost.
+`costCeiling` is the total limit for optimizer calls, candidate runs, judges, and final scoring.
+Runtime returns `hold` when any part of that cost is unknown.
+Runtime rejects a reported total above the limit.
 
 SkillOpt accepts one text surface.
 GEPA accepts text or named components.
 Any complete method from `@tangle-network/agent-eval` uses the same call.
+The `agent` callback receives the complete immutable candidate profile, not a raw prompt or component fragment.
+Runtime uses that exact profile for every candidate run and returns the same measured profile in `result.candidate.profile`.
+`executionRef` is a content digest of the agent callback, profile component mapping, model, tools, and closure settings.
+Runtime combines it with the complete baseline profile and selected surface for saved work.
+Changing any of them runs the affected work again.
 For a skill, set `surface: 'skills'` and `skills.resourceName`.
 For the complete profile, set `surface: 'agent-profile'`.
 To optimize several named profile fields together, also provide `profileComponents.read` and `profileComponents.apply`.
 Tools, MCP, hooks, subagents, curated instructions, and rollout policy are also exact profile coordinates.
 Runtime does not choose an optimizer for them.
+
+Official optimizer factories reject a selected profile surface containing common live credentials or private values.
+They redact common private values from findings, described scenarios, described artifacts, and judge notes before sending those values to Python.
+`describeScenario` still controls the exact train and selection fields sent to the external optimizer, so return only approved fields.
 
 Code is the exception.
 It uses Runtime's isolated git worktrees and coding-agent candidate execution:
@@ -365,7 +385,7 @@ Use `importPrimeIntellectTraces(...)` to convert them to agent-eval `RunRecord`s
 
 ## Primitives
 
-The general-purpose pieces, by import path. Every export with its one-line summary lives in the generated [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md) — check it before building anything new.
+The general-purpose pieces, by import path. Every export with its one-line summary lives in the generated [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md): check it before building anything new.
 
 | Primitive | What it does | Import |
 |---|---|---|
@@ -406,7 +426,7 @@ All 29 live in [`examples/`](./examples).
 - New here? [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
 - [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
 - [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
-- [`docs/design.md`](./docs/design.md), the design philosophy and the internal research docs behind it — background reading, not required to use the package.
+- [`docs/design.md`](./docs/design.md), the design philosophy and the internal research docs behind it: background reading, not required to use the package.
 - [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
 
 **Contributing:** `pnpm i && pnpm build && pnpm test` gets you running; the full local gate is the [`package.json`](./package.json) scripts (`lint`, `typecheck`, `docs:check`).

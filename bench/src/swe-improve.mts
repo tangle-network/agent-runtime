@@ -23,8 +23,15 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { improve, officialGepa } from '@tangle-network/agent-runtime'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  improve,
+  officialGepa,
+  type ReadonlyAgentProfile,
+} from '@tangle-network/agent-runtime'
+import {
+  canonicalCandidateDigest,
+  type AgentProfile,
+} from '@tangle-network/agent-interface'
 import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
 import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
@@ -62,15 +69,6 @@ async function main(): Promise<void> {
   // Default OFF ⇒ reproduces the read/edit-only baseline denominator unchanged.
   const enableRun = ['1', 'true', 'yes'].includes((process.env.RUN_TOOL ?? '').toLowerCase())
   const SEED_PROMPT = enableRun ? SWE_SEED_PROMPT_WITH_RUN : SWE_SEED_PROMPT
-  const evaluationId = [
-    'swe-prompt-eval',
-    `worker=${workerModel}`,
-    `router=${new URL(routerBaseUrl).origin}`,
-    `turns=${innerTurns}`,
-    `tokens=${workerMaxTokens}`,
-    `shots=${budgetShots}`,
-    `runTool=${String(enableRun)}`,
-  ].join('|')
   const allIds = [...new Set([...trainIds, ...selectionIds, ...testIds])]
 
   console.log('=== SWE-bench prompt optimization with official GEPA ===')
@@ -104,8 +102,9 @@ async function main(): Promise<void> {
   // one instance, return the git-diff patch. A per-call proxy captures the patch in
   // score() BEFORE runAgentic closes (rm) the workspace; its score is a cheap
   // patch-exists proxy so the ONLY Docker run per cell is the improve judge.
-  const agent = async (surface: unknown, scenario: Scenario, ctx: DispatchContext): Promise<string | null> => {
-    const promptText = String(surface)
+  const agent = async (candidate: ReadonlyAgentProfile, scenario: Scenario, ctx: DispatchContext): Promise<string | null> => {
+    const promptText = candidate.prompt?.systemPrompt
+    if (promptText === undefined) throw new Error('agent: candidate profile has no system prompt')
     const bt = byId.get(scenario.id)
     if (!bt) throw new Error(`agent: unknown scenario ${scenario.id}`)
     const task = { id: bt.id, systemPrompt: promptText, userPrompt: bt.prompt, meta: { instanceId: bt.id } }
@@ -207,10 +206,18 @@ async function main(): Promise<void> {
 
   const out = await improve(profile, {
     surface: 'prompt',
+    executionRef: canonicalCandidateDigest({
+      callback: 'bench/swe-improve',
+      model: workerModel,
+      endpoint: new URL(routerBaseUrl).origin,
+      innerTurns,
+      maxTokens: workerMaxTokens,
+      budgetShots,
+      enableRun,
+    }),
     method: officialGepa<Scenario, string | null>({
       objective:
         'Improve the system prompt of a coding agent that fixes real GitHub bugs with list_files, read_file, edit_file, and optional run tools.',
-      evaluationId,
       background:
         'Return the complete system prompt. Preserve tool names and require evidence from repository files and tests.',
       recipe: {

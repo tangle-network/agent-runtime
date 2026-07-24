@@ -36,6 +36,7 @@ import {
   type AgentProfileResourceRef,
   agentProfileSchema,
   type Sha256Digest,
+  sha256DigestSchema,
 } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
@@ -47,6 +48,7 @@ import {
   improvementDriver,
   type ManagedImprovementDriver,
 } from './improvement-driver'
+import type { ReadonlyAgentProfile } from './profile-types'
 import { rawTraceDistiller } from './raw-trace-distiller'
 import {
   applyRolloutPolicyToProfile,
@@ -76,11 +78,15 @@ export type ImproveProfileSurface = Exclude<ImproveSurface, 'code'>
 
 export interface ImproveMethodContext {
   /** Validated baseline profile. */
-  readonly profile: Readonly<AgentProfile>
+  readonly profile: ReadonlyAgentProfile
+  /** Runtime-derived identity for upstream optimizer resume state. */
+  readonly evaluationRef: Sha256Digest
   /** Exact profile coordinate being optimized. */
   readonly surface: ImproveProfileSurface
   /** Exact bytes supplied to the optimization method. */
   readonly baselineSurface: MutableSurface
+  /** Structured value represented by `baselineSurface`, before serialization. */
+  readonly baselineValue: unknown
   /** Findings produced before this search, if any. */
   readonly findings: readonly unknown[]
 }
@@ -94,23 +100,41 @@ export type ImproveMethodSource<TScenario extends Scenario, TArtifact> =
   | OptimizationMethod<TScenario, TArtifact>
   | ImproveMethodFactory<TScenario, TArtifact>
 
+/** Runs one exact materialized profile on one scenario. */
+export type ImproveProfileAgent<TScenario extends Scenario, TArtifact> = (
+  profile: ReadonlyAgentProfile,
+  scenario: TScenario,
+  ctx: Parameters<
+    CompareOptimizationMethodsOptions<TScenario, TArtifact>['dispatchWithSurface']
+  >[2],
+) => Promise<TArtifact>
+
+export type ImproveOptimizationRunOptions<TScenario extends Scenario, TArtifact> = Omit<
+  NonNullable<CompareOptimizationMethodsOptions<TScenario, TArtifact>['optimizationRunOptions']>,
+  'dispatchRef'
+>
+
 /** Complete-method configuration for every non-code profile surface. */
 export type ImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   CompareOptimizationMethodsOptions<TScenario, TArtifact>,
-  'baselineSurface' | 'dispatchWithSurface' | 'methods' | 'optimizationConcurrency'
+  | 'baselineSurface'
+  | 'dispatchRef'
+  | 'dispatchWithSurface'
+  | 'methods'
+  | 'optimizationConcurrency'
+  | 'optimizationRunOptions'
 > & {
   /** Exact profile coordinate optimized by `method`. Default `'prompt'`. */
   surface?: ImproveProfileSurface
+  /**
+   * Immutable digest of `agent`, profile component mapping, models, tools, and
+   * every closure or external setting that can change measured behavior.
+   */
+  executionRef: Sha256Digest
   /** A complete optimizer or a factory that can incorporate current findings. */
   method: ImproveMethodSource<TScenario, TArtifact>
-  /** Runs one candidate surface on one scenario. */
-  agent: (
-    surface: MutableSurface,
-    scenario: TScenario,
-    ctx: Parameters<
-      CompareOptimizationMethodsOptions<TScenario, TArtifact>['dispatchWithSurface']
-    >[2],
-  ) => Promise<TArtifact>
+  /** Runs the exact complete profile materialized from one candidate surface. */
+  agent: ImproveProfileAgent<TScenario, TArtifact>
   /** Trace or analyst findings available to a method factory. */
   findings?: readonly unknown[]
   /** Select the exact inline skill document for `surface: 'skills'`. */
@@ -120,6 +144,8 @@ export type ImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
    * Valid only with `surface: 'agent-profile'`.
    */
   profileComponents?: ImproveProfileComponents
+  /** Shared settings for method train and selection calls. */
+  optimizationRunOptions?: ImproveOptimizationRunOptions<TScenario, TArtifact>
   /** Ship only when the paired final-test interval is entirely above this lift. Default `0`. */
   minimumLift?: number
 }
@@ -174,9 +200,12 @@ export interface ImproveSkillsOptions {
 /** Caller-owned mapping for optimizing several profile fields as one candidate. */
 export interface ImproveProfileComponents {
   /** Extract the exact named text components optimized together. */
-  read(profile: Readonly<AgentProfile>): Readonly<Record<string, string>>
+  read(profile: ReadonlyAgentProfile): Readonly<Record<string, string>>
   /** Apply a complete winning component map to a detached profile. */
-  apply(profile: Readonly<AgentProfile>, components: Readonly<Record<string, string>>): AgentProfile
+  apply(
+    profile: ReadonlyAgentProfile,
+    components: Readonly<Record<string, string>>,
+  ): ReadonlyAgentProfile
 }
 
 export interface ImproveCodeOptions {
@@ -201,14 +230,22 @@ export interface ImproveCodeOptions {
   generator?: CandidateGenerator
 }
 
-export interface ImprovementCandidate {
+export interface ImprovementProfileCandidate {
   /** Surface searched by this run. */
-  surface: ImproveSurface
+  surface: ImproveProfileSurface
   /** Exact winning value returned by agent-eval. */
   value: MutableSurface
-  /** Detached profile candidate when the surface maps directly to AgentProfile. */
-  profile?: AgentProfile
+  /** Exact complete profile instance measured on the final cases. */
+  profile: ReadonlyAgentProfile
 }
+
+export interface ImprovementCodeCandidate {
+  surface: 'code'
+  value: MutableSurface
+  profile?: never
+}
+
+export type ImprovementCandidate = ImprovementProfileCandidate | ImprovementCodeCandidate
 
 /** Normalized spend reported for one Runtime improvement run. */
 export interface ImproveCost {
@@ -223,11 +260,15 @@ export interface ImproveLineage {
   runId: string
   /** Exact train-plus-selection scenario payloads exposed to candidate selection. */
   developmentSplitDigest: Sha256Digest
+  /** Complete callback, materializer, model, tool, and closure identity for a profile run. */
+  executionRef?: Sha256Digest
+  /** Complete baseline profile identity for a profile run. */
+  baselineProfileDigest?: Sha256Digest
 }
 
-interface ImproveResultBase {
+interface ImproveResultBase<TCandidate extends ImprovementCandidate> {
   /** Frozen candidate only. Live state is changed through an approved activation. */
-  candidate: ImprovementCandidate
+  candidate: TCandidate
   /** Final-test decision for this search result. */
   decision: SelfImproveResult<Scenario, unknown>['gateDecision']
   /** Final-test lift when one was measured. */
@@ -247,7 +288,7 @@ interface ImproveResultBase {
   dispose(): Promise<void>
 }
 
-export interface ImproveMethodResult extends ImproveResultBase {
+export interface ImproveMethodResult extends ImproveResultBase<ImprovementProfileCandidate> {
   mode: 'method'
   method: string
   /** External optimizer package and resumable run identity, when reported. */
@@ -259,7 +300,7 @@ export interface ImproveMethodResult extends ImproveResultBase {
 }
 
 export interface ImproveCodeResult<TScenario extends Scenario, TArtifact>
-  extends ImproveResultBase {
+  extends ImproveResultBase<ImprovementCodeCandidate> {
   mode: 'code'
   raw: SelfImproveResult<TScenario, TArtifact>
 }
@@ -268,34 +309,59 @@ export type ImproveResult<TScenario extends Scenario, TArtifact> =
   | ImproveMethodResult
   | ImproveCodeResult<TScenario, TArtifact>
 
-/** Extract the baseline optimized by a method. Prompt, skills, and memory are
- * text; config fields are JSON; a caller may map the full profile to named
- * components explicitly. */
-function baselineSurfaceFor(
-  profile: AgentProfile,
+interface PreparedProfileSurface {
+  surface: MutableSurface
+  value: unknown
+}
+
+/** Extract the baseline optimized by a method and retain its structured value
+ * so external optimizers can inspect it for private fields before serialization. */
+function prepareProfileSurface(
+  profile: ReadonlyAgentProfile,
   surface: ImproveSurface,
   skills?: ImproveSkillsOptions,
   profileComponents?: ImproveProfileComponents,
-): MutableSurface {
+): PreparedProfileSurface {
   switch (surface) {
     case 'prompt':
-      return profile.prompt?.systemPrompt ?? ''
-    case 'skills':
-      return inlineSkill(profile, skills).content
-    case 'tools':
-      return canonicalJson(profile.tools ?? {})
-    case 'mcp':
-      return canonicalJson(profile.mcp ?? {})
-    case 'hooks':
-      return canonicalJson(profile.hooks ?? {})
-    case 'subagents':
-      return canonicalJson(profile.subagents ?? {})
-    case 'agent-profile':
-      return profileComponents
-        ? componentSurface(profileComponents.read(profile), 'profileComponents.read')
-        : canonicalJson(profile)
-    case 'memory':
-      return profileInstructions(profile)
+      return {
+        surface: profile.prompt?.systemPrompt ?? '',
+        value: profile.prompt?.systemPrompt ?? '',
+      }
+    case 'skills': {
+      const value = inlineSkill(profile, skills).content
+      return { surface: value, value }
+    }
+    case 'tools': {
+      const value = profile.tools ?? {}
+      return { surface: canonicalJson(value), value }
+    }
+    case 'mcp': {
+      const value = profile.mcp ?? {}
+      return { surface: canonicalJson(value), value }
+    }
+    case 'hooks': {
+      const value = profile.hooks ?? {}
+      return { surface: canonicalJson(value), value }
+    }
+    case 'subagents': {
+      const value = profile.subagents ?? {}
+      return { surface: canonicalJson(value), value }
+    }
+    case 'agent-profile': {
+      if (profileComponents) {
+        const value = profileComponents.read(profile)
+        return {
+          surface: componentSurface(value, 'profileComponents.read'),
+          value,
+        }
+      }
+      return { surface: canonicalJson(profile), value: profile }
+    }
+    case 'memory': {
+      const value = profileInstructions(profile)
+      return { surface: value, value }
+    }
     case 'rollout-policy': {
       const policy = structuralRolloutPolicyFromProfile(profile)
       if (!policy) {
@@ -303,7 +369,7 @@ function baselineSurfaceFor(
           "improve(): surface 'rollout-policy' requires an existing structural rollout policy",
         )
       }
-      return serializeRolloutPolicy(policy)
+      return { surface: serializeRolloutPolicy(policy), value: policy }
     }
     case 'code':
       throw new ConfigError(
@@ -593,11 +659,11 @@ function assertCandidateSurfaceKind(
 /** Materialize a detached profile candidate without changing the baseline. */
 function materializeImprovementProfileCandidate(
   profile: AgentProfile,
-  surface: ImproveSurface,
+  surface: ImproveProfileSurface,
   winner: MutableSurface,
   skills?: ImproveSkillsOptions,
   profileComponents?: ImproveProfileComponents,
-): AgentProfile | undefined {
+): AgentProfile {
   let candidate: AgentProfile
   if (isComponentSurface(winner)) {
     if (surface !== 'agent-profile' || !profileComponents) {
@@ -606,8 +672,8 @@ function materializeImprovementProfileCandidate(
       )
     }
     const winnerComponents = immutableCandidateValue({ ...winner.components })
-    candidate = profileComponents.apply(profile, winnerComponents)
-    const validated = validateProfileCandidate(candidate, surface)
+    const applied = profileComponents.apply(profile, winnerComponents)
+    const validated = validateProfileCandidate(applied, surface)
     const materializedComponents = Object.fromEntries(
       validateComponents(profileComponents.read(validated), 'profileComponents.read after apply'),
     )
@@ -622,7 +688,9 @@ function materializeImprovementProfileCandidate(
     }
     return validated
   }
-  if (typeof winner !== 'string') return undefined
+  if (typeof winner !== 'string') {
+    throw new ConfigError(`improve(): the '${surface}' candidate cannot form an AgentProfile`)
+  }
   switch (surface) {
     case 'prompt':
       candidate = { ...profile, prompt: { ...profile.prompt, systemPrompt: winner } }
@@ -675,13 +743,11 @@ function materializeImprovementProfileCandidate(
       candidate = applyRolloutPolicyToProfile(profile, policy)
       break
     }
-    case 'code':
-      return undefined
   }
   return validateProfileCandidate(candidate, surface)
 }
 
-function validateProfileCandidate(candidate: AgentProfile, surface: ImproveSurface): AgentProfile {
+function validateProfileCandidate(candidate: unknown, surface: ImproveSurface): AgentProfile {
   const parsed = agentProfileSchema.safeParse(candidate)
   if (!parsed.success) {
     throw new ConfigError(
@@ -691,10 +757,50 @@ function validateProfileCandidate(candidate: AgentProfile, surface: ImproveSurfa
   return immutableCandidateValue(parsed.data)
 }
 
-function inlineSkill(
+function createProfileCandidateMaterializer(
   profile: AgentProfile,
+  surface: ImproveProfileSurface,
+  baselineSurface: MutableSurface,
+  skills?: ImproveSkillsOptions,
+  profileComponents?: ImproveProfileComponents,
+): (candidateSurface: MutableSurface) => AgentProfile {
+  const baselineDigest = canonicalCandidateDigest(baselineSurface)
+  if (profileComponents) {
+    const reappliedBaseline = materializeImprovementProfileCandidate(
+      profile,
+      surface,
+      baselineSurface,
+      skills,
+      profileComponents,
+    )
+    if (canonicalCandidateDigest(reappliedBaseline) !== canonicalCandidateDigest(profile)) {
+      throw new ConfigError(
+        'improve(): profileComponents.apply(profile, profileComponents.read(profile)) must reproduce the complete baseline profile exactly',
+      )
+    }
+  }
+  const candidates = new Map<Sha256Digest, AgentProfile>([[baselineDigest, profile]])
+  return (candidateSurface) => {
+    assertCandidateSurfaceKind(surface, baselineSurface, candidateSurface)
+    const digest = canonicalCandidateDigest(candidateSurface)
+    const existing = candidates.get(digest)
+    if (existing) return existing
+    const candidate = materializeImprovementProfileCandidate(
+      profile,
+      surface,
+      immutableCandidateValue(candidateSurface),
+      skills,
+      profileComponents,
+    )
+    candidates.set(digest, candidate)
+    return candidate
+  }
+}
+
+function inlineSkill(
+  profile: ReadonlyAgentProfile,
   options: ImproveSkillsOptions | undefined,
-): Extract<AgentProfileResourceRef, { kind: 'inline' }> {
+): Readonly<Extract<AgentProfileResourceRef, { kind: 'inline' }>> {
   const resourceName = options?.resourceName.trim()
   if (!resourceName) {
     throw new ConfigError(
@@ -713,7 +819,7 @@ function inlineSkill(
   return matches[0]
 }
 
-function profileInstructions(profile: AgentProfile): string {
+function profileInstructions(profile: ReadonlyAgentProfile): string {
   assertFailClosedResources(profile, 'memory')
   const instructions = profile.resources?.instructions
   if (instructions === undefined) return ''
@@ -738,7 +844,10 @@ function replaceProfileInstructions(
   return { ...instructions, content }
 }
 
-function assertFailClosedResources(profile: AgentProfile, surface: 'skills' | 'memory'): void {
+function assertFailClosedResources(
+  profile: ReadonlyAgentProfile,
+  surface: 'skills' | 'memory',
+): void {
   if (profile.resources?.failOnError !== true) {
     throw new ConfigError(
       `improve(): surface '${surface}' requires profile.resources.failOnError: true`,
@@ -788,6 +897,14 @@ function copyProvenance(
   }
 }
 
+function validateExecutionRef(value: unknown): Sha256Digest {
+  const parsed = sha256DigestSchema.safeParse(value)
+  if (!parsed.success) {
+    throw new ConfigError('improve(): executionRef must be a lowercase sha256:<64 hex> digest')
+  }
+  return parsed.data
+}
+
 function developmentSplitDigest<TScenario extends Scenario>(
   trainScenarios: readonly TScenario[],
   selectionScenarios: readonly TScenario[],
@@ -805,11 +922,13 @@ async function runMethodImprovement<TScenario extends Scenario, TArtifact>(
 ): Promise<ImproveMethodResult> {
   const {
     surface = 'prompt',
+    executionRef: inputExecutionRef,
     method: methodSource,
     agent,
     findings: inputFindings = [],
     skills,
     profileComponents,
+    optimizationRunOptions,
     minimumLift = 0,
     ...comparisonOptions
   } = opts
@@ -821,59 +940,106 @@ async function runMethodImprovement<TScenario extends Scenario, TArtifact>(
   if (profileComponents && surface !== 'agent-profile') {
     throw new ConfigError("improve(): profileComponents is valid only with surface 'agent-profile'")
   }
+  const executionRef = validateExecutionRef(inputExecutionRef)
   const findings = [...inputFindings]
-  const baselineSurface = baselineSurfaceFor(profile, surface, skills, profileComponents)
+  const preparedSurface = prepareProfileSurface(profile, surface, skills, profileComponents)
+  const baselineSurface = preparedSurface.surface
+  const baselineValue = immutableCandidateValue(preparedSurface.value)
+  const baselineProfileDigest = canonicalCandidateDigest(profile)
+  const evaluationRef = canonicalCandidateDigest({
+    executionRef,
+    baselineProfileDigest,
+    surface,
+  })
+  const dispatchRef = `improve:${evaluationRef}`
+  const identifiedJudges = comparisonOptions.judges.map((judge) =>
+    Object.freeze({
+      ...judge,
+      judgeVersion: canonicalCandidateDigest({
+        evaluationRef,
+        name: judge.name,
+        dimensions: judge.dimensions,
+        declaredJudgeVersion: judge.judgeVersion ?? null,
+      }),
+    }),
+  )
+  const materializeProfile = createProfileCandidateMaterializer(
+    profile,
+    surface,
+    baselineSurface,
+    skills,
+    profileComponents,
+  )
   const runtimeRunId = `runtime-optimization:${randomUUID()}`
   const splitDigest = developmentSplitDigest(
     comparisonOptions.trainScenarios,
     comparisonOptions.selectionScenarios,
-    comparisonOptions.optimizationRunOptions?.reps ?? 1,
+    optimizationRunOptions?.reps ?? 1,
   )
   const method = resolveOptimizationMethod(methodSource, {
     profile,
+    evaluationRef,
     surface,
     baselineSurface,
+    baselineValue,
     findings,
   })
+  const measuredMethod: OptimizationMethod<TScenario, TArtifact> = {
+    ...method,
+    async optimize(input) {
+      const result = await method.optimize(input)
+      materializeProfile(result.winnerSurface)
+      return result
+    },
+  }
   const startedAt = Date.now()
   const raw = await compareOptimizationMethods<TScenario, TArtifact>({
     ...comparisonOptions,
-    methods: [method],
+    judges: identifiedJudges,
+    dispatchRef,
+    optimizationRunOptions: {
+      ...(optimizationRunOptions ?? {}),
+      dispatchRef,
+    },
+    methods: [measuredMethod],
     baselineSurface,
-    dispatchWithSurface: agent,
+    dispatchWithSurface: (candidateSurface, scenario, ctx) =>
+      agent(materializeProfile(candidateSurface), scenario, ctx),
   })
-  const score = raw.best
-  const winnerSurface = score.winnerSurface
-  assertCandidateSurfaceKind(surface, baselineSurface, winnerSurface)
-  const candidateProfile = materializeImprovementProfileCandidate(
-    profile,
-    surface,
-    winnerSurface,
-    skills,
-    profileComponents,
-  )
-  if (!candidateProfile) {
-    throw new ConfigError(`improve(): the '${surface}' method produced no profile candidate`)
+  if (
+    comparisonOptions.costCeiling !== undefined &&
+    raw.totalCost.totalCostUsd > comparisonOptions.costCeiling
+  ) {
+    throw new ConfigError(
+      `improve(): reported total cost $${raw.totalCost.totalCostUsd} exceeds costCeiling $${comparisonOptions.costCeiling}`,
+    )
   }
-  const candidate = immutableCandidateValue<ImprovementCandidate>({
+  const score = raw.best
+  const winnerSurface = immutableCandidateValue(score.winnerSurface)
+  assertCandidateSurfaceKind(surface, baselineSurface, winnerSurface)
+  const candidateProfile = materializeProfile(winnerSurface)
+  const candidate: ImprovementProfileCandidate = Object.freeze({
     surface,
     value: winnerSurface,
     profile: candidateProfile,
   })
 
+  const cost = copyCost(raw.totalCost)
   return {
     mode: 'method',
     method: method.name,
     ...(score.provenance ? { provenance: copyProvenance(score.provenance) } : {}),
     candidate,
-    decision: score.liftCi.low > minimumLift ? 'ship' : 'hold',
+    decision: cost.accountingComplete && score.liftCi.low > minimumLift ? 'ship' : 'hold',
     lift: score.lift,
     liftInterval: { ...score.liftCi },
-    cost: copyCost(raw.totalCost),
+    cost,
     durationMs: Date.now() - startedAt,
     lineage: Object.freeze({
       runId: score.provenance?.runId ?? runtimeRunId,
       developmentSplitDigest: splitDigest,
+      executionRef,
+      baselineProfileDigest,
     }),
     raw,
     async dispose() {},
@@ -942,7 +1108,7 @@ async function runCodeImprovement<TScenario extends Scenario, TArtifact>(
     )
   }
   const dispose = idempotentDispose(async () => preparedCode.cleanup())
-  const candidate = immutableCandidateValue<ImprovementCandidate>({
+  const candidate = immutableCandidateValue<ImprovementCodeCandidate>({
     surface: 'code',
     value: winnerSurface,
   })

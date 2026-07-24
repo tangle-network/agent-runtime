@@ -384,9 +384,6 @@ function assertImprovementCandidateBinding<TScenario extends Scenario, TArtifact
 ): void {
   const candidate = improvement.candidate
   if (candidate.surface !== 'code') {
-    if (!candidate.profile) {
-      throw new Error(`improvement surface '${candidate.surface}' did not produce an exact profile`)
-    }
     try {
       assertCandidateProfileBinding(candidate.profile, experiment.candidate.profile)
     } catch (cause) {

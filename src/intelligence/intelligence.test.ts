@@ -152,6 +152,11 @@ describe('defaultRedactor', () => {
     cyclic.self = cyclic
     expect(() => defaultRedactor(cyclic)).not.toThrow()
   })
+
+  it('redacts secret assignments embedded in serialized text', () => {
+    const redacted = defaultRedactor('judge note: {"password":"hunter2"} token=plain-secret')
+    expect(redacted).toBe('judge note: {"password":[redacted]} token=[redacted]')
+  })
 })
 
 describe('createIntelligenceClient / traceRun — Observe', () => {

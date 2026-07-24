@@ -37,15 +37,21 @@
  *   CORPUS             path to write JSONL run records (optional)
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  canonicalCandidateDigest,
+  type AgentProfile,
+} from '@tangle-network/agent-interface'
 import type {
   DispatchContext,
   JudgeConfig,
   JudgeScore,
-  MutableSurface,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
-import { improve, officialGepa } from '@tangle-network/agent-runtime'
+import {
+  improve,
+  officialGepa,
+  type ReadonlyAgentProfile,
+} from '@tangle-network/agent-runtime'
 import { appendFileSync, writeFileSync } from 'node:fs'
 import { createTrataHedgeAdapter } from './benchmarks/trata-hedge'
 import type { BenchTask } from './benchmarks/types'
@@ -165,14 +171,6 @@ async function main(): Promise<void> {
   const corpusPath = process.env.CORPUS
   const baselineSurface = process.env.BASELINE_DIRECTIVE ?? DEFAULT_TRATA_SYSTEM
   const runDir = process.env.RUN_DIR ?? '.runs/trata-official-gepa'
-  const evaluationId = [
-    'trata-hedge-prompt',
-    `worker=${model}`,
-    `workerEndpoint=${new URL(routerBaseUrl).origin}`,
-    `judge=${process.env.JUDGE_MODEL ?? 'adapter-default'}`,
-    `rounds=${kRounds}`,
-    `tokens=${workerMaxTokens}`,
-  ].join('|')
   const workerPricing = requiredTokenPricing(process.env, 'WORKER')
   const optimizer = officialOptimizerModel({
     env: process.env,
@@ -235,16 +233,15 @@ async function main(): Promise<void> {
   }
 
   const runWithSurface = async (
-    surface: MutableSurface,
+    candidate: ReadonlyAgentProfile,
     scenario: TrataScenario,
     ctx: DispatchContext,
   ): Promise<string> => {
-    if (typeof surface !== 'string') {
-      throw new Error('Trata prompt optimization requires a text surface')
-    }
+    const systemPrompt = candidate.prompt?.systemPrompt
+    if (systemPrompt === undefined) throw new Error('Trata candidate profile has no system prompt')
     // Round 1: initial analysis under the candidate system prompt.
     const r1 = await runPaidCompletion(ctx, 'trata-worker-round-1', [
-      { role: 'system', content: surface },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: scenario.task.prompt },
     ])
     let answer = r1.content
@@ -252,7 +249,7 @@ async function main(): Promise<void> {
     // Round 2 (optional): self-critique for rubric coverage.
     if (kRounds >= 2 && answer.trim()) {
       const r2 = await runPaidCompletion(ctx, 'trata-worker-round-2', [
-        { role: 'system', content: surface },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: scenario.task.prompt },
         { role: 'assistant', content: answer },
         { role: 'user', content: REFINE_INSTRUCTION },
@@ -297,10 +294,17 @@ async function main(): Promise<void> {
   }
   const result = await improve(profile, {
     surface: 'prompt',
+    executionRef: canonicalCandidateDigest({
+      callback: 'bench/trata-gepa',
+      model,
+      endpoint: new URL(routerBaseUrl).origin,
+      maxTokens: workerMaxTokens,
+      rounds: kRounds,
+      judgeModel: process.env.JUDGE_MODEL ?? 'adapter-default',
+    }),
     method: officialGepa<TrataScenario, string>({
       objective:
         'Improve the complete system instruction for a financial analyst that writes evidence-backed investment memos.',
-      evaluationId,
       background:
         'The judge awards partial credit for covering every requested analytical theme with specific quantitative claims, named peer comparisons, explicit calculations, source citations, and a decisive synthesis. Preserve the required ANALYSIS: prefix.',
       recipe: {

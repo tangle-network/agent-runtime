@@ -1,20 +1,24 @@
+import { isDeepStrictEqual } from 'node:util'
 import { canonicalJson } from '@tangle-network/agent-eval'
 import {
   type GepaOptimizationMethodConfig,
   gepaOptimizationMethod,
+  type JudgeScore,
   type OptimizationMethod,
   type SkillOptOptimizationMethodConfig,
   skillOptOptimizationMethod,
 } from '@tangle-network/agent-eval/campaign'
+import { canonicalCandidateDigest } from '../candidate-execution/digest'
 import { ConfigError } from '../errors'
+import { defaultRedactor } from '../redact'
 import type { ImproveMethodContext, ImproveMethodFactory } from './improve'
 
-const DEFAULT_MAX_FINDINGS_CHARS = 50_000
-const PYTHON_CLIENT_DOCS = 'https://github.com/tangle-network/agent-eval/tree/main/clients/python'
-const GEPA_INSTALL =
+const defaultMaxFindingsChars = 50_000
+const pythonClientDocs = 'https://github.com/tangle-network/agent-eval/tree/main/clients/python'
+const gepaInstall =
   '`python -m pip install agent-eval-rpc`, then ' +
   '`python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"`'
-const SKILLOPT_INSTALL =
+const skillOptInstall =
   '`python -m pip install agent-eval-rpc`, then ' +
   '`python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"`'
 
@@ -32,14 +36,14 @@ export interface OfficialOptimizerContextOptions {
 export type OfficialGepaOptions<
   TScenario extends { id: string; kind: string },
   TArtifact = unknown,
-> = Omit<GepaOptimizationMethodConfig<TScenario, TArtifact>, 'background'> &
+> = Omit<GepaOptimizationMethodConfig<TScenario, TArtifact>, 'background' | 'evaluationId'> &
   OfficialOptimizerContextOptions
 
 /** Official SkillOpt configuration plus bounded Runtime findings context. */
 export type OfficialSkillOptOptions<
   TScenario extends { id: string; kind: string },
   TArtifact = unknown,
-> = Omit<SkillOptOptimizationMethodConfig<TScenario, TArtifact>, 'background'> &
+> = Omit<SkillOptOptimizationMethodConfig<TScenario, TArtifact>, 'background' | 'evaluationId'> &
   OfficialOptimizerContextOptions
 
 /** Missing optional Python dependencies for an official optimizer. */
@@ -50,14 +54,14 @@ export class OfficialOptimizerUnavailableError extends ConfigError {
     const detail = cause instanceof Error ? cause.message : String(cause)
     const install =
       optimizer === 'gepa'
-        ? `Install the Python bridge and pinned GEPA source: ${GEPA_INSTALL}.`
-        : `Install Microsoft SkillOpt: ${SKILLOPT_INSTALL}.`
+        ? `Install the Python bridge and pinned GEPA source: ${gepaInstall}.`
+        : `Install Microsoft SkillOpt: ${skillOptInstall}.`
     super(
       [
         `Official ${optimizer === 'gepa' ? 'GEPA' : 'SkillOpt'} could not start.`,
         'Runtime did not use a local fallback.',
         install,
-        `Setup: ${PYTHON_CLIENT_DOCS}.`,
+        `Setup: ${pythonClientDocs}.`,
         `Cause: ${detail}`,
       ].join(' '),
       { cause },
@@ -75,13 +79,24 @@ export class OfficialOptimizerUnavailableError extends ConfigError {
 export function officialGepa<TScenario extends { id: string; kind: string }, TArtifact = unknown>(
   options: OfficialGepaOptions<TScenario, TArtifact>,
 ): ImproveMethodFactory<TScenario, TArtifact> {
-  const { background, includeFindings = true, maxFindingsChars, ...config } = options
+  const {
+    background,
+    includeFindings = true,
+    maxFindingsChars,
+    describeScenario,
+    describeArtifact,
+    ...config
+  } = options
   assertMaxFindingsChars('officialGepa', maxFindingsChars)
-  return (context) =>
-    withDependencyHelp(
+  assertSafeCallerText('officialGepa', 'objective', config.objective)
+  return (context) => {
+    assertSafeOptimizerSurface('officialGepa', context)
+    return withDependencyHelp(
       'gepa',
+      context.evaluationRef,
       gepaOptimizationMethod<TScenario, TArtifact>({
         ...config,
+        evaluationId: context.evaluationRef,
         background: methodBackground({
           context,
           background,
@@ -89,8 +104,15 @@ export function officialGepa<TScenario extends { id: string; kind: string }, TAr
           maxFindingsChars,
           label: 'officialGepa',
         }),
+        describeScenario: (scenario) =>
+          redactOptimizerEvidence(describeScenario ? describeScenario(scenario) : scenario),
+        describeArtifact: (artifact, scenario) =>
+          redactOptimizerEvidence(
+            describeArtifact ? describeArtifact(artifact, scenario) : artifact,
+          ),
       }),
     )
+  }
 }
 
 /** Build a complete method backed by Microsoft's official SkillOpt trainer. */
@@ -100,13 +122,24 @@ export function officialSkillOpt<
 >(
   options: OfficialSkillOptOptions<TScenario, TArtifact>,
 ): ImproveMethodFactory<TScenario, TArtifact> {
-  const { background, includeFindings = true, maxFindingsChars, ...config } = options
+  const {
+    background,
+    includeFindings = true,
+    maxFindingsChars,
+    describeScenario,
+    describeArtifact,
+    ...config
+  } = options
   assertMaxFindingsChars('officialSkillOpt', maxFindingsChars)
-  return (context) =>
-    withDependencyHelp(
+  assertSafeCallerText('officialSkillOpt', 'objective', config.objective)
+  return (context) => {
+    assertSafeOptimizerSurface('officialSkillOpt', context)
+    return withDependencyHelp(
       'skillopt',
+      context.evaluationRef,
       skillOptOptimizationMethod<TScenario, TArtifact>({
         ...config,
+        evaluationId: context.evaluationRef,
         background: methodBackground({
           context,
           background,
@@ -114,8 +147,15 @@ export function officialSkillOpt<
           maxFindingsChars,
           label: 'officialSkillOpt',
         }),
+        describeScenario: (scenario) =>
+          redactOptimizerEvidence(describeScenario ? describeScenario(scenario) : scenario),
+        describeArtifact: (artifact, scenario) =>
+          redactOptimizerEvidence(
+            describeArtifact ? describeArtifact(artifact, scenario) : artifact,
+          ),
       }),
     )
+  }
 }
 
 function assertMaxFindingsChars(label: string, value: number | undefined): void {
@@ -135,9 +175,11 @@ function methodBackground(options: {
     context,
     background,
     includeFindings,
-    maxFindingsChars = DEFAULT_MAX_FINDINGS_CHARS,
+    maxFindingsChars = defaultMaxFindingsChars,
     label,
   } = options
+  assertSafeCallerText(label, 'background', background)
+  assertSafeCallerText(label, 'profile name', context.profile.name)
   const sections = [
     background?.trim(),
     `Agent profile: ${context.profile.name}. Surface: ${context.surface}.`,
@@ -145,7 +187,7 @@ function methodBackground(options: {
   if (includeFindings && context.findings.length > 0) {
     let serialized: string
     try {
-      serialized = canonicalJson(context.findings)
+      serialized = canonicalJson(defaultRedactor(context.findings))
     } catch (cause) {
       throw new ConfigError(`${label}: findings must be JSON-serializable`, { cause })
     }
@@ -159,15 +201,68 @@ function methodBackground(options: {
   return sections.join('\n\n')
 }
 
+function assertSafeOptimizerSurface(label: string, context: ImproveMethodContext): void {
+  const redactedValue = defaultRedactor(context.baselineValue)
+  const redactedSurface = defaultRedactor(context.baselineSurface)
+  if (
+    !isDeepStrictEqual(context.baselineValue, redactedValue) ||
+    !isDeepStrictEqual(context.baselineSurface, redactedSurface)
+  ) {
+    throw new ConfigError(
+      `${label}: the selected profile surface contains a common credential or private value. ` +
+        'Store live credentials as provider references, or remove private data before starting an external optimizer.',
+    )
+  }
+}
+
+function redactOptimizerEvidence(value: unknown): unknown {
+  return defaultRedactor(value)
+}
+
+function redactJudgeScore(score: JudgeScore): JudgeScore {
+  const notes = defaultRedactor(score.notes)
+  return {
+    ...score,
+    notes: typeof notes === 'string' ? notes : '[redacted]',
+  }
+}
+
+function assertSafeCallerText(label: string, field: string, value: string | undefined): void {
+  if (value !== undefined && defaultRedactor(value) !== value) {
+    throw new ConfigError(
+      `${label}: ${field} contains a common credential or private value. Sanitize it before starting an external optimizer.`,
+    )
+  }
+}
+
 function withDependencyHelp<TScenario extends { id: string; kind: string }, TArtifact>(
   optimizer: 'gepa' | 'skillopt',
+  evaluationRef: ImproveMethodContext['evaluationRef'],
   method: OptimizationMethod<TScenario, TArtifact>,
 ): OptimizationMethod<TScenario, TArtifact> {
   return {
     ...method,
     async optimize(input) {
       try {
-        return await method.optimize(input)
+        const judges = input.judges.map((judge) =>
+          Object.freeze({
+            ...judge,
+            judgeVersion: canonicalCandidateDigest({
+              evaluationRef,
+              name: judge.name,
+              dimensions: judge.dimensions,
+              judgeVersion: judge.judgeVersion ?? null,
+              outwardEvidence: 'default-redactor',
+            }),
+            async score(scoreInput: Parameters<typeof judge.score>[0]) {
+              return redactJudgeScore(await judge.score(scoreInput))
+            },
+          }),
+        )
+        return await method.optimize({
+          ...input,
+          judges: Object.freeze(judges),
+        })
       } catch (cause) {
         if (isMissingDependency(optimizer, cause)) {
           throw new OfficialOptimizerUnavailableError(optimizer, cause)

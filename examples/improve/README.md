@@ -14,10 +14,11 @@ Runs offline, no credentials.
 ## What it does, step by step
 
 1. Runtime extracts the exact profile field selected by `surface`.
-2. The supplied `OptimizationMethod` generates and selects a candidate using train and selection cases.
-3. Runtime scores the baseline and candidate on the untouched final-test cases.
-4. Runtime returns `ship` only when the paired confidence interval clears the required lift.
-5. Approval and activation remain separate operations.
+2. Runtime binds saved work to `executionRef` plus the complete baseline profile.
+3. The supplied `OptimizationMethod` generates and selects a candidate using train and selection cases.
+4. Runtime scores the baseline and candidate on the untouched final-test cases.
+5. Runtime returns `ship` only when the paired confidence interval clears the required lift.
+6. Approval and activation remain separate operations.
 
 ## What you'll see
 

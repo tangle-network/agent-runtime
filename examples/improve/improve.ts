@@ -2,14 +2,13 @@
 
 import { makeFinding } from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-} from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import { type ImproveMethodFactory, improve } from '@tangle-network/agent-runtime'
+import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  type ImproveMethodFactory,
+  improve,
+  type ReadonlyAgentProfile,
+} from '@tangle-network/agent-runtime'
 
 export interface DemoScenario extends Scenario {
   kind: 'demo'
@@ -26,7 +25,7 @@ export const testScenarios = scenarios.slice(8)
 // The agent returns the surface verbatim as the artifact AND reports usage, so the backend-integrity
 // guard sees a real backend rather than a stub-zero cell. No LLM.
 export const agent = async (
-  surface: MutableSurface,
+  candidate: ReadonlyAgentProfile,
   _scenario: DemoScenario,
   ctx: DispatchContext,
 ): Promise<string> => {
@@ -35,7 +34,7 @@ export const agent = async (
     actor: 'example',
     model: 'deterministic-example',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => String(surface),
+    execute: async () => candidate.prompt?.systemPrompt ?? '',
     receipt: () => ({
       model: 'deterministic-example',
       inputTokens: 1,
@@ -83,10 +82,15 @@ const findings = [
 ]
 
 export const profile: AgentProfile = { name: 'demo', prompt: { systemPrompt: 'BASELINE' } }
+export const executionRef = canonicalCandidateDigest({
+  callback: 'examples/improve/agent',
+  model: 'deterministic-example',
+})
 
 async function main(): Promise<void> {
   const out = await improve(profile, {
     surface: 'prompt',
+    executionRef,
     method: scriptedWinner,
     findings,
     trainScenarios,
@@ -103,7 +107,7 @@ async function main(): Promise<void> {
     'improve() proposed a detached prompt candidate and measured it on final-test scenarios (offline complete method, deterministic judge):',
   )
   console.log(`decision: ${out.decision}  lift: ${out.lift.toFixed(3)}`)
-  console.log(`candidate prompt: ${out.candidate.profile?.prompt?.systemPrompt}`)
+  console.log(`candidate prompt: ${out.candidate.profile.prompt?.systemPrompt}`)
   console.log(`live prompt unchanged: ${profile.prompt?.systemPrompt}`)
 }
 

@@ -16,10 +16,11 @@ import type {
   MutableSurface,
   Scenario,
 } from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
 import { improve } from './improve'
+import type { ReadonlyAgentProfile } from './profile-types'
 
 interface TestScenario extends Scenario {
   kind: 'fixture'
@@ -36,6 +37,7 @@ const testScenarios: TestScenario[] = [
   { id: 'test-b', kind: 'fixture' },
 ]
 const allScenarios = [...trainScenarios, ...selectionScenarios, ...testScenarios]
+const executionRef = canonicalCandidateDigest({ fixture: 'improve-method' })
 
 const improvementJudge: JudgeConfig<TextArtifact, TestScenario> = {
   name: 'improvement',
@@ -46,8 +48,8 @@ const improvementJudge: JudgeConfig<TextArtifact, TestScenario> = {
   },
 }
 
-async function paidText(
-  surface: MutableSurface,
+async function paidArtifact(
+  text: string,
   _scenario: TestScenario,
   ctx: DispatchContext,
 ): Promise<TextArtifact> {
@@ -56,7 +58,7 @@ async function paidText(
     actor: 'test-agent',
     model: 'deterministic-test',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
-    execute: async () => ({ text: String(surface) }),
+    execute: async () => ({ text }),
     receipt: () => ({
       model: 'deterministic-test',
       inputTokens: 1,
@@ -66,6 +68,14 @@ async function paidText(
   })
   if (!paid.succeeded) throw paid.error
   return paid.value
+}
+
+async function paidProfile(
+  profile: ReadonlyAgentProfile,
+  scenario: TestScenario,
+  ctx: DispatchContext,
+): Promise<TextArtifact> {
+  return paidArtifact(profile.prompt?.systemPrompt ?? '', scenario, ctx)
 }
 
 function fixedMethod(
@@ -87,11 +97,12 @@ function fixedMethod(
 
 function methodOptions(method: OptimizationMethod<TestScenario, TextArtifact>): {
   method: OptimizationMethod<TestScenario, TextArtifact>
+  executionRef: typeof executionRef
   trainScenarios: TestScenario[]
   selectionScenarios: TestScenario[]
   testScenarios: TestScenario[]
   judges: JudgeConfig<TextArtifact, TestScenario>[]
-  agent: typeof paidText
+  agent: typeof paidProfile
   runDir: string
   storage: ReturnType<typeof inMemoryCampaignStorage>
   resamples: number
@@ -99,11 +110,12 @@ function methodOptions(method: OptimizationMethod<TestScenario, TextArtifact>): 
 } {
   return {
     method,
+    executionRef,
     trainScenarios,
     selectionScenarios,
     testScenarios,
     judges: [improvementJudge],
-    agent: paidText,
+    agent: paidProfile,
     runDir: `mem://improve-method-${Math.random()}`,
     storage: inMemoryCampaignStorage(),
     resamples: 40,
@@ -120,6 +132,11 @@ describe('improve method execution', () => {
   it('runs a complete method without exposing final-test cases and materializes its prompt', async () => {
     let observed: OptimizationMethodInput<TestScenario, TextArtifact> | undefined
     const profile = promptProfile()
+    const expectedEvaluationRef = canonicalCandidateDigest({
+      executionRef,
+      baselineProfileDigest: canonicalCandidateDigest(profile),
+      surface: 'prompt',
+    })
     const result = await improve(profile, {
       ...methodOptions(fixedMethod('improved prompt', (input) => (observed = input))),
       surface: 'prompt',
@@ -127,6 +144,15 @@ describe('improve method execution', () => {
 
     expect(observed?.trainScenarios.map((scenario) => scenario.id)).toEqual(['train'])
     expect(observed?.selectionScenarios.map((scenario) => scenario.id)).toEqual(['selection'])
+    expect(observed?.runOptions.dispatchRef).toBe(`improve:${expectedEvaluationRef}`)
+    expect(observed?.judges[0]?.judgeVersion).toBe(
+      canonicalCandidateDigest({
+        evaluationRef: expectedEvaluationRef,
+        name: improvementJudge.name,
+        dimensions: improvementJudge.dimensions,
+        declaredJudgeVersion: null,
+      }),
+    )
     expect(JSON.stringify(observed)).not.toContain('test-a')
     expect(result.mode).toBe('method')
     expect(result.method).toBe('fixed-method')
@@ -136,6 +162,105 @@ describe('improve method execution', () => {
     expect(result.candidate.profile?.prompt?.systemPrompt).toBe('improved prompt')
     expect(profile.prompt?.systemPrompt).toBe('baseline')
     expect(Object.isFrozen(result.candidate)).toBe(true)
+  })
+
+  it('resumes an identical profile run without dispatching another agent call', async () => {
+    const storage = inMemoryCampaignStorage()
+    let agentCalls = 0
+    const options = {
+      ...methodOptions(fixedMethod('improved prompt')),
+      storage,
+      runDir: 'mem://improve-exact-resume',
+      agent: async (
+        candidate: ReadonlyAgentProfile,
+        scenario: TestScenario,
+        ctx: DispatchContext,
+      ) => {
+        agentCalls += 1
+        return paidProfile(candidate, scenario, ctx)
+      },
+    }
+
+    const first = await improve(promptProfile(), options)
+    const callsAfterFirst = agentCalls
+    const second = await improve(promptProfile(), options)
+
+    expect(callsAfterFirst).toBeGreaterThan(0)
+    expect(agentCalls).toBe(callsAfterFirst)
+    expect(second.cost).toEqual(first.cost)
+    expect(second.candidate.profile).toEqual(first.candidate.profile)
+  })
+
+  it('does not reuse saved measurements after executable or baseline identity changes', async () => {
+    const storage = inMemoryCampaignStorage()
+    const runDir = 'mem://improve-identity-change'
+    let agentCalls = 0
+    const options = {
+      ...methodOptions(fixedMethod('improved prompt')),
+      storage,
+      runDir,
+      agent: async (
+        candidate: ReadonlyAgentProfile,
+        scenario: TestScenario,
+        ctx: DispatchContext,
+      ) => {
+        agentCalls += 1
+        return paidProfile(candidate, scenario, ctx)
+      },
+    }
+    await improve(promptProfile(), options)
+    const callsAfterBaseline = agentCalls
+
+    await improve(promptProfile(), {
+      ...options,
+      executionRef: canonicalCandidateDigest({ fixture: 'changed-execution' }),
+    })
+    expect(agentCalls).toBeGreaterThan(callsAfterBaseline)
+    const callsAfterExecutionChange = agentCalls
+
+    await improve(
+      {
+        ...promptProfile(),
+        description: 'changed complete profile',
+      },
+      options,
+    )
+    expect(agentCalls).toBeGreaterThan(callsAfterExecutionChange)
+  })
+
+  it('requires a content-addressed executable identity', async () => {
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(fixedMethod('improved prompt')),
+        executionRef: undefined as never,
+      }),
+    ).rejects.toThrow(/executionRef must be a lowercase sha256/)
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(fixedMethod('improved prompt')),
+        executionRef: 'callback-v1' as never,
+      }),
+    ).rejects.toThrow(/executionRef must be a lowercase sha256/)
+  })
+
+  it('propagates caller cancellation into the optimization method', async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller stopped improvement')
+    controller.abort(reason)
+    let observedAbortedSignal = false
+    const method = fixedMethod('improved prompt')
+    method.optimize = async (input) => {
+      observedAbortedSignal = input.runOptions.signal?.aborted === true
+      throw input.runOptions.signal?.reason
+    }
+
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(method),
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(reason.message)
+    expect(observedAbortedSignal).toBe(true)
   })
 
   it('passes current findings to a method factory', async () => {
@@ -298,13 +423,7 @@ describe('improve method execution', () => {
           tools: JSON.parse(components.tools ?? '{}') as Record<string, boolean>,
         }),
       },
-      agent: async (surface, scenario, ctx) => {
-        const text =
-          typeof surface === 'object' && surface.kind === 'components'
-            ? (surface.components.prompt ?? '')
-            : String(surface)
-        return paidText(text, scenario, ctx)
-      },
+      agent: paidProfile,
     })
 
     expect(observedBaseline).toEqual({
@@ -359,16 +478,111 @@ describe('improve method execution', () => {
           read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
           apply: (current) => ({ ...current }),
         },
-        agent: async (surface, scenario, ctx) =>
-          paidText(
-            typeof surface === 'object' && surface.kind === 'components'
-              ? (surface.components.prompt ?? '')
-              : String(surface),
-            scenario,
-            ctx,
-          ),
+        agent: paidProfile,
       }),
     ).rejects.toThrow(/round-trip every winning component/)
+  })
+
+  it('rejects a component adapter that changes unmeasured baseline fields', async () => {
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(
+          fixedMethod({
+            kind: 'components',
+            components: { prompt: 'improved prompt' },
+          }),
+        ),
+        surface: 'agent-profile',
+        profileComponents: {
+          read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+          apply: (current, components) => ({
+            ...current,
+            description: 'unmeasured adapter side effect',
+            prompt: { ...current.prompt, systemPrompt: components.prompt },
+          }),
+        },
+      }),
+    ).rejects.toThrow(/must reproduce the complete baseline profile exactly/)
+  })
+
+  it('scores and returns the same complete profile produced by a component mapping', async () => {
+    const observed: ReadonlyAgentProfile[] = []
+    const result = await improve(
+      {
+        name: 'fixture-agent',
+        prompt: { systemPrompt: 'baseline' },
+        tools: { Bash: false },
+      },
+      {
+        ...methodOptions(
+          fixedMethod({
+            kind: 'components',
+            components: { prompt: 'improved prompt' },
+          }),
+        ),
+        surface: 'agent-profile',
+        profileComponents: {
+          read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+          apply: (current, components) => ({
+            ...current,
+            prompt: { ...current.prompt, systemPrompt: components.prompt },
+            tools: { Bash: components.prompt === 'improved prompt' },
+          }),
+        },
+        agent: async (candidate, scenario, ctx) => {
+          observed.push(candidate)
+          return paidProfile(candidate, scenario, ctx)
+        },
+      },
+    )
+
+    const measuredWinner = observed.find(
+      (candidate) =>
+        candidate.prompt?.systemPrompt === 'improved prompt' && candidate.tools?.Bash === true,
+    )
+    expect(result.candidate.profile?.tools).toEqual({ Bash: true })
+    expect(measuredWinner).toBeDefined()
+    expect(result.candidate.profile).toBe(measuredWinner)
+    expect(observed.every((candidate) => Object.isFrozen(candidate))).toBe(true)
+    expect(observed.every((candidate) => Object.isFrozen(candidate.prompt))).toBe(true)
+    expect(observed.every((candidate) => Object.isFrozen(candidate.tools))).toBe(true)
+  })
+
+  it('holds an apparent win when any run cost is incompletely accounted', async () => {
+    const method = fixedMethod('improved prompt')
+    method.optimize = async () => ({
+      winnerSurface: 'improved prompt',
+      cost: {
+        totalCostUsd: 0,
+        accountingComplete: false,
+        incompleteReasons: ['optimizer model cost unavailable'],
+      },
+    })
+
+    const result = await improve(promptProfile(), methodOptions(method))
+
+    expect(result.liftInterval.low).toBeGreaterThan(0)
+    expect(result.cost.accountingComplete).toBe(false)
+    expect(result.decision).toBe('hold')
+  })
+
+  it('rejects method-reported spend above the configured total limit', async () => {
+    const method = fixedMethod('improved prompt')
+    method.optimize = async () => ({
+      winnerSurface: 'improved prompt',
+      cost: {
+        totalCostUsd: 2,
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
+    })
+
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(method),
+        costCeiling: 1,
+      }),
+    ).rejects.toThrow(/reported total cost \$2\.\d+ exceeds costCeiling \$1/)
   })
 
   it('rejects an invalid method and malformed profile output', async () => {
@@ -450,7 +664,7 @@ async function paidCodeText(
   if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
     throw new Error('expected a code surface')
   }
-  return paidText(
+  return paidArtifact(
     readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
     _scenario,
     ctx,

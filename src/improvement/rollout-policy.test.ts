@@ -3,7 +3,7 @@ import {
   type OptimizationMethod,
 } from '@tangle-network/agent-eval/campaign'
 import type { JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import type { StructuralRolloutPolicy } from '../runtime/structural-rollout'
 import { improve } from './improve'
@@ -69,6 +69,7 @@ const testCases: PolicyScenario[] = [
   { id: 'test-a', kind: 'fixture' },
   { id: 'test-b', kind: 'fixture' },
 ]
+const executionRef = canonicalCandidateDigest({ fixture: 'rollout-policy-method' })
 
 const judge: JudgeConfig<PolicyArtifact, PolicyScenario> = {
   name: 'k',
@@ -103,12 +104,13 @@ describe("improve surface 'rollout-policy'", () => {
     }
     const result = await improve(profile, {
       surface: 'rollout-policy',
+      executionRef,
       method: policyMethod({ k: 7, repairRounds: 2, testgen: 6 }),
       trainScenarios: train,
       selectionScenarios: selection,
       testScenarios: testCases,
       judges: [judge],
-      agent: async (surface) => ({ policy: parseRolloutPolicy(surface) }),
+      agent: async (candidate) => ({ policy: structuralRolloutPolicyFromProfile(candidate) }),
       runDir: 'mem://rollout-policy-method',
       storage: inMemoryCampaignStorage(),
       resamples: 40,
@@ -136,12 +138,13 @@ describe("improve surface 'rollout-policy'", () => {
         { name: 'fixture-agent' },
         {
           surface: 'rollout-policy',
+          executionRef,
           method: policyMethod({ k: 7, repairRounds: 2, testgen: 6 }),
           trainScenarios: train,
           selectionScenarios: selection,
           testScenarios: testCases,
           judges: [judge],
-          agent: async (surface) => ({ policy: parseRolloutPolicy(surface) }),
+          agent: async (candidate) => ({ policy: structuralRolloutPolicyFromProfile(candidate) }),
           runDir: 'mem://rollout-policy-missing',
           storage: inMemoryCampaignStorage(),
           resamples: 40,

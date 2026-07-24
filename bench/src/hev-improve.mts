@@ -11,8 +11,15 @@
  * Worker + reflect models call the zai coding endpoint directly (no tangle router,
  * no WAF, no 503):  TANGLE_API_KEY=$ZAI_API_KEY  ROUTER_BASE=https://api.z.ai/api/coding/paas/v4
  */
-import { improve, officialGepa } from '@tangle-network/agent-runtime'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  improve,
+  officialGepa,
+  type ReadonlyAgentProfile,
+} from '@tangle-network/agent-runtime'
+import {
+  canonicalCandidateDigest,
+  type AgentProfile,
+} from '@tangle-network/agent-interface'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { extractCode, loadHumanEval, runChecker, type HumanEvalTask } from './benchmarks/humaneval'
 import {
@@ -70,13 +77,6 @@ async function main(): Promise<void> {
   const reflectMaxTokens = Number(process.env.REFLECT_MAX_TOKENS ?? 8000)
   const maxConcurrency = Number(process.env.MAX_CONCURRENCY ?? 4)
   const runDir = process.env.RUN_DIR ?? '.runs/humaneval-official-gepa'
-  const evaluationId = [
-    'humaneval-prompt-eval',
-    `worker=${workerModel}`,
-    `endpoint=${new URL(base).origin}`,
-    `tokens=${workerMaxTokens}`,
-    'checker=local-python',
-  ].join('|')
   if (process.env.DRYRUN) {
     console.log(
       `DRYRUN: imports OK (improve=${typeof improve}, officialGepa=${typeof officialGepa})`,
@@ -110,8 +110,9 @@ async function main(): Promise<void> {
   console.log(`runDir=${runDir}\n`)
 
   const stats = { n: 0 }
-  const agent = async (surface: unknown, scenario: Scenario, ctx: DispatchContext): Promise<string | null> => {
-    const instr = String(surface)
+  const agent = async (candidate: ReadonlyAgentProfile, scenario: Scenario, ctx: DispatchContext): Promise<string | null> => {
+    const instr = candidate.prompt?.systemPrompt
+    if (instr === undefined) throw new Error('agent: candidate profile has no system prompt')
     const t = byId.get(scenario.id)
     if (!t) throw new Error(`agent: unknown scenario ${scenario.id}`)
     const prompt = `${instr}\n\n\`\`\`python\n${t.prompt}\`\`\``
@@ -175,10 +176,16 @@ async function main(): Promise<void> {
 
   const out = await improve(profile, {
     surface: 'prompt',
+    executionRef: canonicalCandidateDigest({
+      callback: 'bench/hev-improve',
+      model: workerModel,
+      endpoint: new URL(base).origin,
+      maxTokens: workerMaxTokens,
+      checker: 'local-python',
+    }),
     method: officialGepa<Scenario, string | null>({
       objective:
         'Improve the complete instruction for a small model that writes Python functions which pass hidden unit tests.',
-      evaluationId,
       background:
         'Prefer behavioral strategies over wording changes. Address algorithm choice, edge cases, boundary values, type behavior, and self-checking. Return only the complete instruction.',
       recipe: {
