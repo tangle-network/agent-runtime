@@ -514,7 +514,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ### SandboxRunAbortError
 
-Defined in: [src/runtime/sandbox-run.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L79)
+Defined in: [src/runtime/sandbox-run.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L80)
 
 **`Experimental`**
 
@@ -536,7 +536,7 @@ loop kernel, scope, supervise runtime) keep matching it unchanged.
 
 > **new SandboxRunAbortError**(`events`, `readError?`): [`SandboxRunAbortError`](#sandboxrunaborterror)
 
-Defined in: [src/runtime/sandbox-run.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L85)
+Defined in: [src/runtime/sandbox-run.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L86)
 
 **`Experimental`**
 
@@ -564,7 +564,7 @@ Defined in: [src/runtime/sandbox-run.ts:85](https://github.com/tangle-network/ag
 
 > `readonly` **name**: `"AbortError"` = `'AbortError'`
 
-Defined in: [src/runtime/sandbox-run.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L80)
+Defined in: [src/runtime/sandbox-run.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L81)
 
 **`Experimental`**
 
@@ -576,7 +576,7 @@ Defined in: [src/runtime/sandbox-run.ts:80](https://github.com/tangle-network/ag
 
 > `readonly` **events**: `SandboxEvent`[]
 
-Defined in: [src/runtime/sandbox-run.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L82)
+Defined in: [src/runtime/sandbox-run.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L83)
 
 **`Experimental`**
 
@@ -586,7 +586,7 @@ Events drained from the stream before the abort interrupted the turn.
 
 > `readonly` `optional` **readError?**: `string`
 
-Defined in: [src/runtime/sandbox-run.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L84)
+Defined in: [src/runtime/sandbox-run.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L85)
 
 **`Experimental`**
 
@@ -6676,7 +6676,7 @@ Defined in: [src/runtime/sandbox-capabilities.ts:75](https://github.com/tangle-n
 
 ### SandboxToolPartState
 
-Defined in: [src/runtime/sandbox-events.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L147)
+Defined in: [src/runtime/sandbox-events.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L196)
 
 **`Experimental`**
 
@@ -6693,7 +6693,7 @@ state per turn via [createSandboxToolPartState](#createsandboxtoolpartstate).
 
 > **statusByCall**: `Map`\<`string`, `string`\>
 
-Defined in: [src/runtime/sandbox-events.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L150)
+Defined in: [src/runtime/sandbox-events.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L199)
 
 **`Experimental`**
 
@@ -6704,7 +6704,7 @@ Last seen status per tool call id. A terminal status is sticky — later
 
 > **seq**: `number`
 
-Defined in: [src/runtime/sandbox-events.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L152)
+Defined in: [src/runtime/sandbox-events.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L201)
 
 **`Experimental`**
 
@@ -7027,7 +7027,7 @@ Defined in: [src/runtime/sandbox-lineage.ts:416](https://github.com/tangle-netwo
 
 ### TurnResult
 
-Defined in: [src/runtime/sandbox-run.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L62)
+Defined in: [src/runtime/sandbox-run.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L63)
 
 **`Experimental`**
 
@@ -7047,7 +7047,7 @@ nothing" from a transport/FS fault.
 
 > **out**: `Out`
 
-Defined in: [src/runtime/sandbox-run.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L63)
+Defined in: [src/runtime/sandbox-run.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L64)
 
 **`Experimental`**
 
@@ -7055,7 +7055,7 @@ Defined in: [src/runtime/sandbox-run.ts:63](https://github.com/tangle-network/ag
 
 > **events**: `SandboxEvent`[]
 
-Defined in: [src/runtime/sandbox-run.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L64)
+Defined in: [src/runtime/sandbox-run.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L65)
 
 **`Experimental`**
 
@@ -7063,7 +7063,7 @@ Defined in: [src/runtime/sandbox-run.ts:64](https://github.com/tangle-network/ag
 
 > `optional` **readError?**: `string`
 
-Defined in: [src/runtime/sandbox-run.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L65)
+Defined in: [src/runtime/sandbox-run.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L66)
 
 **`Experimental`**
 
@@ -7071,7 +7071,7 @@ Defined in: [src/runtime/sandbox-run.ts:65](https://github.com/tangle-network/ag
 
 ### SandboxRun
 
-Defined in: [src/runtime/sandbox-run.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L94)
+Defined in: [src/runtime/sandbox-run.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L95)
 
 **`Experimental`**
 
@@ -7090,7 +7090,7 @@ A live run over ONE persistent artifact (box + session). Close it
 
 > `readonly` **box**: `SandboxInstance`
 
-Defined in: [src/runtime/sandbox-run.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L95)
+Defined in: [src/runtime/sandbox-run.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L96)
 
 **`Experimental`**
 
@@ -7098,7 +7098,7 @@ Defined in: [src/runtime/sandbox-run.ts:95](https://github.com/tangle-network/ag
 
 > `readonly` **sessionId**: `string`
 
-Defined in: [src/runtime/sandbox-run.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L96)
+Defined in: [src/runtime/sandbox-run.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L97)
 
 **`Experimental`**
 
@@ -7108,7 +7108,7 @@ Defined in: [src/runtime/sandbox-run.ts:96](https://github.com/tangle-network/ag
 
 > **start**(`prompt`): `Promise`\<[`TurnResult`](#turnresult)\<`Out`\>\>
 
-Defined in: [src/runtime/sandbox-run.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L98)
+Defined in: [src/runtime/sandbox-run.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L99)
 
 **`Experimental`**
 
@@ -7128,7 +7128,7 @@ First turn over the fresh box (mints the session). Throws if already started.
 
 > **resume**(`prompt`): `Promise`\<[`TurnResult`](#turnresult)\<`Out`\>\>
 
-Defined in: [src/runtime/sandbox-run.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L100)
+Defined in: [src/runtime/sandbox-run.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L101)
 
 **`Experimental`**
 
@@ -7148,7 +7148,7 @@ Continue THE SAME session over THE SAME artifact — a resumed turn/rollout.
 
 > **close**(): `Promise`\<`void`\>
 
-Defined in: [src/runtime/sandbox-run.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L101)
+Defined in: [src/runtime/sandbox-run.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L102)
 
 **`Experimental`**
 
@@ -7160,7 +7160,7 @@ Defined in: [src/runtime/sandbox-run.ts:101](https://github.com/tangle-network/a
 
 ### OpenSandboxRunBeforeStartContext
 
-Defined in: [src/runtime/sandbox-run.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L116)
+Defined in: [src/runtime/sandbox-run.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L117)
 
 Context available after the box/session exists and before the first prompt is
 drained. Intended for benchmark-owned workspace setup such as cloning a repo
@@ -7172,25 +7172,25 @@ into a fixed path.
 
 > `readonly` **box**: `SandboxInstance`
 
-Defined in: [src/runtime/sandbox-run.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L117)
+Defined in: [src/runtime/sandbox-run.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L118)
 
 ##### sessionId
 
 > `readonly` **sessionId**: `string`
 
-Defined in: [src/runtime/sandbox-run.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L118)
+Defined in: [src/runtime/sandbox-run.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L119)
 
 ##### signal
 
 > `readonly` **signal**: `AbortSignal`
 
-Defined in: [src/runtime/sandbox-run.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L119)
+Defined in: [src/runtime/sandbox-run.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L120)
 
 ***
 
 ### OpenSandboxRunOptions
 
-Defined in: [src/runtime/sandbox-run.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L123)
+Defined in: [src/runtime/sandbox-run.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L124)
 
 **`Experimental`**
 
@@ -7200,7 +7200,7 @@ Defined in: [src/runtime/sandbox-run.ts:123](https://github.com/tangle-network/a
 
 > **agentRun**: [`AgentRunSpec`](#agentrunspec)\<`string`\>
 
-Defined in: [src/runtime/sandbox-run.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L125)
+Defined in: [src/runtime/sandbox-run.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L126)
 
 **`Experimental`**
 
@@ -7210,7 +7210,7 @@ Profile + sandbox env/overrides. `sandboxOverrides.backend.type` is the harness.
 
 > **signal**: `AbortSignal`
 
-Defined in: [src/runtime/sandbox-run.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L126)
+Defined in: [src/runtime/sandbox-run.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L127)
 
 **`Experimental`**
 
@@ -7218,7 +7218,7 @@ Defined in: [src/runtime/sandbox-run.ts:126](https://github.com/tangle-network/a
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [src/runtime/sandbox-run.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L128)
+Defined in: [src/runtime/sandbox-run.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L129)
 
 **`Experimental`**
 
@@ -7228,7 +7228,7 @@ Optional execution-scoped observers. Hook failures never fail the run.
 
 > `optional` **runId?**: `string`
 
-Defined in: [src/runtime/sandbox-run.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L130)
+Defined in: [src/runtime/sandbox-run.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L131)
 
 **`Experimental`**
 
@@ -7238,7 +7238,7 @@ Stable run id for trace joins. Defaults to a short runtime-minted id.
 
 > `optional` **scenarioId?**: `string`
 
-Defined in: [src/runtime/sandbox-run.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L132)
+Defined in: [src/runtime/sandbox-run.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L133)
 
 **`Experimental`**
 
@@ -7248,7 +7248,7 @@ Optional benchmark/scenario id carried into emitted hook events.
 
 > `optional` **promptOptions?**: [`OpenSandboxRunPromptOptions`](#opensandboxrunpromptoptions)
 
-Defined in: [src/runtime/sandbox-run.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L135)
+Defined in: [src/runtime/sandbox-run.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L136)
 
 **`Experimental`**
 
@@ -7259,7 +7259,7 @@ Per-prompt sandbox SDK options forwarded to both `start()` and `resume()`.
 
 > `optional` **beforeStart?**: (`ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [src/runtime/sandbox-run.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L139)
+Defined in: [src/runtime/sandbox-run.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L140)
 
 **`Experimental`**
 
@@ -7277,11 +7277,46 @@ fails the turn before the agent spends tokens.
 
 `void` \| `Promise`\<`void`\>
 
+##### onSandboxEvent?
+
+> `optional` **onSandboxEvent?**: (`event`, `meta`) => `void` \| `PromiseLike`\<`void`\>
+
+Defined in: [src/runtime/sandbox-run.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L143)
+
+**`Experimental`**
+
+Receives a defensive copy of every streamed event. Observer work is
+non-blocking; synchronous throws and rejected promises never fail the run.
+
+###### Parameters
+
+###### event
+
+`SandboxEvent`
+
+###### meta
+
+###### turnIndex
+
+`number`
+
+###### turnKind
+
+`"start"` \| `"resume"`
+
+###### agentRunName
+
+`string`
+
+###### Returns
+
+`void` \| `PromiseLike`\<`void`\>
+
 ##### now?
 
 > `optional` **now?**: () => `number`
 
-Defined in: [src/runtime/sandbox-run.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L141)
+Defined in: [src/runtime/sandbox-run.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L152)
 
 **`Experimental`**
 
@@ -7295,7 +7330,7 @@ Test seam for deterministic hook timestamps. Defaults to `Date.now`.
 
 > `optional` **maxConcurrency?**: `number`
 
-Defined in: [src/runtime/sandbox-run.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L143)
+Defined in: [src/runtime/sandbox-run.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L154)
 
 **`Experimental`**
 
@@ -7305,7 +7340,7 @@ Bounds box-creation bursts inside lineage fanout. Default from lineage.
 
 > `optional` **readRetryDelayMs?**: `number`
 
-Defined in: [src/runtime/sandbox-run.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L146)
+Defined in: [src/runtime/sandbox-run.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L157)
 
 **`Experimental`**
 
@@ -18128,7 +18163,7 @@ Use [RunAgentRoundsOptions](#runagentroundsoptions). Removed in the next major.
 
 > **Deliverable**\<`Out`\> = \{ `kind`: `"events"`; `fromEvents`: (`events`) => `Out`; \} \| \{ `kind`: `"artifact"`; `path`: `string`; `fromArtifact`: (`raw`, `events`) => `Out`; \}
 
-Defined in: [src/runtime/sandbox-run.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L51)
+Defined in: [src/runtime/sandbox-run.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L52)
 
 **`Experimental`**
 
@@ -18150,7 +18185,7 @@ How a typed deliverable `Out` is materialized from a finished turn.
 
 > **OpenSandboxRunPromptOptions** = `Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
 
-Defined in: [src/runtime/sandbox-run.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L111)
+Defined in: [src/runtime/sandbox-run.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L112)
 
 **`Experimental`**
 
@@ -21219,7 +21254,7 @@ rounds, no winner selection.
 
 > **defaultSelectWinner**\<`Task`, `Output`\>(`iterations`): [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
 
-Defined in: [src/runtime/run-loop.ts:1160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1160)
+Defined in: [src/runtime/run-loop.ts:1142](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1142)
 
 The kernel's winner argmax — best-valid-score, ties broken by earliest index,
 falling back to the best-scoring non-errored output when none is valid. Exported
@@ -21308,7 +21343,7 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 > **extractLlmCallEvent**(`event`, `agentRunName`): RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
-Defined in: [src/runtime/sandbox-events.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L32)
+Defined in: [src/runtime/sandbox-events.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L81)
 
 Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
 the event carries usage/cost data. Returns `undefined` for non-cost events
@@ -21343,7 +21378,7 @@ RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
 > **sumSandboxUsage**(`events`, `agentRunName?`): `object`
 
-Defined in: [src/runtime/sandbox-events.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L91)
+Defined in: [src/runtime/sandbox-events.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L140)
 
 Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an
 `openSandboxRun` cell. Folds `extractLlmCallEvent` over the stream (which reads usage off EVERY backend
@@ -21390,7 +21425,7 @@ readonly `SandboxEvent`[]
 
 > **createSandboxToolPartState**(): [`SandboxToolPartState`](#sandboxtoolpartstate)
 
-Defined in: [src/runtime/sandbox-events.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L161)
+Defined in: [src/runtime/sandbox-events.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L210)
 
 **`Experimental`**
 
@@ -21407,7 +21442,7 @@ empty call-status map so each turn projects tool frames independently.
 
 > **mapSandboxToolEvent**(`event`, `state`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`[]
 
-Defined in: [src/runtime/sandbox-events.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L192)
+Defined in: [src/runtime/sandbox-events.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L241)
 
 **`Experimental`**
 
@@ -21451,7 +21486,7 @@ Returns `[]` for every non-tool event.
 
 > **mapSandboxEvent**(`event`, `opts?`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: [src/runtime/sandbox-events.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L319)
+Defined in: [src/runtime/sandbox-events.ts:368](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L368)
 
 Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary,
 for runtimes that bridge a sandbox `streamPrompt` into the
@@ -21540,7 +21575,7 @@ Run provenance recorder forwarded to every `prepareBox` the lineage runs
 
 > **openSandboxRun**\<`Out`\>(`client`, `options`, `deliverable`): `Promise`\<[`SandboxRun`](#sandboxrun)\<`Out`\>\>
 
-Defined in: [src/runtime/sandbox-run.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L156)
+Defined in: [src/runtime/sandbox-run.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L167)
 
 **`Experimental`**
 

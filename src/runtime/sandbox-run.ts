@@ -35,6 +35,7 @@ import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-netwo
 import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
+import { notifySandboxEventObserver } from './sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
 import type { AgentRunSpec, SandboxClient } from './types'
 import { isAbortError, randomSuffix, sleep } from './util'
@@ -137,6 +138,16 @@ export interface OpenSandboxRunOptions {
    * box/session and before the first prompt stream is consumed. A thrown error
    * fails the turn before the agent spends tokens. */
   beforeStart?: (ctx: OpenSandboxRunBeforeStartContext) => Promise<void> | void
+  /** Receives a defensive copy of every streamed event. Observer work is
+   * non-blocking; synchronous throws and rejected promises never fail the run. */
+  onSandboxEvent?: (
+    event: SandboxEvent,
+    meta: {
+      turnIndex: number
+      turnKind: 'start' | 'resume'
+      agentRunName: string
+    },
+  ) => void | PromiseLike<void>
   /** Test seam for deterministic hook timestamps. Defaults to `Date.now`. */
   now?: () => number
   /** Bounds box-creation bursts inside lineage fanout. Default from lineage. */
@@ -160,6 +171,7 @@ export async function openSandboxRun<Out>(
 ): Promise<SandboxRun<Out>> {
   const runId = options.runId ?? `sandbox-run-${randomSuffix()}`
   const now = options.now ?? Date.now
+  const agentRunName = options.agentRun.name ?? options.agentRun.profile.name ?? 'agent'
   const capabilities = await probeSandboxCapabilities(client)
   const lineage = createSandboxLineage(client, capabilities, {
     ...(options.maxConcurrency !== undefined ? { maxConcurrency: options.maxConcurrency } : {}),
@@ -197,7 +209,7 @@ export async function openSandboxRun<Out>(
   }
 
   const runPayload = (): Record<string, unknown> => ({
-    agentName: options.agentRun.name ?? options.agentRun.profile.name ?? 'agent',
+    agentName: agentRunName,
     profileName: options.agentRun.profile.name,
     backendType: backendType(options.agentRun),
     deliverableKind: deliverable.kind,
@@ -234,12 +246,21 @@ export async function openSandboxRun<Out>(
   async function settle(
     box: SandboxInstance,
     events: AsyncIterable<SandboxEvent>,
+    turnIndex: number,
+    turnKind: 'start' | 'resume',
   ): Promise<TurnResult<Out>> {
     const collected: SandboxEvent[] = []
     // The stream itself can throw an AbortError when the run is cancelled mid-drain;
     // re-throw it carrying the events drained so far so the partial trace is not lost.
     try {
-      for await (const ev of events) collected.push(ev)
+      for await (const ev of events) {
+        collected.push(ev)
+        notifySandboxEventObserver(ev, options.onSandboxEvent, {
+          turnIndex,
+          turnKind,
+          agentRunName,
+        })
+      }
     } catch (err) {
       if (isAbortError(err)) throw new SandboxRunAbortError(collected)
       throw err
@@ -321,7 +342,7 @@ export async function openSandboxRun<Out>(
           sessionId: handle.sessionId,
           signal: options.signal,
         })
-        const result = await settle(handle.box, r.events)
+        const result = await settle(handle.box, r.events, stepIndex, 'start')
         turnCount += 1
         emit({
           target: 'agent.turn',
@@ -364,6 +385,8 @@ export async function openSandboxRun<Out>(
         const result = await settle(
           handle.box,
           await lineage.continue(handle, prompt, options.signal, options.promptOptions),
+          stepIndex,
+          'resume',
         )
         turnCount += 1
         emit({

@@ -156,6 +156,104 @@ describe('openSandboxRun — events deliverable', () => {
   })
 })
 
+describe('openSandboxRun — live sandbox event observer', () => {
+  it('forwards start and resume events with stable turn metadata', async () => {
+    const streamed = [
+      { type: 'token', data: { text: 'working' } } as SandboxEvent,
+      { type: 'result', data: { text: 'done' } } as SandboxEvent,
+    ]
+    const { client } = createFakeClient({ events: streamed, sessionLive: true })
+    const seen: Array<{
+      type: string
+      turnIndex: number
+      turnKind: 'start' | 'resume'
+      agentRunName: string
+    }> = []
+    const run = await openSandboxRun(
+      client,
+      {
+        agentRun: spec('researcher'),
+        signal: new AbortController().signal,
+        onSandboxEvent: (event, meta) => {
+          seen.push({ type: event.type, ...meta })
+        },
+      },
+      eventsDeliverable,
+    )
+
+    await run.start('turn 1')
+    await run.resume('turn 2')
+
+    expect(seen).toEqual([
+      { type: 'token', turnIndex: 0, turnKind: 'start', agentRunName: 'researcher' },
+      { type: 'result', turnIndex: 0, turnKind: 'start', agentRunName: 'researcher' },
+      { type: 'token', turnIndex: 1, turnKind: 'resume', agentRunName: 'researcher' },
+      { type: 'result', turnIndex: 1, turnKind: 'resume', agentRunName: 'researcher' },
+    ])
+  })
+
+  it('protects collected events from observer mutation', async () => {
+    const streamed = [
+      {
+        type: 'result',
+        data: { text: 'original', usage: { inputTokens: 3 } },
+      } as SandboxEvent,
+    ]
+    const { client } = createFakeClient({ events: streamed })
+    const run = await openSandboxRun(
+      client,
+      {
+        agentRun: spec(),
+        signal: new AbortController().signal,
+        onSandboxEvent: (event) => {
+          const data = event.data as {
+            text: string
+            usage: { inputTokens: number }
+          }
+          data.text = 'mutated'
+          data.usage.inputTokens = 999
+        },
+      },
+      eventsDeliverable,
+    )
+
+    const turn = await run.start('go')
+
+    expect(turn.events[0]?.data).toEqual({
+      text: 'original',
+      usage: { inputTokens: 3 },
+    })
+    expect(turn.out).toEqual({ text: 'original' })
+  })
+
+  it('does not wait for observers or fail when they throw or reject', async () => {
+    const streamed = [
+      { type: 'token', data: { text: 'one' } } as SandboxEvent,
+      { type: 'token', data: { text: 'two' } } as SandboxEvent,
+      { type: 'result', data: { text: 'done' } } as SandboxEvent,
+    ]
+    const { client } = createFakeClient({ events: streamed })
+    let calls = 0
+    const run = await openSandboxRun(
+      client,
+      {
+        agentRun: spec(),
+        signal: new AbortController().signal,
+        onSandboxEvent: () => {
+          calls += 1
+          if (calls === 1) throw new Error('observer threw')
+          if (calls === 2) return Promise.reject(new Error('observer rejected'))
+          return new Promise<void>(() => {})
+        },
+      },
+      eventsDeliverable,
+    )
+
+    await expect(run.start('go')).resolves.toMatchObject({ out: { text: 'done' } })
+    expect(calls).toBe(3)
+  })
+})
+
 describe('openSandboxRun — artifact deliverable (the file-read seam over OutputAdapter)', () => {
   it('reads the workspace-relative artifact after the turn drains and maps it', async () => {
     const { client, readPaths } = createFakeClient({ fsRead: () => 'PATCH-CONTENT' })
@@ -395,6 +493,7 @@ describe('openSandboxRun — abort-aware artifact read preserves the partial tra
 
   it('carries ONLY the events drained before a mid-stream abort (never-started stays empty)', async () => {
     const controller = new AbortController()
+    const observed: string[] = []
     const streamed: SandboxEvent[] = [
       { type: 'step', data: { i: 0 } } as SandboxEvent,
       { type: 'step', data: { i: 1 } } as SandboxEvent,
@@ -410,7 +509,14 @@ describe('openSandboxRun — abort-aware artifact read preserves the partial tra
     })
     const run = await openSandboxRun(
       client,
-      { agentRun: spec(), signal: controller.signal },
+      {
+        agentRun: spec(),
+        signal: controller.signal,
+        onSandboxEvent: (event) => {
+          observed.push(event.type)
+          throw new Error('observer failure must not mask the abort')
+        },
+      },
       eventsDeliverable,
     )
     const err = await run.start('go').then(
@@ -421,6 +527,7 @@ describe('openSandboxRun — abort-aware artifact read preserves the partial tra
     )
     expect(err).toBeInstanceOf(SandboxRunAbortError)
     expect((err as SandboxRunAbortError).events).toEqual([streamed[0]])
+    expect(observed).toEqual(['step'])
   })
 
   it('preserves partial events when the read loop is aborted mid-retry, with the last readError', async () => {
