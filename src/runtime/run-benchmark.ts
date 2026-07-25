@@ -15,6 +15,7 @@
 
 import { pairedBootstrap, paretoFrontier } from '@tangle-network/agent-eval'
 import type { RuntimeHooks } from '../runtime-hooks'
+import { routerChatWithUsage } from './router-client'
 import {
   type AgenticOptions,
   type AgenticSurface,
@@ -49,6 +50,18 @@ export interface BenchmarkConfig {
   /** Lifecycle observability — every spawn/settle of every cell's shots/analysts streams
    *  here live (the watchdog/route-auditor seam, passed through to `runAgentic`). */
   hooks?: RuntimeHooks
+  /**
+   * Model availability check before tasks start.
+   *
+   * By default, live router workers send one one-token request per unique worker and analyst
+   * model. Injected `worker.complete` transports skip the check. Pass `false` to disable it or a
+   * callback to check each unique model through a custom transport.
+   */
+  modelPreflight?:
+    | false
+    | ((model: string, worker: Readonly<AgenticOptions>, signal: AbortSignal) => Promise<void>)
+  /** Maximum time for each model availability check. Default 30 seconds. */
+  modelPreflightTimeoutMs?: number
 }
 
 export interface BenchmarkLift {
@@ -127,6 +140,68 @@ async function pool<T, R>(
   return out
 }
 
+async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
+  if (cfg.modelPreflight === false) return
+  if (cfg.worker.complete && !cfg.modelPreflight) return
+
+  const models = [...new Set([cfg.worker.model, cfg.worker.analystModel ?? cfg.worker.model])]
+  const timeoutMs = cfg.modelPreflightTimeoutMs ?? 30_000
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    throw new Error('modelPreflightTimeoutMs must be a positive finite number')
+  const check =
+    cfg.modelPreflight ??
+    (async (model: string, worker: Readonly<AgenticOptions>, signal: AbortSignal) => {
+      await routerChatWithUsage(
+        {
+          routerBaseUrl: worker.routerBaseUrl,
+          routerKey: worker.routerKey,
+          model,
+        },
+        [{ role: 'user', content: 'Reply OK.' }],
+        { maxTokens: 1, reasoningEffort: 'none', signal },
+      )
+    })
+
+  const results = await Promise.allSettled(
+    models.map(async (model) => {
+      const controller = new AbortController()
+      let timeoutError: Error | undefined
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          check(model, cfg.worker, controller.signal),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              timeoutError = new Error(`timed out after ${timeoutMs} ms`)
+              controller.abort(timeoutError)
+              reject(timeoutError)
+            }, timeoutMs)
+          }),
+        ])
+      } catch (cause) {
+        const reported = timeoutError ?? cause
+        const message = reported instanceof Error ? reported.message : String(reported)
+        throw new Error(`Benchmark model "${model}" preflight failed: ${message}`, {
+          cause: reported,
+        })
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }),
+  )
+
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : [],
+  )
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    const message = failures
+      .map((failure) => (failure instanceof Error ? failure.message : String(failure)))
+      .join('; ')
+    throw new AggregateError(failures, message)
+  }
+}
+
 /** Run the requested strategies over the tasks, scored by the Environment's own check.
  *  Resilient: a task whose rollouts fail (transient infra) is excluded from the stats but
  *  reported in `perTask` with the error — never silently dropped. */
@@ -134,6 +209,8 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
   const strategies = cfg.strategies ?? [sample, refine]
   const budget = cfg.budget ?? 3
   const concurrency = cfg.concurrency ?? 3
+
+  await preflightModels(cfg)
 
   let settled = 0
   const perTask = await pool(cfg.tasks, concurrency, async (task): Promise<BenchmarkTaskRow> => {

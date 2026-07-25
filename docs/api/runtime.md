@@ -6104,7 +6104,7 @@ The full conversation after the loop (seed + every assistant/tool turn). Lets a 
 
 ### BenchmarkConfig
 
-Defined in: [src/runtime/run-benchmark.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L32)
+Defined in: [src/runtime/run-benchmark.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L33)
 
 #### Properties
 
@@ -6112,7 +6112,7 @@ Defined in: [src/runtime/run-benchmark.ts:32](https://github.com/tangle-network/
 
 > **environment**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [src/runtime/run-benchmark.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L34)
+Defined in: [src/runtime/run-benchmark.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L35)
 
 The task domain (5 hooks).
 
@@ -6120,7 +6120,7 @@ The task domain (5 hooks).
 
 > **tasks**: [`AgenticTask`](#agentictask)[]
 
-Defined in: [src/runtime/run-benchmark.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L36)
+Defined in: [src/runtime/run-benchmark.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L37)
 
 The tasks to score across.
 
@@ -6128,7 +6128,7 @@ The tasks to score across.
 
 > **worker**: [`AgenticOptions`](#agenticoptions)
 
-Defined in: [src/runtime/run-benchmark.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L38)
+Defined in: [src/runtime/run-benchmark.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L39)
 
 The worker: model + router + (optional) the critic's instruction (the steerer knob).
 
@@ -6136,7 +6136,7 @@ The worker: model + router + (optional) the critic's instruction (the steerer kn
 
 > `optional` **strategies?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult-1)\>[]
 
-Defined in: [src/runtime/run-benchmark.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L41)
+Defined in: [src/runtime/run-benchmark.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L42)
 
 Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own.
  Default: [sample, refine].
@@ -6145,7 +6145,7 @@ Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own
 
 > `optional` **budget?**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L43)
+Defined in: [src/runtime/run-benchmark.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L44)
 
 Shots (refine) / width (sample) — the equal compute budget per strategy. Default 3.
 
@@ -6153,7 +6153,7 @@ Shots (refine) / width (sample) — the equal compute budget per strategy. Defau
 
 > `optional` **concurrency?**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L45)
+Defined in: [src/runtime/run-benchmark.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L46)
 
 Tasks scored in parallel. Default 3.
 
@@ -6161,7 +6161,7 @@ Tasks scored in parallel. Default 3.
 
 > `optional` **onTask?**: (`row`, `done`, `total`) => `void`
 
-Defined in: [src/runtime/run-benchmark.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L48)
+Defined in: [src/runtime/run-benchmark.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L49)
 
 Progress hook — fires as each task settles (the live-monitoring seam: append to a
  progress file, render a tree, stream to a dashboard). `done` counts settled tasks.
@@ -6188,16 +6188,36 @@ Progress hook — fires as each task settles (the live-monitoring seam: append t
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [src/runtime/run-benchmark.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L51)
+Defined in: [src/runtime/run-benchmark.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L52)
 
 Lifecycle observability — every spawn/settle of every cell's shots/analysts streams
  here live (the watchdog/route-auditor seam, passed through to `runAgentic`).
+
+##### modelPreflight?
+
+> `optional` **modelPreflight?**: `false` \| ((`model`, `worker`, `signal`) => `Promise`\<`void`\>)
+
+Defined in: [src/runtime/run-benchmark.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L60)
+
+Model availability check before tasks start.
+
+By default, live router workers send one one-token request per unique worker and analyst
+model. Injected `worker.complete` transports skip the check. Pass `false` to disable it or a
+callback to check each unique model through a custom transport.
+
+##### modelPreflightTimeoutMs?
+
+> `optional` **modelPreflightTimeoutMs?**: `number`
+
+Defined in: [src/runtime/run-benchmark.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L64)
+
+Maximum time for each model availability check. Default 30 seconds.
 
 ***
 
 ### BenchmarkLift
 
-Defined in: [src/runtime/run-benchmark.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L54)
+Defined in: [src/runtime/run-benchmark.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L67)
 
 #### Properties
 
@@ -6205,7 +6225,7 @@ Defined in: [src/runtime/run-benchmark.ts:54](https://github.com/tangle-network/
 
 > **mean**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L56)
+Defined in: [src/runtime/run-benchmark.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L69)
 
 Mean of paired deltas (refine − sample).
 
@@ -6213,25 +6233,25 @@ Mean of paired deltas (refine − sample).
 
 > **low**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L57)
+Defined in: [src/runtime/run-benchmark.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L70)
 
 ##### high
 
 > **high**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L58)
+Defined in: [src/runtime/run-benchmark.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L71)
 
 ##### n
 
 > **n**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L59)
+Defined in: [src/runtime/run-benchmark.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L72)
 
 ***
 
 ### BenchmarkCell
 
-Defined in: [src/runtime/run-benchmark.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L63)
+Defined in: [src/runtime/run-benchmark.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L76)
 
 One strategy's outcome on one task — the per-task cell an optimizer consumes.
 
@@ -6241,19 +6261,19 @@ One strategy's outcome on one task — the per-task cell an optimizer consumes.
 
 > **score**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L64)
+Defined in: [src/runtime/run-benchmark.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L77)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [src/runtime/run-benchmark.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L65)
+Defined in: [src/runtime/run-benchmark.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L78)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [src/runtime/run-benchmark.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L67)
+Defined in: [src/runtime/run-benchmark.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L80)
 
 The progress curve (refine: score per shot; sample: best-so-far per rollout).
 
@@ -6261,19 +6281,19 @@ The progress curve (refine: score per shot; sample: best-so-far per rollout).
 
 > **usd**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L68)
+Defined in: [src/runtime/run-benchmark.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L81)
 
 ##### ms
 
 > **ms**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L69)
+Defined in: [src/runtime/run-benchmark.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L82)
 
 ##### tokens
 
 > **tokens**: `object`
 
-Defined in: [src/runtime/run-benchmark.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L70)
+Defined in: [src/runtime/run-benchmark.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L83)
 
 ###### input
 
@@ -6287,7 +6307,7 @@ Defined in: [src/runtime/run-benchmark.ts:70](https://github.com/tangle-network/
 
 ### BenchmarkTaskRow
 
-Defined in: [src/runtime/run-benchmark.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L73)
+Defined in: [src/runtime/run-benchmark.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L86)
 
 #### Properties
 
@@ -6295,13 +6315,13 @@ Defined in: [src/runtime/run-benchmark.ts:73](https://github.com/tangle-network/
 
 > **taskId**: `string`
 
-Defined in: [src/runtime/run-benchmark.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L74)
+Defined in: [src/runtime/run-benchmark.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L87)
 
 ##### cells?
 
 > `optional` **cells?**: `Record`\<`string`, [`BenchmarkCell`](#benchmarkcell)\>
 
-Defined in: [src/runtime/run-benchmark.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L76)
+Defined in: [src/runtime/run-benchmark.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L89)
 
 Per-strategy cells; absent when the task errored before completing all strategies.
 
@@ -6309,7 +6329,7 @@ Per-strategy cells; absent when the task errored before completing all strategie
 
 > `optional` **errors?**: `Record`\<`string`, `string`\>
 
-Defined in: [src/runtime/run-benchmark.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L80)
+Defined in: [src/runtime/run-benchmark.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L93)
 
 Per-strategy failures on this task: the strategy competed, threw, and scored an
  honest zero — it loses, it does not poison the row. The message is kept so a later
@@ -6319,7 +6339,7 @@ Per-strategy failures on this task: the strategy competed, threw, and scored an
 
 > `optional` **error?**: `string`
 
-Defined in: [src/runtime/run-benchmark.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L82)
+Defined in: [src/runtime/run-benchmark.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L95)
 
 Why the task was excluded (infra/setup failure) — never silently dropped.
 
@@ -6327,7 +6347,7 @@ Why the task was excluded (infra/setup failure) — never silently dropped.
 
 ### BenchmarkStrategySummary
 
-Defined in: [src/runtime/run-benchmark.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L85)
+Defined in: [src/runtime/run-benchmark.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L98)
 
 #### Properties
 
@@ -6335,7 +6355,7 @@ Defined in: [src/runtime/run-benchmark.ts:85](https://github.com/tangle-network/
 
 > **score**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L87)
+Defined in: [src/runtime/run-benchmark.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L100)
 
 Mean verifier score (0..1).
 
@@ -6343,7 +6363,7 @@ Mean verifier score (0..1).
 
 > **resolved**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L89)
+Defined in: [src/runtime/run-benchmark.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L102)
 
 Fraction of tasks fully resolved.
 
@@ -6351,7 +6371,7 @@ Fraction of tasks fully resolved.
 
 > **usd**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L91)
+Defined in: [src/runtime/run-benchmark.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L104)
 
 Mean cost vector per task.
 
@@ -6359,13 +6379,13 @@ Mean cost vector per task.
 
 > **ms**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L92)
+Defined in: [src/runtime/run-benchmark.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L105)
 
 ***
 
 ### BenchmarkReport
 
-Defined in: [src/runtime/run-benchmark.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L96)
+Defined in: [src/runtime/run-benchmark.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L109)
 
 Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines.
 
@@ -6375,19 +6395,19 @@ Benchmark output: per-strategy means plus the full per-task × per-strategy loss
 
 > **n**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L97)
+Defined in: [src/runtime/run-benchmark.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L110)
 
 ##### excluded
 
 > **excluded**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L98)
+Defined in: [src/runtime/run-benchmark.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L111)
 
 ##### perStrategy
 
 > **perStrategy**: `Record`\<`string`, [`BenchmarkStrategySummary`](#benchmarkstrategysummary)\>
 
-Defined in: [src/runtime/run-benchmark.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L100)
+Defined in: [src/runtime/run-benchmark.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L113)
 
 Per-strategy means (keyed by strategy.name).
 
@@ -6395,7 +6415,7 @@ Per-strategy means (keyed by strategy.name).
 
 > **perTask**: [`BenchmarkTaskRow`](#benchmarktaskrow)[]
 
-Defined in: [src/runtime/run-benchmark.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L103)
+Defined in: [src/runtime/run-benchmark.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L116)
 
 The full per-task × per-strategy table — the LOSSES an optimizer (GEPA, a
  strategy-author, an operator) consumes. Includes errored tasks with the reason.
@@ -6404,7 +6424,7 @@ The full per-task × per-strategy table — the LOSSES an optimizer (GEPA, a
 
 > **pareto**: `string`[]
 
-Defined in: [src/runtime/run-benchmark.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L106)
+Defined in: [src/runtime/run-benchmark.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L119)
 
 The non-dominated strategies on (score ↑, $/task ↓) — collapse-last, per the canon:
  a strategy that ties on score at half the cost WINS and a scalar would hide it.
@@ -6413,7 +6433,7 @@ The non-dominated strategies on (score ↑, $/task ↓) — collapse-last, per t
 
 > `optional` **refineVsSample?**: [`BenchmarkLift`](#benchmarklift)
 
-Defined in: [src/runtime/run-benchmark.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L108)
+Defined in: [src/runtime/run-benchmark.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L121)
 
 The headline when both `refine` and `sample` ran: paired-bootstrap lift of refine over sample.
 
@@ -7837,7 +7857,7 @@ Defined in: [src/runtime/strategy-author.ts:141](https://github.com/tangle-netwo
 
 ### EvolutionAuthor
 
-Defined in: [src/runtime/strategy-evolution.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L46)
+Defined in: [src/runtime/strategy-evolution.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L47)
 
 #### Properties
 
@@ -7845,7 +7865,7 @@ Defined in: [src/runtime/strategy-evolution.ts:46](https://github.com/tangle-net
 
 > **chat**: `ChatClient`
 
-Defined in: [src/runtime/strategy-evolution.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L48)
+Defined in: [src/runtime/strategy-evolution.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L49)
 
 The model-call seam (agent-eval `createChatClient`).
 
@@ -7853,31 +7873,31 @@ The model-call seam (agent-eval `createChatClient`).
 
 > `optional` **model?**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L49)
+Defined in: [src/runtime/strategy-evolution.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L50)
 
 ##### fallbackModel?
 
 > `optional` **fallbackModel?**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L50)
+Defined in: [src/runtime/strategy-evolution.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L51)
 
 ##### temperature?
 
 > `optional` **temperature?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L51)
+Defined in: [src/runtime/strategy-evolution.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L52)
 
 ##### maxTokens?
 
 > `optional` **maxTokens?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L52)
+Defined in: [src/runtime/strategy-evolution.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L53)
 
 ***
 
 ### StrategyEvolutionConfig
 
-Defined in: [src/runtime/strategy-evolution.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L57)
+Defined in: [src/runtime/strategy-evolution.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L58)
 
 #### Properties
 
@@ -7885,13 +7905,13 @@ Defined in: [src/runtime/strategy-evolution.ts:57](https://github.com/tangle-net
 
 > **environment**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [src/runtime/strategy-evolution.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L58)
+Defined in: [src/runtime/strategy-evolution.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L59)
 
 ##### tasks
 
 > **tasks**: (`offset`, `n`) => `Promise`\<[`AgenticTask`](#agentictask)[]\>
 
-Defined in: [src/runtime/strategy-evolution.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L62)
+Defined in: [src/runtime/strategy-evolution.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L63)
 
 Task supply by DISJOINT slice: `(offset, n)` must return n tasks unique to that
  offset range. Train draws [0, trainN); the holdout draws [trainN + holdoutOffset,
@@ -7915,19 +7935,19 @@ Task supply by DISJOINT slice: `(offset, n)` must return n tasks unique to that
 
 > **trainN**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L63)
+Defined in: [src/runtime/strategy-evolution.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L64)
 
 ##### holdoutN
 
 > **holdoutN**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L64)
+Defined in: [src/runtime/strategy-evolution.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L65)
 
 ##### holdoutOffset?
 
 > `optional` **holdoutOffset?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L66)
+Defined in: [src/runtime/strategy-evolution.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L67)
 
 Extra offset past the train slice for the holdout draw (rotate across runs).
 
@@ -7935,19 +7955,38 @@ Extra offset past the train slice for the holdout draw (rotate across runs).
 
 > **worker**: [`AgenticOptions`](#agenticoptions)
 
-Defined in: [src/runtime/strategy-evolution.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L67)
+Defined in: [src/runtime/strategy-evolution.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L68)
+
+##### modelPreflight?
+
+> `optional` **modelPreflight?**: `false` \| ((`model`, `worker`, `signal`) => `Promise`\<`void`\>)
+
+Defined in: [src/runtime/strategy-evolution.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L75)
+
+Model availability check before the first benchmark phase.
+
+A successful check is reused for the remaining phases in this evolution run.
+See `BenchmarkConfig.modelPreflight`.
+
+##### modelPreflightTimeoutMs?
+
+> `optional` **modelPreflightTimeoutMs?**: `number`
+
+Defined in: [src/runtime/strategy-evolution.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L77)
+
+Maximum time for each model availability check. Default 30 seconds.
 
 ##### author
 
 > **author**: [`EvolutionAuthor`](#evolutionauthor)
 
-Defined in: [src/runtime/strategy-evolution.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L68)
+Defined in: [src/runtime/strategy-evolution.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L78)
 
 ##### budget?
 
 > `optional` **budget?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L70)
+Defined in: [src/runtime/strategy-evolution.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L80)
 
 Rollouts (sample) / shots (refine) per strategy per task. Default 3.
 
@@ -7955,13 +7994,13 @@ Rollouts (sample) / shots (refine) per strategy per task. Default 3.
 
 > `optional` **concurrency?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L71)
+Defined in: [src/runtime/strategy-evolution.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L81)
 
 ##### generations?
 
 > `optional` **generations?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L73)
+Defined in: [src/runtime/strategy-evolution.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L83)
 
 Author→tournament rounds after gen0. Default 2.
 
@@ -7969,7 +8008,7 @@ Author→tournament rounds after gen0. Default 2.
 
 > `optional` **populationSize?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L75)
+Defined in: [src/runtime/strategy-evolution.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L85)
 
 Authored candidates per generation. Default 2.
 
@@ -7977,7 +8016,7 @@ Authored candidates per generation. Default 2.
 
 > `optional` **baselines?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult-1)\>[]
 
-Defined in: [src/runtime/strategy-evolution.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L77)
+Defined in: [src/runtime/strategy-evolution.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L87)
 
 The gen0 field. Default [sample, refine, sampleThenRefine].
 
@@ -7985,7 +8024,7 @@ The gen0 field. Default [sample, refine, sampleThenRefine].
 
 > `optional` **objective?**: `"score"` \| `"cost"`
 
-Defined in: [src/runtime/strategy-evolution.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L83)
+Defined in: [src/runtime/strategy-evolution.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L93)
 
 What "better" means for PROMOTION. 'score' (default): the candidate must beat the
  incumbent's score (superiority gate). 'cost': the candidate must prove score
@@ -7997,7 +8036,7 @@ What "better" means for PROMOTION. 'score' (default): the candidate must beat th
 
 > `optional` **scoreTolerance?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L85)
+Defined in: [src/runtime/strategy-evolution.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L95)
 
 Cost objective: the score CI lower bound must clear −scoreTolerance. Default 0.05.
 
@@ -8005,7 +8044,7 @@ Cost objective: the score CI lower bound must clear −scoreTolerance. Default 0
 
 > `optional` **champion?**: [`ChampionPolicy`](#championpolicy)
 
-Defined in: [src/runtime/strategy-evolution.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L87)
+Defined in: [src/runtime/strategy-evolution.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L97)
 
 Search-side champion selection. Default 'costAware'.
 
@@ -8013,7 +8052,7 @@ Search-side champion selection. Default 'costAware'.
 
 > `optional` **championEpsilon?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L89)
+Defined in: [src/runtime/strategy-evolution.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L99)
 
 Score band treated as a tie under 'costAware'. Default 0.01.
 
@@ -8021,7 +8060,7 @@ Score band treated as a tie under 'costAware'. Default 0.01.
 
 > **outDir**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L91)
+Defined in: [src/runtime/strategy-evolution.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L101)
 
 Where authored modules are written.
 
@@ -8029,7 +8068,7 @@ Where authored modules are written.
 
 > `optional` **minPairedTasks?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L93)
+Defined in: [src/runtime/strategy-evolution.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L103)
 
 Promotion-gate evidence floor (paired holdout tasks).
 
@@ -8037,7 +8076,7 @@ Promotion-gate evidence floor (paired holdout tasks).
 
 > `optional` **band?**: `object`
 
-Defined in: [src/runtime/strategy-evolution.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L102)
+Defined in: [src/runtime/strategy-evolution.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L112)
 
 BAND-AWARE scoring — concentrate the measurement where lift is possible.
  Holdout: draw `holdoutPoolN` candidate tasks and run `baselines[0]` once at the run
@@ -8063,7 +8102,7 @@ Keep holdout tasks where the reference scores ≤ this. Default 0.99 — drop on
 
 > `optional` **lossesDetail?**: `"exact"` \| `"binary"`
 
-Defined in: [src/runtime/strategy-evolution.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L111)
+Defined in: [src/runtime/strategy-evolution.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L121)
 
 What the author learns from a tournament. 'exact' (default) = scores + progressions
  per task; 'binary' = pass/fail only — the leakage-bounded channel (one bit per cell
@@ -8073,7 +8112,7 @@ What the author learns from a tournament. 'exact' (default) = scores + progressi
 
 > `optional` **reproducerCheck?**: `object`
 
-Defined in: [src/runtime/strategy-evolution.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L118)
+Defined in: [src/runtime/strategy-evolution.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L128)
 
 Reproducer certification (arXiv:2606.11045): when the final champion is AUTHORED,
  compress it to a short natural-language summary, have a fresh author re-implement
@@ -8099,7 +8138,7 @@ Reproduction counts as faithful when reproducedScore ≥ championScore − toler
 
 > `optional` **checkpoint?**: `object`
 
-Defined in: [src/runtime/strategy-evolution.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L128)
+Defined in: [src/runtime/strategy-evolution.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L138)
 
 Endurance: write the run state after every completed phase; with `resume`, a
  restart skips completed phases (authored modules re-imported from their files).
@@ -8117,7 +8156,7 @@ Endurance: write the run state after every completed phase; with `resume`, a
 
 > `optional` **onPhase?**: (`phase`) => `Promise`\<`void`\>
 
-Defined in: [src/runtime/strategy-evolution.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L135)
+Defined in: [src/runtime/strategy-evolution.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L145)
 
 Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reproduce).
  The seam for environment recycling — no artifacts span phases, so a runner may
@@ -8137,7 +8176,7 @@ Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reprodu
 
 > `optional` **onTask?**: (`phase`, `row`, `done`, `total`) => `void`
 
-Defined in: [src/runtime/strategy-evolution.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L136)
+Defined in: [src/runtime/strategy-evolution.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L146)
 
 ###### Parameters
 
@@ -8165,13 +8204,13 @@ Defined in: [src/runtime/strategy-evolution.ts:136](https://github.com/tangle-ne
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [src/runtime/strategy-evolution.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L137)
+Defined in: [src/runtime/strategy-evolution.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L147)
 
 ***
 
 ### ChampionPick
 
-Defined in: [src/runtime/strategy-evolution.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L152)
+Defined in: [src/runtime/strategy-evolution.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L162)
 
 #### Properties
 
@@ -8179,25 +8218,25 @@ Defined in: [src/runtime/strategy-evolution.ts:152](https://github.com/tangle-ne
 
 > **name**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L153)
+Defined in: [src/runtime/strategy-evolution.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L163)
 
 ##### score
 
 > **score**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L154)
+Defined in: [src/runtime/strategy-evolution.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L164)
 
 ##### usd
 
 > **usd**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L155)
+Defined in: [src/runtime/strategy-evolution.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L165)
 
 ***
 
 ### EvolutionCandidate
 
-Defined in: [src/runtime/strategy-evolution.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L158)
+Defined in: [src/runtime/strategy-evolution.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L168)
 
 #### Properties
 
@@ -8205,31 +8244,31 @@ Defined in: [src/runtime/strategy-evolution.ts:158](https://github.com/tangle-ne
 
 > **name**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L159)
+Defined in: [src/runtime/strategy-evolution.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L169)
 
 ##### file?
 
 > `optional` **file?**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L160)
+Defined in: [src/runtime/strategy-evolution.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L170)
 
 ##### gzipBits?
 
 > `optional` **gzipBits?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L161)
+Defined in: [src/runtime/strategy-evolution.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L171)
 
 ##### codeChars?
 
 > `optional` **codeChars?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L162)
+Defined in: [src/runtime/strategy-evolution.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L172)
 
 ##### error?
 
 > `optional` **error?**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L164)
+Defined in: [src/runtime/strategy-evolution.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L174)
 
 Present when this author attempt failed (recorded, never silent).
 
@@ -8237,7 +8276,7 @@ Present when this author attempt failed (recorded, never silent).
 
 ### EvolutionGeneration
 
-Defined in: [src/runtime/strategy-evolution.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L167)
+Defined in: [src/runtime/strategy-evolution.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L177)
 
 #### Properties
 
@@ -8245,31 +8284,31 @@ Defined in: [src/runtime/strategy-evolution.ts:167](https://github.com/tangle-ne
 
 > **generation**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L168)
+Defined in: [src/runtime/strategy-evolution.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L178)
 
 ##### candidates
 
 > **candidates**: [`EvolutionCandidate`](#evolutioncandidate)[]
 
-Defined in: [src/runtime/strategy-evolution.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L169)
+Defined in: [src/runtime/strategy-evolution.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L179)
 
 ##### report
 
 > **report**: [`BenchmarkReport`](#benchmarkreport)
 
-Defined in: [src/runtime/strategy-evolution.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L170)
+Defined in: [src/runtime/strategy-evolution.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L180)
 
 ##### champion
 
 > **champion**: [`ChampionPick`](#championpick)
 
-Defined in: [src/runtime/strategy-evolution.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L171)
+Defined in: [src/runtime/strategy-evolution.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L181)
 
 ***
 
 ### EvolutionArchiveNode
 
-Defined in: [src/runtime/strategy-evolution.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L174)
+Defined in: [src/runtime/strategy-evolution.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L184)
 
 #### Properties
 
@@ -8277,25 +8316,25 @@ Defined in: [src/runtime/strategy-evolution.ts:174](https://github.com/tangle-ne
 
 > **name**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L175)
+Defined in: [src/runtime/strategy-evolution.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L185)
 
 ##### source
 
 > **source**: `"baseline"` \| `"authored"`
 
-Defined in: [src/runtime/strategy-evolution.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L176)
+Defined in: [src/runtime/strategy-evolution.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L186)
 
 ##### generation
 
 > **generation**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L177)
+Defined in: [src/runtime/strategy-evolution.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L187)
 
 ##### parent?
 
 > `optional` **parent?**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L179)
+Defined in: [src/runtime/strategy-evolution.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L189)
 
 The champion whose tournament losses this candidate was authored from.
 
@@ -8303,19 +8342,19 @@ The champion whose tournament losses this candidate was authored from.
 
 > `optional` **gzipBits?**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L180)
+Defined in: [src/runtime/strategy-evolution.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L190)
 
 ##### file?
 
 > `optional` **file?**: `string`
 
-Defined in: [src/runtime/strategy-evolution.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L181)
+Defined in: [src/runtime/strategy-evolution.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L191)
 
 ##### score
 
 > **score**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L184)
+Defined in: [src/runtime/strategy-evolution.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L194)
 
 Latest measured tournament result — 0 until the node's first tournament settles
  (an authored node is created before its generation's benchmark runs).
@@ -8324,13 +8363,13 @@ Latest measured tournament result — 0 until the node's first tournament settle
 
 > **usd**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L185)
+Defined in: [src/runtime/strategy-evolution.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L195)
 
 ***
 
 ### EvolutionBandInfo
 
-Defined in: [src/runtime/strategy-evolution.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L204)
+Defined in: [src/runtime/strategy-evolution.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L214)
 
 #### Properties
 
@@ -8338,7 +8377,7 @@ Defined in: [src/runtime/strategy-evolution.ts:204](https://github.com/tangle-ne
 
 > **screened**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L206)
+Defined in: [src/runtime/strategy-evolution.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L216)
 
 Tasks screened by the reference on the holdout pool.
 
@@ -8346,7 +8385,7 @@ Tasks screened by the reference on the holdout pool.
 
 > **inBand**: `number`
 
-Defined in: [src/runtime/strategy-evolution.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L208)
+Defined in: [src/runtime/strategy-evolution.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L218)
 
 Tasks kept (reference score ≤ maxRefScore) before truncating to holdoutN.
 
@@ -8354,7 +8393,7 @@ Tasks kept (reference score ≤ maxRefScore) before truncating to holdoutN.
 
 > **refScores**: `object`[]
 
-Defined in: [src/runtime/strategy-evolution.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L210)
+Defined in: [src/runtime/strategy-evolution.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L220)
 
 Reference scores per screened task (the screening record).
 
@@ -8370,7 +8409,7 @@ Reference scores per screened task (the screening record).
 
 ### EvolutionReport
 
-Defined in: [src/runtime/strategy-evolution.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L213)
+Defined in: [src/runtime/strategy-evolution.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L223)
 
 #### Properties
 
@@ -8378,49 +8417,49 @@ Defined in: [src/runtime/strategy-evolution.ts:213](https://github.com/tangle-ne
 
 > **gen0**: [`BenchmarkReport`](#benchmarkreport)
 
-Defined in: [src/runtime/strategy-evolution.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L214)
+Defined in: [src/runtime/strategy-evolution.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L224)
 
 ##### gen0Champion
 
 > **gen0Champion**: [`ChampionPick`](#championpick)
 
-Defined in: [src/runtime/strategy-evolution.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L215)
+Defined in: [src/runtime/strategy-evolution.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L225)
 
 ##### generations
 
 > **generations**: [`EvolutionGeneration`](#evolutiongeneration)[]
 
-Defined in: [src/runtime/strategy-evolution.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L216)
+Defined in: [src/runtime/strategy-evolution.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L226)
 
 ##### archive
 
 > **archive**: [`EvolutionArchiveNode`](#evolutionarchivenode)[]
 
-Defined in: [src/runtime/strategy-evolution.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L217)
+Defined in: [src/runtime/strategy-evolution.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L227)
 
 ##### finalChampion
 
 > **finalChampion**: [`ChampionPick`](#championpick)
 
-Defined in: [src/runtime/strategy-evolution.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L218)
+Defined in: [src/runtime/strategy-evolution.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L228)
 
 ##### holdout
 
 > **holdout**: [`BenchmarkReport`](#benchmarkreport)
 
-Defined in: [src/runtime/strategy-evolution.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L219)
+Defined in: [src/runtime/strategy-evolution.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L229)
 
 ##### verdict
 
 > **verdict**: [`PromotionVerdict`](#promotionverdict)
 
-Defined in: [src/runtime/strategy-evolution.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L220)
+Defined in: [src/runtime/strategy-evolution.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L230)
 
 ##### band?
 
 > `optional` **band?**: [`EvolutionBandInfo`](#evolutionbandinfo)
 
-Defined in: [src/runtime/strategy-evolution.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L223)
+Defined in: [src/runtime/strategy-evolution.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L233)
 
 Present when band screening ran — the verdict's estimand is then "paired lift on
  headroom tasks" (band membership fixed by the reference screen, pre-registered).
@@ -8429,7 +8468,7 @@ Present when band screening ran — the verdict's estimand is then "paired lift 
 
 > `optional` **reproduction?**: `ReproductionCheck`
 
-Defined in: [src/runtime/strategy-evolution.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L225)
+Defined in: [src/runtime/strategy-evolution.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L235)
 
 Present when reproducerCheck ran (final champion was authored).
 
@@ -8437,7 +8476,7 @@ Present when reproducerCheck ran (final champion was authored).
 
 > **trajectory**: `object`[]
 
-Defined in: [src/runtime/strategy-evolution.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L230)
+Defined in: [src/runtime/strategy-evolution.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L240)
 
 SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
  re-measurement, so cross-generation deltas mix true drift with run-to-run variance
@@ -18124,7 +18163,7 @@ Defined in: [src/runtime/personify/wave-types.ts:619](https://github.com/tangle-
 
 > **Environment** = [`AgenticSurface`](#agenticsurface)
 
-Defined in: [src/runtime/run-benchmark.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L30)
+Defined in: [src/runtime/run-benchmark.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L31)
 
 A checkable task domain — implement these 5 hooks and the suite does the rest. The
  same seam as `AgenticSurface`; `Environment` is the RL/gym-standard name for it.
@@ -18248,7 +18287,7 @@ fixtures, feature names) and replace only the instruction.
 
 > **ChampionPolicy** = `"score"` \| `"costAware"`
 
-Defined in: [src/runtime/strategy-evolution.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L55)
+Defined in: [src/runtime/strategy-evolution.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L56)
 
 ***
 
@@ -21168,7 +21207,7 @@ The turnkey production brain — tests script a mock `ToolLoopChat`; production 
 
 > **runBenchmark**(`cfg`): `Promise`\<[`BenchmarkReport`](#benchmarkreport)\>
 
-Defined in: [src/runtime/run-benchmark.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L133)
+Defined in: [src/runtime/run-benchmark.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L208)
 
 Run the requested strategies over the tasks, scored by the Environment's own check.
  Resilient: a task whose rollouts fail (transient infra) is excluded from the stats but
@@ -21190,7 +21229,7 @@ Run the requested strategies over the tasks, scored by the Environment's own che
 
 > **printBenchmarkReport**(`report`): `void`
 
-Defined in: [src/runtime/run-benchmark.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L232)
+Defined in: [src/runtime/run-benchmark.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L309)
 
 Pretty-print a report — the "free optimization" verdict, with the cost vector.
 
@@ -21789,7 +21828,7 @@ Author + load a strategy from losses. Throws when the author emits no loadable m
 
 > **discriminatingMeans**(`report`, `fieldOrder`): `Record`\<`string`, \{ `score`: `number`; `usd`: `number`; \}\> \| `null`
 
-Defined in: [src/runtime/strategy-evolution.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L237)
+Defined in: [src/runtime/strategy-evolution.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L247)
 
 Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field
  strategies did not all score identically. Zero-spread tasks (everyone 1.0, everyone
@@ -21816,7 +21855,7 @@ Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the
 
 > **pickChampion**(`means`, `fieldOrder`, `policy`, `epsilon`): [`ChampionPick`](#championpick)
 
-Defined in: [src/runtime/strategy-evolution.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L262)
+Defined in: [src/runtime/strategy-evolution.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L272)
 
 The champion pick over a means table. 'score' takes the best mean score (ties →
  field order). 'costAware' treats scores within `epsilon` of the best as tied and
@@ -21850,7 +21889,7 @@ The champion pick over a means table. 'score' takes the best mean score (ties �
 
 > **selectChampion**(`report`, `fieldOrder`, `policy`, `epsilon`): [`ChampionPick`](#championpick)
 
-Defined in: [src/runtime/strategy-evolution.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L285)
+Defined in: [src/runtime/strategy-evolution.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L295)
 
 Search-side champion selection over a tournament report.
 
@@ -21882,7 +21921,7 @@ Search-side champion selection over a tournament report.
 
 > **runStrategyEvolution**(`cfg`): `Promise`\<[`EvolutionReport`](#evolutionreport)\>
 
-Defined in: [src/runtime/strategy-evolution.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L365)
+Defined in: [src/runtime/strategy-evolution.ts:375](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-evolution.ts#L375)
 
 Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice.
 

@@ -28,6 +28,7 @@ import type { ChatClient } from '@tangle-network/agent-eval'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { type PromotionVerdict, promotionGate } from './promotion-gate'
 import {
+  type BenchmarkConfig,
   type BenchmarkReport,
   type BenchmarkTaskRow,
   type Environment,
@@ -65,6 +66,15 @@ export interface StrategyEvolutionConfig {
   /** Extra offset past the train slice for the holdout draw (rotate across runs). */
   holdoutOffset?: number
   worker: AgenticOptions
+  /**
+   * Model availability check before the first benchmark phase.
+   *
+   * A successful check is reused for the remaining phases in this evolution run.
+   * See `BenchmarkConfig.modelPreflight`.
+   */
+  modelPreflight?: BenchmarkConfig['modelPreflight']
+  /** Maximum time for each model availability check. Default 30 seconds. */
+  modelPreflightTimeoutMs?: BenchmarkConfig['modelPreflightTimeoutMs']
   author: EvolutionAuthor
   /** Rollouts (sample) / shots (refine) per strategy per task. Default 3. */
   budget?: number
@@ -404,20 +414,25 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
       writeFileSync(cfg.checkpoint.path, JSON.stringify({ ...state, fingerprint }, null, 1))
   }
 
+  let modelsPreflighted = false
   const bench = async (phase: string, tasks: AgenticTask[], strategies: Strategy[]) => {
     await cfg.onPhase?.(phase)
-    return runBenchmark({
+    const report = await runBenchmark({
       environment: cfg.environment,
       tasks,
       worker: cfg.worker,
       strategies,
       budget,
       concurrency,
+      modelPreflight: modelsPreflighted ? false : cfg.modelPreflight,
+      modelPreflightTimeoutMs: cfg.modelPreflightTimeoutMs,
       ...(cfg.onTask
         ? { onTask: (row, done, total) => cfg.onTask?.(phase, row, done, total) }
         : {}),
       ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
     })
+    modelsPreflighted = true
+    return report
   }
 
   const train = await cfg.tasks(0, cfg.trainN)
