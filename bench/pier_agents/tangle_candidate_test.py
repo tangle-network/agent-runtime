@@ -248,6 +248,7 @@ def _fixture(root: Path):
     candidate_snapshot = _workspace([("runner.py", 0o755, runner)])
     profile_material = {
         "harness": "codex",
+        "sourceProfileDigest": f"sha256:{'a' * 64}",
         "files": [
             {
                 "relPath": "AGENTS.md",
@@ -261,32 +262,122 @@ def _fixture(root: Path):
     }
     profile_raw = _canonical(profile_material)
     profile_digest = _sha(profile_raw)
+    profile_evidence = {
+        "kind": "agent-profile-workspace-plan",
+        "digest": profile_digest,
+        "material": profile_material,
+        "artifact": _embedded(profile_raw),
+    }
+    profile_activation_material = {
+        "kind": "agent-candidate-profile-activation",
+        "profilePlan": profile_evidence,
+        "files": [
+            {
+                "path": "AGENTS.md",
+                "mode": 0o600,
+                "content": profile.decode(),
+            }
+        ],
+    }
+    profile_activation = {
+        **profile_activation_material,
+        "digest": _sha(_canonical(profile_activation_material)),
+    }
     bundle_digest = f"sha256:{'b' * 64}"
+    limits = {
+        "timeoutMs": 60_000,
+        "maxSteps": 8,
+        "maxModelCalls": 0,
+        "maxInputTokens": 0,
+        "maxOutputTokens": 0,
+        "maxCostUsd": 0,
+    }
+    container = {
+        "source": "evaluator-task-container",
+        "image": "ghcr.io/tangle-network/fixture:latest",
+        "indexDigest": f"sha256:{'2' * 64}",
+        "manifestDigest": f"sha256:{'3' * 64}",
+        "platform": {"os": "linux", "architecture": "amd64"},
+    }
+    resolved_model = {
+        "requested": "openai/gpt-5.4",
+        "provider": "openai",
+        "model": "gpt-5.4",
+        "snapshot": "fixture",
+        "reasoningEffort": "xhigh",
+    }
+    task = {
+        "kind": "agent-candidate-benchmark-task",
+        "digestAlgorithm": "rfc8785-sha256",
+        "scenario": {
+            "id": "fixture-1",
+            "kind": "coding",
+            "scenarioDigest": f"sha256:{'5' * 64}",
+        },
+        "benchmark": {
+            "name": "pier-fixture",
+            "version": "1",
+            "splitDigest": f"sha256:{'1' * 64}",
+        },
+        "instruction": instruction.decode(),
+        "repository": {
+            "identity": "fixture/repository",
+            "rootIdentity": "fixture/repository",
+            "baseCommit": base_commit,
+            "baseTree": base_tree,
+        },
+        "outcome": {"kind": "workspace"},
+        "workspace": task_snapshot,
+        "evaluatorTaskContainer": container,
+        "model": resolved_model,
+        "limits": limits,
+        "attempt": {"maxAttempts": 1, "retryPolicy": "none"},
+        "grader": {
+            "name": "fixture-grader",
+            "version": "1.0.0",
+            "format": "tangle-grader",
+            "artifact": {
+                "sha256": f"sha256:{'6' * 64}",
+                "byteLength": 1,
+                "locator": {
+                    "kind": "s3",
+                    "bucket": "fixture",
+                    "key": "grader",
+                },
+            },
+        },
+    }
+    task_raw = _canonical(task)
+    task_digest = _sha(task_raw)
+    suite = {
+        "kind": "agent-candidate-benchmark-suite",
+        "digestAlgorithm": "rfc8785-sha256",
+        "taskDigests": [task_digest],
+        "reps": 1,
+        "seeds": [42],
+    }
+    suite_raw = _canonical(suite)
+    suite_digest = _sha(suite_raw)
+    run_cell_material = {
+        "kind": "agent-candidate-run-cell",
+        "experimentDigest": f"sha256:{'7' * 64}",
+        "bundleDigest": bundle_digest,
+        "suiteDigest": suite_digest,
+        "taskDigest": task_digest,
+        "arm": "candidate",
+        "taskIndex": 0,
+        "repetition": 0,
+        "seed": 42,
+        "attempt": 1,
+    }
+    run_cell = {
+        **run_cell_material,
+        "digest": _sha(_canonical(run_cell_material)),
+    }
     plan = {
         "kind": "agent-candidate-execution-plan-material",
-        "bundleDigest": bundle_digest,
+        "runCell": run_cell,
         "executionId": "pier-fixture-execution",
-        "attempt": {"number": 1, "maxAttempts": 1, "retryPolicy": "none"},
-        "task": {
-            "benchmark": "pier-fixture",
-            "benchmarkVersion": "1",
-            "taskId": "fixture-1",
-            "splitDigest": f"sha256:{'1' * 64}",
-            "instruction": {
-                "encoding": "utf8",
-                "sha256": _sha(instruction),
-                "byteLength": len(instruction),
-                "delivery": {"kind": "argv-append"},
-            },
-            "repository": {
-                "identity": "fixture/repository",
-                "rootIdentity": "fixture/repository",
-                "baseCommit": base_commit,
-                "baseTree": base_tree,
-            },
-            "outcome": {"kind": "workspace"},
-            "workspace": task_snapshot,
-        },
         "workspaces": {
             "taskRoot": str(task_root),
             "candidateRoot": str(candidate_root),
@@ -300,22 +391,11 @@ def _fixture(root: Path):
         },
         "harness": "codex",
         "harnessVersion": "fixture",
-        "container": {
-            "source": "evaluator-task-container",
-            "image": "ghcr.io/tangle-network/fixture:latest",
-            "indexDigest": f"sha256:{'2' * 64}",
-            "manifestDigest": f"sha256:{'3' * 64}",
-            "platform": {"os": "linux", "architecture": "amd64"},
-        },
+        "instructionDelivery": {"kind": "argv-append"},
+        "container": container,
         "model": {
             "policy": "single",
-            "resolved": {
-                "requested": "openai/gpt-5.4",
-                "provider": "openai",
-                "model": "gpt-5.4",
-                "snapshot": "fixture",
-                "reasoningEffort": "xhigh",
-            },
+            "resolved": resolved_model,
             "access": {
                 "kind": "evaluator-mediated",
                 "grantDigest": f"sha256:{'4' * 64}",
@@ -326,18 +406,16 @@ def _fixture(root: Path):
         "launch": {
             "executable": "python3",
             "args": [{"kind": "public", "value": str(candidate_root / "runner.py")}],
-            "env": {},
+            "env": {
+                "PATH": {
+                    "kind": "public",
+                    "value": "/usr/local/bin:/usr/bin:/bin",
+                }
+            },
             "cwd": {"workspace": "task", "path": "."},
         },
         "memory": {"mode": "disabled"},
-        "limits": {
-            "timeoutMs": 60_000,
-            "maxSteps": 8,
-            "maxModelCalls": 0,
-            "maxInputTokens": 0,
-            "maxOutputTokens": 0,
-            "maxCostUsd": 0,
-        },
+        "limits": limits,
         "network": {"mode": "disabled"},
     }
     plan_raw = _canonical(plan)
@@ -348,17 +426,21 @@ def _fixture(root: Path):
         "material": plan,
         "artifact": _embedded(plan_raw),
     }
-    profile_evidence = {
-        "kind": "agent-profile-workspace-plan",
-        "digest": profile_digest,
-        "material": profile_material,
-        "artifact": _embedded(profile_raw),
-    }
     receipt = {
         "kind": "agent-candidate-materialization",
         "digestAlgorithm": "rfc8785-sha256",
         "bundleDigest": bundle_digest,
-        "profilePlan": profile_evidence,
+        "benchmark": {
+            "suite": {
+                "digest": suite_digest,
+                "material": _embedded(suite_raw),
+            },
+            "task": {
+                "digest": task_digest,
+                "material": _embedded(task_raw),
+            },
+        },
+        "profileActivation": profile_activation,
         "executionPlan": execution_evidence,
         "candidateWorkspace": candidate_snapshot,
         "codeKind": "no-op",
@@ -390,13 +472,20 @@ def _fixture(root: Path):
         "logs": logs,
         "base_commit": base_commit,
         "plan": plan,
+        "task": task,
+        "suite": suite,
     }
 
 
-def _rewrite_signed_plan(fixture):
+def _write_receipt(fixture, receipt):
+    receipt_raw = _canonical(receipt)
+    fixture["receipt_path"].write_bytes(receipt_raw)
+    fixture["receipt_digest"] = _sha(receipt_raw)
+
+
+def _rebind_plan(fixture, receipt):
     plan_raw = _canonical(fixture["plan"])
     plan_digest = _sha(plan_raw)
-    receipt = json.loads(fixture["receipt_path"].read_text())
     receipt["executionPlan"] = {
         "kind": "agent-candidate-execution-plan",
         "digest": plan_digest,
@@ -405,10 +494,43 @@ def _rewrite_signed_plan(fixture):
     }
     receipt["container"] = fixture["plan"]["container"]
     receipt["resolvedModel"] = fixture["plan"]["model"]["resolved"]
-    receipt_raw = _canonical(receipt)
     fixture["plan_path"].write_bytes(plan_raw)
-    fixture["receipt_path"].write_bytes(receipt_raw)
-    fixture["receipt_digest"] = _sha(receipt_raw)
+    _write_receipt(fixture, receipt)
+
+
+def _rewrite_signed_plan(fixture, *, sync_task_container=True):
+    task = fixture["task"]
+    task["limits"] = fixture["plan"]["limits"]
+    task["model"] = fixture["plan"]["model"]["resolved"]
+    if sync_task_container:
+        if fixture["plan"]["container"]["source"] == "evaluator-task-container":
+            task["evaluatorTaskContainer"] = fixture["plan"]["container"]
+        else:
+            task.pop("evaluatorTaskContainer", None)
+    task_raw = _canonical(task)
+    task_digest = _sha(task_raw)
+    suite = fixture["suite"]
+    suite["taskDigests"] = [task_digest]
+    suite_raw = _canonical(suite)
+    suite_digest = _sha(suite_raw)
+    run_cell = fixture["plan"]["runCell"]
+    run_cell["taskDigest"] = task_digest
+    run_cell["suiteDigest"] = suite_digest
+    run_cell["digest"] = _sha(
+        _canonical({key: value for key, value in run_cell.items() if key != "digest"})
+    )
+    receipt = json.loads(fixture["receipt_path"].read_text())
+    receipt["benchmark"] = {
+        "suite": {
+            "digest": suite_digest,
+            "material": _embedded(suite_raw),
+        },
+        "task": {
+            "digest": task_digest,
+            "material": _embedded(task_raw),
+        },
+    }
+    _rebind_plan(fixture, receipt)
 
 
 def _agent(fixture):
@@ -422,7 +544,9 @@ def _agent(fixture):
     plan_digest = _sha(fixture["plan_path"].read_bytes())
     trace_env = {
         "TANGLE_CANDIDATE_EXECUTION_ID": fixture["plan"]["executionId"],
-        "TANGLE_CANDIDATE_BUNDLE_DIGEST": fixture["plan"]["bundleDigest"],
+        "TANGLE_CANDIDATE_BUNDLE_DIGEST": fixture["plan"]["runCell"][
+            "bundleDigest"
+        ],
         "TANGLE_CANDIDATE_EXECUTION_PLAN_DIGEST": plan_digest,
         "TANGLE_CANDIDATE_MATERIALIZATION_RECEIPT_DIGEST": fixture["receipt_digest"],
         "TANGLE_TRACE_RUN_ID": fixture["plan"]["executionId"],
@@ -752,7 +876,7 @@ class CandidateContractTest(unittest.TestCase):
     def test_rejects_extra_utf8_file_delivery_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = _fixture(Path(directory))
-            fixture["plan"]["task"]["instruction"]["delivery"] = {
+            fixture["plan"]["instructionDelivery"] = {
                 "kind": "utf8-file",
                 "env": "TANGLE_CANDIDATE_TASK_PATH",
                 "path": "/tangle/input/task.txt",
@@ -816,6 +940,155 @@ class CandidateContractTest(unittest.TestCase):
             finally:
                 agent._snapshots.cleanup()
 
+    def test_accepts_runtime_owned_pre_model_retry_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            fixture["task"]["attempt"][
+                "retryPolicy"
+            ] = "pre-model-infrastructure-only"
+            _rewrite_signed_plan(fixture)
+            loaded = contract_module.load_prepared_candidate_contract(
+                fixture["plan_path"],
+                fixture["receipt_path"],
+                fixture["receipt_digest"],
+            )
+            self.assertEqual(loaded.execution_id, "pier-fixture-execution")
+
+    def test_accepts_candidate_pinned_container_without_task_container(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            fixture["plan"]["container"]["source"] = "pinned-container"
+            _rewrite_signed_plan(fixture)
+            loaded = contract_module.load_prepared_candidate_contract(
+                fixture["plan_path"],
+                fixture["receipt_path"],
+                fixture["receipt_digest"],
+            )
+            self.assertEqual(loaded.container["source"], "pinned-container")
+
+    def test_rejects_missing_run_cell_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            receipt = json.loads(fixture["receipt_path"].read_text())
+            fixture["plan"]["runCell"].pop("digest")
+            _rebind_plan(fixture, receipt)
+            with self.assertRaisesRegex(
+                contract_module.CandidateContractError, "runCell.digest"
+            ):
+                contract_module.load_prepared_candidate_contract(
+                    fixture["plan_path"],
+                    fixture["receipt_path"],
+                    fixture["receipt_digest"],
+                )
+
+    def test_rejects_invalid_suite_identity_and_seed(self):
+        for label, suite_value, cell_value, message in (
+            ("algorithm", "not-rfc8785", 42, "digestAlgorithm"),
+            ("seed", "rfc8785-sha256", "42", "safe integer"),
+        ):
+            with (
+                self.subTest(case=label),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                fixture = _fixture(Path(directory))
+                fixture["suite"]["digestAlgorithm"] = suite_value
+                fixture["suite"]["seeds"] = [cell_value]
+                fixture["plan"]["runCell"]["seed"] = cell_value
+                _rewrite_signed_plan(fixture)
+                with self.assertRaisesRegex(
+                    contract_module.CandidateContractError, message
+                ):
+                    contract_module.load_prepared_candidate_contract(
+                        fixture["plan_path"],
+                        fixture["receipt_path"],
+                        fixture["receipt_digest"],
+                    )
+
+    def test_rejects_no_retry_task_with_multiple_attempts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            fixture["task"]["attempt"] = {
+                "maxAttempts": 2,
+                "retryPolicy": "none",
+            }
+            fixture["plan"]["runCell"]["attempt"] = 2
+            _rewrite_signed_plan(fixture)
+            with self.assertRaisesRegex(
+                contract_module.CandidateContractError, "no-retry"
+            ):
+                contract_module.load_prepared_candidate_contract(
+                    fixture["plan_path"],
+                    fixture["receipt_path"],
+                    fixture["receipt_digest"],
+                )
+
+    def test_rejects_invalid_profile_activation_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            receipt = json.loads(fixture["receipt_path"].read_text())
+            receipt["profileActivation"]["digest"] = f"sha256:{'f' * 64}"
+            _write_receipt(fixture, receipt)
+            with self.assertRaisesRegex(
+                contract_module.CandidateContractError,
+                "profile activation digest",
+            ):
+                contract_module.load_prepared_candidate_contract(
+                    fixture["plan_path"],
+                    fixture["receipt_path"],
+                    fixture["receipt_digest"],
+                )
+
+    def test_rejects_pinned_container_for_evaluator_container_task(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            evaluator_container = fixture["plan"]["container"]
+            fixture["plan"]["container"] = {
+                **evaluator_container,
+                "source": "pinned-container",
+            }
+            fixture["task"]["evaluatorTaskContainer"] = evaluator_container
+            _rewrite_signed_plan(fixture, sync_task_container=False)
+            with self.assertRaisesRegex(
+                contract_module.CandidateContractError,
+                "pinned execution",
+            ):
+                contract_module.load_prepared_candidate_contract(
+                    fixture["plan_path"],
+                    fixture["receipt_path"],
+                    fixture["receipt_digest"],
+                )
+
+    def test_rejects_profile_plan_for_another_harness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            receipt = json.loads(fixture["receipt_path"].read_text())
+            activation = receipt["profileActivation"]
+            profile = activation["profilePlan"]
+            profile["material"]["harness"] = "claude-code"
+            profile_raw = _canonical(profile["material"])
+            profile["digest"] = _sha(profile_raw)
+            profile["artifact"] = _embedded(profile_raw)
+            activation["digest"] = _sha(
+                _canonical(
+                    {
+                        key: value
+                        for key, value in activation.items()
+                        if key != "digest"
+                    }
+                )
+            )
+            fixture["plan"]["profile"]["planDigest"] = profile["digest"]
+            _rebind_plan(fixture, receipt)
+            with self.assertRaisesRegex(
+                contract_module.CandidateContractError,
+                "profile plan harness",
+            ):
+                contract_module.load_prepared_candidate_contract(
+                    fixture["plan_path"],
+                    fixture["receipt_path"],
+                    fixture["receipt_digest"],
+                )
+
     def test_rejects_wildcard_or_unsorted_model_gateway_domains(self):
         for domains in (
             ["*.tangle.tools"],
@@ -855,6 +1128,25 @@ class CandidateContractTest(unittest.TestCase):
                     fixture["receipt_path"],
                     fixture["receipt_digest"],
                 )
+
+    def test_rejects_untrusted_signed_public_path(self):
+        for value in (
+            "/app",
+            ".",
+            "/usr/local/bin::/usr/bin",
+            "/usr/local/bin:/opt/bin",
+        ):
+            with (
+                self.subTest(value=value),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                fixture = _fixture(Path(directory))
+                fixture["plan"]["launch"]["env"]["PATH"]["value"] = value
+                _rewrite_signed_plan(fixture)
+                with self.assertRaisesRegex(
+                    candidate.PierCandidateError, "signed public PATH"
+                ):
+                    _agent(fixture)
 
     def test_rejects_unsigned_candidate_workspace_files(self):
         with tempfile.TemporaryDirectory() as directory:

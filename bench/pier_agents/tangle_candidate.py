@@ -55,6 +55,7 @@ _CANDIDATE_HOME = "/tangle/home"
 _CANDIDATE_TMP = "/tangle/tmp"
 _CONTROL_ROOT = "/tangle/control"
 _FIXED_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+_FIXED_PATH_ENTRIES = frozenset(_FIXED_PATH.split(":"))
 _RESERVED_PROCESS_ENV = {
     "GIT_CONFIG_COUNT",
     "GIT_CONFIG_KEY_0",
@@ -268,12 +269,25 @@ class TangleCandidateAgent(BaseAgent):
     ) -> dict[str, str]:
         protected: dict[str, str] = {}
         public_names = set(self._contract.env)
-        reserved_public = sorted(public_names & _RESERVED_PROCESS_ENV)
+        reserved_public = sorted(
+            (public_names & _RESERVED_PROCESS_ENV) - {"PATH"}
+        )
         if reserved_public:
             raise PierCandidateError(
                 "signed public env collides with evaluator Git safety fields: "
                 + ", ".join(reserved_public)
             )
+        public_path = self._contract.env.get("PATH")
+        if public_path is not None:
+            entries = public_path.split(":")
+            if (
+                not entries
+                or len(entries) != len(set(entries))
+                or any(entry not in _FIXED_PATH_ENTRIES for entry in entries)
+            ):
+                raise PierCandidateError(
+                    "signed public PATH contains an empty, duplicate, or untrusted directory"
+                )
         expected_trace = _trace_env(self._contract, trace_run_id)
         for name, expected in expected_trace.items():
             if values.get(name) != expected:

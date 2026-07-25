@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Read Runtime 0.105 candidate plans from their signed run cell, benchmark records, and profile activation.
+- Allow only the fixed public executable path signed by the Runtime plan.
+- Restore the real Pier failure/success proof against the current receipt layout.
+
 ## 0.4.0
 
 - Add the resumable SWE improvement loop backed by the official GEPA engine.

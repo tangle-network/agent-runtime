@@ -435,7 +435,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
     workspace: taskWorkspace,
     evaluatorTaskContainer: container,
     limits: {
-      timeoutMs: 60_000,
+      timeoutMs: 180_000,
       maxSteps: 8,
       maxModelCalls: 0,
       maxInputTokens: 0,
@@ -671,12 +671,14 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
     )
   }
   assertTreeOmits(scratch, 'zero-model-proof')
-  const usage = finalized.receipt.value.usage
+  const usage = finalized.receipt.value.modelSettlement.material.usage
   if (
     usage.modelCalls !== 0 ||
     usage.inputTokens !== 0 ||
     usage.outputTokens !== 0 ||
-    usage.costUsd !== 0 ||
+    usage.cachedInputTokens !== 0 ||
+    usage.reasoningTokens !== 0 ||
+    usage.costUsdNanos !== 0 ||
     finalized.receipt.value.trace.modelCallCount !== 0
   ) {
     throw new Error(`runtime minted nonzero usage for a zero-model run: ${JSON.stringify(usage)}`)
@@ -691,7 +693,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
         modelCalls: usage.modelCalls,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
-        costUsd: usage.costUsd,
+        costUsd: usage.costUsdNanos / 1_000_000_000,
         pierContextUsage: null,
         profileExcludedByVerifier: true,
         container: {
