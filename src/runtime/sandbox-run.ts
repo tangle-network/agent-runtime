@@ -171,6 +171,7 @@ export async function openSandboxRun<Out>(
 ): Promise<SandboxRun<Out>> {
   const runId = options.runId ?? `sandbox-run-${randomSuffix()}`
   const now = options.now ?? Date.now
+  const agentRunName = options.agentRun.name ?? options.agentRun.profile.name ?? 'agent'
   const capabilities = await probeSandboxCapabilities(client)
   const lineage = createSandboxLineage(client, capabilities, {
     ...(options.maxConcurrency !== undefined ? { maxConcurrency: options.maxConcurrency } : {}),
@@ -208,7 +209,7 @@ export async function openSandboxRun<Out>(
   }
 
   const runPayload = (): Record<string, unknown> => ({
-    agentName: options.agentRun.name ?? options.agentRun.profile.name ?? 'agent',
+    agentName: agentRunName,
     profileName: options.agentRun.profile.name,
     backendType: backendType(options.agentRun),
     deliverableKind: deliverable.kind,
@@ -257,7 +258,7 @@ export async function openSandboxRun<Out>(
         notifySandboxEventObserver(ev, options.onSandboxEvent, {
           turnIndex,
           turnKind,
-          agentRunName: options.agentRun.name ?? options.agentRun.profile.name ?? 'agent',
+          agentRunName,
         })
       }
     } catch (err) {

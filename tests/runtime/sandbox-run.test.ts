@@ -493,6 +493,7 @@ describe('openSandboxRun — abort-aware artifact read preserves the partial tra
 
   it('carries ONLY the events drained before a mid-stream abort (never-started stays empty)', async () => {
     const controller = new AbortController()
+    const observed: string[] = []
     const streamed: SandboxEvent[] = [
       { type: 'step', data: { i: 0 } } as SandboxEvent,
       { type: 'step', data: { i: 1 } } as SandboxEvent,
@@ -508,7 +509,14 @@ describe('openSandboxRun — abort-aware artifact read preserves the partial tra
     })
     const run = await openSandboxRun(
       client,
-      { agentRun: spec(), signal: controller.signal },
+      {
+        agentRun: spec(),
+        signal: controller.signal,
+        onSandboxEvent: (event) => {
+          observed.push(event.type)
+          throw new Error('observer failure must not mask the abort')
+        },
+      },
       eventsDeliverable,
     )
     const err = await run.start('go').then(
@@ -519,6 +527,7 @@ describe('openSandboxRun — abort-aware artifact read preserves the partial tra
     )
     expect(err).toBeInstanceOf(SandboxRunAbortError)
     expect((err as SandboxRunAbortError).events).toEqual([streamed[0]])
+    expect(observed).toEqual(['step'])
   })
 
   it('preserves partial events when the read loop is aborted mid-retry, with the last readError', async () => {
