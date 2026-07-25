@@ -368,6 +368,7 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
     expect(rollout.mode).toBe('structuralRollout')
     expect(rollout.shots).toBe(4) // 2 samples + 2 repairs
     expect(rollout.repairStop).toBe('repaired-pass')
+    expect(rollout.artifact).toBe('def f():\n    return "D"')
 
     // Checks were generated ONCE and the same frozen set fed every run.
     expect(generate).toHaveBeenCalledOnce()

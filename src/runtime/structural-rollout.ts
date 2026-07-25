@@ -487,6 +487,8 @@ export type RepairStop =
  *  fields ride through `defineStrategy`'s deliverable spread onto `AgenticRunResult`
  *  (score/resolved stay harness-verified, exactly as for every authored strategy). */
 export interface StructuralRolloutResult extends StrategyResult {
+  /** Exact selected candidate text passed to the visible checks, or null when no shot ran. */
+  artifact: string | null
   /** One receipt per scored candidate (k samples, then repairs), `SelectionReceipt`
    *  shaped like the kernel's (`types.ts`), selector 'driver'. */
   selection: SelectionReceipt[]
@@ -559,6 +561,7 @@ export function structuralRollout(config: StructuralRolloutConfig = {}): Strateg
       interface Candidate {
         index: number
         messages: Msg[]
+        artifact: string
         outcome: CheckOutcome
         shotScore: number
         shotResolved: boolean
@@ -572,10 +575,12 @@ export function structuralRollout(config: StructuralRolloutConfig = {}): Strateg
         shots += 1
         completions += out.completions
         progression.push(out.score)
-        const outcome = await checkRunner.run(extract(out.messages), checks, runCtx)
+        const artifact = extract(out.messages)
+        const outcome = await checkRunner.run(artifact, checks, runCtx)
         candidates.push({
           index: candidates.length,
           messages: out.messages,
+          artifact,
           outcome,
           shotScore: out.score,
           shotResolved: out.total > 0 && out.passes === out.total,
@@ -588,6 +593,7 @@ export function structuralRollout(config: StructuralRolloutConfig = {}): Strateg
           completions,
           progression,
           shots,
+          artifact: null,
           selection: receipts,
           repairStop: 'no-candidates',
           officialChecks,
@@ -623,7 +629,8 @@ export function structuralRollout(config: StructuralRolloutConfig = {}): Strateg
             shots += 1
             completions += out.completions
             progression.push(out.score)
-            const outcome = await checkRunner.run(extract(out.messages), checks, runCtx)
+            const artifact = extract(out.messages)
+            const outcome = await checkRunner.run(artifact, checks, runCtx)
             const displaced = canDisplace(outcome, best.outcome)
             const label = displaced
               ? 'repair (displaced the incumbent)'
@@ -641,6 +648,7 @@ export function structuralRollout(config: StructuralRolloutConfig = {}): Strateg
               best = {
                 index: seq,
                 messages: out.messages,
+                artifact,
                 outcome,
                 shotScore: out.score,
                 shotResolved: out.total > 0 && out.passes === out.total,
@@ -664,6 +672,7 @@ export function structuralRollout(config: StructuralRolloutConfig = {}): Strateg
         completions,
         progression,
         shots,
+        artifact: best.artifact,
         selection: receipts,
         repairStop,
         officialChecks,
