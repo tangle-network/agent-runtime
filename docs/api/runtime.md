@@ -9956,11 +9956,19 @@ Defined in: [src/runtime/strategy.ts:813](https://github.com/tangle-network/agen
 
 [`StrategyResult`](#strategyresult).[`shots`](#shots-3)
 
+##### artifact
+
+> **artifact**: `string` \| `null`
+
+Defined in: [src/runtime/structural-rollout.ts:491](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L491)
+
+Exact selected candidate text passed to the visible checks, or null when no shot ran.
+
 ##### selection
 
 > **selection**: [`SelectionReceipt`](#selectionreceipt)[]
 
-Defined in: [src/runtime/structural-rollout.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L492)
+Defined in: [src/runtime/structural-rollout.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L494)
 
 One receipt per scored candidate (k samples, then repairs), `SelectionReceipt`
  shaped like the kernel's (`types.ts`), selector 'driver'.
@@ -9969,25 +9977,25 @@ One receipt per scored candidate (k samples, then repairs), `SelectionReceipt`
 
 > **repairStop**: [`RepairStop`](#repairstop)
 
-Defined in: [src/runtime/structural-rollout.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L493)
+Defined in: [src/runtime/structural-rollout.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L495)
 
 ##### officialChecks
 
 > **officialChecks**: `number`
 
-Defined in: [src/runtime/structural-rollout.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L494)
+Defined in: [src/runtime/structural-rollout.ts:496](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L496)
 
 ##### authoredChecks
 
 > **authoredChecks**: `number`
 
-Defined in: [src/runtime/structural-rollout.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L495)
+Defined in: [src/runtime/structural-rollout.ts:497](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L497)
 
 ***
 
 ### StructuralRolloutConfig
 
-Defined in: [src/runtime/structural-rollout.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L498)
+Defined in: [src/runtime/structural-rollout.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L500)
 
 #### Properties
 
@@ -9995,7 +10003,7 @@ Defined in: [src/runtime/structural-rollout.ts:498](https://github.com/tangle-ne
 
 > `optional` **policy?**: `Partial`\<[`StructuralRolloutPolicy`](#structuralrolloutpolicy)\>
 
-Defined in: [src/runtime/structural-rollout.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L500)
+Defined in: [src/runtime/structural-rollout.ts:502](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L502)
 
 Knobs; missing fields take the measured defaults (k=5, repairRounds=2, testgen=6).
 
@@ -10003,7 +10011,7 @@ Knobs; missing fields take the measured defaults (k=5, repairRounds=2, testgen=6
 
 > `optional` **checkSource?**: [`CheckSource`](#checksource)
 
-Defined in: [src/runtime/structural-rollout.ts:503](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L503)
+Defined in: [src/runtime/structural-rollout.ts:505](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L505)
 
 Where the visible checks come from. Default: official checks from
  `task.meta.visibleChecks` composed with `modelAuthoredChecks()`.
@@ -10012,7 +10020,7 @@ Where the visible checks come from. Default: official checks from
 
 > `optional` **checkRunner?**: [`CheckRunner`](#checkrunner)
 
-Defined in: [src/runtime/structural-rollout.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L506)
+Defined in: [src/runtime/structural-rollout.ts:508](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L508)
 
 How candidates are measured. Default `sandboxCheckRunner()` — it needs an exec
  channel (bind one to the runner, or pass `box` here) and fails loud without one.
@@ -10021,7 +10029,7 @@ How candidates are measured. Default `sandboxCheckRunner()` — it needs an exec
 
 > `optional` **box?**: [`CheckExecChannel`](#checkexecchannel)
 
-Defined in: [src/runtime/structural-rollout.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L510)
+Defined in: [src/runtime/structural-rollout.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L512)
 
 Exec channel threaded into every check run of this strategy (a sandbox instance /
  `ValidationCtx.box`). The strategy seam itself carries no sandbox, so the caller
@@ -10031,7 +10039,7 @@ Exec channel threaded into every check run of this strategy (a sandbox instance 
 
 > `optional` **extractCandidate?**: (`messages`) => `string`
 
-Defined in: [src/runtime/structural-rollout.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L512)
+Defined in: [src/runtime/structural-rollout.ts:514](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L514)
 
 Candidate extraction from a shot's conversation. Default `defaultExtractCandidate`.
 
@@ -22301,7 +22309,7 @@ readonly `Msg`[]
 
 > **structuralRollout**(`config?`): [`Strategy`](#strategy-3)
 
-Defined in: [src/runtime/structural-rollout.ts:525](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L525)
+Defined in: [src/runtime/structural-rollout.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L527)
 
 Build the structuralRollout `Strategy`: k shots → score each by the frozen visible
 checks (official above authored, crash lowest) → argmax with first-index tie-break →
