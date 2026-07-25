@@ -151,7 +151,7 @@ async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
           model,
         },
         [{ role: 'user', content: 'Reply OK.' }],
-        { maxTokens: 1 },
+        { maxTokens: 1, reasoningEffort: 'none' },
       )
     })
 

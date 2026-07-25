@@ -12,6 +12,7 @@ interface ChatRequest {
   messages?: Array<{ role?: string; content?: string }>
   temperature?: number
   max_tokens?: number
+  reasoning_effort?: string
 }
 
 const task: AgenticTask = {
@@ -109,6 +110,7 @@ describe('runBenchmark model availability', () => {
     const checks = requests.filter(isModelCheck)
     expect(checks.map((request) => request.model).sort()).toEqual(['analyst-model', 'worker-model'])
     expect(checks.every((request) => request.max_tokens === 1)).toBe(true)
+    expect(checks.every((request) => request.reasoning_effort === 'none')).toBe(true)
     expect(events.indexOf('open')).toBe(2)
   })
 

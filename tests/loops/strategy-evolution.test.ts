@@ -162,12 +162,16 @@ describe('runStrategyEvolution', () => {
     stubWorkerRouter()
     const { chat } = scriptedChat([fenced(twoShotDepthModule)])
     const sliceCalls: Array<{ offset: number; n: number }> = []
+    const checkedModels: string[] = []
     const report = await runStrategyEvolution({
       environment: shotCountingSurface(),
       tasks: sliceTasks(sliceCalls),
       trainN: 8,
       holdoutN: 8,
       worker,
+      modelPreflight: async (model) => {
+        checkedModels.push(model)
+      },
       author: { chat, model: 'author-model' },
       budget: 3,
       concurrency: 2,
@@ -178,6 +182,7 @@ describe('runStrategyEvolution', () => {
     })
 
     expect(report.gen0Champion.name).toBe('sample')
+    expect(checkedModels).toEqual(['test-model'])
     expect(report.finalChampion.name).toBe('two-shot-depth')
     expect(report.verdict.promoted).toBe(true)
     expect(report.verdict.reason).toBe('significant')
