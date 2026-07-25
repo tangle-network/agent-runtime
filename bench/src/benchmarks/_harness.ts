@@ -82,7 +82,14 @@ export const venvPython = resolveBenchPython()
 /** Interpreter for a NAMED isolated venv (e.g. `.venv-commit0`). Benches whose pip
  *  deps conflict with the shared `.venv` (commit0 downgrades pydantic/sqlalchemy)
  *  get their own venv and pass its python explicitly — keeping the shared one clean. */
-export const venvPythonAt = (venvDir: string): string => join(benchRoot, venvDir, 'bin', 'python')
+export const venvPythonAt = (venvDir: string): string => venvBinAt(venvDir, 'python')
+
+/** Resolve an executable in an isolated venv. Relative venv paths are package-owned;
+ * absolute paths allow installed consumers to keep large environments elsewhere. */
+export function venvBinAt(venvDir: string, name: string): string {
+  return join(resolve(benchRoot, venvDir), 'bin', name)
+}
+
 /** Report/transcript reads are large; 256 MiB matches the SWE harness budget. */
 export const bigBuffer = 1024 * 1024 * 256
 
