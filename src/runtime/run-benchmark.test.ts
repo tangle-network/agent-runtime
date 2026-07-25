@@ -160,6 +160,49 @@ describe('runBenchmark model availability', () => {
     expect(onTask).not.toHaveBeenCalled()
   })
 
+  it('reports every unavailable model in one failure', async () => {
+    const events: string[] = []
+
+    await expect(
+      runBenchmark({
+        environment: surface(events),
+        tasks: [task],
+        worker: { ...worker, analystModel: 'analyst-model' },
+        strategies: [oneShot],
+        budget: 1,
+        modelPreflight: async (model) => {
+          throw new Error(`${model} is unavailable`)
+        },
+      }),
+    ).rejects.toThrow(
+      'Benchmark model "worker-model" preflight failed: worker-model is unavailable; ' +
+        'Benchmark model "analyst-model" preflight failed: analyst-model is unavailable',
+    )
+
+    expect(events).not.toContain('open')
+  })
+
+  it('bounds a model check that never settles', async () => {
+    const events: string[] = []
+
+    await expect(
+      runBenchmark({
+        environment: surface(events),
+        tasks: [task],
+        worker,
+        strategies: [oneShot],
+        budget: 1,
+        modelPreflightTimeoutMs: 5,
+        modelPreflight: async (_model, _worker, signal) =>
+          new Promise<void>((_, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          }),
+      }),
+    ).rejects.toThrow('Benchmark model "worker-model" preflight failed: timed out after 5 ms')
+
+    expect(events).not.toContain('open')
+  })
+
   it('skips the check for an injected completion transport', async () => {
     const requests: ChatRequest[] = []
     const events: string[] = []

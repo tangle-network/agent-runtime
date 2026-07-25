@@ -73,6 +73,8 @@ export interface StrategyEvolutionConfig {
    * See `BenchmarkConfig.modelPreflight`.
    */
   modelPreflight?: BenchmarkConfig['modelPreflight']
+  /** Maximum time for each model availability check. Default 30 seconds. */
+  modelPreflightTimeoutMs?: BenchmarkConfig['modelPreflightTimeoutMs']
   author: EvolutionAuthor
   /** Rollouts (sample) / shots (refine) per strategy per task. Default 3. */
   budget?: number
@@ -423,6 +425,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
       budget,
       concurrency,
       modelPreflight: modelsPreflighted ? false : cfg.modelPreflight,
+      modelPreflightTimeoutMs: cfg.modelPreflightTimeoutMs,
       ...(cfg.onTask
         ? { onTask: (row, done, total) => cfg.onTask?.(phase, row, done, total) }
         : {}),

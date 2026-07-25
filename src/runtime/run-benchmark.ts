@@ -57,7 +57,11 @@ export interface BenchmarkConfig {
    * model. Injected `worker.complete` transports skip the check. Pass `false` to disable it or a
    * callback to check each unique model through a custom transport.
    */
-  modelPreflight?: false | ((model: string, worker: Readonly<AgenticOptions>) => Promise<void>)
+  modelPreflight?:
+    | false
+    | ((model: string, worker: Readonly<AgenticOptions>, signal: AbortSignal) => Promise<void>)
+  /** Maximum time for each model availability check. Default 30 seconds. */
+  modelPreflightTimeoutMs?: number
 }
 
 export interface BenchmarkLift {
@@ -141,9 +145,12 @@ async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
   if (cfg.worker.complete && !cfg.modelPreflight) return
 
   const models = [...new Set([cfg.worker.model, cfg.worker.analystModel ?? cfg.worker.model])]
+  const timeoutMs = cfg.modelPreflightTimeoutMs ?? 30_000
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    throw new Error('modelPreflightTimeoutMs must be a positive finite number')
   const check =
     cfg.modelPreflight ??
-    (async (model: string, worker: Readonly<AgenticOptions>) => {
+    (async (model: string, worker: Readonly<AgenticOptions>, signal: AbortSignal) => {
       await routerChatWithUsage(
         {
           routerBaseUrl: worker.routerBaseUrl,
@@ -151,20 +158,48 @@ async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
           model,
         },
         [{ role: 'user', content: 'Reply OK.' }],
-        { maxTokens: 1, reasoningEffort: 'none' },
+        { maxTokens: 1, reasoningEffort: 'none', signal },
       )
     })
 
-  await Promise.all(
+  const results = await Promise.allSettled(
     models.map(async (model) => {
+      const controller = new AbortController()
+      let timeoutError: Error | undefined
+      let timer: ReturnType<typeof setTimeout> | undefined
       try {
-        await check(model, cfg.worker)
+        await Promise.race([
+          check(model, cfg.worker, controller.signal),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              timeoutError = new Error(`timed out after ${timeoutMs} ms`)
+              controller.abort(timeoutError)
+              reject(timeoutError)
+            }, timeoutMs)
+          }),
+        ])
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : String(cause)
-        throw new Error(`Benchmark model "${model}" preflight failed: ${message}`, { cause })
+        const reported = timeoutError ?? cause
+        const message = reported instanceof Error ? reported.message : String(reported)
+        throw new Error(`Benchmark model "${model}" preflight failed: ${message}`, {
+          cause: reported,
+        })
+      } finally {
+        if (timer) clearTimeout(timer)
       }
     }),
   )
+
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : [],
+  )
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    const message = failures
+      .map((failure) => (failure instanceof Error ? failure.message : String(failure)))
+      .join('; ')
+    throw new AggregateError(failures, message)
+  }
 }
 
 /** Run the requested strategies over the tasks, scored by the Environment's own check.
