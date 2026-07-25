@@ -34,8 +34,13 @@ _RESERVED_PATH_PARTS = {".git", ".sidecar"}
 _PLAN_KIND = "agent-candidate-execution-plan-material"
 _RECEIPT_KIND = "agent-candidate-materialization"
 _PROFILE_PLAN_KIND = "agent-profile-workspace-plan"
+_PROFILE_ACTIVATION_KIND = "agent-candidate-profile-activation"
 _EXECUTION_EVIDENCE_KIND = "agent-candidate-execution-plan"
+_RUN_CELL_KIND = "agent-candidate-run-cell"
+_BENCHMARK_SUITE_KIND = "agent-candidate-benchmark-suite"
+_BENCHMARK_TASK_KIND = "agent-candidate-benchmark-task"
 _STDIN_TASK_PATH = "/tangle/input/stdin.txt"
+_MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 
 class CandidateContractError(ValueError):
@@ -128,6 +133,30 @@ def _integer(value: Any, label: str, *, minimum: int = 0) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise CandidateContractError(f"{label} must be an integer >= {minimum}")
     return value
+
+
+def _safe_integer(value: Any, label: str) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < -_MAX_SAFE_INTEGER
+        or value > _MAX_SAFE_INTEGER
+    ):
+        raise CandidateContractError(f"{label} must be a safe integer")
+    return value
+
+
+def _canonical_bytes(value: Any, label: str) -> bytes:
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise CandidateContractError(f"{label} is not canonical JSON") from exc
 
 
 def _number(value: Any, label: str, *, minimum: float = 0) -> float:
@@ -246,6 +275,21 @@ def _embedded_bytes(value: Any, label: str) -> bytes:
     return raw
 
 
+def _embedded_contract(
+    value: Any, label: str, *, kind: str
+) -> tuple[dict[str, Any], bytes, str]:
+    evidence = _object(value, label)
+    digest = _digest(evidence.get("digest"), f"{label}.digest")
+    raw = _embedded_bytes(evidence.get("material"), f"{label}.material")
+    if sha256_bytes(raw) != digest:
+        raise CandidateContractError(f"{label} material does not match its digest")
+    try:
+        material = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CandidateContractError(f"{label} material is not UTF-8 JSON") from exc
+    return _contract_object(material, f"{label}.material", kind=kind), raw, digest
+
+
 def _workspace_files(value: Any, label: str) -> tuple[WorkspaceFile, ...]:
     snapshot = _contract_object(
         value, label, kind="agent-candidate-workspace-snapshot"
@@ -318,11 +362,10 @@ def _profile_files(value: Any) -> tuple[ProfileFile, ...]:
     return tuple(files)
 
 
-def _instruction(value: Any) -> InstructionEvidence:
-    obj = _object(value, "task.instruction")
-    if obj.get("encoding") != "utf8":
-        raise CandidateContractError("task.instruction.encoding must equal utf8")
-    delivery = _object(obj.get("delivery"), "task.instruction.delivery")
+def _instruction(value: Any, delivery_value: Any) -> InstructionEvidence:
+    text = _string(value, "benchmark task instruction")
+    raw = text.encode("utf-8")
+    delivery = _object(delivery_value, "plan.instructionDelivery")
     kind = delivery.get("kind")
     if kind == "argv-append" or kind == "stdin-utf8":
         if set(delivery) != {"kind"}:
@@ -342,10 +385,8 @@ def _instruction(value: Any) -> InstructionEvidence:
     else:
         raise CandidateContractError("unsupported task instruction delivery")
     return InstructionEvidence(
-        sha256=_digest(obj.get("sha256"), "task.instruction.sha256"),
-        byte_length=_integer(
-            obj.get("byteLength"), "task.instruction.byteLength", minimum=1
-        ),
+        sha256=sha256_bytes(raw),
+        byte_length=len(raw),
         delivery_kind=kind,
         delivery_env=env,
         delivery_path=path,
@@ -400,12 +441,87 @@ def load_prepared_candidate_contract(
             "receipt execution-plan artifact differs from the executed bytes"
         )
 
-    bundle_digest = _digest(plan.get("bundleDigest"), "plan.bundleDigest")
+    run_cell = _contract_object(
+        plan.get("runCell"), "plan.runCell", kind=_RUN_CELL_KIND
+    )
+    _digest(run_cell.get("experimentDigest"), "plan.runCell.experimentDigest")
+    run_cell_digest = _digest(run_cell.get("digest"), "plan.runCell.digest")
+    if run_cell.get("arm") not in {"baseline", "candidate"}:
+        raise CandidateContractError("plan.runCell.arm is unsupported")
+    run_cell_seed = _safe_integer(run_cell.get("seed"), "plan.runCell.seed")
+    if sha256_bytes(
+        _canonical_bytes(
+            {key: value for key, value in run_cell.items() if key != "digest"},
+            "plan.runCell",
+        )
+    ) != run_cell_digest:
+        raise CandidateContractError("plan.runCell digest does not match")
+    bundle_digest = _digest(
+        run_cell.get("bundleDigest"), "plan.runCell.bundleDigest"
+    )
     if receipt.get("bundleDigest") != bundle_digest:
         raise CandidateContractError("receipt and plan bundle digests differ")
     execution_id = _string(plan.get("executionId"), "plan.executionId")
 
-    task = _object(plan.get("task"), "plan.task")
+    benchmark = _object(receipt.get("benchmark"), "receipt.benchmark")
+    suite, _, suite_digest = _embedded_contract(
+        benchmark.get("suite"),
+        "receipt.benchmark.suite",
+        kind=_BENCHMARK_SUITE_KIND,
+    )
+    task, _, task_digest = _embedded_contract(
+        benchmark.get("task"),
+        "receipt.benchmark.task",
+        kind=_BENCHMARK_TASK_KIND,
+    )
+    if (
+        run_cell.get("suiteDigest") != suite_digest
+        or run_cell.get("taskDigest") != task_digest
+    ):
+        raise CandidateContractError(
+            "run cell does not bind the receipt benchmark suite and task"
+        )
+    task_index = _integer(run_cell.get("taskIndex"), "plan.runCell.taskIndex")
+    repetition = _integer(run_cell.get("repetition"), "plan.runCell.repetition")
+    if suite.get("digestAlgorithm") != "rfc8785-sha256":
+        raise CandidateContractError(
+            "benchmark suite digestAlgorithm must equal rfc8785-sha256"
+        )
+    reps = _integer(suite.get("reps"), "benchmark suite reps", minimum=1)
+    task_digests = suite.get("taskDigests")
+    seeds = suite.get("seeds")
+    if (
+        not isinstance(task_digests, list)
+        or not task_digests
+        or len(set(task_digests)) != len(task_digests)
+    ):
+        raise CandidateContractError(
+            "benchmark suite taskDigests must be a non-empty unique array"
+        )
+    for index, value in enumerate(task_digests):
+        _digest(value, f"benchmark suite taskDigests[{index}]")
+    if (
+        not isinstance(seeds, list)
+        or len(seeds) != len(task_digests) * reps
+    ):
+        raise CandidateContractError(
+            "benchmark suite must provide one seed per task repetition"
+        )
+    for index, value in enumerate(seeds):
+        _safe_integer(value, f"benchmark suite seeds[{index}]")
+    if (
+        task_index >= len(task_digests)
+        or task_digests[task_index] != task_digest
+        or repetition >= reps
+        or seeds[task_index * reps + repetition] != run_cell_seed
+    ):
+        raise CandidateContractError(
+            "run cell coordinates do not match the receipt benchmark suite"
+        )
+    if task.get("digestAlgorithm") != "rfc8785-sha256":
+        raise CandidateContractError(
+            "benchmark task digestAlgorithm must equal rfc8785-sha256"
+        )
     outcome = _object(task.get("outcome"), "plan.task.outcome")
     if outcome.get("kind") != "workspace":
         raise CandidateContractError("Pier requires a workspace task outcome")
@@ -418,7 +534,9 @@ def load_prepared_candidate_contract(
     )
     if len(base_commit) != len(base_tree):
         raise CandidateContractError("task Git objects use different hash formats")
-    instruction = _instruction(task.get("instruction"))
+    instruction = _instruction(
+        task.get("instruction"), plan.get("instructionDelivery")
+    )
     task_files = _workspace_files(task.get("workspace"), "plan.task.workspace")
     if not task_files:
         raise CandidateContractError("task workspace cannot be empty")
@@ -480,16 +598,40 @@ def load_prepared_candidate_contract(
     if receipt.get("candidateWorkspace") != candidate_snapshot:
         raise CandidateContractError("receipt and plan candidate workspaces differ")
 
+    profile_activation = _contract_object(
+        receipt.get("profileActivation"),
+        "receipt.profileActivation",
+        kind=_PROFILE_ACTIVATION_KIND,
+    )
+    profile_activation_digest = _digest(
+        profile_activation.get("digest"),
+        "receipt.profileActivation.digest",
+    )
+    if sha256_bytes(
+        _canonical_bytes(
+            {
+                key: value
+                for key, value in profile_activation.items()
+                if key != "digest"
+            },
+            "receipt.profileActivation",
+        )
+    ) != profile_activation_digest:
+        raise CandidateContractError(
+            "profile activation digest does not match"
+        )
     profile_evidence = _contract_object(
-        receipt.get("profilePlan"),
-        "receipt.profilePlan",
+        profile_activation.get("profilePlan"),
+        "receipt.profileActivation.profilePlan",
         kind=_PROFILE_PLAN_KIND,
     )
     profile_digest = _digest(
-        profile_evidence.get("digest"), "receipt.profilePlan.digest"
+        profile_evidence.get("digest"),
+        "receipt.profileActivation.profilePlan.digest",
     )
     profile_raw = _embedded_bytes(
-        profile_evidence.get("artifact"), "receipt.profilePlan.artifact"
+        profile_evidence.get("artifact"),
+        "receipt.profileActivation.profilePlan.artifact",
     )
     if sha256_bytes(profile_raw) != profile_digest:
         raise CandidateContractError("profile artifact does not match its digest")
@@ -498,11 +640,50 @@ def load_prepared_candidate_contract(
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CandidateContractError("profile artifact is not UTF-8 JSON") from exc
     profile_material = _contract_object(
-        profile_evidence.get("material"), "receipt.profilePlan.material"
+        profile_evidence.get("material"),
+        "receipt.profileActivation.profilePlan.material",
     )
     if profile_artifact_material != profile_material:
         raise CandidateContractError("profile artifact and material differ")
+    if profile_material.get("harness") != plan.get("harness"):
+        raise CandidateContractError(
+            "profile plan harness differs from the execution plan"
+        )
     profile_files = _profile_files(profile_material)
+    activation_files = profile_activation.get("files")
+    if not isinstance(activation_files, list):
+        raise CandidateContractError(
+            "receipt.profileActivation.files must be an array"
+        )
+    activated: list[ProfileFile] = []
+    for index, value in enumerate(activation_files):
+        item = _object(value, f"receipt.profileActivation.files[{index}]")
+        path = _safe_relative(
+            item.get("path"), f"receipt.profileActivation.files[{index}].path"
+        )
+        mode = _integer(
+            item.get("mode"), f"receipt.profileActivation.files[{index}].mode"
+        )
+        content = item.get("content")
+        if (
+            mode > 0o777
+            or not isinstance(content, str)
+            or "\0" in content
+        ):
+            raise CandidateContractError(
+                f"receipt.profileActivation.files[{index}] is invalid"
+            )
+        activated.append(
+            ProfileFile(
+                path=path,
+                mode=mode,
+                sha256=sha256_bytes(content.encode("utf-8")),
+            )
+        )
+    if activated != list(profile_files):
+        raise CandidateContractError(
+            "profile activation files differ from the signed profile plan"
+        )
     profile_application = _object(plan.get("profile"), "plan.profile")
     if profile_application.get("planDigest") != profile_digest:
         raise CandidateContractError("plan does not bind the profile digest")
@@ -563,6 +744,10 @@ def load_prepared_candidate_contract(
         raise CandidateContractError("launch cwd names an unavailable workspace")
     cwd_path = _safe_relative(cwd.get("path"), "plan.launch.cwd.path", allow_dot=True)
     limits = _object(plan.get("limits"), "plan.limits")
+    if limits != task.get("limits"):
+        raise CandidateContractError(
+            "execution plan limits differ from the benchmark task"
+        )
     timeout_ms = _integer(limits.get("timeoutMs"), "plan.limits.timeoutMs", minimum=1)
     _integer(limits.get("maxSteps"), "plan.limits.maxSteps", minimum=1)
     max_model_calls = _integer(
@@ -571,11 +756,27 @@ def load_prepared_candidate_contract(
     _integer(limits.get("maxInputTokens"), "plan.limits.maxInputTokens")
     _integer(limits.get("maxOutputTokens"), "plan.limits.maxOutputTokens")
     _number(limits.get("maxCostUsd"), "plan.limits.maxCostUsd")
-    attempt = _object(plan.get("attempt"), "plan.attempt")
-    _integer(attempt.get("number"), "plan.attempt.number", minimum=1)
-    _integer(attempt.get("maxAttempts"), "plan.attempt.maxAttempts", minimum=1)
-    if attempt.get("retryPolicy") != "none":
-        raise CandidateContractError("Pier execution requires runtime-owned retries")
+    attempt = _object(task.get("attempt"), "benchmark task attempt")
+    attempt_number = _integer(
+        run_cell.get("attempt"), "plan.runCell.attempt", minimum=1
+    )
+    max_attempts = _integer(
+        attempt.get("maxAttempts"), "benchmark task attempt.maxAttempts", minimum=1
+    )
+    if attempt_number > max_attempts:
+        raise CandidateContractError(
+            "run cell attempt exceeds the benchmark task maximum"
+        )
+    retry_policy = attempt.get("retryPolicy")
+    if retry_policy not in {
+        "none",
+        "pre-model-infrastructure-only",
+    }:
+        raise CandidateContractError("benchmark task retry policy is unsupported")
+    if retry_policy == "none" and max_attempts != 1:
+        raise CandidateContractError(
+            "a no-retry benchmark task must allow exactly one attempt"
+        )
     container = _object(plan.get("container"), "plan.container")
     if receipt.get("container") != container:
         raise CandidateContractError("receipt and plan container identities differ")
@@ -586,11 +787,21 @@ def load_prepared_candidate_contract(
         raise CandidateContractError(
             "container image must be an unpinned OCI reference without credentials"
         )
-    if container.get("source") not in {
+    container_source = container.get("source")
+    if container_source not in {
         "pinned-container",
         "evaluator-task-container",
     }:
         raise CandidateContractError("plan container source is unsupported")
+    task_container = task.get("evaluatorTaskContainer")
+    if container_source == "evaluator-task-container" and task_container != container:
+        raise CandidateContractError(
+            "execution plan container differs from the benchmark task container"
+        )
+    if container_source == "pinned-container" and task_container is not None:
+        raise CandidateContractError(
+            "pinned execution cannot override a benchmark task container"
+        )
     platform = _object(container.get("platform"), "plan.container.platform")
     if platform.get("os") != "linux" or platform.get("architecture") not in {
         "amd64",
@@ -605,7 +816,10 @@ def load_prepared_candidate_contract(
     _string(resolved_model.get("provider"), "plan.model.resolved.provider")
     _string(resolved_model.get("model"), "plan.model.resolved.model")
     _string(resolved_model.get("snapshot"), "plan.model.resolved.snapshot")
-    if receipt.get("resolvedModel") != resolved_model:
+    if (
+        receipt.get("resolvedModel") != resolved_model
+        or task.get("model") != resolved_model
+    ):
         raise CandidateContractError("receipt and plan resolved models differ")
     model_access = _object(model.get("access"), "plan.model.access")
     if set(model_access) != {"kind", "grantDigest", "network"}:
