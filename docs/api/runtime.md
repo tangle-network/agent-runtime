@@ -6104,7 +6104,7 @@ The full conversation after the loop (seed + every assistant/tool turn). Lets a 
 
 ### BenchmarkConfig
 
-Defined in: [src/runtime/run-benchmark.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L32)
+Defined in: [src/runtime/run-benchmark.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L33)
 
 #### Properties
 
@@ -6112,7 +6112,7 @@ Defined in: [src/runtime/run-benchmark.ts:32](https://github.com/tangle-network/
 
 > **environment**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [src/runtime/run-benchmark.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L34)
+Defined in: [src/runtime/run-benchmark.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L35)
 
 The task domain (5 hooks).
 
@@ -6120,7 +6120,7 @@ The task domain (5 hooks).
 
 > **tasks**: [`AgenticTask`](#agentictask)[]
 
-Defined in: [src/runtime/run-benchmark.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L36)
+Defined in: [src/runtime/run-benchmark.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L37)
 
 The tasks to score across.
 
@@ -6128,7 +6128,7 @@ The tasks to score across.
 
 > **worker**: [`AgenticOptions`](#agenticoptions)
 
-Defined in: [src/runtime/run-benchmark.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L38)
+Defined in: [src/runtime/run-benchmark.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L39)
 
 The worker: model + router + (optional) the critic's instruction (the steerer knob).
 
@@ -6136,7 +6136,7 @@ The worker: model + router + (optional) the critic's instruction (the steerer kn
 
 > `optional` **strategies?**: [`Strategy`](#strategy-3)\<[`StrategyResult`](#strategyresult-1)\>[]
 
-Defined in: [src/runtime/run-benchmark.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L41)
+Defined in: [src/runtime/run-benchmark.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L42)
 
 Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own.
  Default: [sample, refine].
@@ -6145,7 +6145,7 @@ Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own
 
 > `optional` **budget?**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L43)
+Defined in: [src/runtime/run-benchmark.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L44)
 
 Shots (refine) / width (sample) — the equal compute budget per strategy. Default 3.
 
@@ -6153,7 +6153,7 @@ Shots (refine) / width (sample) — the equal compute budget per strategy. Defau
 
 > `optional` **concurrency?**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L45)
+Defined in: [src/runtime/run-benchmark.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L46)
 
 Tasks scored in parallel. Default 3.
 
@@ -6161,7 +6161,7 @@ Tasks scored in parallel. Default 3.
 
 > `optional` **onTask?**: (`row`, `done`, `total`) => `void`
 
-Defined in: [src/runtime/run-benchmark.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L48)
+Defined in: [src/runtime/run-benchmark.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L49)
 
 Progress hook — fires as each task settles (the live-monitoring seam: append to a
  progress file, render a tree, stream to a dashboard). `done` counts settled tasks.
@@ -6188,16 +6188,28 @@ Progress hook — fires as each task settles (the live-monitoring seam: append t
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [src/runtime/run-benchmark.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L51)
+Defined in: [src/runtime/run-benchmark.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L52)
 
 Lifecycle observability — every spawn/settle of every cell's shots/analysts streams
  here live (the watchdog/route-auditor seam, passed through to `runAgentic`).
+
+##### modelPreflight?
+
+> `optional` **modelPreflight?**: `false` \| ((`model`, `worker`) => `Promise`\<`void`\>)
+
+Defined in: [src/runtime/run-benchmark.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L60)
+
+Model availability check before tasks start.
+
+By default, live router workers send one one-token request per unique worker and analyst
+model. Injected `worker.complete` transports skip the check. Pass `false` to disable it or a
+callback to check each unique model through a custom transport.
 
 ***
 
 ### BenchmarkLift
 
-Defined in: [src/runtime/run-benchmark.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L54)
+Defined in: [src/runtime/run-benchmark.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L63)
 
 #### Properties
 
@@ -6205,7 +6217,7 @@ Defined in: [src/runtime/run-benchmark.ts:54](https://github.com/tangle-network/
 
 > **mean**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L56)
+Defined in: [src/runtime/run-benchmark.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L65)
 
 Mean of paired deltas (refine − sample).
 
@@ -6213,25 +6225,25 @@ Mean of paired deltas (refine − sample).
 
 > **low**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L57)
+Defined in: [src/runtime/run-benchmark.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L66)
 
 ##### high
 
 > **high**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L58)
+Defined in: [src/runtime/run-benchmark.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L67)
 
 ##### n
 
 > **n**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L59)
+Defined in: [src/runtime/run-benchmark.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L68)
 
 ***
 
 ### BenchmarkCell
 
-Defined in: [src/runtime/run-benchmark.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L63)
+Defined in: [src/runtime/run-benchmark.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L72)
 
 One strategy's outcome on one task — the per-task cell an optimizer consumes.
 
@@ -6241,19 +6253,19 @@ One strategy's outcome on one task — the per-task cell an optimizer consumes.
 
 > **score**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L64)
+Defined in: [src/runtime/run-benchmark.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L73)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [src/runtime/run-benchmark.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L65)
+Defined in: [src/runtime/run-benchmark.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L74)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [src/runtime/run-benchmark.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L67)
+Defined in: [src/runtime/run-benchmark.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L76)
 
 The progress curve (refine: score per shot; sample: best-so-far per rollout).
 
@@ -6261,19 +6273,19 @@ The progress curve (refine: score per shot; sample: best-so-far per rollout).
 
 > **usd**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L68)
+Defined in: [src/runtime/run-benchmark.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L77)
 
 ##### ms
 
 > **ms**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L69)
+Defined in: [src/runtime/run-benchmark.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L78)
 
 ##### tokens
 
 > **tokens**: `object`
 
-Defined in: [src/runtime/run-benchmark.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L70)
+Defined in: [src/runtime/run-benchmark.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L79)
 
 ###### input
 
@@ -6287,7 +6299,7 @@ Defined in: [src/runtime/run-benchmark.ts:70](https://github.com/tangle-network/
 
 ### BenchmarkTaskRow
 
-Defined in: [src/runtime/run-benchmark.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L73)
+Defined in: [src/runtime/run-benchmark.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L82)
 
 #### Properties
 
@@ -6295,13 +6307,13 @@ Defined in: [src/runtime/run-benchmark.ts:73](https://github.com/tangle-network/
 
 > **taskId**: `string`
 
-Defined in: [src/runtime/run-benchmark.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L74)
+Defined in: [src/runtime/run-benchmark.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L83)
 
 ##### cells?
 
 > `optional` **cells?**: `Record`\<`string`, [`BenchmarkCell`](#benchmarkcell)\>
 
-Defined in: [src/runtime/run-benchmark.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L76)
+Defined in: [src/runtime/run-benchmark.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L85)
 
 Per-strategy cells; absent when the task errored before completing all strategies.
 
@@ -6309,7 +6321,7 @@ Per-strategy cells; absent when the task errored before completing all strategie
 
 > `optional` **errors?**: `Record`\<`string`, `string`\>
 
-Defined in: [src/runtime/run-benchmark.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L80)
+Defined in: [src/runtime/run-benchmark.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L89)
 
 Per-strategy failures on this task: the strategy competed, threw, and scored an
  honest zero — it loses, it does not poison the row. The message is kept so a later
@@ -6319,7 +6331,7 @@ Per-strategy failures on this task: the strategy competed, threw, and scored an
 
 > `optional` **error?**: `string`
 
-Defined in: [src/runtime/run-benchmark.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L82)
+Defined in: [src/runtime/run-benchmark.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L91)
 
 Why the task was excluded (infra/setup failure) — never silently dropped.
 
@@ -6327,7 +6339,7 @@ Why the task was excluded (infra/setup failure) — never silently dropped.
 
 ### BenchmarkStrategySummary
 
-Defined in: [src/runtime/run-benchmark.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L85)
+Defined in: [src/runtime/run-benchmark.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L94)
 
 #### Properties
 
@@ -6335,7 +6347,7 @@ Defined in: [src/runtime/run-benchmark.ts:85](https://github.com/tangle-network/
 
 > **score**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L87)
+Defined in: [src/runtime/run-benchmark.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L96)
 
 Mean verifier score (0..1).
 
@@ -6343,7 +6355,7 @@ Mean verifier score (0..1).
 
 > **resolved**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L89)
+Defined in: [src/runtime/run-benchmark.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L98)
 
 Fraction of tasks fully resolved.
 
@@ -6351,7 +6363,7 @@ Fraction of tasks fully resolved.
 
 > **usd**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L91)
+Defined in: [src/runtime/run-benchmark.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L100)
 
 Mean cost vector per task.
 
@@ -6359,13 +6371,13 @@ Mean cost vector per task.
 
 > **ms**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L92)
+Defined in: [src/runtime/run-benchmark.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L101)
 
 ***
 
 ### BenchmarkReport
 
-Defined in: [src/runtime/run-benchmark.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L96)
+Defined in: [src/runtime/run-benchmark.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L105)
 
 Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines.
 
@@ -6375,19 +6387,19 @@ Benchmark output: per-strategy means plus the full per-task × per-strategy loss
 
 > **n**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L97)
+Defined in: [src/runtime/run-benchmark.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L106)
 
 ##### excluded
 
 > **excluded**: `number`
 
-Defined in: [src/runtime/run-benchmark.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L98)
+Defined in: [src/runtime/run-benchmark.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L107)
 
 ##### perStrategy
 
 > **perStrategy**: `Record`\<`string`, [`BenchmarkStrategySummary`](#benchmarkstrategysummary)\>
 
-Defined in: [src/runtime/run-benchmark.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L100)
+Defined in: [src/runtime/run-benchmark.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L109)
 
 Per-strategy means (keyed by strategy.name).
 
@@ -6395,7 +6407,7 @@ Per-strategy means (keyed by strategy.name).
 
 > **perTask**: [`BenchmarkTaskRow`](#benchmarktaskrow)[]
 
-Defined in: [src/runtime/run-benchmark.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L103)
+Defined in: [src/runtime/run-benchmark.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L112)
 
 The full per-task × per-strategy table — the LOSSES an optimizer (GEPA, a
  strategy-author, an operator) consumes. Includes errored tasks with the reason.
@@ -6404,7 +6416,7 @@ The full per-task × per-strategy table — the LOSSES an optimizer (GEPA, a
 
 > **pareto**: `string`[]
 
-Defined in: [src/runtime/run-benchmark.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L106)
+Defined in: [src/runtime/run-benchmark.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L115)
 
 The non-dominated strategies on (score ↑, $/task ↓) — collapse-last, per the canon:
  a strategy that ties on score at half the cost WINS and a scalar would hide it.
@@ -6413,7 +6425,7 @@ The non-dominated strategies on (score ↑, $/task ↓) — collapse-last, per t
 
 > `optional` **refineVsSample?**: [`BenchmarkLift`](#benchmarklift)
 
-Defined in: [src/runtime/run-benchmark.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L108)
+Defined in: [src/runtime/run-benchmark.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L117)
 
 The headline when both `refine` and `sample` ran: paired-bootstrap lift of refine over sample.
 
@@ -18124,7 +18136,7 @@ Defined in: [src/runtime/personify/wave-types.ts:619](https://github.com/tangle-
 
 > **Environment** = [`AgenticSurface`](#agenticsurface)
 
-Defined in: [src/runtime/run-benchmark.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L30)
+Defined in: [src/runtime/run-benchmark.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L31)
 
 A checkable task domain — implement these 5 hooks and the suite does the rest. The
  same seam as `AgenticSurface`; `Environment` is the RL/gym-standard name for it.
@@ -21168,7 +21180,7 @@ The turnkey production brain — tests script a mock `ToolLoopChat`; production 
 
 > **runBenchmark**(`cfg`): `Promise`\<[`BenchmarkReport`](#benchmarkreport)\>
 
-Defined in: [src/runtime/run-benchmark.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L133)
+Defined in: [src/runtime/run-benchmark.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L173)
 
 Run the requested strategies over the tasks, scored by the Environment's own check.
  Resilient: a task whose rollouts fail (transient infra) is excluded from the stats but
@@ -21190,7 +21202,7 @@ Run the requested strategies over the tasks, scored by the Environment's own che
 
 > **printBenchmarkReport**(`report`): `void`
 
-Defined in: [src/runtime/run-benchmark.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L232)
+Defined in: [src/runtime/run-benchmark.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-benchmark.ts#L274)
 
 Pretty-print a report — the "free optimization" verdict, with the cost vector.
 
