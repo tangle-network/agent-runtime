@@ -54,9 +54,54 @@ try {
   const packDir = path.join(scratch, 'pack')
   const runtimePackDir = path.join(scratch, 'runtime-pack')
   const consumerDir = path.join(scratch, 'consumer')
+  const terminalBenchVenv = path.join(scratch, 'terminal-bench-venv')
+  const terminalBenchBinDir = path.join(terminalBenchVenv, 'bin')
   await mkdir(packDir)
   await mkdir(runtimePackDir)
   await mkdir(consumerDir)
+  await mkdir(terminalBenchBinDir, { recursive: true })
+  await writeFile(path.join(terminalBenchVenv, 'package.json'), '{"type":"module"}\n')
+  await writeFile(
+    path.join(terminalBenchBinDir, 'python'),
+    String.raw`#!/usr/bin/env node
+const rows = [{
+  id: 'installed-absolute-venv',
+  instruction: 'prove the installed path',
+  task_dir: '/tmp/terminal-bench-task',
+  solution: 'echo ok\n',
+}]
+process.stdout.write(JSON.stringify(rows) + '\n')
+`,
+    { mode: 0o755 },
+  )
+  await writeFile(
+    path.join(terminalBenchBinDir, 'tb'),
+    String.raw`#!/usr/bin/env node
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const args = process.argv.slice(2)
+function value(flag) {
+  const index = args.indexOf(flag)
+  if (index === -1 || index + 1 >= args.length) throw new Error('missing ' + flag)
+  return args[index + 1]
+}
+
+const outputPath = value('--output-path')
+const runId = value('--run-id')
+const taskId = value('-t')
+const reportDir = join(outputPath, runId)
+mkdirSync(reportDir, { recursive: true })
+writeFileSync(
+  join(reportDir, 'results.json'),
+  JSON.stringify({
+    resolved_ids: [taskId],
+    results: [{ task_id: taskId, is_resolved: true, parser_results: { installedVenv: true } }],
+  }),
+)
+`,
+    { mode: 0o755 },
+  )
 
   // Build explicitly so verification cannot inherit a machine-level
   // ignore-scripts setting and accidentally pack stale or missing output.
@@ -123,6 +168,21 @@ try {
     "import { resolveAdapter, runBenchmarks } from '@tangle-network/agent-bench'\nimport { ADAPTERS } from '@tangle-network/agent-bench/adapters'\nimport { createCragAdapter } from '@tangle-network/agent-bench/benchmarks/crag'\n\nif (typeof resolveAdapter !== 'function' || typeof runBenchmarks !== 'function') throw new Error('root exports are not executable')\nif (typeof ADAPTERS !== 'object' || typeof createCragAdapter !== 'function') throw new Error('subpath exports are not executable')\nif (resolveAdapter('crag').name !== 'crag') throw new Error('compiled adapter registry returned the wrong adapter')\nprocess.env.TOOLLM_FIXTURES = '1'\nconst toolLlmTasks = await resolveAdapter('toollm').loadTasks({ limit: 1 })\nif (toolLlmTasks.length !== 1 || toolLlmTasks[0]?.id !== '1') throw new Error('packed ToolLLM fixture loading failed')\n",
   )
   await writeFile(
+    path.join(consumerDir, 'terminal-bench-absolute-venv.mjs'),
+    `import { createTerminalBenchAdapter } from '@tangle-network/agent-bench/benchmarks/terminal-bench'
+
+const adapter = createTerminalBenchAdapter()
+const tasks = await adapter.loadTasks({ ids: ['installed-absolute-venv'] })
+if (tasks.length !== 1 || tasks[0]?.id !== 'installed-absolute-venv') {
+  throw new Error('packed Terminal-Bench adapter did not load through the absolute venv')
+}
+const score = await adapter.judge(tasks[0], 'echo installed-package-path')
+if (!score.resolved || score.score !== 1) {
+  throw new Error(\`packed Terminal-Bench adapter did not judge through the absolute venv: \${JSON.stringify(score)}\`)
+}
+`,
+  )
+  await writeFile(
     path.join(consumerDir, 'tsconfig.json'),
     `${JSON.stringify(
       {
@@ -165,6 +225,10 @@ for name in sorted(expected):
     consumerDir,
   )
   await run('node', ['index.mjs'], consumerDir)
+  await run('node', ['terminal-bench-absolute-venv.mjs'], consumerDir, {
+    ...process.env,
+    TERMINAL_BENCH_VENV: terminalBenchVenv,
+  })
   await run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], consumerDir)
   const typescript5 = await run('npm', ['exec', '--', 'tsc', '--version'], consumerDir)
   if (typescript5.stdout.trim() !== `Version ${TYPESCRIPT_5}`) {
@@ -228,7 +292,7 @@ for name in sorted(expected):
     })
   }
   console.log(
-    `packed consumer verified: ${manifest.name}@${manifest.version} with @tangle-network/agent-runtime@${runtimeManifest.version}, TypeScript ${TYPESCRIPT_5} and ${TYPESCRIPT_6}; prepared ${prepareProof.executionPlanDigest}`,
+    `packed consumer verified: ${manifest.name}@${manifest.version} with @tangle-network/agent-runtime@${runtimeManifest.version}, TypeScript ${TYPESCRIPT_5} and ${TYPESCRIPT_6}, absolute Terminal-Bench venv; prepared ${prepareProof.executionPlanDigest}`,
   )
 } finally {
   await rm(scratch, { recursive: true, force: true })

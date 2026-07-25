@@ -25,6 +25,7 @@ import {
   runVenvPython,
   safeRunId,
   stageFile,
+  venvBinAt,
   venvPythonAt,
 } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
@@ -34,7 +35,7 @@ import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './typ
 // override the env without reloading this module.
 const terminalBenchVenvDir = (): string => process.env.TERMINAL_BENCH_VENV ?? '.venv-terminal-bench'
 const terminalBenchPython = (): string => venvPythonAt(terminalBenchVenvDir())
-const terminalBenchBin = (): string => join(benchRoot, terminalBenchVenvDir(), 'bin', 'tb')
+const terminalBenchBin = (): string => venvBinAt(terminalBenchVenvDir(), 'tb')
 
 // Pinned dataset: the 0.1.1 core set is patched for terminal-bench >=0.2.4 (the
 // installed CLI) and is the published launch task set. name==version is what `tb

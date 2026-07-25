@@ -4,7 +4,13 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import test from 'node:test'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveBenchPython, runStagedJudge } from './_harness'
+import {
+  benchRoot,
+  resolveBenchPython,
+  runStagedJudge,
+  venvBin,
+  venvBinAt,
+} from './_harness'
 
 const digest = (bytes: Uint8Array): `sha256:${string}` =>
   `sha256:${createHash('sha256').update(bytes).digest('hex')}`
@@ -29,6 +35,15 @@ test('resolveBenchPython rejects relative and empty interpreter paths', () => {
     () => resolveBenchPython({ AGENT_BENCH_PYTHON: '' }, '/opt/agent-bench'),
     /must be an absolute path/,
   )
+})
+
+test('venv executable paths support package-owned and external environments', () => {
+  assert.equal(venvBinAt('/srv/terminal-bench', 'tb'), join('/srv/terminal-bench', 'bin', 'tb'))
+  assert.equal(
+    venvBinAt('.venv-commit0', 'python'),
+    join(benchRoot, '.venv-commit0', 'bin', 'python'),
+  )
+  assert.equal(venvBin('python'), venvBinAt('.venv', 'python'))
 })
 
 test('runStagedJudge terminates a hung evaluator at its explicit timeout', async () => {
