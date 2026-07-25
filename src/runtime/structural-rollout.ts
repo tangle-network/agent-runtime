@@ -524,7 +524,9 @@ export interface StructuralRolloutConfig {
  * Budget note: `runAgentic`'s `budget` sizes the pool — pass at least
  * `k + repairRounds + 1` so the samples, repairs, and the check-author consult all admit.
  */
-export function structuralRollout(config: StructuralRolloutConfig = {}): Strategy {
+export function structuralRollout(
+  config: StructuralRolloutConfig = {},
+): Strategy<StructuralRolloutResult> {
   const policy = resolvePolicy(config.policy)
   const checkSource =
     config.checkSource ?? composeCheckSources(officialChecksFromMeta(), modelAuthoredChecks())
