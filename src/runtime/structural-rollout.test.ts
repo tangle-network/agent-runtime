@@ -257,6 +257,51 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
     expect(() => structuralRollout({ policy: { testgen: 1.5 } })).toThrow(/policy\.testgen/)
   })
 
+  it('returns a typed null artifact when the pool cannot admit a candidate', async () => {
+    const surface: AgenticSurface = {
+      name: 'starved',
+      async open() {
+        return { id: 'unused', surface: 'starved' }
+      },
+      async tools() {
+        return []
+      },
+      async call() {
+        throw new Error('candidate should not run')
+      },
+      async score() {
+        throw new Error('candidate should not run')
+      },
+      async close() {},
+    }
+
+    const result = await runAgentic({
+      surface,
+      task: { id: 'starved', systemPrompt: 'Solve it.', userPrompt: 'Solve it.' },
+      routerBaseUrl: 'http://offline.test/v1',
+      routerKey: 'k',
+      model: 'stub-model',
+      complete: async () => {
+        throw new Error('candidate should not run')
+      },
+      strategy: structuralRollout({
+        policy: { k: 1, repairRounds: 0, testgen: 0 },
+        checkSource: { generate: async () => [] },
+        checkRunner: {
+          async run() {
+            throw new Error('candidate should not run')
+          },
+        },
+      }),
+      budget: 1,
+      rootBudget: { maxIterations: 1, maxTokens: 1 },
+    })
+
+    expect(result.repairStop).toBe('no-candidates')
+    expect(result.artifact).toBeNull()
+    expect(result.shots).toBe(0)
+  })
+
   it('selects by frozen visible checks, repairs on failure output, and holds the official guard', async () => {
     // The domain: a verifier-environment-shaped surface (submit_answer only); each
     // shot's artifact scores 0 so nothing here can leak a hidden signal into selection —
@@ -363,11 +408,12 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
       }),
       budget: 6,
     })
-    const rollout = result as unknown as StructuralRolloutResult & { mode: string }
+    const rollout: StructuralRolloutResult & { mode: string } = result
 
     expect(rollout.mode).toBe('structuralRollout')
     expect(rollout.shots).toBe(4) // 2 samples + 2 repairs
     expect(rollout.repairStop).toBe('repaired-pass')
+    expect(rollout.artifact).toBe('def f():\n    return "D"')
 
     // Checks were generated ONCE and the same frozen set fed every run.
     expect(generate).toHaveBeenCalledOnce()

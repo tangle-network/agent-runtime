@@ -755,8 +755,12 @@ export function breadthStrategy(
  *   refine — attempt → observe() reads the trace → steer the next → repeat (iterate).
  * (A multi-agent "team" is just a Strategy whose driver spawns several different agents.)
  */
-export interface Strategy {
+declare const strategyResult: unique symbol
+
+export interface Strategy<Result extends StrategyResult = StrategyResult> {
   readonly name: string
+  /** @internal Associates a strategy with its typed result without adding a runtime field. */
+  readonly [strategyResult]?: Result
   driver(
     surface: AgenticSurface,
     task: AgenticTask,
@@ -845,10 +849,10 @@ export interface StrategyCtx {
 }
 
 /** Author a Strategy from the composable steps — the open, compact way. */
-export function defineStrategy(
+export function defineStrategy<Result extends StrategyResult>(
   name: string,
-  run: (ctx: StrategyCtx) => Promise<StrategyResult>,
-): Strategy {
+  run: (ctx: StrategyCtx) => Promise<Result>,
+): Strategy<Result> {
   return {
     name,
     driver: (surface, task, opts, budget) => ({
@@ -1070,14 +1074,15 @@ export const sampleThenRefine = defineStrategy(
   },
 )
 
-export interface RunAgenticOptions extends AgenticOptions {
+export interface RunAgenticOptions<Result extends StrategyResult = StrategyResult>
+  extends AgenticOptions {
   surface: AgenticSurface
   task: AgenticTask
   /** Lifecycle observability — every spawn/settle (shots, analysts) streams here live.
    *  The seam online watchdogs/route-auditors subscribe to. */
   hooks?: RuntimeHooks
   /** A Strategy (the open way) — author/pass your own. Overrides `mode` when present. */
-  strategy?: Strategy
+  strategy?: Strategy<Result>
   /** Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'. */
   mode?: 'depth' | 'breadth'
   /** budget: refine→max shots; sample→rollout width. */
@@ -1086,7 +1091,9 @@ export interface RunAgenticOptions extends AgenticOptions {
 }
 
 /** Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope. */
-export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunResult> {
+export async function runAgentic<Result extends StrategyResult = StrategyResult>(
+  opts: RunAgenticOptions<Result>,
+): Promise<AgenticRunResult & Result> {
   const strategy: Strategy = opts.strategy ?? (opts.mode === 'breadth' ? sample : refine)
   const driver = strategy.driver(opts.surface, opts.task, opts, opts.budget)
   const supervisor = createSupervisor<unknown, Outcome<unknown>>()
@@ -1113,11 +1120,11 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
   }
   // Drivers deliver the strategy outcome; the cost vector is stamped here from `result.spentTotal`
   // (the journal aggregate: settled child work + metered driver inference) + wall clock.
-  const core = result.out.deliverable as Omit<AgenticRunResult, 'usd' | 'ms' | 'tokens'>
+  const core = result.out.deliverable as Omit<AgenticRunResult & Result, 'usd' | 'ms' | 'tokens'>
   return {
     ...core,
     usd: result.spentTotal.usd,
     tokens: result.spentTotal.tokens,
     ms: Date.now() - started,
-  }
+  } as AgenticRunResult & Result
 }
