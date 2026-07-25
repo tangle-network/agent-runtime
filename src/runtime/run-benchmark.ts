@@ -15,6 +15,7 @@
 
 import { pairedBootstrap, paretoFrontier } from '@tangle-network/agent-eval'
 import type { RuntimeHooks } from '../runtime-hooks'
+import { routerChatWithUsage } from './router-client'
 import {
   type AgenticOptions,
   type AgenticSurface,
@@ -49,6 +50,14 @@ export interface BenchmarkConfig {
   /** Lifecycle observability — every spawn/settle of every cell's shots/analysts streams
    *  here live (the watchdog/route-auditor seam, passed through to `runAgentic`). */
   hooks?: RuntimeHooks
+  /**
+   * Model availability check before tasks start.
+   *
+   * By default, live router workers send one one-token request per unique worker and analyst
+   * model. Injected `worker.complete` transports skip the check. Pass `false` to disable it or a
+   * callback to check each unique model through a custom transport.
+   */
+  modelPreflight?: false | ((model: string, worker: Readonly<AgenticOptions>) => Promise<void>)
 }
 
 export interface BenchmarkLift {
@@ -127,6 +136,37 @@ async function pool<T, R>(
   return out
 }
 
+async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
+  if (cfg.modelPreflight === false) return
+  if (cfg.worker.complete && !cfg.modelPreflight) return
+
+  const models = [...new Set([cfg.worker.model, cfg.worker.analystModel ?? cfg.worker.model])]
+  const check =
+    cfg.modelPreflight ??
+    (async (model: string, worker: Readonly<AgenticOptions>) => {
+      await routerChatWithUsage(
+        {
+          routerBaseUrl: worker.routerBaseUrl,
+          routerKey: worker.routerKey,
+          model,
+        },
+        [{ role: 'user', content: 'Reply OK.' }],
+        { maxTokens: 1 },
+      )
+    })
+
+  await Promise.all(
+    models.map(async (model) => {
+      try {
+        await check(model, cfg.worker)
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        throw new Error(`Benchmark model "${model}" preflight failed: ${message}`, { cause })
+      }
+    }),
+  )
+}
+
 /** Run the requested strategies over the tasks, scored by the Environment's own check.
  *  Resilient: a task whose rollouts fail (transient infra) is excluded from the stats but
  *  reported in `perTask` with the error — never silently dropped. */
@@ -134,6 +174,8 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
   const strategies = cfg.strategies ?? [sample, refine]
   const budget = cfg.budget ?? 3
   const concurrency = cfg.concurrency ?? 3
+
+  await preflightModels(cfg)
 
   let settled = 0
   const perTask = await pool(cfg.tasks, concurrency, async (task): Promise<BenchmarkTaskRow> => {

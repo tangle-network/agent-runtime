@@ -1,0 +1,245 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { runBenchmark } from './run-benchmark'
+import {
+  type AgenticOptions,
+  type AgenticSurface,
+  type AgenticTask,
+  defineStrategy,
+} from './strategy'
+
+interface ChatRequest {
+  model?: string
+  messages?: Array<{ role?: string; content?: string }>
+  temperature?: number
+  max_tokens?: number
+}
+
+const task: AgenticTask = {
+  id: 'task-1',
+  systemPrompt: 'Use the test surface.',
+  userPrompt: 'Complete the task.',
+}
+
+const worker: AgenticOptions = {
+  routerBaseUrl: 'http://router.test/v1',
+  routerKey: 'test-key',
+  model: 'worker-model',
+  maxTokens: 8,
+}
+
+const oneShot = defineStrategy('one-shot', async ({ shot }) => {
+  const out = await shot()
+  return {
+    score: out?.score ?? 0,
+    resolved: out?.score === 1,
+    completions: out?.completions ?? 0,
+    progression: out ? [out.score] : [],
+    shots: 1,
+  }
+})
+
+function surface(events: string[]): AgenticSurface {
+  let sequence = 0
+  return {
+    name: 'test',
+    async open() {
+      events.push('open')
+      sequence += 1
+      return { id: `handle-${sequence}`, surface: 'test' }
+    },
+    async tools() {
+      return []
+    },
+    async call() {
+      return 'ok'
+    },
+    async score() {
+      return { passes: 1, total: 1, errored: 0 }
+    },
+    async close() {},
+  }
+}
+
+function okResponse(): Response {
+  return Response.json({
+    choices: [{ message: { content: 'DONE' } }],
+    usage: { prompt_tokens: 2, completion_tokens: 1 },
+  })
+}
+
+function stubRouter(
+  requests: ChatRequest[],
+  events: string[],
+  respond: (request: ChatRequest, index: number) => Response = () => okResponse(),
+): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body ?? '{}')) as ChatRequest
+      requests.push(request)
+      events.push(`request:${request.model}:${request.max_tokens ?? 'default'}`)
+      return respond(request, requests.length - 1)
+    }),
+  )
+}
+
+function isModelCheck(request: ChatRequest): boolean {
+  return request.messages?.[0]?.content === 'Reply OK.'
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('runBenchmark model availability', () => {
+  it('checks every unique model once before opening any task', async () => {
+    const requests: ChatRequest[] = []
+    const events: string[] = []
+    stubRouter(requests, events)
+
+    await runBenchmark({
+      environment: surface(events),
+      tasks: [task, { ...task, id: 'task-2' }],
+      worker: { ...worker, analystModel: 'analyst-model' },
+      strategies: [oneShot],
+      budget: 1,
+      concurrency: 2,
+    })
+
+    const checks = requests.filter(isModelCheck)
+    expect(checks.map((request) => request.model).sort()).toEqual(['analyst-model', 'worker-model'])
+    expect(checks.every((request) => request.max_tokens === 1)).toBe(true)
+    expect(events.indexOf('open')).toBe(2)
+  })
+
+  it('deduplicates identical worker and analyst models', async () => {
+    const checked: string[] = []
+    const events: string[] = []
+
+    await runBenchmark({
+      environment: surface(events),
+      tasks: [task],
+      worker: {
+        ...worker,
+        analystModel: worker.model,
+        complete: async () => okResponse().json(),
+      },
+      strategies: [oneShot],
+      budget: 1,
+      modelPreflight: async (model) => {
+        checked.push(model)
+      },
+    })
+
+    expect(checked).toEqual(['worker-model'])
+  })
+
+  it('rejects an unavailable model before task dispatch', async () => {
+    const requests: ChatRequest[] = []
+    const events: string[] = []
+    const onTask = vi.fn()
+    stubRouter(requests, events, () => new Response('model has been deprecated', { status: 404 }))
+
+    await expect(
+      runBenchmark({
+        environment: surface(events),
+        tasks: [task],
+        worker,
+        strategies: [oneShot],
+        budget: 1,
+        onTask,
+      }),
+    ).rejects.toThrow(
+      'Benchmark model "worker-model" preflight failed: router 404: model has been deprecated',
+    )
+
+    expect(requests).toHaveLength(1)
+    expect(events).not.toContain('open')
+    expect(onTask).not.toHaveBeenCalled()
+  })
+
+  it('skips the check for an injected completion transport', async () => {
+    const requests: ChatRequest[] = []
+    const events: string[] = []
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      requests.push(body as ChatRequest)
+      events.push('complete')
+      return okResponse().json()
+    })
+
+    await runBenchmark({
+      environment: surface(events),
+      tasks: [task],
+      worker: { ...worker, complete },
+      strategies: [oneShot],
+      budget: 1,
+    })
+
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(requests.some(isModelCheck)).toBe(false)
+    expect(events[0]).toBe('open')
+  })
+
+  it('allows the live check to be disabled explicitly', async () => {
+    const requests: ChatRequest[] = []
+    const events: string[] = []
+    stubRouter(requests, events)
+
+    await runBenchmark({
+      environment: surface(events),
+      tasks: [task],
+      worker,
+      strategies: [oneShot],
+      budget: 1,
+      modelPreflight: false,
+    })
+
+    expect(requests.some(isModelCheck)).toBe(false)
+    expect(events[0]).toBe('open')
+  })
+
+  it('runs a custom check for injected transports', async () => {
+    const events: string[] = []
+    const checked: string[] = []
+
+    await runBenchmark({
+      environment: surface(events),
+      tasks: [task],
+      worker: {
+        ...worker,
+        analystModel: 'analyst-model',
+        complete: async () => okResponse().json(),
+      },
+      strategies: [oneShot],
+      budget: 1,
+      modelPreflight: async (model) => {
+        events.push(`check:${model}`)
+        checked.push(model)
+      },
+    })
+
+    expect(checked.sort()).toEqual(['analyst-model', 'worker-model'])
+    expect(events.indexOf('open')).toBe(2)
+  })
+
+  it('retries at temperature one when the provider requires it', async () => {
+    const requests: ChatRequest[] = []
+    const events: string[] = []
+    stubRouter(requests, events, (_request, index) =>
+      index === 0
+        ? new Response('only temperature 1 is allowed for this model', { status: 400 })
+        : okResponse(),
+    )
+
+    await runBenchmark({
+      environment: surface(events),
+      tasks: [task],
+      worker,
+      strategies: [oneShot],
+      budget: 1,
+    })
+
+    expect(requests.slice(0, 2).map((request) => request.temperature)).toEqual([0.2, 1])
+    expect(events.indexOf('open')).toBe(2)
+  })
+})
