@@ -95,7 +95,7 @@ export const bigBuffer = 1024 * 1024 * 256
 
 /** Path to a named executable inside the bench venv (e.g. `venvBin('tb')`). */
 export function venvBin(name: string): string {
-  return join(benchRoot, '.venv', 'bin', name)
+  return venvBinAt('.venv', name)
 }
 
 /**

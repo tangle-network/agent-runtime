@@ -60,6 +60,7 @@ try {
   await mkdir(runtimePackDir)
   await mkdir(consumerDir)
   await mkdir(terminalBenchBinDir, { recursive: true })
+  await writeFile(path.join(terminalBenchVenv, 'package.json'), '{"type":"module"}\n')
   await writeFile(
     path.join(terminalBenchBinDir, 'python'),
     String.raw`#!/usr/bin/env node
