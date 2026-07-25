@@ -124,6 +124,33 @@ def _trace_env(
     }
 
 
+def _evaluator_git(root: str) -> str:
+    return shlex.join(
+        [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.untrackedCache=false",
+            "-c",
+            "protocol.file.allow=never",
+            "-C",
+            root,
+        ]
+    )
+
+
+def _evaluator_git_config(repository_base_commit: str) -> bytes:
+    if len(repository_base_commit) == 64:
+        return (
+            b"[core]\n\trepositoryformatversion = 1\n"
+            b"[extensions]\n\tobjectformat = sha256\n"
+        )
+    return b"[core]\n\trepositoryformatversion = 0\n"
+
+
 class TangleCandidateAgent(BaseAgent):
     """Pier adapter for a branded ``PreparedAgentCandidateExecution``."""
 
@@ -455,7 +482,7 @@ class TangleCandidateAgent(BaseAgent):
             return ()
         originals: list[OriginalProfileFile] = []
         root = self._contract.task_root
-        git = f"git -c core.hooksPath=/dev/null -C {shlex.quote(root)}"
+        git = _evaluator_git(root)
         for file in self._contract.profile_files:
             target = f"{root}/{file.path}"
             quoted = shlex.quote(target)
@@ -674,13 +701,37 @@ class TangleCandidateAgent(BaseAgent):
             user="root",
         )
 
+    async def _install_evaluator_git_config(
+        self, environment: BaseEnvironment
+    ) -> None:
+        config = _evaluator_git_config(self._contract.repository_base_commit)
+        target = f"{self._contract.task_root}/.git/config"
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            handle.write(config)
+            local_path = Path(handle.name)
+        try:
+            await self._write_verified_file(
+                environment,
+                local_path,
+                target,
+                anchor=self._contract.task_root,
+                mode=0o600,
+                digest=sha256_bytes(config),
+                byte_length=len(config),
+            )
+        finally:
+            local_path.unlink(missing_ok=True)
+
     async def _restore_profile_and_capture_solution(
         self, environment: BaseEnvironment
     ) -> None:
         root = self._contract.task_root
-        quoted_root = shlex.quote(root)
-        git = f"git -c core.hooksPath=/dev/null -C {quoted_root}"
+        git = _evaluator_git(root)
         git_env = candidate_git_env(root)
+
+        # Repository-local config is candidate-owned after execution. Replace it
+        # before root invokes Git so arbitrary filters and other programs cannot run.
+        await self._install_evaluator_git_config(environment)
 
         # Ignore candidate-authored commits and derive one evaluator-owned final
         # tree from the actual working files relative to the signed base commit.
@@ -718,7 +769,12 @@ class TangleCandidateAgent(BaseAgent):
                 await self._ensure_real_directory(environment, parent, anchor=root)
                 await self._exec(environment, f"rm -rf -- {quoted}", user="root")
 
-        await self._exec(environment, f"{git} add -A -- .", env=git_env, user="root")
+        await self._exec(
+            environment,
+            f"{git} add -A -- . {shlex.quote(':(exclude).sidecar')}",
+            env=git_env,
+            user="root",
+        )
         for original in self._original_profile_files:
             if original.tracked:
                 continue
