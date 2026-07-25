@@ -16,6 +16,55 @@ import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { RuntimeStreamEvent } from '../types'
 
 /**
+ * Forward a sandbox event to an optional observer without letting observer
+ * behavior affect the run. The observer receives a defensive copy, synchronous
+ * throws are swallowed, and returned promises are deliberately not awaited.
+ */
+export function notifySandboxEventObserver<Meta>(
+  event: SandboxEvent,
+  observer: ((event: SandboxEvent, meta: Meta) => void | PromiseLike<void>) | undefined,
+  meta: Meta,
+): void {
+  if (!observer) return
+  try {
+    const result = observer(cloneEventForObserver(event), meta)
+    if (result && typeof result.then === 'function') {
+      void result.then(undefined, () => {})
+    }
+  } catch {
+    // Live observation is optional and must never interrupt the event stream.
+  }
+}
+
+function cloneEventForObserver(event: SandboxEvent): SandboxEvent {
+  try {
+    return structuredClone(event)
+  } catch {
+    return copyPlainSpine(event, new WeakMap()) as SandboxEvent
+  }
+}
+
+function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const existing = seen.get(value)
+  if (existing !== undefined) return existing
+  if (Array.isArray(value)) {
+    const copy: unknown[] = []
+    seen.set(value, copy)
+    for (const item of value) copy.push(copyPlainSpine(item, seen))
+    return copy
+  }
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== Object.prototype && proto !== null) return {}
+  const copy: Record<string, unknown> = {}
+  seen.set(value, copy)
+  for (const [key, child] of Object.entries(value)) {
+    copy[key] = copyPlainSpine(child, seen)
+  }
+  return copy
+}
+
+/**
  * Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
  * the event carries usage/cost data. Returns `undefined` for non-cost events
  * so the kernel can iterate the full stream without branching.
