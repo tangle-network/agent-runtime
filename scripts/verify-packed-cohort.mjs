@@ -178,6 +178,7 @@ function buildAndPack({ packageName, sourceRepo, localPackages }) {
   captured('corepack', ['pnpm', 'install', '--no-frozen-lockfile'], buildDir, {
     HUSKY: '0',
   })
+  assertArchiveDependencies(buildDir, localPackages, `${packageName} build`)
   captured('corepack', ['pnpm', 'run', 'build'], buildDir)
 
   writeFileSync(packagePath, originalPackageText)
@@ -322,21 +323,7 @@ function verifyConsumer(artifacts) {
       throw new Error(`consumer did not resolve ${artifact.name}`)
     }
     for (const occurrence of occurrences) {
-      if (occurrence.version !== artifact.version) {
-        throw new Error(
-          `${artifact.name} resolved ${occurrence.version}, expected ${artifact.version}`,
-        )
-      }
-      if (
-        typeof occurrence.resolved !== 'string' ||
-        occurrence.resolved.startsWith('http:') ||
-        occurrence.resolved.startsWith('https:') ||
-        !occurrence.resolved.includes(basename(artifact.path))
-      ) {
-        throw new Error(
-          `${artifact.name}@${artifact.version} did not resolve from ${basename(artifact.path)}: ${String(occurrence.resolved)}`,
-        )
-      }
+      assertArchiveResolution(artifact, occurrence, 'consumer')
       assertSamePackageFiles(artifact, occurrence.path)
     }
     const directPackage = join(appDir, 'node_modules', ...artifact.name.split('/'))
@@ -389,6 +376,41 @@ function verifyPublicImports(appDir, artifacts) {
   }
   if (imported < artifacts.length) throw new Error(`only ${imported} public imports were exercised`)
   return imported
+}
+
+function assertArchiveDependencies(directory, artifacts, context) {
+  if (artifacts.length === 0) return
+  const dependencyTree = JSON.parse(
+    captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], directory),
+  )
+  const resolved = collectTargetDependencies(dependencyTree)
+  for (const artifact of artifacts) {
+    const occurrences = resolved.get(artifact.name) ?? []
+    if (occurrences.length === 0) {
+      throw new Error(`${context} did not resolve ${artifact.name}`)
+    }
+    for (const occurrence of occurrences) {
+      assertArchiveResolution(artifact, occurrence, context)
+    }
+  }
+}
+
+function assertArchiveResolution(artifact, occurrence, context) {
+  if (occurrence.version !== artifact.version) {
+    throw new Error(
+      `${context} resolved ${artifact.name}@${occurrence.version}, expected ${artifact.version}`,
+    )
+  }
+  if (
+    typeof occurrence.resolved !== 'string' ||
+    occurrence.resolved.startsWith('http:') ||
+    occurrence.resolved.startsWith('https:') ||
+    !occurrence.resolved.includes(basename(artifact.path))
+  ) {
+    throw new Error(
+      `${context} did not resolve ${artifact.name}@${artifact.version} from ${basename(artifact.path)}: ${String(occurrence.resolved)}`,
+    )
+  }
 }
 
 function collectTargetDependencies(dependencyTree) {
