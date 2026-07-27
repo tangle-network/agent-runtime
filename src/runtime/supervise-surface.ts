@@ -13,7 +13,7 @@
  * the right home for "supervise over a graded surface". The within-run self-improvement is the analyst
  * (authored content, swap `analysts`); the across-run kind wraps this call in `improve()`.
  */
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { AnalystRegistry, MakeWorkerAgent } from '../mcp/tools/coordination'
 import type { RouterConfig } from './router-client'
 import {

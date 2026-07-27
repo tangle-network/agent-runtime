@@ -10,6 +10,7 @@ import {
   type AgentEnvironment,
   type AgentEnvironmentEvent,
   type AgentEnvironmentProvider,
+  type AgentSession,
   type AgentTurnInput,
   createAgentEnvironmentProviderRegistry,
   providerAsExecutor,
@@ -27,9 +28,34 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
-  it('adapts a neutral provider to SandboxClient without losing profile/backend/session data', async () => {
+  it('adapts a neutral provider to SandboxClient without losing profile/backend/dispatch data', async () => {
     let created: unknown
     let turn: AgentTurnInput | undefined
+    let sessionPrompt: AgentTurnInput | undefined
+    let cancelled = 0
+    const session: AgentSession = {
+      id: 'provider-session',
+      async status() {
+        return 'running'
+      },
+      async *events(): AsyncIterable<AgentEnvironmentEvent> {
+        yield { type: 'result', data: { finalText: 'detached result' } }
+      },
+      async result() {
+        return {
+          text: 'detached result',
+          success: true,
+          usage: { inputTokens: 3, outputTokens: 5, cost: 0.02 },
+        }
+      },
+      async prompt(input) {
+        sessionPrompt = input
+        return { text: 'continued', success: true }
+      },
+      async cancel() {
+        cancelled += 1
+      },
+    }
     const provider: AgentEnvironmentProvider = {
       name: 'fake-provider',
       capabilities: () => fakeCapabilities(),
@@ -41,6 +67,10 @@ describe('environment provider adapters', () => {
             provider: 'fake-provider',
             metadata: { status: 'running', alreadyExisted: true },
           }),
+          session(id) {
+            if (id !== session.id) throw new Error(`unexpected session ${id}`)
+            return session
+          },
           stream: async function* (input: AgentTurnInput): AsyncIterable<AgentEnvironmentEvent> {
             turn = input
             yield {
@@ -83,6 +113,23 @@ describe('environment provider adapters', () => {
       status: 'running',
       alreadyExisted: true,
     })
+    const resumed = box.session('provider-session')
+    await expect(resumed.status()).resolves.toMatchObject({
+      id: 'provider-session',
+      status: 'running',
+    })
+    expect(await collect(resumed.events())).toMatchObject([
+      { type: 'result', data: { finalText: 'detached result' } },
+    ])
+    await expect(resumed.result()).resolves.toMatchObject({
+      response: 'detached result',
+      success: true,
+      status: 'success',
+    })
+    await resumed.prompt('continue')
+    expect(sessionPrompt).toMatchObject({ prompt: 'continue' })
+    await resumed.interrupt()
+    expect(cancelled).toBe(1)
     expect(events[0]).toMatchObject({
       type: 'llm_call',
       data: { inputTokens: 2, outputTokens: 3, totalCostUsd: 0.01 },
@@ -171,6 +218,179 @@ describe('environment provider adapters', () => {
     expect(await environment.placement?.()).toMatchObject({ kind: 'sandbox', sandboxId: 'sbx-1' })
   })
 
+  it('requires explicit resolution for named profiles before calling current Sandbox', async () => {
+    let createCalls = 0
+    let createOptions: CreateSandboxOptions | undefined
+    const box = {
+      id: 'sbx-profile',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {
+        yield { type: 'result', data: { finalText: 'ok' } } as SandboxEvent
+      },
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
+        createCalls += 1
+        createOptions = options
+        return box
+      },
+    }
+
+    const unresolved = sandboxClientAsProvider(client)
+    await expect(unresolved.capabilities()).resolves.toMatchObject({
+      profile: { namedProfiles: false },
+    })
+    await expect(unresolved.create({ profile: 'catalog/researcher' })).rejects.toThrow(
+      /requires an inline AgentProfile/,
+    )
+    expect(createCalls).toBe(0)
+
+    const resolved = sandboxClientAsProvider(client, {
+      resolveProfile: async (profileId) => ({ name: `resolved:${profileId}` }),
+    })
+    await expect(resolved.capabilities()).resolves.toMatchObject({
+      profile: { namedProfiles: true },
+    })
+    await resolved.create({ profile: 'catalog/researcher' })
+
+    expect(createOptions).toMatchObject({
+      backend: { profile: { name: 'resolved:catalog/researcher' } },
+    })
+  })
+
+  it('rejects secret values that current Sandbox cannot carry', async () => {
+    let createCalls = 0
+    const client: SandboxClient = {
+      async create(): Promise<SandboxInstance> {
+        createCalls += 1
+        throw new Error('must not create')
+      },
+    }
+
+    await expect(
+      sandboxClientAsProvider(client).create({
+        profile: { name: 'worker' },
+        secrets: { API_TOKEN: 'secret-value' },
+      }),
+    ).rejects.toThrow(/secret names only/)
+    expect(createCalls).toBe(0)
+  })
+
+  it('uses current Sandbox environment for a workspace image and rejects ambiguous workspace values', async () => {
+    let createOptions: CreateSandboxOptions | undefined
+    const box = {
+      id: 'sbx-environment',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {
+        yield { type: 'result', data: { finalText: 'ok' } } as SandboxEvent
+      },
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
+        createOptions = options
+        return box
+      },
+    }
+    const provider = sandboxClientAsProvider(client)
+
+    await provider.create({
+      profile: { name: 'worker' },
+      workspace: { image: 'ghcr.io/example/runner@sha256:abc' },
+    })
+    expect(createOptions).toMatchObject({ environment: 'ghcr.io/example/runner@sha256:abc' })
+
+    await expect(
+      provider.create({
+        profile: { name: 'worker' },
+        workspace: { environment: 'universal', image: 'ghcr.io/example/runner@sha256:abc' },
+      }),
+    ).rejects.toThrow(/must match/)
+  })
+
+  it('maps only prompt parts representable by current Sandbox', async () => {
+    let streamedPrompt: unknown
+    const box = {
+      id: 'sbx-parts',
+      status: 'running',
+      async *streamPrompt(prompt: unknown): AsyncIterable<SandboxEvent> {
+        streamedPrompt = prompt
+        yield { type: 'result', data: { finalText: 'ok' } } as SandboxEvent
+      },
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    }
+    const environment = await sandboxClientAsProvider(client).create({
+      profile: { name: 'worker' },
+    })
+
+    await collect(
+      environment.stream({
+        parts: [
+          { type: 'text', text: 'read this' },
+          { type: 'image', url: 'https://example.com/diagram.png' },
+          { type: 'file', filename: 'task.md', url: 'https://example.com/task.md' },
+        ],
+      }),
+    )
+    expect(streamedPrompt).toEqual([
+      { type: 'text', text: 'read this' },
+      { type: 'image', url: 'https://example.com/diagram.png' },
+      { type: 'file', filename: 'task.md', url: 'https://example.com/task.md' },
+    ])
+
+    await expect(
+      collect(
+        environment.stream({
+          parts: [{ type: 'file', filename: 'task.md', content: 'inline source' }],
+        }),
+      ),
+    ).rejects.toThrow(/not representable/)
+  })
+
+  it('maps current Sandbox interrupt to neutral session cancellation', async () => {
+    let interrupted = 0
+    const box = {
+      id: 'sbx-session',
+      status: 'running',
+      session() {
+        return {
+          id: 'session-1',
+          async status() {
+            return { status: 'running' }
+          },
+          async *events(): AsyncIterable<SandboxEvent> {},
+          async result() {
+            return { response: '', success: true }
+          },
+          async prompt() {
+            return { response: '', success: true }
+          },
+          async interrupt() {
+            interrupted += 1
+            return { cancelled: true }
+          },
+        }
+      },
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {
+        yield { type: 'result', data: { finalText: 'ok' } } as SandboxEvent
+      },
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    }
+    const environment = await sandboxClientAsProvider(client).create({
+      profile: { name: 'worker' },
+    })
+
+    await environment.session?.('session-1').cancel()
+    expect(interrupted).toBe(1)
+  })
+
   it('fails loudly when a sandbox exec result has no exit code', async () => {
     const box = {
       id: 'sbx-1',
@@ -188,7 +408,9 @@ describe('environment provider adapters', () => {
       },
     }
 
-    const environment = await sandboxClientAsProvider(client).create({ profile: 'worker' })
+    const environment = await sandboxClientAsProvider(client).create({
+      profile: { name: 'worker' },
+    })
 
     await expect(environment.exec?.('echo hi')).rejects.toThrow(/no exit code/)
   })
@@ -207,7 +429,7 @@ describe('environment provider adapters', () => {
     }
     const client = providerAsSandboxClient(provider)
     const box = await client.create({
-      backend: { type: 'codex' as BackendType, profile: 'worker' },
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
     })
 
     await expect(box.prompt('hello')).rejects.toThrow(/terminal result/)

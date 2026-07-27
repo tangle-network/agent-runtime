@@ -52,11 +52,11 @@ const improvementAgent = async (
   const paid = await context.cost.runPaidCall({
     channel: 'agent',
     actor: 'improvement-cycle-test',
-    model: 'deterministic-test',
+    model: 'deterministic-test@2026-07-01',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
     execute: async () => profile.prompt?.systemPrompt ?? '',
     receipt: () => ({
-      model: 'deterministic-test',
+      model: 'deterministic-test@2026-07-01',
       inputTokens: 1,
       outputTokens: 1,
       actualCostUsd: 0.0001,

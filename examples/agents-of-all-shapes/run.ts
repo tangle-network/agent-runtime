@@ -16,6 +16,10 @@
 import { allShapes } from './shapes'
 import { shipToTangleOtlp, spansForRuns, toInsightReport } from './shared/intelligence'
 
+function formatMeasuredValue(value: number | null): string {
+  return value === null ? 'uncaptured' : value.toFixed(3)
+}
+
 async function main() {
   const shapes = allShapes()
   const allRuns = Object.values(shapes).flat()
@@ -25,9 +29,9 @@ async function main() {
   const fleet = await toInsightReport(allSpans)
   console.log('=== Fleet InsightReport (all shapes) ===')
   console.log(`runs:            ${fleet.composite.n}`)
-  console.log(`composite mean:  ${fleet.composite.mean.toFixed(3)}`)
-  console.log(`composite p50:   ${fleet.composite.p50.toFixed(3)}`)
-  console.log(`failure modes:   ${JSON.stringify(fleet.failureModes ?? [])}`)
+  console.log(`composite mean:  ${formatMeasuredValue(fleet.composite.mean)}`)
+  console.log(`composite p50:   ${formatMeasuredValue(fleet.composite.p50)}`)
+  console.log(`failure classes: ${JSON.stringify(fleet.failureClasses ?? [])}`)
   console.log(`recommendations: ${fleet.recommendations.length}`)
   for (const r of fleet.recommendations.slice(0, 3)) {
     console.log(`  [${r.priority}] ${r.title}`)
@@ -38,7 +42,7 @@ async function main() {
   for (const [name, runs] of Object.entries(shapes)) {
     const report = await toInsightReport(spansForRuns(runs))
     console.log(
-      `${name.padEnd(20)} n=${report.composite.n} mean=${report.composite.mean.toFixed(3)}`,
+      `${name.padEnd(20)} n=${report.composite.n} mean=${formatMeasuredValue(report.composite.mean)}`,
     )
   }
 

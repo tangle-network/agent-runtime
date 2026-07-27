@@ -4,7 +4,7 @@
  * back the `RunArtifact` the judges score.
  *
  * This file composes four primitives and nothing bespoke:
- *   - `offlineSandboxClient` (offline) or `new SandboxClient(...)` (live) give the box.
+ *   - `offlineSandboxClient` (offline) or `new Sandbox(...)` (live) give the box.
  *   - `openSandboxRun(client, opts, deliverable)` opens ONE persistent, resumable box.
  *     `.start(prompt)` = round 1; `.resume(prompt)` = round N over the SAME session.
  *     That IS the "each round builds on the prior output" loop — no extra combinator.
@@ -75,7 +75,7 @@ function nextPrompt(report: RunArtifact['checks']): string {
  * `ProfileDispatchFn` the matrix calls once per cell.
  *
  * @param clientFor  Resolve a `SandboxClient` for a profile's harness. Offline:
- *                   return `offlineSandboxClient(...)`. Live: `new SandboxClient(...)`.
+ *                   return `offlineSandboxClient(...)`. Live: `new Sandbox(...)`.
  */
 export function codingDispatch(
   toolPreset: ToolPreset,

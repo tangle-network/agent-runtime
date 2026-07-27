@@ -1,7 +1,6 @@
 /**
  * `streamAgentTurn` — the ONE run-a-turn event-stream contract over every
- * execution substrate: a sandbox box (`SandboxInstance.streamPrompt`, or
- * `streamTask` via the `box-task` kind for autonomous-task semantics), a
+ * execution substrate: a sandbox box (`SandboxInstance.streamPrompt`), a
  * one-shot `Executor` (cli-bridge / router / BYO, via `ExecutorFactory`), and
  * an in-process `AgentExecutionBackend` (the `resolveAgentBackend` output).
  *
@@ -16,10 +15,6 @@
  * adapter over code that already exists and is already hardened:
  *   - `box`      — `mapSandboxEvent` + `extractLlmCallEvent` (sandbox-events.ts)
  *                  project the sandbox event stream; nothing is re-mapped here.
- *   - `box-task` — the same projection over `box.streamTask` (the sandbox
- *                  SDK's autonomous-task verb: the agent works to completion,
- *                  multi-turn, session state maintained) with per-task
- *                  `TaskOptions` passthrough.
  *   - `executor` — `inlineSandboxClient` (the ONE executor→box adapter) turns
  *                  the factory into a box, then the box path drives it. The
  *                  executor's settle/teardown lifecycle stays in that adapter.
@@ -52,12 +47,7 @@
  */
 
 import { scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
-import type {
-  PromptOptions,
-  SandboxEvent,
-  SandboxInstance,
-  TaskOptions,
-} from '@tangle-network/sandbox'
+import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { normalizeBackendStreamEvent } from '../backends'
 import { BackendTransportError } from '../errors'
 import { newRuntimeSession, nowIso } from '../sessions'
@@ -97,27 +87,6 @@ export type AgentTurnBackend =
     }
   | {
       /**
-       * A live sandbox box in TASK mode: the turn is one
-       * `box.streamTask(prompt)` call — the sandbox SDK's autonomous-task
-       * verb. Unlike `streamPrompt` (one chat turn), the agent works until
-       * the task completes or errors, session state is maintained for
-       * continuity, and `options.maxTurns` bounds the agent's internal turns.
-       * Event projection, usage folding, and the terminal `final` contract
-       * are identical to the `box` kind.
-       */
-      kind: 'box-task'
-      box: SandboxInstance
-      /**
-       * Per-task `TaskOptions` forwarded verbatim to `streamTask`
-       * (`maxTurns` plus every `PromptOptions` field). The turn's derived
-       * abort signal is always installed as `signal`.
-       */
-      options?: Omit<TaskOptions, 'signal'>
-      /** Model label stamped on cost-only `llm_call` events. Default `'agent'`. */
-      agentRunName?: string
-    }
-  | {
-      /**
        * A one-shot `Executor` (cli-bridge / router / BYO): the factory is
        * instantiated fresh for the turn via `inlineSandboxClient`, run once on
        * the prompt, and torn down — the same per-spawn lifecycle the supervise
@@ -148,8 +117,8 @@ export interface StreamAgentTurnOptions {
    */
   timeoutMs?: number
   /**
-   * Opt-in tool-part projection for box-kind backends (`box`, `box-task`,
-   * `executor`): sandbox tool parts additionally surface in-stream as
+   * Opt-in tool-part projection for box and executor backends: sandbox tool
+   * parts additionally surface in-stream as
    * `tool_call` / `tool_result` events (`mapSandboxToolEvent`), so a consumer
    * rendering tool activity needs no bespoke sandbox-event parser. Default
    * off — the stream vocabulary existing consumers see is unchanged. No-op
@@ -249,7 +218,6 @@ export async function* streamAgentTurn(
             backend.agentRunName ?? 'agent',
             acc,
             {
-              mode: backend.kind === 'box-task' ? 'task' : 'prompt',
               ...(backend.kind !== 'executor' && backend.options
                 ? { options: backend.options }
                 : {}),
@@ -301,7 +269,7 @@ export async function collectAgentTurn(
   const events: RuntimeStreamEvent[] = []
   for await (const event of stream) events.push(event)
   const final = events.at(-1)
-  if (!final || final.type !== 'final') {
+  if (final?.type !== 'final') {
     throw new Error(
       `collectAgentTurn: stream ended without a terminal 'final' event (last: ${final ? final.type : 'none'})`,
     )
@@ -350,12 +318,9 @@ async function startTurnSession(
 
 /** Box-drive configuration derived from the backend kind + turn options. */
 interface BoxTurnConfig {
-  /** `prompt` → `box.streamPrompt` (one chat turn); `task` → `box.streamTask`
-   *  (autonomous multi-turn task). */
-  mode: 'prompt' | 'task'
-  /** Caller `PromptOptions`/`TaskOptions` forwarded to the box verb; the
-   *  turn's derived signal is installed over any caller value. */
-  options?: Omit<TaskOptions, 'signal'>
+  /** Caller `PromptOptions` forwarded to `streamPrompt`; the turn's derived
+   *  signal is installed over any caller value. */
+  options?: Omit<PromptOptions, 'signal'>
   /** Project tool parts to `tool_call`/`tool_result` (see `mapSandboxToolEvent`). */
   preserveToolParts: boolean
   /** Awaited raw-event tap, before projection. */
@@ -363,8 +328,8 @@ interface BoxTurnConfig {
 }
 
 /**
- * One turn over a box: `box.streamPrompt` (or `box.streamTask` in task mode)
- * projected through the EXISTING `mapSandboxEvent` (text/reasoning deltas +
+ * One turn over a box: `box.streamPrompt` projected through the existing
+ * `mapSandboxEvent` (text/reasoning deltas +
  * cost-bearing `llm_call`s), plus the opt-in `mapSandboxToolEvent` tool-part
  * projection. Usage accumulates off the mapped `llm_call` events — the same
  * fold `sumSandboxUsage` applies. Final text prefers the terminal
@@ -379,11 +344,8 @@ async function* driveBoxTurn(
   acc: TurnAccumulator,
   cfg: BoxTurnConfig,
 ): AsyncGenerator<RuntimeStreamEvent> {
-  const callOptions: TaskOptions = { ...(cfg.options ?? {}), signal }
-  const stream =
-    cfg.mode === 'task'
-      ? box.streamTask(prompt, callOptions)
-      : box.streamPrompt(prompt, callOptions)
+  const callOptions: PromptOptions = { ...(cfg.options ?? {}), signal }
+  const stream = box.streamPrompt(prompt, callOptions)
   const toolParts = cfg.preserveToolParts ? createSandboxToolPartState() : undefined
   for await (const event of stream) {
     if (cfg.onRawEvent) await cfg.onRawEvent(event)

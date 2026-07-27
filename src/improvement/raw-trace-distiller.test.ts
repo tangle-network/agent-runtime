@@ -171,6 +171,44 @@ describe('rawTraceDistiller', () => {
     expect(JSON.stringify(findings)).toContain(resolve(c.spansPath))
   })
 
+  it('keeps an unscored candidate explicit instead of treating it as zero', async () => {
+    const genRoot = join(root, 'gen-unscored')
+    const candidateDir = join(genRoot, 'candidate-0')
+    writeCellTrace(candidateDir, 'failed:0', {
+      spans: '{"error":"score unavailable"}\n',
+      result: { composite: null },
+    })
+    const input = {
+      generation: 1,
+      runDir: genRoot,
+      candidates: [
+        {
+          surfaceHash: 'unscored',
+          composite: null,
+          campaign: {
+            runDir: candidateDir,
+            cells: [
+              {
+                cellId: 'failed:0',
+                scenarioId: 'failed',
+                error: 'score unavailable',
+                judgeScores: {},
+              },
+            ],
+          },
+        },
+      ],
+      history: [],
+    } as unknown as AnalyzeInput
+
+    const findings = await rawTraceDistiller()(input)
+    const candidate = (findings as Array<Record<string, unknown>>).find(
+      (finding) => finding.subject === 'unscored',
+    )!
+    expect(String(candidate.claim)).toContain('has no aggregate score')
+    expect((candidate.metadata as { composite: number | null }).composite).toBeNull()
+  })
+
   it('uses the configured runDir override for generation-level trace anchors', async () => {
     const inputRunDir = join(root, 'input-gen')
     const overrideRunDir = join(root, 'override-gen')

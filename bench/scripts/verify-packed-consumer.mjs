@@ -52,11 +52,13 @@ async function resolveRuntimePackage(packDir) {
 
 try {
   const packDir = path.join(scratch, 'pack')
+  const unpackDir = path.join(scratch, 'unpack')
   const runtimePackDir = path.join(scratch, 'runtime-pack')
   const consumerDir = path.join(scratch, 'consumer')
   const terminalBenchVenv = path.join(scratch, 'terminal-bench-venv')
   const terminalBenchBinDir = path.join(terminalBenchVenv, 'bin')
   await mkdir(packDir)
+  await mkdir(unpackDir)
   await mkdir(runtimePackDir)
   await mkdir(consumerDir)
   await mkdir(terminalBenchBinDir, { recursive: true })
@@ -115,21 +117,14 @@ writeFileSync(
     throw new Error(`expected one packed agent-bench tarball, found ${packedFiles.length}`)
   }
   const tarball = path.join(packDir, packedFiles[0])
+  await run('tar', ['-xzf', tarball, '-C', unpackDir], benchDir)
   const runtimePackage = await resolveRuntimePackage(runtimePackDir)
-  const manifest = JSON.parse(await readFile(path.join(benchDir, 'package.json'), 'utf8'))
-  const devDependencies = manifest.devDependencies
-  if (
-    typeof devDependencies?.['@types/node'] !== 'string' ||
-    typeof devDependencies.typescript !== 'string' ||
-    typeof devDependencies.tsx !== 'string' ||
-    !devDependencies['@types/node'] ||
-    !devDependencies.typescript ||
-    !devDependencies.tsx
-  ) {
-    throw new Error(
-      'package verification requires @types/node, typescript, and tsx devDependencies',
-    )
-  }
+  const packedManifest = JSON.parse(
+    await readFile(path.join(unpackDir, 'package', 'package.json'), 'utf8'),
+  )
+  const nodeTypes = requiredPackedDevelopmentDependency(packedManifest, '@types/node')
+  requiredPackedDevelopmentDependency(packedManifest, 'typescript')
+  const tsx = requiredPackedDevelopmentDependency(packedManifest, 'tsx')
   const publicTsconfig = JSON.parse(
     await readFile(path.join(benchDir, 'tsconfig.public.json'), 'utf8'),
   )
@@ -150,9 +145,9 @@ writeFileSync(
             : {}),
         },
         devDependencies: {
-          '@types/node': devDependencies['@types/node'],
+          '@types/node': nodeTypes,
           typescript: TYPESCRIPT_5,
-          tsx: devDependencies.tsx,
+          tsx,
         },
       },
       null,
@@ -292,8 +287,16 @@ for name in sorted(expected):
     })
   }
   console.log(
-    `packed consumer verified: ${manifest.name}@${manifest.version} with @tangle-network/agent-runtime@${runtimeManifest.version}, TypeScript ${TYPESCRIPT_5} and ${TYPESCRIPT_6}, absolute Terminal-Bench venv; prepared ${prepareProof.executionPlanDigest}`,
+    `packed consumer verified: ${packedManifest.name}@${packedManifest.version} with @tangle-network/agent-runtime@${runtimeManifest.version}, TypeScript ${TYPESCRIPT_5} and ${TYPESCRIPT_6}, absolute Terminal-Bench venv; prepared ${prepareProof.executionPlanDigest}`,
   )
 } finally {
   await rm(scratch, { recursive: true, force: true })
+}
+
+function requiredPackedDevelopmentDependency(packageJson, name) {
+  const version = packageJson.devDependencies?.[name]
+  if (typeof version !== 'string' || version.length === 0 || version.startsWith('catalog:')) {
+    throw new Error(`packed consumer requires a resolved ${name} development dependency`)
+  }
+  return version
 }

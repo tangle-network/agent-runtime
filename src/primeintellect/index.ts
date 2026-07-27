@@ -15,6 +15,9 @@ export {
   type PrimeIntellectImportDefaults,
   type PrimeIntellectTrace,
   type PrimeIntellectTraceImportOptions,
+  type PrimeTimeSpan,
+  type PrimeTraceNode,
+  type PrimeUsage,
   parsePrimeIntellectTraces,
   primeIntellectTraceToRunRecord,
 } from './traces'

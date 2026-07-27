@@ -141,10 +141,11 @@ interface Ctx {
   stats: BackfillStats
 }
 
-function baseLine(ctx: Ctx): Pick<RolloutLine, 'schema' | 'run_id' | 'provenance'> {
+function baseLine(ctx: Ctx): Pick<RolloutLine, 'schema' | 'run_id' | 'experiment_id' | 'provenance'> {
   return {
     schema: ROLLOUT_SCHEMA,
     run_id: ctx.runId,
+    experiment_id: null,
     provenance: { captured_at: ctx.capturedAt, capture: 'backfill' },
   }
 }
@@ -216,6 +217,7 @@ async function emitCellLines(
       reward,
       reward_source: reward === null ? null : OFFICIAL_JUDGE,
       verdict: judgeVerdict,
+      realness_gated: false,
       metrics: {
         resolved: artifact?.resolved ?? null,
         verify_pass: artifact?.verifyPass ?? null,
@@ -335,6 +337,7 @@ function workerLine(
       reward,
       reward_source: reward === null ? null : `${OFFICIAL_JUDGE}/inherited`,
       verdict: null,
+      realness_gated: false,
       metrics: {
         worker_cwd: cwd,
         session_agent: session?.agent ?? null,
@@ -504,6 +507,7 @@ async function emitProposerLines(ctx: Ctx, lines: RolloutLine[], entries: Rollou
         reward,
         reward_source: reward === null ? null : `${OFFICIAL_JUDGE}/candidate-resolved-fraction`,
         verdict: null,
+        realness_gated: false,
         metrics: {
           resolved_count: entry?.outcome.resolvedCount ?? null,
           instance_count: ctx.instanceCount,

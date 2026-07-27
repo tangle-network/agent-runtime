@@ -27,6 +27,7 @@ export {
   type AgentCandidateExecutionTerminalResult,
   type AgentCandidateRetryRejection,
   InMemoryAgentCandidateExecutionClaimStore,
+  type InMemoryAgentCandidateExecutionClaimStoreOptions,
 } from './claim'
 export type { AgentCandidatePreparationEvidence } from './claim-file-formats'
 export {
@@ -108,6 +109,7 @@ export {
   CANDIDATE_TRACE_ENV,
   CANDIDATE_TRACE_TAGS,
   type CanonicalCandidateDocument,
+  type PersistedTaskOutcomeEvidence,
   type PreparedAgentCandidateExecution,
   type PreparedAgentCandidateInstruction,
   type PreparedAgentCandidateKnowledge,

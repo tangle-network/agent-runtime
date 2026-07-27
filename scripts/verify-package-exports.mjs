@@ -65,7 +65,6 @@ try {
     }
   }
 
-  const repoPackageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
   const knowledgePackageDir = join(
     repoRoot,
     'node_modules',
@@ -90,11 +89,7 @@ try {
   ]
   const peerDependencies = Object.fromEntries(
     peerPackages.map((name) => {
-      const version = repoPackageJson.devDependencies?.[name]
-      if (typeof version !== 'string' || version.length === 0) {
-        throw new Error(`packed consumer requires a ${name} development dependency`)
-      }
-      return [name, version]
+      return [name, requiredPackedDevelopmentDependency(packageJson, name)]
     }),
   )
   writeFileSync(
@@ -108,8 +103,8 @@ try {
           ...peerDependencies,
         },
         devDependencies: {
-          '@types/node': repoPackageJson.devDependencies['@types/node'],
-          typescript: repoPackageJson.devDependencies.typescript,
+          '@types/node': requiredPackedDevelopmentDependency(packageJson, '@types/node'),
+          typescript: requiredPackedDevelopmentDependency(packageJson, 'typescript'),
         },
       },
       null,
@@ -131,6 +126,7 @@ try {
           strict: true,
           noEmit: true,
           skipLibCheck: false,
+          types: ['node'],
         },
         include: ['consumer.ts'],
       },
@@ -161,9 +157,13 @@ try {
         parseCandidateProfileMaterialization,
         prepareAgentImprovementProfileActivation,
         verifyCandidateExecutionEvidence,
+        type AgentImprovementEvaluation,
+        type AgentImprovementProfileStateDigest,
+        type AgentImprovementProfileStateResolver,
         type AgentImprovementActivationTransitionInput,
         type CreateExactProcessCandidateExperimentExecutorOptions,
         type ExactProcessCandidateExperimentExecution,
+        type ProfileImprovementActivationTransitionInput,
         type VerifyCandidateExecutionEvidenceOptions,
       } from '@tangle-network/agent-runtime/intelligence'
 
@@ -177,6 +177,10 @@ try {
       declare const verification: VerifyCandidateExecutionEvidenceOptions
       declare const storedEvidence: unknown
       declare const transitionInput: AgentImprovementActivationTransitionInput
+      declare const profileTransition: ProfileImprovementActivationTransitionInput
+      declare const profileStateDigest: AgentImprovementProfileStateDigest
+      declare const profileStateResolver: AgentImprovementProfileStateResolver
+      declare const profileEvaluation: AgentImprovementEvaluation
       declare const activeProfile: AgentProfile
       const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
 
@@ -226,6 +230,16 @@ try {
           desiredInput: { prompt: desiredProfile.prompt },
         }],
       })
+      const profilePrepared = prepareAgentImprovementProfileActivation({
+        currentByIdentity: new Map([['profile-1', activeProfile]]),
+        profileTransition,
+        stateDigest: profileStateDigest,
+        resolveState: profileStateResolver,
+      })
+      if (profileEvaluation.kind === 'agent-profile-improvement-measured-comparison') {
+        const profileExperimentDigest: Sha256Digest = profileEvaluation.experiment.digest
+        void profileExperimentDigest
+      }
       if (prepared.status === 'apply') {
         const activationOutcome: AgentImprovementActivationOutcome = {
           status: 'applied',
@@ -247,10 +261,13 @@ try {
       void currentInput
       void currentDigest
       void profileDiffs
+      void profilePrepared
       void proposalFixture
     `,
   )
-  run('pnpm', ['install', '--config.auto-install-peers=false'], appDir)
+  // This fixture type-checks with its declared dev toolchain; ambient production
+  // install settings must not silently omit TypeScript or the Node declarations.
+  run('pnpm', ['install', '--prod=false', '--config.auto-install-peers=false'], appDir)
   run('pnpm', ['exec', 'tsc', '-p', 'tsconfig.json'], appDir)
 
   run(
@@ -502,4 +519,12 @@ function run(command, args, cwd) {
     )
   }
   return result.stdout
+}
+
+function requiredPackedDevelopmentDependency(packageJson, name) {
+  const version = packageJson.devDependencies?.[name]
+  if (typeof version !== 'string' || version.length === 0 || version.startsWith('catalog:')) {
+    throw new Error(`packed consumer requires a resolved ${name} development dependency`)
+  }
+  return version
 }

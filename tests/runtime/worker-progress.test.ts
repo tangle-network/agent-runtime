@@ -11,7 +11,7 @@
  * loops. That wire's own docstring described it; nothing connected it until now.
  */
 
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'

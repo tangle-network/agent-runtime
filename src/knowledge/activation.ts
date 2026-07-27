@@ -109,6 +109,17 @@ async function inspectKnowledgeActivation(
     })
   const store = (outcome: AgentImprovementActivationOutcome) =>
     options.results.putIfAbsent(create(outcome))
+  if (transition.kind !== 'sealed-candidate') {
+    if (transition.expired) return { settled: true, result: undefined }
+    return {
+      settled: true,
+      result: await store({
+        status: 'unsupported',
+        code: 'KNOWLEDGE_PROFILE_TRANSITION_UNSUPPORTED',
+        message: 'The knowledge adapter accepts only sealed knowledge candidates.',
+      }),
+    }
+  }
   const target = supportedKnowledgeTarget(transition, options.identity)
   if (!target) {
     if (transition.expired) return { settled: true, result: undefined }

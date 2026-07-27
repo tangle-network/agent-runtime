@@ -231,7 +231,7 @@ describe('createOpenAICompatibleBackend — OpenAI-shape tool_call streaming', (
     // Usage still flows.
     const usage = events.find((e) => e.type === 'llm_call')
     expect(usage).toBeDefined()
-    if (!usage || usage.type !== 'llm_call') throw new Error('expected llm_call')
+    if (usage?.type !== 'llm_call') throw new Error('expected llm_call')
     expect(usage.tokensIn).toBe(50)
     expect(usage.tokensOut).toBe(12)
   })

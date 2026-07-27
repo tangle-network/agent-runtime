@@ -66,7 +66,7 @@ async function runWheelVerification() {
     assert(firstGepa.provenance?.resumed === false, 'first GEPA run must be fresh')
     assert(firstGepa.provenance?.source.version === '0.1.4', 'GEPA version was not observed')
     assert(
-      firstGepa.provenance?.bridge?.version === '0.126.6',
+      firstGepa.provenance?.bridge?.version === '0.129.0',
       'agent-eval-rpc version was not observed',
     )
     assert(
@@ -290,7 +290,7 @@ async function runOmniVerification() {
       'source GEPA revision was not observed',
     )
     assert(
-      result.provenance?.bridge?.version === '0.126.6',
+      result.provenance?.bridge?.version === '0.129.0',
       'Omni agent-eval-rpc version was not observed',
     )
     assert(result.decision === 'ship', 'Omni candidate was not promoted')

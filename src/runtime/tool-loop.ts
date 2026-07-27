@@ -10,12 +10,13 @@
  */
 import type { RouterToolCall, ToolSpec } from './router-client'
 
-type Msg = Record<string, unknown>
+/** Provider-neutral conversation record accepted by a tool-loop brain. */
+export type ToolLoopMessageRecord = Record<string, unknown>
 
 /** One inference turn over the running conversation + the tool specs → the model's text, any
  *  tool calls, and token usage. The seam every brain satisfies. */
 export type ToolLoopChat = (
-  messages: ReadonlyArray<Msg>,
+  messages: ReadonlyArray<ToolLoopMessageRecord>,
   tools: ReadonlyArray<ToolSpec>,
 ) => Promise<{
   content?: string | null
@@ -30,7 +31,7 @@ export type ToolLoopChat = (
  *  the budget/deadline bound, the inbox flush, and the metering hook in HERE — not as forks. */
 export interface ToolLoopHooks {
   /** Run before each inference turn (e.g. flush queued steers into `messages`). */
-  beforeTurn?(turn: number, messages: Msg[]): void | Promise<void>
+  beforeTurn?(turn: number, messages: ToolLoopMessageRecord[]): void | Promise<void>
   /** Return true to stop before the next turn (e.g. pool starved / deadline passed / aborted). */
   stopBefore?(turn: number): boolean
   /** Each turn's usage, for metering into a conserved budget pool. */
@@ -52,11 +53,11 @@ export interface ToolLoopCompaction {
   readonly thresholdTokens: number
   /** Distill the conversation into a compact progress note that REPLACES the middle. Receives the
    *  full conversation (so it can summarize everything done so far); returns the digest string. */
-  readonly distill: (messages: ReadonlyArray<Msg>) => Promise<string> | string
+  readonly distill: (messages: ReadonlyArray<ToolLoopMessageRecord>) => Promise<string> | string
   /** Leading messages preserved verbatim (system + the original task). Default 2. */
   readonly preserveHead?: number
   /** Token estimator over the conversation. Default ≈ chars/4 (incl. tool-call arguments). */
-  readonly estimateTokens?: (messages: ReadonlyArray<Msg>) => number
+  readonly estimateTokens?: (messages: ReadonlyArray<ToolLoopMessageRecord>) => number
   /** Notified each time a compaction fires — for observability/metering. */
   readonly onCompact?: (info: { turn: number; beforeTokens: number; afterTokens: number }) => void
 }
@@ -70,7 +71,7 @@ export type ToolLoopCompactionOptions = Omit<ToolLoopCompaction, 'distill'> & {
 /** ≈ chars/4 over content + any tool-call arguments — a cheap, provider-agnostic size proxy. The
  *  exact constant does not matter: it only has to track GROWTH so the threshold trips as history
  *  accumulates, which a uniform chars/4 does. */
-function estimateConversationTokens(messages: ReadonlyArray<Msg>): number {
+function estimateConversationTokens(messages: ReadonlyArray<ToolLoopMessageRecord>): number {
   let chars = 0
   for (const m of messages) {
     const content = (m as { content?: unknown }).content
@@ -95,7 +96,7 @@ function safeJsonLength(value: unknown): number {
  *  system + task verbatim; everything after collapses to a single `user` progress note, so no
  *  assistant `tool_calls` is left without its `tool` replies. */
 async function maybeCompact(
-  messages: Msg[],
+  messages: ToolLoopMessageRecord[],
   c: ToolLoopCompaction,
   turn: number,
 ): Promise<boolean> {
@@ -128,7 +129,7 @@ export interface ToolLoopResult {
   toolTrace: Array<{ name: string; args: string; result: string }>
   usage: { input: number; output: number }
   /** The full conversation after the loop — lets a caller CARRY the messages into the next shot. */
-  messages: Msg[]
+  messages: ToolLoopMessageRecord[]
 }
 
 export async function runBrainLoop(opts: {
@@ -136,7 +137,7 @@ export async function runBrainLoop(opts: {
   tools: ReadonlyArray<ToolSpec>
   execute: (name: string, args: Record<string, unknown>) => Promise<string>
   /** Seed the conversation (a fresh `[system,user]` or a depth continuation). The array is copied. */
-  initialMessages: ReadonlyArray<Msg>
+  initialMessages: ReadonlyArray<ToolLoopMessageRecord>
   maxTurns?: number
   hooks?: ToolLoopHooks
   /** Bound the loop's own context window in place (the chapter-close a dumb-Ralph respawn gets for
@@ -144,7 +145,7 @@ export async function runBrainLoop(opts: {
   compaction?: ToolLoopCompaction
 }): Promise<ToolLoopResult> {
   const maxTurns = opts.maxTurns ?? 4
-  const messages: Msg[] = [...opts.initialMessages]
+  const messages: ToolLoopMessageRecord[] = [...opts.initialMessages]
   let toolCalls = 0
   let lastText = ''
   const usage = { input: 0, output: 0 }

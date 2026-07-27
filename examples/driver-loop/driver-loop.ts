@@ -35,8 +35,8 @@
  * Run:  pnpm tsx examples/driver-loop/driver-loop.ts
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/loops'
-import type { AgentProfile } from '@tangle-network/sandbox'
 import {
   type NoteOutput,
   type NoteTask,

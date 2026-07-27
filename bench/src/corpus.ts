@@ -288,7 +288,11 @@ export async function benchRecordToCorpusRecords(
       commitSha: opts.commitSha,
       wallMs: a.wallMs as number,
       costUsd: a.costUsd as number,
+      // Attempt costs are present only when the worker reported them. Missing
+      // costs exited above rather than becoming a made-up zero.
+      costProvenance: { kind: 'observed', usd: a.costUsd as number },
       tokenUsage: { input: a.tokensIn as number, output: a.tokensOut as number },
+      terminalOutcome: a.error === undefined ? 'succeeded' : 'failed',
       outcome: {
         ...(splitTag === 'holdout' ? { holdoutScore: score } : { searchScore: score }),
         raw: { valid: a.valid === true ? 1 : 0, score },

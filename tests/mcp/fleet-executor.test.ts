@@ -1,9 +1,5 @@
-import type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { detachedSessionDelegate } from '../../src/mcp/delegates'
 import {
@@ -128,11 +124,12 @@ describe('createSiblingSandboxExecutor', () => {
 
     const dispatch = events.find((e) => e.kind === 'loop.iteration.dispatch')
     expect(dispatch).toBeDefined()
-    expect(dispatch?.payload).toMatchObject({
+    if (dispatch === undefined) throw new Error('expected a sibling dispatch event')
+    expect(dispatch.payload).toMatchObject({
       placement: 'sibling',
       sandboxId: 'box_sibling_1',
     })
-    expect((dispatch?.payload as { fleetId?: string }).fleetId).toBeUndefined()
+    expect((dispatch.payload as { fleetId?: string }).fleetId).toBeUndefined()
   })
 
   it('describe() returns a stable human-readable tag', () => {

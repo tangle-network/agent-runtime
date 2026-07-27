@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Consume `@tangle-network/agent-runtime` 0.106.x with the matching Eval 0.129.0, Interface 0.34.0, and Knowledge 6.0.0 cohort.
+
 ## 0.4.1
 
 - Read Runtime 0.105 candidate plans from their signed run cell, benchmark records, and profile activation.

@@ -12,6 +12,7 @@ import {
   readMemoryItemsFile,
   resolveMemoryFromEnv,
 } from './memory-server'
+import { requireJsonRpcResult } from './test-helpers'
 
 const tmp = mkdtempSync(join(tmpdir(), 'memory-server-test-'))
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
@@ -35,7 +36,9 @@ describe('createMemoryToolServer', () => {
 
   it('lists memory_search and memory_get with schemas', async () => {
     const res = await server.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
-    const tools = (res?.result as { tools: Array<{ name: string; inputSchema: unknown }> }).tools
+    const { tools } = requireJsonRpcResult<{
+      tools: Array<{ name: string; inputSchema: unknown }>
+    }>(res)
     expect(tools.map((t) => t.name)).toEqual(['memory_search', 'memory_get'])
     expect(tools[0]?.inputSchema).toMatchObject({ required: ['query'] })
   })
@@ -47,8 +50,9 @@ describe('createMemoryToolServer', () => {
       method: 'tools/call',
       params: { name: 'memory_search', arguments: { query: 'failing test run' } },
     })
-    const out = (res?.result as { structuredContent: { results: Array<{ id: string }> } })
-      .structuredContent
+    const { structuredContent: out } = requireJsonRpcResult<{
+      structuredContent: { results: Array<{ id: string }> }
+    }>(res)
     expect(out.results[0]?.id).toBe('mem-1')
   })
 
@@ -62,8 +66,9 @@ describe('createMemoryToolServer', () => {
         arguments: { query: 'schema version test', k: 1, tags: ['db'] },
       },
     })
-    const out = (res?.result as { structuredContent: { results: Array<{ id: string }> } })
-      .structuredContent
+    const { structuredContent: out } = requireJsonRpcResult<{
+      structuredContent: { results: Array<{ id: string }> }
+    }>(res)
     expect(out.results.map((r) => r.id)).toEqual(['mem-3'])
   })
 
@@ -84,7 +89,9 @@ describe('createMemoryToolServer', () => {
       method: 'tools/call',
       params: { name: 'memory_get', arguments: { id: 'mem-2' } },
     })
-    expect((hit?.result as { structuredContent: MemoryItem }).structuredContent).toEqual(ITEMS[1])
+    expect(requireJsonRpcResult<{ structuredContent: MemoryItem }>(hit).structuredContent).toEqual(
+      ITEMS[1],
+    )
     const miss = await server.handle({
       jsonrpc: '2.0',
       id: 7,

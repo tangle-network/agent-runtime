@@ -1,7 +1,7 @@
 /**
  * Offline contract tests for `streamAgentTurn` / `collectAgentTurn` — one per
- * backend kind (box via `inProcessSandboxClient`, box-task via its `onTask`
- * seam, executor via a stub `ExecutorFactory`, chat via a stub
+ * backend kind (box via `inProcessSandboxClient`, executor via a stub
+ * `ExecutorFactory`, chat via a stub
  * `AgentExecutionBackend`), plus the terminal-guarantee, abort, timeout,
  * tool-part-preservation, raw-event-tap, and pull-based mid-stream-lifecycle
  * paths. No network, no credentials.
@@ -16,7 +16,7 @@ import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/type
 
 function finalOf(events: RuntimeStreamEvent[]): RuntimeStreamEvent & { type: 'final' } {
   const final = events.at(-1)
-  if (!final || final.type !== 'final') throw new Error('no terminal final event')
+  if (final?.type !== 'final') throw new Error('no terminal final event')
   return final
 }
 
@@ -91,15 +91,12 @@ describe('streamAgentTurn: box backend', () => {
   })
 })
 
-describe('streamAgentTurn: box-task backend', () => {
-  it('drives box.streamTask (never streamPrompt) with per-task options and folds usage identically', async () => {
+describe('streamAgentTurn: current Sandbox prompt options', () => {
+  it('forwards current prompt options and folds usage identically', async () => {
     const calls: { mode?: string; options?: Record<string, unknown> }[] = []
     const client = inProcessSandboxClient({
-      onPrompt: () => {
-        throw new Error('box-task must not drive streamPrompt')
-      },
-      onTask: (_prompt, ctx) => {
-        calls.push({ mode: ctx.mode, options: ctx.options })
+      onPrompt: (_prompt, ctx) => {
+        calls.push({ options: ctx.options })
         expect(ctx.signal).toBeInstanceOf(AbortSignal)
         return [
           { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'task output' } },
@@ -117,28 +114,24 @@ describe('streamAgentTurn: box-task backend', () => {
     const box = await client.create()
     const turn = await collectAgentTurn(
       streamAgentTurn(
-        { kind: 'box-task', box, options: { maxTurns: 5, sessionId: 'sess-1', model: 'kimi-k2' } },
+        { kind: 'box', box, options: { sessionId: 'sess-1', model: 'kimi-k2' } },
         'do the task',
       ),
     )
-    // The options passthrough arrives verbatim at the task verb.
+    // The options passthrough arrives verbatim at the current prompt verb.
     expect(calls).toHaveLength(1)
-    expect(calls[0]?.mode).toBe('task')
-    expect(calls[0]?.options).toMatchObject({ maxTurns: 5, sessionId: 'sess-1', model: 'kimi-k2' })
+    expect(calls[0]?.options).toMatchObject({ sessionId: 'sess-1', model: 'kimi-k2' })
     const start = turn.events[0]
     if (start?.type !== 'backend_start') throw new Error('expected backend_start')
-    expect(start.backend).toBe('box-task')
+    expect(start.backend).toBe('box')
     expect(turn.finalText).toBe('task output')
     expect(turn.usage).toEqual({ input: 9, output: 4, costUsd: 0.01, model: 'kimi-k2' })
     expect(turn.status).toBe('completed')
   })
 
-  it('timeoutMs aborts a hanging task with final.status failed', async () => {
+  it('timeoutMs aborts a hanging prompt with final.status failed', async () => {
     const client = inProcessSandboxClient({
-      onPrompt: () => {
-        throw new Error('box-task must not drive streamPrompt')
-      },
-      onTask: async function* (_prompt, ctx): AsyncIterable<SandboxEvent> {
+      onPrompt: async function* (_prompt, ctx): AsyncIterable<SandboxEvent> {
         await new Promise<never>((_resolve, reject) => {
           const onAbort = () => reject(ctx.signal.reason ?? new Error('aborted'))
           if (ctx.signal.aborted) onAbort()
@@ -148,7 +141,7 @@ describe('streamAgentTurn: box-task backend', () => {
     })
     const box = await client.create()
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box-task', box }, 'hang', { timeoutMs: 25 }),
+      streamAgentTurn({ kind: 'box', box }, 'hang', { timeoutMs: 25 }),
     )
     expect(turn.status).toBe('failed')
     expect(turn.error?.message).toContain('timed out after 25ms')
@@ -260,12 +253,9 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
     expect(result.result).toEqual({ error: 'connection refused', status: 'failed' })
   })
 
-  it('bare tool.* event types project statelessly (box-task kind)', async () => {
+  it('bare tool.* event types project statelessly', async () => {
     const client = inProcessSandboxClient({
-      onPrompt: () => {
-        throw new Error('box-task must not drive streamPrompt')
-      },
-      onTask: () =>
+      onPrompt: () =>
         [
           { type: 'tool.call', data: { id: 't-1', name: 'search', input: { q: 'tangle' } } },
           { type: 'tool.result', data: { id: 't-1', name: 'search', output: 'hit' } },
@@ -274,7 +264,7 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
     })
     const box = await client.create()
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box-task', box }, 'search', { preserveToolParts: true }),
+      streamAgentTurn({ kind: 'box', box }, 'search', { preserveToolParts: true }),
     )
     expect(turn.events.map((e) => e.type)).toEqual([
       'backend_start',

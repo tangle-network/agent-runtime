@@ -21,7 +21,7 @@ export type {
   KnowledgeRequirement,
   RunRecord,
 } from '@tangle-network/agent-eval'
-
+export type { BackendRetryPolicy } from './backends'
 // ── Backends ──────────────────────────────────────────────────────────
 export {
   createIterableBackend,
@@ -154,9 +154,16 @@ export {
 // the model. Sandbox-SDK callers discover tools via the runtime's MCP
 // mount and don't need this projection.
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './mcp/openai-tools'
+export type { WorktreeCheckRunner } from './mcp/worktree-harness'
 // ── Chat-model resolution ────────────────────────────────────────────
 // Router catalog fetch + fail-closed id validation + precedence resolver.
-export type { ModelInfo, ResolvedChatModel, RouterEnv } from './model-resolution'
+export type {
+  ChatModelCandidate,
+  ChatModelValidation,
+  ModelInfo,
+  ResolvedChatModel,
+  RouterEnv,
+} from './model-resolution'
 export {
   cleanModelId,
   DEFAULT_ROUTER_BASE_URL,
@@ -213,17 +220,24 @@ export {
 } from './runtime-hooks'
 // ── Production run lifecycle ─────────────────────────────────────────
 export type {
+  RuntimeRunCompleteInput,
+  RuntimeRunCost,
   RuntimeRunHandle,
+  RuntimeRunOptions,
   RuntimeRunPersistenceAdapter,
   RuntimeRunRow,
+  RuntimeRunStatus,
 } from './runtime-run'
 export { startRuntimeRun } from './runtime-run'
 // ── Sanitization / telemetry ─────────────────────────────────────────
 export type {
   RuntimeEventCollector,
   RuntimeStreamEventCollector,
+  RuntimeStreamEventSink,
+  RuntimeStreamEventSummary,
   RuntimeTelemetryOptions,
   SanitizedKnowledgeReadinessReport,
+  SanitizedKnowledgeRequirement,
 } from './sanitize'
 export {
   createRuntimeEventCollector,
@@ -235,7 +249,11 @@ export {
 // ── Sessions ──────────────────────────────────────────────────────────
 export { InMemoryRuntimeSessionStore } from './sessions'
 // ── SSE ───────────────────────────────────────────────────────────────
-export { readinessServerSentEvent, runtimeStreamServerSentEvent } from './sse'
+export {
+  readinessServerSentEvent,
+  runtimeStreamServerSentEvent,
+  type ServerSentEventOptions,
+} from './sse'
 export {
   type RunToolLoopOptions,
   runToolLoop,
@@ -264,9 +282,13 @@ export type {
   AgentTaskSpec,
   AgentTaskStatus,
   BackendErrorDetail,
+  KnowledgeReadinessDecision,
   OpenAIChatResponseFormat,
   OpenAIChatTool,
   OpenAIChatToolChoice,
+  RunAgentTaskOptions,
+  RunAgentTaskStreamOptions,
+  RuntimeSession,
   RuntimeSessionStore,
   RuntimeStreamEvent,
 } from './types'

@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { PassThrough, type Readable } from 'node:stream'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The bridge transport (`streamBridgeSession`) POSTs over the `node:http` core client,

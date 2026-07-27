@@ -263,28 +263,29 @@ describe('submitAgentImprovementProposal', () => {
     }
   })
 
-  it.each([
-    400, 403, 409, 422, 499,
-  ])('marks a confirmed HTTP %i client rejection as rejected', async (status) => {
-    const proposal = loadAgentImprovementProposalFixture()
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse({ error: 'source_changed', message: 'Profile changed.' }, status),
-    ) as unknown as typeof fetch
+  it.each([400, 403, 409, 422, 499])(
+    'marks a confirmed HTTP %i client rejection as rejected',
+    async (status) => {
+      const proposal = loadAgentImprovementProposalFixture()
+      const fetchImpl = vi.fn(async () =>
+        jsonResponse({ error: 'source_changed', message: 'Profile changed.' }, status),
+      ) as unknown as typeof fetch
 
-    const outcome = await submitAgentImprovementProposal({
-      proposal,
-      apiKey: 'k_test',
-      baseUrl: 'https://plane.test',
-      fetchImpl,
-    })
+      const outcome = await submitAgentImprovementProposal({
+        proposal,
+        apiKey: 'k_test',
+        baseUrl: 'https://plane.test',
+        fetchImpl,
+      })
 
-    expect(outcome).toMatchObject({
-      succeeded: false,
-      submission: 'rejected',
-      status,
-      code: 'source_changed',
-    })
-  })
+      expect(outcome).toMatchObject({
+        succeeded: false,
+        submission: 'rejected',
+        status,
+        code: 'source_changed',
+      })
+    },
+  )
 
   it('caps server-supplied error messages and codes at 200 characters', async () => {
     const proposal = loadAgentImprovementProposalFixture()
@@ -383,6 +384,9 @@ describe('submitAgentImprovementProposal', () => {
 
   it('does not accept a different valid proposal returned by the server', async () => {
     const proposal = loadAgentImprovementProposalFixture()
+    if (proposal.evaluation.kind !== 'agent-improvement-measured-comparison') {
+      throw new Error('candidate fixture must contain a sealed candidate comparison')
+    }
     const differentProposal = createAgentImprovementProposal({
       runId: proposal.runId,
       findings: [],

@@ -385,7 +385,8 @@ export interface AgentCandidateExecutorFinalCapture {
   readonly evidence?: Uint8Array
 }
 
-type PersistedTaskOutcomeEvidence<
+/** Immutable evaluator evidence retained with a verified candidate task outcome. */
+export type PersistedTaskOutcomeEvidence<
   Kind extends AgentCandidateTaskOutcomeMaterial['outcome']['kind'],
 > = Omit<AgentCandidateTaskOutcomeEvidence, 'material'> & {
   readonly artifact: AgentCandidateArtifactRef

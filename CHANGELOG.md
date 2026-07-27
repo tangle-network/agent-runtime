@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.106.0
+
+- Align Runtime with the published `@tangle-network/agent-eval` 0.129.0, `@tangle-network/agent-interface` 0.34.0, `@tangle-network/agent-knowledge` 6.0.0, and `@tangle-network/agent-profile-materialize` 0.9.0 cohort.
+- Require the matching Runtime peer ranges so incompatible consumers fail installation instead of mixing profile contracts.
+
 ## 0.105.0
 
 - Add `officialGepa(...)` and `officialSkillOpt(...)` as Runtime adapters over the upstream GEPA and Microsoft SkillOpt implementations in `@tangle-network/agent-eval`.

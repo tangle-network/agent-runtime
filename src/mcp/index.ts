@@ -52,6 +52,7 @@ export {
   DELEGATION_TRACE_MAX_BYTES,
   DELEGATION_TRACE_MAX_SPANS,
 } from './delegation-trace'
+export type { CoderOutput } from './detached-coder'
 export type {
   DetachedSessionRefParts,
   DetachedTurn,
@@ -118,16 +119,18 @@ export {
   resolveMemoryFromEnv,
 } from './memory-server'
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
+/** @deprecated Use `McpToolDescriptor`; both names are the same protocol contract. */
 export type {
   JsonRpcMessage,
   JsonRpcResponse,
-  McpServer,
-  McpServerOptions,
   McpToolDescriptor,
+  McpToolDescriptor as StdioToolDescriptor,
   McpTransport,
-} from './server'
+} from './protocol'
+export type { McpServer, McpServerOptions } from './server'
 export { createInProcessTransport, createMcpServer } from './server'
 export type {
+  DelegationArgs,
   DelegationRecord,
   DelegationResumeContext,
   DelegationResumeDriver,
@@ -138,12 +141,9 @@ export type {
   SubmitOutput,
 } from './task-queue'
 export { DelegationTaskQueue, hashIdempotencyInput } from './task-queue'
-// The generic stdio JSON-RPC core every in-repo MCP server serves on (the
-// memory server uses it; the delegation server predates the extraction).
-// Descriptor type aliased: `./server` exports its own McpToolDescriptor above.
+// The generic stdio JSON-RPC core every in-repo MCP server serves on.
 export {
   createStdioToolServer,
-  type McpToolDescriptor as StdioToolDescriptor,
   type StdioToolServer,
   type StdioToolServerOptions,
 } from './tool-server'
@@ -157,17 +157,24 @@ export {
   runCheck,
 } from './tools/checks'
 export {
+  type AnalystFindingEvent,
   type AnalystRegistry,
   type CoordinationEvent,
   type CoordinationTools,
   type CoordinationToolsOptions,
   createCoordinationTools,
+  DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
+  type DownMessageEvent,
   type MakeWorkerAgent,
   type Question,
   type QuestionDecision,
+  type QuestionLevel,
+  type QuestionOption,
   type QuestionPolicy,
   type QuestionRecord,
+  type QuestionUrgency,
   type SettledWorker,
+  type WorkerWatchOptions,
 } from './tools/coordination'
 export {
   createDelegateHandler,
@@ -184,6 +191,7 @@ export {
   DELEGATE_FEEDBACK_DESCRIPTION,
   DELEGATE_FEEDBACK_INPUT_SCHEMA,
   DELEGATE_FEEDBACK_TOOL_NAME,
+  type DelegateFeedbackHandlerOptions,
   validateDelegateFeedbackArgs,
 } from './tools/delegate-feedback'
 export {
@@ -191,6 +199,7 @@ export {
   DELEGATE_UI_AUDIT_DESCRIPTION,
   DELEGATE_UI_AUDIT_INPUT_SCHEMA,
   DELEGATE_UI_AUDIT_TOOL_NAME,
+  type DelegateUiAuditHandlerOptions,
   validateDelegateUiAuditArgs,
 } from './tools/delegate-ui-audit'
 export {
@@ -198,6 +207,7 @@ export {
   DELEGATION_HISTORY_DESCRIPTION,
   DELEGATION_HISTORY_INPUT_SCHEMA,
   DELEGATION_HISTORY_TOOL_NAME,
+  type DelegationHistoryHandlerOptions,
   validateDelegationHistoryArgs,
 } from './tools/delegation-history'
 export {
@@ -205,6 +215,7 @@ export {
   DELEGATION_STATUS_DESCRIPTION,
   DELEGATION_STATUS_INPUT_SCHEMA,
   DELEGATION_STATUS_TOOL_NAME,
+  type DelegationStatusHandlerOptions,
   validateDelegationStatusArgs,
 } from './tools/delegation-status'
 export type { TraceContext } from './trace-propagation'
@@ -241,6 +252,7 @@ export type {
   FeedbackRefersTo,
   ResearchOutputShape,
   ResearchSource,
+  UiAuditLensFilter,
   UiAuditorDelegationOutput,
 } from './types'
 export type {

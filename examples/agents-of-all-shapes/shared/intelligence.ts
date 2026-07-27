@@ -15,11 +15,14 @@
  *     `/v1/otlp/v1/traces` ingest for the dashboard. Optional.
  */
 
+import type { RunRecord } from '@tangle-network/agent-eval'
 import { analyzeRuns, fromOtelSpans, type InsightReport } from '@tangle-network/agent-eval/contract'
 import type { TraceSpanEvent } from '@tangle-network/agent-eval/hosted'
 import { createOtelExporter } from '@tangle-network/agent-runtime'
 
 export type { InsightReport, TraceSpanEvent }
+
+type FailureClass = NonNullable<RunRecord['failureClass']>
 
 /** One agent run, framework-agnostic. A shape produces a list of these. */
 export interface AgentRun {
@@ -33,27 +36,52 @@ export interface AgentRun {
   outputTokens: number
   startMs: number
   durationMs: number
-  /** When set, the run is marked failed and the tag becomes the failure
-   *  span name (→ `RunRecord.failureMode`). */
+  /** Canonical task-failure class for an unsuccessful task. */
+  failureClass?: FailureClass
+  /** Domain-specific detail carried under a non-success failure class. */
   failureMode?: string
 }
 
-const NANO = 1_000_000
+const nanosecondsPerMillisecond = 1_000_000n
+
+function unixNanoseconds(milliseconds: number): string {
+  if (!Number.isSafeInteger(milliseconds)) {
+    throw new RangeError(`OTel timestamps require whole safe milliseconds, got ${milliseconds}`)
+  }
+  return (BigInt(milliseconds) * nanosecondsPerMillisecond).toString()
+}
 
 /**
  * Canonical OTel GenAI spans for one agent run. Any framework that emits
  * these standard attributes (`gen_ai.request.model`, `gen_ai.usage.*`,
- * `gen_ai.usage.cost_usd`) plus a `score` lands here byte-identically —
+ * `gen_ai.usage.cost_usd`) plus `gen_ai.evaluation.score.value` lands here
+ * byte-identically —
  * Mastra, the Claude Agent SDK, agno, an OpenAI-compatible router, or the
  * Tangle runtime. That is the whole point: one wire, every shape.
  */
 export function otelSpansForRun(run: AgentRun): TraceSpanEvent[] {
-  const start = run.startMs * NANO
-  const end = (run.startMs + run.durationMs) * NANO
+  const start = unixNanoseconds(run.startMs)
+  const end = unixNanoseconds(run.startMs + run.durationMs)
   const spans: TraceSpanEvent[] = [
     {
       traceId: run.runId,
+      spanId: `${run.runId}::run`,
+      name: 'agent.run',
+      startTimeUnixNano: start,
+      endTimeUnixNano: end,
+      attributes: {
+        'tangle.candidateId': 'example-baseline',
+        'tangle.scenarioId': run.runId,
+        'gen_ai.evaluation.score.value': run.score,
+        ...(run.failureClass ? { 'tangle.task.failure_class': run.failureClass } : {}),
+        ...(run.failureMode ? { 'tangle.task.failure_mode': run.failureMode } : {}),
+      },
+      status: run.failureClass ? { code: 'ERROR', message: run.failureMode } : { code: 'OK' },
+    },
+    {
+      traceId: run.runId,
       spanId: `${run.runId}::llm`,
+      parentSpanId: `${run.runId}::run`,
       name: 'gen_ai.chat',
       startTimeUnixNano: start,
       endTimeUnixNano: end,
@@ -62,23 +90,10 @@ export function otelSpansForRun(run: AgentRun): TraceSpanEvent[] {
         'gen_ai.usage.input_tokens': run.inputTokens,
         'gen_ai.usage.output_tokens': run.outputTokens,
         'gen_ai.usage.cost_usd': run.costUsd,
-        score: run.score,
       },
-      status: run.failureMode ? { code: 'ERROR' } : { code: 'OK' },
+      status: { code: 'OK' },
     },
   ]
-  // Failure span — its name becomes the RunRecord.failureMode.
-  if (run.failureMode) {
-    spans.push({
-      traceId: run.runId,
-      spanId: `${run.runId}::err`,
-      name: run.failureMode,
-      startTimeUnixNano: end,
-      endTimeUnixNano: end,
-      attributes: {},
-      status: { code: 'ERROR' },
-    })
-  }
   return spans
 }
 

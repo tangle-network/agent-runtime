@@ -259,52 +259,52 @@ describe('candidate execution claim lifecycle', () => {
     ).rejects.toThrow('lease has expired')
   })
 
-  it.each([
-    'phase',
-    'stage',
-  ] as const)('refuses file-backed %s publication when the lease expires during durable write preparation and lets recovery win', async (operation) => {
-    const directory = await tempDirectory()
-    const expiresAtMs = 2_600
-    let now = 2_500
-    let expireAfterNextRead = false
-    const store = new FileAgentCandidateExecutionClaimStore({
-      directory,
-      now: () => {
-        const observed = now
-        if (expireAfterNextRead) {
-          expireAfterNextRead = false
-          now = expiresAtMs
-        }
-        return observed
-      },
-    })
-    const requested = retryClaim({ leaseExpiresAtMs: expiresAtMs })
-    const acquired = await acquire(store, requested)
-    now = expiresAtMs - 1
-    expireAfterNextRead = true
+  it.each(['phase', 'stage'] as const)(
+    'refuses file-backed %s publication when the lease expires during durable write preparation and lets recovery win',
+    async (operation) => {
+      const directory = await tempDirectory()
+      const expiresAtMs = 2_600
+      let now = 2_500
+      let expireAfterNextRead = false
+      const store = new FileAgentCandidateExecutionClaimStore({
+        directory,
+        now: () => {
+          const observed = now
+          if (expireAfterNextRead) {
+            expireAfterNextRead = false
+            now = expiresAtMs
+          }
+          return observed
+        },
+      })
+      const requested = retryClaim({ leaseExpiresAtMs: expiresAtMs })
+      const acquired = await acquire(store, requested)
+      now = expiresAtMs - 1
+      expireAfterNextRead = true
 
-    await expect(
-      operation === 'phase'
-        ? store.markCandidateMayRun(acquired.lease)
-        : store.stageTerminal(acquired.lease, failed()),
-    ).rejects.toThrow('lease has expired')
-    const beforeRecovery = await store.getAttempt({
-      executionId: requested.executionId,
-      attempt: requested.attempt,
-    })
-    expect(beforeRecovery?.phase).toBe('claimed')
-    expect(beforeRecovery?.staged).toBeUndefined()
-    expect(beforeRecovery?.terminal).toBeUndefined()
+      await expect(
+        operation === 'phase'
+          ? store.markCandidateMayRun(acquired.lease)
+          : store.stageTerminal(acquired.lease, failed()),
+      ).rejects.toThrow('lease has expired')
+      const beforeRecovery = await store.getAttempt({
+        executionId: requested.executionId,
+        attempt: requested.attempt,
+      })
+      expect(beforeRecovery?.phase).toBe('claimed')
+      expect(beforeRecovery?.staged).toBeUndefined()
+      expect(beforeRecovery?.terminal).toBeUndefined()
 
-    const recovered = await store.recoverExpired(
-      { executionId: requested.executionId, attempt: requested.attempt },
-      recoveryEvidence(requested),
-    )
-    expect(recovered).toMatchObject({
-      finished: true,
-      terminal: { status: 'failed', failureClass: 'pre-model-infrastructure' },
-    })
-  })
+      const recovered = await store.recoverExpired(
+        { executionId: requested.executionId, attempt: requested.attempt },
+        recoveryEvidence(requested),
+      )
+      expect(recovered).toMatchObject({
+        finished: true,
+        terminal: { status: 'failed', failureClass: 'pre-model-infrastructure' },
+      })
+    },
+  )
 
   it('refuses file-backed finish publication when the lease expires during durable write preparation and lets recovery win', async () => {
     const directory = await tempDirectory()
@@ -480,21 +480,20 @@ describe('candidate execution claim lifecycle', () => {
     expect((await store.tryClaim(retryClaim({ attempt: 2 }))).acquired).toBe(true)
   })
 
-  it.each([
-    'execution',
-    'post-model-infrastructure',
-    'unknown',
-  ] as const)('rejects a zero-call %s terminal as non-retryable', async (failureClass) => {
-    const store = new InMemoryAgentCandidateExecutionClaimStore()
-    const first = await acquire(store, retryClaim())
-    if (failureClass !== 'unknown') await store.markCandidateMayRun(first.lease)
-    await complete(store, first.lease, failed(0, failureClass))
+  it.each(['execution', 'post-model-infrastructure', 'unknown'] as const)(
+    'rejects a zero-call %s terminal as non-retryable',
+    async (failureClass) => {
+      const store = new InMemoryAgentCandidateExecutionClaimStore()
+      const first = await acquire(store, retryClaim())
+      if (failureClass !== 'unknown') await store.markCandidateMayRun(first.lease)
+      await complete(store, first.lease, failed(0, failureClass))
 
-    expect(await store.tryClaim(retryClaim({ attempt: 2 }))).toMatchObject({
-      acquired: false,
-      detail: 'prior-attempt-not-pre-model-infrastructure',
-    })
-  })
+      expect(await store.tryClaim(retryClaim({ attempt: 2 }))).toMatchObject({
+        acquired: false,
+        detail: 'prior-attempt-not-pre-model-infrastructure',
+      })
+    },
+  )
 
   it('rejects a pre-model terminal with paid calls', async () => {
     const store = new InMemoryAgentCandidateExecutionClaimStore()

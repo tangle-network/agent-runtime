@@ -106,7 +106,7 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
         campaignDir: absoluteRunDir(c.campaign.runDir),
         cells: failingCells(c.campaign, maxCellsPerCandidate, maxFilesPerCell),
       }))
-      .sort((a, b) => a.composite - b.composite)
+      .sort((a, b) => compareCandidateComposites(a.composite, b.composite))
       .slice(0, maxCandidates)
 
     const totalFailingCells = ranked.reduce((n, c) => n + c.cells.length, 0)
@@ -181,11 +181,11 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
       findings.push(
         makeFinding({
           analyst_id: ANALYST_ID,
-          severity: cand.composite < 0.5 ? 'critical' : 'high',
+          severity: cand.composite !== null && cand.composite < 0.5 ? 'critical' : 'high',
           area: 'raw-trace-context',
           confidence: 1,
           subject: cand.surfaceHash,
-          claim: `Candidate ${cand.surfaceHash} scored composite ${cand.composite.toFixed(3)} with ${cand.cells.length} failing cell(s) [${scenarioList}]. Its raw traces are under ${cand.campaignDir}.`,
+          claim: `Candidate ${cand.surfaceHash} ${candidateCompositeDescription(cand.composite)} with ${cand.cells.length} failing cell(s) [${scenarioList}]. Its raw traces are under ${cand.campaignDir}.`,
           recommended_action: `grep/cat these raw trace files to diagnose WHY this candidate failed before editing:\n${fileLines}\nOr scan the whole candidate at once: \`grep -rIn . ${cand.campaignDir}\` and \`ls -R ${cand.campaignDir}\`.`,
           evidence_refs: [
             { kind: 'artifact', uri: cand.campaignDir },
@@ -211,6 +211,17 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
 
     return findings
   }
+}
+
+/** Keep unscored candidates visible without inventing a numeric aggregate. */
+function compareCandidateComposites(left: number | null, right: number | null): number {
+  if (left === null) return right === null ? 0 : 1
+  if (right === null) return -1
+  return left - right
+}
+
+function candidateCompositeDescription(composite: number | null): string {
+  return composite === null ? 'has no aggregate score' : `scored composite ${composite.toFixed(3)}`
 }
 
 /** The failing cells of a candidate campaign, each with its on-disk trace files.

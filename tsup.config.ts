@@ -21,7 +21,12 @@ export default defineConfig({
     'loop-runner-bin': 'src/loop-runner-bin.ts',
   },
   format: ['esm'],
-  dts: true,
+  dts: {
+    compilerOptions: {
+      ignoreDeprecations: '6.0',
+      types: ['node'],
+    },
+  },
   sourcemap: true,
   clean: true,
   target: 'es2022',

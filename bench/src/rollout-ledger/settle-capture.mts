@@ -194,9 +194,12 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
   const log = opts.log ?? (() => {})
   const dbPath = opts.opencodeDb ?? DEFAULT_OPENCODE_DB
 
-  const base = (capturedAt: string): Pick<RolloutLine, 'schema' | 'run_id'> & { provenance: RolloutLine['provenance'] } => ({
+  const base = (
+    capturedAt: string,
+  ): Pick<RolloutLine, 'schema' | 'run_id' | 'experiment_id'> & { provenance: RolloutLine['provenance'] } => ({
     schema: ROLLOUT_SCHEMA,
     run_id: opts.runId,
+    experiment_id: null,
     provenance: { captured_at: capturedAt, capture: 'settle-time' },
   })
 
@@ -232,6 +235,7 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
           reward,
           reward_source: reward === null ? null : OFFICIAL_JUDGE,
           verdict: args.judgeVerdict,
+          realness_gated: false,
           metrics: {
             ...args.metrics,
             ...(args.splitVisibility !== null ? { split_visibility: args.splitVisibility } : {}),
@@ -311,6 +315,7 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
                 reward: v2.reward,
                 reward_source: v2.reward === null && v2.deliveredMatch !== 'unknown' ? null : WORKER_REWARD_SOURCE_V2,
                 verdict: null,
+                realness_gated: false,
                 metrics: {
                   worker_label: worker.label,
                   worker_cwd: worker.cwd,
@@ -400,6 +405,7 @@ export function createSettleCapture(opts: SettleCaptureOptions): SettleCapture {
           reward,
           reward_source: PROPOSER_REWARD_SOURCE_V2,
           verdict: null,
+          realness_gated: false,
           metrics: {
             resolved_count: args.candResolved,
             baseline_resolved_count: args.baselineResolved,

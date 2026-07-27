@@ -7,7 +7,7 @@
  * `workerFromBackend` derives the worker seam (`makeWorkerAgent`) from a backend config + an optional
  * completion oracle — so "where the workers run" is one data choice, not a hand-rolled factory.
  */
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type {
   AnalystRegistry,

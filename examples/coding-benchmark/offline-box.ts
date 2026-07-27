@@ -5,7 +5,7 @@
  * The offline "agent" is a SCRIPTED STAND-IN for a real coding agent: it writes a
  * canned solution per round instead of calling a model. That is the only thing
  * stubbed — the matrix, the verifier, the held-out test execution, the judge wiring,
- * and the stats all run for real. `--live` swaps this client for `new SandboxClient(...)`
+ * and the stats all run for real. `--live` swaps this client for `new Sandbox(...)`
  * and the same dispatch runs each round in a real harness box.
  *
  * It implements only what `openSandboxRun` actually calls on a box:

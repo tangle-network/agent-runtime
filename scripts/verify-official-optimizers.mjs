@@ -12,28 +12,38 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const agentEvalVersion = '0.126.6'
-const agentKnowledgeVersion = '5.0.1'
+const agentEvalVersion = '0.129.0'
+const agentKnowledgeVersion = '6.0.0'
 const gepaVersion = '0.1.4'
 const gepaSourceRevision = 'f919db0a622e2e9f9204779b81fe00cc1b2d808f'
 const skillOptRevision = '61735e3922efc2b90c6d6cab561e62e98452ca90'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageJson = readJson(join(repoRoot, 'package.json'))
+const workspaceAgentEvalVersion = installedPackageVersion(repoRoot, '@tangle-network/agent-eval')
+const workspaceAgentInterfaceVersion = installedPackageVersion(
+  repoRoot,
+  '@tangle-network/agent-interface',
+)
+const workspaceAgentKnowledgeVersion = installedPackageVersion(
+  repoRoot,
+  '@tangle-network/agent-knowledge',
+)
+const workspaceSandboxVersion = installedPackageVersion(repoRoot, '@tangle-network/sandbox')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-official-'))
 
 assertVersion(
-  packageJson.devDependencies?.['@tangle-network/agent-eval'],
+  workspaceAgentEvalVersion,
   agentEvalVersion,
-  '@tangle-network/agent-eval development dependency',
+  'installed @tangle-network/agent-eval development dependency',
 )
 assertVersion(
-  packageJson.dependencies?.['@tangle-network/agent-knowledge'],
+  workspaceAgentKnowledgeVersion,
   agentKnowledgeVersion,
-  '@tangle-network/agent-knowledge dependency',
+  'installed @tangle-network/agent-knowledge dependency',
 )
 assertVersion(
   packageJson.peerDependencies?.['@tangle-network/agent-eval'],
-  `>=${agentEvalVersion} <0.127.0`,
+  `>=${agentEvalVersion} <0.130.0`,
   '@tangle-network/agent-eval peer dependency',
 )
 
@@ -53,17 +63,49 @@ try {
   mkdirSync(packDir, { recursive: true })
   mkdirSync(appDir, { recursive: true })
 
-  run(
-    'npm',
-    ['pack', '--loglevel=error', '--ignore-scripts=false', '--pack-destination', packDir],
-    repoRoot,
-  )
+  run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
   const tarballs = readdirSync(packDir).filter((name) => name.endsWith('.tgz'))
   if (tarballs.length !== 1) {
     throw new Error(`expected one Runtime tarball, found ${tarballs.length}`)
   }
 
   const runtimeTarball = join(packDir, tarballs[0])
+  const unpackDir = join(tempRoot, 'unpack')
+  mkdirSync(unpackDir, { recursive: true })
+  run('tar', ['-xzf', runtimeTarball, '-C', unpackDir], repoRoot)
+  const packedPackageJson = readJson(join(unpackDir, 'package', 'package.json'))
+  const packedAgentEvalVersion = requiredPackedDevelopmentDependency(
+    packedPackageJson,
+    '@tangle-network/agent-eval',
+  )
+  const packedAgentInterfaceVersion = requiredPackedDevelopmentDependency(
+    packedPackageJson,
+    '@tangle-network/agent-interface',
+  )
+  const packedSandboxVersion = requiredPackedDevelopmentDependency(
+    packedPackageJson,
+    '@tangle-network/sandbox',
+  )
+  assertVersion(
+    packedAgentEvalVersion,
+    workspaceAgentEvalVersion,
+    'packed @tangle-network/agent-eval development dependency',
+  )
+  assertVersion(
+    packedAgentInterfaceVersion,
+    workspaceAgentInterfaceVersion,
+    'packed @tangle-network/agent-interface development dependency',
+  )
+  assertVersion(
+    packedSandboxVersion,
+    workspaceSandboxVersion,
+    'packed @tangle-network/sandbox development dependency',
+  )
+  assertVersion(
+    requiredPackedDependency(packedPackageJson, '@tangle-network/agent-knowledge'),
+    workspaceAgentKnowledgeVersion,
+    'packed @tangle-network/agent-knowledge dependency',
+  )
   writeFileSync(
     join(appDir, 'package.json'),
     `${JSON.stringify(
@@ -72,9 +114,9 @@ try {
         private: true,
         type: 'module',
         dependencies: {
-          '@tangle-network/agent-eval': agentEvalVersion,
-          '@tangle-network/agent-interface':
-            packageJson.devDependencies['@tangle-network/agent-interface'],
+          '@tangle-network/agent-eval': packedAgentEvalVersion,
+          '@tangle-network/agent-interface': packedAgentInterfaceVersion,
+          '@tangle-network/sandbox': packedSandboxVersion,
           '@tangle-network/agent-runtime': `file:${runtimeTarball}`,
         },
       },
@@ -103,8 +145,10 @@ try {
   )
 
   assertInstalledVersion(appDir, '@tangle-network/agent-runtime', packageJson.version)
-  assertInstalledVersion(appDir, '@tangle-network/agent-eval', agentEvalVersion)
-  assertInstalledVersion(appDir, '@tangle-network/agent-knowledge', agentKnowledgeVersion)
+  assertInstalledVersion(appDir, '@tangle-network/agent-eval', packedAgentEvalVersion)
+  assertInstalledVersion(appDir, '@tangle-network/agent-interface', packedAgentInterfaceVersion)
+  assertInstalledVersion(appDir, '@tangle-network/sandbox', packedSandboxVersion)
+  assertInstalledVersion(appDir, '@tangle-network/agent-knowledge', workspaceAgentKnowledgeVersion)
   const installedKnowledge = readJson(
     join(appDir, 'node_modules', '@tangle-network', 'agent-knowledge', 'package.json'),
   )
@@ -232,9 +276,31 @@ print(json.dumps({
 }
 
 function assertInstalledVersion(appDir, packageName, expected) {
-  const actual = readJson(join(appDir, 'node_modules', ...packageName.split('/'), 'package.json'))
-    .version
+  const actual = installedPackageVersion(appDir, packageName)
   assertVersion(actual, expected, `installed ${packageName}`)
+}
+
+function installedPackageVersion(root, packageName) {
+  const packageJson = readJson(join(root, 'node_modules', ...packageName.split('/'), 'package.json'))
+  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+    throw new Error(`installed ${packageName} has no version`)
+  }
+  return packageJson.version
+}
+
+function requiredPackedDevelopmentDependency(packageJson, packageName) {
+  return requiredPackedPackageVersion(packageJson.devDependencies?.[packageName], packageName)
+}
+
+function requiredPackedDependency(packageJson, packageName) {
+  return requiredPackedPackageVersion(packageJson.dependencies?.[packageName], packageName)
+}
+
+function requiredPackedPackageVersion(version, packageName) {
+  if (typeof version !== 'string' || version.length === 0 || version.startsWith('catalog:')) {
+    throw new Error(`packed package requires a resolved ${packageName} version`)
+  }
+  return version
 }
 
 function assertVersion(actual, expected, label) {

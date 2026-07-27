@@ -26,6 +26,7 @@
   "excludePrivate": true,
   "excludeInternal": true,
   "excludeExternals": true,
+  "treatWarningsAsErrors": true,
   "exclude": [
     "**/node_modules/**",
     "**/dist/**",

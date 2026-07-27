@@ -3,12 +3,16 @@ import {
   type AgentCandidateExperiment,
   type AgentImprovementActivationIntent,
   type AgentImprovementActivationTarget,
+  type AgentImprovementEvaluation,
   type AgentImprovementSurface,
   type AgentProfile,
   type AgentProfileDiff,
   type AgentProfileDiffRemoval,
+  type AgentProfileImprovementChange,
+  type AgentProfileImprovementExperiment,
   agentProfileDiffSchema,
   agentProfileSchema,
+  changedProfileImprovementSurfaces,
   defineAgentProfileDiff,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
@@ -76,42 +80,81 @@ export function deriveChangedSurfaces(
 
 export function assertAgentImprovementActivationTargets(
   surfaces: readonly AgentImprovementSurface[],
-  experiment: AgentCandidateExperiment,
+  experiment: AgentImprovementEvaluation['experiment'],
   intent: AgentImprovementActivationIntent,
   targets: readonly AgentImprovementActivationTarget[],
 ): void {
+  if (isProfileImprovementExperiment(experiment)) {
+    assertProfileImprovementTargetsShareIdentity(targets)
+  }
   const expected = new Set(surfaces)
   const actual = new Set(targets.map((target) => target.surface))
   const sourceArm = intent === 'activate-candidate' ? 'baseline' : 'candidate'
   if (
+    !(isProfileImprovementExperiment(experiment)
+      ? sameAgentImprovementSurfaceSet(surfaces, activationExperimentChangedSurfaces(experiment))
+      : sameOrderedSurfaces(surfaces, activationExperimentChangedSurfaces(experiment))) ||
     targets.some((target) => !target.identity.trim()) ||
     targets.some(
       (target) =>
-        target.expectedBaseDigest !==
-        agentImprovementTargetDigest(experiment, sourceArm, target.surface),
+        target.expectedBaseDigest !== activationTargetDigest(experiment, sourceArm, target.surface),
     ) ||
     targets.length !== surfaces.length ||
     expected.size !== actual.size ||
     [...expected].some((surface) => !actual.has(surface))
   ) {
-    throw new Error('candidate activation targets must cover exactly the changed surfaces')
+    throw new Error('agent improvement activation targets must cover exactly the changed surfaces')
+  }
+}
+
+/** One opaque profile-state transition can change only one complete profile record. */
+export function assertProfileImprovementTargetsShareIdentity(
+  targets: readonly Pick<AgentImprovementActivationTarget, 'identity'>[],
+): void {
+  if (new Set(targets.map((target) => target.identity)).size !== 1) {
+    throw new Error('profile improvement activation targets must name one profile identity')
   }
 }
 
 /** Bind caller-owned target identities to the exact source state Runtime measured. */
 export function buildAgentImprovementActivationTargets(
   surfaces: readonly AgentImprovementSurface[],
-  experiment: AgentCandidateExperiment,
+  experiment: AgentImprovementEvaluation['experiment'],
   intent: AgentImprovementActivationIntent,
   identities: readonly AgentImprovementActivationTargetIdentity[],
 ): [AgentImprovementActivationTarget, ...AgentImprovementActivationTarget[]] {
   const sourceArm = intent === 'activate-candidate' ? 'baseline' : 'candidate'
   const targets = identities.map((target) => ({
     ...target,
-    expectedBaseDigest: agentImprovementTargetDigest(experiment, sourceArm, target.surface),
+    expectedBaseDigest: activationTargetDigest(experiment, sourceArm, target.surface),
   }))
   assertAgentImprovementActivationTargets(surfaces, experiment, intent, targets)
   return targets as [AgentImprovementActivationTarget, ...AgentImprovementActivationTarget[]]
+}
+
+/** Exact host-owned profile state for every changed profile surface. */
+export function agentProfileImprovementStateDigest(
+  experiment: AgentProfileImprovementExperiment,
+  arm: 'baseline' | 'candidate',
+): Sha256Digest {
+  return experiment[arm].stateDigest
+}
+
+/** Map Interface's current profile-improvement contract to Runtime-deliverable surfaces. */
+export function profileImprovementChangedSurfaces(
+  change: AgentProfileImprovementChange,
+): [AgentImprovementProfileSurface, ...AgentImprovementProfileSurface[]] {
+  const surfaces = changedProfileImprovementSurfaces(change)
+  if (
+    surfaces.length === 0 ||
+    !surfaces.every(
+      (surface): surface is AgentImprovementProfileSurface =>
+        surface === 'prompt' || surface === 'skills',
+    )
+  ) {
+    throw new Error('profile improvement experiment does not change a supported surface')
+  }
+  return surfaces as [AgentImprovementProfileSurface, ...AgentImprovementProfileSurface[]]
 }
 
 export function agentImprovementTargetDigest(
@@ -132,6 +175,50 @@ export function agentImprovementTargetInput(
   surface: AgentImprovementSurface,
 ): unknown {
   return improvementSurfaceValues(bundle)[surface]
+}
+
+function activationTargetDigest(
+  experiment: AgentImprovementEvaluation['experiment'],
+  arm: 'baseline' | 'candidate',
+  surface: AgentImprovementSurface,
+): Sha256Digest {
+  if (isProfileImprovementExperiment(experiment)) {
+    if (!activationExperimentChangedSurfaces(experiment).includes(surface)) {
+      throw new Error('profile improvement activation targets an unchanged surface')
+    }
+    return agentProfileImprovementStateDigest(experiment, arm)
+  }
+  return agentImprovementTargetDigest(experiment, arm, surface)
+}
+
+function activationExperimentChangedSurfaces(
+  experiment: AgentImprovementEvaluation['experiment'],
+): [AgentImprovementSurface, ...AgentImprovementSurface[]] {
+  if (!isProfileImprovementExperiment(experiment)) {
+    return deriveChangedSurfaces(experiment.baseline, experiment.candidate)
+  }
+  return profileImprovementChangedSurfaces(experiment.change)
+}
+
+function isProfileImprovementExperiment(
+  experiment: AgentImprovementEvaluation['experiment'],
+): experiment is AgentProfileImprovementExperiment {
+  return experiment.kind === 'agent-profile-improvement-experiment'
+}
+
+function sameOrderedSurfaces(
+  left: readonly AgentImprovementSurface[],
+  right: readonly AgentImprovementSurface[],
+): boolean {
+  return left.length === right.length && left.every((surface, index) => surface === right[index])
+}
+
+/** Profile-change surface order is presentation only; its measured contract is set-based. */
+export function sameAgentImprovementSurfaceSet(
+  left: readonly AgentImprovementSurface[],
+  right: readonly AgentImprovementSurface[],
+): boolean {
+  return left.length === right.length && left.every((surface) => right.includes(surface))
 }
 
 /** Return whether a measured surface can be delivered through an agent profile. */

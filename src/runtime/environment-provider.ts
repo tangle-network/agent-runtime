@@ -30,6 +30,7 @@ import type {
 import type {
   BackendType,
   CreateSandboxOptions,
+  PromptInputPart,
   PromptOptions,
   PromptResult,
   SandboxEvent,
@@ -215,6 +216,8 @@ export interface SandboxClientProviderOptions {
   validateProfile?: (
     profile: AgentProfileRef,
   ) => AgentProfileValidationResult | Promise<AgentProfileValidationResult>
+  /** Resolve a named profile before calling Sandbox, which accepts inline profiles only. */
+  resolveProfile?: (profileId: string) => AgentProfile | Promise<AgentProfile>
   mapCreateInput?: (input: CreateAgentEnvironmentInput) => CreateSandboxOptions
 }
 
@@ -233,13 +236,19 @@ export function sandboxClientAsProvider(
           ? options.capabilities()
           : options.capabilities
       }
-      return defaultTangleSandboxCapabilities()
+      return defaultTangleSandboxCapabilities({
+        namedProfiles: options.resolveProfile !== undefined,
+      })
     },
     ...(options.validateProfile ? { validateProfile: options.validateProfile } : {}),
     async create(input: CreateAgentEnvironmentInput): Promise<AgentEnvironment> {
       const createOptions =
         options.mapCreateInput?.(input) ??
-        sandboxOptionsFromCreateInput(input, options.defaultBackend ?? 'opencode')
+        (await sandboxOptionsFromCreateInput(
+          input,
+          options.defaultBackend ?? 'opencode',
+          options.resolveProfile,
+        ))
       const box = await client.create(createOptions)
       return sandboxInstanceAsEnvironment(box, providerName, client)
     },
@@ -409,14 +418,13 @@ async function* streamProviderExecutor(
 function createInputFromSandboxOptions(
   options: CreateSandboxOptions | undefined,
 ): Partial<CreateAgentEnvironmentInput> {
-  const profile = options?.backend?.profile as AgentProfileRef | undefined
+  const profile = options?.backend?.profile
   const backend = options?.backend?.type
   return {
     ...(profile !== undefined ? { profile } : {}),
     ...(backend ? { backend } : {}),
     workspace: {
       ...(options?.environment ? { environment: options.environment } : {}),
-      ...(options?.image ? { image: options.image } : {}),
       ...(options?.git?.url ? { repoUrl: options.git.url } : {}),
       ...(options?.git?.ref ? { gitRef: options.git.ref } : {}),
     },
@@ -430,21 +438,29 @@ function createInputFromSandboxOptions(
   }
 }
 
-function sandboxOptionsFromCreateInput(
+async function sandboxOptionsFromCreateInput(
   input: CreateAgentEnvironmentInput,
   defaultBackend: BackendType,
-): CreateSandboxOptions {
+  resolveProfile?: SandboxClientProviderOptions['resolveProfile'],
+): Promise<CreateSandboxOptions> {
   const backendType = (input.backend ?? defaultBackend) as BackendType
   const workspace = input.workspace ?? {}
+  const environment = sandboxEnvironmentFromWorkspace(workspace)
+  const profile = await sandboxProfileFromReference(input.profile, resolveProfile)
+  if (input.secrets && !Array.isArray(input.secrets)) {
+    throw new ValidationError(
+      'Tangle Sandbox accepts secret names only; record-form secret values are unsupported',
+    )
+  }
   const providerOptions = input.providerOptions?.sandboxCreateOptions
   const base =
     providerOptions && typeof providerOptions === 'object'
       ? ({ ...(providerOptions as CreateSandboxOptions) } as CreateSandboxOptions)
       : ({} satisfies CreateSandboxOptions)
+  const { profile: _baseProfile, ...baseBackend } = base.backend ?? {}
   return {
     ...base,
-    ...(workspace.environment ? { environment: workspace.environment } : {}),
-    ...(workspace.image ? { image: workspace.image } : {}),
+    ...(environment ? { environment } : {}),
     ...(workspace.repoUrl ? { git: { url: workspace.repoUrl, ref: workspace.gitRef } } : {}),
     ...(input.resources ? { resources: input.resources as CreateSandboxOptions['resources'] } : {}),
     ...(input.env ? { env: input.env } : {}),
@@ -453,11 +469,39 @@ function sandboxOptionsFromCreateInput(
     ...(input.name ? { name: input.name } : {}),
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     backend: {
-      ...(base.backend ?? {}),
+      ...baseBackend,
       type: backendType,
-      profile: input.profile,
+      profile,
     },
   }
+}
+
+function sandboxEnvironmentFromWorkspace(
+  workspace: NonNullable<CreateAgentEnvironmentInput['workspace']>,
+): string | undefined {
+  if (
+    workspace.environment !== undefined &&
+    workspace.image !== undefined &&
+    workspace.environment !== workspace.image
+  ) {
+    throw new ValidationError(
+      'Tangle Sandbox accepts one environment value; workspace.environment and workspace.image must match',
+    )
+  }
+  return workspace.environment ?? workspace.image
+}
+
+async function sandboxProfileFromReference(
+  profile: AgentProfileRef,
+  resolveProfile: SandboxClientProviderOptions['resolveProfile'],
+): Promise<AgentProfile> {
+  if (typeof profile !== 'string') return profile
+  if (!resolveProfile) {
+    throw new ValidationError(
+      `Tangle Sandbox requires an inline AgentProfile; named profile "${profile}" needs SandboxClientProviderOptions.resolveProfile`,
+    )
+  }
+  return resolveProfile(profile)
 }
 
 function environmentAsSandboxInstance(
@@ -472,7 +516,7 @@ function environmentAsSandboxInstance(
       await environment.refresh?.()
     },
     async *streamPrompt(
-      message: string | InputPart[],
+      message: string | PromptInputPart[],
       promptOptions?: PromptOptions,
     ): AsyncGenerator<SandboxEvent> {
       let terminal = false
@@ -490,7 +534,7 @@ function environmentAsSandboxInstance(
       }
     },
     async prompt(
-      message: string | InputPart[],
+      message: string | PromptInputPart[],
       promptOptions?: PromptOptions,
     ): Promise<PromptResult> {
       const events: AgentEnvironmentEvent[] = []
@@ -508,19 +552,17 @@ function environmentAsSandboxInstance(
           `providerAsSandboxClient(${environment.provider}): prompt ended without a terminal result/done/status event`,
         )
       }
-      return promptResultCompat(
-        {
-          response: resultFromEvents(events, text).content,
-          success: true,
-          durationMs: 0,
-          ...(usage ? { usage } : {}),
-        },
-        'success',
-      )
+      return {
+        response: resultFromEvents(events, text).content,
+        success: true,
+        status: 'success',
+        durationMs: 0,
+        ...(usage ? { usage } : {}),
+      }
     },
-    ...(environment.dispatch
+    ...(environment.dispatch && environment.session
       ? {
-          async dispatchPrompt(message: string | InputPart[], promptOptions?: PromptOptions) {
+          async dispatchPrompt(message: string | PromptInputPart[], promptOptions?: PromptOptions) {
             const session = await environment.dispatch?.(
               turnInputFromPrompt(message, promptOptions),
             )
@@ -533,7 +575,7 @@ function environmentAsSandboxInstance(
     ...(environment.session
       ? {
           session(id: string) {
-            return sessionAsSandboxSession(environment.session?.(id))
+            return sandboxSessionFromAgentSession(environment.session?.(id))
           },
         }
       : {}),
@@ -673,16 +715,23 @@ function sandboxSessionAsAgentSession(session: SandboxSessionLike): AgentSession
       )
     },
     cancel(): Promise<void> {
-      return session.cancel()
+      return session.interrupt().then(() => undefined)
     },
   }
 }
 
-function sessionAsSandboxSession(session: AgentSession | undefined): unknown {
-  if (!session) throw new ValidationError('providerAsSandboxClient: session(id) returned undefined')
+function sandboxSessionFromAgentSession(session: AgentSession | undefined): unknown {
+  if (!session) throw new ValidationError('providerAsSandboxClient: session is unavailable')
   return {
     id: session.id,
-    status: session.status.bind(session),
+    async status() {
+      const status = await session.status()
+      if (!status) return null
+      return {
+        id: session.id,
+        status: sandboxSessionStatusFromAgentSessionStatus(status),
+      }
+    },
     async *events(options?: {
       since?: string
       signal?: AbortSignal
@@ -693,12 +742,58 @@ function sessionAsSandboxSession(session: AgentSession | undefined): unknown {
     async result(): Promise<PromptResult> {
       return promptResultFromAgentTurnResult(await session.result())
     },
-    async prompt(message: string | InputPart[], options?: PromptOptions): Promise<PromptResult> {
+    async prompt(
+      message: string | PromptInputPart[],
+      options?: PromptOptions,
+    ): Promise<PromptResult> {
       return promptResultFromAgentTurnResult(
         await session.prompt(turnInputFromPrompt(message, options)),
       )
     },
-    cancel: session.cancel.bind(session),
+    async interrupt() {
+      await session.cancel()
+      return { cancelled: true }
+    },
+  }
+}
+
+function sandboxSessionStatusFromAgentSessionStatus(
+  status: AgentSessionStatus,
+): 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' {
+  switch (status) {
+    case 'pending':
+    case 'provisioning':
+      return 'queued'
+    case 'running':
+      return 'running'
+    case 'completed':
+      return 'completed'
+    case 'cancelled':
+      return 'cancelled'
+    case 'stopped':
+    case 'failed':
+    case 'expired':
+    case 'unknown':
+      return 'failed'
+  }
+}
+
+function promptResultFromAgentTurnResult(result: AgentTurnResult): PromptResult {
+  return {
+    response: result.text,
+    success: result.success,
+    status: result.success ? 'success' : 'failed',
+    durationMs: 0,
+    ...(result.error ? { error: result.error } : {}),
+    ...(result.usage
+      ? {
+          usage: {
+            inputTokens: result.usage.inputTokens,
+            outputTokens: result.usage.outputTokens,
+          },
+          ...(result.usage.cost === undefined ? {} : { costUsd: result.usage.cost }),
+        }
+      : {}),
   }
 }
 
@@ -749,7 +844,7 @@ function tokenUsageData(usage: TokenUsage): Record<string, number | undefined> {
 }
 
 function turnInputFromPrompt(
-  message: string | InputPart[],
+  message: string | PromptInputPart[],
   options?: PromptOptions,
 ): AgentTurnInput {
   return {
@@ -767,9 +862,27 @@ function turnInputFromPrompt(
   }
 }
 
-function promptFromTurnInput(input: AgentTurnInput): string | InputPart[] {
-  if (input.parts) return input.parts
+function promptFromTurnInput(input: AgentTurnInput): string | PromptInputPart[] {
+  if (input.parts) return input.parts.map(promptPartFromInputPart)
   return input.prompt ?? ''
+}
+
+function promptPartFromInputPart(part: InputPart): PromptInputPart {
+  if (part.type === 'text' || part.type === 'image') return part
+  if (part.content !== undefined || part.path !== undefined) {
+    throw new ValidationError(
+      'Tangle Sandbox file prompt parts require a URL; inline content and local paths are not representable',
+    )
+  }
+  if (!part.filename || !part.url) {
+    throw new ValidationError('Tangle Sandbox file prompt parts require both filename and URL')
+  }
+  return {
+    type: 'file',
+    filename: part.filename,
+    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+    url: part.url,
+  }
 }
 
 function promptOptionsFromTurnInput(input: AgentTurnInput): PromptOptions {
@@ -915,37 +1028,6 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-type PromptResultCompatInput = {
-  response?: string
-  success: boolean
-  error?: string
-  traceId?: string
-  durationMs: number
-  usage?: PromptResult['usage']
-}
-
-function promptResultCompat(
-  input: PromptResultCompatInput,
-  status: 'success' | 'failed',
-): PromptResult {
-  // sandbox 0.8 omitted `status`; sandbox 0.9 requires it. Emit it at runtime
-  // while keeping this adapter type-checkable across the supported peer range.
-  return { ...input, status } as unknown as PromptResult
-}
-
-function promptResultFromAgentTurnResult(result: AgentTurnResult): PromptResult {
-  return promptResultCompat(
-    {
-      response: result.text,
-      success: result.success,
-      durationMs: 0,
-      ...(result.error ? { error: result.error } : {}),
-      ...(result.usage ? { usage: result.usage } : {}),
-    },
-    result.success ? 'success' : 'failed',
-  )
-}
-
 function agentTurnResultFromPromptResult(result: PromptResult): AgentTurnResult {
   const record = result as unknown as Record<string, unknown>
   const text =
@@ -1057,10 +1139,12 @@ function placementInfoFromLoopPlacement(
   }
 }
 
-function defaultTangleSandboxCapabilities(): AgentEnvironmentCapabilities {
+function defaultTangleSandboxCapabilities(options: {
+  namedProfiles: boolean
+}): AgentEnvironmentCapabilities {
   return {
     profile: {
-      namedProfiles: true,
+      namedProfiles: options.namedProfiles,
       systemPrompt: true,
       instructions: true,
       tools: true,
@@ -1129,7 +1213,7 @@ function hasList(
 }
 
 function hasDispatchPrompt(box: SandboxInstance): box is SandboxInstance & {
-  dispatchPrompt(message: string | InputPart[], options?: PromptOptions): Promise<unknown>
+  dispatchPrompt(message: string | PromptInputPart[], options?: PromptOptions): Promise<unknown>
 } {
   return typeof (box as { dispatchPrompt?: unknown }).dispatchPrompt === 'function'
 }
@@ -1163,6 +1247,6 @@ interface SandboxSessionLike {
   status(): Promise<unknown | null>
   events(options?: { since?: string; signal?: AbortSignal }): AsyncIterable<SandboxEvent>
   result(): Promise<PromptResult>
-  prompt(message: string | InputPart[], options?: PromptOptions): Promise<PromptResult>
-  cancel(): Promise<void>
+  prompt(message: string | PromptInputPart[], options?: PromptOptions): Promise<PromptResult>
+  interrupt(): Promise<unknown>
 }

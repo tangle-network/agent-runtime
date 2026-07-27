@@ -762,11 +762,7 @@ async function disposeExecutor(
     cleanupDeadlineAtMs,
     'candidate execution resource disposal',
   )
-  if (
-    !disposed ||
-    disposed.disposed !== true ||
-    Object.keys(disposed).some((key) => key !== 'disposed')
-  ) {
+  if (disposed?.disposed !== true || Object.keys(disposed).some((key) => key !== 'disposed')) {
     throw new Error('candidate executor did not acknowledge resource disposal')
   }
 }

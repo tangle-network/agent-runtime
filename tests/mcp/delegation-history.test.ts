@@ -123,6 +123,8 @@ describe('createDelegationHistoryHandler', () => {
     const handler = createDelegationHistoryHandler({ queue })
     const recent = await handler({ since: cutoff })
     expect(recent.delegations.length).toBe(1)
-    expect((recent.delegations[0]?.args as { goal: string }).goal).toBe('g2')
+    const [delegation] = recent.delegations
+    if (delegation === undefined) throw new Error('expected the recent delegation')
+    expect((delegation.args as { goal: string }).goal).toBe('g2')
   })
 })

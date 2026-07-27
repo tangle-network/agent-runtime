@@ -19,6 +19,7 @@ import type {
   AgentCandidateRunCell,
   AgentImprovementActivation,
   AgentImprovementActivationIntent,
+  AgentImprovementEvaluation,
   AgentImprovementMeasuredComparison,
   AgentImprovementProposal,
   AgentImprovementReview,
@@ -33,6 +34,7 @@ import {
   agentImprovementActivationSchema,
   agentImprovementProposalSchema,
   agentImprovementReviewSchema,
+  agentProfileImprovementMeasuredComparisonSchema,
   candidateExecutionEvidenceSchema,
 } from '@tangle-network/agent-interface'
 import { materializeCandidateProfile } from '@tangle-network/agent-profile-materialize'
@@ -77,6 +79,8 @@ import {
   assertAgentImprovementActivationTargets,
   buildAgentImprovementActivationTargets,
   deriveChangedSurfaces,
+  profileImprovementChangedSurfaces,
+  sameAgentImprovementSurfaceSet,
 } from './improvement-surfaces'
 import {
   assertNoCallerOptimizationReceipt,
@@ -87,6 +91,7 @@ import {
 
 export type {
   AgentImprovementActivation,
+  AgentImprovementEvaluation,
   AgentImprovementMeasuredComparison,
   AgentImprovementProposal,
   AgentImprovementReview,
@@ -147,7 +152,7 @@ export class AgentCandidateExperimentCellExecutionError extends Error {
 export interface CreateAgentImprovementProposalOptions {
   runId: string
   findings: readonly AnalystFinding[]
-  evaluation: AgentImprovementMeasuredComparison
+  evaluation: AgentImprovementEvaluation
   now?: () => Date
 }
 
@@ -442,17 +447,10 @@ export function createAgentImprovementProposal(
     [...options.findings],
     'createAgentImprovementProposal findings',
   )
-  const evaluation = verifyCandidateExperimentComparison(options.evaluation)
-  optimizationActivationReceiptFromMetadata(evaluation.metadata)
-  if (evaluation.decision.outcome !== 'ship') {
-    throw new Error('agent improvement proposal requires a passing experiment')
-  }
-  if (options.runId !== evaluation.provenance.runId) {
-    throw new Error('proposal runId does not match its measured experiment')
-  }
-  const changedSurfaces = deriveChangedSurfaces(
-    evaluation.experiment.baseline,
-    evaluation.experiment.candidate,
+  const { evaluation, changedSurfaces } = validateShippableAgentImprovementEvaluation(
+    options.evaluation,
+    options.runId,
+    'agent improvement proposal',
   )
   return agentImprovementProposalSchema.parse(
     canonicalCandidateDocument<AnalystImprovementProposal>({
@@ -525,7 +523,7 @@ export function createAgentImprovementActivation(
       proposalDigest: proposal.digest,
       reviewDigest: review.digest,
       experimentDigest: experiment.digest,
-      candidateBundleDigest: experiment.candidate.digest,
+      candidateDigest: measuredCandidateDigest(proposal),
       intent: options.intent,
       targets,
       fundingOwner: options.fundingOwner,
@@ -542,23 +540,75 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
     agentImprovementProposalSchema.parse(input),
     'agent improvement proposal',
   )
-  const evaluation = verifyCandidateExperimentComparison(proposal.evaluation)
-  optimizationActivationReceiptFromMetadata(evaluation.metadata)
-  if (evaluation.decision.outcome !== 'ship') {
-    throw new Error('agent improvement proposal does not contain a passing experiment')
-  }
-  if (proposal.runId !== evaluation.provenance.runId) {
-    throw new Error('proposal runId does not match its measured experiment')
-  }
-  const changedSurfaces = deriveChangedSurfaces(
-    evaluation.experiment.baseline,
-    evaluation.experiment.candidate,
+  const { changedSurfaces } = validateShippableAgentImprovementEvaluation(
+    proposal.evaluation,
+    proposal.runId,
+    'agent improvement proposal',
   )
-  if (!sameOrderedValues(proposal.changedSurfaces, changedSurfaces)) {
+  const changedSurfacesMatch =
+    proposal.evaluation.kind === 'agent-profile-improvement-measured-comparison'
+      ? sameAgentImprovementSurfaceSet(proposal.changedSurfaces, changedSurfaces)
+      : sameOrderedValues(proposal.changedSurfaces, changedSurfaces)
+  if (!changedSurfacesMatch) {
     throw new Error('proposal changed surfaces do not match its exact experiment')
   }
   assertNoJudgeDerivedProposalFindings(proposal.findings)
   return proposal
+}
+
+/** Return a sealed bundle experiment; ordinary profile changes need a product-owned executor. */
+export function requireSealedCandidateExperiment(
+  proposal: AgentImprovementProposal,
+): AgentCandidateExperiment {
+  if (proposal.evaluation.kind !== 'agent-improvement-measured-comparison') {
+    throw new Error(
+      'agent profile improvement activation requires a product profile-diff executor, not a sealed candidate bundle',
+    )
+  }
+  return proposal.evaluation.experiment
+}
+
+function measuredCandidateDigest(proposal: AgentImprovementProposal): Sha256Digest {
+  return proposal.evaluation.kind === 'agent-profile-improvement-measured-comparison'
+    ? proposal.evaluation.experiment.candidate.stateDigest
+    : proposal.evaluation.experiment.candidate.digest
+}
+
+function validateShippableAgentImprovementEvaluation(
+  input: unknown,
+  runId: string,
+  subject: string,
+): {
+  evaluation: AgentImprovementEvaluation
+  changedSurfaces: AgentImprovementProposal['changedSurfaces']
+} {
+  const evaluation = verifyAgentImprovementEvaluation(input)
+  if (evaluation.decision.outcome !== 'ship') {
+    throw new Error(`${subject} requires a passing experiment`)
+  }
+  if (runId !== evaluation.provenance.runId) {
+    throw new Error('proposal runId does not match its measured experiment')
+  }
+  const changedSurfaces =
+    evaluation.kind === 'agent-profile-improvement-measured-comparison'
+      ? profileImprovementChangedSurfaces(evaluation.experiment.change)
+      : deriveChangedSurfaces(evaluation.experiment.baseline, evaluation.experiment.candidate)
+  return { evaluation, changedSurfaces }
+}
+
+/** Use each owning package's complete measurement validator before a proposal is persisted. */
+function verifyAgentImprovementEvaluation(input: unknown): AgentImprovementEvaluation {
+  if (
+    typeof input === 'object' &&
+    input !== null &&
+    'kind' in input &&
+    input.kind === 'agent-profile-improvement-measured-comparison'
+  ) {
+    return agentProfileImprovementMeasuredComparisonSchema.parse(input)
+  }
+  const evaluation = verifyCandidateExperimentComparison(input)
+  optimizationActivationReceiptFromMetadata(evaluation.metadata)
+  return evaluation
 }
 
 /** Validate the canonical identity and wire shape of an improvement review. */
@@ -588,7 +638,7 @@ export function verifyAgentImprovementActivation(input: {
     activation.proposalDigest !== proposal.digest ||
     activation.reviewDigest !== review.digest ||
     activation.experimentDigest !== experiment.digest ||
-    activation.candidateBundleDigest !== experiment.candidate.digest ||
+    activation.candidateDigest !== measuredCandidateDigest(proposal) ||
     Date.parse(review.reviewedAt) < Date.parse(proposal.proposedAt) ||
     Date.parse(activation.authorizedAt) < Date.parse(review.reviewedAt)
   ) {

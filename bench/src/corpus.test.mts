@@ -109,12 +109,25 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   assert.equal(r0?.commitSha, 'abc123')
   assert.equal(r0?.tokenUsage.input, 100, 'real tokens carried (not zeroed)')
   assert.equal(r0?.costUsd, 0.01, 'real cost carried')
+  assert.deepEqual(r0?.costProvenance, { kind: 'observed', usd: 0.01 }, 'reported cost remains observed')
+  assert.equal(r0?.terminalOutcome, 'succeeded', 'failed task quality is not an execution failure')
   assert.equal(r0?.prompt, 'q0', 'verbatim prompt survives the validator')
   assert.equal(r0?.completion, 'alpha', 'verbatim completion survives the validator')
   assert.equal(r0?.outcome.searchScore, 0, 'search split → searchScore from attempt score')
   assert.equal(r0?.outcome.raw.valid, 0)
   assert.equal(r1?.outcome.raw.valid, 1)
   assert.notEqual(r0?.runId, r1?.runId, 'per-attempt runIds are distinct')
+}
+
+// --- attempt error is execution state, not a fabricated zero-quality label ---
+{
+  const { records, unmappable } = await benchRecordToCorpusRecords(
+    baseRec([{ ...measuredAttempt(0, 'partial output', false), error: 'provider disconnected' }]),
+    { commitSha: 'abc123', model: 'gpt-5-2025-08-07' },
+  )
+  assert.equal(unmappable.length, 0)
+  assert.equal(records[0]?.terminalOutcome, 'failed')
+  assert.equal(records[0]?.outcome.searchScore, 0, 'task quality remains independently recorded')
 }
 
 // --- unmeasured economics → unmappable, never forged with phantom zeros ---

@@ -21,6 +21,7 @@ import type {
   AgentCandidateWorkspacePlan,
   HarnessId,
 } from '@tangle-network/agent-profile-materialize'
+import { isMaterializerHarness } from '@tangle-network/agent-profile-materialize'
 
 import {
   canonicalCandidateBytes,
@@ -32,28 +33,13 @@ import {
   sha256Bytes,
 } from './digest'
 
-const MATERIALIZER_HARNESSES = new Set<HarnessType>([
-  'claude-code',
-  'claude',
-  'claudish',
-  'nanoclaw',
-  'codex',
-  'opencode',
-  'kimi-code',
-  'kimi',
-  'pi',
-  'gemini',
-  'hermes',
-  'openclaw',
-])
-
 export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
-  if (!MATERIALIZER_HARNESSES.has(harness)) {
+  if (!isMaterializerHarness(harness)) {
     throw new Error(
       `sealed candidate profile materialization is unsupported for harness ${harness}`,
     )
   }
-  return harness as HarnessId
+  return harness
 }
 
 /** Bind exact native profile text to the canonical plan captured during preparation. */

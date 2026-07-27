@@ -34,6 +34,7 @@ import {
   agentImprovementTargetInput,
   deriveChangedSurfaces,
 } from '../src/intelligence/improvement-surfaces'
+import { prepareAgentImprovementProfileActivation } from '../src/intelligence/profile-activation'
 import {
   candidateBundle,
   candidateSha,
@@ -51,6 +52,7 @@ import {
   improvementFinding as finding,
   improvementOptions,
 } from './helpers/improvement-method-fixture'
+import { createProfileImprovementFixture } from './helpers/profile-improvement-fixture'
 
 afterEach(() => {
   cleanupCandidateExperimentFixtures()
@@ -62,6 +64,192 @@ afterEach(() => {
 // file one scheduling hiccup from red regardless of what changed. Size the timeout to the work
 // these tests actually do rather than leaving them at the edge of the default.
 describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
+  it('applies and restores an opaque profile improvement through the shared activation path', async () => {
+    const fixture = createProfileImprovementFixture()
+    const proposal = createAgentImprovementProposal({
+      runId: 'profile-improvement-1',
+      findings: [finding],
+      evaluation: fixture.evaluation,
+      now: () => new Date('2026-07-24T00:00:00.000Z'),
+    })
+    const experiment = proposal.evaluation.experiment
+    if (proposal.evaluation.kind !== 'agent-profile-improvement-measured-comparison') {
+      throw new Error('expected profile improvement proposal')
+    }
+    expect(verifyAgentImprovementProposal(proposal)).toEqual(proposal)
+    expect(experiment.baseline).toEqual({ stateDigest: experiment.baseline.stateDigest })
+    expect(experiment.candidate).toEqual({ stateDigest: experiment.candidate.stateDigest })
+    const { digest: _proposalDigest, ...proposalMaterial } = proposal
+    const reorderedProposalMaterial = {
+      ...proposalMaterial,
+      changedSurfaces: ['skills', 'prompt'] as const,
+    }
+    const reorderedProposal = {
+      ...reorderedProposalMaterial,
+      digest: canonicalCandidateDigest(reorderedProposalMaterial),
+    }
+    expect(verifyAgentImprovementProposal(reorderedProposal)).toEqual(reorderedProposal)
+
+    const review = reviewAgentImprovementProposal(proposal, {
+      decision: 'approve',
+      reviewedBy: 'operator@example.com',
+      reason: 'The exact profile change passed paired held-out work.',
+      now: () => new Date('2026-07-24T00:01:00.000Z'),
+    })
+    const activate = createAgentImprovementActivation(proposal, review, {
+      intent: 'activate-candidate',
+      targets: [
+        { surface: 'prompt', identity: 'tenant/default/profile' },
+        { surface: 'skills', identity: 'tenant/default/profile' },
+      ],
+      fundingOwner: 'tenant/default',
+      authorizedBy: 'operator@example.com',
+      expiresAt: '2026-07-24T00:10:00.000Z',
+      now: () => new Date('2026-07-24T00:02:00.000Z'),
+    })
+    expect(verifyAgentImprovementActivation({ proposal, review, activation: activate })).toEqual(
+      activate,
+    )
+    expect(() =>
+      createAgentImprovementActivation(proposal, review, {
+        intent: 'activate-candidate',
+        targets: [
+          { surface: 'prompt', identity: 'tenant/default/profile-a' },
+          { surface: 'skills', identity: 'tenant/default/profile-b' },
+        ],
+        fundingOwner: 'tenant/default',
+        authorizedBy: 'operator@example.com',
+        expiresAt: '2026-07-24T00:10:00.000Z',
+        now: () => new Date('2026-07-24T00:02:00.000Z'),
+      }),
+    ).toThrow('profile improvement activation targets must name one profile identity')
+    const { digest: _activationDigest, ...activationMaterial } = activate
+    const [promptTarget, skillsTarget] = activate.targets
+    if (!skillsTarget) throw new Error('expected profile activation targets')
+    const splitActivationMaterial = {
+      ...activationMaterial,
+      targets: [promptTarget, { ...skillsTarget, identity: 'tenant/default/profile-b' }],
+    }
+    const splitActivation = {
+      ...splitActivationMaterial,
+      digest: canonicalCandidateDigest(splitActivationMaterial),
+    }
+    expect(() =>
+      verifyAgentImprovementActivation({ proposal, review, activation: splitActivation }),
+    ).toThrow('profile improvement activation targets must name one profile identity')
+
+    let currentProfile = fixture.baselineProfile
+    const applyResult = await executeAgentImprovementActivation(
+      { proposal, review, activation: activate },
+      {
+        transition: async (input) => {
+          expect(input.kind).toBe('profile-improvement')
+          if (input.kind !== 'profile-improvement') throw new Error('expected profile transition')
+          expect('candidateBundle' in input).toBe(false)
+          expect('bundle' in input).toBe(false)
+          expect(input.experiment.baseline).toEqual({
+            stateDigest: experiment.baseline.stateDigest,
+          })
+          expect(input.sourceStateDigest).toBe(experiment.baseline.stateDigest)
+          expect(input.desiredStateDigest).toBe(experiment.candidate.stateDigest)
+          expect(input.operation).toEqual({
+            kind: 'apply-change',
+            changes: experiment.change,
+          })
+          const prepared = prepareAgentImprovementProfileActivation({
+            currentByIdentity: new Map([['tenant/default/profile', currentProfile]]),
+            profileTransition: input,
+            stateDigest: ({ profile }) => fixture.stateDigest(profile),
+          })
+          expect(prepared.status).toBe('apply')
+          if (prepared.status !== 'apply') throw new Error('expected profile replacement')
+          expect(prepared.replacements).toEqual([
+            { identity: 'tenant/default/profile', profile: fixture.candidateProfile },
+          ])
+          currentProfile = prepared.replacements[0].profile
+          return createAgentImprovementActivationResult(input, {
+            completedAt: '2026-07-24T00:03:00.000Z',
+            outcome: {
+              status: 'applied',
+              transactionId: 'profile-version:8',
+              targets: prepared.targets,
+            },
+          })
+        },
+        now: () => new Date('2026-07-24T00:03:00.000Z'),
+      },
+    )
+    expect(applyResult.outcome.status).toBe('applied')
+    expect(fixture.stateDigest(currentProfile)).toBe(experiment.candidate.stateDigest)
+
+    const restore = createAgentImprovementActivation(proposal, review, {
+      intent: 'restore-baseline',
+      targets: [
+        { surface: 'prompt', identity: 'tenant/default/profile' },
+        { surface: 'skills', identity: 'tenant/default/profile' },
+      ],
+      fundingOwner: 'tenant/default',
+      authorizedBy: 'operator@example.com',
+      expiresAt: '2026-07-24T00:12:00.000Z',
+      now: () => new Date('2026-07-24T00:04:00.000Z'),
+    })
+    const restoreResult = await executeAgentImprovementActivation(
+      { proposal, review, activation: restore },
+      {
+        transition: async (input) => {
+          expect(input.kind).toBe('profile-improvement')
+          if (input.kind !== 'profile-improvement') throw new Error('expected profile transition')
+          expect(input.sourceStateDigest).toBe(experiment.candidate.stateDigest)
+          expect(input.desiredStateDigest).toBe(experiment.baseline.stateDigest)
+          expect(input.operation).toEqual({ kind: 'restore-state' })
+          const unavailable = prepareAgentImprovementProfileActivation({
+            currentByIdentity: new Map([['tenant/default/profile', currentProfile]]),
+            profileTransition: input,
+            stateDigest: ({ profile }) => fixture.stateDigest(profile),
+          })
+          expect(unavailable).toMatchObject({
+            status: 'unavailable',
+            code: 'PROFILE_STATE_UNAVAILABLE',
+            requiredStateDigest: experiment.baseline.stateDigest,
+          })
+          const prepared = prepareAgentImprovementProfileActivation({
+            currentByIdentity: new Map([['tenant/default/profile', currentProfile]]),
+            profileTransition: input,
+            stateDigest: ({ profile }) => fixture.stateDigest(profile),
+            resolveState: ({ stateDigest }) =>
+              stateDigest === experiment.baseline.stateDigest ? fixture.baselineProfile : undefined,
+          })
+          expect(prepared.status).toBe('apply')
+          if (prepared.status !== 'apply') throw new Error('expected profile restoration')
+          expect(prepared.replacements).toEqual([
+            { identity: 'tenant/default/profile', profile: fixture.baselineProfile },
+          ])
+          currentProfile = prepared.replacements[0].profile
+          return createAgentImprovementActivationResult(input, {
+            completedAt: '2026-07-24T00:05:00.000Z',
+            outcome: {
+              status: 'applied',
+              transactionId: 'profile-version:7',
+              targets: prepared.targets,
+            },
+          })
+        },
+        now: () => new Date('2026-07-24T00:05:00.000Z'),
+      },
+    )
+
+    expect(restoreResult.outcome.status).toBe('applied')
+    expect(fixture.stateDigest(currentProfile)).toBe(experiment.baseline.stateDigest)
+    expect(
+      verifyAgentImprovementActivationResult({
+        proposal,
+        review,
+        activation: restore,
+        result: restoreResult,
+      }),
+    ).toEqual(restoreResult)
+  })
+
   it('runs analysis through exact activation using only public inputs', async () => {
     const seed = createCandidateExperimentFixture()
     const profile = agentCandidateProfileAsAgentProfile(seed.experiment.baseline.profile)

@@ -34,7 +34,8 @@ import {
 } from './strategy'
 import type { SelectionReceipt } from './types'
 
-type Msg = Record<string, unknown>
+/** Provider-neutral conversation records read by structural candidate extraction. */
+export type StructuralRolloutMessage = Record<string, unknown>
 
 // ── Policy ────────────────────────────────────────────────────────────────────────
 
@@ -400,7 +401,7 @@ const passesAllChecks = (o: CheckOutcome) =>
  *  latest assistant reply's fenced code block — preferring a block containing a `def`,
  *  because repair replies echo the failure report in a bare fence BEFORE the fixed code
  *  (the rigs' extractRepairCode lesson) — else the latest non-empty assistant text. */
-export function defaultExtractCandidate(messages: ReadonlyArray<Msg>): string {
+export function defaultExtractCandidate(messages: ReadonlyArray<StructuralRolloutMessage>): string {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const calls = messages[i]?.tool_calls as
       | Array<{ function?: { name?: string; arguments?: string } }>
@@ -511,7 +512,7 @@ export interface StructuralRolloutConfig {
    *  who owns one supplies it here or binds it into the runner. */
   box?: CheckExecChannel
   /** Candidate extraction from a shot's conversation. Default `defaultExtractCandidate`. */
-  extractCandidate?: (messages: ReadonlyArray<Msg>) => string
+  extractCandidate?: (messages: ReadonlyArray<StructuralRolloutMessage>) => string
 }
 
 /**
@@ -562,7 +563,7 @@ export function structuralRollout(
 
       interface Candidate {
         index: number
-        messages: Msg[]
+        messages: StructuralRolloutMessage[]
         artifact: string
         outcome: CheckOutcome
         shotScore: number

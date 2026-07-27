@@ -157,7 +157,7 @@ function refEval(expr: string, d: Dialect): { ok: true; value: number } | { ok: 
       p++
       const v = parseExpr(0)
       const r = peek()
-      if (!r || r.k !== 'rp') {
+      if (r?.k !== 'rp') {
         failed = true
         return 0
       }
@@ -175,7 +175,7 @@ function refEval(expr: string, d: Dialect): { ok: true; value: number } | { ok: 
     let left = parseAtom()
     for (;;) {
       const t = peek()
-      if (!t || t.k !== 'op') break
+      if (t?.k !== 'op') break
       const pr = prec[t.v]
       if (pr === undefined || pr < minPrec) break
       p++

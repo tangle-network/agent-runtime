@@ -172,12 +172,10 @@ export async function runIntelligenceWebcode(client: SandboxClient): Promise<voi
 
 // Run it live — mirrors ../webcode-matrix's client wiring.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { SandboxClient } = (await import('@tangle-network/sandbox')) as {
-    SandboxClient: new (o: { apiKey: string; baseUrl: string }) => SandboxClient
-  }
+  const { Sandbox } = await import('@tangle-network/sandbox')
   const apiKey = process.env.SANDBOX_API_KEY
   if (!apiKey) throw new Error('SANDBOX_API_KEY required')
-  const client = new SandboxClient({
+  const client = new Sandbox({
     apiKey,
     baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
   })

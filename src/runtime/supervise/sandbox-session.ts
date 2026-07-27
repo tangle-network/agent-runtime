@@ -29,12 +29,8 @@
  * @experimental
  */
 
-import type {
-  AgentProfile,
-  BackendType,
-  PromptOptions,
-  SandboxEvent,
-} from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { BackendType, PromptOptions, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import { probeSandboxCapabilities } from '../sandbox-capabilities'
 import { extractLlmCallEvent } from '../sandbox-events'

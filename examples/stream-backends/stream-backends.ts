@@ -53,7 +53,7 @@ interface SandboxBox {
   streamPrompt(message: string): AsyncIterable<SandboxEvent>
 }
 
-// A synthetic box. In production this is `new SandboxClient(...).get(id)`;
+// A synthetic box. In production this is `new Sandbox(...).get(id)`;
 // the wire shape stays identical.
 const syntheticBox: SandboxBox = {
   id: 'sandbox-demo-123',

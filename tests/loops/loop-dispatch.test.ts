@@ -1,11 +1,7 @@
 import { CostLedger } from '@tangle-network/agent-eval'
 import type { CampaignCostMeter, DispatchContext } from '@tangle-network/agent-eval/campaign'
-import type {
-  CreateSandboxOptions,
-  AgentProfile as SandboxAgentProfile,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+import type { AgentProfile as SandboxAgentProfile } from '@tangle-network/agent-interface'
+import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,

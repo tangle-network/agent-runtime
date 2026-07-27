@@ -1,5 +1,6 @@
 import type {
   AgentCandidateBundle,
+  AgentCandidateExperiment,
   AgentImprovementActivation,
   AgentImprovementActivationOutcome,
   AgentImprovementActivationResult,
@@ -7,11 +8,14 @@ import type {
   AgentImprovementProposal,
   AgentImprovementReview,
   AgentImprovementSurface,
+  AgentProfileImprovementChange,
+  AgentProfileImprovementExperiment,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
   agentImprovementActivationResultSchema,
   agentImprovementActivationSchema,
+  agentProfileImprovementExperimentSchema,
 } from '@tangle-network/agent-interface'
 
 import {
@@ -21,10 +25,15 @@ import {
   verifyCanonicalCandidateDocument,
 } from '../candidate-execution/digest'
 import {
+  requireSealedCandidateExperiment,
   verifyAgentImprovementActivation,
   verifyAgentImprovementProposal,
 } from './improvement-cycle'
-import { agentImprovementTargetDigest, agentImprovementTargetInput } from './improvement-surfaces'
+import {
+  agentImprovementTargetDigest,
+  agentImprovementTargetInput,
+  agentProfileImprovementStateDigest,
+} from './improvement-surfaces'
 
 export interface CreateAgentImprovementActivationResultOptions {
   completedAt: string
@@ -41,7 +50,24 @@ export interface AgentImprovementActivationTargetPlan extends AgentImprovementAc
   desiredInput: unknown
 }
 
-export interface AgentImprovementActivationTransitionInput {
+export type AgentProfileImprovementActivationOperation =
+  | {
+      kind: 'apply-change'
+      changes: AgentProfileImprovementChange
+    }
+  | {
+      /** The product must load its own saved state at `desiredStateDigest`. */
+      kind: 'restore-state'
+    }
+
+export interface AgentProfileImprovementActivationTargetPlan
+  extends AgentImprovementActivationTarget {
+  desiredDigest: Sha256Digest
+  desiredInput: AgentProfileImprovementActivationOperation
+}
+
+export interface SealedCandidateActivationTransitionInput {
+  kind: 'sealed-candidate'
   activation: AgentImprovementActivation
   candidateBundle: AgentCandidateBundle
   bundle: AgentCandidateBundle
@@ -49,6 +75,29 @@ export interface AgentImprovementActivationTransitionInput {
   attemptedAt: string
   expired: boolean
 }
+
+/**
+ * A measured profile change without raw profile bytes.
+ * The product owns the private state lookup and atomic write.
+ */
+export interface ProfileImprovementActivationTransitionInput {
+  kind: 'profile-improvement'
+  activation: AgentImprovementActivation
+  experiment: AgentProfileImprovementExperiment
+  sourceStateDigest: Sha256Digest
+  desiredStateDigest: Sha256Digest
+  operation: AgentProfileImprovementActivationOperation
+  targets: [
+    AgentProfileImprovementActivationTargetPlan,
+    ...AgentProfileImprovementActivationTargetPlan[],
+  ]
+  attemptedAt: string
+  expired: boolean
+}
+
+export type AgentImprovementActivationTransitionInput =
+  | SealedCandidateActivationTransitionInput
+  | ProfileImprovementActivationTransitionInput
 
 export interface AgentImprovementActivationResultStore {
   load(idempotencyKey: Sha256Digest): Promise<unknown | undefined>
@@ -145,25 +194,22 @@ export async function executeAgentImprovementActivation(
 ): Promise<AgentImprovementActivationResult> {
   const proposal = verifyAgentImprovementProposal(input.proposal)
   const activation = verifyAgentImprovementActivation(input)
-  const experiment = proposal.evaluation.experiment
-  const targetArm = activation.intent === 'activate-candidate' ? 'candidate' : 'baseline'
   const observedAt = (options.now ?? (() => new Date()))().toISOString()
   const attemptedAt =
     Date.parse(observedAt) < Date.parse(activation.authorizedAt)
       ? activation.authorizedAt
       : observedAt
-  const transition = immutableCandidateValue<AgentImprovementActivationTransitionInput>({
-    activation,
-    candidateBundle: experiment.candidate,
-    bundle: experiment[targetArm],
-    targets: activation.targets.map((target) => ({
-      ...target,
-      desiredDigest: agentImprovementTargetDigest(experiment, targetArm, target.surface),
-      desiredInput: agentImprovementTargetInput(experiment[targetArm], target.surface),
-    })) as AgentImprovementActivationTransitionInput['targets'],
-    attemptedAt,
-    expired: Date.parse(attemptedAt) >= Date.parse(activation.expiresAt),
-  })
+  const expired = Date.parse(attemptedAt) >= Date.parse(activation.expiresAt)
+  const transition = immutableCandidateValue<AgentImprovementActivationTransitionInput>(
+    proposal.evaluation.kind === 'agent-improvement-measured-comparison'
+      ? sealedCandidateTransition(proposal.evaluation.experiment, activation, attemptedAt, expired)
+      : profileImprovementTransition(
+          proposal.evaluation.experiment,
+          activation,
+          attemptedAt,
+          expired,
+        ),
+  )
 
   if (transition.expired) {
     if (!options.reconcile) {
@@ -201,6 +247,63 @@ export async function executeAgentImprovementActivation(
   }
 }
 
+function sealedCandidateTransition(
+  experiment: AgentCandidateExperiment,
+  activation: AgentImprovementActivation,
+  attemptedAt: string,
+  expired: boolean,
+): SealedCandidateActivationTransitionInput {
+  const targetArm = activation.intent === 'activate-candidate' ? 'candidate' : 'baseline'
+  return {
+    kind: 'sealed-candidate',
+    activation,
+    candidateBundle: experiment.candidate,
+    bundle: experiment[targetArm],
+    targets: activation.targets.map((target) => ({
+      ...target,
+      desiredDigest: agentImprovementTargetDigest(experiment, targetArm, target.surface),
+      desiredInput: agentImprovementTargetInput(experiment[targetArm], target.surface),
+    })) as SealedCandidateActivationTransitionInput['targets'],
+    attemptedAt,
+    expired,
+  }
+}
+
+function profileImprovementTransition(
+  experiment: AgentProfileImprovementExperiment,
+  activation: AgentImprovementActivation,
+  attemptedAt: string,
+  expired: boolean,
+): ProfileImprovementActivationTransitionInput {
+  const sourceArm = activation.intent === 'activate-candidate' ? 'baseline' : 'candidate'
+  const targetArm = activation.intent === 'activate-candidate' ? 'candidate' : 'baseline'
+  const operation = profileImprovementOperation(experiment, activation.intent)
+  return {
+    kind: 'profile-improvement',
+    activation,
+    experiment,
+    sourceStateDigest: agentProfileImprovementStateDigest(experiment, sourceArm),
+    desiredStateDigest: agentProfileImprovementStateDigest(experiment, targetArm),
+    operation,
+    targets: activation.targets.map((target) => ({
+      ...target,
+      desiredDigest: agentProfileImprovementStateDigest(experiment, targetArm),
+      desiredInput: operation,
+    })) as ProfileImprovementActivationTransitionInput['targets'],
+    attemptedAt,
+    expired,
+  }
+}
+
+function profileImprovementOperation(
+  experiment: AgentProfileImprovementExperiment,
+  intent: AgentImprovementActivation['intent'],
+): AgentProfileImprovementActivationOperation {
+  return intent === 'activate-candidate'
+    ? { kind: 'apply-change', changes: experiment.change }
+    : { kind: 'restore-state' }
+}
+
 function uncertainActivationResult(
   transition: AgentImprovementActivationTransitionInput,
   code: string,
@@ -219,24 +322,76 @@ function assertTransitionInput(
   activation: AgentImprovementActivation,
   transition: AgentImprovementActivationTransitionInput,
 ): void {
-  const authorized = targetMap(activation.targets)
-  const planned = targetMap(transition.targets)
+  if (transition.kind === 'sealed-candidate') {
+    assertSealedCandidateTransitionInput(activation, transition)
+    return
+  }
+  assertProfileImprovementTransitionInput(activation, transition)
+}
+
+function assertSealedCandidateTransitionInput(
+  activation: AgentImprovementActivation,
+  transition: SealedCandidateActivationTransitionInput,
+): void {
+  assertAuthorizedTransitionTargets(activation, transition.targets)
   const desiredInputsMatch = transition.targets.every(
     (target) =>
       canonicalCandidateDigest(target.desiredInput) ===
       canonicalCandidateDigest(agentImprovementTargetInput(transition.bundle, target.surface)),
   )
   if (
+    transition.expired !== Date.parse(transition.attemptedAt) >= Date.parse(activation.expiresAt) ||
+    transition.candidateBundle.digest !== activation.candidateDigest ||
+    !desiredInputsMatch ||
+    (activation.intent === 'activate-candidate' &&
+      transition.bundle.digest !== transition.candidateBundle.digest)
+  ) {
+    throw new Error('activation transition does not match its authorization')
+  }
+}
+
+function assertProfileImprovementTransitionInput(
+  activation: AgentImprovementActivation,
+  transition: ProfileImprovementActivationTransitionInput,
+): void {
+  assertAuthorizedTransitionTargets(activation, transition.targets)
+  const experiment = agentProfileImprovementExperimentSchema.parse(transition.experiment)
+  const sourceArm = activation.intent === 'activate-candidate' ? 'baseline' : 'candidate'
+  const targetArm = activation.intent === 'activate-candidate' ? 'candidate' : 'baseline'
+  const sourceStateDigest = agentProfileImprovementStateDigest(experiment, sourceArm)
+  const desiredStateDigest = agentProfileImprovementStateDigest(experiment, targetArm)
+  const operation = profileImprovementOperation(experiment, activation.intent)
+  const targetsMatch = transition.targets.every(
+    (target) =>
+      target.expectedBaseDigest === sourceStateDigest &&
+      target.desiredDigest === desiredStateDigest &&
+      canonicalCandidateDigest(target.desiredInput) === canonicalCandidateDigest(operation),
+  )
+  if (
+    transition.expired !== Date.parse(transition.attemptedAt) >= Date.parse(activation.expiresAt) ||
+    experiment.digest !== activation.experimentDigest ||
+    experiment.candidate.stateDigest !== activation.candidateDigest ||
+    transition.sourceStateDigest !== sourceStateDigest ||
+    transition.desiredStateDigest !== desiredStateDigest ||
+    canonicalCandidateDigest(transition.operation) !== canonicalCandidateDigest(operation) ||
+    !targetsMatch
+  ) {
+    throw new Error('activation transition does not match its authorization')
+  }
+}
+
+function assertAuthorizedTransitionTargets(
+  activation: AgentImprovementActivation,
+  targets: readonly AgentImprovementActivationTargetPlan[],
+): void {
+  const authorized = targetMap(activation.targets)
+  const planned = targetMap(targets)
+  if (
     authorized.size !== planned.size ||
     [...authorized.entries()].some(
       ([identity, target]) =>
         planned.get(identity)?.expectedBaseDigest !== target.expectedBaseDigest,
-    ) ||
-    transition.expired !== Date.parse(transition.attemptedAt) >= Date.parse(activation.expiresAt) ||
-    transition.candidateBundle.digest !== activation.candidateBundleDigest ||
-    !desiredInputsMatch ||
-    (activation.intent === 'activate-candidate' &&
-      transition.bundle.digest !== transition.candidateBundle.digest)
+    )
   ) {
     throw new Error('activation transition does not match its authorization')
   }
@@ -289,12 +444,20 @@ function assertResultDesiredState(
   result: AgentImprovementActivationResult,
 ): void {
   if (!('targets' in result.outcome)) return
-  const experiment = proposal.evaluation.experiment
   const targetArm = activation.intent === 'activate-candidate' ? 'candidate' : 'baseline'
+  const desiredStateDigest =
+    proposal.evaluation.kind === 'agent-profile-improvement-measured-comparison'
+      ? agentProfileImprovementStateDigest(proposal.evaluation.experiment, targetArm)
+      : undefined
   const desired = new Map(
     activation.targets.map((target) => [
       targetIdentity(target),
-      agentImprovementTargetDigest(experiment, targetArm, target.surface),
+      desiredStateDigest ??
+        agentImprovementTargetDigest(
+          requireSealedCandidateExperiment(proposal),
+          targetArm,
+          target.surface,
+        ),
     ]),
   )
   assertOutcomeDesiredState(activation, result, desired)

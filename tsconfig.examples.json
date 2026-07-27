@@ -3,19 +3,18 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
-    "baseUrl": ".",
     "paths": {
-      "@tangle-network/agent-runtime": ["src/index.ts"],
-      "@tangle-network/agent-runtime/agent": ["src/agent/index.ts"],
-      "@tangle-network/agent-runtime/intelligence": ["src/intelligence/index.ts"],
-      "@tangle-network/agent-runtime/loops": ["src/runtime/index.ts"],
+      "@tangle-network/agent-runtime": ["./src/index.ts"],
+      "@tangle-network/agent-runtime/agent": ["./src/agent/index.ts"],
+      "@tangle-network/agent-runtime/intelligence": ["./src/intelligence/index.ts"],
+      "@tangle-network/agent-runtime/loops": ["./src/runtime/index.ts"],
       "@tangle-network/agent-runtime/environment-provider": [
-        "src/runtime/environment-provider.ts"
+        "./src/runtime/environment-provider.ts"
       ],
-      "@tangle-network/agent-runtime/analyst-loop": ["src/analyst-loop/index.ts"],
-      "@tangle-network/agent-runtime/profiles": ["src/profiles/index.ts"],
-      "@tangle-network/agent-runtime/platform": ["src/platform/index.ts"],
-      "@tangle-network/agent-runtime/mcp": ["src/mcp/index.ts"]
+      "@tangle-network/agent-runtime/analyst-loop": ["./src/analyst-loop/index.ts"],
+      "@tangle-network/agent-runtime/profiles": ["./src/profiles/index.ts"],
+      "@tangle-network/agent-runtime/platform": ["./src/platform/index.ts"],
+      "@tangle-network/agent-runtime/mcp": ["./src/mcp/index.ts"]
     },
     "declaration": false,
     "declarationMap": false,

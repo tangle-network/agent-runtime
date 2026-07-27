@@ -39,10 +39,10 @@ describe('agents-of-all-shapes — one intelligence pipe, no sandbox', () => {
     const fleet = await toInsightReport(spansForRuns(Object.values(shapes).flat()))
     expect(fleet.composite.n).toBe(total)
     // The merged corpus carries failures from multiple frameworks; the
-    // model-free failureModes breakdown surfaces the dominant one.
-    expect(fleet.failureModes).toBeDefined()
-    expect(fleet.failureModes!.length).toBeGreaterThan(0)
-    expect(fleet.failureModes![0]!.count).toBeGreaterThan(0)
+    // model-free failure-class tally surfaces the dominant class.
+    expect(fleet.failureClasses).toBeDefined()
+    expect(fleet.failureClasses!.length).toBeGreaterThan(0)
+    expect(fleet.failureClasses![0]!.count).toBeGreaterThan(0)
   })
 
   it('derives a real cost from gen_ai.usage.cost_usd across shapes', async () => {

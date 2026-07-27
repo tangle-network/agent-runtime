@@ -46,11 +46,11 @@ async function agent(
   const paid = await ctx.cost.runPaidCall({
     channel: 'agent',
     actor: 'official-optimizer-test',
-    model: 'deterministic-test',
+    model: 'deterministic-test@2026-07-01',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
     execute: async () => ({ text: candidate.prompt?.systemPrompt ?? '' }),
     receipt: () => ({
-      model: 'deterministic-test',
+      model: 'deterministic-test@2026-07-01',
       inputTokens: 1,
       outputTokens: 1,
       actualCostUsd: 0.0001,
@@ -767,21 +767,24 @@ describe('official optimizer methods', () => {
           },
         }),
     ],
-  ] as const)('fails clearly instead of falling back when %s is unavailable', async (optimizer, installFragment, method) => {
-    await expect(
-      improve(profile, {
-        ...commonOptions(method()),
-      }),
-    ).rejects.toMatchObject({
-      name: 'OfficialOptimizerUnavailableError',
-      optimizer,
-      message: expect.stringMatching(
-        new RegExp(
-          `Runtime did not use a local fallback[\\s\\S]*${installFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+  ] as const)(
+    'fails clearly instead of falling back when %s is unavailable',
+    async (optimizer, installFragment, method) => {
+      await expect(
+        improve(profile, {
+          ...commonOptions(method()),
+        }),
+      ).rejects.toMatchObject({
+        name: 'OfficialOptimizerUnavailableError',
+        optimizer,
+        message: expect.stringMatching(
+          new RegExp(
+            `Runtime did not use a local fallback[\\s\\S]*${installFragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+          ),
         ),
-      ),
-    } satisfies Partial<OfficialOptimizerUnavailableError>)
-  })
+      } satisfies Partial<OfficialOptimizerUnavailableError>)
+    },
+  )
 
   it('does not relabel an unrelated optimizer process failure as a missing dependency', async () => {
     const method = officialGepa<OptimizerScenario, Artifact>({
