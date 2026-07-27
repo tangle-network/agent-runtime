@@ -35,10 +35,7 @@
     "src/mcp/bin.ts",
     "src/loop-runner-bin.ts"
   ],
-  "gitRevision": "main",
-  "sourceLinkTemplate": "https://github.com/tangle-network/agent-runtime/blob/{gitRevision}/src/{path}#L{line}",
-  "disableGit": true,
-  "disableSources": false,
+  "disableSources": true,
   "hideGenerator": true,
   "skipErrorChecking": true,
   "sort": [
