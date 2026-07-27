@@ -306,6 +306,7 @@ describe('PrimeIntellect trace import', () => {
     expect(record.costUsd).toBeCloseTo(0.06)
     expect(record.costProvenance?.kind).toBe('observed')
     expect(record.costProvenance?.usd).toBeCloseTo(0.06)
+    expect(record.terminalOutcome).toBe('succeeded')
     expect(record.wallMs).toBe(5_500)
   })
 
@@ -322,12 +323,31 @@ describe('PrimeIntellect trace import', () => {
     delete trace.nodes[2]!.usage!.cost
     const record = primeIntellectTraceToRunRecord(trace, importOptions)
 
-    expect(record.costUsd).toBe(0)
+    expect(record.costUsd).toBeNull()
     expect(record.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
+    expect(record.terminalOutcome).toBe('succeeded')
     expect(record.outcome.raw).toMatchObject({
       'prime.cost_complete': 0,
       'prime.reported_cost_usd': 0.04,
     })
+  })
+
+  it('keeps root completion separate from task scores', () => {
+    const incomplete = primeIntellectTraceToRunRecord(
+      { ...primeTrace(), is_completed: false },
+      importOptions,
+    )
+    expect(incomplete.terminalOutcome).toBe('incomplete')
+
+    const failed = primeIntellectTraceToRunRecord(
+      {
+        ...primeTrace(),
+        errors: [{ type: 'worker', message: 'process exited 1' }],
+      },
+      importOptions,
+    )
+    expect(failed.terminalOutcome).toBe('failed')
+    expect(failed.terminalFailureReason).toBe('worker:process exited 1')
   })
 
   it('rejects malformed graph nodes and usage instead of undercounting them', () => {

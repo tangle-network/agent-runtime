@@ -359,7 +359,7 @@ type CertifiedArtifactWithIndex = CertifiedArtifact & { index: number }
  * Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`.
  * `prompt-surface`/`skill` artifacts → `context`/inline capabilities (the
  * shipped fold, generalized); any other artifact type → best-effort binding
- * inference (see {@link inferCapability}). `promptSurface` is carried through so
+ * inference. `promptSurface` is carried through so
  * the resolver folds it first, exactly as `composeCertifiedPrompt` does today.
  * This delivers the spine against today's wire before the plane changes.
  */

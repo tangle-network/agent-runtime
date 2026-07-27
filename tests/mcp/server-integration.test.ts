@@ -5,6 +5,7 @@ import {
   createMcpServer,
   type JsonRpcResponse,
 } from '../../src/mcp/server'
+import { requireJsonRpcResult } from '../../src/mcp/test-helpers'
 
 const uiAuditorStub: UiAuditorDelegate = async (args) => ({
   workspaceDir: args.workspaceDir,
@@ -32,13 +33,17 @@ describe('createMcpServer — JSON-RPC surface', () => {
       serverInfo: { name: 'agent-runtime-mcp' },
     })
     const listed = await rpcCall(server, 'tools/list', {}, 1)
-    const names = (listed?.result as { tools: { name: string }[] }).tools.map((t) => t.name).sort()
+    const names = requireJsonRpcResult<{ tools: { name: string }[] }>(listed)
+      .tools.map((t) => t.name)
+      .sort()
     expect(names).toEqual(['delegate_feedback', 'delegation_history', 'delegation_status'])
   })
 
   it('registers delegate_ui_audit only when a uiAuditorDelegate is wired', async () => {
     const without = await rpcCall(createMcpServer({}), 'tools/list', {}, 1)
-    const withoutNames = (without?.result as { tools: { name: string }[] }).tools.map((t) => t.name)
+    const withoutNames = requireJsonRpcResult<{ tools: { name: string }[] }>(without).tools.map(
+      (t) => t.name,
+    )
     expect(withoutNames).not.toContain('delegate_ui_audit')
 
     const withDelegate = await rpcCall(
@@ -47,7 +52,7 @@ describe('createMcpServer — JSON-RPC surface', () => {
       {},
       1,
     )
-    const withNames = (withDelegate?.result as { tools: { name: string }[] }).tools.map(
+    const withNames = requireJsonRpcResult<{ tools: { name: string }[] }>(withDelegate).tools.map(
       (t) => t.name,
     )
     expect(withNames).toContain('delegate_ui_audit')
@@ -62,10 +67,10 @@ describe('createMcpServer — JSON-RPC surface', () => {
         routes: [{ name: 'home', url: 'https://example.com' }],
       },
     })
-    const result = call?.result as {
+    const result = requireJsonRpcResult<{
       content: { type: string; text: string }[]
       structuredContent: { taskId: string }
-    }
+    }>(call)
     expect(result.content[0]?.type).toBe('text')
     const parsed = JSON.parse(result.content[0]!.text) as { taskId: string }
     expect(parsed.taskId).toBe(result.structuredContent.taskId)
@@ -97,8 +102,8 @@ describe('createMcpServer — JSON-RPC surface', () => {
         namespace: 'tenant-a',
       },
     })
-    const taskId = (created?.result as { structuredContent: { taskId: string } }).structuredContent
-      .taskId
+    const taskId = requireJsonRpcResult<{ structuredContent: { taskId: string } }>(created)
+      .structuredContent.taskId
 
     // Wait for the async run to settle.
     for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r))
@@ -108,7 +113,8 @@ describe('createMcpServer — JSON-RPC surface', () => {
       arguments: { taskId },
     })
     expect(
-      (status?.result as { structuredContent: { status: string } }).structuredContent.status,
+      requireJsonRpcResult<{ structuredContent: { status: string } }>(status).structuredContent
+        .status,
     ).toBe('completed')
 
     const feedback = await rpcCall(server, 'tools/call', {
@@ -121,19 +127,17 @@ describe('createMcpServer — JSON-RPC surface', () => {
       },
     })
     expect(
-      (feedback?.result as { structuredContent: { recorded: true; id: string } }).structuredContent
-        .recorded,
+      requireJsonRpcResult<{ structuredContent: { recorded: true; id: string } }>(feedback)
+        .structuredContent.recorded,
     ).toBe(true)
 
     const history = await rpcCall(server, 'tools/call', {
       name: 'delegation_history',
       arguments: { namespace: 'tenant-a' },
     })
-    const entries = (
-      history?.result as {
-        structuredContent: { delegations: Array<{ taskId: string; feedback?: unknown[] }> }
-      }
-    ).structuredContent.delegations
+    const entries = requireJsonRpcResult<{
+      structuredContent: { delegations: Array<{ taskId: string; feedback?: unknown[] }> }
+    }>(history).structuredContent.delegations
     expect(entries.find((e) => e.taskId === taskId)?.feedback?.length).toBe(1)
   })
 })
@@ -151,7 +155,7 @@ describe('createMcpServer — stdio transport', () => {
     expect(responses.length).toBeGreaterThanOrEqual(2)
     const list = responses.find((r) => r.id === 2)
     // Always-on: delegate_feedback, delegation_status, delegation_history.
-    expect((list?.result as { tools: unknown[] }).tools.length).toBe(3)
+    expect(requireJsonRpcResult<{ tools: unknown[] }>(list).tools.length).toBe(3)
     clientClose()
     await servePromise
   })

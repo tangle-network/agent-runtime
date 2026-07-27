@@ -36,6 +36,7 @@ import { CostLedger } from '@tangle-network/agent-eval'
 // The generic `JudgeConfig<TArtifact, TScenario>` + its `Scenario` (`{ id, kind }`) that `llmJudge`
 // returns live on the campaign subpath; the root `JudgeConfig`/`Scenario` are the non-generic twins.
 import type { JudgeConfig, Scenario } from '@tangle-network/agent-eval/campaign'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgentRunSpec,
   type Corpus,
@@ -47,7 +48,7 @@ import {
   type SandboxClient,
   type Validator,
 } from '@tangle-network/agent-runtime/loops'
-import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 
 // ── The four-role data shapes ─────────────────────────────────────────────────────────────
 

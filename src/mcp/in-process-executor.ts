@@ -18,12 +18,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
 import type { DelegationExecutor } from './executor'
 import type { LocalHarness } from './local-harness'

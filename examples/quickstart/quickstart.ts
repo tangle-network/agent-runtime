@@ -10,8 +10,9 @@
  * Run:  pnpm build && pnpm tsx examples/quickstart/quickstart.ts
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/loops'
-import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 
 type Task = { prompt: string }
 type Note = { note: string }

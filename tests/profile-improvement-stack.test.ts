@@ -70,11 +70,11 @@ async function promptAgent(
   const paid = await ctx.cost.runPaidCall({
     channel: 'agent',
     actor: 'profile-stack-test',
-    model: 'deterministic-test',
+    model: 'deterministic-test@2026-07-01',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
     execute: async () => ({ prompt: profile.prompt?.systemPrompt ?? '' }),
     receipt: () => ({
-      model: 'deterministic-test',
+      model: 'deterministic-test@2026-07-01',
       inputTokens: 1,
       outputTokens: 1,
       actualCostUsd: 0.0001,

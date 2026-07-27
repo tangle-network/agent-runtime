@@ -56,11 +56,11 @@ async function paidArtifact(
   const paid = await ctx.cost.runPaidCall({
     channel: 'agent',
     actor: 'test-agent',
-    model: 'deterministic-test',
+    model: 'deterministic-test@2026-07-01',
     maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
     execute: async () => ({ text }),
     receipt: () => ({
-      model: 'deterministic-test',
+      model: 'deterministic-test@2026-07-01',
       inputTokens: 1,
       outputTokens: 1,
       actualCostUsd: 0.0001,

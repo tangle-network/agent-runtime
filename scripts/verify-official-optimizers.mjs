@@ -12,28 +12,33 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const agentEvalVersion = '0.126.6'
-const agentKnowledgeVersion = '5.0.1'
 const gepaVersion = '0.1.4'
 const gepaSourceRevision = 'f919db0a622e2e9f9204779b81fe00cc1b2d808f'
 const skillOptRevision = '61735e3922efc2b90c6d6cab561e62e98452ca90'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageJson = readJson(join(repoRoot, 'package.json'))
+const workspaceAgentEvalVersion = installedPackageVersion(repoRoot, '@tangle-network/agent-eval')
+const workspaceAgentInterfaceVersion = installedPackageVersion(
+  repoRoot,
+  '@tangle-network/agent-interface',
+)
+const workspaceAgentKnowledgeVersion = installedPackageVersion(
+  repoRoot,
+  '@tangle-network/agent-knowledge',
+)
+const workspaceSandboxVersion = installedPackageVersion(repoRoot, '@tangle-network/sandbox')
+const agentEvalVersion = workspaceAgentEvalVersion
+const officialOptimizerEnv = {
+  AGENT_EVAL_EXPECTED_BRIDGE_VERSION: agentEvalVersion,
+  AGENT_EVAL_EXPECTED_GEPA_VERSION: gepaVersion,
+  AGENT_EVAL_EXPECTED_GEPA_REVISION: gepaSourceRevision,
+  AGENT_EVAL_EXPECTED_SKILLOPT_REVISION: skillOptRevision,
+}
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-official-'))
 
 assertVersion(
-  packageJson.devDependencies?.['@tangle-network/agent-eval'],
-  agentEvalVersion,
-  '@tangle-network/agent-eval development dependency',
-)
-assertVersion(
-  packageJson.dependencies?.['@tangle-network/agent-knowledge'],
-  agentKnowledgeVersion,
-  '@tangle-network/agent-knowledge dependency',
-)
-assertVersion(
   packageJson.peerDependencies?.['@tangle-network/agent-eval'],
-  `>=${agentEvalVersion} <0.127.0`,
+  currentMinorPeerRange(agentEvalVersion),
   '@tangle-network/agent-eval peer dependency',
 )
 
@@ -45,7 +50,7 @@ try {
     'pnpm',
     ['exec', 'vitest', 'run', 'src/improvement/official-packages.test.ts', '--maxWorkers=1'],
     repoRoot,
-    { AGENT_EVAL_TEST_PYTHON: python },
+    { AGENT_EVAL_TEST_PYTHON: python, ...officialOptimizerEnv },
   )
 
   const packDir = join(tempRoot, 'pack')
@@ -53,17 +58,49 @@ try {
   mkdirSync(packDir, { recursive: true })
   mkdirSync(appDir, { recursive: true })
 
-  run(
-    'npm',
-    ['pack', '--loglevel=error', '--ignore-scripts=false', '--pack-destination', packDir],
-    repoRoot,
-  )
+  run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
   const tarballs = readdirSync(packDir).filter((name) => name.endsWith('.tgz'))
   if (tarballs.length !== 1) {
     throw new Error(`expected one Runtime tarball, found ${tarballs.length}`)
   }
 
   const runtimeTarball = join(packDir, tarballs[0])
+  const unpackDir = join(tempRoot, 'unpack')
+  mkdirSync(unpackDir, { recursive: true })
+  run('tar', ['-xzf', runtimeTarball, '-C', unpackDir], repoRoot)
+  const packedPackageJson = readJson(join(unpackDir, 'package', 'package.json'))
+  const packedAgentEvalVersion = requiredPackedDevelopmentDependency(
+    packedPackageJson,
+    '@tangle-network/agent-eval',
+  )
+  const packedAgentInterfaceVersion = requiredPackedDevelopmentDependency(
+    packedPackageJson,
+    '@tangle-network/agent-interface',
+  )
+  const packedSandboxVersion = requiredPackedDevelopmentDependency(
+    packedPackageJson,
+    '@tangle-network/sandbox',
+  )
+  assertVersion(
+    packedAgentEvalVersion,
+    workspaceAgentEvalVersion,
+    'packed @tangle-network/agent-eval development dependency',
+  )
+  assertVersion(
+    packedAgentInterfaceVersion,
+    workspaceAgentInterfaceVersion,
+    'packed @tangle-network/agent-interface development dependency',
+  )
+  assertVersion(
+    packedSandboxVersion,
+    workspaceSandboxVersion,
+    'packed @tangle-network/sandbox development dependency',
+  )
+  assertVersion(
+    requiredPackedDependency(packedPackageJson, '@tangle-network/agent-knowledge'),
+    workspaceAgentKnowledgeVersion,
+    'packed @tangle-network/agent-knowledge dependency',
+  )
   writeFileSync(
     join(appDir, 'package.json'),
     `${JSON.stringify(
@@ -72,9 +109,9 @@ try {
         private: true,
         type: 'module',
         dependencies: {
-          '@tangle-network/agent-eval': agentEvalVersion,
-          '@tangle-network/agent-interface':
-            packageJson.devDependencies['@tangle-network/agent-interface'],
+          '@tangle-network/agent-eval': packedAgentEvalVersion,
+          '@tangle-network/agent-interface': packedAgentInterfaceVersion,
+          '@tangle-network/sandbox': packedSandboxVersion,
           '@tangle-network/agent-runtime': `file:${runtimeTarball}`,
         },
       },
@@ -103,8 +140,10 @@ try {
   )
 
   assertInstalledVersion(appDir, '@tangle-network/agent-runtime', packageJson.version)
-  assertInstalledVersion(appDir, '@tangle-network/agent-eval', agentEvalVersion)
-  assertInstalledVersion(appDir, '@tangle-network/agent-knowledge', agentKnowledgeVersion)
+  assertInstalledVersion(appDir, '@tangle-network/agent-eval', packedAgentEvalVersion)
+  assertInstalledVersion(appDir, '@tangle-network/agent-interface', packedAgentInterfaceVersion)
+  assertInstalledVersion(appDir, '@tangle-network/sandbox', packedSandboxVersion)
+  assertInstalledVersion(appDir, '@tangle-network/agent-knowledge', workspaceAgentKnowledgeVersion)
   const installedKnowledge = readJson(
     join(appDir, 'node_modules', '@tangle-network', 'agent-knowledge', 'package.json'),
   )
@@ -117,7 +156,7 @@ try {
     process.execPath,
     ['verify.mjs', 'wheel'],
     appDir,
-    { AGENT_EVAL_TEST_PYTHON: python },
+    { AGENT_EVAL_TEST_PYTHON: python, ...officialOptimizerEnv },
     10 * 60_000,
   )
   const sourcePython = installSourceGepa(tempRoot)
@@ -125,7 +164,7 @@ try {
     process.execPath,
     ['verify.mjs', 'omni'],
     appDir,
-    { AGENT_EVAL_TEST_PYTHON: sourcePython },
+    { AGENT_EVAL_TEST_PYTHON: sourcePython, ...officialOptimizerEnv },
     10 * 60_000,
   )
 } finally {
@@ -232,15 +271,43 @@ print(json.dumps({
 }
 
 function assertInstalledVersion(appDir, packageName, expected) {
-  const actual = readJson(join(appDir, 'node_modules', ...packageName.split('/'), 'package.json'))
-    .version
+  const actual = installedPackageVersion(appDir, packageName)
   assertVersion(actual, expected, `installed ${packageName}`)
+}
+
+function installedPackageVersion(root, packageName) {
+  const packageJson = readJson(join(root, 'node_modules', ...packageName.split('/'), 'package.json'))
+  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+    throw new Error(`installed ${packageName} has no version`)
+  }
+  return packageJson.version
+}
+
+function requiredPackedDevelopmentDependency(packageJson, packageName) {
+  return requiredPackedPackageVersion(packageJson.devDependencies?.[packageName], packageName)
+}
+
+function requiredPackedDependency(packageJson, packageName) {
+  return requiredPackedPackageVersion(packageJson.dependencies?.[packageName], packageName)
+}
+
+function requiredPackedPackageVersion(version, packageName) {
+  if (typeof version !== 'string' || version.length === 0 || version.startsWith('catalog:')) {
+    throw new Error(`packed package requires a resolved ${packageName} version`)
+  }
+  return version
 }
 
 function assertVersion(actual, expected, label) {
   if (actual !== expected) {
     throw new Error(`${label} must be ${expected}, found ${String(actual)}`)
   }
+}
+
+function currentMinorPeerRange(version) {
+  const match = /^(\d+)\.(\d+)\.\d+(?:-.+)?$/.exec(version)
+  if (!match) throw new Error(`cannot derive peer range from version ${version}`)
+  return `>=${version} <${match[1]}.${Number(match[2]) + 1}.0`
 }
 
 function readJson(path) {

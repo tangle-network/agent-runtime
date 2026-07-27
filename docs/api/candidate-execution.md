@@ -152,6 +152,12 @@ Re-exports [InMemoryAgentCandidateExecutionClaimStore](index.md#inmemoryagentcan
 
 ***
 
+### InMemoryAgentCandidateExecutionClaimStoreOptions
+
+Re-exports [InMemoryAgentCandidateExecutionClaimStoreOptions](index.md#inmemoryagentcandidateexecutionclaimstoreoptions)
+
+***
+
 ### AgentCandidatePreparationEvidence
 
 Re-exports [AgentCandidatePreparationEvidence](index.md#agentcandidatepreparationevidence)
@@ -509,6 +515,12 @@ Re-exports [CANDIDATE_TRACE_TAGS](index.md#candidate_trace_tags)
 ### CanonicalCandidateDocument
 
 Re-exports [CanonicalCandidateDocument](index.md#canonicalcandidatedocument)
+
+***
+
+### PersistedTaskOutcomeEvidence
+
+Re-exports [PersistedTaskOutcomeEvidence](index.md#persistedtaskoutcomeevidence)
 
 ***
 

@@ -15,6 +15,10 @@ import {
 
 const python = process.env.AGENT_EVAL_TEST_PYTHON?.trim()
 if (!python) throw new Error('AGENT_EVAL_TEST_PYTHON is required')
+const expectedBridgeVersion = requiredEnv('AGENT_EVAL_EXPECTED_BRIDGE_VERSION')
+const expectedGepaVersion = requiredEnv('AGENT_EVAL_EXPECTED_GEPA_VERSION')
+const expectedGepaRevision = requiredEnv('AGENT_EVAL_EXPECTED_GEPA_REVISION')
+const expectedSkillOptRevision = requiredEnv('AGENT_EVAL_EXPECTED_SKILLOPT_REVISION')
 
 async function main() {
   const mode = process.argv[2]
@@ -64,9 +68,12 @@ async function runWheelVerification() {
       resume: 'if-compatible',
     })
     assert(firstGepa.provenance?.resumed === false, 'first GEPA run must be fresh')
-    assert(firstGepa.provenance?.source.version === '0.1.4', 'GEPA version was not observed')
     assert(
-      firstGepa.provenance?.bridge?.version === '0.126.6',
+      firstGepa.provenance?.source.version === expectedGepaVersion,
+      'GEPA version was not observed',
+    )
+    assert(
+      firstGepa.provenance?.bridge?.version === expectedBridgeVersion,
       'agent-eval-rpc version was not observed',
     )
     assert(
@@ -196,8 +203,7 @@ async function runWheelVerification() {
     const skillOpt = await runSkillOpt(skillOptRunDir, skillOptModel.baseUrl)
     assert(skillOpt.provenance?.source.package === 'skillopt', 'SkillOpt source was not observed')
     assert(
-      skillOpt.provenance?.source.revision ===
-        '61735e3922efc2b90c6d6cab561e62e98452ca90',
+      skillOpt.provenance?.source.revision === expectedSkillOptRevision,
       'SkillOpt revision was not observed',
     )
     assert(skillOpt.decision === 'ship', 'SkillOpt candidate was not promoted')
@@ -284,13 +290,16 @@ async function runOmniVerification() {
     })
 
     assert(result.method === 'gepa:omni:gepa', `unexpected Omni method: ${result.method}`)
-    assert(result.provenance?.source.version === '0.1.4', 'source GEPA version was not observed')
     assert(
-      result.provenance?.source.revision === 'f919db0a622e2e9f9204779b81fe00cc1b2d808f',
+      result.provenance?.source.version === expectedGepaVersion,
+      'source GEPA version was not observed',
+    )
+    assert(
+      result.provenance?.source.revision === expectedGepaRevision,
       'source GEPA revision was not observed',
     )
     assert(
-      result.provenance?.bridge?.version === '0.126.6',
+      result.provenance?.bridge?.version === expectedBridgeVersion,
       'Omni agent-eval-rpc version was not observed',
     )
     assert(result.decision === 'ship', 'Omni candidate was not promoted')
@@ -515,6 +524,12 @@ function approximatelyEqual(left, right) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
+}
+
+function requiredEnv(name) {
+  const value = process.env[name]?.trim()
+  if (!value) throw new Error(`${name} is required`)
+  return value
 }
 
 async function startModelServer(content, responseDelayMs = 0) {

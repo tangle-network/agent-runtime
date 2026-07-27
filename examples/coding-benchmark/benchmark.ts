@@ -130,17 +130,19 @@ export const offlineAgentScripts: Record<string, OfflineScript> = {
 }
 
 // ── the box client: live (real harness) or offline (in-process) ───────────────
+type SandboxSdkConstructor = new (options: { apiKey: string; baseUrl: string }) => SandboxClient
+
 function clientFor(
   live: boolean,
-  RealClient: (new (opts: { apiKey: string; baseUrl: string }) => unknown) | undefined,
+  SandboxSdk: SandboxSdkConstructor | undefined,
 ): (scenario: CodingScenario) => (profile: AgentProfile) => SandboxClient {
   return (scenario) => {
     if (live) {
       const apiKey = process.env.TANGLE_API_KEY
       const baseUrl = process.env.SANDBOX_BASE_URL
       if (!apiKey || !baseUrl) throw new Error('--live needs TANGLE_API_KEY + SANDBOX_BASE_URL')
-      if (!RealClient) throw new Error('@tangle-network/sandbox not loaded')
-      return () => new RealClient({ apiKey, baseUrl }) as unknown as SandboxClient
+      if (!SandboxSdk) throw new Error('@tangle-network/sandbox not loaded')
+      return () => new SandboxSdk({ apiKey, baseUrl })
     }
     const script = offlineAgentScripts[scenario.id]
     if (!script) throw new Error(`no offline script for scenario ${scenario.id}`)
@@ -209,12 +211,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Benc
 
   // Lazy dynamic import so the offline path never needs the SDK or its creds. (This
   // is an ESM "type":"module" package — a top-level `require` would throw.)
-  let RealClient: (new (o: { apiKey: string; baseUrl: string }) => unknown) | undefined
+  let SandboxSdk: SandboxSdkConstructor | undefined
   if (live) {
-    const sdk = (await import('@tangle-network/sandbox')) as {
-      SandboxClient: new (o: never) => unknown
-    }
-    RealClient = sdk.SandboxClient as never
+    const { Sandbox } = await import('@tangle-network/sandbox')
+    SandboxSdk = Sandbox
   }
 
   console.log(
@@ -224,7 +224,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Benc
   )
 
   const chat = judgeChat(live)
-  const resolveClient = clientFor(live, RealClient)
+  const resolveClient = clientFor(live, SandboxSdk)
 
   try {
     // The matrix runs one campaign per profile. The dispatch is per-scenario only in

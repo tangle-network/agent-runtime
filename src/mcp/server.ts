@@ -20,12 +20,13 @@
  * @experimental
  */
 
-import { createInterface, type Interface as ReadlineInterface } from 'node:readline'
 import { Readable, Writable } from 'node:stream'
 import { ValidationError } from '../errors'
 import type { UiAuditorDelegate } from './delegates'
 import { type FeedbackStore, InMemoryFeedbackStore } from './feedback-store'
+import type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 import { DelegationTaskQueue } from './task-queue'
+import { createStdioToolServer } from './tool-server'
 import {
   createDelegateHandler,
   DELEGATE_DESCRIPTION,
@@ -58,6 +59,8 @@ import {
   DELEGATION_STATUS_TOOL_NAME,
 } from './tools/delegation-status'
 import type { TraceContext } from './trace-propagation'
+
+export type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 
 /** @experimental */
 export interface McpServerOptions {
@@ -98,14 +101,6 @@ export interface McpServerOptions {
 }
 
 /** @experimental */
-export interface McpToolDescriptor {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-  handler: (raw: unknown) => Promise<unknown>
-}
-
-/** @experimental */
 export interface McpServer {
   /** Tools currently registered (depend on which delegates were wired). */
   readonly tools: ReadonlyMap<string, McpToolDescriptor>
@@ -121,29 +116,6 @@ export interface McpServer {
   stop(): void
 }
 
-/** @experimental */
-export interface McpTransport {
-  input: NodeJS.ReadableStream
-  output: NodeJS.WritableStream
-}
-
-/** @experimental */
-export interface JsonRpcMessage {
-  jsonrpc: '2.0'
-  id?: number | string | null
-  method: string
-  params?: unknown
-}
-
-/** @experimental */
-export interface JsonRpcResponse {
-  jsonrpc: '2.0'
-  id: number | string | null
-  result?: unknown
-  error?: { code: number; message: string; data?: unknown }
-}
-
-const PROTOCOL_VERSION = '2024-11-05'
 const DEFAULT_SERVER_NAME = 'agent-runtime-mcp'
 const DEFAULT_SERVER_VERSION = '0.22.0'
 
@@ -207,126 +179,20 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     tools.set(tool.name, tool)
   }
 
-  let stopped = false
-  let activeReadline: ReadlineInterface | undefined
-
-  async function handle(message: JsonRpcMessage): Promise<JsonRpcResponse | null> {
-    if (stopped) {
-      return rpcError(message.id ?? null, -32099, 'server stopped')
-    }
-    if (message.method === 'initialize') {
-      return rpcResult(message.id ?? null, {
-        protocolVersion: PROTOCOL_VERSION,
-        capabilities: { tools: {} },
-        serverInfo: { name: serverName, version: serverVersion },
-      })
-    }
-    if (message.method === 'notifications/initialized') {
-      // MCP clients send this after the handshake; it has no id and expects
-      // no response.
-      return null
-    }
-    if (message.method === 'tools/list') {
-      return rpcResult(message.id ?? null, {
-        tools: [...tools.values()].map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-        })),
-      })
-    }
-    if (message.method === 'tools/call') {
-      const params = (message.params ?? {}) as { name?: unknown; arguments?: unknown }
-      const name = typeof params.name === 'string' ? params.name : ''
-      const tool = tools.get(name)
-      if (!tool) {
-        return rpcError(message.id ?? null, -32601, `unknown tool: ${name}`)
-      }
-      try {
-        const output = await tool.handler(params.arguments ?? {})
-        return rpcResult(message.id ?? null, {
-          content: [{ type: 'text', text: JSON.stringify(output) }],
-          structuredContent: output,
-          isError: false,
-        })
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err)
-        const code = err instanceof TypeError || err instanceof RangeError ? -32602 : -32000
-        return rpcError(message.id ?? null, code, reason)
-      }
-    }
-    if (message.id === undefined || message.id === null) return null
-    return rpcError(message.id, -32601, `unknown method: ${message.method}`)
-  }
-
-  async function serve(transport?: McpTransport): Promise<void> {
-    const input = transport?.input ?? process.stdin
-    const output = transport?.output ?? process.stdout
-    const rl = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY })
-    activeReadline = rl
-    return new Promise<void>((resolve, reject) => {
-      rl.on('line', (line) => {
-        const trimmed = line.trim()
-        if (!trimmed) return
-        let parsed: JsonRpcMessage | undefined
-        try {
-          parsed = JSON.parse(trimmed) as JsonRpcMessage
-        } catch (err) {
-          writeResponse(output, rpcError(null, -32700, `parse error: ${(err as Error).message}`))
-          return
-        }
-        if (!parsed || parsed.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
-          writeResponse(output, rpcError(parsed?.id ?? null, -32600, 'invalid request'))
-          return
-        }
-        void handle(parsed).then((response) => {
-          if (response) writeResponse(output, response)
-        })
-      })
-      rl.on('close', () => resolve())
-      rl.on('error', (err) => reject(err))
-      if (stopped) {
-        rl.close()
-        resolve()
-      }
-    })
-  }
-
-  function stop(): void {
-    stopped = true
-    activeReadline?.close()
-    activeReadline = undefined
-  }
+  const stdio = createStdioToolServer({
+    serverName,
+    serverVersion,
+    tools: [...tools.values()],
+  })
 
   return {
-    tools,
+    tools: stdio.tools,
     queue,
     feedbackStore,
-    handle,
-    serve,
-    stop,
+    handle: stdio.handle,
+    serve: stdio.serve,
+    stop: stdio.stop,
   }
-}
-
-function rpcResult(id: number | string | null, result: unknown): JsonRpcResponse {
-  return { jsonrpc: '2.0', id, result }
-}
-
-function rpcError(
-  id: number | string | null,
-  code: number,
-  message: string,
-  data?: unknown,
-): JsonRpcResponse {
-  return {
-    jsonrpc: '2.0',
-    id,
-    error: data === undefined ? { code, message } : { code, message, data },
-  }
-}
-
-function writeResponse(output: NodeJS.WritableStream, response: JsonRpcResponse): void {
-  output.write(`${JSON.stringify(response)}\n`)
 }
 
 /**

@@ -14,10 +14,12 @@ import type {
 import type {
   Process,
   ProcessStatus,
-  SandboxClient,
+  Sandbox,
   SandboxInstance,
   SandboxResources,
 } from '@tangle-network/sandbox'
+
+export type SandboxControlClient = Pick<Sandbox, 'create' | 'get' | 'list'>
 
 type ExactSandboxEgressPolicy =
   | { mode: 'blocked' }
@@ -37,7 +39,7 @@ const exactProcessEgressMarker = 'agent-runtime.exact-process-egress'
  * must start a fresh Sandbox with no managed agent and launch its declared argv directly.
  */
 export function createTangleSandboxExactProcessProvider(
-  client: SandboxClient,
+  client: SandboxControlClient,
   options: CreateTangleSandboxExactProcessProviderOptions = {},
 ): AgentEnvironmentProvider {
   const name = options.name ?? 'tangle-sandbox-exact-process'
@@ -51,10 +53,9 @@ export function createTangleSandboxExactProcessProvider(
       const metadata = exactMetadata(input.metadata, name, egressPolicy)
       const sandbox = await client.create(
         {
-          image: requiredText(input.image, 'exact-process image'),
+          environment: requiredText(input.image, 'exact-process image'),
           agent: false,
           bare: false,
-          publicEdge: false,
           ephemeral: true,
           egressPolicy,
           resources: sandboxResources(input),

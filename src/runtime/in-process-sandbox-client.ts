@@ -16,8 +16,6 @@
  * actually call on a box:
  *   - `id` — stable per box, used for trace correlation.
  *   - `streamPrompt(prompt, opts?)` — runs `onPrompt` and streams its events.
- *   - `streamTask(prompt, opts?)` — the task-mode verb (`streamAgentTurn`'s
- *     `box-task` backend); runs `onTask` when configured, else `onPrompt`.
  *   - `fs.read` / `fs.write` — over the optional real `workdir` (the deliverable
  *     artifact + any seeded fixtures live there). Present only when a `workdir`
  *     is given.
@@ -40,11 +38,10 @@ import { dirname, join } from 'node:path'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { SandboxClient } from './types'
 
-/** Context handed to each `onPrompt` / `onTask` call. */
+/** Context handed to each `onPrompt` call. */
 export interface InProcessPromptCtx {
-  /** 0-based round index — increments per `streamPrompt`/`streamTask` on the
-   *  SAME box (so a refine driver's round N can differ from round N-1). Fresh
-   *  boxes start at 0. */
+  /** 0-based round index — increments per `streamPrompt` on the same box.
+   *  Fresh boxes start at 0. */
   round: number
   /** Absolute path of this box's workspace, when a `workdir` was configured.
    *  Write the deliverable / fixtures here; `fs.read`/`fs.write`/`exec` operate
@@ -52,12 +49,9 @@ export interface InProcessPromptCtx {
   workdir?: string
   /** Cooperative cancellation channel for this turn. */
   signal: AbortSignal
-  /** Which box verb produced this call: `prompt` = `streamPrompt`,
-   *  `task` = `streamTask`. */
-  mode: 'prompt' | 'task'
   /** The verbatim per-call options the caller passed to the box verb (minus
    *  `signal`, surfaced above) — lets an offline test assert an options
-   *  passthrough (`model`, `sessionId`, `maxTurns`, …) actually arrived. */
+   *  passthrough (`model`, `sessionId`, …) actually arrived. */
   options?: Record<string, unknown>
 }
 
@@ -76,14 +70,6 @@ export type InProcessOnPrompt = (
 export interface InProcessSandboxClientOptions {
   /** The per-turn behavior — see {@link InProcessOnPrompt}. */
   onPrompt: InProcessOnPrompt
-  /**
-   * Task-mode behavior, driven by `box.streamTask` (the verb `streamAgentTurn`'s
-   * `box-task` backend calls). When omitted, `streamTask` drives `onPrompt` —
-   * the pseudo-box has ONE behavior callback and both verbs exercise it
-   * (`ctx.mode` tells them apart). Provide `onTask` when a test must
-   * discriminate the verbs or script different task-mode behavior.
-   */
-  onTask?: InProcessOnPrompt
   /**
    * Opt in to a REAL filesystem-backed box. When set, each `create()` mints a
    * fresh temp directory (prefixed `<workdir>-`) and the box exposes
@@ -114,7 +100,7 @@ function isAsyncIterable(v: unknown): v is AsyncIterable<SandboxEvent> {
  * @experimental
  */
 export function inProcessSandboxClient(options: InProcessSandboxClientOptions): SandboxClient {
-  const { onPrompt, onTask, workdir: workdirPrefix, id: idOption } = options
+  const { onPrompt, workdir: workdirPrefix, id: idOption } = options
   let seq = 0
   return {
     async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {
@@ -169,7 +155,6 @@ export function inProcessSandboxClient(options: InProcessSandboxClientOptions): 
 
       async function* drive(
         behavior: InProcessOnPrompt,
-        mode: 'prompt' | 'task',
         message: string | unknown[],
         opts?: { signal?: AbortSignal } & Record<string, unknown>,
       ): AsyncGenerator<SandboxEvent> {
@@ -180,7 +165,6 @@ export function inProcessSandboxClient(options: InProcessSandboxClientOptions): 
           round,
           workdir: boxWorkdir,
           signal,
-          mode,
           ...(Object.keys(rest).length > 0 ? { options: rest } : {}),
         }
         round += 1
@@ -198,15 +182,7 @@ export function inProcessSandboxClient(options: InProcessSandboxClientOptions): 
           message: string | unknown[],
           opts?: { signal?: AbortSignal } & Record<string, unknown>,
         ): AsyncGenerator<SandboxEvent> {
-          return drive(onPrompt, 'prompt', message, opts)
-        },
-        // Task-mode verb (`streamAgentTurn`'s `box-task` backend). Drives
-        // `onTask` when configured; otherwise the box's one behavior callback.
-        streamTask(
-          message: string | unknown[],
-          opts?: { signal?: AbortSignal } & Record<string, unknown>,
-        ): AsyncGenerator<SandboxEvent> {
-          return drive(onTask ?? onPrompt, 'task', message, opts)
+          return drive(onPrompt, message, opts)
         },
         ...fsMembers,
         async delete(): Promise<void> {

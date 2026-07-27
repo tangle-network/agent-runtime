@@ -128,34 +128,34 @@ describe('candidate execution preparation', () => {
     { field: 'permissions', profileValue: { shell: 'deny' } },
     { field: 'modes', profileValue: { review: { model: 'provider/model' } } },
     { field: 'confidential', profileValue: { tee: 'tdx', sealed: true } },
-  ] as const)('rejects non-empty $field before staging or reserving protected access', async ({
-    field,
-    profileValue,
-  }) => {
-    const value = fixture()
-    value.bundle = redigestBundle(value.bundle, {
-      profile: {
-        ...value.bundle.profile,
-        [field]: profileValue,
-      } as AgentCandidateBundle['profile'],
-    })
-    bindCandidateFixtureBundle(value)
-    let stagingCalls = 0
-    let reservationCalls = 0
-    value.ports.workspaces.materialize = async () => {
-      stagingCalls++
-    }
-    value.ports.models.reserveGrant = async () => {
-      reservationCalls++
-      throw new Error('candidate must fail before reserving protected access')
-    }
+  ] as const)(
+    'rejects non-empty $field before staging or reserving protected access',
+    async ({ field, profileValue }) => {
+      const value = fixture()
+      value.bundle = redigestBundle(value.bundle, {
+        profile: {
+          ...value.bundle.profile,
+          [field]: profileValue,
+        } as AgentCandidateBundle['profile'],
+      })
+      bindCandidateFixtureBundle(value)
+      let stagingCalls = 0
+      let reservationCalls = 0
+      value.ports.workspaces.materialize = async () => {
+        stagingCalls++
+      }
+      value.ports.models.reserveGrant = async () => {
+        reservationCalls++
+        throw new Error('candidate must fail before reserving protected access')
+      }
 
-    await expect(verifyAgentCandidateBundle(value.bundle, value.ports)).rejects.toThrow(
-      new RegExp(`non-empty AgentProfile fields: ${field}`),
-    )
-    expect(stagingCalls).toBe(0)
-    expect(reservationCalls).toBe(0)
-  })
+      await expect(verifyAgentCandidateBundle(value.bundle, value.ports)).rejects.toThrow(
+        new RegExp(`non-empty AgentProfile fields: ${field}`),
+      )
+      expect(stagingCalls).toBe(0)
+      expect(reservationCalls).toBe(0)
+    },
+  )
 
   it('accepts explicit empty unsupported fields', async () => {
     const value = fixture()

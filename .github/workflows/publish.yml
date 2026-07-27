@@ -12,19 +12,23 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.11.32'
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
@@ -46,6 +50,9 @@ jobs:
 
       - name: Verify packed Runtime with official GEPA and SkillOpt
         run: pnpm run verify:official-optimizers
+
+      - name: Verify PrimeIntellect package integration
+        run: pnpm run verify:primeintellect
 
       - name: Verify agent-bench against this release
         run: pnpm run verify:bench
@@ -70,11 +77,11 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -82,11 +89,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
 
-      # Tokenless OIDC trusted publishing — no NPM_TOKEN to expire. The
-      # id-token→credential exchange is an npm-CLI feature (>= 11.5.1; Node 22
-      # bundles npm 10) and pnpm only signs provenance (the PUT then 404s on
-      # auth), so upgrade npm and publish with it. This package has no
-      # `workspace:` deps, so npm publish is safe. No setup-node registry-url:
+      # Tokenless OIDC trusted publishing requires npm >= 11.5.1. pnpm creates
+      # the release tarball because it resolves catalog dependencies; npm then
+      # publishes that exact, consumer-tested file. No setup-node registry-url:
       # it writes an empty-authToken .npmrc that blocks OIDC. Idempotent.
       # Requires the npmjs Trusted Publisher: org tangle-network, repo
       # agent-runtime, workflow publish.yml.
@@ -100,7 +105,12 @@ jobs:
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            npm publish --provenance --access public
+            mkdir -p "$RUNNER_TEMP/agent-runtime-package"
+            npm_config_ignore_scripts=true pnpm pack --pack-destination "$RUNNER_TEMP/agent-runtime-package"
+            package="$(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -name '*.tgz' -print -quit)"
+            test -n "$package"
+            node scripts/verify-package-exports.mjs "$package"
+            npm publish "$package" --provenance --access public
           fi
 
   verify-agent-bench:
@@ -109,11 +119,11 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/agent-bench-v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -143,11 +153,11 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm

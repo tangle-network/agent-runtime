@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/sandbox'
+import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
 
 // ── 1. PROFILE ───────────────────────────────────────────────────────────
 //

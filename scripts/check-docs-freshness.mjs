@@ -168,7 +168,7 @@ const knownOtherPkgWords = new Set([
   'biome',
   'node',
   'vitest',
-  'tsup',
+  'tsdown',
   'esbuild',
   'pnpm',
   ...Object.keys({ ...(pkg.dependencies || {}), ...(pkg.peerDependencies || {}), ...(pkg.devDependencies || {}) }).map(
@@ -465,7 +465,7 @@ if (existsSync(typedocPath)) {
   const aliasSubpaths = new Set(['./loops'])
   for (const [subpath, target] of Object.entries(pkg.exports || {})) {
     if (subpath === '.' || aliasSubpaths.has(subpath)) continue
-    // Resolve the subpath's source root from its dist "import"/"types" target. tsup
+    // Resolve the subpath's source root from its dist "import"/"types" target. tsdown
     // flattens a directory barrel (`src/runtime/index.ts`) to a flat bundle
     // (`dist/runtime.js`), so a subpath's source is EITHER `src/<name>.ts` OR
     // `src/<name>/index.ts` — accept whichever the entryPoints declare and that exists.

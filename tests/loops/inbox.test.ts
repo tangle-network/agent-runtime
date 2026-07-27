@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type AgentSpec, createExecutor, createInbox } from '../../src/runtime'
 

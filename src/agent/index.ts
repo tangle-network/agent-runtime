@@ -50,7 +50,7 @@ export {
   sandboxActProfileMaterialization,
   validateProfileMaterialization,
 } from './profile-materialization'
-export type { CreateSandboxActOptions } from './sandbox-act'
+export type { CreateSandboxActOptions, SandboxActComposeOverrides } from './sandbox-act'
 export { createSandboxAct } from './sandbox-act'
 export type { AgentSurfaces, ResolvedSurface, SurfaceValidationIssue } from './surfaces'
 export { renderSurfaceIssues, resolveSubjectPath, validateSurfaces } from './surfaces'

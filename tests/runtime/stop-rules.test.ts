@@ -11,7 +11,7 @@
  * as the post-run anytime report, and a rule can never keep a run alive past a hard ceiling.
  */
 
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { areaUnderCurve, bestSoFar, plateauLength } from '../../src/runtime/anytime'

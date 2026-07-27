@@ -11,6 +11,7 @@
 import { ValidationError } from '../errors'
 import type { Conversation, ConversationParticipant, ConversationPolicy, TurnOrder } from './types'
 
+/** Validate and define a conversation before execution. */
 export function defineConversation(input: {
   participants: ConversationParticipant[]
   policy: ConversationPolicy

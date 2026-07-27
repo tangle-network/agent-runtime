@@ -15,12 +15,13 @@ function rec(partial: {
   harness?: string
   scenarioId: string
   score: number
-  costUsd?: number
+  costUsd?: number | null
   wallMs?: number
   tokensIn?: number
   tokensOut?: number
   raw?: Record<string, number>
 }): RunRecord {
+  const costUsd = partial.costUsd === undefined ? 0.01 : partial.costUsd
   return {
     runId: `${partial.model}-${partial.scenarioId}`,
     experimentId: 'exp',
@@ -31,15 +32,27 @@ function rec(partial: {
     configHash: 'c',
     commitSha: 'sha',
     wallMs: partial.wallMs ?? 1000,
-    costUsd: partial.costUsd ?? 0.01,
+    costUsd,
+    costProvenance:
+      costUsd === null ? { kind: 'uncaptured', usd: null } : { kind: 'observed', usd: costUsd },
     tokenUsage: { input: partial.tokensIn ?? 100, output: partial.tokensOut ?? 50 },
+    terminalOutcome: 'succeeded',
     outcome: { holdoutScore: partial.score, raw: partial.raw ?? {} },
     splitTag: 'holdout',
     scenarioId: partial.scenarioId,
     ...(partial.harness
-      ? { agentProfile: { harness: partial.harness, model: partial.model } }
+      ? {
+          agentProfile: {
+            schemaVersion: 'agent-profile-cell/v1',
+            cellId: `cell:${partial.harness}:${partial.model}`,
+            profileId: partial.model,
+            sourceProfile: { kind: 'test-profile', hash: 'source' },
+            harness: { id: partial.harness },
+            model: partial.model,
+          },
+        }
       : {}),
-  } as unknown as RunRecord
+  }
 }
 
 describe('leaderboard', () => {
@@ -79,6 +92,35 @@ describe('leaderboard', () => {
     expect(strong.costUsd).toBeCloseTo(0.2)
     expect(strong.tokensIn).toBe(200)
     expect(strong.n).toBe(2)
+  })
+
+  it('preserves unavailable cost instead of reporting it as free', () => {
+    const report = leaderboard([
+      rec({ model: 'partial', scenarioId: 't1', score: 1, costUsd: 0.1 }),
+      rec({ model: 'partial', scenarioId: 't2', score: 1, costUsd: null }),
+    ])
+    const row = report.profiles[0]!
+    expect(row).toMatchObject({
+      costUsd: null,
+      capturedCostUsd: 0.1,
+      uncapturedCostRuns: 1,
+    })
+    expect(report.provenance).toMatchObject({
+      totalCostUsd: null,
+      capturedCostUsd: 0.1,
+      uncapturedCostRecords: 1,
+    })
+    expect(renderLeaderboardMarkdown(report)).toContain('at least $0.100 (1 uncaptured)')
+    expect(renderLeaderboardHtml(report)).toContain('at least $0.100 (1 uncaptured)')
+  })
+
+  it('ranks known cost ahead of unknown cost when quality ties', () => {
+    const report = leaderboard([
+      rec({ model: 'aaa-unknown', scenarioId: 't1', score: 1, costUsd: null }),
+      rec({ model: 'zzz-known', scenarioId: 't1', score: 1, costUsd: 0.1 }),
+    ])
+
+    expect(report.profiles.map((profile) => profile.model)).toEqual(['zzz-known', 'aaa-unknown'])
   })
 
   it('supports custom axis decomposition (judge dimensions) replacing scenario axes', () => {
@@ -135,7 +177,7 @@ describe('leaderboard', () => {
   it('stats mode fails loud on a record missing scenarioId', () => {
     const bad = [
       { ...rec({ model: 'm', scenarioId: 'x', score: 1 }), scenarioId: undefined },
-    ] as RunRecord[]
+    ] as unknown as RunRecord[]
     expect(() => leaderboard(bad, { stats: true })).toThrow(/missing scenarioId/)
   })
 

@@ -23,7 +23,8 @@
  * @experimental
  */
 
-import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 import type {
   AgentRunSpec,
   DefaultVerdict,

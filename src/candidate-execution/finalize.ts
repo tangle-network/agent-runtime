@@ -105,7 +105,7 @@ export async function finalizeAgentCandidateRun(
 
     const modelSpans = orderedSpans.filter(isLlmSpan)
     assertTraceMatchesModelSettlement(modelSpans, settlement)
-    enforceLimits(state, run.startedAt, run.endedAt, orderedSpans, settlement)
+    const steps = enforceLimits(state, run.startedAt, run.endedAt, orderedSpans, settlement)
     const memory = await memoryReceipt(
       state,
       evidence.finalCapture,
@@ -166,6 +166,7 @@ export async function finalizeAgentCandidateRun(
         endedAtMs: run.endedAt,
         durationMs: run.endedAt - run.startedAt,
       },
+      steps,
       memory,
       trace,
       termination,
@@ -224,7 +225,7 @@ function enforceLimits(
   endedAt: number,
   spans: Span[],
   settlement: SealedAgentCandidateModelSettlement,
-): void {
+): number {
   const limits = state.executionPlan.value.material.limits
   const usage = settlement.usage
   // The runtime-owned Date.now deadline decides when the process must stop.
@@ -249,6 +250,7 @@ function enforceLimits(
       `protected cost USD ${usage.costUsdNanos / 1_000_000_000} exceeds ${limits.maxCostUsd}`,
     )
   }
+  return steps
 }
 
 async function memoryReceipt(

@@ -14,14 +14,9 @@
 // findings on the coordination bus (the profile-richness gate, an online detector) does not need a
 // separate agent-eval import. The taxonomy + firewall provenance live in agent-eval.
 export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-network/agent-eval'
-// One-stop import: sandbox-SDK types consumers need to spell out an
-// `AgentRunSpec` without importing `@tangle-network/sandbox` separately.
-export type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+// One-stop import: portable profile plus Sandbox execution types Runtime consumers need.
+export type { AgentProfile } from '@tangle-network/agent-interface'
+export type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 // Two substrates for the same "recursive agent decision" atom, both exported here (per
 // docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
 // combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
@@ -57,10 +52,14 @@ export {
 // alongside it: the worker-seam type `supervise`/`workerFromBackend` traffic in, so a host authoring
 // its own seam types it from the loop layer rather than the `/mcp` subpath.
 export type {
+  AnalystFindingEvent,
   AnalystRegistry,
   CoordinationEvent,
+  DownMessageEvent,
   MakeWorkerAgent,
 } from './../mcp/tools/coordination'
+export { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from './../mcp/tools/coordination'
+export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
 export {
   type AnytimeReport,
   type AnytimeStrategySummary,
@@ -84,6 +83,8 @@ export {
 // profile×axis score matrix, and embeddable SVG/HTML charts (the hosted-leaderboard surface). Reads only
 // the universal `RunRecord` currency, so it reports ANY benchmark in ANY domain.
 export {
+  type AxisScoresOf,
+  type GroupOf,
   type Interval,
   type Leaderboard,
   type LeaderboardOptions,
@@ -91,11 +92,13 @@ export {
   leaderboard,
   type PairwiseOptions,
   type PairwiseVerdict,
+  type ProfileKeyOf,
   pairwiseSignificance,
   renderLeaderboardHtml,
   renderLeaderboardMarkdown,
   renderLeaderboardSvg,
   renderPairwiseMarkdown,
+  type ScoreOf,
 } from './benchmark-report'
 export {
   type CompletionAnalyst,
@@ -302,7 +305,6 @@ export {
   type PromotionVerdict,
   promotionGate,
 } from './promotion-gate'
-export { reportLoopUsage, type UsageSink } from './report-usage'
 // The product-facing backend selector: one call picks sandbox/bridge/router transport.
 export {
   type ResolveSandboxClientOptions,
@@ -345,7 +347,7 @@ export {
   runAgentRounds,
   runLoop,
 } from './run-loop'
-export { acquireSandbox } from './sandbox-acquire'
+export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,
   probeSandboxCapabilities,
@@ -419,8 +421,11 @@ export {
   type ShotPersona,
   type ShotSpec,
   type Strategy,
+  type StrategyArtifacts,
   type StrategyCtx,
+  type StrategyMessage,
   type StrategyResult,
+  type StrategyShotResult,
   type SurfaceScore,
   sample,
   sampleThenRefine,
@@ -443,6 +448,7 @@ export {
   type EvolutionGeneration,
   type EvolutionReport,
   pickChampion,
+  type ReproductionCheck,
   runStrategyEvolution,
   type StrategyEvolutionConfig,
   selectChampion,
@@ -476,6 +482,7 @@ export {
   type RepairStop,
   resolveEntrySymbol,
   type StructuralRolloutConfig,
+  type StructuralRolloutMessage,
   type StructuralRolloutPolicy,
   type StructuralRolloutResult,
   sandboxCheckRunner,
@@ -603,11 +610,18 @@ export {
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
+  type BridgeSeam,
+  type CliSeam,
+  type CliWorktreeBridgeSeam,
+  type CliWorktreeSeam,
   cliWorktreeExecutor,
   createExecutor,
   createExecutorRegistry,
   type ExecutorConfig,
   type ProviderSeam,
+  type RouterSeam,
+  type RouterToolsSeam,
+  type SandboxSeam,
   type ToolSpec,
 } from './supervise/runtime'
 // The STEERABLE sandbox worker: one box, one server-side session, many turns — so a steer has a
@@ -616,9 +630,10 @@ export {
   createSteerableSandboxSession,
   DEFAULT_SANDBOX_STEERING_MAX_TURNS,
   type SandboxSteeringOptions,
+  type SteerableSandboxArgs,
   type SteerableSandboxSession,
 } from './supervise/sandbox-session'
-export { createScope, settledToIteration } from './supervise/scope'
+export { createScope, type ScopeArgs, settledToIteration } from './supervise/scope'
 // PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
 // out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
 // override) the conserved-pool / deadline / abort ceilings.
@@ -663,8 +678,10 @@ export {
 export {
   createPushTraceSource,
   decodeToolPart,
+  type SessionMessageLike,
   type SessionTraceBox,
   sandboxSessionTraceSource,
+  type ToolStepInput,
   type TraceSource,
 } from './supervise/trace-source'
 // The SETTLE-time analyzer: collect a TraceSource's spans and run agent-eval's published batch
@@ -679,9 +696,15 @@ export type {
   ExecutorFactory,
   ExecutorRegistry,
   ExecutorResult,
+  Handle,
   NodeId,
+  NodeSnapshot,
+  NodeStatus,
+  Restart,
   ResultBlobStore,
   ResumedWork,
+  RootHandle,
+  RootSignal,
   Runtime,
   Scope,
   Settled,
@@ -694,6 +717,7 @@ export type {
   SupervisorOpts,
   TreeView,
   UsageEvent,
+  WaitOpts,
   WidenGate,
 } from './supervise/types'
 // WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
@@ -742,10 +766,16 @@ export {
   type SurfaceWorkerOut,
   superviseSurface,
 } from './supervise-surface'
+export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
 // The driver-brain seam type a consumer scripts (a mock) or passes (`routerBrain`) into
 // `DriverAgentOptions.brain` — the canonical one-inference-turn tool-loop chat. `ToolLoopCompaction`
 // is the self-compaction config that bounds the brain's own context window (the supervisor chapter-close).
-export type { ToolLoopChat, ToolLoopCompaction, ToolLoopCompactionOptions } from './tool-loop'
+export type {
+  ToolLoopChat,
+  ToolLoopCompaction,
+  ToolLoopCompactionOptions,
+  ToolLoopMessageRecord,
+} from './tool-loop'
 export type {
   AgentRunSpec,
   DefaultVerdict,

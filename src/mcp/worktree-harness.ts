@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   applyWorkspacePlan,
+  type HarnessId,
   materializeProfile,
   type WorkspacePlan,
   type WorkspacePlanReceipt,
@@ -191,6 +192,10 @@ export interface WorktreeHarnessRun {
 
 const defaultCheckOutputCap = 16_000
 
+function materializerHarness(harness: LocalHarness): HarnessId {
+  return harness === 'claude' ? 'claude-code' : harness
+}
+
 /**
  * Run the one worktree-harness operation. A failed run attempts cleanup before propagating; if
  * cleanup also fails, both errors are preserved. The caller cleans up a successful run.
@@ -223,7 +228,7 @@ export async function runWorktreeHarness(
     assertSafeProfileResourcePaths(opts.profile)
     const resourceInstructions = resolveResourceInstructions(opts.profile)
     const workspaceProfile = materializationOnlyProfile(opts.profile)
-    const plan = materializeProfile(workspaceProfile, opts.harness)
+    const plan = materializeProfile(workspaceProfile, materializerHarness(opts.harness))
     if (plan.unsupported.length > 0) {
       throw new Error(
         `runWorktreeHarness: profile cannot be materialized for ${opts.harness}: ${plan.unsupported

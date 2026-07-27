@@ -101,7 +101,7 @@ describe('createOpenAICompatibleBackend — Anthropic usage emission', () => {
     )
     const llmCall = events.find((e) => e.type === 'llm_call')
     expect(llmCall).toBeDefined()
-    if (!llmCall || llmCall.type !== 'llm_call') throw new Error('expected llm_call')
+    if (llmCall?.type !== 'llm_call') throw new Error('expected llm_call')
     expect(llmCall.tokensIn).toBe(11)
     expect(llmCall.tokensOut).toBe(3)
     expect(llmCall.model).toBe('claude-haiku-4-6')

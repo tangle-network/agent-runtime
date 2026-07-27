@@ -48,6 +48,7 @@ export type {
   AgentImprovementActivationIntent,
   AgentImprovementActivationOutcome,
   AgentImprovementActivationResult,
+  AgentImprovementEvaluation,
   AgentImprovementMeasuredComparison,
   AgentImprovementProposal,
   AgentImprovementReview,
@@ -63,9 +64,13 @@ export type {
   AgentImprovementActivationTargetPlan,
   AgentImprovementActivationTransition,
   AgentImprovementActivationTransitionInput,
+  AgentProfileImprovementActivationOperation,
+  AgentProfileImprovementActivationTargetPlan,
   CreateAgentImprovementActivationResultOptions,
   ExecuteAgentImprovementActivationInput,
   ExecuteAgentImprovementActivationOptions,
+  ProfileImprovementActivationTransitionInput,
+  SealedCandidateActivationTransitionInput,
 } from './activation'
 export {
   createAgentImprovementActivationResult,
@@ -189,9 +194,14 @@ export {
   optimizationActivationReceiptFromMetadata,
 } from './optimization-receipt'
 export type {
+  AgentImprovementProfileActivationInput,
   AgentImprovementProfileActivationPreparation,
   AgentImprovementProfileActivationTarget,
   AgentImprovementProfileReplacement,
+  AgentImprovementProfileStateDigest,
+  AgentImprovementProfileStateDigestInput,
+  AgentImprovementProfileStateResolver,
+  AgentImprovementProfileStateResolverInput,
   AgentImprovementProfileTargetState,
   AgentImprovementProfileTargetTransition,
 } from './profile-activation'

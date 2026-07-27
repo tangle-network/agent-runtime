@@ -14,38 +14,11 @@
 
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline'
 import { ValidationError } from '../errors'
+import type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
+
+export type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 
 const PROTOCOL_VERSION = '2024-11-05'
-
-/** @experimental */
-export interface McpToolDescriptor {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-  handler: (raw: unknown) => Promise<unknown>
-}
-
-/** @experimental */
-export interface McpTransport {
-  input: NodeJS.ReadableStream
-  output: NodeJS.WritableStream
-}
-
-/** @experimental */
-export interface JsonRpcMessage {
-  jsonrpc: '2.0'
-  id?: number | string | null
-  method: string
-  params?: unknown
-}
-
-/** @experimental */
-export interface JsonRpcResponse {
-  jsonrpc: '2.0'
-  id: number | string | null
-  result?: unknown
-  error?: { code: number; message: string; data?: unknown }
-}
 
 /** @experimental */
 export interface StdioToolServerOptions {
@@ -147,7 +120,7 @@ export function createStdioToolServer(options: StdioToolServerOptions): StdioToo
           writeResponse(output, rpcError(null, -32700, `parse error: ${(err as Error).message}`))
           return
         }
-        if (!parsed || parsed.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
+        if (parsed?.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
           writeResponse(output, rpcError(parsed?.id ?? null, -32600, 'invalid request'))
           return
         }

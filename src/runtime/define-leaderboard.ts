@@ -426,7 +426,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
       sandbox: () => {
         throw new Error(
           `defineLeaderboard(${spec.name}): the 'sandbox' backend needs your product's real ` +
-            'SandboxClient — supply spec.backends.sandbox (e.g. () => new SandboxClient({ apiKey, baseUrl }))',
+            'Sandbox client — supply spec.backends.sandbox (e.g. () => new Sandbox({ apiKey, baseUrl }))',
         )
       },
       'cli-bridge': () => {

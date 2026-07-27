@@ -13,12 +13,8 @@
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
-import type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../runtime-hooks'
 import type { RuntimeRunHandle } from '../runtime-run'
 

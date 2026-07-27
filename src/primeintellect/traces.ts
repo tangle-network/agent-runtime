@@ -1,6 +1,6 @@
 import { type RunRecord, validateRunRecord } from '@tangle-network/agent-eval'
 
-interface PrimeUsage {
+export interface PrimeUsage {
   prompt_tokens: number
   completion_tokens: number
   cached_input_tokens?: number | null
@@ -8,14 +8,14 @@ interface PrimeUsage {
   cost?: number | null
 }
 
-interface PrimeTraceNode {
+export interface PrimeTraceNode {
   parent?: number | null
   sampled?: boolean
   usage?: PrimeUsage | null
   message?: unknown
 }
 
-interface PrimeTimeSpan {
+export interface PrimeTimeSpan {
   start?: number
   end?: number
 }
@@ -116,6 +116,7 @@ export function primeIntellectTraceToRunRecord(
     'prime.turns': trace.nodes.filter((node) => node.sampled === true).length,
     'prime.branches': countBranches(trace.nodes),
     'prime.errors': errors.length,
+    execution_error_count: errors.length,
     'prime.completed': trace.is_completed ? 1 : 0,
     'prime.cost_complete': usage.costComplete ? 1 : 0,
     'prime.reported_cost_usd': usage.reportedCostUsd,
@@ -137,10 +138,12 @@ export function primeIntellectTraceToRunRecord(
     configHash: options.configHash,
     commitSha: options.commitSha,
     wallMs: traceWallMs(trace),
-    costUsd: usage.costComplete ? usage.reportedCostUsd : 0,
+    costUsd: usage.costComplete ? usage.reportedCostUsd : null,
     costProvenance: usage.costComplete
       ? { kind: 'observed', usd: usage.reportedCostUsd }
       : { kind: 'uncaptured', usd: null },
+    terminalOutcome: errors.length > 0 ? 'failed' : trace.is_completed ? 'succeeded' : 'incomplete',
+    ...(errors[0] ? { terminalFailureReason: `${errors[0].type}:${errors[0].message}` } : {}),
     tokenUsage: {
       input: usage.input,
       output: usage.output,
@@ -150,7 +153,6 @@ export function primeIntellectTraceToRunRecord(
     outcome: split === 'eval' ? { holdoutScore: reward, raw } : { searchScore: reward, raw },
     splitTag: split === 'eval' ? 'holdout' : 'search',
     scenarioId: trace.task.data.name ?? String(trace.task.data.idx),
-    ...(errors[0] ? { failureMode: `primeintellect:${errors[0].type}:${errors[0].message}` } : {}),
   }
   return validateRunRecord(record)
 }

@@ -395,7 +395,7 @@ export function verify<Task, Candidate, D>(
         return blocked([`${verifierLabel}: not admitted (${verifierRes.reason})`])
       const gate = await drainOne(scope, verifierLabel)
       if (gate.kind === 'down') return blocked([blockerFromDown(gate)])
-      if (!gate.verdict || gate.verdict.valid !== true) {
+      if (gate.verdict?.valid !== true) {
         return blocked([`${verifierLabel}: gate rejected the candidate (${verdictDetail(gate)})`])
       }
       return spec.collect(candidate as Settled<Outcome<Candidate>>, gate.verdict)

@@ -14,7 +14,7 @@ import {
   type ToolLoopChat,
 } from '@tangle-network/agent-runtime/loops'
 import type { BackendType } from '@tangle-network/sandbox'
-import { SandboxClient } from '@tangle-network/sandbox'
+import { Sandbox } from '@tangle-network/sandbox'
 
 /** The marker every runner asks its workers to emit; the check confirms it landed. */
 export const expectedAnswer = 'ANSWER=42'
@@ -112,7 +112,7 @@ export function buildWorkerBackend(): ExecutorConfig {
       )
     }
     // The real Tangle client satisfies the runtime's `SandboxClient` port (it exposes `create(...)`).
-    const sandboxClient = new SandboxClient({ apiKey, baseUrl }) as unknown as RuntimeSandboxClient
+    const sandboxClient = new Sandbox({ apiKey, baseUrl }) as RuntimeSandboxClient
     const harness = (process.env.LOOP_HARNESS ?? 'opencode') as BackendType
     return { backend: 'sandbox', harness, sandboxClient, maxIterations: 1 }
   }

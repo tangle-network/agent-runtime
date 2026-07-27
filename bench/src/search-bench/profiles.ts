@@ -17,7 +17,7 @@
  * shape — a `transport:'http'` server at the router's `/v1/search/mcp` endpoint,
  * provider pinned via the `?provider=` query param.
  */
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 
 export type SearchArm = 'native' | 'off' | { provider: string }
 

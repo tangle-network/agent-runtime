@@ -392,7 +392,7 @@ async function pickCoderWinner(args: PickCoderWinnerArgs): Promise<CoderOutput |
     sizeOf: (o) => o.diffStats.insertions + o.diffStats.deletions,
   })(wrapped)
   const out = winner?.output
-  if (!out || out.kind !== 'done') return undefined
+  if (out?.kind !== 'done') return undefined
   return out.deliverable
 }
 

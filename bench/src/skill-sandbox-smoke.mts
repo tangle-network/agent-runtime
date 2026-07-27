@@ -14,7 +14,8 @@
  *
  * Run: dotenvx run -f ~/company/devops/secrets/.env.keys -- pnpm exec tsx bench/src/skill-sandbox-smoke.mts
  */
-import { Sandbox, defineInlineResource } from '@tangle-network/sandbox'
+import { defineInlineResource } from '@tangle-network/agent-interface'
+import { Sandbox } from '@tangle-network/sandbox'
 
 const must = (k: string): string => {
   const v = process.env[k]

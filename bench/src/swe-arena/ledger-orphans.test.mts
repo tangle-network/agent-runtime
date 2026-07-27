@@ -7,7 +7,8 @@
  * path improve() rides.
  */
 
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -22,40 +23,41 @@ import {
 
 const ATTRIBUTION = { channel: 'agent', phase: 'search.baseline', model: 'm' }
 
-/** A durable event line in the exact shape cost-ledger.jsonl persists. */
-const line = (record: Record<string, unknown>): string =>
-  `${JSON.stringify({ version: 1, record })}\n`
-
-/** Write a synthetic ledger: one settled pair + one crash-orphaned pending. */
+/**
+ * Write one settled receipt and then terminate a process with a real pending
+ * call. The child uses the public ledger API so this fixture cannot shadow its
+ * private JSONL event format.
+ */
 function writeCrashedLedger(dir: string): void {
-  const settledPending = {
-    status: 'pending',
-    callId: 'settled-1',
-    ...ATTRIBUTION,
-    actor: 'worker:astropy#r0',
-    timestamp: 1_000,
-  }
-  const settledReceipt = {
-    ...settledPending,
-    status: 'settled',
-    inputTokens: 10,
-    outputTokens: 5,
-    costUsd: 0.01,
-    costUnknown: false,
-    actualCostUsd: 0.01,
-  }
-  const orphanPending = {
-    status: 'pending',
-    callId: 'orphan-1',
-    ...ATTRIBUTION,
-    actor: 'worker:xarray#r0',
-    timestamp: 2_000,
-    tags: { cellId: 'pydata__xarray-4687:0' },
-  }
-  writeFileSync(
-    join(dir, 'cost-ledger.jsonl'),
-    line(settledPending) + line(settledReceipt) + line(orphanPending),
-  )
+  const child = `
+    import { createRunCostLedger, fsCampaignStorage } from '@tangle-network/agent-eval/campaign'
+    const runDir = process.env.COST_LEDGER_RUN_DIR
+    if (typeof runDir !== 'string' || runDir.length === 0) throw new Error('missing COST_LEDGER_RUN_DIR')
+    const attribution = { channel: 'agent', phase: 'search.baseline', model: 'm' }
+    const ledger = createRunCostLedger({ storage: fsCampaignStorage(), runDir })
+    await ledger.runPaidCall({
+      ...attribution,
+      callId: 'settled-1',
+      actor: 'worker:astropy#r0',
+      execute: async () => 'settled',
+      receipt: () => ({ model: 'm', inputTokens: 10, outputTokens: 5, actualCostUsd: 0.01 }),
+    })
+    let started
+    const pending = new Promise((resolve) => { started = resolve })
+    void ledger.runPaidCall({
+      ...attribution,
+      callId: 'orphan-1',
+      actor: 'worker:xarray#r0',
+      tags: { cellId: 'pydata__xarray-4687:0' },
+      execute: async () => { started(); return await new Promise(() => {}) },
+      receipt: () => ({ model: 'm', inputTokens: 0, outputTokens: 0, actualCostUsd: 0 }),
+    })
+    await pending
+  `
+  execFileSync(process.execPath, ['--input-type=module', '--eval', child], {
+    cwd: process.cwd(),
+    env: { ...process.env, COST_LEDGER_RUN_DIR: dir },
+  })
 }
 
 const openLedger = (dir: string) =>

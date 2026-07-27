@@ -179,14 +179,18 @@ print(json.dumps({
     throw new Error(
       [
         'PrimeIntellect Verifiers v0.2.0 integration check failed',
-        result.stdout.trim(),
-        result.stderr.trim(),
+        result.error instanceof Error
+          ? `${result.error.name}: ${result.error.message}`
+          : undefined,
+        result.signal ? `terminated by signal ${result.signal}` : undefined,
+        typeof result.stdout === 'string' ? result.stdout.trim() : undefined,
+        typeof result.stderr === 'string' ? result.stderr.trim() : undefined,
       ]
         .filter(Boolean)
         .join('\n'),
     )
   }
-  process.stdout.write(result.stdout)
+  process.stdout.write(result.stdout ?? '')
 } finally {
   rmSync(root, { recursive: true, force: true })
 }

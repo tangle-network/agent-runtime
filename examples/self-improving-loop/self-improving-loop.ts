@@ -3,7 +3,7 @@
 // router responses so the demo is reproducible; pass TANGLE_API_KEY to see it fire live.
 //
 // What this shows:
-//   1. baseline AgentProfile (substrate type from @tangle-network/sandbox)
+//   1. baseline AgentProfile (portable type from @tangle-network/agent-interface)
 //   2. runMultishot over N personas (from @tangle-network/agent-eval/multishot)
 //   3. 3 judges score conversations + artifacts
 //   4. analyst phase reads transcripts → emits a canonical `AnalystFinding` (`makeFinding`,
@@ -29,7 +29,7 @@ import {
   runJudge,
   runMultishot,
 } from '@tangle-network/agent-eval/multishot'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 
 // ── 1. Mocked router (set MOCK=0 + TANGLE_API_KEY to run live) ──────────────
 

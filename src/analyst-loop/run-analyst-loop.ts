@@ -26,6 +26,7 @@ import type {
   RunAnalystLoopResult,
 } from './types'
 
+/** Analyze a run and apply accepted knowledge and agent-surface proposals. */
 export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
   opts: RunAnalystLoopOpts,
 ): Promise<RunAnalystLoopResult<TProposal, TEdit>> {

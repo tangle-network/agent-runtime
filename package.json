@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.105.0",
+  "version": "0.106.0",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -99,8 +99,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "tsdown",
+    "dev": "tsdown --watch",
     "prepublishOnly": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -113,7 +113,7 @@
     "check:skills": "node scripts/check-skills.mjs",
     "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
     "verify:bench:published": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
-    "verify:package": "pnpm run check:testing-fixture && pnpm run check:skills && node scripts/verify-package-exports.mjs",
+    "verify:package": "pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs",
     "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect.mjs",
     "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
@@ -122,42 +122,31 @@
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "0.126.6",
-    "@tangle-network/agent-interface": "0.32.0",
-    "@tangle-network/sandbox": "^0.12.0",
-    "@types/node": "^25.9.3",
+    "@arethetypeswrong/cli": "catalog:",
+    "@biomejs/biome": "^2.5.5",
+    "@tangle-network/agent-eval": "catalog:",
+    "@tangle-network/agent-interface": "catalog:",
+    "@tangle-network/sandbox": "catalog:",
+    "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
-    "playwright": "^1.61.0",
-    "tsup": "^8.0.0",
-    "tsx": "^4.22.4",
-    "typedoc": "0.28.19",
+    "playwright": "^1.62.0",
+    "publint": "catalog:",
+    "tsdown": "catalog:",
+    "tsx": "catalog:",
+    "typedoc": "0.28.20",
     "typedoc-plugin-markdown": "4.12.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
-  },
-  "pnpm": {
-    "minimumReleaseAge": 4320,
-    "minimumReleaseAgeExclude": [
-      "@tangle-network/agent-eval",
-      "@tangle-network/agent-interface",
-      "@tangle-network/agent-knowledge",
-      "@tangle-network/agent-profile-materialize",
-      "@tangle-network/sandbox"
-    ],
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
+    "typescript": "catalog:",
+    "vitest": "^4.1.10"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.13.0"
   },
   "license": "MIT",
-  "packageManager": "pnpm@10.28.0",
+  "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.126.6 <0.127.0",
-    "@tangle-network/agent-interface": ">=0.32.0 <0.33.0",
-    "@tangle-network/sandbox": ">=0.12.0 <1.0.0",
+    "@tangle-network/agent-eval": ">=0.131.0 <0.132.0",
+    "@tangle-network/agent-interface": ">=0.35.0 <0.36.0",
+    "@tangle-network/sandbox": ">=0.14.0 <0.15.0",
     "playwright": "^1.40.0"
   },
   "peerDependenciesMeta": {
@@ -169,8 +158,8 @@
     }
   },
   "dependencies": {
-    "@tangle-network/agent-knowledge": "5.0.1",
-    "@tangle-network/agent-profile-materialize": "0.5.1",
+    "@tangle-network/agent-knowledge": "catalog:",
+    "@tangle-network/agent-profile-materialize": "catalog:",
     "tar-stream": "3.2.0"
   }
 }

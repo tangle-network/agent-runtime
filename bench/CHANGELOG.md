@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- Consume `@tangle-network/agent-runtime` 0.106.x with Eval 0.131.0, Interface 0.35.0, and Knowledge 6.1.0.
+- Build the package before checking its exports so verification works from a clean checkout.
+
 ## 0.4.1
 
 - Read Runtime 0.105 candidate plans from their signed run cell, benchmark records, and profile activation.

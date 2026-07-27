@@ -14,8 +14,8 @@
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentProfile } from '@tangle-network/sandbox'
-import { defineInlineResource } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import { defineInlineResource } from '@tangle-network/agent-interface'
 
 export interface ProfileCoordinate {
   /** Coordinate id (the COORDINATE= knob value). */

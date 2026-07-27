@@ -70,7 +70,12 @@ export interface LeaderboardRow {
   readonly solveRate: number
   /** axis → mean score for this profile (blank in render when the profile never ran that axis). */
   readonly perAxis: Record<string, number>
-  readonly costUsd: number
+  /** Exact total when every run captured cost; otherwise `null`. */
+  readonly costUsd: number | null
+  /** Sum of captured cost only. This is a lower bound when `uncapturedCostRuns > 0`. */
+  readonly capturedCostUsd: number
+  /** Runs whose cost was unavailable, never treated as free. */
+  readonly uncapturedCostRuns: number
   readonly tokensIn: number
   readonly tokensOut: number
   readonly latencyP50Ms: number
@@ -95,7 +100,12 @@ export interface Leaderboard {
     readonly profiles: number
     readonly axes: number
     readonly models: readonly string[]
-    readonly totalCostUsd: number
+    /** Exact total when every record captured cost; otherwise `null`. */
+    readonly totalCostUsd: number | null
+    /** Sum of captured cost only. */
+    readonly capturedCostUsd: number
+    /** Records whose cost was unavailable. */
+    readonly uncapturedCostRecords: number
   }
 }
 
@@ -111,9 +121,9 @@ const defaultScoreOf: ScoreOf = (r) => {
 }
 
 const defaultProfileKeyOf: ProfileKeyOf = (r) => {
-  const cell = (r as { agentProfile?: { harness?: string; model?: string } }).agentProfile
-  const harness = cell?.harness
-  return harness ? `${harness}·${r.model}` : r.model
+  const harness = r.agentProfile?.harness?.id
+  const model = r.agentProfile?.model ?? r.model
+  return harness ? `${harness}·${model}` : model
 }
 
 const defaultGroupOf: GroupOf = (r) => r.scenarioId ?? r.experimentId
@@ -221,6 +231,7 @@ export function leaderboard(
         passCi = { lower: w.lower, upper: w.upper }
       }
     }
+    const cost = summarizeCost(recs)
     rows.push({
       profileKey,
       label: labelOf(profileKey),
@@ -229,7 +240,9 @@ export function leaderboard(
       meanScore: mean(scores),
       solveRate: scores.length === 0 ? 0 : scores.filter((s) => s >= pass).length / scores.length,
       perAxis,
-      costUsd: recs.reduce((a, r) => a + r.costUsd, 0),
+      costUsd: cost.uncapturedRecords === 0 ? cost.capturedUsd : null,
+      capturedCostUsd: cost.capturedUsd,
+      uncapturedCostRuns: cost.uncapturedRecords,
       tokensIn: recs.reduce((a, r) => a + (r.tokenUsage?.input ?? 0), 0),
       tokensOut: recs.reduce((a, r) => a + (r.tokenUsage?.output ?? 0), 0),
       latencyP50Ms: quantile(latencies, 0.5),
@@ -239,12 +252,16 @@ export function leaderboard(
     })
   }
 
-  // Rank: score desc, then cheaper, then label for a stable order.
+  // Rank: score desc, then complete cost before unknown cost, then lower cost and label.
   rows.sort(
-    (a, b) => b.meanScore - a.meanScore || a.costUsd - b.costUsd || a.label.localeCompare(b.label),
+    (a, b) =>
+      b.meanScore - a.meanScore ||
+      compareCompleteCost(a.costUsd, b.costUsd) ||
+      a.label.localeCompare(b.label),
   )
 
   const models = [...new Set(records.map((r) => r.model))].sort()
+  const totalCost = summarizeCost(records)
   return {
     title: opts.title ?? 'Benchmark report',
     axes,
@@ -255,9 +272,34 @@ export function leaderboard(
       profiles: rows.length,
       axes: axes.length,
       models,
-      totalCostUsd: records.reduce((a, r) => a + r.costUsd, 0),
+      totalCostUsd: totalCost.uncapturedRecords === 0 ? totalCost.capturedUsd : null,
+      capturedCostUsd: totalCost.capturedUsd,
+      uncapturedCostRecords: totalCost.uncapturedRecords,
     },
   }
+}
+
+function summarizeCost(records: readonly RunRecord[]): {
+  capturedUsd: number
+  uncapturedRecords: number
+} {
+  return records.reduce(
+    (summary, record) => {
+      if (record.costUsd === null) {
+        summary.uncapturedRecords += 1
+      } else {
+        summary.capturedUsd += record.costUsd
+      }
+      return summary
+    },
+    { capturedUsd: 0, uncapturedRecords: 0 },
+  )
+}
+
+function compareCompleteCost(left: number | null, right: number | null): number {
+  if (left === null) return right === null ? 0 : 1
+  if (right === null) return -1
+  return left - right
 }
 
 /** One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict. */
@@ -351,6 +393,15 @@ export function pairwiseSignificance(
 
 const pct = (x: number): string => `${(100 * x).toFixed(1)}%`
 const ci = (iv: Interval | undefined): string => (iv ? ` [${pct(iv.lower)}, ${pct(iv.upper)}]` : '')
+const cost = (
+  totalUsd: number | null,
+  capturedUsd: number,
+  uncapturedRecords: number,
+  digits: number,
+): string =>
+  totalUsd === null
+    ? `at least $${capturedUsd.toFixed(digits)} (${uncapturedRecords} uncaptured)`
+    : `$${totalUsd.toFixed(digits)}`
 
 /** Render the report as a publishable Markdown document: provenance → leaderboard → the full profile×axis
  *  matrix → cost/latency/token columns. Every axis is shown — a curated subset is a reporting failure. */
@@ -359,7 +410,7 @@ export function renderLeaderboardMarkdown(report: Leaderboard): string {
   lines.push(`# ${report.title}`, '')
   const p = report.provenance
   lines.push(
-    `**${p.profiles} profiles × ${p.axes} axes**, ${p.records} runs, ${p.models.length} models · total $${p.totalCostUsd.toFixed(2)}`,
+    `**${p.profiles} profiles × ${p.axes} axes**, ${p.records} runs, ${p.models.length} models · total ${cost(p.totalCostUsd, p.capturedCostUsd, p.uncapturedCostRecords, 2)}`,
     '',
   )
   for (const [k, v] of Object.entries(report.meta)) lines.push(`- **${k}:** ${v}`)
@@ -373,7 +424,7 @@ export function renderLeaderboardMarkdown(report: Leaderboard): string {
   lines.push('|---|---|--:|--:|--:|--:|--:|--:|--:|')
   report.profiles.forEach((r, i) => {
     lines.push(
-      `| ${i + 1} | ${r.label} | ${pct(r.meanScore)}${ci(r.scoreCi)} | ${pct(r.solveRate)}${ci(r.passCi)} | ${r.n} | $${r.costUsd.toFixed(3)} | ${r.tokensIn}/${r.tokensOut} | ${(r.latencyP50Ms / 1000).toFixed(1)}s | ${(r.latencyP90Ms / 1000).toFixed(1)}s |`,
+      `| ${i + 1} | ${r.label} | ${pct(r.meanScore)}${ci(r.scoreCi)} | ${pct(r.solveRate)}${ci(r.passCi)} | ${r.n} | ${cost(r.costUsd, r.capturedCostUsd, r.uncapturedCostRuns, 3)} | ${r.tokensIn}/${r.tokensOut} | ${(r.latencyP50Ms / 1000).toFixed(1)}s | ${(r.latencyP90Ms / 1000).toFixed(1)}s |`,
     )
   })
   lines.push('')
@@ -509,7 +560,7 @@ export function renderLeaderboardHtml(report: Leaderboard): string {
   const rows = report.profiles
     .map(
       (r, i) =>
-        `<tr><td>${i + 1}</td><td>${esc(r.label)}</td><td class="n">${pct(r.meanScore)}</td><td class="n">${pct(r.solveRate)}</td><td class="n">${r.n}</td><td class="n">$${r.costUsd.toFixed(3)}</td>${report.axes
+        `<tr><td>${i + 1}</td><td>${esc(r.label)}</td><td class="n">${pct(r.meanScore)}</td><td class="n">${pct(r.solveRate)}</td><td class="n">${r.n}</td><td class="n">${cost(r.costUsd, r.capturedCostUsd, r.uncapturedCostRuns, 3)}</td>${report.axes
           .map((a) => {
             const v = r.perAxis[a]
             return `<td class="n">${v === undefined ? '·' : pct(v)}</td>`
@@ -527,7 +578,7 @@ th{background:#f9fafb;text-align:left}.n{text-align:right;font-variant-numeric:t
 tr:first-child td{font-weight:600}
 </style></head><body>
 <h1>${esc(report.title)}</h1>
-<div class="sub">${p.profiles} profiles × ${p.axes} axes · ${p.records} runs · ${p.models.length} models · total $${p.totalCostUsd.toFixed(2)}</div>
+<div class="sub">${p.profiles} profiles × ${p.axes} axes · ${p.records} runs · ${p.models.length} models · total ${cost(p.totalCostUsd, p.capturedCostUsd, p.uncapturedCostRecords, 2)}</div>
 ${svg}
 <table><thead><tr><th>#</th><th>Profile</th><th>Score</th><th>Solved</th><th>Runs</th><th>Cost</th>${axisHead}</tr></thead>
 <tbody>

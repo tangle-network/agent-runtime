@@ -1,4 +1,5 @@
-import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,

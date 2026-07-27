@@ -58,7 +58,7 @@ describe('createOpenAICompatibleBackend — typed transport errors surface to ba
     )
     const backendError = events.find((e) => e.type === 'backend_error')
     expect(backendError).toBeDefined()
-    if (!backendError || backendError.type !== 'backend_error') {
+    if (backendError?.type !== 'backend_error') {
       throw new Error('expected backend_error')
     }
     expect(backendError.error).toEqual({
@@ -70,7 +70,7 @@ describe('createOpenAICompatibleBackend — typed transport errors surface to ba
     // final carries the same typed detail.
     const final = events.at(-1)
     expect(final?.type).toBe('final')
-    if (!final || final.type !== 'final') throw new Error('expected final')
+    if (final?.type !== 'final') throw new Error('expected final')
     expect(final.status).toBe('failed')
     expect(final.error).toEqual({
       kind: 'transport',
@@ -102,7 +102,7 @@ describe('createOpenAICompatibleBackend — typed transport errors surface to ba
     )
     const final = events.at(-1)
     expect(final?.type).toBe('final')
-    if (!final || final.type !== 'final') throw new Error('expected final')
+    if (final?.type !== 'final') throw new Error('expected final')
     expect(final.status).toBe('failed')
     expect(final.error?.kind).toBe('transport')
     expect(final.error?.status).toBe(status)
@@ -131,7 +131,7 @@ describe('createOpenAICompatibleBackend — typed transport errors surface to ba
     )
     expect(attempts).toBe(3)
     const final = events.at(-1)
-    if (!final || final.type !== 'final') throw new Error('expected final')
+    if (final?.type !== 'final') throw new Error('expected final')
     expect(final.status).toBe('failed')
     expect(final.error?.kind).toBe('transport')
     expect(final.error?.status).toBe(502)
@@ -156,7 +156,7 @@ describe('createOpenAICompatibleBackend — typed transport errors surface to ba
       }),
     )
     const final = events.at(-1)
-    if (!final || final.type !== 'final') throw new Error('expected final')
+    if (final?.type !== 'final') throw new Error('expected final')
     expect(final.status).toBe('failed')
     expect(final.error?.kind).toBe('transport')
     expect(final.error?.status).toBe(0)
@@ -180,7 +180,7 @@ describe('createOpenAICompatibleBackend — typed transport errors surface to ba
       }),
     )
     const final = events.at(-1)
-    if (!final || final.type !== 'final') throw new Error('expected final')
+    if (final?.type !== 'final') throw new Error('expected final')
     // 2 KiB cap + 1 ellipsis char.
     expect(final.error?.body?.length).toBeLessThanOrEqual(2049)
     expect(final.error?.body?.endsWith('…')).toBe(true)
@@ -205,7 +205,7 @@ describe('createOpenAICompatibleBackend — typed transport errors surface to ba
       }),
     )
     const final = events.at(-1)
-    if (!final || final.type !== 'final') throw new Error('expected final')
+    if (final?.type !== 'final') throw new Error('expected final')
     expect(final.status).toBe('failed')
     expect(final.error).toEqual({
       kind: 'backend',
@@ -239,7 +239,7 @@ describe('createOpenAICompatibleBackend — typed transport errors surface to ba
       }),
     )
     const final = events.at(-1)
-    if (!final || final.type !== 'final') throw new Error('expected final')
+    if (final?.type !== 'final') throw new Error('expected final')
     expect(final.status).toBe('completed')
     expect(final.error).toBeUndefined()
     const backendError = events.find((e) => e.type === 'backend_error')

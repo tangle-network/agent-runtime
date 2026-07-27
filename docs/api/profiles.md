@@ -10,8 +10,6 @@
 
 ### AuditRegistry
 
-Defined in: [src/audit/issue-writer.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L31)
-
 **`Experimental`**
 
 #### Properties
@@ -20,23 +18,17 @@ Defined in: [src/audit/issue-writer.ts:31](https://github.com/tangle-network/age
 
 > **schemaVersion**: `1`
 
-Defined in: [src/audit/issue-writer.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L32)
-
 **`Experimental`**
 
 ##### findings
 
 > **findings**: [`UiFinding`](#uifinding)[]
 
-Defined in: [src/audit/issue-writer.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L33)
-
 **`Experimental`**
 
 ##### routes
 
 > **routes**: `Record`\<`string`, \{ `url?`: `string`; `captures`: [`AuditRegistryCapture`](#auditregistrycapture)[]; \}\>
-
-Defined in: [src/audit/issue-writer.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L35)
 
 **`Experimental`**
 
@@ -46,8 +38,6 @@ Route → URL + captures sidecar; preserved across runs.
 
 ### AuditRegistryCapture
 
-Defined in: [src/audit/issue-writer.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L39)
-
 **`Experimental`**
 
 #### Properties
@@ -56,15 +46,11 @@ Defined in: [src/audit/issue-writer.ts:39](https://github.com/tangle-network/age
 
 > **file**: `string`
 
-Defined in: [src/audit/issue-writer.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L40)
-
 **`Experimental`**
 
 ##### viewport?
 
 > `optional` **viewport?**: `string`
-
-Defined in: [src/audit/issue-writer.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L41)
 
 **`Experimental`**
 
@@ -72,15 +58,11 @@ Defined in: [src/audit/issue-writer.ts:41](https://github.com/tangle-network/age
 
 > `optional` **fullPage?**: `boolean`
 
-Defined in: [src/audit/issue-writer.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L42)
-
 **`Experimental`**
 
 ##### elementSelector?
 
 > `optional` **elementSelector?**: `string`
-
-Defined in: [src/audit/issue-writer.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L43)
 
 **`Experimental`**
 
@@ -88,15 +70,11 @@ Defined in: [src/audit/issue-writer.ts:43](https://github.com/tangle-network/age
 
 > **capturedAt**: `string`
 
-Defined in: [src/audit/issue-writer.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L44)
-
 **`Experimental`**
 
 ***
 
 ### AppendFindingsResult
-
-Defined in: [src/audit/issue-writer.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L255)
 
 **`Experimental`**
 
@@ -106,8 +84,6 @@ Defined in: [src/audit/issue-writer.ts:255](https://github.com/tangle-network/ag
 
 > **written**: [`UiFinding`](#uifinding)[]
 
-Defined in: [src/audit/issue-writer.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L257)
-
 **`Experimental`**
 
 Findings with id + createdAt assigned, in input order.
@@ -115,8 +91,6 @@ Findings with id + createdAt assigned, in input order.
 ##### files
 
 > **files**: `string`[]
-
-Defined in: [src/audit/issue-writer.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L259)
 
 **`Experimental`**
 
@@ -126,8 +100,6 @@ Workspace-relative path to each issue Markdown file, in input order.
 
 ### RegisterCapturesOptions
 
-Defined in: [src/audit/issue-writer.ts:337](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L337)
-
 **`Experimental`**
 
 #### Properties
@@ -136,15 +108,11 @@ Defined in: [src/audit/issue-writer.ts:337](https://github.com/tangle-network/ag
 
 > **route**: `string`
 
-Defined in: [src/audit/issue-writer.ts:338](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L338)
-
 **`Experimental`**
 
 ##### url?
 
 > `optional` **url?**: `string`
-
-Defined in: [src/audit/issue-writer.ts:339](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L339)
 
 **`Experimental`**
 
@@ -152,15 +120,11 @@ Defined in: [src/audit/issue-writer.ts:339](https://github.com/tangle-network/ag
 
 > **captures**: readonly [`AuditRegistryCapture`](#auditregistrycapture)[]
 
-Defined in: [src/audit/issue-writer.ts:340](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L340)
-
 **`Experimental`**
 
 ***
 
 ### AuditIndex
-
-Defined in: [src/audit/issue-writer.ts:370](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L370)
 
 **`Experimental`**
 
@@ -170,8 +134,6 @@ Defined in: [src/audit/issue-writer.ts:370](https://github.com/tangle-network/ag
 
 > **total**: `number`
 
-Defined in: [src/audit/issue-writer.ts:372](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L372)
-
 **`Experimental`**
 
 Total findings in the workspace.
@@ -180,15 +142,11 @@ Total findings in the workspace.
 
 > **bySeverity**: `Record`\<[`UiFinding`](#uifinding)\[`"severity"`\], `number`\>
 
-Defined in: [src/audit/issue-writer.ts:373](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L373)
-
 **`Experimental`**
 
 ##### byLens
 
 > **byLens**: `Partial`\<`Record`\<[`UiLens`](#uilens), `number`\>\>
-
-Defined in: [src/audit/issue-writer.ts:374](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L374)
 
 **`Experimental`**
 
@@ -196,15 +154,11 @@ Defined in: [src/audit/issue-writer.ts:374](https://github.com/tangle-network/ag
 
 > **byRoute**: `Record`\<`string`, `number`\>
 
-Defined in: [src/audit/issue-writer.ts:375](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L375)
-
 **`Experimental`**
 
 ***
 
 ### CoderTask
-
-Defined in: [src/profiles/coder.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L16)
 
 **`Experimental`**
 
@@ -216,8 +170,6 @@ The per-task inputs `coderTaskToPrompt` renders + the worktree gate enforces.
 
 > **goal**: `string`
 
-Defined in: [src/profiles/coder.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L18)
-
 **`Experimental`**
 
 What the agent must accomplish. Free-form prose.
@@ -225,8 +177,6 @@ What the agent must accomplish. Free-form prose.
 ##### repoRoot
 
 > **repoRoot**: `string`
-
-Defined in: [src/profiles/coder.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L20)
 
 **`Experimental`**
 
@@ -236,8 +186,6 @@ Absolute path inside the sandbox where the repo lives.
 
 > `optional` **baseBranch?**: `string`
 
-Defined in: [src/profiles/coder.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L22)
-
 **`Experimental`**
 
 Default `main`. The branch the agent diffs against.
@@ -245,8 +193,6 @@ Default `main`. The branch the agent diffs against.
 ##### testCmd?
 
 > `optional` **testCmd?**: `string`
-
-Defined in: [src/profiles/coder.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L24)
 
 **`Experimental`**
 
@@ -256,8 +202,6 @@ Default `pnpm test --run`.
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [src/profiles/coder.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L26)
-
 **`Experimental`**
 
 Default `pnpm typecheck`.
@@ -266,8 +210,6 @@ Default `pnpm typecheck`.
 
 > `optional` **contextFiles?**: `string`[]
 
-Defined in: [src/profiles/coder.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L28)
-
 **`Experimental`**
 
 Files the agent may inspect for context. Surfaced verbatim in the prompt.
@@ -275,8 +217,6 @@ Files the agent may inspect for context. Surfaced verbatim in the prompt.
 ##### forbiddenPaths?
 
 > `optional` **forbiddenPaths?**: `string`[]
-
-Defined in: [src/profiles/coder.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L33)
 
 **`Experimental`**
 
@@ -287,8 +227,6 @@ Use glob-free literal path prefixes for unambiguous enforcement.
 
 > `optional` **maxDiffLines?**: `number`
 
-Defined in: [src/profiles/coder.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L35)
-
 **`Experimental`**
 
 Default 400. Hard cap; the gate hard-fails when exceeded.
@@ -296,8 +234,6 @@ Default 400. Hard cap; the gate hard-fails when exceeded.
 ***
 
 ### ResearchTask
-
-Defined in: [src/profiles/researcher.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L39)
 
 **`Experimental`**
 
@@ -309,8 +245,6 @@ Task contract for a source-grounded research agent.
 
 > **question**: `string`
 
-Defined in: [src/profiles/researcher.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L41)
-
 **`Experimental`**
 
 The research question to answer.
@@ -318,8 +252,6 @@ The research question to answer.
 ##### scope?
 
 > `optional` **scope?**: `string`
-
-Defined in: [src/profiles/researcher.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L43)
 
 **`Experimental`**
 
@@ -329,8 +261,6 @@ Bound: e.g. "audience for cpg-founder ICP".
 
 > **knowledgeNamespace**: `string`
 
-Defined in: [src/profiles/researcher.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L45)
-
 **`Experimental`**
 
 Multi-tenant scope (customer-id, workspace-id). Validator enforces.
@@ -339,15 +269,11 @@ Multi-tenant scope (customer-id, workspace-id). Validator enforces.
 
 > `optional` **sources?**: [`ResearchSource`](#researchsource)[]
 
-Defined in: [src/profiles/researcher.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L46)
-
 **`Experimental`**
 
 ##### recencyWindow?
 
 > `optional` **recencyWindow?**: `object`
-
-Defined in: [src/profiles/researcher.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L47)
 
 **`Experimental`**
 
@@ -363,15 +289,11 @@ Defined in: [src/profiles/researcher.ts:47](https://github.com/tangle-network/ag
 
 > `optional` **maxItems?**: `number`
 
-Defined in: [src/profiles/researcher.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L48)
-
 **`Experimental`**
 
 ##### minConfidence?
 
 > `optional` **minConfidence?**: `number`
-
-Defined in: [src/profiles/researcher.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L50)
 
 **`Experimental`**
 
@@ -380,8 +302,6 @@ Per-item minimum confidence in [0, 1]. Validator scores recall vs this.
 ***
 
 ### KnowledgeItem
-
-Defined in: [src/profiles/researcher.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L61)
 
 **`Experimental`**
 
@@ -396,15 +316,11 @@ top-level `KnowledgeItem` substrate-wide, these fields collapse 1:1.
 
 > **id**: `string`
 
-Defined in: [src/profiles/researcher.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L62)
-
 **`Experimental`**
 
 ##### namespace
 
 > **namespace**: `string`
-
-Defined in: [src/profiles/researcher.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L64)
 
 **`Experimental`**
 
@@ -414,8 +330,6 @@ Multi-tenant scope. MUST equal `task.knowledgeNamespace`.
 
 > **claim**: `string`
 
-Defined in: [src/profiles/researcher.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L66)
-
 **`Experimental`**
 
 The factual claim, in the researcher's words.
@@ -423,8 +337,6 @@ The factual claim, in the researcher's words.
 ##### evidence
 
 > **evidence**: `object`[]
-
-Defined in: [src/profiles/researcher.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L68)
 
 **`Experimental`**
 
@@ -450,8 +362,6 @@ Provenance — at least one entry required.
 
 > **confidence**: `number`
 
-Defined in: [src/profiles/researcher.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L70)
-
 **`Experimental`**
 
 Researcher's self-reported confidence in [0, 1].
@@ -459,8 +369,6 @@ Researcher's self-reported confidence in [0, 1].
 ##### supersedes?
 
 > `optional` **supersedes?**: `string`[]
-
-Defined in: [src/profiles/researcher.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L72)
 
 **`Experimental`**
 
@@ -470,8 +378,6 @@ Prior item ids this supersedes (chain).
 
 > `optional` **retractedAt?**: `number`
 
-Defined in: [src/profiles/researcher.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L74)
-
 **`Experimental`**
 
 Set if the agent is retracting an earlier item. Unix ms.
@@ -479,8 +385,6 @@ Set if the agent is retracting an earlier item. Unix ms.
 ##### authoredBy
 
 > **authoredBy**: `object`
-
-Defined in: [src/profiles/researcher.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L75)
 
 **`Experimental`**
 
@@ -496,8 +400,6 @@ Defined in: [src/profiles/researcher.ts:75](https://github.com/tangle-network/ag
 
 ### ResearchOutput
 
-Defined in: [src/profiles/researcher.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L96)
-
 **`Experimental`**
 
 Researcher output. Required fields are typed; optional fields preserve
@@ -510,15 +412,11 @@ enforces the typed minimum.
 
 > **items**: [`KnowledgeItem`](#knowledgeitem)[]
 
-Defined in: [src/profiles/researcher.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L97)
-
 **`Experimental`**
 
 ##### citations
 
 > **citations**: `object`[]
-
-Defined in: [src/profiles/researcher.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L98)
 
 **`Experimental`**
 
@@ -538,15 +436,11 @@ Defined in: [src/profiles/researcher.ts:98](https://github.com/tangle-network/ag
 
 > **proposedWrites**: [`KnowledgeUpdate`](#knowledgeupdate)[]
 
-Defined in: [src/profiles/researcher.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L99)
-
 **`Experimental`**
 
 ##### gaps?
 
 > `optional` **gaps?**: `string`[]
-
-Defined in: [src/profiles/researcher.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L100)
 
 **`Experimental`**
 
@@ -554,15 +448,11 @@ Defined in: [src/profiles/researcher.ts:100](https://github.com/tangle-network/a
 
 > `optional` **notes?**: `string`
 
-Defined in: [src/profiles/researcher.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L101)
-
 **`Experimental`**
 
 ##### raw?
 
 > `optional` **raw?**: `unknown`
-
-Defined in: [src/profiles/researcher.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L103)
 
 **`Experimental`**
 
@@ -571,8 +461,6 @@ Anything the agent emitted beyond the typed fields.
 ***
 
 ### ResearcherProfileOptions
-
-Defined in: [src/profiles/researcher.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L107)
 
 **`Experimental`**
 
@@ -584,8 +472,6 @@ Options for the source-grounded researcher profile preset.
 
 > `optional` **harness?**: `string`
 
-Defined in: [src/profiles/researcher.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L109)
-
 **`Experimental`**
 
 Sandbox-SDK backend.type. Default `'opencode/zai-coding-plan/glm-5.1'`.
@@ -593,8 +479,6 @@ Sandbox-SDK backend.type. Default `'opencode/zai-coding-plan/glm-5.1'`.
 ##### model?
 
 > `optional` **model?**: `string`
-
-Defined in: [src/profiles/researcher.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L111)
 
 **`Experimental`**
 
@@ -604,8 +488,6 @@ Default model id passed in `AgentProfile.model.default`.
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: [src/profiles/researcher.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L113)
-
 **`Experimental`**
 
 Custom system prompt replacement. Default = built-in researcher preset.
@@ -614,8 +496,6 @@ Custom system prompt replacement. Default = built-in researcher preset.
 
 > `optional` **name?**: `string`
 
-Defined in: [src/profiles/researcher.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L115)
-
 **`Experimental`**
 
 Stable name for `AgentRunSpec.name`. Default = `researcher-${harness}`.
@@ -623,8 +503,6 @@ Stable name for `AgentRunSpec.name`. Default = `researcher-${harness}`.
 ##### citationDensityMin?
 
 > `optional` **citationDensityMin?**: `number`
-
-Defined in: [src/profiles/researcher.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L120)
 
 **`Experimental`**
 
@@ -635,8 +513,6 @@ Below this floor, citation_density scores < 1 and the item set is gated.
 
 ### MultiHarnessResearcherFanoutOptions
 
-Defined in: [src/profiles/researcher.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L164)
-
 **`Experimental`**
 
 #### Properties
@@ -644,8 +520,6 @@ Defined in: [src/profiles/researcher.ts:164](https://github.com/tangle-network/a
 ##### harnesses?
 
 > `optional` **harnesses?**: `string`[]
-
-Defined in: [src/profiles/researcher.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L166)
 
 **`Experimental`**
 
@@ -655,8 +529,6 @@ Backend.type identifiers, one per parallel agent.
 
 > `optional` **models?**: (`string` \| `undefined`)[]
 
-Defined in: [src/profiles/researcher.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L168)
-
 **`Experimental`**
 
 Optional per-harness model override. Indexed parallel to `harnesses`.
@@ -664,8 +536,6 @@ Optional per-harness model override. Indexed parallel to `harnesses`.
 ##### citationDensityMin?
 
 > `optional` **citationDensityMin?**: `number`
-
-Defined in: [src/profiles/researcher.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L170)
 
 **`Experimental`**
 
@@ -675,8 +545,6 @@ Default citation density floor for the shared validator.
 
 > `optional` **task?**: [`ResearchTask`](#researchtask)
 
-Defined in: [src/profiles/researcher.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L172)
-
 **`Experimental`**
 
 Optional task — narrows the validator's namespace check.
@@ -685,8 +553,6 @@ Optional task — narrows the validator's namespace check.
 
 ### InProcessUiAuditClientOptions
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L46)
-
 **`Experimental`**
 
 #### Properties
@@ -694,8 +560,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:46](https://github.com
 ##### workspaceDir
 
 > **workspaceDir**: `string`
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L52)
 
 **`Experimental`**
 
@@ -707,8 +571,6 @@ are workspace-relative (`screenshots/<filename>`).
 
 > **judge**: [`UiJudge`](#uijudge)
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L54)
-
 **`Experimental`**
 
 The vision judge that turns captures into findings.
@@ -716,8 +578,6 @@ The vision judge that turns captures into findings.
 ##### navPolicy?
 
 > `optional` **navPolicy?**: `"strict"` \| `"spa"`
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L63)
 
 **`Experimental`**
 
@@ -731,8 +591,6 @@ connections and never settle.
 ##### launchBrowser?
 
 > `optional` **launchBrowser?**: () => `Promise`\<[`BrowserHandle`](#browserhandle)\>
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L69)
 
 **`Experimental`**
 
@@ -748,8 +606,6 @@ different channel, or a fleet adapter.
 
 ### BrowserHandle
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L73)
-
 **`Experimental`**
 
 #### Methods
@@ -757,8 +613,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:73](https://github.com
 ##### newContext()
 
 > **newContext**(`options?`): `Promise`\<[`BrowserContextHandle`](#browsercontexthandle)\>
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L74)
 
 **`Experimental`**
 
@@ -786,8 +640,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:74](https://github.com
 
 > **close**(): `Promise`\<`void`\>
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L77)
-
 **`Experimental`**
 
 ###### Returns
@@ -798,8 +650,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:77](https://github.com
 
 ### BrowserContextHandle
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L81)
-
 **`Experimental`**
 
 #### Methods
@@ -807,8 +657,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:81](https://github.com
 ##### newPage()
 
 > **newPage**(): `Promise`\<[`PageHandle`](#pagehandle)\>
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L82)
 
 **`Experimental`**
 
@@ -820,8 +668,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:82](https://github.com
 
 > **close**(): `Promise`\<`void`\>
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L83)
-
 **`Experimental`**
 
 ###### Returns
@@ -832,8 +678,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:83](https://github.com
 
 ### PageHandle
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L87)
-
 **`Experimental`**
 
 #### Methods
@@ -841,8 +685,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:87](https://github.com
 ##### setViewportSize()
 
 > **setViewportSize**(`size`): `Promise`\<`void`\>
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L88)
 
 **`Experimental`**
 
@@ -865,8 +707,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:88](https://github.com
 ##### goto()
 
 > **goto**(`url`, `options?`): `Promise`\<`unknown`\>
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L89)
 
 **`Experimental`**
 
@@ -894,8 +734,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:89](https://github.com
 
 > **waitForSelector**(`selector`, `options?`): `Promise`\<`unknown`\>
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L90)
-
 **`Experimental`**
 
 ###### Parameters
@@ -918,8 +756,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:90](https://github.com
 
 > **waitForTimeout**(`ms`): `Promise`\<`void`\>
 
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L91)
-
 **`Experimental`**
 
 ###### Parameters
@@ -935,8 +771,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:91](https://github.com
 ##### screenshot()
 
 > **screenshot**(`options`): `Promise`\<`void`\>
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L92)
 
 **`Experimental`**
 
@@ -959,8 +793,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:92](https://github.com
 ##### locator()
 
 > **locator**(`selector`): `object`
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L93)
 
 **`Experimental`**
 
@@ -1002,8 +834,6 @@ Defined in: [src/profiles/ui-auditor/in-process-client.ts:93](https://github.com
 
 ### UiJudgeTokenUsage
 
-Defined in: [src/profiles/ui-auditor/judge.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L31)
-
 **`Experimental`**
 
 #### Properties
@@ -1012,23 +842,17 @@ Defined in: [src/profiles/ui-auditor/judge.ts:31](https://github.com/tangle-netw
 
 > **input**: `number`
 
-Defined in: [src/profiles/ui-auditor/judge.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L32)
-
 **`Experimental`**
 
 ##### output
 
 > **output**: `number`
 
-Defined in: [src/profiles/ui-auditor/judge.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L33)
-
 **`Experimental`**
 
 ***
 
 ### UiJudgeInput
-
-Defined in: [src/profiles/ui-auditor/judge.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L37)
 
 **`Experimental`**
 
@@ -1038,23 +862,17 @@ Defined in: [src/profiles/ui-auditor/judge.ts:37](https://github.com/tangle-netw
 
 > **lens**: [`UiLens`](#uilens)
 
-Defined in: [src/profiles/ui-auditor/judge.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L38)
-
 **`Experimental`**
 
 ##### captures
 
 > **captures**: readonly [`UiAuditCapture`](#uiauditcapture)[]
 
-Defined in: [src/profiles/ui-auditor/judge.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L39)
-
 **`Experimental`**
 
 ##### productContext?
 
 > `optional` **productContext?**: `string`
-
-Defined in: [src/profiles/ui-auditor/judge.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L41)
 
 **`Experimental`**
 
@@ -1064,8 +882,6 @@ Free-form product context the consumer wants the judge to know.
 
 > `optional` **knownFindingIds?**: readonly `number`[]
 
-Defined in: [src/profiles/ui-auditor/judge.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L43)
-
 **`Experimental`**
 
 Findings already on file across earlier iterations — for similarTo linkage.
@@ -1073,8 +889,6 @@ Findings already on file across earlier iterations — for similarTo linkage.
 ##### promptText
 
 > **promptText**: `string`
-
-Defined in: [src/profiles/ui-auditor/judge.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L45)
 
 **`Experimental`**
 
@@ -1084,8 +898,6 @@ The full prompt the loop kernel synthesized for this iteration.
 
 > **signal**: `AbortSignal`
 
-Defined in: [src/profiles/ui-auditor/judge.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L47)
-
 **`Experimental`**
 
 Cooperative cancellation.
@@ -1093,8 +905,6 @@ Cooperative cancellation.
 ***
 
 ### UiJudgeOutput
-
-Defined in: [src/profiles/ui-auditor/judge.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L51)
 
 **`Experimental`**
 
@@ -1104,15 +914,11 @@ Defined in: [src/profiles/ui-auditor/judge.ts:51](https://github.com/tangle-netw
 
 > **findings**: [`UiFinding`](#uifinding)[]
 
-Defined in: [src/profiles/ui-auditor/judge.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L52)
-
 **`Experimental`**
 
 ##### notes?
 
 > `optional` **notes?**: `string`
-
-Defined in: [src/profiles/ui-auditor/judge.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L54)
 
 **`Experimental`**
 
@@ -1122,8 +928,6 @@ Optional triage commentary.
 
 > `optional` **tokenUsage?**: [`UiJudgeTokenUsage`](#uijudgetokenusage)
 
-Defined in: [src/profiles/ui-auditor/judge.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L56)
-
 **`Experimental`**
 
 Optional usage; folded into the kernel cost ledger when present.
@@ -1131,8 +935,6 @@ Optional usage; folded into the kernel cost ledger when present.
 ##### costUsd?
 
 > `optional` **costUsd?**: `number`
-
-Defined in: [src/profiles/ui-auditor/judge.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L58)
 
 **`Experimental`**
 
@@ -1142,8 +944,6 @@ Optional total cost in USD.
 
 ### UiAuditorProfileOptions
 
-Defined in: [src/profiles/ui-auditor/profile.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/profile.ts#L23)
-
 **`Experimental`**
 
 #### Properties
@@ -1151,8 +951,6 @@ Defined in: [src/profiles/ui-auditor/profile.ts:23](https://github.com/tangle-ne
 ##### name?
 
 > `optional` **name?**: `string`
-
-Defined in: [src/profiles/ui-auditor/profile.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/profile.ts#L27)
 
 **`Experimental`**
 
@@ -1162,8 +960,6 @@ Stable name surfaced in trace events. Defaults to `ui-auditor`.
 
 > `optional` **model?**: `string`
 
-Defined in: [src/profiles/ui-auditor/profile.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/profile.ts#L32)
-
 **`Experimental`**
 
 Optional model identifier passed in `AgentProfile.model.default`.
@@ -1172,8 +968,6 @@ The consumer's `SandboxClient` chooses how to interpret it.
 ##### task?
 
 > `optional` **task?**: [`UiAuditTask`](#uiaudittask)
-
-Defined in: [src/profiles/ui-auditor/profile.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/profile.ts#L38)
 
 **`Experimental`**
 
@@ -1185,8 +979,6 @@ use; less strict than passing the task explicitly.
 
 ### UiFindingScreenshot
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L69)
-
 Pointer to a screenshot referenced by a finding (workspace-relative path).
 
 #### Properties
@@ -1195,25 +987,17 @@ Pointer to a screenshot referenced by a finding (workspace-relative path).
 
 > **path**: `string`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L70)
-
 ##### viewport?
 
 > `optional` **viewport?**: `string`
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L71)
 
 ##### label?
 
 > `optional` **label?**: `string`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L72)
-
 ***
 
 ### UiFinding
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L82)
 
 A single UI audit finding — the unit of work a contributor can act on.
 
@@ -1227,33 +1011,23 @@ lens, missing title, etc.
 
 > `optional` **id?**: `number`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L84)
-
 Monotonic id assigned by the writer when persisting. Optional in-transit.
 
 ##### title
 
 > **title**: `string`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L85)
-
 ##### lens
 
 > **lens**: [`UiLens`](#uilens)
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L86)
 
 ##### severity
 
 > **severity**: [`UiFindingSeverity`](#uifindingseverity)
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L87)
-
 ##### route
 
 > **route**: `string`
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L89)
 
 Logical route the finding was observed on (e.g. `home`, `checkout-step-2`).
 
@@ -1261,15 +1035,11 @@ Logical route the finding was observed on (e.g. `home`, `checkout-step-2`).
 
 > `optional` **url?**: `string`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L91)
-
 Fully qualified URL the finding was observed at.
 
 ##### viewport?
 
 > `optional` **viewport?**: `string`
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L93)
 
 Viewport string the offending capture was taken at (e.g. `1280x800`).
 
@@ -1277,15 +1047,11 @@ Viewport string the offending capture was taken at (e.g. `1280x800`).
 
 > `optional` **selector?**: `string`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L95)
-
 CSS selector pinning the offending element, when one can be identified.
 
 ##### observation
 
 > **observation**: `string`
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L97)
 
 1–3 sentences describing what the screenshot shows that is wrong.
 
@@ -1293,15 +1059,11 @@ Defined in: [src/profiles/ui-auditor/substrate.ts:97](https://github.com/tangle-
 
 > **impact**: `string`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L99)
-
 Who is affected and how.
 
 ##### suggestedFix
 
 > **suggestedFix**: `string`
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L101)
 
 A specific change a contributor could apply without asking back.
 
@@ -1309,15 +1071,11 @@ A specific change a contributor could apply without asking back.
 
 > `optional` **reproSteps?**: `string`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L103)
-
 Optional explicit reproduction steps. Writer synthesizes from route/url/selector when omitted.
 
 ##### tags?
 
 > `optional` **tags?**: readonly `string`[]
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L105)
 
 Free-form tags.
 
@@ -1325,15 +1083,11 @@ Free-form tags.
 
 > **screenshots**: readonly [`UiFindingScreenshot`](#uifindingscreenshot)[]
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L107)
-
 Screenshot references — must be non-empty for actionable findings.
 
 ##### similarTo?
 
 > `optional` **similarTo?**: readonly `number`[]
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L109)
 
 Cross-references to similar findings already on file, by id.
 
@@ -1341,15 +1095,11 @@ Cross-references to similar findings already on file, by id.
 
 > `optional` **createdAt?**: `string`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L111)
-
 ISO-8601 creation timestamp set by the writer when persisted.
 
 ***
 
 ### UiAuditViewport
-
-Defined in: [src/profiles/ui-auditor/task.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L17)
 
 **`Experimental`**
 
@@ -1359,23 +1109,17 @@ Defined in: [src/profiles/ui-auditor/task.ts:17](https://github.com/tangle-netwo
 
 > **width**: `number`
 
-Defined in: [src/profiles/ui-auditor/task.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L18)
-
 **`Experimental`**
 
 ##### height
 
 > **height**: `number`
 
-Defined in: [src/profiles/ui-auditor/task.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L19)
-
 **`Experimental`**
 
 ***
 
 ### UiAuditCaptureRequest
-
-Defined in: [src/profiles/ui-auditor/task.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L23)
 
 **`Experimental`**
 
@@ -1384,8 +1128,6 @@ Defined in: [src/profiles/ui-auditor/task.ts:23](https://github.com/tangle-netwo
 ##### route
 
 > **route**: `string`
-
-Defined in: [src/profiles/ui-auditor/task.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L28)
 
 **`Experimental`**
 
@@ -1396,8 +1138,6 @@ filenames and finding metadata.
 
 > **url**: `string`
 
-Defined in: [src/profiles/ui-auditor/task.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L30)
-
 **`Experimental`**
 
 Fully qualified URL the iteration audits.
@@ -1405,8 +1145,6 @@ Fully qualified URL the iteration audits.
 ##### viewport?
 
 > `optional` **viewport?**: [`UiAuditViewport`](#uiauditviewport)
-
-Defined in: [src/profiles/ui-auditor/task.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L32)
 
 **`Experimental`**
 
@@ -1416,8 +1154,6 @@ Default `{ width: 1280, height: 800 }`.
 
 > `optional` **fullPage?**: `boolean`
 
-Defined in: [src/profiles/ui-auditor/task.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L34)
-
 **`Experimental`**
 
 Default `false`.
@@ -1425,8 +1161,6 @@ Default `false`.
 ##### waitFor?
 
 > `optional` **waitFor?**: `string`
-
-Defined in: [src/profiles/ui-auditor/task.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L36)
 
 **`Experimental`**
 
@@ -1436,8 +1170,6 @@ CSS selector to wait for before capturing.
 
 > `optional` **waitMs?**: `number`
 
-Defined in: [src/profiles/ui-auditor/task.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L38)
-
 **`Experimental`**
 
 Extra milliseconds to wait after navigation settles. Default `500`.
@@ -1445,8 +1177,6 @@ Extra milliseconds to wait after navigation settles. Default `500`.
 ##### elementSelector?
 
 > `optional` **elementSelector?**: `string`
-
-Defined in: [src/profiles/ui-auditor/task.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L40)
 
 **`Experimental`**
 
@@ -1456,8 +1186,6 @@ Optional CSS selector — capture only the matched element.
 
 > `optional` **label?**: `string`
 
-Defined in: [src/profiles/ui-auditor/task.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L42)
-
 **`Experimental`**
 
 Optional human-readable label appended to the screenshot filename.
@@ -1465,8 +1193,6 @@ Optional human-readable label appended to the screenshot filename.
 ***
 
 ### UiAuditTask
-
-Defined in: [src/profiles/ui-auditor/task.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L55)
 
 **`Experimental`**
 
@@ -1483,8 +1209,6 @@ brief.
 
 > **lens**: [`UiLens`](#uilens)
 
-Defined in: [src/profiles/ui-auditor/task.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L57)
-
 **`Experimental`**
 
 The audit lens that scopes which findings are valid this iteration.
@@ -1492,8 +1216,6 @@ The audit lens that scopes which findings are valid this iteration.
 ##### captures
 
 > **captures**: readonly [`UiAuditCaptureRequest`](#uiauditcapturerequest)[]
-
-Defined in: [src/profiles/ui-auditor/task.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L59)
 
 **`Experimental`**
 
@@ -1503,8 +1225,6 @@ Required captures. Order is preserved; index 0 is the primary frame.
 
 > `optional` **productContext?**: `string`
 
-Defined in: [src/profiles/ui-auditor/task.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L64)
-
 **`Experimental`**
 
 Free-form context the consumer wants the judge to know about (product
@@ -1513,8 +1233,6 @@ name, target audience, copy tone). Surfaced as a prompt prelude.
 ##### knownFindingIds?
 
 > `optional` **knownFindingIds?**: readonly `number`[]
-
-Defined in: [src/profiles/ui-auditor/task.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L70)
 
 **`Experimental`**
 
@@ -1526,8 +1244,6 @@ pile-on duplicates.
 
 ### UiAuditCapture
 
-Defined in: [src/profiles/ui-auditor/task.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L74)
-
 **`Experimental`**
 
 #### Properties
@@ -1535,8 +1251,6 @@ Defined in: [src/profiles/ui-auditor/task.ts:74](https://github.com/tangle-netwo
 ##### path
 
 > **path**: `string`
-
-Defined in: [src/profiles/ui-auditor/task.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L76)
 
 **`Experimental`**
 
@@ -1546,15 +1260,11 @@ Workspace-relative path to the screenshot file.
 
 > **viewport**: `string`
 
-Defined in: [src/profiles/ui-auditor/task.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L77)
-
 **`Experimental`**
 
 ##### fullPage
 
 > **fullPage**: `boolean`
-
-Defined in: [src/profiles/ui-auditor/task.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L78)
 
 **`Experimental`**
 
@@ -1562,15 +1272,11 @@ Defined in: [src/profiles/ui-auditor/task.ts:78](https://github.com/tangle-netwo
 
 > `optional` **elementSelector?**: `string`
 
-Defined in: [src/profiles/ui-auditor/task.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L79)
-
 **`Experimental`**
 
 ##### label?
 
 > `optional` **label?**: `string`
-
-Defined in: [src/profiles/ui-auditor/task.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L80)
 
 **`Experimental`**
 
@@ -1578,23 +1284,17 @@ Defined in: [src/profiles/ui-auditor/task.ts:80](https://github.com/tangle-netwo
 
 > **route**: `string`
 
-Defined in: [src/profiles/ui-auditor/task.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L81)
-
 **`Experimental`**
 
 ##### url
 
 > **url**: `string`
 
-Defined in: [src/profiles/ui-auditor/task.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L82)
-
 **`Experimental`**
 
 ##### capturedAt
 
 > **capturedAt**: `string`
-
-Defined in: [src/profiles/ui-auditor/task.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L84)
 
 **`Experimental`**
 
@@ -1603,8 +1303,6 @@ Wall-clock when the capture completed.
 ***
 
 ### UiAuditOutput
-
-Defined in: [src/profiles/ui-auditor/task.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L94)
 
 **`Experimental`**
 
@@ -1618,15 +1316,11 @@ carries judge commentary that didn't rise to a finding.
 
 > **lens**: [`UiLens`](#uilens)
 
-Defined in: [src/profiles/ui-auditor/task.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L95)
-
 **`Experimental`**
 
 ##### findings
 
 > **findings**: [`UiFinding`](#uifinding)[]
-
-Defined in: [src/profiles/ui-auditor/task.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L96)
 
 **`Experimental`**
 
@@ -1634,15 +1328,11 @@ Defined in: [src/profiles/ui-auditor/task.ts:96](https://github.com/tangle-netwo
 
 > **captures**: [`UiAuditCapture`](#uiauditcapture)[]
 
-Defined in: [src/profiles/ui-auditor/task.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L97)
-
 **`Experimental`**
 
 ##### notes?
 
 > `optional` **notes?**: `string`
-
-Defined in: [src/profiles/ui-auditor/task.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/task.ts#L99)
 
 **`Experimental`**
 
@@ -1654,8 +1344,6 @@ Optional judge commentary (debug / triage aid).
 
 > **ResearchSource** = `"web"` \| `"corpus"` \| `"twitter"` \| `"github"` \| `"docs"`
 
-Defined in: [src/profiles/researcher.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L36)
-
 **`Experimental`**
 
 Source families a researcher profile may prefer for a task.
@@ -1665,8 +1353,6 @@ Source families a researcher profile may prefer for a task.
 ### KnowledgeUpdate
 
 > **KnowledgeUpdate** = \{ `kind`: `"insert"`; `namespace`: `string`; `item`: [`KnowledgeItem`](#knowledgeitem); \} \| \{ `kind`: `"supersede"`; `namespace`: `string`; `previousId`: `string`; `item`: [`KnowledgeItem`](#knowledgeitem); \} \| \{ `kind`: `"retract"`; `namespace`: `string`; `itemId`: `string`; `reason`: `string`; \}
-
-Defined in: [src/profiles/researcher.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L84)
 
 **`Experimental`**
 
@@ -1678,8 +1364,6 @@ these — the caller decides.
 ### UiJudge
 
 > **UiJudge** = (`input`) => `Promise`\<[`UiJudgeOutput`](#uijudgeoutput)\>
-
-Defined in: [src/profiles/ui-auditor/judge.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/judge.ts#L62)
 
 **`Experimental`**
 
@@ -1699,8 +1383,6 @@ Defined in: [src/profiles/ui-auditor/judge.ts:62](https://github.com/tangle-netw
 
 > **UiLens** = `"consistency"` \| `"hierarchy"` \| `"layout"` \| `"ux-flow"` \| `"duplication"` \| `"accessibility"` \| `"responsive"` \| `"states"` \| `"content"` \| `"interaction"` \| `"performance-perceived"` \| `"other"`
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L21)
-
 Canonical audit lenses. Each lens scopes a finding to a single class of
 problem so a single audit pass can iterate them without pile-on findings
 under a generic label.
@@ -1710,8 +1392,6 @@ under a generic label.
 ### UiFindingSeverity
 
 > **UiFindingSeverity** = `"low"` \| `"med"` \| `"high"` \| `"critical"`
-
-Defined in: [src/profiles/ui-auditor/substrate.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L58)
 
 Severity scale.
   - `critical` — blocks a core task or is an accessibility blocker.
@@ -1725,8 +1405,6 @@ Severity scale.
 
 > `const` **SHARED\_AUDITOR\_RULES**: `string`
 
-Defined in: [src/profiles/ui-auditor/lens-prompts.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/lens-prompts.ts#L18)
-
 **`Experimental`**
 
 Cross-lens rules injected into every UI audit iteration: finding quality standards and scope limits.
@@ -1736,8 +1414,6 @@ Cross-lens rules injected into every UI audit iteration: finding quality standar
 ### LENS\_BRIEFS
 
 > `const` **LENS\_BRIEFS**: `Record`\<[`UiLens`](#uilens), `string`\>
-
-Defined in: [src/profiles/ui-auditor/lens-prompts.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/lens-prompts.ts#L40)
 
 **`Experimental`**
 
@@ -1749,8 +1425,6 @@ Per-lens auditor briefs: concrete signals to look for and cross-lens distinction
 
 > `const` **UI\_LENSES**: readonly [`UiLens`](#uilens)[]
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L36)
-
 Frozen tuple of lenses for validation + iteration.
 
 ***
@@ -1759,8 +1433,6 @@ Frozen tuple of lenses for validation + iteration.
 
 > `const` **UI\_FINDING\_SEVERITIES**: readonly [`UiFindingSeverity`](#uifindingseverity)[]
 
-Defined in: [src/profiles/ui-auditor/substrate.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/substrate.ts#L61)
-
 Frozen severity tuple, ordered worst → least bad for sort/report.
 
 ## Functions
@@ -1768,8 +1440,6 @@ Frozen severity tuple, ordered worst → least bad for sort/report.
 ### initAuditWorkspace()
 
 > **initAuditWorkspace**(`workspaceDir`): `Promise`\<`void`\>
-
-Defined in: [src/audit/issue-writer.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L79)
 
 **`Experimental`**
 
@@ -1791,8 +1461,6 @@ Create the `issues/`, `screenshots/`, and `registry.json` scaffold in a new audi
 
 > **readAuditRegistry**(`workspaceDir`): `Promise`\<[`AuditRegistry`](#auditregistry)\>
 
-Defined in: [src/audit/issue-writer.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L93)
-
 **`Experimental`**
 
 Read and validate the `registry.json` from an audit workspace.
@@ -1812,8 +1480,6 @@ Read and validate the `registry.json` from an audit workspace.
 ### appendFindings()
 
 > **appendFindings**(`workspaceDir`, `findings`): `Promise`\<[`AppendFindingsResult`](#appendfindingsresult)\>
-
-Defined in: [src/audit/issue-writer.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L273)
 
 **`Experimental`**
 
@@ -1845,8 +1511,6 @@ readonly [`UiFinding`](#uifinding)[]
 
 > **registerCaptures**(`workspaceDir`, `options`): `Promise`\<`void`\>
 
-Defined in: [src/audit/issue-writer.ts:350](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L350)
-
 **`Experimental`**
 
 Record screenshots taken for a route in the registry, without filing a
@@ -1873,8 +1537,6 @@ exist for resume / dedup purposes.
 
 > **summarizeRegistry**(`reg`): [`AuditIndex`](#auditindex)
 
-Defined in: [src/audit/issue-writer.ts:379](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L379)
-
 **`Experimental`**
 
 Compute finding counts by severity, lens, and route from an `AuditRegistry`.
@@ -1894,8 +1556,6 @@ Compute finding counts by severity, lens, and route from an `AuditRegistry`.
 ### writeAuditIndex()
 
 > **writeAuditIndex**(`workspaceDir`): `Promise`\<`string`\>
-
-Defined in: [src/audit/issue-writer.ts:401](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L401)
 
 **`Experimental`**
 
@@ -1917,8 +1577,6 @@ Regenerate `<workspace>/index.md` from registry.json.
 
 > **coderTaskToPrompt**(`task`): `string`
 
-Defined in: [src/profiles/coder.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L39)
-
 **`Experimental`**
 
 Render a `CoderTask` into the per-task instruction handed to the coder profile.
@@ -1938,8 +1596,6 @@ Render a `CoderTask` into the per-task instruction handed to the coder profile.
 ### researcherProfile()
 
 > **researcherProfile**(`options?`): `object`
-
-Defined in: [src/profiles/researcher.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L127)
 
 **`Experimental`**
 
@@ -1991,8 +1647,6 @@ Build a source-grounded researcher profile with output parsing and validation.
 
 > **multiHarnessResearcherFanout**(`options?`): `object`
 
-Defined in: [src/profiles/researcher.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L182)
-
 **`Experimental`**
 
 Build a fanout topology over multiple harnesses. The kernel round-robins
@@ -2030,8 +1684,6 @@ picks the highest-scoring valid output.
 ### createResearcherValidator()
 
 > **createResearcherValidator**(`task`, `config?`): [`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
-
-Defined in: [src/profiles/researcher.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L240)
 
 **`Experimental`**
 
@@ -2075,9 +1727,7 @@ Aggregate score:
 
 ### createInProcessUiAuditClient()
 
-> **createInProcessUiAuditClient**(`options`): [`SandboxClient`](runtime.md#sandboxclient-3) & `object`
-
-Defined in: [src/profiles/ui-auditor/in-process-client.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L190)
+> **createInProcessUiAuditClient**(`options`): [`SandboxClient`](runtime.md#sandboxclient-5) & `object`
 
 **`Experimental`**
 
@@ -2096,8 +1746,6 @@ Create a `SandboxClient` that drives a local Playwright browser for in-process U
 ### buildAuditorSystemPrompt()
 
 > **buildAuditorSystemPrompt**(`lens`): `string`
-
-Defined in: [src/profiles/ui-auditor/lens-prompts.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/lens-prompts.ts#L129)
 
 **`Experimental`**
 
@@ -2119,8 +1767,6 @@ Build a system prompt for a single auditor iteration.
 
 > **parseAuditorEvents**(`events`): [`UiAuditOutput`](#uiauditoutput)
 
-Defined in: [src/profiles/ui-auditor/output-adapter.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/output-adapter.ts#L33)
-
 **`Experimental`**
 
 Parse raw `SandboxEvent` emissions from an audit iteration into structured `UiAuditOutput`.
@@ -2140,8 +1786,6 @@ Parse raw `SandboxEvent` emissions from an audit iteration into structured `UiAu
 ### uiAuditorProfile()
 
 > **uiAuditorProfile**(`options?`): `object`
-
-Defined in: [src/profiles/ui-auditor/profile.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/profile.ts#L46)
 
 **`Experimental`**
 
@@ -2193,8 +1837,6 @@ Preset `runAgentRounds` bundle for vision-driven UI audits: returns the `AgentRu
 
 > **encodeAuditTaskEnvelope**(`task`): `string`
 
-Defined in: [src/profiles/ui-auditor/prompt.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/prompt.ts#L26)
-
 **`Experimental`**
 
 Wrap a `UiAuditTask` in a machine-readable envelope so iterations are self-describing.
@@ -2214,8 +1856,6 @@ Wrap a `UiAuditTask` in a machine-readable envelope so iterations are self-descr
 ### decodeAuditTaskEnvelope()
 
 > **decodeAuditTaskEnvelope**(`prompt`): [`UiAuditTask`](#uiaudittask) \| `undefined`
-
-Defined in: [src/profiles/ui-auditor/prompt.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/prompt.ts#L37)
 
 **`Experimental`**
 
@@ -2239,8 +1879,6 @@ not valid JSON.
 
 > **formatAuditorPrompt**(`task`): `string`
 
-Defined in: [src/profiles/ui-auditor/prompt.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/prompt.ts#L56)
-
 **`Experimental`**
 
 Produce the user message for one audit iteration: lens, captures to take, and the task envelope.
@@ -2260,8 +1898,6 @@ Produce the user message for one audit iteration: lens, captures to take, and th
 ### createUiAuditorValidator()
 
 > **createUiAuditorValidator**(`task`): [`Validator`](runtime.md#validator-1)\<[`UiAuditOutput`](#uiauditoutput)\>
-
-Defined in: [src/profiles/ui-auditor/validator.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/validator.ts#L52)
 
 **`Experimental`**
 

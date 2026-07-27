@@ -30,8 +30,9 @@ interface BatchSpec {
   shape: string
   model: string
   n: number
-  /** Fraction of runs that fail, with the failure tag to attach. */
+  /** Fraction of runs that fail, with canonical class and domain detail. */
   failRate: number
+  failureClass: NonNullable<AgentRun['failureClass']>
   failureMode: string
 }
 
@@ -49,7 +50,7 @@ function batch(spec: BatchSpec): AgentRun[] {
       outputTokens: 120 + Math.floor(rand(`${id}:o`) * 600),
       startMs: 1_700_000_000_000 + i * 1000,
       durationMs: 800 + Math.floor(rand(`${id}:d`) * 4000),
-      ...(failed ? { failureMode: spec.failureMode } : {}),
+      ...(failed ? { failureClass: spec.failureClass, failureMode: spec.failureMode } : {}),
     })
   }
   return runs
@@ -64,7 +65,7 @@ function batch(spec: BatchSpec): AgentRun[] {
  *   for await (const e of runAgentTaskStream({ task, backend })) {
  *     exporter.exportSpan(loopEventToOtelSpan({ kind: e.type, runId, ... }, traceId))
  *   }
- * Attach your eval/judge score as a `score` attribute on the run's span.
+ * Attach your eval/judge score as `gen_ai.evaluation.score.value` on the run root.
  */
 export function tangleRuntimeRuns(): AgentRun[] {
   return batch({
@@ -72,6 +73,7 @@ export function tangleRuntimeRuns(): AgentRun[] {
     model: 'tcloud/claude-sonnet-4-6@2026-05-08',
     n: 12,
     failRate: 0.17,
+    failureClass: 'tool_recovery_failure',
     failureMode: 'tool_recovery_failure',
   })
 }
@@ -83,14 +85,15 @@ export function tangleRuntimeRuns(): AgentRun[] {
  * record the OTel GenAI span per call:
  *   const res = await openai.chat.completions.create({ model, messages })
  *   // emit a span with gen_ai.request.model, gen_ai.usage.{input,output}_tokens,
- *   // gen_ai.usage.cost_usd, and your `score`.
+ *   // gen_ai.usage.cost_usd, and `gen_ai.evaluation.score.value` on the run root.
  */
 export function openAiCompatibleRuns(): AgentRun[] {
   return batch({
     shape: 'openai-compatible',
-    model: 'openrouter/google/gemini-2.5-pro',
+    model: 'openrouter/google/gemini-2.5-pro@2026-05-08',
     n: 10,
     failRate: 0.2,
+    failureClass: 'format_drift',
     failureMode: 'format_drift',
   })
 }
@@ -103,7 +106,8 @@ export function openAiCompatibleRuns(): AgentRun[] {
  * call `toInsightReport` in-process:
  *   export const mastra = new Mastra({ telemetry: { enabled: true,
  *     export: { type: 'otlp', endpoint: `${TANGLE_INTELLIGENCE_URL}/v1/otlp/v1/traces` } } })
- * Add a `score` attribute from your eval step. No Tangle SDK required.
+ * Add `gen_ai.evaluation.score.value` from your eval step on the run root.
+ * No Tangle SDK required.
  */
 export function mastraRuns(): AgentRun[] {
   return batch({
@@ -111,6 +115,7 @@ export function mastraRuns(): AgentRun[] {
     model: 'openai/gpt-4o-2024-11-20',
     n: 10,
     failRate: 0.1,
+    failureClass: 'instruction_following',
     failureMode: 'instruction_following',
   })
 }
@@ -121,7 +126,7 @@ export function mastraRuns(): AgentRun[] {
  * LIVE: wrap the SDK's query loop and emit one GenAI span per turn:
  *   for await (const msg of query({ prompt, options })) { ...collect usage... }
  *   // span: gen_ai.request.model='claude-...', gen_ai.usage.* from msg.usage,
- *   //       score from your acceptance check.
+ *   //       gen_ai.evaluation.score.value from your acceptance check on the run root.
  */
 export function claudeAgentSdkRuns(): AgentRun[] {
   return batch({
@@ -129,6 +134,7 @@ export function claudeAgentSdkRuns(): AgentRun[] {
     model: 'anthropic/claude-sonnet-4-6@2026-05-08',
     n: 10,
     failRate: 0.12,
+    failureClass: 'reasoning_error',
     failureMode: 'reasoning_error',
   })
 }

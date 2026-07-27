@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-bench",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "description": "The unified benchmark suite for agent-runtime agents: 31 adapters (commit0, enterpriseops-gym, ragbench, crag, nomiracl, open-rag-bench, t2-ragbench, tau3-banking, bfcl, finresearchbench, …) behind one resolveAdapter registry, each with a real judge or fail-loud unsupported scorer. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
   "repository": {
@@ -26,7 +26,7 @@
   },
   "scripts": {
     "prebuild": "pnpm --dir .. build",
-    "build": "tsup",
+    "build": "tsdown",
     "prepack": "pnpm build",
     "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
     "gate-cli": "tsx src/gate-cli.mts",
@@ -35,25 +35,28 @@
     "terminal-compare": "tsx src/terminal-compare.ts",
     "test": "node scripts/run-package-tests.mjs",
     "typecheck:public": "tsc -p tsconfig.public.json",
-    "verify:package": "node scripts/verify-packed-consumer.mjs",
-    "verify:package:local-runtime": "node scripts/verify-packed-consumer.mjs --local-runtime",
+    "verify:package": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs",
+    "verify:package:local-runtime": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs --local-runtime",
+    "verify:package:static": "pnpm run build && publint && attw --pack --profile esm-only .",
     "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "0.126.6",
-    "@tangle-network/agent-interface": "0.32.0",
-    "@tangle-network/agent-knowledge": "5.0.1",
+    "@tangle-network/agent-eval": "catalog:",
+    "@tangle-network/agent-interface": "catalog:",
+    "@tangle-network/agent-knowledge": "catalog:",
     "@tangle-network/agent-runtime": "workspace:*",
-    "@tangle-network/sandbox": "^0.12.0"
+    "@tangle-network/sandbox": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
-    "tsx": "^4.22.4",
-    "tsup": "^8.5.1",
-    "typescript": "^5.7.0"
+    "@arethetypeswrong/cli": "catalog:",
+    "@types/node": "catalog:",
+    "publint": "catalog:",
+    "tsdown": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.13.0"
   },
   "files": [
     "dist",

@@ -422,7 +422,7 @@ function mapCommonBackendEvent(
       ? (record.data as Record<string, unknown>)
       : record
   if (type === 'message.part.updated' || type === 'text_delta' || type === 'delta') {
-    // `@tangle-network/sandbox` `box.streamTask` emits `message.part.updated`
+    // `@tangle-network/sandbox` `box.streamPrompt` emits `message.part.updated`
     // with a nested part: `{ type: 'message.part.updated', data: { part:
     // { type: 'text', text: '…' } } }`. Walk into `data.part.text` so the
     // canonical sandbox-SDK shape produces a `text_delta` natively — no

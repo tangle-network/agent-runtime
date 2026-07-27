@@ -719,7 +719,9 @@ describe('restored-record resume end-to-end', () => {
     expect(resolved.every((id) => id === 'sandbox_e2e')).toBe(true)
     const status = second.status(taskId, { includeTrace: true })
     expect(status?.result?.profile).toBe('coder')
-    expect((status?.result?.output as { branch: string }).branch).toBe('feat/detached')
+    const output = status?.result?.output
+    if (output === undefined) throw new Error('expected completed detached turn output')
+    expect((output as { branch: string }).branch).toBe('feat/detached')
     expect(fake.driveTurn).toHaveBeenCalledWith('resume: fix bug', {
       sessionId: 'sess-e2e',
       turnId: 'sess-e2e',

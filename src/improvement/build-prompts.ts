@@ -18,7 +18,11 @@
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { optimizerMethod } from './optimizer-prompt'
 
-type FindingsArg = { report: unknown; findings: AnalystFinding[] }
+/** Evidence supplied to a generated tool or MCP build instruction. */
+export interface BuildPromptFindingsInput {
+  report: unknown
+  findings: AnalystFinding[]
+}
 
 /** Render findings as the ranked-evidence block every build prompt ends with. */
 export function findingLines(findings: AnalystFinding[]): string[] {
@@ -30,7 +34,7 @@ export function findingLines(findings: AnalystFinding[]): string[] {
 }
 
 /** Build the starting instruction for a coder agent tasked with implementing a new tool. */
-export function toolBuildPrompt(args: FindingsArg): string {
+export function toolBuildPrompt(args: BuildPromptFindingsInput): string {
   return [
     'You are building a new TOOL for this codebase — a capability the agent measurably lacks,',
     'evidenced by the failure findings at the bottom. The tool is an experiment: after it is',
@@ -56,7 +60,7 @@ export function toolBuildPrompt(args: FindingsArg): string {
 }
 
 /** Build the starting instruction for a coder agent tasked with implementing a new MCP server. */
-export function mcpBuildPrompt(args: FindingsArg): string {
+export function mcpBuildPrompt(args: BuildPromptFindingsInput): string {
   return [
     'You are building a new MCP SERVER (Model Context Protocol) exposing tool(s) that close the',
     'capability gaps evidenced by the failure findings at the bottom, so any harness can mount',

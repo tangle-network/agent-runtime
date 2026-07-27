@@ -44,6 +44,7 @@ import type {
  */
 const judgeEvidenceUri = /^(verdict|judge|score)\b/i
 
+/** Reject analyst findings derived from evaluation scores instead of execution traces. */
 export const assertTraceDerivedFindings: AssertTraceDerivedFindings = (findings) => {
   for (const f of findings) {
     for (const ref of f.evidence_refs ?? []) {
@@ -254,7 +255,7 @@ function observedBestScore<D>(
   for (const s of settledSoFar) {
     if (s.kind !== 'done') continue
     const v: DefaultVerdict | undefined = s.verdict
-    if (!v || v.valid !== true || typeof v.score !== 'number') continue
+    if (v?.valid !== true || typeof v.score !== 'number') continue
     if (best === undefined || v.score > best) best = v.score
   }
   return best

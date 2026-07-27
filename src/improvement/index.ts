@@ -18,7 +18,12 @@ export {
   type Verifier,
   type VerifyResult,
 } from './agentic-generator'
-export { findingLines, mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
+export {
+  type BuildPromptFindingsInput,
+  findingLines,
+  mcpBuildPrompt,
+  toolBuildPrompt,
+} from './build-prompts'
 export {
   type DriverLoopGeneratorOptions,
   driverLoopGenerator,

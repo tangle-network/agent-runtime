@@ -55,7 +55,8 @@ import type {
   DelegationStatusResult,
 } from './types'
 
-type AnyDelegateArgs = DelegateCodeArgs | DelegateResearchArgs | DelegateUiAuditArgs
+/** Arguments accepted by the durable delegation queue. @experimental */
+export type DelegationArgs = DelegateCodeArgs | DelegateResearchArgs | DelegateUiAuditArgs
 
 /**
  * Must be JSON-safe end to end (`args`, `result`, `error`, `feedback`) —
@@ -67,7 +68,7 @@ export interface DelegationRecord {
   taskId: string
   profile: DelegationProfile
   namespace?: string
-  args: AnyDelegateArgs
+  args: DelegationArgs
   status: DelegationStatus
   progress?: DelegationProgress
   result?: DelegationResultPayload
@@ -107,7 +108,7 @@ export interface DelegationRecord {
 }
 
 /** @experimental */
-export interface SubmitInput<Args extends AnyDelegateArgs> {
+export interface SubmitInput<Args extends DelegationArgs> {
   profile: DelegationProfile
   args: Args
   namespace?: string
@@ -303,7 +304,7 @@ export class DelegationTaskQueue {
    * the recorded `DelegationPersistenceError` once the store has failed —
    * the queue does not accept work it cannot journal.
    */
-  submit<Args extends AnyDelegateArgs>(input: SubmitInput<Args>): SubmitOutput {
+  submit<Args extends DelegationArgs>(input: SubmitInput<Args>): SubmitOutput {
     if (this.persistFailure) throw this.persistFailure
     if (input.idempotencyKey) {
       const existing = this.byIdempotencyKey.get(input.idempotencyKey)
@@ -441,7 +442,7 @@ export class DelegationTaskQueue {
     return n
   }
 
-  private async execute<Args extends AnyDelegateArgs>(
+  private async execute<Args extends DelegationArgs>(
     taskId: string,
     input: SubmitInput<Args>,
     controller: AbortController,

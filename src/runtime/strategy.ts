@@ -128,7 +128,8 @@ export interface CorpusReadbackOptions {
 
 // ── The unit: one agentic shot (a bounded tool loop) over a handle ───────────────
 
-type Msg = Record<string, unknown>
+/** One provider-neutral conversation record carried between strategy shots. */
+export type StrategyMessage = Record<string, unknown>
 interface ToolCall {
   id: string
   function: { name: string; arguments: string }
@@ -137,7 +138,7 @@ interface ToolCall {
 interface ShotTask {
   task: AgenticTask
   handle?: ArtifactHandle // present ⇒ DEPTH (shared artifact); absent ⇒ BREADTH (open own)
-  messages?: Msg[] // carried conversation (depth); fresh when absent
+  messages?: StrategyMessage[] // carried conversation (depth); fresh when absent
   steer?: string // analyst-derived steer injected before this shot (depth)
   persona?: ShotPersona // role override — multi-agent loops give each shot its own hat
   tools?: string[] // restrict THIS shot to these domain tools (names); unknown names throw
@@ -147,7 +148,7 @@ interface ShotTask {
 }
 
 interface ShotOut {
-  messages: Msg[]
+  messages: StrategyMessage[]
   completions: number
   toolCalls: number
   toolErrors: number
@@ -167,7 +168,7 @@ async function runShot(
   _task: AgenticTask,
   handle: ArtifactHandle,
   tools: AgenticTool[],
-  messages: Msg[],
+  messages: StrategyMessage[],
   opts: AgenticOptions,
   modelOverride?: string,
 ): Promise<ShotOut> {
@@ -226,7 +227,7 @@ interface AnalyzeOut {
 
 /** The firewall's input shape: the trajectory as compacted text — calls, results,
  *  assistant text. NEVER scores, NEVER check internals. Shared by both analyst channels. */
-function compactTrajectory(messages: Msg[]): string {
+function compactTrajectory(messages: StrategyMessage[]): string {
   return messages
     .filter((m) => m.role === 'assistant' || m.role === 'tool')
     .map((m) => {
@@ -299,7 +300,7 @@ function analystChat(
  *  trajectory in, never scores. */
 async function consultAnalyst(
   task: AgenticTask,
-  messages: Msg[],
+  messages: StrategyMessage[],
   instruction: string,
   opts: AgenticOptions,
 ): Promise<AnalyzeOut> {
@@ -353,7 +354,7 @@ async function consultAnalyst(
 
 async function analyze(
   task: AgenticTask,
-  messages: Msg[],
+  messages: StrategyMessage[],
   opts: AgenticOptions,
 ): Promise<AnalyzeOut> {
   const trajectory = compactTrajectory(messages)
@@ -435,8 +436,9 @@ async function renderCorpusReadback(opts: AgenticOptions): Promise<string> {
 
 // ── Leaf executors (one shot / one analyst), resolved per-spawn from the surface ──
 
-interface ShotResult {
-  messages: Msg[]
+/** Measured result of one strategy shot. */
+export interface StrategyShotResult {
+  messages: StrategyMessage[]
   score: number
   passes: number
   total: number
@@ -474,7 +476,7 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
         }
         // An EMPTY messages array means "fresh" too — an authored body passing
         // `messages: []` must not silently blank the worker's system/task prompt.
-        const messages: Msg[] = t.messages?.length
+        const messages: StrategyMessage[] = t.messages?.length
           ? t.messages
           : [
               { role: 'system', content: t.persona?.systemPrompt ?? t.task.systemPrompt },
@@ -491,7 +493,7 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
         const shot = await runShot(surface, t.task, handle, tools, messages, opts, t.persona?.model)
         const s = await surface.score(t.task, handle)
         const score = s.total > 0 ? s.passes / s.total : 0
-        const out: ShotResult = {
+        const out: StrategyShotResult = {
           messages: shot.messages,
           score,
           passes: s.passes,
@@ -532,7 +534,7 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
   return {
     runtime: 'agentic-analyst',
     async execute(task: unknown): Promise<ExecutorResult<unknown>> {
-      const t = task as { task: AgenticTask; messages: Msg[]; rawInstruction?: string }
+      const t = task as { task: AgenticTask; messages: StrategyMessage[]; rawInstruction?: string }
       const { steer, tokens } = t.rawInstruction
         ? await consultAnalyst(t.task, t.messages, t.rawInstruction, opts)
         : await analyze(t.task, t.messages, opts)
@@ -640,7 +642,7 @@ export function depthStrategy(
     async act(_t, scope): Promise<Outcome<unknown>> {
       const handle = await surface.open(task)
       const progression: number[] = []
-      let messages: Msg[] | undefined
+      let messages: StrategyMessage[] | undefined
       let completions = 0
       let shots = 0
       try {
@@ -657,7 +659,7 @@ export function depthStrategy(
           if (!res.ok) break
           const settled = await drainOne(scope)
           if (settled.kind === 'down') break
-          const out = settled.out as unknown as ShotResult
+          const out = settled.out as unknown as StrategyShotResult
           messages = out.messages
           completions += out.completions
           progression.push(out.score)
@@ -723,7 +725,7 @@ export function breadthStrategy(
       const progression: number[] = []
       for (let s = await scope.next(); s !== null; s = await scope.next()) {
         if (s.kind === 'down') continue
-        const out = s.out as unknown as ShotResult
+        const out = s.out as unknown as StrategyShotResult
         completions += out.completions
         if (out.score > best) best = out.score
         if (out.total > 0 && out.passes === out.total) bestResolved = true
@@ -802,7 +804,7 @@ export interface ShotPersona {
 export interface ShotSpec {
   /** present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh one (sample/restart). */
   handle?: ArtifactHandle
-  messages?: Msg[]
+  messages?: StrategyMessage[]
   steer?: string
   persona?: ShotPersona
   /** Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot on
@@ -817,7 +819,7 @@ export interface StrategyResult {
   shots: number
 }
 /** Artifact lifecycle a strategy may manage itself — open/close ONLY. Raw `call`/`score`
- *  are withheld: scores reach the body solely through `shot()`'s ShotResult (the
+ *  are withheld: scores reach the body solely through `shot()`'s StrategyShotResult (the
  *  harness-verified channel), so a body cannot peek the check or fabricate around it. */
 export interface StrategyArtifacts {
   readonly name: string
@@ -834,14 +836,14 @@ export interface StrategyCtx {
   readonly budget: number
   readonly scope: Scope<Outcome<unknown>>
   /** Run ONE worker shot; its harness-scored result, or null if it went down. */
-  shot(spec?: ShotSpec): Promise<ShotResult | null>
+  shot(spec?: ShotSpec): Promise<StrategyShotResult | null>
   /** The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down. */
-  critique(messages: Msg[]): Promise<string | null>
+  critique(messages: StrategyMessage[]): Promise<string | null>
   /** The RAW analyst channel: the firewalled critic answers `instruction` over the
    *  trajectory verbatim — no findings extraction, so verdict-shaped formats
    *  (CONTINUE/STOP decisions, calibrated predictions) survive. Same firewall:
    *  trajectory in, never scores. Null when the analyst went down. */
-  consult(messages: Msg[], instruction: string): Promise<string | null>
+  consult(messages: StrategyMessage[], instruction: string): Promise<string | null>
   /** The tools THIS artifact's task actually offers (names + descriptions only — never
    *  the implementations). Tool sets vary per task on heterogeneous domains; a strategy
    *  that restricts shots MUST select from this list, never from hardcoded names. */
@@ -908,7 +910,7 @@ export function defineStrategy<Result extends StrategyResult>(
             if (!res.ok) return null
             const settled = await drainOne(scope)
             if (settled.kind === 'down') return null
-            const out = settled.out as unknown as ShotResult
+            const out = settled.out as unknown as StrategyShotResult
             if (out.score > verifiedBest) verifiedBest = out.score
             if (out.total > 0 && out.passes === out.total) verifiedResolved = true
             return out
@@ -980,7 +982,7 @@ export const adaptiveRefine = defineStrategy(
   async ({ surface, task, budget, shot, critique }) => {
     let handle = await surface.open(task)
     const progression: number[] = []
-    let messages: Msg[] | undefined
+    let messages: StrategyMessage[] | undefined
     let steer: string | undefined
     let completions = 0
     let best = -1
@@ -1028,7 +1030,7 @@ export const sampleThenRefine = defineStrategy(
     let shots = 0
     try {
       // Explore: independent lines on handles we own (kept open so the best can continue).
-      let best: { handle: ArtifactHandle; out: ShotResult } | undefined
+      let best: { handle: ArtifactHandle; out: StrategyShotResult } | undefined
       for (let i = 0; i < explore; i += 1) {
         const handle = await surface.open(task)
         open.add(handle)

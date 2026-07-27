@@ -5,7 +5,7 @@ import type {
 import type {
   CreateSandboxOptions,
   EgressPolicy,
-  SandboxClient,
+  Sandbox,
   SandboxInstance,
 } from '@tangle-network/sandbox'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
@@ -14,9 +14,9 @@ import { createTangleSandboxExactProcessProvider } from './tangle-sandbox-exact-
 
 describe('Tangle Sandbox exact-process provider', () => {
   it('accepts the published Sandbox client directly', () => {
-    expectTypeOf(createTangleSandboxExactProcessProvider)
-      .parameter(0)
-      .toEqualTypeOf<SandboxClient>()
+    expectTypeOf<Sandbox>().toMatchTypeOf<
+      Parameters<typeof createTangleSandboxExactProcessProvider>[0]
+    >()
   })
 
   it('creates an agent-free Sandbox with exact resources, egress, and identity', async () => {
@@ -33,10 +33,9 @@ describe('Tangle Sandbox exact-process provider', () => {
 
     expect(client.create).toHaveBeenCalledWith(
       {
-        image: 'ghcr.io/example/runner@sha256:abc',
+        environment: 'ghcr.io/example/runner@sha256:abc',
         agent: false,
         bare: false,
-        publicEdge: false,
         ephemeral: true,
         egressPolicy: {
           mode: 'strict',
@@ -310,7 +309,10 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return result
 }
 
-function fakeClient(primary: FakeSandbox, ...others: FakeSandbox[]): SandboxClient {
+function fakeClient(
+  primary: FakeSandbox,
+  ...others: FakeSandbox[]
+): Pick<Sandbox, 'create' | 'get' | 'list'> {
   const sandboxes = [primary, ...others]
   const client = {
     create: vi.fn(async (options: CreateSandboxOptions = {}) => {
@@ -326,7 +328,7 @@ function fakeClient(primary: FakeSandbox, ...others: FakeSandbox[]): SandboxClie
     list: vi.fn(async () => sandboxes as unknown as SandboxInstance[]),
   }
   // The SDK client has unrelated service trees; this fake supplies the adapter's three calls.
-  return client as unknown as SandboxClient
+  return client as unknown as Pick<Sandbox, 'create' | 'get' | 'list'>
 }
 
 type ExactEgressPolicy =
