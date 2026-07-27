@@ -687,10 +687,9 @@ function* parseStreamChunk(
     for (const tc of deltaToolCalls) {
       if (!tc || typeof tc !== 'object') continue
       const rec = tc as Record<string, unknown>
-      const idx = numberValue(rec.index) ?? 0
-      const key = `openai:${idx}`
-      const acc = toolCalls.get(key) ?? { argsRaw: '', source: 'openai' as const, finalized: false }
       const id = stringValue(rec.id)
+      const key = deltaToolCallKey(rec, id, toolCalls)
+      const acc = toolCalls.get(key) ?? { argsRaw: '', source: 'openai' as const, finalized: false }
       if (id) acc.id = id
       const fn = rec.function as Record<string, unknown> | undefined
       const name = stringValue(fn?.name)
@@ -825,6 +824,39 @@ function* flushPendingToolCalls(
     toolCalls.delete(key)
     yield buildToolCallEvent(acc, context)
   }
+}
+
+/**
+ * The accumulator key one streamed `delta.tool_calls[]` entry belongs to.
+ *
+ * OpenAI's streaming contract puts `index` on every fragment, so fragments of
+ * the same call concatenate under `openai:<index>`. Some OpenAI-COMPATIBLE
+ * gateways do not: the Tangle router's Gemini lane emits N COMPLETE tool calls
+ * inside a single delta, each with a distinct `id` and no `index` at all.
+ * Defaulting those to index 0 concatenated every call's `arguments` into one
+ * string, which then failed `JSON.parse` and was surfaced as a raw string — so
+ * a turn that asked for six deliverables silently produced none.
+ *
+ * Resolution order:
+ *   1. `index` present  → spec path, key by index (cross-delta fragments join).
+ *   2. `id` present     → key by id; distinct ids are distinct calls, and a
+ *                         repeated id still concatenates correctly.
+ *   3. neither          → an argument-only continuation fragment; append to the
+ *                         most recently touched unfinalized OpenAI entry.
+ */
+function deltaToolCallKey(
+  rec: Record<string, unknown>,
+  id: string | undefined,
+  toolCalls: ToolCallAccumulator,
+): string {
+  const idx = numberValue(rec.index)
+  if (idx !== undefined) return `openai:${idx}`
+  if (id) return `openai:id:${id}`
+  let last: string | undefined
+  for (const [key, acc] of toolCalls) {
+    if (acc.source === 'openai' && !acc.finalized) last = key
+  }
+  return last ?? 'openai:0'
 }
 
 function buildToolCallEvent(
