@@ -356,40 +356,27 @@ function verifyConsumer(artifacts) {
 }
 
 function verifyPublicImports(appDir, artifacts) {
-  const scriptPath = join(appDir, 'verify-public-imports.mjs')
-  writeFileSync(
-    scriptPath,
-    `
-      import { readFileSync } from 'node:fs'
-      import { join } from 'node:path'
-
-      const packageNames = ${JSON.stringify(artifacts.map((artifact) => artifact.name))}
-      let imported = 0
-      for (const packageName of packageNames) {
-        const packageDir = join(process.cwd(), 'node_modules', ...packageName.split('/'))
-        const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
-        for (const [subpath, target] of Object.entries(packageJson.exports ?? {})) {
-          const importTarget =
-            typeof target === 'string' ? target : target && typeof target === 'object' ? target.import : undefined
-          if (typeof importTarget !== 'string') continue
-          const specifier = subpath === '.' ? packageName : packageName + subpath.slice(1)
-          await import(specifier)
-          imported += 1
-        }
-      }
-      process.stdout.write('PACKED_COHORT_IMPORTS=' + JSON.stringify({ imported }) + '\\n')
-    `,
-  )
-  const output = captured(process.execPath, [scriptPath], appDir).trim().split('\n')
-  const report = output.find((line) => line.startsWith('PACKED_COHORT_IMPORTS='))
-  if (!report) {
-    throw new Error(`public import verification produced no report:\n${output.join('\n')}`)
+  let imported = 0
+  for (const artifact of artifacts) {
+    for (const [subpath, target] of Object.entries(artifact.packageJson.exports ?? {})) {
+      const importTarget =
+        typeof target === 'string'
+          ? target
+          : target && typeof target === 'object'
+            ? target.import
+            : undefined
+      if (typeof importTarget !== 'string') continue
+      const specifier = subpath === '.' ? artifact.name : artifact.name + subpath.slice(1)
+      captured(
+        process.execPath,
+        ['--input-type=module', '--eval', `await import(${JSON.stringify(specifier)})`],
+        appDir,
+      )
+      imported += 1
+    }
   }
-  const result = JSON.parse(report.slice('PACKED_COHORT_IMPORTS='.length))
-  if (!Number.isInteger(result.imported) || result.imported < artifacts.length) {
-    throw new Error(`public import verification returned ${JSON.stringify(result)}`)
-  }
-  return result.imported
+  if (imported < artifacts.length) throw new Error(`only ${imported} public imports were exercised`)
+  return imported
 }
 
 function collectTargetDependencies(dependencyTree) {
