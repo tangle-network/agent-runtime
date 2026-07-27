@@ -19,8 +19,12 @@
  *   })
  *   await runProfileMatrix({ profiles, scenarios, dispatch, judges, commitSha })
  *
- * Usage is reported automatically; trace events are forwarded automatically;
- * the ctx is built automatically. The seam becomes impossible to mis-wire.
+ * The complete Runtime cell starts inside `ctx.cost.runPaidCall` before any
+ * sandbox work begins. Its provider-reported usage becomes the paid-call
+ * receipt before Eval settles the call. A completed `LoopResult` cannot be
+ * attached afterward because it cannot prove pre-execution admission.
+ * Trace events are forwarded automatically and the Runtime context is built
+ * automatically.
  *
  * Typed structurally against the campaign `DispatchContext` (imported type-only
  * from `@tangle-network/agent-eval/campaign`) — a downward dependency, never an
@@ -182,7 +186,7 @@ function modelFromLoopOptions<Task, Output, Decision>(
   return models.size > 1 ? 'mixed' : 'unknown'
 }
 
-/** Options for adapting plain agent-eval campaign scenarios into runtime `runAgentRounds` cells. */
+/** Options for adapting plain agent-eval campaign scenarios into Runtime cells. */
 export interface LoopCampaignDispatchOptions<
   Task,
   Output,
@@ -210,9 +214,10 @@ export interface LoopCampaignDispatchOptions<
 }
 
 /**
- * Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for
+ * Adapter for plain `runCampaign` scenarios. This is the Runtime-side pair for
  * agent-eval fixture scenarios: load fixtures in `agent-eval/campaign`, build
- * the runtime loop here, and keep cost + token + trace reporting automatic.
+ * the Runtime cell here, and keep paid-call admission, receipts, and traces
+ * automatic.
  */
 export function loopCampaignDispatch<Task, Output, Decision, TScenario extends Scenario, TArtifact>(
   opts: LoopCampaignDispatchOptions<Task, Output, Decision, TScenario, TArtifact>,
@@ -234,8 +239,8 @@ export function loopCampaignDispatch<Task, Output, Decision, TScenario extends S
 
 /**
  * Adapter for `runProfileMatrix` (profile is an axis). Returns a
- * `ProfileDispatchFn` that runs `runAgentRounds` per (profile, scenario) cell and
- * reports usage automatically.
+ * `ProfileDispatchFn` that runs `runAgentRounds` per (profile, scenario) cell
+ * inside Eval's paid-call lifecycle.
  */
 export function loopDispatch<Task, Output, Decision, TScenario extends Scenario, TArtifact>(
   opts: LoopDispatchOptions<Task, Output, Decision, TScenario, TArtifact>,

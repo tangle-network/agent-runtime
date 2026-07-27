@@ -100,7 +100,7 @@ function fakeDispatchContext(costCeilingUsd?: number): {
 }
 
 describe('loopDispatch', () => {
-  it('bridges runLoop into a plain runCampaign DispatchFn for fixture-style scenarios', async () => {
+  it('runs a Runtime cell inside a plain runCampaign paid call', async () => {
     const sandboxClient = stubClient([
       { type: 'llm_call', data: { tokensIn: 120, tokensOut: 40, costUsd: 0.015, model: 'm' } },
       { type: 'result', data: { attempt: 3 } },
@@ -137,7 +137,7 @@ describe('loopDispatch', () => {
     expect(fake.spans).toContain('loop.ended')
   })
 
-  it('bridges runLoop into a ProfileDispatchFn: returns the winner artifact, reports usage, forwards trace', async () => {
+  it('runs a profile cell inside Eval billing and returns its winner and trace', async () => {
     const sandboxClient = stubClient([
       { type: 'llm_call', data: { tokensIn: 150, tokensOut: 60, costUsd: 0.02, model: 'm' } },
       { type: 'result', data: { attempt: 2 } },
@@ -251,7 +251,7 @@ describe('loopDispatch', () => {
     ])
   })
 
-  it('refuses a capped cell before creating a sandbox when no hard maximum is supplied', async () => {
+  it('refuses unbounded capped spend before creating a sandbox', async () => {
     let creates = 0
     const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
       sandboxClient: {

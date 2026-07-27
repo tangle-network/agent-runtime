@@ -305,7 +305,6 @@ export {
   type PromotionVerdict,
   promotionGate,
 } from './promotion-gate'
-export { reportLoopUsage, type UsageSink } from './report-usage'
 // The product-facing backend selector: one call picks sandbox/bridge/router transport.
 export {
   type ResolveSandboxClientOptions,

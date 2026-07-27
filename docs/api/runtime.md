@@ -2564,7 +2564,7 @@ Resolve the model actually served from the completed loop.
 
 ### LoopCampaignDispatchOptions
 
-Options for adapting plain agent-eval campaign scenarios into runtime `runAgentRounds` cells.
+Options for adapting plain agent-eval campaign scenarios into Runtime cells.
 
 #### Type Parameters
 
@@ -4919,46 +4919,6 @@ Paired (candidate − incumbent) wall-clock per task (ms) — negative = the can
 ###### high
 
 > **high**: `number`
-
-***
-
-### UsageSink
-
-The slice of an agent-eval campaign `DispatchContext.cost` this needs.
-
-#### Methods
-
-##### observe()
-
-> **observe**(`amountUsd`, `source`): `void`
-
-###### Parameters
-
-###### amountUsd
-
-`number`
-
-###### source
-
-`string`
-
-###### Returns
-
-`void`
-
-##### observeTokens()
-
-> **observeTokens**(`usage`): `void`
-
-###### Parameters
-
-###### usage
-
-[`LoopTokenUsage`](#looptokenusage)
-
-###### Returns
-
-`void`
 
 ***
 
@@ -18078,9 +18038,10 @@ refused unless the caller explicitly supplies a policy that allows it.
 
 > **loopCampaignDispatch**\<`Task`, `Output`, `Decision`, `TScenario`, `TArtifact`\>(`opts`): `DispatchFn`\<`TScenario`, `TArtifact`\>
 
-Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for
+Adapter for plain `runCampaign` scenarios. This is the Runtime-side pair for
 agent-eval fixture scenarios: load fixtures in `agent-eval/campaign`, build
-the runtime loop here, and keep cost + token + trace reporting automatic.
+the Runtime cell here, and keep paid-call admission, receipts, and traces
+automatic.
 
 #### Type Parameters
 
@@ -18121,8 +18082,8 @@ the runtime loop here, and keep cost + token + trace reporting automatic.
 > **loopDispatch**\<`Task`, `Output`, `Decision`, `TScenario`, `TArtifact`\>(`opts`): `ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
 
 Adapter for `runProfileMatrix` (profile is an axis). Returns a
-`ProfileDispatchFn` that runs `runAgentRounds` per (profile, scenario) cell and
-reports usage automatically.
+`ProfileDispatchFn` that runs `runAgentRounds` per (profile, scenario) cell
+inside Eval's paid-call lifecycle.
 
 #### Type Parameters
 
@@ -18846,48 +18807,6 @@ Statistical promotion decision over a holdout benchmark: a seeded paired bootstr
 #### Returns
 
 [`PromotionVerdict`](#promotionverdict)
-
-***
-
-### reportLoopUsage()
-
-> **reportLoopUsage**\<`Task`, `Output`, `Decision`\>(`cost`, `result`, `source?`): `void`
-
-Forward a `LoopResult`'s aggregated cost + token usage into a campaign cost
-meter so the backend-integrity guard sees real LLM activity. `source`
-defaults to `'loop'`.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-##### Decision
-
-`Decision`
-
-#### Parameters
-
-##### cost
-
-[`UsageSink`](#usagesink)
-
-##### result
-
-`Pick`\<[`LoopResult`](#loopresult)\<`Task`, `Output`, `Decision`\>, `"costUsd"` \| `"tokenUsage"`\>
-
-##### source?
-
-`string` = `'loop'`
-
-#### Returns
-
-`void`
 
 ***
 

@@ -114,6 +114,7 @@ The product must not recreate candidate hashing, paired comparison, confidence i
 - Do not write a second candidate catalog; persist the immutable proposal records.
 - Do not let an analyst or adapter commit, push, open a pull request, or edit a live store.
 - Do not hand-roll SSE parsing, usage totals, profile matrices, bootstrap statistics, sandbox acquisition, or worktree cleanup.
+- Do not attach completed Runtime totals to an Eval campaign. Use `loopDispatch` or `loopCampaignDispatch` so admission and receipt capture surround the paid work.
 - Do not add a product-local approval format for knowledge, code, or profile changes.
 
 ## Finish
