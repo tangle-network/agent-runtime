@@ -25,7 +25,10 @@ const PACKAGE_NAMES = [
   '@tangle-network/agent-runtime',
 ]
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const args = process.argv.slice(2)
+if (args[0] === '--') args.shift()
 const { values } = parseArgs({
+  args,
   options: {
     'agent-eval-repo': { type: 'string' },
     'agent-knowledge-repo': { type: 'string' },
