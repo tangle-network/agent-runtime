@@ -842,7 +842,11 @@ function* flushPendingToolCalls(
  *   2. `id` present     → key by id; distinct ids are distinct calls, and a
  *                         repeated id still concatenates correctly.
  *   3. neither          → an argument-only continuation fragment; append to the
- *                         most recently touched unfinalized OpenAI entry.
+ *                         last-OPENED unfinalized OpenAI entry. `Map` iteration
+ *                         is insertion-ordered and `set` on an existing key does
+ *                         not reorder, so this is the most recently STARTED call
+ *                         still taking arguments — which is the one a gateway
+ *                         streaming calls sequentially is continuing.
  */
 function deltaToolCallKey(
   rec: Record<string, unknown>,
