@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4
+
+- Consume Runtime 0.107.2 and Sandbox 0.15.0 with the current Eval, Interface, and Knowledge packages.
+- Publish fake Pier terminal results atomically so the full test suite cannot observe partial JSON.
+
 ## 0.4.3
 
 - Consume Runtime 0.107.1 with Eval 0.133.0, Interface 0.36.0, and Knowledge 6.1.2.
