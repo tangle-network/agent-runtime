@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt"],
-  "digest": "sha256:8a826acc5c4341c2df0b005de0d80c8c77e0aa48ad97bd39940ceb2b55ce8b70",
+  "digest": "sha256:191094a4038280804d39d049b94e0e1a30a674b50ee3f139ccfcc638a7deb40b",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -269,7 +269,7 @@
     "measurements": [
       {
         "baseline": {
-          "digest": "sha256:6bf8492d4fb6cb795715f861ad1150ce8194aaf6075ce898e411fdbaf4e6f534",
+          "digest": "sha256:67e8f6b445393ea18726b07b213f27c7f379be445bf29227a3f3ccdec1108374",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -521,7 +521,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:792a1fc3d525e029e74f9fe88940277b6d7c162959b4ecc943b25cbaffe3d86f",
+            "digest": "sha256:5abeb21c2346726700478f1f7cb039292d6741a5eff5949519709710ee71950c",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:205204302122b2c90373cf000406d8841c6bf8cd99f621637fe7c6824e243acf",
             "executorCapture": {
@@ -575,6 +575,7 @@
               }
             },
             "runCellDigest": "sha256:5246bcb23929d3ef84c78c5185390aab5e2309f1267d38e0d1c0ddc18232b6d4",
+            "steps": 0,
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
@@ -633,7 +634,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:d99b9e877621de7c5fe20850fcdcf6b88119e46b0505dc4a7bf867201b0afafe",
+          "digest": "sha256:f34191280c3873f6bc72cf0d485e01b6445f598bf051c1de27e13d20059fdd5f",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -889,7 +890,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:3e003fb6cf3bde16a59f28901d29c752595794b000b79268b4b7be853adb4551",
+            "digest": "sha256:a70a57097691dda0173fd2aff5751486844b774855510b2a6b48b7c61c80fef8",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:9ee298c2aa3a2b814f4ce41bf8698e20aab372d28922dca97a5c829516ea44f6",
             "executorCapture": {
@@ -943,6 +944,7 @@
               }
             },
             "runCellDigest": "sha256:e8faaad9b6ae2779d56d4f56d98f3197ed3d375298084ac08410c54632fb8b61",
+            "steps": 0,
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
@@ -1003,7 +1005,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:9795afbb773b45c2d794522ad8c1fde600feda44cfd978572d62b93e9afb5724",
+          "digest": "sha256:575dcb4ed1ddbed1e6ff77b3d3b9e028c896e67d68e7b272a2281229998c7797",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1255,7 +1257,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:362e0b403b592b762ec92734f1286ecaf0c08e40970525de14b3052b335b8618",
+            "digest": "sha256:c86e9be92077f429544c85d2fa9da1fdc07ec8664b73069f8ef366101c31d995",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:e719f546b4f6585879b1210ff9c2263859efc625b5d78cfbab46f5a180e29287",
             "executorCapture": {
@@ -1309,6 +1311,7 @@
               }
             },
             "runCellDigest": "sha256:1c64f3d18b9d8c5a34231c5c7c2d3496e225051c9f2930ca97d01176492e8e76",
+            "steps": 0,
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
@@ -1367,7 +1370,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:90aa644ce8a4a7bd8968146189ec279b74c550ae6ff02b08adfa984008b68ce5",
+          "digest": "sha256:e23df68fa1d491367e0c51f3a7ab43ea823e87fc595565b3ab959a01f51cc7eb",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1623,7 +1626,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:bbfcb8dfe7d34f06ce47c8a6562ab15fcaa1dc083524eb692890055e2e2ccc27",
+            "digest": "sha256:c44d5452a70f3f0a428b5d977447601090c90446d1d3515696daf9d695f6cbeb",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:8d12d5d6466c0dd8f2592be9f6d66b5b6a2139bfe8cdc5b793bde9e28ebec4c6",
             "executorCapture": {
@@ -1677,6 +1680,7 @@
               }
             },
             "runCellDigest": "sha256:3056f0119ac4643dc3defb95fb324552e10f94e40621231d1f60d148f59d1d39",
+            "steps": 0,
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
@@ -1737,7 +1741,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:7ebfc740cb6c0156ce54d450015af9e418a57473299022f926555f2a5b706454",
+          "digest": "sha256:960852c5e3d6b6206a1178f9a5cae8a5e9aafb88b447566522658a43181560bb",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1989,7 +1993,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:7dfea3ef8bf6e5c0432180fefe63cad9f62833ecb8bea1ce0de7d41ca3ef3bc5",
+            "digest": "sha256:b3c5528de220dcc8033bd3652d4aa7d9095e8093bfde5520c0e311b3a0ec0491",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:a8fe2f7c6d5bc4d0832a2aa3a0ec6b0c311a1f1bafe9a0fc406991802a87685e",
             "executorCapture": {
@@ -2043,6 +2047,7 @@
               }
             },
             "runCellDigest": "sha256:9c427cc67507cda8dcdac327f390adfa7e045d069e677d62921678b46a96d66c",
+            "steps": 0,
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
@@ -2101,7 +2106,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:325bbde1ccafdb3786a26b48ad407fea1912f0d7b340c4a654a1ebdc622d960c",
+          "digest": "sha256:5205050294eeb22de88a477881714328b2a70b10e25d62b7fa4d2224a4aa40b8",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -2357,7 +2362,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:62fb136a6376e729f10efa210b6dba6607923b2502597e555bd055d72ee307dd",
+            "digest": "sha256:d24fca3aecb601cfa183a360e3a6dd192f176d8ade6a65e1dde1e320bec1567d",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:c642749f2907277b811c99017d96103dd1ab6d2564fe1c8caba27bbe8d6c151f",
             "executorCapture": {
@@ -2411,6 +2416,7 @@
               }
             },
             "runCellDigest": "sha256:ea5cab9dff49326dfe856aab19514d2bc5bc0fab2b4b685c4fea356801dbd1c3",
+            "steps": 0,
             "taskOutcome": {
               "artifact": {
                 "byteLength": 478,
@@ -2583,7 +2589,7 @@
       "baselineContentHash": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
       "candidateContentHash": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
       "kind": "agent-eval-loop",
-      "recordDigest": "sha256:498a37d2d77ccffb2018431e344d19fd84c0bf8e1cdd1f27300acc2006196c44",
+      "recordDigest": "sha256:e8ca90dc50ec0da75d7d9627e2e0add0505b6da492f690c607cdd0bc1c28de98",
       "runId": "agent-runtime-0.106.0-proposal-fixture",
       "schema": "agent-candidate-experiment"
     }

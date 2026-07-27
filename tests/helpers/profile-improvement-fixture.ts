@@ -181,6 +181,7 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
         endedAtMs: repetition * 1_000 + 100,
         durationMs: 100,
       },
+      steps: 1,
       resolvedModel: task.model,
       limits: task.limits,
       usage: {

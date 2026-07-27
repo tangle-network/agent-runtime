@@ -276,6 +276,35 @@ describe('environment provider adapters', () => {
     expect(createCalls).toBe(0)
   })
 
+  it('rejects secret values hidden in Sandbox passthrough options', async () => {
+    let createCalls = 0
+    let resolveCalls = 0
+    const client: SandboxClient = {
+      async create(): Promise<SandboxInstance> {
+        createCalls += 1
+        throw new Error('must not create')
+      },
+    }
+    const provider = sandboxClientAsProvider(client, {
+      async resolveProfile() {
+        resolveCalls += 1
+        return { name: 'resolved-worker' }
+      },
+    })
+
+    await expect(
+      provider.create({
+        profile: 'catalog/worker',
+        providerOptions: {
+          sandboxCreateOptions: {
+            secrets: { API_TOKEN: 'secret-value' },
+          },
+        },
+      }),
+    ).rejects.toThrow(/secret names only/)
+    expect({ createCalls, resolveCalls }).toEqual({ createCalls: 0, resolveCalls: 0 })
+  })
+
   it('uses current Sandbox environment for a workspace image and rejects ambiguous workspace values', async () => {
     let createOptions: CreateSandboxOptions | undefined
     const box = {
@@ -389,6 +418,35 @@ describe('environment provider adapters', () => {
 
     await environment.session?.('session-1').cancel()
     expect(interrupted).toBe(1)
+  })
+
+  it('fails closed when a neutral session only reports stopped', async () => {
+    const session: AgentSession = {
+      id: 'stopped-session',
+      status: async () => 'stopped',
+      events: async function* (): AsyncIterable<AgentEnvironmentEvent> {},
+      result: async () => ({ text: '', success: false }),
+      prompt: async () => ({ text: '', success: false }),
+      cancel: async () => {},
+    }
+    const provider: AgentEnvironmentProvider = {
+      name: 'fake-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          session: () => session,
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {},
+        })
+      },
+    }
+    const box = await providerAsSandboxClient(provider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+    })
+
+    await expect(box.session('stopped-session').status()).resolves.toEqual({
+      id: 'stopped-session',
+      status: 'failed',
+    })
   })
 
   it('fails loudly when a sandbox exec result has no exit code', async () => {

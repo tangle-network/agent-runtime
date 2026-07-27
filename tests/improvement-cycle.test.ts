@@ -250,6 +250,21 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     ).toEqual(restoreResult)
   })
 
+  it('rejects malformed optimizer evidence on profile comparisons', () => {
+    const fixture = createProfileImprovementFixture()
+
+    expect(() =>
+      createAgentImprovementProposal({
+        runId: 'profile-improvement-1',
+        findings: [finding],
+        evaluation: {
+          ...fixture.evaluation,
+          metadata: { optimizationReceipt: { kind: 'caller-authored' } },
+        },
+      }),
+    ).toThrow(/optimization receipt/)
+  })
+
   it('runs analysis through exact activation using only public inputs', async () => {
     const seed = createCandidateExperimentFixture()
     const profile = agentCandidateProfileAsAgentProfile(seed.experiment.baseline.profile)

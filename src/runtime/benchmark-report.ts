@@ -252,7 +252,7 @@ export function leaderboard(
     })
   }
 
-  // Rank: score desc, then lower cost only when both totals are complete, then label.
+  // Rank: score desc, then complete cost before unknown cost, then lower cost and label.
   rows.sort(
     (a, b) =>
       b.meanScore - a.meanScore ||
@@ -297,7 +297,9 @@ function summarizeCost(records: readonly RunRecord[]): {
 }
 
 function compareCompleteCost(left: number | null, right: number | null): number {
-  return left === null || right === null ? 0 : left - right
+  if (left === null) return right === null ? 0 : 1
+  if (right === null) return -1
+  return left - right
 }
 
 /** One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict. */

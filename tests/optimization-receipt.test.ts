@@ -45,7 +45,7 @@ const officialImprovementMethod: ImproveMethodFactory<ImprovementScenario, strin
           kind: 'package',
           evidence: 'observed',
           package: 'agent-eval-rpc',
-          version: '0.129.0',
+          version: '9.8.7',
           sourceSha256: 'b'.repeat(64),
         },
         optimizerModel: 'optimizer-model',
@@ -100,7 +100,7 @@ describe('optimization activation receipt', { timeout: 30_000 }, () => {
       },
       bridge: {
         package: 'agent-eval-rpc',
-        version: '0.129.0',
+        version: '9.8.7',
         sourceSha256: 'b'.repeat(64),
       },
       python: { implementation: 'CPython', version: '3.13.5' },

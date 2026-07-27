@@ -114,6 +114,15 @@ describe('leaderboard', () => {
     expect(renderLeaderboardHtml(report)).toContain('at least $0.100 (1 uncaptured)')
   })
 
+  it('ranks known cost ahead of unknown cost when quality ties', () => {
+    const report = leaderboard([
+      rec({ model: 'aaa-unknown', scenarioId: 't1', score: 1, costUsd: null }),
+      rec({ model: 'zzz-known', scenarioId: 't1', score: 1, costUsd: 0.1 }),
+    ])
+
+    expect(report.profiles.map((profile) => profile.model)).toEqual(['zzz-known', 'aaa-unknown'])
+  })
+
   it('supports custom axis decomposition (judge dimensions) replacing scenario axes', () => {
     const dimRecords = [
       rec({ model: 'm', scenarioId: 't1', score: 1, raw: { correctness: 0.9, style: 0.4 } }),

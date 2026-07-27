@@ -446,17 +446,14 @@ async function sandboxOptionsFromCreateInput(
   const backendType = (input.backend ?? defaultBackend) as BackendType
   const workspace = input.workspace ?? {}
   const environment = sandboxEnvironmentFromWorkspace(workspace)
-  const profile = await sandboxProfileFromReference(input.profile, resolveProfile)
-  if (input.secrets && !Array.isArray(input.secrets)) {
-    throw new ValidationError(
-      'Tangle Sandbox accepts secret names only; record-form secret values are unsupported',
-    )
-  }
   const providerOptions = input.providerOptions?.sandboxCreateOptions
   const base =
     providerOptions && typeof providerOptions === 'object'
       ? ({ ...(providerOptions as CreateSandboxOptions) } as CreateSandboxOptions)
       : ({} satisfies CreateSandboxOptions)
+  assertSandboxSecretNames(input.secrets)
+  assertSandboxSecretNames((base as { secrets?: unknown }).secrets)
+  const profile = await sandboxProfileFromReference(input.profile, resolveProfile)
   const { profile: _baseProfile, ...baseBackend } = base.backend ?? {}
   return {
     ...base,
@@ -473,6 +470,14 @@ async function sandboxOptionsFromCreateInput(
       type: backendType,
       profile,
     },
+  }
+}
+
+function assertSandboxSecretNames(secrets: unknown): asserts secrets is string[] | undefined {
+  if (secrets !== undefined && !Array.isArray(secrets)) {
+    throw new ValidationError(
+      'Tangle Sandbox accepts secret names only; record-form secret values are unsupported',
+    )
   }
 }
 
@@ -770,6 +775,7 @@ function sandboxSessionStatusFromAgentSessionStatus(
       return 'completed'
     case 'cancelled':
       return 'cancelled'
+    // Sandbox has no neutral stopped state; do not report completion without success proof.
     case 'stopped':
     case 'failed':
     case 'expired':

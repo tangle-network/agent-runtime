@@ -604,7 +604,9 @@ function verifyAgentImprovementEvaluation(input: unknown): AgentImprovementEvalu
     'kind' in input &&
     input.kind === 'agent-profile-improvement-measured-comparison'
   ) {
-    return agentProfileImprovementMeasuredComparisonSchema.parse(input)
+    const evaluation = agentProfileImprovementMeasuredComparisonSchema.parse(input)
+    optimizationActivationReceiptFromMetadata(evaluation.metadata)
+    return evaluation
   }
   const evaluation = verifyCandidateExperimentComparison(input)
   optimizationActivationReceiptFromMetadata(evaluation.metadata)

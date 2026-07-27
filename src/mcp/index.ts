@@ -119,14 +119,14 @@ export {
   resolveMemoryFromEnv,
 } from './memory-server'
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
-/** @deprecated Use `McpToolDescriptor`; both names are the same protocol contract. */
 export type {
   JsonRpcMessage,
   JsonRpcResponse,
   McpToolDescriptor,
-  McpToolDescriptor as StdioToolDescriptor,
   McpTransport,
 } from './protocol'
+/** @deprecated Use `McpToolDescriptor`; both names are the same protocol contract. */
+export type StdioToolDescriptor = import('./protocol').McpToolDescriptor
 export type { McpServer, McpServerOptions } from './server'
 export { createInProcessTransport, createMcpServer } from './server'
 export type {
