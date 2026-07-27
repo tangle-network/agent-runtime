@@ -220,7 +220,7 @@ export interface CreateAgentImprovementActivationOptions {
   fundingOwner: string
   authorizedBy: string
   expiresAt: string
-  /** Current product executor, required to activate an opaque profile measurement. */
+  /** Required only when an activation targets the complete `agent-profile` surface. */
   executionRef?: AgentProfileImprovementExecutionRef
   now?: () => Date
 }
@@ -1053,7 +1053,7 @@ export function createAgentImprovementActivation(
     options.intent,
     options.targets,
   )
-  const executionRef = profileActivationExecutionRef(experiment, options.executionRef)
+  const executionRef = profileActivationExecutionRef(experiment, targets, options.executionRef)
   return agentImprovementActivationSchema.parse(
     canonicalCandidateDocument<AgentImprovementActivation>({
       kind: 'agent-improvement-activation',
@@ -1114,9 +1114,19 @@ function measuredCandidateDigest(proposal: AgentImprovementProposal): Sha256Dige
 
 function profileActivationExecutionRef(
   experiment: AgentImprovementEvaluation['experiment'],
+  targets: AgentImprovementActivation['targets'],
   executionRef: AgentProfileImprovementExecutionRef | undefined,
 ): AgentProfileImprovementExecutionRef | undefined {
-  if (experiment.kind !== 'agent-profile-improvement-experiment') return undefined
+  const targetsAgentProfile = targets.some((target) => target.surface === 'agent-profile')
+  if (!targetsAgentProfile) {
+    if (executionRef !== undefined) {
+      throw new Error('profile activation executionRef is valid only for agent-profile targets')
+    }
+    return undefined
+  }
+  if (experiment.kind !== 'agent-profile-improvement-experiment') {
+    throw new Error('agent-profile activation requires a measured profile experiment')
+  }
   if (executionRef === undefined) {
     throw new Error('profile improvement activation requires the measured executor')
   }
@@ -1200,8 +1210,9 @@ export function verifyAgentImprovementActivation(input: {
     throw new Error('candidate activation does not bind the measured and approved candidate')
   }
   if (
-    proposal.evaluation.kind === 'agent-profile-improvement-measured-comparison' &&
-    (activation.executionRef === undefined ||
+    activation.targets.some((target) => target.surface === 'agent-profile') &&
+    (proposal.evaluation.kind !== 'agent-profile-improvement-measured-comparison' ||
+      activation.executionRef === undefined ||
       canonicalCandidateDigest(activation.executionRef) !==
         canonicalCandidateDigest(proposal.evaluation.experiment.executionRef))
   ) {

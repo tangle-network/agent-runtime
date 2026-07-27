@@ -115,57 +115,18 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       expiresAt: '2026-07-24T00:10:00.000Z',
       now: () => new Date('2026-07-24T00:02:00.000Z'),
     } as const
-    expect(() => createAgentImprovementActivation(proposal, review, activationInput)).toThrow(
-      'profile improvement activation requires the measured executor',
-    )
-    expect(() =>
-      createAgentImprovementActivation(proposal, review, {
-        ...activationInput,
-        executionRef: {
-          ...experiment.executionRef,
-          digest: canonicalCandidateDigest({ changed: true }),
-        },
-      }),
-    ).toThrow('profile improvement activation executor does not match the measurement')
-    const activate = createAgentImprovementActivation(proposal, review, {
-      ...activationInput,
-      executionRef: experiment.executionRef,
-    })
+    const activate = createAgentImprovementActivation(proposal, review, activationInput)
     expect(verifyAgentImprovementActivation({ proposal, review, activation: activate })).toEqual(
       activate,
     )
-    expect(activate.executionRef).toEqual(experiment.executionRef)
+    expect(activate.executionRef).toBeUndefined()
+    expect(() =>
+      createAgentImprovementActivation(proposal, review, {
+        ...activationInput,
+        executionRef: experiment.executionRef,
+      }),
+    ).toThrow('profile activation executionRef is valid only for agent-profile targets')
     const { digest: _activationDigest, ...activationMaterial } = activate
-    const { executionRef: _executionRef, ...missingExecutorMaterial } = activationMaterial
-    const missingExecutorActivation = {
-      ...missingExecutorMaterial,
-      digest: canonicalCandidateDigest(missingExecutorMaterial),
-    }
-    expect(() =>
-      verifyAgentImprovementActivation({
-        proposal,
-        review,
-        activation: missingExecutorActivation,
-      }),
-    ).toThrow('profile activation does not bind the measured executor')
-    const changedExecutorMaterial = {
-      ...activationMaterial,
-      executionRef: {
-        ...experiment.executionRef,
-        digest: canonicalCandidateDigest({ changed: true }),
-      },
-    }
-    const changedExecutorActivation = {
-      ...changedExecutorMaterial,
-      digest: canonicalCandidateDigest(changedExecutorMaterial),
-    }
-    expect(() =>
-      verifyAgentImprovementActivation({
-        proposal,
-        review,
-        activation: changedExecutorActivation,
-      }),
-    ).toThrow('profile activation does not bind the measured executor')
     expect(() =>
       createAgentImprovementActivation(proposal, review, {
         intent: 'activate-candidate',
@@ -176,7 +137,6 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         fundingOwner: 'tenant/default',
         authorizedBy: 'operator@example.com',
         expiresAt: '2026-07-24T00:10:00.000Z',
-        executionRef: experiment.executionRef,
         now: () => new Date('2026-07-24T00:02:00.000Z'),
       }),
     ).toThrow('profile improvement activation targets must name one profile identity')
@@ -247,7 +207,6 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       fundingOwner: 'tenant/default',
       authorizedBy: 'operator@example.com',
       expiresAt: '2026-07-24T00:12:00.000Z',
-      executionRef: experiment.executionRef,
       now: () => new Date('2026-07-24T00:04:00.000Z'),
     })
     const restoreResult = await executeAgentImprovementActivation(
