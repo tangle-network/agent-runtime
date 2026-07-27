@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.107.2
+
+- Align Runtime's tested Sandbox dependency and public peer contract with `@tangle-network/sandbox` 0.15.0.
+
 ## 0.107.1
 
 - Add a budget-bound profile improvement cycle that turns trace findings into exact, reviewable profile proposals.

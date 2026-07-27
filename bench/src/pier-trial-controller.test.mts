@@ -85,18 +85,20 @@ test('the Pier result wait does not add time beyond an expired deadline', async 
     await chmod(fakeDocker, 0o700)
     await writeFile(
       supervisorPath,
-      `import { createReadStream } from 'node:fs'
-import { writeFileSync } from 'node:fs'
+      `import { createReadStream, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 const directory = process.argv[2]
 process.on('SIGTERM', () => {
-  writeFileSync(path.join(directory, 'terminal.json'), JSON.stringify({
+  const target = path.join(directory, 'terminal.json')
+  const temporary = path.join(directory, '.terminal.json.tmp')
+  writeFileSync(temporary, JSON.stringify({
     schemaVersion: 1,
     kind: 'pier-trial-terminal',
     status: 'stopped',
     processExited: true,
     containersRemoved: true,
   }))
+  renameSync(temporary, target)
   process.exit(0)
 })
 for await (const _chunk of createReadStream('', { fd: 3 })) {}
@@ -156,7 +158,7 @@ test('the supervisor receives only launch data and no inherited evaluator enviro
     await chmod(fakeDocker, 0o700)
     await writeFile(
       supervisorPath,
-      `import { createReadStream, writeFileSync } from 'node:fs'
+      `import { createReadStream, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 const chunks = []
 for await (const chunk of createReadStream('', { fd: 3 })) chunks.push(Buffer.from(chunk))
@@ -165,7 +167,9 @@ const isolated = process.env.PIER_SUPERVISOR_MODE === 'explicit' &&
   process.env.PIER_PARENT_SECRET === undefined &&
   launch.env.PIER_PARENT_SECRET === undefined &&
   launch.env.PIER_CHILD_SECRET === 'child-only'
-writeFileSync(path.join(process.argv[2], 'terminal.json'), JSON.stringify({
+const target = path.join(process.argv[2], 'terminal.json')
+const temporary = path.join(process.argv[2], '.terminal.json.tmp')
+writeFileSync(temporary, JSON.stringify({
   schemaVersion: 1,
   kind: 'pier-trial-terminal',
   status: isolated ? 'completed' : 'failed',
@@ -173,6 +177,7 @@ writeFileSync(path.join(process.argv[2], 'terminal.json'), JSON.stringify({
   containersRemoved: true,
   ...(isolated ? {} : { error: 'supervisor inherited evaluator environment' }),
 }))
+renameSync(temporary, target)
 `,
     )
     const controller = new FilePierCandidateTrialController({
@@ -224,10 +229,12 @@ test('terminal acknowledgements reject unknown fields', async () => {
     await chmod(fakeDocker, 0o700)
     await writeFile(
       supervisorPath,
-      `import { createReadStream, writeFileSync } from 'node:fs'
+      `import { createReadStream, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 for await (const _chunk of createReadStream('', { fd: 3 })) {}
-writeFileSync(path.join(process.argv[2], 'terminal.json'), JSON.stringify({
+const target = path.join(process.argv[2], 'terminal.json')
+const temporary = path.join(process.argv[2], '.terminal.json.tmp')
+writeFileSync(temporary, JSON.stringify({
   schemaVersion: 1,
   kind: 'pier-trial-terminal',
   status: 'completed',
@@ -235,6 +242,7 @@ writeFileSync(path.join(process.argv[2], 'terminal.json'), JSON.stringify({
   containersRemoved: true,
   containerRemoved: true,
 }))
+renameSync(temporary, target)
 `,
     )
     const controller = new FilePierCandidateTrialController({
