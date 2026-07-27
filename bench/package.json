@@ -37,7 +37,7 @@
     "typecheck:public": "tsc -p tsconfig.public.json",
     "verify:package": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs",
     "verify:package:local-runtime": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs --local-runtime",
-    "verify:package:static": "publint && attw --pack --profile esm-only .",
+    "verify:package:static": "pnpm run build && publint && attw --pack --profile esm-only .",
     "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
   "dependencies": {
