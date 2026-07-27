@@ -22,8 +22,8 @@ catalogs:
       specifier: 0.9.0
       version: 0.9.0
     '@tangle-network/sandbox':
-      specifier: 0.14.0
-      version: 0.14.0
+      specifier: 0.15.0
+      version: 0.15.0
     '@types/node':
       specifier: 26.1.1
       version: 26.1.1
@@ -68,7 +68,7 @@ importers:
         version: 0.36.0
       '@tangle-network/sandbox':
         specifier: 'catalog:'
-        version: 0.14.0(viem@2.54.6(typescript@6.0.3)(zod@4.4.3))
+        version: 0.15.0(viem@2.54.6(typescript@6.0.3)(zod@4.4.3))
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.1
@@ -116,7 +116,7 @@ importers:
         version: link:..
       '@tangle-network/sandbox':
         specifier: 'catalog:'
-        version: 0.14.0(viem@2.54.6(typescript@6.0.3)(zod@4.4.3))
+        version: 0.15.0(viem@2.54.6(typescript@6.0.3)(zod@4.4.3))
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 'catalog:'
@@ -892,8 +892,8 @@ packages:
   '@tangle-network/agent-profile-materialize@0.9.0':
     resolution: {integrity: sha512-Y18RGqmNqczKKeC+uficJ80pzJwvh480zYZPHCQHVVJtaHLvUPriDGbZQL/JMN/myjWNKQ72L9RuFuRpWzI49w==}
 
-  '@tangle-network/sandbox@0.14.0':
-    resolution: {integrity: sha512-8th91/Y/lzwRvpkOT17J2Eu8HezPqN+pk/4rYMSWOHQqgf0x2Rqg4O+yqPEARPIIUeI/m+7G+TDLhJPqsAYlVQ==}
+  '@tangle-network/sandbox@0.15.0':
+    resolution: {integrity: sha512-wARsA+P4rDqRuu9ogzyvMjzw8VAQVoalzmQc1NmsCz3Xt/GBDrkdDbariXpDxo5t/UjzmLehisUv2eqlWSIPeg==}
     peerDependencies:
       '@mastra/core': ^1.36.0
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -2338,7 +2338,7 @@ snapshots:
     dependencies:
       '@tangle-network/agent-interface': 0.34.0
 
-  '@tangle-network/sandbox@0.14.0(viem@2.54.6(typescript@6.0.3)(zod@4.4.3))':
+  '@tangle-network/sandbox@0.15.0(viem@2.54.6(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
       '@tangle-network/agent-core': 0.4.23
       '@tangle-network/agent-interface': 0.34.0

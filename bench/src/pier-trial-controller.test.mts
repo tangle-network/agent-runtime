@@ -224,10 +224,12 @@ test('terminal acknowledgements reject unknown fields', async () => {
     await chmod(fakeDocker, 0o700)
     await writeFile(
       supervisorPath,
-      `import { createReadStream, writeFileSync } from 'node:fs'
+      `import { createReadStream, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 for await (const _chunk of createReadStream('', { fd: 3 })) {}
-writeFileSync(path.join(process.argv[2], 'terminal.json'), JSON.stringify({
+const target = path.join(process.argv[2], 'terminal.json')
+const temporary = path.join(process.argv[2], '.terminal.json.tmp')
+writeFileSync(temporary, JSON.stringify({
   schemaVersion: 1,
   kind: 'pier-trial-terminal',
   status: 'completed',
@@ -235,6 +237,7 @@ writeFileSync(path.join(process.argv[2], 'terminal.json'), JSON.stringify({
   containersRemoved: true,
   containerRemoved: true,
 }))
+renameSync(temporary, target)
 `,
     )
     const controller = new FilePierCandidateTrialController({
