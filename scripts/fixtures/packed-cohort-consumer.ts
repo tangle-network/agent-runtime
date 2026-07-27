@@ -240,7 +240,7 @@ const sealedTask = sealAgentProfileImprovementTask({
   limits: {
     timeoutMs: 30_000,
     maxSteps: 1,
-    maxModelCalls: 1,
+    maxModelCalls: 2,
     maxInputTokens: 100,
     maxOutputTokens: 100,
     maxCostUsd: 0.01,
@@ -298,7 +298,7 @@ const result = await proposeAgentProfileImprovement({
     seeds: [41, 42, 43],
     policy: {
       confidenceLevel: 0.95,
-      resamples: 40,
+      resamples: 100,
       bootstrapSeed: 17,
       deltaThreshold: 0,
       minProductiveRuns: 3,
@@ -341,7 +341,7 @@ try {
     throw new Error('packed Runtime proposal did not execute the exact profile pair')
   }
   process.stdout.write(
-    `${JSON.stringify({
+    `PACKED_COHORT_PROPOSAL=${JSON.stringify({
       proposalKind: proposal.evaluation.kind,
       baseline: proposal.evaluation.overall.baseline,
       candidate: proposal.evaluation.overall.candidate,

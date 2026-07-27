@@ -345,7 +345,16 @@ function verifyConsumer(artifacts) {
 
   const publicImportCount = verifyPublicImports(appDir, artifacts)
   captured('corepack', ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'], appDir)
-  const proposal = JSON.parse(captured(process.execPath, ['dist/consumer.js'], appDir).trim())
+  const proposalOutput = captured(process.execPath, ['dist/consumer.js'], appDir)
+    .trim()
+    .split('\n')
+  const proposalReport = proposalOutput.find((line) =>
+    line.startsWith('PACKED_COHORT_PROPOSAL='),
+  )
+  if (!proposalReport) {
+    throw new Error(`packed proposal produced no report:\n${proposalOutput.join('\n')}`)
+  }
+  const proposal = JSON.parse(proposalReport.slice('PACKED_COHORT_PROPOSAL='.length))
   return {
     install: 'pnpm install --frozen-lockfile',
     packageCount: artifacts.length,
