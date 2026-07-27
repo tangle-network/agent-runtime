@@ -30,6 +30,47 @@ jobs:
         with:
           version: '0.11.32'
 
+      # A release tag must sit on the tip of the line it releases. Without this, a
+      # tag cut from an older commit publishes while newer merged commits are
+      # silently excluded: 0.106.0 was tagged at the #624 merge and published 45
+      # minutes before #626 merged, so the parallel-tool-call fix never reached the
+      # registry even though it was already on main. Nothing failed — `latest`
+      # simply did not contain the code main had.
+      #
+      # A tag is valid at the tip of `main` (normal release) or at the tip of a
+      # `release/<major>.<minor>.x` branch (backport onto a line the fleet still
+      # resolves — 0.x caret ranges only admit patches, so this is the only way to
+      # ship a fix to a consumer pinned to an older minor). Comparing SHAs needs no
+      # shared history, so a shallow fetch is sufficient.
+      - name: Verify tag is the tip of its release line
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_SHA=$(git rev-parse HEAD)
+          git fetch --no-tags --depth=100 origin +refs/heads/main:refs/remotes/origin/main
+          MAIN_SHA=$(git rev-parse refs/remotes/origin/main)
+          if [ "$TAG_SHA" = "$MAIN_SHA" ]; then
+            echo "Tag is the tip of main: $TAG_SHA"
+            exit 0
+          fi
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          LINE="release/${VERSION%.*}.x"
+          if git fetch --no-tags --depth=100 origin "+refs/heads/$LINE:refs/remotes/origin/$LINE" 2>/dev/null; then
+            LINE_SHA=$(git rev-parse "refs/remotes/origin/$LINE")
+            if [ "$TAG_SHA" = "$LINE_SHA" ]; then
+              echo "Tag is the tip of $LINE: $TAG_SHA"
+              exit 0
+            fi
+            echo "::error::Tag v$VERSION is at $TAG_SHA but $LINE is at $LINE_SHA."
+            echo "Commits on $LINE this tag would NOT publish:"
+            git log --oneline "$TAG_SHA".."$LINE_SHA" || true
+            exit 1
+          fi
+          echo "::error::Tag v$VERSION is at $TAG_SHA, which is neither the tip of main ($MAIN_SHA) nor of $LINE (no such branch)."
+          echo "Commits on main this tag would NOT publish:"
+          git log --oneline "$TAG_SHA".."$MAIN_SHA" || true
+          echo "Re-cut the tag at the tip of main, or push a $LINE branch for a backport."
+          exit 1
+
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
