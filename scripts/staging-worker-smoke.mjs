@@ -1,6 +1,6 @@
 /**
  * Smoke: our @tangle-network/sandbox SDK → staging-sandbox.tangle.tools → a
- * coding-agent backend → a model call via the router. Validates the worker path
+ * coding-agent backend with a Sandbox-managed model. Validates the worker path
  * (and exercises staging provisioning/autoscaling) before building the SWE-bench
  * worker on top. One sandbox, one trivial coding task, then delete.
  */
@@ -22,10 +22,8 @@ try {
     backend: {
       type: 'opencode',
       model: {
-        provider: 'openai', // router is OpenAI-compatible at /v1
+        provider: 'openai-compat',
         model: MODEL,
-        baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-        apiKey: process.env.ROUTER_KEY ?? KEY,
       },
     },
   })

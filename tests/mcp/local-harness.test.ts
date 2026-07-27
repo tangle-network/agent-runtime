@@ -58,6 +58,16 @@ function makeFakeChild(opts: {
   return emitter
 }
 
+async function waitForFile(path: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(path) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  if (!existsSync(path)) {
+    throw new Error(`timed out waiting for child readiness file: ${path}`)
+  }
+}
+
 function makeStaticElfFixture(directory: string): string {
   const path = join(directory, 'codex-static-fixture')
   const elf = Buffer.alloc(120)
@@ -788,10 +798,7 @@ describe('runLocalHarness', () => {
     })
 
     try {
-      for (let attempt = 0; attempt < 200 && !existsSync(readyFile); attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      }
-      expect(existsSync(readyFile)).toBe(true)
+      await waitForFile(readyFile, 2_000)
 
       ctl.abort()
       const result = await run
@@ -867,15 +874,19 @@ describe('runLocalHarness', () => {
       `setInterval(()=>{},1000)`,
     ].join(';')
     let grandchildPid: number | undefined
+    let run: ReturnType<typeof runLocalHarness> | undefined
     try {
-      const result = await runLocalHarness({
+      run = runLocalHarness({
         harness: 'claude',
         cwd,
         taskPrompt: 'process-tree cancellation smoke',
         invocation: { command: process.execPath, args: ['-e', parentScript, pidFile] },
-        timeoutMs: 100,
+        // This covers real OS process startup; timeout behavior itself is tested above with fake time.
+        timeoutMs: 2_000,
       })
+      await waitForFile(pidFile, 1_000)
       grandchildPid = Number(readFileSync(pidFile, 'utf8'))
+      const result = await run
 
       expect(result.timedOut).toBe(true)
       expect(result.killedBySignal).toBeNull()
@@ -883,6 +894,7 @@ describe('runLocalHarness', () => {
         expect.objectContaining({ code: 'ESRCH' }),
       )
     } finally {
+      await run?.catch(() => undefined)
       if (grandchildPid !== undefined) {
         try {
           process.kill(grandchildPid, 'SIGKILL')

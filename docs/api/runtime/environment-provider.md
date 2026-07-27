@@ -178,7 +178,7 @@ Options for wrapping the current Tangle sandbox client as an environment provide
 
 ##### defaultBackend?
 
-> `optional` **defaultBackend?**: `BackendType$1`
+> `optional` **defaultBackend?**: `BackendType`
 
 **`Experimental`**
 

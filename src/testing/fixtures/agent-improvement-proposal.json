@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt"],
-  "digest": "sha256:191094a4038280804d39d049b94e0e1a30a674b50ee3f139ccfcc638a7deb40b",
+  "digest": "sha256:d342a61fe853f2fa1e907634e9e3aef1790eedef0cf4b8cf2971ebfaa2e9fa19",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -9,7 +9,7 @@
           "passed": true
         },
         {
-          "name": "statistical-power",
+          "name": "paired-precision",
           "passed": true
         },
         {
@@ -2580,7 +2580,7 @@
       "confidenceLevel": 0.95,
       "minimumDetectableDelta": 0,
       "n": 3,
-      "reason": "Minimum detectable lift at n=3: 0.000 (baseline sd 0.000). Effects smaller than this cannot clear the gate; budget the search for effects you believe exceed it. Holdout and gate share one scoring channel: raising n/reps reduces only idiosyncratic noise — systematic judge bias remains and this MDE is a lower bound. Full debiasing needs an independent second scoring channel (different judge/benchmark family).",
+      "reason": "observed paired uncertainty gives a minimum detectable delta of 0.000 at 0.95 confidence from 3 runs. The same scorer evaluated both arms, so scorer bias is not measured.",
       "scaleAssumed": true,
       "sharedScorerChannel": true,
       "sufficient": true
@@ -2589,7 +2589,7 @@
       "baselineContentHash": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
       "candidateContentHash": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
       "kind": "agent-eval-loop",
-      "recordDigest": "sha256:e8ca90dc50ec0da75d7d9627e2e0add0505b6da492f690c607cdd0bc1c28de98",
+      "recordDigest": "sha256:132f1ebe6addd641d17bc5f577e0f18ff0b7d086f1deab27309c80ec703a9681",
       "runId": "agent-runtime-0.106.0-proposal-fixture",
       "schema": "agent-candidate-experiment"
     }
