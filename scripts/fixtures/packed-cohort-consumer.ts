@@ -9,6 +9,7 @@ import type {
   DispatchContext,
   JudgeConfig,
   Scenario,
+  sealAgentProfileImprovementTask,
 } from '@tangle-network/agent-eval/contract'
 import {
   defineReadinessSpec,
@@ -28,7 +29,6 @@ import {
   proposeAgentProfileImprovement,
   verifyAgentImprovementProposal,
 } from '@tangle-network/agent-runtime/intelligence'
-import { loadAgentImprovementProposalFixture } from '@tangle-network/agent-runtime/testing'
 
 interface PackedScenario extends Scenario {
   kind: 'packed-cohort'
@@ -207,13 +207,46 @@ if (signTest.pValue !== 0.125) {
   throw new Error(`packed Eval sign test returned ${signTest.pValue}`)
 }
 
-const template = loadAgentImprovementProposalFixture()
-if (template.evaluation.kind !== 'agent-profile-improvement-measured-comparison') {
-  throw new Error('packed Runtime proposal fixture has the wrong evaluation kind')
-}
-const templateTask = template.evaluation.experiment.benchmark.tasks[0]
-if (!templateTask) throw new Error('packed Runtime proposal fixture has no task')
-const { digest: _taskDigest, ...task } = templateTask
+const sealedTask = sealAgentProfileImprovementTask({
+  kind: 'agent-profile-improvement-task',
+  digestAlgorithm: 'rfc8785-sha256',
+  scenario: {
+    id: 'packed-held-back',
+    kind: 'packed-held-back',
+    digest: canonicalCandidateDigest({ scenario: 'packed-held-back' }),
+  },
+  grader: {
+    name: 'packed-profile-quality',
+    version: '1',
+    format: 'tangle-grader',
+    artifact: {
+      locator: {
+        kind: 's3',
+        bucket: 'packed-cohort',
+        key: 'graders/profile-quality.json',
+        region: 'us-east-1',
+      },
+      sha256: canonicalCandidateDigest({ grader: 'packed-profile-quality' }),
+      byteLength: 1,
+    },
+  },
+  model: {
+    requested: 'deterministic/packed-cohort',
+    provider: 'deterministic',
+    model: 'packed-cohort',
+    snapshot: '1',
+    reasoningEffort: 'medium',
+  },
+  limits: {
+    timeoutMs: 30_000,
+    maxSteps: 1,
+    maxModelCalls: 1,
+    maxInputTokens: 100,
+    maxOutputTokens: 100,
+    maxCostUsd: 0.01,
+  },
+})
+const { digest: _taskDigest, ...task } = sealedTask
 const sourceIdentity = 'packed-profile'
 const sourceDigest = stateDigest({ identity: sourceIdentity, profile })
 const executionDigest = canonicalCandidateDigest({ executable: 'packed-cohort-consumer' })
@@ -263,7 +296,15 @@ const result = await proposeAgentProfileImprovement({
     tasks: [task],
     reps: 3,
     seeds: [41, 42, 43],
-    policy: template.evaluation.experiment.policy,
+    policy: {
+      confidenceLevel: 0.95,
+      resamples: 40,
+      bootstrapSeed: 17,
+      deltaThreshold: 0,
+      minProductiveRuns: 3,
+      criticalDimensions: [],
+      regressionTolerance: 0,
+    },
   },
   executor: {
     executionRef: {
