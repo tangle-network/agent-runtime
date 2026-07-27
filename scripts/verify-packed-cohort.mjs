@@ -380,7 +380,8 @@ function verifyPublicImports(appDir, artifacts) {
       process.stdout.write(JSON.stringify({ imported }) + '\\n')
     `,
   )
-  const result = JSON.parse(captured(process.execPath, [scriptPath], appDir))
+  const output = captured(process.execPath, [scriptPath], appDir).trim().split('\n')
+  const result = JSON.parse(output.at(-1))
   if (!Number.isInteger(result.imported) || result.imported < artifacts.length) {
     throw new Error(`public import verification returned ${JSON.stringify(result)}`)
   }
