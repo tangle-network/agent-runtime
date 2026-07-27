@@ -729,7 +729,7 @@ function sandboxSessionAsAgentSession(session: SandboxSessionLike): AgentSession
   }
 }
 
-function sandboxSessionFromAgentSession(session: AgentSession | undefined): unknown {
+function sandboxSessionFromAgentSession(session: AgentSession | undefined): SandboxSessionLike {
   if (!session) throw new ValidationError('providerAsSandboxClient: session is unavailable')
   return {
     id: session.id,
