@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, delimiter, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
@@ -68,9 +68,16 @@ const sourceRepos = {
 }
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-package-cohort-'))
 const artifactsDir = join(tempRoot, 'artifacts')
+const packageManagerBin = join(tempRoot, 'bin')
 mkdirSync(artifactsDir, { recursive: true })
+mkdirSync(packageManagerBin, { recursive: true })
 
 try {
+  captured(
+    'corepack',
+    ['enable', '--install-directory', packageManagerBin, 'pnpm'],
+    repoRoot,
+  )
   const artifacts = []
   const artifactsByIdentity = new Map()
 
@@ -535,7 +542,11 @@ function captured(command, args, cwd, extraEnv = {}) {
 }
 
 function run(command, args, cwd, extraEnv, stdio) {
-  const env = { ...process.env, ...extraEnv }
+  const env = {
+    ...process.env,
+    PATH: `${packageManagerBin}${delimiter}${process.env.PATH ?? ''}`,
+    ...extraEnv,
+  }
   delete env.FORCE_COLOR
   const result = spawnSync(command, args, {
     cwd,
