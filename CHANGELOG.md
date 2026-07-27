@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.107.1
+
+- Add a budget-bound profile improvement cycle that turns trace findings into exact, reviewable profile proposals.
+- Preserve one shared cost budget and the final-test split through analysis, optimization, measurement, review, and activation.
+- Align Runtime with `@tangle-network/agent-eval` 0.133.0, `@tangle-network/agent-interface` 0.36.0, and `@tangle-network/agent-knowledge` 6.1.2.
+- Check the packed `proposeAgentProfileImprovement` export so the public entrypoint cannot disappear silently.
+
 ## 0.106.0
 
 - Align Runtime with `@tangle-network/agent-eval` 0.131.0, `@tangle-network/agent-interface` 0.35.0, `@tangle-network/agent-knowledge` 6.1.1, `@tangle-network/agent-profile-materialize` 0.9.0, and `@tangle-network/sandbox` 0.14.0.

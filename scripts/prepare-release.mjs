@@ -12,10 +12,6 @@
  * The first two are generated; the third is hand-written prose, so it is
  * rewritten here directly.
  *
- * 0.106.1 was tagged with both stale; the Publish run and main's CI both failed
- * and the parallel-tool-call fix sat unpublished. Bump through this script so
- * the version and its generated artifacts move in one commit.
- *
  * Usage: pnpm run release:prepare <version>
  */
 import { execFileSync } from 'node:child_process'

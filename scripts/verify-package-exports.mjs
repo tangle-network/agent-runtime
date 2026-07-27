@@ -348,6 +348,7 @@ try {
           'parseCandidateProfileMaterialization',
           'prepareAgentImprovementProfileActivation',
           'proposeAgentImprovement',
+          'proposeAgentProfileImprovement',
           'reviewAgentImprovementProposal',
           'runAgentCandidateExperiment',
           'exactProcessCandidateExperimentExecutionSupport',
