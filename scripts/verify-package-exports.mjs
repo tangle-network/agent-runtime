@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
+const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -15,11 +16,18 @@ try {
   mkdirSync(unpackDir, { recursive: true })
   mkdirSync(appDir, { recursive: true })
 
-  run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
-  const tarballs = run('find', [packDir, '-maxdepth', '1', '-name', '*.tgz', '-print'], repoRoot)
-    .trim()
-    .split('\n')
-    .filter(Boolean)
+  if (suppliedTarball && !existsSync(suppliedTarball)) {
+    throw new Error(`supplied release tarball does not exist: ${suppliedTarball}`)
+  }
+  if (!suppliedTarball) {
+    run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
+  }
+  const tarballs = suppliedTarball
+    ? [suppliedTarball]
+    : run('find', [packDir, '-maxdepth', '1', '-name', '*.tgz', '-print'], repoRoot)
+        .trim()
+        .split('\n')
+        .filter(Boolean)
   if (tarballs.length !== 1) {
     throw new Error(`expected exactly one packed tarball, found ${tarballs.length}`)
   }
@@ -27,6 +35,7 @@ try {
   run('tar', ['-xzf', tarballs[0], '-C', unpackDir], repoRoot)
   const packageDir = join(unpackDir, 'package')
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
+  assertPublishableDependencySpecs(packageJson)
   if (packageJson.peerDependenciesMeta?.['@tangle-network/agent-eval']?.optional) {
     throw new Error('@tangle-network/agent-eval must stay required: root and ./loops import it at runtime')
   }
@@ -106,14 +115,13 @@ try {
           '@types/node': requiredPackedDevelopmentDependency(packageJson, '@types/node'),
           typescript: requiredPackedDevelopmentDependency(packageJson, 'typescript'),
         },
+        overrides: {
+          '@tangle-network/agent-knowledge': knowledgePackageJson.version,
+        },
       },
       null,
       2,
     )}\n`,
-  )
-  writeFileSync(
-    join(appDir, 'pnpm-workspace.yaml'),
-    `overrides:\n  '@tangle-network/agent-knowledge': ${knowledgePackageJson.version}\n`,
   )
   writeFileSync(
     join(appDir, 'tsconfig.json'),
@@ -267,8 +275,8 @@ try {
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
   // install settings must not silently omit TypeScript or the Node declarations.
-  run('pnpm', ['install', '--prod=false', '--config.auto-install-peers=false'], appDir)
-  run('pnpm', ['exec', 'tsc', '-p', 'tsconfig.json'], appDir)
+  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
+  run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
 
   run(
     process.execPath,
@@ -527,4 +535,15 @@ function requiredPackedDevelopmentDependency(packageJson, name) {
     throw new Error(`packed consumer requires a resolved ${name} development dependency`)
   }
   return version
+}
+
+function assertPublishableDependencySpecs(packageJson) {
+  const unsupportedProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
+  for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+    for (const [name, spec] of Object.entries(packageJson[section] ?? {})) {
+      if (typeof spec !== 'string' || unsupportedProtocol.test(spec)) {
+        throw new Error(`packed ${section}.${name} is not publishable: ${String(spec)}`)
+      }
+    }
+  }
 }

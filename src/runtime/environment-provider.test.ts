@@ -258,7 +258,13 @@ describe('environment provider adapters', () => {
     })
   })
 
-  it('rejects secret values that current Sandbox cannot carry', async () => {
+  it.each([
+    ['a record', { API_TOKEN: 'secret-value' }],
+    ['an object in an array', [{ API_TOKEN: 'secret-value' }]],
+    ['a number in an array', [42]],
+    ['an empty name', ['']],
+    ['a whitespace-only name', ['  ']],
+  ])('rejects %s in top-level secrets before calling Sandbox', async (_label, secrets) => {
     let createCalls = 0
     const client: SandboxClient = {
       async create(): Promise<SandboxInstance> {
@@ -270,13 +276,19 @@ describe('environment provider adapters', () => {
     await expect(
       sandboxClientAsProvider(client).create({
         profile: { name: 'worker' },
-        secrets: { API_TOKEN: 'secret-value' },
+        secrets: secrets as unknown as string[],
       }),
-    ).rejects.toThrow(/secret names only/)
+    ).rejects.toThrow(/secret names must be non-empty strings/)
     expect(createCalls).toBe(0)
   })
 
-  it('rejects secret values hidden in Sandbox passthrough options', async () => {
+  it.each([
+    ['a record', { API_TOKEN: 'secret-value' }],
+    ['an object in an array', [{ API_TOKEN: 'secret-value' }]],
+    ['a number in an array', [42]],
+    ['an empty name', ['']],
+    ['a whitespace-only name', ['  ']],
+  ])('rejects %s hidden in Sandbox passthrough options', async (_label, secrets) => {
     let createCalls = 0
     let resolveCalls = 0
     const client: SandboxClient = {
@@ -297,11 +309,11 @@ describe('environment provider adapters', () => {
         profile: 'catalog/worker',
         providerOptions: {
           sandboxCreateOptions: {
-            secrets: { API_TOKEN: 'secret-value' },
+            secrets: secrets as unknown as string[],
           },
         },
       }),
-    ).rejects.toThrow(/secret names only/)
+    ).rejects.toThrow(/secret names must be non-empty strings/)
     expect({ createCalls, resolveCalls }).toEqual({ createCalls: 0, resolveCalls: 0 })
   })
 

@@ -47,6 +47,9 @@ jobs:
       - name: Verify packed Runtime with official GEPA and SkillOpt
         run: pnpm run verify:official-optimizers
 
+      - name: Verify PrimeIntellect package integration
+        run: pnpm run verify:primeintellect
+
       - name: Verify agent-bench against this release
         run: pnpm run verify:bench
 
@@ -82,11 +85,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
 
-      # Tokenless OIDC trusted publishing — no NPM_TOKEN to expire. The
-      # id-token→credential exchange is an npm-CLI feature (>= 11.5.1; Node 22
-      # bundles npm 10) and pnpm only signs provenance (the PUT then 404s on
-      # auth), so upgrade npm and publish with it. This package has no
-      # `workspace:` deps, so npm publish is safe. No setup-node registry-url:
+      # Tokenless OIDC trusted publishing requires npm >= 11.5.1. pnpm creates
+      # the release tarball because it resolves catalog dependencies; npm then
+      # publishes that exact, consumer-tested file. No setup-node registry-url:
       # it writes an empty-authToken .npmrc that blocks OIDC. Idempotent.
       # Requires the npmjs Trusted Publisher: org tangle-network, repo
       # agent-runtime, workflow publish.yml.
@@ -100,7 +101,12 @@ jobs:
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            npm publish --provenance --access public
+            mkdir -p "$RUNNER_TEMP/agent-runtime-package"
+            npm_config_ignore_scripts=true pnpm pack --pack-destination "$RUNNER_TEMP/agent-runtime-package"
+            package="$(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -name '*.tgz' -print -quit)"
+            test -n "$package"
+            node scripts/verify-package-exports.mjs "$package"
+            npm publish "$package" --provenance --access public
           fi
 
   verify-agent-bench:

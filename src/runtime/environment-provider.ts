@@ -474,9 +474,13 @@ async function sandboxOptionsFromCreateInput(
 }
 
 function assertSandboxSecretNames(secrets: unknown): asserts secrets is string[] | undefined {
-  if (secrets !== undefined && !Array.isArray(secrets)) {
+  if (
+    secrets !== undefined &&
+    (!Array.isArray(secrets) ||
+      secrets.some((secret) => typeof secret !== 'string' || secret.trim().length === 0))
+  ) {
     throw new ValidationError(
-      'Tangle Sandbox accepts secret names only; record-form secret values are unsupported',
+      'Tangle Sandbox secret names must be non-empty strings; secret values are unsupported',
     )
   }
 }
