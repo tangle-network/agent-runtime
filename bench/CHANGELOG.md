@@ -2,7 +2,7 @@
 
 ## 0.4.2
 
-- Consume `@tangle-network/agent-runtime` 0.106.x with the matching Eval 0.129.0, Interface 0.34.0, and Knowledge 6.0.0 cohort.
+- Consume `@tangle-network/agent-runtime` 0.106.x with Eval 0.130.1, Interface 0.35.0, and Knowledge 6.1.0.
 
 ## 0.4.1
 

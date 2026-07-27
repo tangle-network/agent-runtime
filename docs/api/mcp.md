@@ -6905,6 +6905,18 @@ SDK contract — re-invoking with the same ids returns the same outcome.
 
 ***
 
+### ~~StdioToolDescriptor~~
+
+> **StdioToolDescriptor** = [`McpToolDescriptor`](#mcptooldescriptor)
+
+Defined in: [src/mcp/index.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/index.ts#L129)
+
+#### Deprecated
+
+Use `McpToolDescriptor`; both names are the same protocol contract.
+
+***
+
 ### LocalHarness
 
 > **LocalHarness** = `"claude"` \| `"codex"` \| `"opencode"`
@@ -9131,12 +9143,6 @@ Re-exports [mcpToolsForRuntimeMcp](index.md#mcptoolsforruntimemcp)
 ### mcpToolsForRuntimeMcpSubset
 
 Re-exports [mcpToolsForRuntimeMcpSubset](index.md#mcptoolsforruntimemcpsubset)
-
-***
-
-### ~~StdioToolDescriptor~~
-
-Renames and re-exports [McpToolDescriptor](#mcptooldescriptor)
 
 ***
 

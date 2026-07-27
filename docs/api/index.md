@@ -15510,7 +15510,7 @@ Optimize one exact profile surface with a complete method.
 
 ###### TScenario
 
-`TScenario` *extends* `Scenario$1`
+`TScenario` *extends* `Scenario`
 
 ###### TArtifact
 
@@ -15542,7 +15542,7 @@ Optimize repository code through Runtime's isolated worktree path.
 
 ###### TScenario
 
-`TScenario` *extends* `Scenario$1`
+`TScenario` *extends* `Scenario`
 
 ###### TArtifact
 
@@ -15668,7 +15668,7 @@ Drop-in for `analyzeGeneration` on `improve({ surface: 'code' })`:
 
 ##### TScenario
 
-`TScenario` *extends* `Scenario$1` = `Scenario$1`
+`TScenario` *extends* `Scenario` = `Scenario`
 
 ##### TArtifact
 

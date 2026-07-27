@@ -12,8 +12,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const agentEvalVersion = '0.129.0'
-const agentKnowledgeVersion = '6.0.0'
 const gepaVersion = '0.1.4'
 const gepaSourceRevision = 'f919db0a622e2e9f9204779b81fe00cc1b2d808f'
 const skillOptRevision = '61735e3922efc2b90c6d6cab561e62e98452ca90'
@@ -29,21 +27,18 @@ const workspaceAgentKnowledgeVersion = installedPackageVersion(
   '@tangle-network/agent-knowledge',
 )
 const workspaceSandboxVersion = installedPackageVersion(repoRoot, '@tangle-network/sandbox')
+const agentEvalVersion = workspaceAgentEvalVersion
+const officialOptimizerEnv = {
+  AGENT_EVAL_EXPECTED_BRIDGE_VERSION: agentEvalVersion,
+  AGENT_EVAL_EXPECTED_GEPA_VERSION: gepaVersion,
+  AGENT_EVAL_EXPECTED_GEPA_REVISION: gepaSourceRevision,
+  AGENT_EVAL_EXPECTED_SKILLOPT_REVISION: skillOptRevision,
+}
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-official-'))
 
 assertVersion(
-  workspaceAgentEvalVersion,
-  agentEvalVersion,
-  'installed @tangle-network/agent-eval development dependency',
-)
-assertVersion(
-  workspaceAgentKnowledgeVersion,
-  agentKnowledgeVersion,
-  'installed @tangle-network/agent-knowledge dependency',
-)
-assertVersion(
   packageJson.peerDependencies?.['@tangle-network/agent-eval'],
-  `>=${agentEvalVersion} <0.130.0`,
+  currentMinorPeerRange(agentEvalVersion),
   '@tangle-network/agent-eval peer dependency',
 )
 
@@ -55,7 +50,7 @@ try {
     'pnpm',
     ['exec', 'vitest', 'run', 'src/improvement/official-packages.test.ts', '--maxWorkers=1'],
     repoRoot,
-    { AGENT_EVAL_TEST_PYTHON: python },
+    { AGENT_EVAL_TEST_PYTHON: python, ...officialOptimizerEnv },
   )
 
   const packDir = join(tempRoot, 'pack')
@@ -161,7 +156,7 @@ try {
     process.execPath,
     ['verify.mjs', 'wheel'],
     appDir,
-    { AGENT_EVAL_TEST_PYTHON: python },
+    { AGENT_EVAL_TEST_PYTHON: python, ...officialOptimizerEnv },
     10 * 60_000,
   )
   const sourcePython = installSourceGepa(tempRoot)
@@ -169,7 +164,7 @@ try {
     process.execPath,
     ['verify.mjs', 'omni'],
     appDir,
-    { AGENT_EVAL_TEST_PYTHON: sourcePython },
+    { AGENT_EVAL_TEST_PYTHON: sourcePython, ...officialOptimizerEnv },
     10 * 60_000,
   )
 } finally {
@@ -307,6 +302,12 @@ function assertVersion(actual, expected, label) {
   if (actual !== expected) {
     throw new Error(`${label} must be ${expected}, found ${String(actual)}`)
   }
+}
+
+function currentMinorPeerRange(version) {
+  const match = /^(\d+)\.(\d+)\.\d+(?:-.+)?$/.exec(version)
+  if (!match) throw new Error(`cannot derive peer range from version ${version}`)
+  return `>=${version} <${match[1]}.${Number(match[2]) + 1}.0`
 }
 
 function readJson(path) {

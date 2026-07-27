@@ -5222,7 +5222,7 @@ Analyze, search, then remeasure the resulting exact candidate before proposing i
 
 ##### TScenario
 
-`TScenario` *extends* `Scenario$1`
+`TScenario` *extends* `Scenario`
 
 ##### TArtifact
 
@@ -5336,7 +5336,7 @@ Validate a proposal and recompute every binding to its measured experiment.
 
 > **verifyAgentImprovementReview**(`input`): `AgentImprovementReview`
 
-Defined in: [src/intelligence/improvement-cycle.ts:615](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L615)
+Defined in: [src/intelligence/improvement-cycle.ts:617](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L617)
 
 Validate the canonical identity and wire shape of an improvement review.
 
@@ -5356,7 +5356,7 @@ Validate the canonical identity and wire shape of an improvement review.
 
 > **verifyAgentImprovementActivation**(`input`): `AgentImprovementActivation`
 
-Defined in: [src/intelligence/improvement-cycle.ts:623](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L623)
+Defined in: [src/intelligence/improvement-cycle.ts:625](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L625)
 
 Validate activation authority against the exact proposal, review, experiment, and base state.
 
@@ -5386,7 +5386,7 @@ Validate activation authority against the exact proposal, review, experiment, an
 
 > **verifyCandidateExecutionEvidence**(`input`, `options`): `CandidateExecutionEvidence`
 
-Defined in: [src/intelligence/improvement-cycle.ts:657](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L657)
+Defined in: [src/intelligence/improvement-cycle.ts:659](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L659)
 
 Recheck one Runtime receipt against its exact signed experiment cell.
 

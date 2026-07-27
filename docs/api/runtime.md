@@ -1633,7 +1633,7 @@ Records whose cost was unavailable.
 
 ### PairwiseVerdict
 
-Defined in: [src/runtime/benchmark-report.ts:304](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L304)
+Defined in: [src/runtime/benchmark-report.ts:306](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L306)
 
 One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict.
 
@@ -1643,19 +1643,19 @@ One profile pair compared on the scenarios they BOTH ran — the "who actually b
 
 > `readonly` **a**: `string`
 
-Defined in: [src/runtime/benchmark-report.ts:305](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L305)
+Defined in: [src/runtime/benchmark-report.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L307)
 
 ##### b
 
 > `readonly` **b**: `string`
 
-Defined in: [src/runtime/benchmark-report.ts:306](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L306)
+Defined in: [src/runtime/benchmark-report.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L308)
 
 ##### pairs
 
 > `readonly` **pairs**: `number`
 
-Defined in: [src/runtime/benchmark-report.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L308)
+Defined in: [src/runtime/benchmark-report.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L310)
 
 Paired unit count (shared scenarios). The significance is suppressed below `minPairs`.
 
@@ -1663,7 +1663,7 @@ Paired unit count (shared scenarios). The significance is suppressed below `minP
 
 > `readonly` **delta**: `number`
 
-Defined in: [src/runtime/benchmark-report.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L310)
+Defined in: [src/runtime/benchmark-report.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L312)
 
 Median paired delta (b − a) and its bootstrap CI.
 
@@ -1671,19 +1671,19 @@ Median paired delta (b − a) and its bootstrap CI.
 
 > `readonly` **ciLow**: `number`
 
-Defined in: [src/runtime/benchmark-report.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L311)
+Defined in: [src/runtime/benchmark-report.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L313)
 
 ##### ciHigh
 
 > `readonly` **ciHigh**: `number`
 
-Defined in: [src/runtime/benchmark-report.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L312)
+Defined in: [src/runtime/benchmark-report.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L314)
 
 ##### p
 
 > `readonly` **p**: `number`
 
-Defined in: [src/runtime/benchmark-report.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L314)
+Defined in: [src/runtime/benchmark-report.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L316)
 
 Paired-test p-value (before correction).
 
@@ -1691,7 +1691,7 @@ Paired-test p-value (before correction).
 
 > `readonly` **significant**: `boolean`
 
-Defined in: [src/runtime/benchmark-report.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L316)
+Defined in: [src/runtime/benchmark-report.ts:318](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L318)
 
 BH-significant across ALL pairs AND above the `minPairs` power floor.
 
@@ -1699,7 +1699,7 @@ BH-significant across ALL pairs AND above the `minPairs` power floor.
 
 ### PairwiseOptions
 
-Defined in: [src/runtime/benchmark-report.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L319)
+Defined in: [src/runtime/benchmark-report.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L321)
 
 #### Properties
 
@@ -1707,19 +1707,19 @@ Defined in: [src/runtime/benchmark-report.ts:319](https://github.com/tangle-netw
 
 > `readonly` `optional` **scoreOf?**: [`ScoreOf`](#scoreof)
 
-Defined in: [src/runtime/benchmark-report.ts:320](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L320)
+Defined in: [src/runtime/benchmark-report.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L322)
 
 ##### profileKeyOf?
 
 > `readonly` `optional` **profileKeyOf?**: [`ProfileKeyOf`](#profilekeyof)
 
-Defined in: [src/runtime/benchmark-report.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L321)
+Defined in: [src/runtime/benchmark-report.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L323)
 
 ##### labelOf?
 
 > `readonly` `optional` **labelOf?**: (`profileKey`) => `string`
 
-Defined in: [src/runtime/benchmark-report.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L322)
+Defined in: [src/runtime/benchmark-report.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L324)
 
 ###### Parameters
 
@@ -1735,7 +1735,7 @@ Defined in: [src/runtime/benchmark-report.ts:322](https://github.com/tangle-netw
 
 > `readonly` `optional` **fdr?**: `number`
 
-Defined in: [src/runtime/benchmark-report.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L324)
+Defined in: [src/runtime/benchmark-report.ts:326](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L326)
 
 False-discovery rate for the Benjamini–Hochberg correction. Default 0.05.
 
@@ -1743,7 +1743,7 @@ False-discovery rate for the Benjamini–Hochberg correction. Default 0.05.
 
 > `readonly` `optional` **minPairs?**: `number`
 
-Defined in: [src/runtime/benchmark-report.ts:327](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L327)
+Defined in: [src/runtime/benchmark-report.ts:329](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L329)
 
 Below this many shared scenarios a paired test can't defensibly separate two profiles, so the
  `significant` tag is suppressed regardless of p (small-n mirage protection). Default 12.
@@ -21391,7 +21391,7 @@ readonly `RunRecord`[]
 
 > **pairwiseSignificance**(`records`, `opts?`): [`PairwiseVerdict`](#pairwiseverdict)[]
 
-Defined in: [src/runtime/benchmark-report.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L333)
+Defined in: [src/runtime/benchmark-report.ts:335](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L335)
 
 Compare EVERY profile pair on the scenarios they both ran — paired-bootstrap effect + CI, a real
  paired-test p-value, BH-corrected across all pairs. This is the honest "did A beat B" table the
@@ -21417,7 +21417,7 @@ readonly `RunRecord`[]
 
 > **renderLeaderboardMarkdown**(`report`): `string`
 
-Defined in: [src/runtime/benchmark-report.ts:406](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L406)
+Defined in: [src/runtime/benchmark-report.ts:408](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L408)
 
 Render the report as a publishable Markdown document: provenance → leaderboard → the full profile×axis
  matrix → cost/latency/token columns. Every axis is shown — a curated subset is a reporting failure.
@@ -21438,7 +21438,7 @@ Render the report as a publishable Markdown document: provenance → leaderboard
 
 > **renderPairwiseMarkdown**(`verdicts`, `title?`): `string`
 
-Defined in: [src/runtime/benchmark-report.ts:449](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L449)
+Defined in: [src/runtime/benchmark-report.ts:451](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L451)
 
 Render the pairwise-significance table — every profile pair's paired delta, CI, and BH-corrected
  verdict. Feed it `pairwiseSignificance(records)`. This is the "did A really beat B" evidence the point
@@ -21464,7 +21464,7 @@ readonly [`PairwiseVerdict`](#pairwiseverdict)[]
 
 > **renderLeaderboardSvg**(`report`): `string`
 
-Defined in: [src/runtime/benchmark-report.ts:484](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L484)
+Defined in: [src/runtime/benchmark-report.ts:486](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L486)
 
 Render a self-contained SVG: a ranked score bar chart on top, the profile×axis heatmap below. No deps,
  embeddable anywhere (README, HTML page, hosted leaderboard).
@@ -21485,7 +21485,7 @@ Render a self-contained SVG: a ranked score bar chart on top, the profile×axis 
 
 > **renderLeaderboardHtml**(`report`): `string`
 
-Defined in: [src/runtime/benchmark-report.ts:555](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L555)
+Defined in: [src/runtime/benchmark-report.ts:557](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L557)
 
 Render a self-contained HTML leaderboard page (the hosted surface): the SVG charts + the full Markdown
  matrix as a table. Single file, no assets, opens in any browser.

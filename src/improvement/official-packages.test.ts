@@ -24,6 +24,12 @@ function requiredPython(): string {
   return python
 }
 
+function requiredExpectedVersion(name: string): string {
+  const value = process.env[name]?.trim()
+  if (!value) throw new Error(`${name} is required`)
+  return value
+}
+
 function runPython(script: string, args: readonly string[] = []): unknown {
   const stdout = execFileSync(requiredPython(), ['-c', script, ...args], {
     encoding: 'utf8',
@@ -63,7 +69,7 @@ function inspectBridge(module: 'gepa_bridge' | 'skillopt_bridge'): Record<string
 }
 
 describe('documented official Python packages', () => {
-  it.skipIf(!python)('loads the released GEPA 0.1.4 API and performs real work', () => {
+  it.skipIf(!python)('loads the released GEPA API and performs real work', () => {
     const stateRoot = runDir()
     const result = runPython(
       `
@@ -160,12 +166,12 @@ print(json.dumps({
     }
     expect(inspected.runtime.bridge).toMatchObject({
       package: 'agent-eval-rpc',
-      version: '0.129.0',
+      version: requiredExpectedVersion('AGENT_EVAL_EXPECTED_BRIDGE_VERSION'),
       sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
     expect(inspected.runtime.optimizer).toMatchObject({
       package: 'gepa',
-      version: '0.1.4',
+      version: requiredExpectedVersion('AGENT_EVAL_EXPECTED_GEPA_VERSION'),
       sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
   })
@@ -218,7 +224,7 @@ print(json.dumps({
         'rewrite_skill.md',
         'slow_update.md',
       ],
-      revision: '61735e3922efc2b90c6d6cab561e62e98452ca90',
+      revision: requiredExpectedVersion('AGENT_EVAL_EXPECTED_SKILLOPT_REVISION'),
     })
 
     const inspected = inspectBridge('skillopt_bridge') as {
@@ -229,13 +235,13 @@ print(json.dumps({
     }
     expect(inspected.runtime.bridge).toMatchObject({
       package: 'agent-eval-rpc',
-      version: '0.129.0',
+      version: requiredExpectedVersion('AGENT_EVAL_EXPECTED_BRIDGE_VERSION'),
       sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
     expect(inspected.runtime.optimizer).toMatchObject({
       package: 'skillopt',
       version: '0.2.0',
-      revision: '61735e3922efc2b90c6d6cab561e62e98452ca90',
+      revision: requiredExpectedVersion('AGENT_EVAL_EXPECTED_SKILLOPT_REVISION'),
       sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
   })

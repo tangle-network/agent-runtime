@@ -1,14 +1,26 @@
 packages:
   - bench
 
+minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+  - '@tangle-network/*'
+  - '@hono/node-server@2.0.12'
+  - 'hono@4.12.32'
+  - 'playwright@1.62.0'
+  - 'playwright-core@1.62.0'
+  - 'rolldown-plugin-dts@0.27.14'
+minimumReleaseAgeIgnoreMissingTime: false
+onlyBuiltDependencies:
+  - esbuild
+
 catalog:
   '@arethetypeswrong/cli': 0.18.5
   '@types/node': 26.1.1
-  '@tangle-network/agent-eval': 0.129.0
-  '@tangle-network/agent-interface': 0.34.0
-  '@tangle-network/agent-knowledge': 6.0.0
+  '@tangle-network/agent-eval': 0.130.1
+  '@tangle-network/agent-interface': 0.35.0
+  '@tangle-network/agent-knowledge': 6.1.0
   '@tangle-network/agent-profile-materialize': 0.9.0
-  '@tangle-network/sandbox': 0.13.0-develop.20260727020825.cce49b2
+  '@tangle-network/sandbox': 0.13.0
   publint: 0.3.22
   tsdown: 0.22.14
   tsx: 4.23.1
