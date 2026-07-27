@@ -3235,7 +3235,7 @@ Derive a child `AgentSpec` from the persona's root spec with an overridden profi
 
 ###### harness?
 
-`BackendType$1` \| `null`
+`BackendType` \| `null`
 
 ###### Returns
 
@@ -10916,7 +10916,7 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 ##### harness
 
-> `readonly` **harness**: `BackendType$1`
+> `readonly` **harness**: `BackendType`
 
 ##### sandboxClient
 
@@ -12262,7 +12262,7 @@ Fail loud on an unresolvable spec (no executor and an unknown harness).
 
 ##### harness
 
-> `readonly` **harness**: `BackendType$1` \| `null`
+> `readonly` **harness**: `BackendType` \| `null`
 
 `null` selects router/inline; a `BackendType` selects the sandboxed harness.
 
