@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.106.1` and `@tangle-network/agent-eval@0.131.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.107.0` and `@tangle-network/agent-eval@0.132.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 408 exports.
+Import from `@tangle-network/agent-runtime` — 410 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -196,7 +196,9 @@ Import from `@tangle-network/agent-runtime` — 408 exports.
 | `ImproveCandidateValidationInput` | interface | Exact materialized profile presented for validation before any candidate run. |
 | `ImproveCost` | interface | Normalized spend reported for one Runtime improvement run. |
 | `ImproveLineage` | interface | Optimizer ancestry sealed into downstream candidate experiments. |
+| `ImproveMethodLineage` | interface | Method optimization always retains every identity needed to reject task reuse. |
 | `ImproveProfileComponents` | interface | Caller-owned mapping for optimizing several profile fields as one candidate. |
+| `ImproveScenarioPartitions` | interface | Redacted task evidence retained for every optimizer-visible partition. |
 | `LoopSpanNode` | interface | Sink-neutral node in a reconstructed loop span tree. The root node's |
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |
 | `OfficialOptimizerContextOptions` | interface | Runtime context appended to an official optimizer's own configuration. |
