@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- Consume Runtime 0.107.1 with Eval 0.133.0, Interface 0.36.0, and Knowledge 6.1.2.
+
 ## 0.4.2
 
 - Consume `@tangle-network/agent-runtime` 0.106.x with Eval 0.131.0, Interface 0.35.0, and Knowledge 6.1.0.
