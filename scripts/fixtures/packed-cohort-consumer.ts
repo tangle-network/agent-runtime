@@ -4,12 +4,12 @@ import {
   type CostLedgerHandle,
 } from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
+import { sealAgentProfileImprovementTask } from '@tangle-network/agent-eval/contract'
 import type {
   AgentProfileImprovementExperimentExecutionInput,
   DispatchContext,
   JudgeConfig,
   Scenario,
-  sealAgentProfileImprovementTask,
 } from '@tangle-network/agent-eval/contract'
 import {
   defineReadinessSpec,
