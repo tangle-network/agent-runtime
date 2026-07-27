@@ -1,0 +1,516 @@
+#!/usr/bin/env node
+
+import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
+
+const PACKAGE_NAMES = [
+  '@tangle-network/agent-eval',
+  '@tangle-network/agent-knowledge',
+  '@tangle-network/agent-runtime',
+]
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const { values } = parseArgs({
+  options: {
+    'agent-eval-repo': { type: 'string' },
+    'agent-knowledge-repo': { type: 'string' },
+    'agent-runtime-repo': { type: 'string' },
+    'keep-temp': { type: 'boolean', default: false },
+    help: { type: 'boolean', short: 'h', default: false },
+  },
+  strict: true,
+})
+
+if (values.help) {
+  process.stdout.write(
+    [
+      'Usage: pnpm run verify:cohort -- [options]',
+      '',
+      'Options:',
+      '  --agent-eval-repo <path>       Clean agent-eval Git checkout',
+      '  --agent-knowledge-repo <path>  Clean agent-knowledge Git checkout',
+      '  --agent-runtime-repo <path>    Clean agent-runtime Git checkout',
+      '  --keep-temp                    Retain the generated archives and consumer',
+      '',
+      'Repository paths default to sibling checkouts next to agent-runtime.',
+      '',
+    ].join('\n'),
+  )
+  process.exit(0)
+}
+
+const sourceRepos = {
+  '@tangle-network/agent-eval': resolve(
+    values['agent-eval-repo'] ?? join(repoRoot, '..', 'agent-eval'),
+  ),
+  '@tangle-network/agent-knowledge': resolve(
+    values['agent-knowledge-repo'] ?? join(repoRoot, '..', 'agent-knowledge'),
+  ),
+  '@tangle-network/agent-runtime': resolve(values['agent-runtime-repo'] ?? repoRoot),
+}
+const tempRoot = mkdtempSync(join(tmpdir(), 'agent-package-cohort-'))
+const artifactsDir = join(tempRoot, 'artifacts')
+mkdirSync(artifactsDir, { recursive: true })
+
+try {
+  const artifacts = []
+  const artifactsByIdentity = new Map()
+
+  const agentEval = buildAndPack({
+    packageName: PACKAGE_NAMES[0],
+    sourceRepo: sourceRepos[PACKAGE_NAMES[0]],
+    localPackages: [],
+  })
+  registerArtifact(agentEval)
+  artifacts.push(agentEval)
+
+  const agentKnowledge = buildAndPack({
+    packageName: PACKAGE_NAMES[1],
+    sourceRepo: sourceRepos[PACKAGE_NAMES[1]],
+    localPackages: [agentEval],
+  })
+  registerArtifact(agentKnowledge)
+  artifacts.push(agentKnowledge)
+
+  const agentRuntime = buildAndPack({
+    packageName: PACKAGE_NAMES[2],
+    sourceRepo: sourceRepos[PACKAGE_NAMES[2]],
+    localPackages: [agentEval, agentKnowledge],
+  })
+  registerArtifact(agentRuntime)
+  artifacts.push(agentRuntime)
+
+  assertCohortPackageContracts({ agentEval, agentKnowledge, agentRuntime })
+  const consumer = verifyConsumer(artifacts)
+
+  process.stdout.write('Packed package cohort verified.\n')
+  for (const artifact of artifacts) {
+    process.stdout.write(
+      `${artifact.name}@${artifact.version} commit=${artifact.sourceCommit} sha256=${artifact.sha256} archive=${basename(artifact.path)}\n`,
+    )
+  }
+  process.stdout.write(
+    `${JSON.stringify({
+      packages: artifacts.map(({ name, version, sourceCommit, sha256 }) => ({
+        name,
+        version,
+        sourceCommit,
+        sha256,
+      })),
+      consumer,
+    })}\n`,
+  )
+
+  function registerArtifact(artifact) {
+    const identity = `${artifact.name}@${artifact.version}`
+    const existing = artifactsByIdentity.get(identity)
+    if (existing && existing.sha256 !== artifact.sha256) {
+      throw new Error(
+        `${identity} was packed with two byte-distinct archives: ${existing.sha256} and ${artifact.sha256}`,
+      )
+    }
+    artifactsByIdentity.set(identity, artifact)
+  }
+} finally {
+  if (values['keep-temp']) {
+    process.stdout.write(`Packed cohort files retained at ${tempRoot}\n`)
+  } else {
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+}
+
+function buildAndPack({ packageName, sourceRepo, localPackages }) {
+  assertCleanGitCheckout(sourceRepo, packageName)
+  const sourceCommit = captured('git', ['rev-parse', 'HEAD'], sourceRepo).trim()
+  const buildDir = join(tempRoot, 'build', packageName.replace('@tangle-network/', ''))
+  mkdirSync(buildDir, { recursive: true })
+  const sourceArchive = join(tempRoot, `${packageName.replace('@tangle-network/', '')}.tar`)
+  captured('git', ['archive', '--format=tar', '--output', sourceArchive, sourceCommit], sourceRepo)
+  visible('tar', ['-xf', sourceArchive, '-C', buildDir], sourceRepo)
+
+  const packagePath = join(buildDir, 'package.json')
+  const originalPackageText = readFileSync(packagePath, 'utf8')
+  const packageJson = JSON.parse(originalPackageText)
+  if (packageJson.name !== packageName) {
+    throw new Error(`${sourceRepo} contains ${packageJson.name}, expected ${packageName}`)
+  }
+
+  if (localPackages.length > 0) {
+    packageJson.pnpm = packageJson.pnpm ?? {}
+    packageJson.pnpm.overrides = {
+      ...(packageJson.pnpm.overrides ?? {}),
+      ...Object.fromEntries(
+        localPackages.map((artifact) => [artifact.name, `file:${artifact.path}`]),
+      ),
+    }
+    writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
+  }
+
+  visible('corepack', ['pnpm', 'install', '--no-frozen-lockfile'], buildDir, {
+    HUSKY: '0',
+  })
+  visible('corepack', ['pnpm', 'run', 'build'], buildDir)
+
+  writeFileSync(packagePath, originalPackageText)
+  const before = new Set(readdirSync(artifactsDir))
+  if (originalPackageText.includes('catalog:')) {
+    captured(
+      'corepack',
+      ['pnpm', 'pack', '--pack-destination', artifactsDir],
+      buildDir,
+      { npm_config_ignore_scripts: 'true' },
+    )
+  } else {
+    captured(
+      'npm',
+      ['pack', '--ignore-scripts', '--json', '--pack-destination', artifactsDir],
+      buildDir,
+    )
+  }
+  const created = readdirSync(artifactsDir).filter(
+    (name) => name.endsWith('.tgz') && !before.has(name),
+  )
+  if (created.length !== 1) {
+    throw new Error(`${packageName} produced ${created.length} archives, expected exactly one`)
+  }
+
+  const archivePath = join(artifactsDir, created[0])
+  const extractedDir = join(tempRoot, 'extracted', packageName.replace('@tangle-network/', ''))
+  mkdirSync(extractedDir, { recursive: true })
+  visible('tar', ['-xzf', archivePath, '-C', extractedDir], buildDir)
+  const extractedPackageDir = join(extractedDir, 'package')
+  const packedPackageJson = JSON.parse(
+    readFileSync(join(extractedPackageDir, 'package.json'), 'utf8'),
+  )
+  if (packedPackageJson.name !== packageName || packedPackageJson.version !== packageJson.version) {
+    throw new Error(
+      `${packageName} archive identity changed: ${packedPackageJson.name}@${packedPackageJson.version}`,
+    )
+  }
+  assertPublishableDependencySpecs(packedPackageJson)
+
+  return {
+    name: packageName,
+    version: packedPackageJson.version,
+    sourceCommit,
+    sha256: sha256File(archivePath),
+    path: archivePath,
+    extractedPackageDir,
+    packageJson: packedPackageJson,
+  }
+}
+
+function verifyConsumer(artifacts) {
+  const appDir = join(tempRoot, 'consumer')
+  mkdirSync(appDir, { recursive: true })
+  const byName = new Map(artifacts.map((artifact) => [artifact.name, artifact]))
+  const runtime = byName.get('@tangle-network/agent-runtime')
+  if (!runtime) throw new Error('Runtime artifact is missing')
+
+  const fileSpecs = Object.fromEntries(
+    artifacts.map((artifact) => [artifact.name, archiveFileSpec(appDir, artifact.path)]),
+  )
+  const runtimePeers = Object.fromEntries(
+    Object.entries(runtime.packageJson.peerDependencies ?? {}).filter(
+      ([name]) => !byName.has(name),
+    ),
+  )
+  const typescriptVersion = requiredDevelopmentDependency(runtime.packageJson, 'typescript')
+  const nodeTypesVersion = requiredDevelopmentDependency(runtime.packageJson, '@types/node')
+  writeFileSync(
+    join(appDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'packed-agent-cohort-consumer',
+        private: true,
+        type: 'module',
+        packageManager: runtime.packageJson.packageManager,
+        dependencies: {
+          ...fileSpecs,
+          ...runtimePeers,
+        },
+        devDependencies: {
+          '@types/node': nodeTypesVersion,
+          typescript: typescriptVersion,
+        },
+        pnpm: {
+          overrides: fileSpecs,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  writeFileSync(
+    join(appDir, '.npmrc'),
+    ['auto-install-peers=true', 'strict-peer-dependencies=true', ''].join('\n'),
+  )
+  writeFileSync(
+    join(appDir, 'tsconfig.json'),
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          strict: true,
+          skipLibCheck: false,
+          outDir: 'dist',
+          types: ['node'],
+        },
+        include: ['consumer.ts'],
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  copyFileSync(
+    join(repoRoot, 'scripts', 'fixtures', 'packed-cohort-consumer.ts'),
+    join(appDir, 'consumer.ts'),
+  )
+
+  visible('corepack', ['pnpm', 'install', '--lockfile-only', '--ignore-scripts'], appDir)
+  rmSync(join(appDir, 'node_modules'), { recursive: true, force: true })
+  visible('corepack', ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts'], appDir)
+
+  const dependencyTree = JSON.parse(
+    captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], appDir),
+  )
+  const resolved = collectTargetDependencies(dependencyTree)
+  for (const artifact of artifacts) {
+    const occurrences = resolved.get(artifact.name) ?? []
+    if (occurrences.length === 0) {
+      throw new Error(`consumer did not resolve ${artifact.name}`)
+    }
+    for (const occurrence of occurrences) {
+      if (occurrence.version !== artifact.version) {
+        throw new Error(
+          `${artifact.name} resolved ${occurrence.version}, expected ${artifact.version}`,
+        )
+      }
+      if (
+        typeof occurrence.resolved !== 'string' ||
+        occurrence.resolved.startsWith('http:') ||
+        occurrence.resolved.startsWith('https:') ||
+        !occurrence.resolved.includes(basename(artifact.path))
+      ) {
+        throw new Error(
+          `${artifact.name}@${artifact.version} did not resolve from ${basename(artifact.path)}: ${String(occurrence.resolved)}`,
+        )
+      }
+      assertSamePackageFiles(artifact, occurrence.path)
+    }
+    const directPackage = join(appDir, 'node_modules', ...artifact.name.split('/'))
+    if (!existsSync(directPackage)) {
+      throw new Error(`consumer has no direct installation for ${artifact.name}`)
+    }
+    assertSamePackageFiles(artifact, directPackage)
+  }
+
+  const publicImportCount = verifyPublicImports(appDir, artifacts)
+  visible('corepack', ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'], appDir)
+  const proposal = JSON.parse(captured(process.execPath, ['dist/consumer.js'], appDir).trim())
+  return {
+    install: 'pnpm install --frozen-lockfile',
+    packageCount: artifacts.length,
+    publicImportCount,
+    exactArchiveResolution: true,
+    proposal,
+  }
+}
+
+function verifyPublicImports(appDir, artifacts) {
+  const scriptPath = join(appDir, 'verify-public-imports.mjs')
+  writeFileSync(
+    scriptPath,
+    `
+      import { readFileSync } from 'node:fs'
+      import { join } from 'node:path'
+
+      const packageNames = ${JSON.stringify(artifacts.map((artifact) => artifact.name))}
+      let imported = 0
+      for (const packageName of packageNames) {
+        const packageDir = join(process.cwd(), 'node_modules', ...packageName.split('/'))
+        const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
+        for (const [subpath, target] of Object.entries(packageJson.exports ?? {})) {
+          const importTarget =
+            typeof target === 'string' ? target : target && typeof target === 'object' ? target.import : undefined
+          if (typeof importTarget !== 'string') continue
+          const specifier = subpath === '.' ? packageName : packageName + subpath.slice(1)
+          await import(specifier)
+          imported += 1
+        }
+      }
+      process.stdout.write(JSON.stringify({ imported }) + '\\n')
+    `,
+  )
+  const result = JSON.parse(captured(process.execPath, [scriptPath], appDir))
+  if (!Number.isInteger(result.imported) || result.imported < artifacts.length) {
+    throw new Error(`public import verification returned ${JSON.stringify(result)}`)
+  }
+  return result.imported
+}
+
+function collectTargetDependencies(dependencyTree) {
+  const targets = new Map(PACKAGE_NAMES.map((name) => [name, []]))
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return
+    for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+      for (const [name, dependency] of Object.entries(node[section] ?? {})) {
+        if (targets.has(name)) targets.get(name).push(dependency)
+        visit(dependency)
+      }
+    }
+  }
+  for (const root of dependencyTree) visit(root)
+  return targets
+}
+
+function assertSamePackageFiles(artifact, installedPath) {
+  if (typeof installedPath !== 'string' || !existsSync(installedPath)) {
+    throw new Error(`${artifact.name} has no installed package path: ${String(installedPath)}`)
+  }
+  const expected = packageFileManifest(artifact.extractedPackageDir)
+  const actual = packageFileManifest(realpathSync(installedPath))
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(
+      `${artifact.name}@${artifact.version} installed files differ from archive ${artifact.sha256}`,
+    )
+  }
+}
+
+function packageFileManifest(root) {
+  const entries = []
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name === 'node_modules') continue
+      const path = join(directory, entry.name)
+      const relativePath = relative(root, path).split(sep).join('/')
+      if (entry.isDirectory()) {
+        visit(path)
+      } else if (entry.isSymbolicLink()) {
+        entries.push([relativePath, `link:${readlinkSync(path)}`])
+      } else if (entry.isFile()) {
+        entries.push([relativePath, sha256File(path)])
+      } else {
+        throw new Error(`unsupported package file at ${path}`)
+      }
+    }
+  }
+  visit(root)
+  return entries.sort(([left], [right]) => left.localeCompare(right))
+}
+
+function assertCohortPackageContracts({ agentEval, agentKnowledge, agentRuntime }) {
+  const knowledgeEval = agentKnowledge.packageJson.dependencies?.[agentEval.name]
+  if (knowledgeEval !== agentEval.version) {
+    throw new Error(
+      `${agentKnowledge.name} requires ${agentEval.name}@${knowledgeEval}, packed ${agentEval.version}`,
+    )
+  }
+  const runtimeKnowledge = agentRuntime.packageJson.dependencies?.[agentKnowledge.name]
+  if (runtimeKnowledge !== agentKnowledge.version) {
+    throw new Error(
+      `${agentRuntime.name} requires ${agentKnowledge.name}@${runtimeKnowledge}, packed ${agentKnowledge.version}`,
+    )
+  }
+  if (!agentRuntime.packageJson.peerDependencies?.[agentEval.name]) {
+    throw new Error(`${agentRuntime.name} must declare ${agentEval.name} as a required peer`)
+  }
+  if (agentRuntime.packageJson.peerDependenciesMeta?.[agentEval.name]?.optional) {
+    throw new Error(`${agentRuntime.name} cannot make ${agentEval.name} optional`)
+  }
+}
+
+function assertCleanGitCheckout(sourceRepo, packageName) {
+  if (!existsSync(join(sourceRepo, '.git'))) {
+    throw new Error(`${packageName} source is not a Git checkout: ${sourceRepo}`)
+  }
+  const changes = captured(
+    'git',
+    ['status', '--porcelain=v1', '--untracked-files=no'],
+    sourceRepo,
+  ).trim()
+  if (changes) {
+    throw new Error(`${packageName} source has tracked changes:\n${changes}`)
+  }
+}
+
+function assertPublishableDependencySpecs(packageJson) {
+  const unsupportedProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
+  for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+    for (const [name, spec] of Object.entries(packageJson[section] ?? {})) {
+      if (typeof spec !== 'string' || unsupportedProtocol.test(spec)) {
+        throw new Error(
+          `${packageJson.name} packed ${section}.${name} is not publishable: ${String(spec)}`,
+        )
+      }
+    }
+  }
+}
+
+function requiredDevelopmentDependency(packageJson, name) {
+  const version = packageJson.devDependencies?.[name]
+  if (typeof version !== 'string' || !version || version.startsWith('catalog:')) {
+    throw new Error(`${packageJson.name} archive has no resolved ${name} development dependency`)
+  }
+  return version
+}
+
+function archiveFileSpec(from, archivePath) {
+  const path = relative(from, archivePath).split(sep).join('/')
+  return `file:${path.startsWith('.') ? path : `./${path}`}`
+}
+
+function sha256File(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function captured(command, args, cwd, extraEnv = {}) {
+  return run(command, args, cwd, extraEnv, 'pipe')
+}
+
+function visible(command, args, cwd, extraEnv = {}) {
+  run(command, args, cwd, extraEnv, 'inherit')
+}
+
+function run(command, args, cwd, extraEnv, stdio) {
+  const env = { ...process.env, ...extraEnv }
+  delete env.FORCE_COLOR
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: 'utf8',
+    env,
+    stdio,
+    timeout: 15 * 60_000,
+    maxBuffer: 32 * 1024 * 1024,
+  })
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      [
+        `command failed: ${command} ${args.join(' ')}`,
+        result.error?.message,
+        typeof result.stdout === 'string' ? result.stdout.trim() : '',
+        typeof result.stderr === 'string' ? result.stderr.trim() : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+  }
+  return typeof result.stdout === 'string' ? result.stdout : ''
+}

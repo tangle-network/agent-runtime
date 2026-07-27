@@ -114,6 +114,7 @@
     "release:prepare": "node scripts/prepare-release.mjs",
     "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
     "verify:bench:published": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
+    "verify:cohort": "node scripts/verify-packed-cohort.mjs",
     "verify:package": "pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs",
     "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect.mjs",
