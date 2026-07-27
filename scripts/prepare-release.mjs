@@ -2,11 +2,15 @@
 /**
  * Bump the package version and regenerate every artifact that embeds it.
  *
- * Two checked-in artifacts carry the runtime version, and both are verified in
- * CI, so a hand-written bump commit fails ~90 seconds in and the release does
- * not publish:
+ * Three checked-in artifacts carry the runtime version, and every one is
+ * verified in CI, so a hand-written bump commit fails and the release does not
+ * publish:
  *   - src/testing/fixtures/agent-improvement-proposal.json (tests/testing-fixture.test.ts)
  *   - docs/api/primitive-catalog.md                        (pnpm run docs:check)
+ *   - docs/canonical-api.md                                (pnpm run docs:freshness)
+ *
+ * The first two are generated; the third is hand-written prose, so it is
+ * rewritten here directly.
  *
  * 0.106.1 was tagged with both stale; the Publish run and main's CI both failed
  * and the parallel-tool-call fix sat unpublished. Bump through this script so
@@ -45,6 +49,19 @@ const updated = raw.replace(
 if (updated === raw) throw new Error('could not locate the version field in package.json')
 writeFileSync(packagePath, updated)
 console.log(`package.json: ${current} -> ${version}`)
+
+// Hand-written prose the freshness gate pins to package.json.
+const canonicalPath = resolve(repoRoot, 'docs/canonical-api.md')
+const canonicalRaw = readFileSync(canonicalPath, 'utf8')
+const canonicalUpdated = canonicalRaw.replace(
+  /^> \*\*Version \d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.\*\*$/m,
+  `> **Version ${version}.**`,
+)
+if (canonicalUpdated === canonicalRaw) {
+  throw new Error(`could not locate the version banner in ${canonicalPath}`)
+}
+writeFileSync(canonicalPath, canonicalUpdated)
+console.log(`docs/canonical-api.md: version banner -> ${version}`)
 
 const run = (script) => {
   console.log(`\n$ pnpm run ${script}`)
