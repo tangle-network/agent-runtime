@@ -88,5 +88,11 @@ jobs:
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            npm publish --provenance --access public
+            # This is a maintenance line: `latest` points at a HIGHER version, so
+            # npm refuses to move it implicitly and errors out. Publish under a
+            # line-scoped dist-tag instead. Dist-tags do not affect semver range
+            # resolution, so a consumer pinned to ^0.84.0 still resolves this.
+            LINE_TAG="release-${VERSION%.*}"
+            echo "publishing $NAME@$VERSION under dist-tag $LINE_TAG"
+            npm publish --provenance --access public --tag "$LINE_TAG"
           fi
