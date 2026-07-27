@@ -20,6 +20,7 @@ import {
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import {
   agentCandidateProfileAsAgentProfile,
+  applyExactAgentProfileDiff,
   omitUndefinedObjectFields,
   parseExactAgentProfile,
 } from '../candidate-execution/profile'
@@ -48,6 +49,17 @@ export const AGENT_IMPROVEMENT_PROFILE_SURFACES = [
 ] as const satisfies readonly AgentImprovementSurface[]
 
 export type AgentImprovementProfileSurface = (typeof AGENT_IMPROVEMENT_PROFILE_SURFACES)[number]
+
+/**
+ * Portable profile surfaces eligible for shared measured comparisons.
+ * Other profile settings can contain credentials or executable configuration.
+ */
+export const AGENT_PROFILE_MEASURED_SURFACES = [
+  'prompt',
+  'skills',
+] as const satisfies readonly AgentImprovementProfileSurface[]
+
+export type AgentProfileMeasuredSurface = (typeof AGENT_PROFILE_MEASURED_SURFACES)[number]
 
 export interface AgentImprovementTargetProfileDiffOptions {
   id: string
@@ -143,18 +155,17 @@ export function agentProfileImprovementStateDigest(
 /** Map Interface's current profile-improvement contract to Runtime-deliverable surfaces. */
 export function profileImprovementChangedSurfaces(
   change: AgentProfileImprovementChange,
-): [AgentImprovementProfileSurface, ...AgentImprovementProfileSurface[]] {
+): [AgentProfileMeasuredSurface, ...AgentProfileMeasuredSurface[]] {
   const surfaces = changedProfileImprovementSurfaces(change)
   if (
     surfaces.length === 0 ||
-    !surfaces.every(
-      (surface): surface is AgentImprovementProfileSurface =>
-        surface === 'prompt' || surface === 'skills',
+    !surfaces.every((surface): surface is AgentProfileMeasuredSurface =>
+      isAgentProfileMeasuredSurface(surface),
     )
   ) {
     throw new Error('profile improvement experiment does not change a supported surface')
   }
-  return surfaces as [AgentImprovementProfileSurface, ...AgentImprovementProfileSurface[]]
+  return surfaces as [AgentProfileMeasuredSurface, ...AgentProfileMeasuredSurface[]]
 }
 
 export function agentImprovementTargetDigest(
@@ -226,6 +237,13 @@ export function isAgentImprovementProfileSurface(
   surface: AgentImprovementSurface,
 ): surface is AgentImprovementProfileSurface {
   return (AGENT_IMPROVEMENT_PROFILE_SURFACES as readonly string[]).includes(surface)
+}
+
+/** Return whether a surface is eligible for shared profile measurement. */
+export function isAgentProfileMeasuredSurface(
+  surface: string,
+): surface is AgentProfileMeasuredSurface {
+  return (AGENT_PROFILE_MEASURED_SURFACES as readonly string[]).includes(surface)
 }
 
 /**
@@ -318,6 +336,50 @@ export function agentImprovementTargetProfileDiffs(
     }),
   ) as AgentProfileDiff
   return [reset, replacement]
+}
+
+/**
+ * Derive the ordered profile patch that changes one executable profile into
+ * another, then prove the patch preserves the complete candidate state.
+ */
+export function agentImprovementProfileDiffs(
+  baselineInput: AgentProfile,
+  candidateInput: AgentProfile,
+  options: AgentImprovementTargetProfileDiffOptions,
+): [AgentProfileDiff, ...AgentProfileDiff[]] {
+  const baseline = parseExactAgentProfile(
+    omitUndefinedObjectFields(baselineInput, 'profile improvement baseline'),
+    'profile improvement baseline',
+  )
+  const candidate = parseExactAgentProfile(
+    omitUndefinedObjectFields(candidateInput, 'profile improvement candidate'),
+    'profile improvement candidate',
+  )
+  const surfaces = AGENT_PROFILE_MEASURED_SURFACES.filter(
+    (surface) =>
+      agentImprovementProfileSurfaceDigest(baseline, surface) !==
+      agentImprovementProfileSurfaceDigest(candidate, surface),
+  )
+  if (surfaces.length === 0) {
+    throw new Error('profile improvement candidate does not change a deliverable profile surface')
+  }
+  const changes = surfaces.flatMap((surface) =>
+    agentImprovementTargetProfileDiffs(
+      { surface, desiredInput: agentImprovementProfileSurfaceInput(candidate, surface) },
+      options,
+    ),
+  ) as [AgentProfileDiff, ...AgentProfileDiff[]]
+  const applied = changes.reduce(
+    (profile, change) =>
+      applyExactAgentProfileDiff(profile, change, 'profile improvement candidate change'),
+    baseline,
+  )
+  if (canonicalCandidateDigest(applied) !== canonicalCandidateDigest(candidate)) {
+    throw new Error(
+      'profile improvement candidate changes fields that the measured profile contract cannot apply',
+    )
+  }
+  return changes
 }
 
 function improvementSurfaceReplacement(target: {

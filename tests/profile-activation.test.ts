@@ -63,6 +63,9 @@ async function captureProfileTransition(
     reason: 'The exact profile change passed paired held-out work.',
     now: () => new Date('2026-07-24T00:01:00.000Z'),
   })
+  if (proposal.evaluation.kind !== 'agent-profile-improvement-measured-comparison') {
+    throw new Error('expected profile improvement proposal')
+  }
   const activation = createAgentImprovementActivation(proposal, review, {
     intent,
     targets: [
@@ -72,6 +75,7 @@ async function captureProfileTransition(
     fundingOwner: 'tenant/default',
     authorizedBy: 'operator@example.com',
     expiresAt: '2026-07-24T00:10:00.000Z',
+    executionRef: proposal.evaluation.experiment.executionRef,
     now: () => new Date('2026-07-24T00:02:00.000Z'),
   })
   let captured: ProfileImprovementActivationTransitionInput | undefined

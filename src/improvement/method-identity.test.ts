@@ -43,6 +43,39 @@ const executionRef = canonicalCandidateDigest({ callback: 'identity-fixture' })
 const profileDigest = canonicalCandidateDigest({ profile: 'identity-fixture' })
 
 describe('method evaluation identity', () => {
+  it('retains frozen redacted identities for every optimizer task partition', () => {
+    const identity = buildMethodEvaluationIdentity<IdentityScenario, IdentityArtifact>({
+      executionRef,
+      baselineProfileDigest: profileDigest,
+      baselineSurface: 'same bytes',
+      surface: 'skills',
+      skills: { resourceName: 'skill-a' },
+      findings: [],
+      trainScenarios: train,
+      selectionScenarios: selection,
+      testScenarios: finalScenarios,
+      judges: [judge],
+      reps: 2,
+      optimizationRunOptions: { reps: 3 },
+    })
+
+    expect(identity.scenarioPartitions).toMatchObject({
+      train: [{ id: 'train', kind: 'identity', scenarioDigest: expect.stringMatching(/^sha256:/) }],
+      selection: [
+        { id: 'selection', kind: 'identity', scenarioDigest: expect.stringMatching(/^sha256:/) },
+      ],
+      finalTest: [
+        { id: 'final-a', kind: 'identity', scenarioDigest: expect.stringMatching(/^sha256:/) },
+        { id: 'final-b', kind: 'identity', scenarioDigest: expect.stringMatching(/^sha256:/) },
+      ],
+      optimizationReps: 3,
+      finalTestReps: 2,
+    })
+    expect(JSON.stringify(identity.scenarioPartitions)).not.toContain('train-a')
+    expect(Object.isFrozen(identity.scenarioPartitions)).toBe(true)
+    expect(Object.isFrozen(identity.scenarioPartitions.finalTest)).toBe(true)
+  })
+
   it('changes for every behavior-bearing development coordinate', () => {
     const baseline = buildMethodEvaluationIdentity<IdentityScenario, IdentityArtifact>({
       executionRef,
@@ -53,6 +86,7 @@ describe('method evaluation identity', () => {
       findings: [{ issue: 'missing citation' }],
       trainScenarios: train,
       selectionScenarios: selection,
+      testScenarios: finalScenarios,
       judges: [judge],
       reps: 1,
       optimizationRunOptions: { reps: 1 },
@@ -61,6 +95,7 @@ describe('method evaluation identity', () => {
       skills?: { resourceName: string }
       findings?: readonly unknown[]
       trainScenarios?: IdentityScenario[]
+      testScenarios?: IdentityScenario[]
       judges?: JudgeConfig<IdentityArtifact, IdentityScenario>[]
       validateCandidate?: () => void
       reps?: number
@@ -75,6 +110,7 @@ describe('method evaluation identity', () => {
         findings: [{ issue: 'missing citation' }],
         trainScenarios: train,
         selectionScenarios: selection,
+        testScenarios: finalScenarios,
         judges: [judge],
         reps: 1,
         optimizationRunOptions: { reps: 1 },
@@ -85,6 +121,14 @@ describe('method evaluation identity', () => {
     expect(
       evaluationRef({
         trainScenarios: [{ ...train[0]!, privateInput: 'changed-hidden-input' }],
+      }),
+    ).not.toBe(baseline)
+    expect(
+      evaluationRef({
+        testScenarios: [
+          { ...finalScenarios[0]!, privateInput: 'changed-final-input' },
+          finalScenarios[1]!,
+        ],
       }),
     ).not.toBe(baseline)
     expect(

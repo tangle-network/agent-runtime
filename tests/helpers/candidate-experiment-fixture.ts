@@ -87,7 +87,7 @@ export function createCandidateExperimentFixture(
       bootstrapSeed: 1_337,
       deltaThreshold: 0,
       minProductiveRuns: 3,
-      budgetUsd: 1,
+      budgetUsd: fixture.task.task.limits.maxCostUsd * reps * 2,
       criticalDimensions: ['quality'],
       regressionTolerance: 0.05,
     },

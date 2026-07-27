@@ -147,12 +147,18 @@ export {
 } from './exact-process-candidate'
 export type {
   AgentCandidateExperimentCellPlacement,
+  AgentImprovementAnalysisOptions,
   AgentImprovementExperimentMaterial,
+  AgentProfileImprovementBenchmark,
+  AgentProfileImprovementExecutor,
+  AgentProfileImprovementMethodOptions,
   CreateAgentImprovementActivationOptions,
   CreateAgentImprovementProposalOptions,
   ExecuteAgentCandidateExperimentCellOptions,
   ProposeAgentImprovementOptions,
   ProposeAgentImprovementResult,
+  ProposeAgentProfileImprovementOptions,
+  ProposeAgentProfileImprovementResult,
   ReviewAgentImprovementInput,
   RunAgentCandidateExperimentOptions,
   RunAgentCandidateExperimentResult,
@@ -165,6 +171,7 @@ export {
   createAgentImprovementProposal,
   executeAgentCandidateExperimentCell,
   proposeAgentImprovement,
+  proposeAgentProfileImprovement,
   reviewAgentImprovementProposal,
   runAgentCandidateExperiment,
   verifyAgentImprovementActivation,
@@ -176,14 +183,18 @@ export type {
   AgentImprovementActivationTargetIdentity,
   AgentImprovementProfileSurface,
   AgentImprovementTargetProfileDiffOptions,
+  AgentProfileMeasuredSurface,
 } from './improvement-surfaces'
 export {
   AGENT_IMPROVEMENT_PROFILE_SURFACES,
+  AGENT_PROFILE_MEASURED_SURFACES,
+  agentImprovementProfileDiffs,
   agentImprovementProfileSurfaceDigest,
   agentImprovementProfileSurfaceInput,
   agentImprovementTargetProfileDiffs,
   buildAgentImprovementActivationTargets,
   isAgentImprovementProfileSurface,
+  isAgentProfileMeasuredSurface,
 } from './improvement-surfaces'
 export type {
   OptimizationActivationReceipt,

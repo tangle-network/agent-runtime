@@ -110,15 +110,17 @@ export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
     improvement = await runImprovementProposalSource(opts, analystResult.findings, log, emit)
   }
 
+  const durationMs = Math.max(0, Date.now() - startedAt)
   await emit({
     type: 'loop-completed',
     runId: opts.runId,
-    durationMs: Date.now() - startedAt,
+    durationMs,
   })
 
   return {
     runId: opts.runId,
     baselineRunId,
+    durationMs,
     analystResult,
     diff,
     knowledge,
@@ -141,9 +143,15 @@ async function runRegistry(
   emit: Emitter,
 ): Promise<AnalystRunResult> {
   const reg = opts.registry as AnalystRegistryStreamingLike
+  const registryOptions = {
+    ...(priorFindings ? { priorFindings } : {}),
+    ...(opts.costLedger ? { costLedger: opts.costLedger } : {}),
+    ...(opts.costPhase ? { costPhase: opts.costPhase } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  }
   if (typeof reg.runStream === 'function' && opts.onEvent) {
     let final: AnalystRunResult | null = null
-    for await (const ev of reg.runStream(opts.runId, opts.inputs, { priorFindings })) {
+    for await (const ev of reg.runStream(opts.runId, opts.inputs, registryOptions)) {
       await emit({ type: 'analyst', runId: opts.runId, event: ev })
       if (ev.type === 'run-completed') final = ev.result
     }
@@ -152,7 +160,7 @@ async function runRegistry(
     }
     return final
   }
-  return opts.registry.run(opts.runId, opts.inputs, { priorFindings })
+  return opts.registry.run(opts.runId, opts.inputs, registryOptions)
 }
 
 function resolveBaselineRunId(opts: RunAnalystLoopOpts): string | null {

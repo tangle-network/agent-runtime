@@ -1,7 +1,11 @@
+import type { CostLedgerHandle } from '@tangle-network/agent-eval'
+import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
+  sealAgentProfileImprovementTask,
   sealCandidateBenchmarkSuite,
   sealCandidateBenchmarkTask,
 } from '@tangle-network/agent-eval/contract'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
@@ -22,6 +26,7 @@ import {
   createAgentImprovementActivation,
   createAgentImprovementProposal,
   proposeAgentImprovement,
+  proposeAgentProfileImprovement,
   reviewAgentImprovementProposal,
   runAgentCandidateExperiment,
   verifyAgentImprovementActivation,
@@ -52,7 +57,10 @@ import {
   improvementFinding as finding,
   improvementOptions,
 } from './helpers/improvement-method-fixture'
-import { createProfileImprovementFixture } from './helpers/profile-improvement-fixture'
+import {
+  createProfileImprovementFixture,
+  createProfileImprovementRunReceipt,
+} from './helpers/profile-improvement-fixture'
 
 afterEach(() => {
   cleanupCandidateExperimentFixtures()
@@ -96,7 +104,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       reason: 'The exact profile change passed paired held-out work.',
       now: () => new Date('2026-07-24T00:01:00.000Z'),
     })
-    const activate = createAgentImprovementActivation(proposal, review, {
+    const activationInput = {
       intent: 'activate-candidate',
       targets: [
         { surface: 'prompt', identity: 'tenant/default/profile' },
@@ -106,10 +114,58 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       authorizedBy: 'operator@example.com',
       expiresAt: '2026-07-24T00:10:00.000Z',
       now: () => new Date('2026-07-24T00:02:00.000Z'),
+    } as const
+    expect(() => createAgentImprovementActivation(proposal, review, activationInput)).toThrow(
+      'profile improvement activation requires the measured executor',
+    )
+    expect(() =>
+      createAgentImprovementActivation(proposal, review, {
+        ...activationInput,
+        executionRef: {
+          ...experiment.executionRef,
+          digest: canonicalCandidateDigest({ changed: true }),
+        },
+      }),
+    ).toThrow('profile improvement activation executor does not match the measurement')
+    const activate = createAgentImprovementActivation(proposal, review, {
+      ...activationInput,
+      executionRef: experiment.executionRef,
     })
     expect(verifyAgentImprovementActivation({ proposal, review, activation: activate })).toEqual(
       activate,
     )
+    expect(activate.executionRef).toEqual(experiment.executionRef)
+    const { digest: _activationDigest, ...activationMaterial } = activate
+    const { executionRef: _executionRef, ...missingExecutorMaterial } = activationMaterial
+    const missingExecutorActivation = {
+      ...missingExecutorMaterial,
+      digest: canonicalCandidateDigest(missingExecutorMaterial),
+    }
+    expect(() =>
+      verifyAgentImprovementActivation({
+        proposal,
+        review,
+        activation: missingExecutorActivation,
+      }),
+    ).toThrow('profile activation does not bind the measured executor')
+    const changedExecutorMaterial = {
+      ...activationMaterial,
+      executionRef: {
+        ...experiment.executionRef,
+        digest: canonicalCandidateDigest({ changed: true }),
+      },
+    }
+    const changedExecutorActivation = {
+      ...changedExecutorMaterial,
+      digest: canonicalCandidateDigest(changedExecutorMaterial),
+    }
+    expect(() =>
+      verifyAgentImprovementActivation({
+        proposal,
+        review,
+        activation: changedExecutorActivation,
+      }),
+    ).toThrow('profile activation does not bind the measured executor')
     expect(() =>
       createAgentImprovementActivation(proposal, review, {
         intent: 'activate-candidate',
@@ -120,10 +176,10 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         fundingOwner: 'tenant/default',
         authorizedBy: 'operator@example.com',
         expiresAt: '2026-07-24T00:10:00.000Z',
+        executionRef: experiment.executionRef,
         now: () => new Date('2026-07-24T00:02:00.000Z'),
       }),
     ).toThrow('profile improvement activation targets must name one profile identity')
-    const { digest: _activationDigest, ...activationMaterial } = activate
     const [promptTarget, skillsTarget] = activate.targets
     if (!skillsTarget) throw new Error('expected profile activation targets')
     const splitActivationMaterial = {
@@ -191,6 +247,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       fundingOwner: 'tenant/default',
       authorizedBy: 'operator@example.com',
       expiresAt: '2026-07-24T00:12:00.000Z',
+      executionRef: experiment.executionRef,
       now: () => new Date('2026-07-24T00:04:00.000Z'),
     })
     const restoreResult = await executeAgentImprovementActivation(
@@ -250,6 +307,319 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     ).toEqual(restoreResult)
   })
 
+  it('builds a source-bound profile proposal without product experiment wiring', async () => {
+    const template = createProfileImprovementFixture()
+    const task = template.evaluation.experiment.benchmark.tasks[0]
+    if (!task) throw new Error('expected a profile improvement task')
+    const { digest: _taskDigest, ...taskMaterial } = task
+    const { agent: optimize, executionRef, ...improvement } = improvementOptions()
+    const executorRef = {
+      kind: 'agent-profile-improvement-execution-ref' as const,
+      identity: 'profile-proposal-test-runner',
+      digest: executionRef,
+    }
+    const profile: AgentProfile = {
+      name: 'support-agent',
+      prompt: { systemPrompt: 'BASELINE' },
+    }
+    const stateDigest = ({ profile: state }: { identity: string; profile: AgentProfile }) =>
+      canonicalCandidateDigest({ definition: state, recommendedSize: 'small' })
+    const source = {
+      kind: 'platform-agent-profile',
+      sourceIdentity: 'profile-support',
+      sourceDigest: stateDigest({ identity: 'profile-support', profile }),
+      sourceRevision: 7,
+    }
+    await expect(
+      proposeAgentProfileImprovement({
+        source,
+        improvement: { surface: 'tools' },
+      } as never),
+    ).rejects.toThrow(/supports prompt or skills/)
+    const {
+      agent: rejectedOptimize,
+      executionRef: rejectedExecutionDigest,
+      ...rejectedImprovement
+    } = improvementOptions()
+    const rejectedExecutorRef = {
+      kind: 'agent-profile-improvement-execution-ref' as const,
+      identity: 'profile-uncaptured-cost-runner',
+      digest: rejectedExecutionDigest,
+    }
+    let rejectedMeasurements = 0
+    let rejectedOptimizerCalls = 0
+    const countedRejectedOptimize = async (...args: Parameters<typeof rejectedOptimize>) => {
+      rejectedOptimizerCalls += 1
+      return rejectedOptimize(...args)
+    }
+    await expect(
+      proposeAgentProfileImprovement({
+        runId: 'profile-uncaptured-cost-run',
+        budgetUsd: 7,
+        source,
+        profile,
+        stateDigest,
+        analysis: {
+          registry: {
+            list: () => [{ id: 'improvement' }],
+            run: async () => ({
+              run_id: 'profile-uncaptured-cost-run',
+              correlation_id: 'profile-uncaptured-cost-run',
+              started_at: '2026-07-27T00:00:00.000Z',
+              ended_at: '2026-07-27T00:00:01.000Z',
+              findings: [finding],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'uncaptured' as const, usd: null },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: rejectedImprovement,
+        benchmark: {
+          tasks: [taskMaterial],
+          reps: 3,
+          seeds: [31, 32, 33],
+          policy: template.evaluation.experiment.policy,
+        },
+        executor: {
+          executionRef: rejectedExecutorRef,
+          optimize: countedRejectedOptimize,
+          measure: async () => {
+            rejectedMeasurements += 1
+            throw new Error('uncaptured analysis cost must stop before profile measurement')
+          },
+        },
+      }),
+    ).rejects.toThrow('agent improvement analysis cost is uncaptured')
+    expect(rejectedOptimizerCalls).toBe(0)
+    expect(rejectedMeasurements).toBe(0)
+    const executed: Array<{ arm: 'baseline' | 'candidate'; prompt: string | undefined }> = []
+
+    const result = await proposeAgentProfileImprovement({
+      runId: 'profile-proposal-run',
+      budgetUsd: 7,
+      source,
+      profile,
+      stateDigest,
+      analysis: {
+        registry: {
+          list: () => [{ id: 'improvement' }],
+          run: async (_runId, _inputs, registryOptions) => {
+            const costLedger = registryOptions?.costLedger as CostLedgerHandle | undefined
+            if (!costLedger) throw new Error('profile analysis requires the shared account')
+            const paid = await costLedger.runPaidCall({
+              callId: 'profile-proposal-analysis',
+              channel: 'analyst',
+              phase: 'profile-improvement-analysis',
+              actor: 'profile-proposal-analyst',
+              model: 'profile-proposal-analyst',
+              maximumCharge: { externallyEnforcedMaximumUsd: 0.25 },
+              execute: async () => undefined,
+              receipt: () => ({
+                model: 'profile-proposal-analyst',
+                inputTokens: 0,
+                outputTokens: 0,
+                actualCostUsd: 0.25,
+              }),
+            })
+            if (!paid.succeeded) throw paid.error
+            return {
+              run_id: 'profile-proposal-run',
+              correlation_id: 'profile-proposal-run',
+              started_at: '2026-07-27T00:00:00.000Z',
+              ended_at: '2026-07-27T00:00:01.000Z',
+              findings: [finding],
+              per_analyst: [],
+              total_cost_usd: 0.25,
+              total_cost_provenance: { kind: 'observed' as const, usd: 0.25 },
+            }
+          },
+        },
+        inputs: {},
+        findingsStore: null,
+      },
+      improvement,
+      benchmark: {
+        tasks: [taskMaterial],
+        reps: 3,
+        seeds: [41, 42, 43],
+        policy: template.evaluation.experiment.policy,
+      },
+      executor: {
+        executionRef: executorRef,
+        optimize,
+        measure: async (input) => {
+          executed.push({ arm: input.arm, prompt: input.profile.prompt?.systemPrompt })
+          return createProfileImprovementRunReceipt(input, input.arm === 'candidate' ? 1 : 0)
+        },
+      },
+      now: () => new Date('2026-07-27T00:02:00.000Z'),
+    })
+
+    expect(executed).toHaveLength(6)
+    expect(executed.filter((entry) => entry.arm === 'baseline')).toEqual([
+      { arm: 'baseline', prompt: 'BASELINE' },
+      { arm: 'baseline', prompt: 'BASELINE' },
+      { arm: 'baseline', prompt: 'BASELINE' },
+    ])
+    expect(executed.filter((entry) => entry.arm === 'candidate')).toEqual([
+      { arm: 'candidate', prompt: 'PROMOTED' },
+      { arm: 'candidate', prompt: 'PROMOTED' },
+      { arm: 'candidate', prompt: 'PROMOTED' },
+    ])
+    expect(result.experiment.source).toEqual(source)
+    expect(result.experiment.executionRef).toEqual(executorRef)
+    expect(result.proposal.changedSurfaces).toEqual(['prompt'])
+    expect(result.proposal.evaluation).toMatchObject({
+      kind: 'agent-profile-improvement-measured-comparison',
+      metadata: { agentImprovementSource: source },
+      overall: { baseline: 0, candidate: 1, n: 3 },
+    })
+    expect(result.proposal.evaluation.evaluation.preparation.cost.provenance).toBe('observed')
+    expect(result.proposal.evaluation.evaluation.preparation.cost.usd).toBeCloseTo(0.2508)
+    expect(result.proposal.evaluation.evaluation.total.cost.usd).toBeCloseTo(
+      result.proposal.evaluation.evaluation.preparation.cost.usd +
+        result.proposal.evaluation.evaluation.measurement.cost.usd,
+    )
+    await result.improvement.dispose()
+
+    const {
+      agent: budgetOptimize,
+      executionRef: budgetExecutionDigest,
+      ...budgetImprovement
+    } = improvementOptions()
+    let budgetMeasurements = 0
+    await expect(
+      proposeAgentProfileImprovement({
+        runId: 'profile-budget-refusal-run',
+        budgetUsd: 6,
+        source,
+        profile,
+        stateDigest,
+        analysis: {
+          registry: {
+            list: () => [{ id: 'improvement' }],
+            run: async () => ({
+              run_id: 'profile-budget-refusal-run',
+              correlation_id: 'profile-budget-refusal-run',
+              started_at: '2026-07-27T00:00:00.000Z',
+              ended_at: '2026-07-27T00:00:01.000Z',
+              findings: [finding],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed' as const, usd: 0 },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: budgetImprovement,
+        benchmark: {
+          tasks: [taskMaterial],
+          reps: 3,
+          seeds: [51, 52, 53],
+          policy: template.evaluation.experiment.policy,
+        },
+        executor: {
+          executionRef: {
+            kind: 'agent-profile-improvement-execution-ref',
+            identity: 'profile-budget-refusal-runner',
+            digest: budgetExecutionDigest,
+          },
+          optimize: budgetOptimize,
+          measure: async () => {
+            budgetMeasurements += 1
+            throw new Error('insufficient budget must stop before profile measurement')
+          },
+        },
+      }),
+    ).rejects.toThrow(/would exceed ceiling 6/)
+    expect(budgetMeasurements).toBe(0)
+  })
+
+  it('rejects a profile measurement task previously visible to the optimizer', async () => {
+    const template = createProfileImprovementFixture()
+    const task = template.evaluation.experiment.benchmark.tasks[0]
+    if (!task) throw new Error('expected a profile improvement task')
+    const { digest: _taskDigest, ...taskMaterial } = task
+    const { agent: optimize, executionRef, ...improvement } = improvementOptions()
+    const executorRef = {
+      kind: 'agent-profile-improvement-execution-ref' as const,
+      identity: 'profile-overlap-test-runner',
+      digest: executionRef,
+    }
+    const searchedScenario = campaignScenarioIdentity(improvement.testScenarios[0]!)
+    const overlappingTask = sealAgentProfileImprovementTask({
+      ...taskMaterial,
+      scenario: {
+        id: searchedScenario.id,
+        kind: searchedScenario.kind,
+        digest: searchedScenario.scenarioDigest,
+      },
+    })
+    const { digest: _overlappingTaskDigest, ...overlappingTaskMaterial } = overlappingTask
+    const profile: AgentProfile = {
+      name: 'support-agent',
+      prompt: { systemPrompt: 'BASELINE' },
+    }
+    const stateDigest = ({ profile: state }: { identity: string; profile: AgentProfile }) =>
+      canonicalCandidateDigest({ definition: state, recommendedSize: 'small' })
+    const source = {
+      kind: 'platform-agent-profile' as const,
+      sourceIdentity: 'profile-support',
+      sourceDigest: stateDigest({ identity: 'profile-support', profile }),
+      sourceRevision: 7,
+    }
+    let measuredCells = 0
+
+    await expect(
+      proposeAgentProfileImprovement({
+        runId: 'profile-overlap-run',
+        budgetUsd: 7,
+        source,
+        profile,
+        stateDigest,
+        analysis: {
+          registry: {
+            list: () => [{ id: 'improvement' }],
+            run: async () => ({
+              run_id: 'profile-overlap-run',
+              correlation_id: 'profile-overlap-run',
+              started_at: '2026-07-27T00:00:00.000Z',
+              ended_at: '2026-07-27T00:00:01.000Z',
+              findings: [finding],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed', usd: 0 },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement,
+        benchmark: {
+          tasks: [overlappingTaskMaterial],
+          reps: 3,
+          seeds: [41, 42, 43],
+          policy: template.evaluation.experiment.policy,
+        },
+        executor: {
+          executionRef: executorRef,
+          optimize,
+          measure: async () => {
+            measuredCells += 1
+            throw new Error('reused held-out work must fail before profile execution')
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      /release benchmark reuses optimizer scenario\(s\): \[improvement-8 \(final-test\)\]/,
+    )
+    expect(measuredCells).toBe(0)
+  })
+
   it('rejects malformed optimizer evidence on profile comparisons', () => {
     const fixture = createProfileImprovementFixture()
 
@@ -263,6 +633,61 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         },
       }),
     ).toThrow(/optimization receipt/)
+  })
+
+  it('rejects unmetered proposal sources before analysis runs', async () => {
+    let registryCalls = 0
+    let proposalCalls = 0
+    await expect(
+      proposeAgentImprovement({
+        runId: 'unmetered-analysis-source',
+        profile: {} as AgentProfile,
+        analysis: {
+          registry: {
+            list: () => [],
+            run: async () => {
+              registryCalls += 1
+              throw new Error('proposal sources must fail before analysis runs')
+            },
+          },
+          inputs: {},
+          findingsStore: null,
+          knowledgeProposalSource: {
+            proposeFromFindings: () => {
+              proposalCalls += 1
+              return { proposals: [], skipped: 0, errors: [] }
+            },
+          },
+        },
+      } as never),
+    ).rejects.toThrow('measured agent improvement analysis must not run proposal sources')
+    expect(registryCalls).toBe(0)
+    expect(proposalCalls).toBe(0)
+  })
+
+  it('rejects unmetered analysis callbacks before analysis runs', async () => {
+    for (const callbacks of [{ onEvent: async () => {} }, { log: () => {} }]) {
+      let registryCalls = 0
+      await expect(
+        proposeAgentImprovement({
+          runId: 'unmetered-analysis-callback',
+          profile: {} as AgentProfile,
+          analysis: {
+            registry: {
+              list: () => [],
+              run: async () => {
+                registryCalls += 1
+                throw new Error('callbacks must fail before analysis runs')
+              },
+            },
+            inputs: {},
+            findingsStore: null,
+            ...callbacks,
+          },
+        } as never),
+      ).rejects.toThrow('measured agent improvement analysis must not run callbacks')
+      expect(registryCalls).toBe(0)
+    }
   })
 
   it('runs analysis through exact activation using only public inputs', async () => {
@@ -282,12 +707,12 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
             ended_at: '2026-07-10T00:00:01.000Z',
             findings: [finding],
             per_analyst: [],
-            total_cost_usd: 0,
+            total_cost_usd: 0.25,
+            total_cost_provenance: { kind: 'observed', usd: 0.25 },
           }),
         },
         inputs: {},
         findingsStore: null,
-        log: () => {},
       },
       improvement: improvementOptions(),
       buildExperiment: ({ improvement }) => {
@@ -348,6 +773,12 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     )
 
     expect(result.proposal.changedSurfaces).toEqual(['prompt'])
+    expect(result.proposal.evaluation.evaluation.preparation.cost.provenance).toBe('estimated')
+    expect(result.proposal.evaluation.evaluation.preparation.cost.usd).toBeCloseTo(0.2508)
+    expect(result.proposal.evaluation.evaluation.total.cost.usd).toBeCloseTo(
+      result.proposal.evaluation.evaluation.preparation.cost.usd +
+        result.proposal.evaluation.evaluation.measurement.cost.usd,
+    )
     if (!measured) throw new Error('experiment was not built')
     expect(result.experiment.candidateLineage).toEqual({
       source: 'optimizer',
@@ -380,11 +811,11 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
               findings: [finding],
               per_analyst: [],
               total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed', usd: 0 },
             }),
           },
           inputs: {},
           findingsStore: null,
-          log: () => {},
         },
         improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
@@ -450,11 +881,11 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
               findings: [finding],
               per_analyst: [],
               total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed', usd: 0 },
             }),
           },
           inputs: {},
           findingsStore: null,
-          log: () => {},
         },
         improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
@@ -496,11 +927,11 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
               findings: [finding],
               per_analyst: [],
               total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed', usd: 0 },
             }),
           },
           inputs: {},
           findingsStore: null,
-          log: () => {},
         },
         improvement: improvementOptions(),
         buildExperiment: ({ improvement }) => {
@@ -646,7 +1077,12 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       experiment: { digest: rig.experiment.digest },
       overall: { baseline: 0, candidate: 1, delta: 1, n: 3 },
       decision: { outcome: 'ship' },
-      evaluation: { executionCostUsd: 0, searchCostUsd: 0, totalCostUsd: 0 },
+      evaluation: {
+        preparation: {
+          wallDurationMs: 0,
+          cost: { usd: 0, provenance: 'observed' },
+        },
+      },
     })
 
     const proposal = createAgentImprovementProposal({

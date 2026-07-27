@@ -13,11 +13,14 @@ import { agentCandidateProfileAsAgentProfile } from '../src/candidate-execution/
 import {
   AGENT_IMPROVEMENT_PROFILE_SURFACES,
   type AgentImprovementProfileSurface,
+  agentImprovementProfileDiffs,
   agentImprovementProfileSurfaceDigest,
   agentImprovementProfileSurfaceInput,
   agentImprovementTargetInput,
   agentImprovementTargetProfileDiffs,
   isAgentImprovementProfileSurface,
+  isAgentProfileMeasuredSurface,
+  profileImprovementChangedSurfaces,
 } from '../src/intelligence/improvement-surfaces'
 import { candidateBundle, redigestCandidateBundle } from './helpers/candidate-execution-fixture'
 
@@ -327,6 +330,54 @@ describe('agent improvement profile delivery', () => {
     ])
   })
 
+  it('derives measured prompt and skill changes and rejects other profile changes', () => {
+    const baseline: AgentProfile = {
+      name: 'support-agent',
+      prompt: { systemPrompt: 'Old prompt' },
+      tools: { Bash: true },
+      mcp: { old: { command: 'old-server' } },
+      hooks: { Stop: [{ command: 'echo old' }] },
+      subagents: { old: { prompt: 'Old subagent' } },
+      resources: {
+        skills: [defineInlineResource('old.SKILL.md', 'Old skill')],
+        tools: [defineInlineResource('old.tool.md', 'Old tool')],
+        agents: [defineInlineResource('old.md', 'Old subagent instructions')],
+      },
+    }
+    const candidate: AgentProfile = {
+      ...baseline,
+      prompt: { systemPrompt: 'Measured prompt' },
+      resources: {
+        skills: [defineInlineResource('measured.SKILL.md', 'Use the evidence first')],
+        tools: baseline.resources?.tools,
+        agents: baseline.resources?.agents,
+      },
+    }
+    const changes = agentImprovementProfileDiffs(baseline, candidate, { id: 'profile-change' })
+    const applied = changes.reduce(
+      (profile, change) => applyAgentProfileDiff(profile, change),
+      baseline,
+    )
+
+    expect(agentProfileSchema.parse(applied)).toEqual(agentProfileSchema.parse(candidate))
+    expect(profileImprovementChangedSurfaces(changes)).toEqual(['prompt', 'skills'])
+    expect(() =>
+      agentImprovementProfileDiffs(
+        baseline,
+        {
+          ...candidate,
+          tools: { Read: true },
+          mcp: { docs: { command: 'node', args: ['docs-server.js'] } },
+          hooks: { Stop: [{ command: 'node check.mjs' }] },
+          subagents: { reviewer: { prompt: 'Review before answering' } },
+        },
+        {
+          id: 'unsupported-profile-change',
+        },
+      ),
+    ).toThrow(/measured profile contract cannot apply/)
+  })
+
   it('accepts every profile surface shape produced by Runtime', () => {
     const bundle = candidateBundle()
     const measured = agentCandidateProfileAsAgentProfile(bundle.profile)
@@ -417,6 +468,9 @@ describe('agent improvement profile delivery', () => {
     expect(isAgentImprovementProfileSurface('memory')).toBe(false)
     expect(isAgentImprovementProfileSurface('code')).toBe(false)
     expect(isAgentImprovementProfileSurface('knowledge')).toBe(false)
+    expect(isAgentProfileMeasuredSurface('prompt')).toBe(true)
+    expect(isAgentProfileMeasuredSurface('skills')).toBe(true)
+    expect(isAgentProfileMeasuredSurface('tools')).toBe(false)
   })
 
   it('rejects input that does not match Runtime surface shape', () => {

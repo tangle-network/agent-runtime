@@ -146,11 +146,11 @@ export async function proposeTestMethodImprovement(
           findings: [improvementFinding],
           per_analyst: [],
           total_cost_usd: 0,
+          total_cost_provenance: { kind: 'observed', usd: 0 },
         }),
       },
       inputs: {},
       findingsStore: null,
-      log: () => {},
     },
     improvement: { ...improvementOptions(), method },
     buildExperiment: ({ improvement }) => {

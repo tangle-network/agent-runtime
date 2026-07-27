@@ -17,6 +17,7 @@ import type {
   AnalystRunInputs,
   AnalystRunResult,
   AnalystRunSummary,
+  CostLedgerHandle,
   FindingsDiff,
 } from '@tangle-network/agent-eval'
 
@@ -78,6 +79,12 @@ export interface RunAnalystLoopOpts {
   knowledgeProposalSource?: KnowledgeProposalSource
   /** Agent-surface bridge — usually a prompt, skill, or tool diff producer. */
   improvementProposalSource?: ImprovementProposalSource
+  /** Shared account for analyst calls that belong to a larger improvement run. */
+  costLedger?: CostLedgerHandle
+  /** Attribution label forwarded to every analyst call in the shared account. */
+  costPhase?: string
+  /** Cancels analyst work before downstream proposal work starts. */
+  signal?: AbortSignal
   /** Optional logger. Defaults to `console.log` for `[analyst-loop]` lines. */
   log?: (msg: string, fields?: Record<string, unknown>) => void
   /**
@@ -96,6 +103,8 @@ export interface RunAnalystLoopOpts {
 export interface RunAnalystLoopResult<TProposal = unknown, TEdit = unknown> {
   runId: string
   baselineRunId: string | null
+  /** Full wall-clock time for analysis, persistence, and proposal preparation. */
+  durationMs: number
   analystResult: AnalystRunResult
   diff: FindingsDiff | null
   knowledge: KnowledgeReport<TProposal> | null

@@ -104,6 +104,7 @@ export async function persistCandidateModelSettlementEvidence(
       cachedInputTokens: call.cachedInputTokens ?? 0,
       reasoningTokens: call.reasoningTokens ?? 0,
       costUsdNanos: call.costUsdNanos,
+      costProvenance: call.costProvenance,
     })),
     usage: settlement.usage,
   }

@@ -85,6 +85,7 @@ async function finalizePrepared(
             cachedInputTokens: 2,
             reasoningTokens: 0,
             costUsdNanos: 10_000_000,
+            costProvenance: 'observed',
           },
         ],
       },
@@ -262,6 +263,7 @@ describe('protected candidate run finalization', () => {
             cachedInputTokens: 2,
             reasoningTokens: 0,
             modelCalls: 1,
+            costProvenance: 'observed',
           },
         },
       },
@@ -444,6 +446,7 @@ describe('protected candidate run finalization', () => {
             cachedInputTokens: 0,
             reasoningTokens: 0,
             costUsdNanos: 100_000_000,
+            costProvenance: 'observed',
           },
           {
             callId: 'call-2',
@@ -458,6 +461,7 @@ describe('protected candidate run finalization', () => {
             cachedInputTokens: 0,
             reasoningTokens: 0,
             costUsdNanos: 200_000_000,
+            costProvenance: 'observed',
           },
         ],
       },
@@ -478,7 +482,13 @@ describe('protected candidate run finalization', () => {
       receipt: {
         value: {
           modelSettlement: {
-            material: { usage: { costUsdNanos: 300_000_000, modelCalls: 2 } },
+            material: {
+              usage: {
+                costUsdNanos: 300_000_000,
+                modelCalls: 2,
+                costProvenance: 'observed',
+              },
+            },
           },
         },
       },

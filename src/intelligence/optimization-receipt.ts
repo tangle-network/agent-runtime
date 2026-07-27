@@ -1,8 +1,10 @@
 import type {
+  CampaignScenarioIdentity,
   OptimizationMethodComparison,
   OptimizationPackageSource,
   OptimizationTokenUsage,
 } from '@tangle-network/agent-eval/campaign'
+import { campaignSplitDigestFromIdentities } from '@tangle-network/agent-eval/campaign'
 import {
   type AgentCandidateJsonValue,
   type AgentImprovementMeasuredComparison,
@@ -17,7 +19,7 @@ import {
   immutableCandidateValue,
   omitTopLevelDigest,
 } from '../candidate-execution/digest'
-import type { ImproveMethodResult } from '../improvement/improve'
+import type { ImproveMethodResult, ImproveScenarioPartitions } from '../improvement/improve'
 
 type OptimizationProvenance = NonNullable<OptimizationMethodComparison['best']['provenance']>
 
@@ -49,6 +51,8 @@ export interface OptimizationActivationReceipt {
     artifactDir: string
   }
   developmentDataDigest: Sha256Digest
+  finalTestDataDigest: Sha256Digest
+  scenarioPartitions: ImproveScenarioPartitions
   digest: Sha256Digest
 }
 
@@ -66,6 +70,10 @@ export function createOptimizationActivationReceipt(
 ): OptimizationActivationReceipt | undefined {
   const provenance = improvement.provenance
   if (!provenance) return undefined
+  const finalTestDataDigest = improvement.lineage.finalTestSplitDigest
+  if (!finalTestDataDigest) {
+    throw new Error('method improvement does not retain its final-test split digest')
+  }
   const optimizerModel = provenance.optimizerModel
   const candidateModel = improvement.candidate.profile.model
 
@@ -103,6 +111,8 @@ export function createOptimizationActivationReceipt(
       artifactDir: provenance.artifactDir,
     },
     developmentDataDigest: improvement.lineage.developmentSplitDigest,
+    finalTestDataDigest,
+    scenarioPartitions: improvement.lineage.scenarioPartitions,
   }).value
 }
 
@@ -152,15 +162,70 @@ function parseOptimizationActivationReceipt(
     !isCost(value.cost) ||
     !isInvocation(value.invocation) ||
     !isSha256Digest(value.developmentDataDigest) ||
+    !isSha256Digest(value.finalTestDataDigest) ||
+    !isScenarioPartitions(value.scenarioPartitions) ||
     !isSha256Digest(value.digest)
   ) {
     throw new Error('optimization receipt contains invalid evidence')
   }
   const receipt = value as unknown as OptimizationActivationReceipt
+  if (!hasMatchingScenarioPartitionDigests(receipt)) {
+    throw new Error('optimization receipt task identities do not match its split digests')
+  }
   if (canonicalCandidateDigest(omitTopLevelDigest(receipt)) !== receipt.digest) {
     throw new Error('optimization receipt digest does not match its evidence')
   }
   return receipt
+}
+
+function isScenarioPartitions(value: unknown): value is ImproveScenarioPartitions {
+  if (!isRecord(value)) return false
+  return (
+    isScenarioIdentityList(value.train) &&
+    isScenarioIdentityList(value.selection) &&
+    isScenarioIdentityList(value.finalTest) &&
+    isPositiveSafeInteger(value.optimizationReps) &&
+    isPositiveSafeInteger(value.finalTestReps)
+  )
+}
+
+function isScenarioIdentityList(value: unknown): value is CampaignScenarioIdentity[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (scenario) =>
+        isRecord(scenario) &&
+        isNonEmptyString(scenario.id) &&
+        isNonEmptyString(scenario.kind) &&
+        isSha256Digest(scenario.scenarioDigest),
+    )
+  )
+}
+
+function hasMatchingScenarioPartitionDigests(receipt: OptimizationActivationReceipt): boolean {
+  try {
+    const { scenarioPartitions } = receipt
+    const developmentDataDigest = canonicalCandidateDigest({
+      train: campaignSplitDigestFromIdentities(
+        scenarioPartitions.train,
+        scenarioPartitions.optimizationReps,
+      ),
+      selection: campaignSplitDigestFromIdentities(
+        scenarioPartitions.selection,
+        scenarioPartitions.optimizationReps,
+      ),
+    })
+    const finalTestDataDigest = campaignSplitDigestFromIdentities(
+      scenarioPartitions.finalTest,
+      scenarioPartitions.finalTestReps,
+    )
+    return (
+      receipt.developmentDataDigest === developmentDataDigest &&
+      receipt.finalTestDataDigest === finalTestDataDigest
+    )
+  } catch {
+    return false
+  }
 }
 
 function isPackageSource(value: unknown): value is OptimizationPackageSource {
@@ -322,6 +387,10 @@ function isOptionalNonEmptyString(value: unknown): boolean {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
 function isOptionalNonNegativeInteger(value: unknown): boolean {

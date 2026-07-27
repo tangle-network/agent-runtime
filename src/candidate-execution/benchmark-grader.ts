@@ -121,6 +121,7 @@ function emptyFixedSpend(): AgentCandidateFixedSpend {
     reasoningTokens: 0,
     modelCalls: 0,
     costUsdNanos: 0,
+    costProvenance: 'observed',
   }
 }
 

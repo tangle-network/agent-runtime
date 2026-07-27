@@ -402,11 +402,22 @@ function sealUsage(usage: AgentCandidateFixedSpend): AgentCandidateFixedSpend {
       'cachedInputTokens',
       'reasoningTokens',
       'modelCalls',
+      'costProvenance',
     ],
     'candidate execution terminal usage',
   )
-  for (const [field, value] of Object.entries(usage)) {
-    assertCount(value, `terminal usage ${field}`)
+  for (const field of [
+    'costUsdNanos',
+    'inputTokens',
+    'outputTokens',
+    'cachedInputTokens',
+    'reasoningTokens',
+    'modelCalls',
+  ] as const) {
+    assertCount(usage[field], `terminal usage ${field}`)
+  }
+  if (usage.costProvenance !== 'observed' && usage.costProvenance !== 'estimated') {
+    throw new Error('terminal usage costProvenance must be observed or estimated')
   }
   return Object.freeze({
     costUsdNanos: usage.costUsdNanos,
@@ -415,6 +426,7 @@ function sealUsage(usage: AgentCandidateFixedSpend): AgentCandidateFixedSpend {
     cachedInputTokens: usage.cachedInputTokens,
     reasoningTokens: usage.reasoningTokens,
     modelCalls: usage.modelCalls,
+    costProvenance: usage.costProvenance,
   })
 }
 

@@ -113,6 +113,7 @@ function modelCall(
     cachedInputTokens: 0,
     reasoningTokens: 0,
     costUsdNanos: 10_000_000,
+    costProvenance: 'observed' as const,
     ...overrides,
   }
 }

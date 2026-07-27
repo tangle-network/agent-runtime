@@ -379,6 +379,7 @@ describe('atomic prepared candidate execution', () => {
           cachedInputTokens: 2,
           reasoningTokens: 1,
           costUsdNanos: 10_000_000,
+          costProvenance: 'observed',
         },
       ],
     })
@@ -1184,6 +1185,7 @@ describe('atomic prepared candidate execution', () => {
             cachedInputTokens: 0,
             reasoningTokens: 0,
             costUsdNanos: 10_000_000,
+            costProvenance: 'observed',
           },
         ],
       }

@@ -371,6 +371,9 @@ function assertProfileImprovementTransitionInput(
     transition.expired !== Date.parse(transition.attemptedAt) >= Date.parse(activation.expiresAt) ||
     experiment.digest !== activation.experimentDigest ||
     experiment.candidate.stateDigest !== activation.candidateDigest ||
+    activation.executionRef === undefined ||
+    canonicalCandidateDigest(activation.executionRef) !==
+      canonicalCandidateDigest(experiment.executionRef) ||
     transition.sourceStateDigest !== sourceStateDigest ||
     transition.desiredStateDigest !== desiredStateDigest ||
     canonicalCandidateDigest(transition.operation) !== canonicalCandidateDigest(operation) ||

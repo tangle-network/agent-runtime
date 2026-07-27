@@ -26,6 +26,7 @@ if (args.some((arg) => arg !== '--check') || args.length > 1) {
 const fixedNowMs = Date.parse('2026-07-10T00:00:00.000Z')
 const originalDateNow = Date.now
 const originalRandomBytes = crypto.randomBytes
+const originalPerformanceNow = Object.getOwnPropertyDescriptor(performance, 'now')
 const environmentKeys = [
   'GIT_AUTHOR_DATE',
   'GIT_COMMITTER_DATE',
@@ -38,6 +39,7 @@ const environmentKeys = [
 const originalEnvironment = new Map(environmentKeys.map((key) => [key, process.env[key]]))
 let cleanupCandidateExperimentFixtures: (() => void) | undefined
 let cleanupCandidateFixtures: (() => void) | undefined
+let monotonicTimeMs = 0
 
 function deterministicBytes(size: number): Buffer {
   // Candidate arms start concurrently, so opaque fixture IDs cannot depend on call order.
@@ -76,6 +78,13 @@ crypto.randomBytes = ((
 }) as typeof crypto.randomBytes
 syncBuiltinESMExports()
 Date.now = () => fixedNowMs
+Object.defineProperty(performance, 'now', {
+  configurable: true,
+  value: () => {
+    monotonicTimeMs += 100
+    return monotonicTimeMs
+  },
+})
 Object.assign(process.env, {
   GIT_AUTHOR_DATE: '2026-07-10T00:00:00.000Z',
   GIT_COMMITTER_DATE: '2026-07-10T00:00:00.000Z',
@@ -147,6 +156,8 @@ try {
   cleanupCandidateExperimentFixtures?.()
   cleanupCandidateFixtures?.()
   Date.now = originalDateNow
+  if (originalPerformanceNow) Object.defineProperty(performance, 'now', originalPerformanceNow)
+  else delete (performance as { now?: () => number }).now
   crypto.randomBytes = originalRandomBytes
   syncBuiltinESMExports()
   for (const [key, value] of originalEnvironment) {
