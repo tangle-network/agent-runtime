@@ -141,7 +141,7 @@ function buildAndPack({ packageName, sourceRepo, localPackages }) {
   mkdirSync(buildDir, { recursive: true })
   const sourceArchive = join(tempRoot, `${packageName.replace('@tangle-network/', '')}.tar`)
   captured('git', ['archive', '--format=tar', '--output', sourceArchive, sourceCommit], sourceRepo)
-  visible('tar', ['-xf', sourceArchive, '-C', buildDir], sourceRepo)
+  captured('tar', ['-xf', sourceArchive, '-C', buildDir], sourceRepo)
 
   const packagePath = join(buildDir, 'package.json')
   const originalPackageText = readFileSync(packagePath, 'utf8')
@@ -151,20 +151,31 @@ function buildAndPack({ packageName, sourceRepo, localPackages }) {
   }
 
   if (localPackages.length > 0) {
-    packageJson.pnpm = packageJson.pnpm ?? {}
-    packageJson.pnpm.overrides = {
-      ...(packageJson.pnpm.overrides ?? {}),
+    const overrides = {
+      ...(packageJson.pnpm?.overrides ?? {}),
       ...Object.fromEntries(
         localPackages.map((artifact) => [artifact.name, `file:${artifact.path}`]),
       ),
     }
-    writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
+    captured(
+      'corepack',
+      [
+        'pnpm',
+        'config',
+        'set',
+        '--location=project',
+        '--json',
+        'overrides',
+        JSON.stringify(overrides),
+      ],
+      buildDir,
+    )
   }
 
-  visible('corepack', ['pnpm', 'install', '--no-frozen-lockfile'], buildDir, {
+  captured('corepack', ['pnpm', 'install', '--no-frozen-lockfile'], buildDir, {
     HUSKY: '0',
   })
-  visible('corepack', ['pnpm', 'run', 'build'], buildDir)
+  captured('corepack', ['pnpm', 'run', 'build'], buildDir)
 
   writeFileSync(packagePath, originalPackageText)
   const before = new Set(readdirSync(artifactsDir))
@@ -192,7 +203,7 @@ function buildAndPack({ packageName, sourceRepo, localPackages }) {
   const archivePath = join(artifactsDir, created[0])
   const extractedDir = join(tempRoot, 'extracted', packageName.replace('@tangle-network/', ''))
   mkdirSync(extractedDir, { recursive: true })
-  visible('tar', ['-xzf', archivePath, '-C', extractedDir], buildDir)
+  captured('tar', ['-xzf', archivePath, '-C', extractedDir], buildDir)
   const extractedPackageDir = join(extractedDir, 'package')
   const packedPackageJson = JSON.parse(
     readFileSync(join(extractedPackageDir, 'package.json'), 'utf8'),
@@ -248,13 +259,23 @@ function verifyConsumer(artifacts) {
           '@types/node': nodeTypesVersion,
           typescript: typescriptVersion,
         },
-        pnpm: {
-          overrides: fileSpecs,
-        },
       },
       null,
       2,
     )}\n`,
+  )
+  captured(
+    'corepack',
+    [
+      'pnpm',
+      'config',
+      'set',
+      '--location=project',
+      '--json',
+      'overrides',
+      JSON.stringify(fileSpecs),
+    ],
+    appDir,
   )
   writeFileSync(
     join(appDir, '.npmrc'),
@@ -284,9 +305,9 @@ function verifyConsumer(artifacts) {
     join(appDir, 'consumer.ts'),
   )
 
-  visible('corepack', ['pnpm', 'install', '--lockfile-only', '--ignore-scripts'], appDir)
+  captured('corepack', ['pnpm', 'install', '--lockfile-only', '--ignore-scripts'], appDir)
   rmSync(join(appDir, 'node_modules'), { recursive: true, force: true })
-  visible('corepack', ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts'], appDir)
+  captured('corepack', ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts'], appDir)
 
   const dependencyTree = JSON.parse(
     captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], appDir),
@@ -323,7 +344,7 @@ function verifyConsumer(artifacts) {
   }
 
   const publicImportCount = verifyPublicImports(appDir, artifacts)
-  visible('corepack', ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'], appDir)
+  captured('corepack', ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'], appDir)
   const proposal = JSON.parse(captured(process.execPath, ['dist/consumer.js'], appDir).trim())
   return {
     install: 'pnpm install --frozen-lockfile',
@@ -483,10 +504,6 @@ function sha256File(path) {
 
 function captured(command, args, cwd, extraEnv = {}) {
   return run(command, args, cwd, extraEnv, 'pipe')
-}
-
-function visible(command, args, cwd, extraEnv = {}) {
-  run(command, args, cwd, extraEnv, 'inherit')
 }
 
 function run(command, args, cwd, extraEnv, stdio) {
