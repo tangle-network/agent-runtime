@@ -2,7 +2,7 @@
 
 ## 0.106.0
 
-- Align Runtime with `@tangle-network/agent-eval` 0.130.1, `@tangle-network/agent-interface` 0.35.0, `@tangle-network/agent-knowledge` 6.1.0, and `@tangle-network/agent-profile-materialize` 0.9.0.
+- Align Runtime with `@tangle-network/agent-eval` 0.131.0, `@tangle-network/agent-interface` 0.35.0, `@tangle-network/agent-knowledge` 6.1.0, and `@tangle-network/agent-profile-materialize` 0.9.0.
 - Require maintained Node 22.13 or newer, use pnpm 11.17.0, and use the newest TypeScript supported by TypeDoc.
 - Require the matching Runtime peer ranges so incompatible consumers fail installation instead of mixing profile contracts.
 - Record the exact tool-step count in candidate receipts and validate optimizer evidence on both candidate and profile comparisons.

@@ -2,7 +2,7 @@
 
 ## 0.4.2
 
-- Consume `@tangle-network/agent-runtime` 0.106.x with Eval 0.130.1, Interface 0.35.0, and Knowledge 6.1.0.
+- Consume `@tangle-network/agent-runtime` 0.106.x with Eval 0.131.0, Interface 0.35.0, and Knowledge 6.1.0.
 - Build the package before checking its exports so verification works from a clean checkout.
 
 ## 0.4.1

@@ -233,7 +233,7 @@ export function innerSmokeJudge(): JudgeConfig<SmokeVerdict, GepaSeatScenario> {
 // ---------------------------------------------------------------------------
 
 export const GEPA_PYTHON_INSTALL_HINT =
-  'install `agent-eval-rpc==0.130.1`, then install ' +
+  'install `agent-eval-rpc==0.131.0`, then install ' +
   '`gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f`'
 
 export type GepaMethodFactory = (
