@@ -5495,9 +5495,41 @@ Normalized spend reported for one Runtime improvement run.
 
 ***
 
+### ImproveScenarioPartitions
+
+Redacted task evidence retained for every optimizer-visible partition.
+
+#### Properties
+
+##### train
+
+> **train**: readonly `CampaignScenarioIdentity`[]
+
+##### selection
+
+> **selection**: readonly `CampaignScenarioIdentity`[]
+
+##### finalTest
+
+> **finalTest**: readonly `CampaignScenarioIdentity`[]
+
+##### optimizationReps
+
+> **optimizationReps**: `number`
+
+##### finalTestReps
+
+> **finalTestReps**: `number`
+
+***
+
 ### ImproveLineage
 
 Optimizer ancestry sealed into downstream candidate experiments.
+
+#### Extended by
+
+- [`ImproveMethodLineage`](#improvemethodlineage)
 
 #### Properties
 
@@ -5519,6 +5551,18 @@ Upstream optimizer run when reported, otherwise this Runtime optimization invoca
 
 Exact train-plus-selection scenario payloads exposed to candidate selection.
 
+##### finalTestSplitDigest?
+
+> `optional` **finalTestSplitDigest?**: `` `sha256:${string}` ``
+
+Exact final-test scenario payloads measured after candidate selection.
+
+##### scenarioPartitions?
+
+> `optional` **scenarioPartitions?**: [`ImproveScenarioPartitions`](#improvescenariopartitions)
+
+Redacted identities for all task partitions used by a method optimizer.
+
 ##### executionRef?
 
 > `optional` **executionRef?**: `` `sha256:${string}` ``
@@ -5530,6 +5574,88 @@ Complete callback, materializer, model, tool, and closure identity for a profile
 > `optional` **baselineProfileDigest?**: `` `sha256:${string}` ``
 
 Complete baseline profile identity for a profile run.
+
+***
+
+### ImproveMethodLineage
+
+Method optimization always retains every identity needed to reject task reuse.
+
+#### Extends
+
+- [`ImproveLineage`](#improvelineage)
+
+#### Properties
+
+##### invocationId
+
+> **invocationId**: `string`
+
+Unique Runtime invocation used to isolate this run's cost receipts.
+
+###### Inherited from
+
+[`ImproveLineage`](#improvelineage).[`invocationId`](#invocationid)
+
+##### runId
+
+> **runId**: `string`
+
+Upstream optimizer run when reported, otherwise this Runtime optimization invocation.
+
+###### Inherited from
+
+[`ImproveLineage`](#improvelineage).[`runId`](#runid-5)
+
+##### developmentSplitDigest
+
+> **developmentSplitDigest**: `` `sha256:${string}` ``
+
+Exact train-plus-selection scenario payloads exposed to candidate selection.
+
+###### Inherited from
+
+[`ImproveLineage`](#improvelineage).[`developmentSplitDigest`](#developmentsplitdigest)
+
+##### finalTestSplitDigest
+
+> **finalTestSplitDigest**: `` `sha256:${string}` ``
+
+Exact final-test scenario payloads measured after candidate selection.
+
+###### Overrides
+
+[`ImproveLineage`](#improvelineage).[`finalTestSplitDigest`](#finaltestsplitdigest)
+
+##### scenarioPartitions
+
+> **scenarioPartitions**: [`ImproveScenarioPartitions`](#improvescenariopartitions)
+
+Redacted identities for all task partitions used by a method optimizer.
+
+###### Overrides
+
+[`ImproveLineage`](#improvelineage).[`scenarioPartitions`](#scenariopartitions)
+
+##### executionRef
+
+> **executionRef**: `` `sha256:${string}` ``
+
+Complete callback, materializer, model, tool, and closure identity for a profile run.
+
+###### Overrides
+
+[`ImproveLineage`](#improvelineage).[`executionRef`](#executionref)
+
+##### baselineProfileDigest
+
+> **baselineProfileDigest**: `` `sha256:${string}` ``
+
+Complete baseline profile identity for a profile run.
+
+###### Overrides
+
+[`ImproveLineage`](#improvelineage).[`baselineProfileDigest`](#baselineprofiledigest)
 
 ***
 
@@ -5571,16 +5697,6 @@ Full wall-clock duration.
 
 `ImproveResultBase.durationMs`
 
-##### lineage
-
-> **lineage**: [`ImproveLineage`](#improvelineage)
-
-Optimizer ancestry used when sealing a candidate experiment.
-
-###### Inherited from
-
-`ImproveResultBase.lineage`
-
 ##### generationsExplored?
 
 > `optional` **generationsExplored?**: `number`
@@ -5598,6 +5714,16 @@ Number of generations explored by Runtime's code path.
 ##### method
 
 > **method**: `string`
+
+##### lineage
+
+> **lineage**: [`ImproveMethodLineage`](#improvemethodlineage)
+
+Optimizer ancestry used when sealing a candidate experiment.
+
+###### Overrides
+
+`ImproveResultBase.lineage`
 
 ##### provenance?
 
@@ -5760,7 +5886,7 @@ Optimizer ancestry used when sealing a candidate experiment.
 
 ###### Inherited from
 
-[`ImproveMethodResult`](#improvemethodresult).[`lineage`](#lineage)
+`ImproveResultBase.lineage`
 
 ##### generationsExplored?
 

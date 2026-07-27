@@ -1579,7 +1579,7 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 
 #### Extends
 
-- `Omit`\<`CompareCandidateExperimentOptions`, `"experiment"` \| `"measurements"`\>
+- `Omit`\<`CompareCandidateExperimentOptions`, `"experiment"` \| `"measurements"` \| `"measurement"` \| `"preparation"`\>
 
 #### Properties
 
@@ -1604,6 +1604,18 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 ##### maxConcurrency?
 
 > `optional` **maxConcurrency?**: `number`
+
+##### preparation?
+
+> `optional` **preparation?**: `object`
+
+Work before this call. Omit when this function is only measuring a sealed experiment.
+
+##### costLedger?
+
+> `optional` **costLedger?**: `CostLedgerHandle`
+
+Shared account when preparation and held-out work have one customer budget.
 
 ##### signal?
 
@@ -1827,6 +1839,12 @@ Runtime derives each exact source digest; callers identify only the records to c
 
 > **expiresAt**: `string`
 
+##### executionRef?
+
+> `optional` **executionRef?**: `AgentProfileImprovementExecutionRef`
+
+Required only when an activation targets the complete `agent-profile` surface.
+
 ##### now?
 
 > `optional` **now?**: () => `Date`
@@ -1861,7 +1879,7 @@ Runtime derives each exact source digest; callers identify only the records to c
 
 ##### analysis
 
-> **analysis**: `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts), `"runId"` \| `"improvementProposalSource"`\>
+> **analysis**: [`AgentImprovementAnalysisOptions`](#agentimprovementanalysisoptions)
 
 ##### improvement
 
@@ -1960,6 +1978,186 @@ Runtime derives each exact source digest; callers identify only the records to c
 ##### measurements
 
 > **measurements**: `AgentCandidateExperimentMeasurement`[]
+
+##### proposal
+
+> **proposal**: `AgentImprovementProposal`
+
+***
+
+### AgentProfileImprovementBenchmark
+
+Product-owned task material that Runtime freezes before either profile state runs.
+
+#### Properties
+
+##### tasks
+
+> **tasks**: \[`AgentProfileImprovementTaskMaterial`, `...AgentProfileImprovementTaskMaterial[]`\]
+
+##### reps
+
+> **reps**: `number`
+
+##### seeds
+
+> **seeds**: \[`number`, `...number[]`\]
+
+##### policy
+
+> **policy**: `AgentCandidateEvaluationPolicy`
+
+***
+
+### AgentProfileImprovementExecutor
+
+One product execution adapter shared by optimizer search and exact profile
+measurement. `executionRef` must identify both operations and their closure.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### executionRef
+
+> **executionRef**: `AgentProfileImprovementExecutionRef`
+
+##### optimize
+
+> **optimize**: [`ImproveProfileAgent`](index.md#improveprofileagent)\<`TScenario`, `TArtifact`\>
+
+#### Methods
+
+##### measure()
+
+> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\>
+
+###### Parameters
+
+###### input
+
+`AgentProfileImprovementExperimentExecutionInput` & `object`
+
+###### Returns
+
+`Promise`\<`AgentProfileImprovementRunReceipt`\>
+
+***
+
+### ProposeAgentProfileImprovementOptions
+
+Complete profile-improvement path for a product-owned source.
+Runtime owns analysis, search ancestry, profile diffs, experiment sealing,
+paired evaluation, and the reviewable proposal. The product keeps its
+profile bytes, task executor, billing, trace capture, and persistence.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### runId
+
+> **runId**: `string`
+
+##### source
+
+> **source**: `object`
+
+##### profile
+
+> **profile**: `AgentProfile`
+
+##### stateDigest
+
+> **stateDigest**: [`AgentImprovementProfileStateDigest`](#agentimprovementprofilestatedigest)
+
+##### analysis
+
+> **analysis**: [`AgentImprovementAnalysisOptions`](#agentimprovementanalysisoptions)
+
+##### improvement
+
+> **improvement**: [`AgentProfileImprovementMethodOptions`](#agentprofileimprovementmethodoptions)\<`TScenario`, `TArtifact`\>
+
+##### benchmark
+
+> **benchmark**: [`AgentProfileImprovementBenchmark`](#agentprofileimprovementbenchmark)
+
+##### executor
+
+> **executor**: [`AgentProfileImprovementExecutor`](#agentprofileimprovementexecutor)\<`TScenario`, `TArtifact`\>
+
+##### budgetUsd
+
+> **budgetUsd**: `number`
+
+One customer-approved maximum for analysis, optimization, and measurement.
+
+##### maxConcurrency?
+
+> `optional` **maxConcurrency?**: `number`
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+##### candidate?
+
+> `optional` **candidate?**: `object`
+
+##### metadata?
+
+> `optional` **metadata?**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: `AgentCandidateJsonValue`
+
+##### now?
+
+> `optional` **now?**: () => `Date`
+
+###### Returns
+
+`Date`
+
+***
+
+### ProposeAgentProfileImprovementResult
+
+#### Properties
+
+##### analysis
+
+> **analysis**: [`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)
+
+##### improvement
+
+> **improvement**: [`ImproveMethodResult`](index.md#improvemethodresult)
+
+##### experiment
+
+> **experiment**: `AgentProfileImprovementExperiment`
+
+##### measurements
+
+> **measurements**: `AgentProfileImprovementMeasurement`[]
 
 ##### proposal
 
@@ -2831,6 +3029,14 @@ True when an OTLP endpoint is configured (export will actually ship).
 
 > **developmentDataDigest**: `` `sha256:${string}` ``
 
+##### finalTestDataDigest
+
+> **finalTestDataDigest**: `` `sha256:${string}` ``
+
+##### scenarioPartitions
+
+> **scenarioPartitions**: [`ImproveScenarioPartitions`](index.md#improvescenariopartitions)
+
 ##### digest
 
 > **digest**: `` `sha256:${string}` ``
@@ -3279,7 +3485,7 @@ Full canonical profile used for this agent. Exported redacted with a stable hash
 
 ###### Inherited from
 
-[`IntelligenceConfig`](#intelligenceconfig).[`profile`](#profile-3)
+[`IntelligenceConfig`](#intelligenceconfig).[`profile`](#profile-4)
 
 ##### commitSha?
 
@@ -3573,6 +3779,12 @@ Product-owned candidate ports other than protected model access.
 
 ***
 
+### AgentImprovementAnalysisOptions
+
+> **AgentImprovementAnalysisOptions** = `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts), `"runId"` \| `"improvementProposalSource"` \| `"knowledgeProposalSource"` \| `"onEvent"` \| `"log"` \| `"costLedger"` \| `"costPhase"` \| `"signal"`\>
+
+***
+
 ### AgentImprovementExperimentMaterial
 
 > **AgentImprovementExperimentMaterial** = `Omit`\<`AgentCandidateExperimentMaterial`, `"candidateLineage"`\>
@@ -3581,9 +3793,39 @@ Product-supplied experiment material. Runtime supplies optimizer ancestry and th
 
 ***
 
+### AgentProfileImprovementMethodOptions
+
+> **AgentProfileImprovementMethodOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](index.md#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"agent"` \| `"executionRef"` \| `"surface"`\> & `object`
+
+The portable profile changes that the measured-profile contract permits.
+
+#### Type Declaration
+
+##### surface?
+
+> `optional` **surface?**: [`AgentProfileMeasuredSurface`](#agentprofilemeasuredsurface)
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+***
+
 ### AgentImprovementProfileSurface
 
 > **AgentImprovementProfileSurface** = *typeof* [`AGENT_IMPROVEMENT_PROFILE_SURFACES`](#agent_improvement_profile_surfaces)\[`number`\]
+
+***
+
+### AgentProfileMeasuredSurface
+
+> **AgentProfileMeasuredSurface** = *typeof* [`AGENT_PROFILE_MEASURED_SURFACES`](#agent_profile_measured_surfaces)\[`number`\]
 
 ***
 
@@ -3809,6 +4051,15 @@ Candidate surfaces implemented by the neutral exact-process executor.
 > `const` **AGENT\_IMPROVEMENT\_PROFILE\_SURFACES**: readonly \[`"prompt"`, `"skills"`, `"tools"`, `"mcp"`, `"hooks"`, `"subagents"`\]
 
 Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements.
+
+***
+
+### AGENT\_PROFILE\_MEASURED\_SURFACES
+
+> `const` **AGENT\_PROFILE\_MEASURED\_SURFACES**: readonly \[`"prompt"`, `"skills"`\]
+
+Portable profile surfaces eligible for shared measured comparisons.
+Other profile settings can contain credentials or executable configuration.
 
 ## Functions
 
@@ -4234,6 +4485,35 @@ Delegate all statistics and promotion checks to agent-eval's receipt-based compa
 
 ***
 
+### proposeAgentProfileImprovement()
+
+> **proposeAgentProfileImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult)\>
+
+Analyze a product-owned profile, search one profile surface, then run the
+exact baseline and candidate through the product executor before proposing.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Parameters
+
+##### options
+
+[`ProposeAgentProfileImprovementOptions`](#proposeagentprofileimprovementoptions)\<`TScenario`, `TArtifact`\>
+
+#### Returns
+
+`Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult)\>
+
+***
+
 ### proposeAgentImprovement()
 
 > **proposeAgentImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentImprovementResult`](#proposeagentimprovementresult)\<`TScenario`, `TArtifact`\>\>
@@ -4462,6 +4742,24 @@ surface is "tools" \| "mcp" \| "subagents" \| "hooks" \| "prompt" \| "skills"
 
 ***
 
+### isAgentProfileMeasuredSurface()
+
+> **isAgentProfileMeasuredSurface**(`surface`): surface is "prompt" \| "skills"
+
+Return whether a surface is eligible for shared profile measurement.
+
+#### Parameters
+
+##### surface
+
+`string`
+
+#### Returns
+
+surface is "prompt" \| "skills"
+
+***
+
 ### agentImprovementProfileSurfaceInput()
 
 > **agentImprovementProfileSurfaceInput**(`profile`, `surface`): `unknown`
@@ -4528,6 +4826,33 @@ so exact replacement requires a reset record followed by a set record.
 ###### desiredInput
 
 `unknown`
+
+##### options
+
+[`AgentImprovementTargetProfileDiffOptions`](#agentimprovementtargetprofilediffoptions)
+
+#### Returns
+
+\[`AgentProfileDiff`, `...AgentProfileDiff[]`\]
+
+***
+
+### agentImprovementProfileDiffs()
+
+> **agentImprovementProfileDiffs**(`baselineInput`, `candidateInput`, `options`): \[`AgentProfileDiff`, `...AgentProfileDiff[]`\]
+
+Derive the ordered profile patch that changes one executable profile into
+another, then prove the patch preserves the complete candidate state.
+
+#### Parameters
+
+##### baselineInput
+
+`AgentProfile`
+
+##### candidateInput
+
+`AgentProfile`
 
 ##### options
 

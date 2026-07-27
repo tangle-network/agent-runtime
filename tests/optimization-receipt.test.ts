@@ -141,6 +141,8 @@ describe('optimization activation receipt', { timeout: 30_000 }, () => {
         artifactDir: '/tmp/official-optimizer',
       },
       developmentDataDigest: result.improvement.lineage.developmentSplitDigest,
+      finalTestDataDigest: result.improvement.lineage.finalTestSplitDigest,
+      scenarioPartitions: result.improvement.lineage.scenarioPartitions,
     })
     expect(Object.isFrozen(receipt)).toBe(true)
     expect(Object.isFrozen(receipt?.source)).toBe(true)
@@ -184,6 +186,19 @@ describe('optimization activation receipt', { timeout: 30_000 }, () => {
         [optimizationReceiptMetadataKey]: invalidCostReceipt,
       } as unknown as Parameters<typeof optimizationActivationReceiptFromMetadata>[0]),
     ).toThrow(/invalid evidence/)
+    const invalidPartitionReceipt = structuredClone(receipt)
+    invalidPartitionReceipt.scenarioPartitions.finalTest[0]!.scenarioDigest =
+      canonicalCandidateDigest({
+        different: 'task',
+      })
+    invalidPartitionReceipt.digest = canonicalCandidateDigest(
+      omitTopLevelDigest(invalidPartitionReceipt),
+    )
+    expect(() =>
+      optimizationActivationReceiptFromMetadata({
+        [optimizationReceiptMetadataKey]: invalidPartitionReceipt,
+      } as unknown as Parameters<typeof optimizationActivationReceiptFromMetadata>[0]),
+    ).toThrow(/task identities do not match its split digests/)
 
     const review = reviewAgentImprovementProposal(result.proposal, {
       decision: 'approve',
@@ -261,7 +276,6 @@ describe('optimization activation receipt', { timeout: 30_000 }, () => {
           },
           inputs: {},
           findingsStore: null,
-          log: () => {},
         },
         improvement: improvementOptions(),
         buildExperiment: () => candidateExperimentMaterial(seed.experiment),

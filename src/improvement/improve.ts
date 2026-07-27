@@ -33,6 +33,7 @@ export type {
   ImproveLineage,
   ImproveMethodContext,
   ImproveMethodFactory,
+  ImproveMethodLineage,
   ImproveMethodOptions,
   ImproveMethodResult,
   ImproveMethodSource,
@@ -45,6 +46,7 @@ export type {
   ImproveProfileComponents,
   ImproveProfileSurface,
   ImproveResult,
+  ImproveScenarioPartitions,
   ImproveSkillsOptions,
   ImproveSurface,
 } from './improve-types'

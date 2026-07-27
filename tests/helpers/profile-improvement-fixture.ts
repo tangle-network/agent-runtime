@@ -1,7 +1,9 @@
+import type { AgentProfileImprovementExperimentExecutionInput } from '@tangle-network/agent-eval/contract'
 import {
   type AgentImprovementEvaluation,
   type AgentProfile,
   type AgentProfileDiff,
+  type AgentProfileImprovementRunReceipt,
   agentProfileImprovementMeasuredComparisonSchema,
   applyAgentProfileDiff,
   canonicalCandidateDigest,
@@ -24,6 +26,69 @@ function evidence(kind: string, identity: string) {
     identity,
     digest: canonicalCandidateDigest({ kind, identity }),
   }
+}
+
+/** Build a receipt for the exact cell Runtime scheduled during a profile experiment. */
+export function createProfileImprovementRunReceipt(
+  input: AgentProfileImprovementExperimentExecutionInput,
+  score: number,
+): AgentProfileImprovementRunReceipt {
+  const executionId = `${input.arm}-${input.runCell.taskIndex}-${input.runCell.repetition}`
+  const startedAtMs = input.runCell.repetition * 1_000
+  return signed({
+    kind: 'agent-profile-improvement-run' as const,
+    digestAlgorithm: 'rfc8785-sha256' as const,
+    executionId,
+    executionRef: input.experiment.executionRef,
+    runCell: input.runCell,
+    runRecord: evidence('agent-eval-run-record', executionId),
+    billing: [evidence('platform-billing', `bill-${executionId}`)] as [ReturnType<typeof evidence>],
+    timing: {
+      startedAtMs,
+      endedAtMs: startedAtMs + 100,
+      durationMs: 100,
+    },
+    steps: 1,
+    resolvedModel: input.task.model,
+    limits: input.task.limits,
+    usage: {
+      inputTokens: 10,
+      outputTokens: 5,
+      cachedInputTokens: 0,
+      reasoningTokens: 0,
+      modelCalls: 1,
+      costUsdNanos: 100,
+      costProvenance: 'observed' as const,
+    },
+    trace: {
+      evidence: evidence('platform-trace', `trace-${executionId}`),
+      eventCount: 4,
+      modelCallCount: 1,
+    },
+    output: evidence('platform-output', `output-${executionId}`),
+    outcome: { status: 'succeeded' as const },
+    grading: {
+      grader: input.task.grader,
+      evidence: evidence('agent-eval-grading', `grade-${executionId}`),
+      timing: {
+        startedAtMs: startedAtMs + 100,
+        endedAtMs: startedAtMs + 110,
+        durationMs: 10,
+      },
+      usage: {
+        inputTokens: 2,
+        outputTokens: 1,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        modelCalls: 1,
+        costUsdNanos: 10,
+        costProvenance: 'observed' as const,
+      },
+      score,
+      passed: true,
+      dimensions: [{ name: 'quality', score }],
+    },
+  })
 }
 
 function exactProfile(profile: AgentProfile): AgentProfile {
@@ -60,7 +125,7 @@ const model = {
 const limits = {
   timeoutMs: 30_000,
   maxSteps: 10,
-  maxModelCalls: 1,
+  maxModelCalls: 2,
   maxInputTokens: 1_000,
   maxOutputTokens: 1_000,
   maxCostUsd: 1,
@@ -123,6 +188,11 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
     canonicalCandidateDigest({ definition: exactProfile(profile), recommendedSize: 'small' })
   const baseline = { stateDigest: stateDigest(baselineProfile) }
   const candidate = { stateDigest: stateDigest(candidateProfile) }
+  const executionRef = {
+    kind: 'agent-profile-improvement-execution-ref' as const,
+    identity: 'profile-improvement-fixture-runner',
+    digest: canonicalCandidateDigest({ executor: 'profile-improvement-fixture-runner' }),
+  }
   const experiment = signed({
     kind: 'agent-profile-improvement-experiment' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
@@ -132,6 +202,7 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
       sourceDigest: baseline.stateDigest,
       sourceRevision: 7,
     },
+    executionRef,
     baseline,
     candidate,
     change,
@@ -171,6 +242,7 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
       kind: 'agent-profile-improvement-run' as const,
       digestAlgorithm: 'rfc8785-sha256' as const,
       executionId,
+      executionRef,
       runCell,
       runRecord: evidence('agent-eval-run-record', executionId),
       billing: [evidence('platform-billing', `bill-${executionId}`)] as [
@@ -191,6 +263,7 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
         reasoningTokens: 0,
         modelCalls: 1,
         costUsdNanos: 100,
+        costProvenance: 'observed' as const,
       },
       trace: {
         evidence: evidence('platform-trace', `trace-${executionId}`),
@@ -214,6 +287,7 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
           reasoningTokens: 0,
           modelCalls: 1,
           costUsdNanos: 10,
+          costProvenance: 'observed' as const,
         },
         score,
         passed: true,
@@ -309,12 +383,19 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
     diff: 'prompt: add source and uncertainty instructions',
     evaluation: {
       generationsExplored: 1,
-      searchDurationMs: 0,
-      executionDurationMs: 0,
-      durationMs: 0,
-      searchCostUsd: 0,
-      executionCostUsd: 0,
-      totalCostUsd: 0,
+      preparation: {
+        wallDurationMs: 0,
+        cost: { usd: 0, provenance: 'observed' as const },
+      },
+      measurement: {
+        wallDurationMs: 0,
+        workDurationMs: 660,
+        cost: { usd: 0.00000066, provenance: 'observed' as const },
+      },
+      total: {
+        wallDurationMs: 0,
+        cost: { usd: 0.00000066, provenance: 'observed' as const },
+      },
     },
   })
   return { evaluation: comparison, baselineProfile, candidateProfile, stateDigest }

@@ -1,21 +1,25 @@
 import {
-  campaignSplitDigest,
+  campaignScenarioIdentity,
+  campaignSplitDigestFromIdentities,
   type JudgeConfig,
   type MutableSurface,
   type Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import type { Sha256Digest } from '@tangle-network/agent-interface'
-import { canonicalCandidateDigest } from '../candidate-execution/digest'
+import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import type {
   ImproveCandidateValidator,
   ImproveOptimizationRunOptions,
   ImproveProfileSurface,
+  ImproveScenarioPartitions,
   ImproveSkillsOptions,
 } from './improve-types'
 
 export interface MethodEvaluationIdentity {
   evaluationRef: Sha256Digest
   developmentSplitDigest: Sha256Digest
+  finalTestSplitDigest: Sha256Digest
+  scenarioPartitions: ImproveScenarioPartitions
   judgeDescriptors: readonly MethodJudgeDescriptor[]
 }
 
@@ -37,6 +41,7 @@ export function buildMethodEvaluationIdentity<TScenario extends Scenario, TArtif
   findings: readonly unknown[]
   trainScenarios: readonly TScenario[]
   selectionScenarios: readonly TScenario[]
+  testScenarios: readonly TScenario[]
   judges: readonly JudgeConfig<TArtifact, TScenario>[]
   seed?: number
   reps?: number
@@ -44,10 +49,22 @@ export function buildMethodEvaluationIdentity<TScenario extends Scenario, TArtif
   optimizationRunOptions?: ImproveOptimizationRunOptions<TScenario, TArtifact>
 }): MethodEvaluationIdentity {
   const optimizationReps = input.optimizationRunOptions?.reps ?? 1
-  const developmentSplitDigest = canonicalCandidateDigest({
-    train: campaignSplitDigest(input.trainScenarios, optimizationReps),
-    selection: campaignSplitDigest(input.selectionScenarios, optimizationReps),
+  const finalTestReps = input.reps ?? 1
+  const scenarioPartitions = immutableCandidateValue<ImproveScenarioPartitions>({
+    train: input.trainScenarios.map(campaignScenarioIdentity),
+    selection: input.selectionScenarios.map(campaignScenarioIdentity),
+    finalTest: input.testScenarios.map(campaignScenarioIdentity),
+    optimizationReps,
+    finalTestReps,
   })
+  const developmentSplitDigest = canonicalCandidateDigest({
+    train: campaignSplitDigestFromIdentities(scenarioPartitions.train, optimizationReps),
+    selection: campaignSplitDigestFromIdentities(scenarioPartitions.selection, optimizationReps),
+  })
+  const finalTestSplitDigest = campaignSplitDigestFromIdentities(
+    scenarioPartitions.finalTest,
+    finalTestReps,
+  )
   const judgeDescriptors = input.judges.map(judgeDescriptor)
   const evaluationRef = canonicalCandidateDigest({
     executionRef: input.executionRef,
@@ -57,6 +74,7 @@ export function buildMethodEvaluationIdentity<TScenario extends Scenario, TArtif
       ? Function.prototype.toString.call(input.validateCandidate)
       : null,
     developmentSplitDigest,
+    finalTestSplitDigest,
     findings: input.findings,
     judges: judgeDescriptors,
     run: {
@@ -78,6 +96,8 @@ export function buildMethodEvaluationIdentity<TScenario extends Scenario, TArtif
   return {
     evaluationRef,
     developmentSplitDigest,
+    finalTestSplitDigest,
+    scenarioPartitions,
     judgeDescriptors,
   }
 }

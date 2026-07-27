@@ -1,4 +1,5 @@
 import type {
+  CampaignScenarioIdentity,
   CompareOptimizationMethodsOptions,
   OptimizationMethod,
   OptimizationMethodComparison,
@@ -227,6 +228,15 @@ export interface ImproveCost {
   incompleteReasons: string[]
 }
 
+/** Redacted task evidence retained for every optimizer-visible partition. */
+export interface ImproveScenarioPartitions {
+  train: readonly CampaignScenarioIdentity[]
+  selection: readonly CampaignScenarioIdentity[]
+  finalTest: readonly CampaignScenarioIdentity[]
+  optimizationReps: number
+  finalTestReps: number
+}
+
 /** Optimizer ancestry sealed into downstream candidate experiments. */
 export interface ImproveLineage {
   /** Unique Runtime invocation used to isolate this run's cost receipts. */
@@ -235,6 +245,10 @@ export interface ImproveLineage {
   runId: string
   /** Exact train-plus-selection scenario payloads exposed to candidate selection. */
   developmentSplitDigest: Sha256Digest
+  /** Exact final-test scenario payloads measured after candidate selection. */
+  finalTestSplitDigest?: Sha256Digest
+  /** Redacted identities for all task partitions used by a method optimizer. */
+  scenarioPartitions?: ImproveScenarioPartitions
   /** Complete callback, materializer, model, tool, and closure identity for a profile run. */
   executionRef?: Sha256Digest
   /** Complete baseline profile identity for a profile run. */
@@ -263,9 +277,18 @@ interface ImproveResultBase<TCandidate extends ImprovementCandidate> {
   dispose(): Promise<void>
 }
 
+/** Method optimization always retains every identity needed to reject task reuse. */
+export interface ImproveMethodLineage extends ImproveLineage {
+  finalTestSplitDigest: Sha256Digest
+  scenarioPartitions: ImproveScenarioPartitions
+  executionRef: Sha256Digest
+  baselineProfileDigest: Sha256Digest
+}
+
 export interface ImproveMethodResult extends ImproveResultBase<ImprovementProfileCandidate> {
   mode: 'method'
   method: string
+  lineage: ImproveMethodLineage
   /** External optimizer package and resumable run identity, when reported. */
   provenance?: OptimizationMethodComparison['best']['provenance']
   decision: 'ship' | 'hold'

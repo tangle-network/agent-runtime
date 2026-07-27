@@ -41,6 +41,7 @@ export function sealAgentCandidateModelSettlement(
   let cachedInputTokens = 0
   let reasoningTokens = 0
   let costUsdNanos = 0
+  let costProvenance: AgentCandidateFixedSpend['costProvenance'] = 'observed'
   const calls = settlement.calls.map((source, index) => {
     assertExactObjectKeys(
       source,
@@ -57,6 +58,7 @@ export function sealAgentCandidateModelSettlement(
         'cachedInputTokens',
         'reasoningTokens',
         'costUsdNanos',
+        'costProvenance',
       ],
       `model settlement call ${index}`,
     )
@@ -95,6 +97,10 @@ export function sealAgentCandidateModelSettlement(
     assertCount(source.reasoningTokens, `model settlement call ${index} reasoningTokens`)
     reasoningTokens = safeAdd(reasoningTokens, source.reasoningTokens, 'reasoning token total')
     assertCount(source.costUsdNanos, `model settlement call ${index} costUsdNanos`)
+    if (source.costProvenance !== 'observed' && source.costProvenance !== 'estimated') {
+      throw new Error(`model settlement call ${index} has an invalid cost provenance`)
+    }
+    if (source.costProvenance === 'estimated') costProvenance = 'estimated'
     inputTokens = safeAdd(inputTokens, source.inputTokens, 'input token total')
     outputTokens = safeAdd(outputTokens, source.outputTokens, 'output token total')
     costUsdNanos = safeAdd(costUsdNanos, source.costUsdNanos, 'cost total')
@@ -108,6 +114,7 @@ export function sealAgentCandidateModelSettlement(
     cachedInputTokens,
     reasoningTokens,
     modelCalls: calls.length,
+    costProvenance,
   })
   return Object.freeze({
     value: Object.freeze({

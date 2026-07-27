@@ -198,6 +198,24 @@ Knowledge-side bridge — usually `agent-knowledge`'s `proposeFromFindings`.
 
 Agent-surface bridge — usually a prompt, skill, or tool diff producer.
 
+##### costLedger?
+
+> `optional` **costLedger?**: `CostLedgerHandle`
+
+Shared account for analyst calls that belong to a larger improvement run.
+
+##### costPhase?
+
+> `optional` **costPhase?**: `string`
+
+Attribution label forwarded to every analyst call in the shared account.
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Cancels analyst work before downstream proposal work starts.
+
 ##### log?
 
 > `optional` **log?**: (`msg`, `fields?`) => `void`
@@ -264,6 +282,12 @@ loop. Catch + swallow internally if your sink is unreliable.
 ##### baselineRunId
 
 > **baselineRunId**: `string` \| `null`
+
+##### durationMs
+
+> **durationMs**: `number`
+
+Full wall-clock time for analysis, persistence, and proposal preparation.
 
 ##### analystResult
 

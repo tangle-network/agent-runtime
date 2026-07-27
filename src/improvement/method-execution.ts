@@ -109,13 +109,15 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     findings,
     trainScenarios: comparisonOptions.trainScenarios,
     selectionScenarios: comparisonOptions.selectionScenarios,
+    testScenarios: comparisonOptions.testScenarios,
     judges: comparisonOptions.judges,
     seed: comparisonOptions.seed,
     reps: comparisonOptions.reps,
     costCeiling: comparisonOptions.costCeiling,
     optimizationRunOptions,
   })
-  const { evaluationRef, developmentSplitDigest } = identity
+  const { evaluationRef, developmentSplitDigest, finalTestSplitDigest, scenarioPartitions } =
+    identity
   const dispatchRef = `improve:${evaluationRef}`
   const identifiedJudges = comparisonOptions.judges.map((judge, index) =>
     Object.freeze({
@@ -239,6 +241,8 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
       invocationId: runtimeInvocationId,
       runId: score.provenance?.runId ?? runtimeInvocationId,
       developmentSplitDigest,
+      finalTestSplitDigest,
+      scenarioPartitions,
       executionRef,
       baselineProfileDigest,
     }),

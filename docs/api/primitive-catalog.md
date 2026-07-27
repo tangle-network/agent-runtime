@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.106.1` and `@tangle-network/agent-eval@0.131.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.107.0` and `@tangle-network/agent-eval@0.132.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 408 exports.
+Import from `@tangle-network/agent-runtime` — 410 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -196,7 +196,9 @@ Import from `@tangle-network/agent-runtime` — 408 exports.
 | `ImproveCandidateValidationInput` | interface | Exact materialized profile presented for validation before any candidate run. |
 | `ImproveCost` | interface | Normalized spend reported for one Runtime improvement run. |
 | `ImproveLineage` | interface | Optimizer ancestry sealed into downstream candidate experiments. |
+| `ImproveMethodLineage` | interface | Method optimization always retains every identity needed to reject task reuse. |
 | `ImproveProfileComponents` | interface | Caller-owned mapping for optimizing several profile fields as one candidate. |
+| `ImproveScenarioPartitions` | interface | Redacted task evidence retained for every optimizer-visible partition. |
 | `LoopSpanNode` | interface | Sink-neutral node in a reconstructed loop span tree. The root node's |
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |
 | `OfficialOptimizerContextOptions` | interface | Runtime context appended to an official optimizer's own configuration. |
@@ -330,10 +332,11 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 155 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `agentImprovementProfileDiffs` | function | Derive the ordered profile patch that changes one executable profile into |
 | `agentImprovementProfileSurfaceDigest` | function | Return the `Sha256Digest` of one profile surface using Runtime's canonical candidate digest. |
 | `agentImprovementProfileSurfaceInput` | function | Return the canonical current-state input for one profile-deliverable improvement target. |
 | `agentImprovementTargetProfileDiffs` | function | Replace one measured profile surface exactly, including array-valued resources. |
@@ -355,6 +358,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 155 exports.
 | `executeAgentCandidateExperimentCell` | function | Execute one exact arm, task, repetition, seed, and attempt through Runtime. |
 | `executeAgentImprovementActivation` | function | Validate and execute one product-owned activation transition. |
 | `isAgentImprovementProfileSurface` | function | Return whether a measured surface can be delivered through an agent profile. |
+| `isAgentProfileMeasuredSurface` | function | Return whether a surface is eligible for shared profile measurement. |
 | `isIntelligenceOff` | function | True when these settings admit NO intelligence spawn — the passthrough |
 | `manifestFromProfile` | function | Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`. |
 | `normalizeCertifiedProfile` | function | Deserialize the composed-endpoint response into a `CertifiedProfile`. The |
@@ -362,6 +366,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 155 exports.
 | `parseCandidateProfileMaterialization` | function | Parse and check every native file hash plus both canonical document digests. |
 | `prepareAgentImprovementProfileActivation` | function | Compare product-owned profiles with an exact measured transition and prepare |
 | `proposeAgentImprovement` | function | Analyze, search, then remeasure the resulting exact candidate before proposing it. |
+| `proposeAgentProfileImprovement` | function | Analyze a product-owned profile, search one profile surface, then run the |
 | `pullCertified` | function | Pull the certified composed profile for a target. Fail-closed: a network |
 | `resolveEffort` | function | Compile a named tier (plus optional per-field overrides) into the flat |
 | `resolveIntelligenceBaseUrl` | function | Resolve the ONE Intelligence base URL — the single knob both the send and |
@@ -376,6 +381,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 155 exports.
 | `verifyCandidateExecutionEvidence` | function | Recheck one Runtime receipt against its exact signed experiment cell. |
 | `withIntelligence` | function | Wrap an agent so it (a) RECEIVES the tenant's certified profile — the prompt |
 | `AGENT_IMPROVEMENT_PROFILE_SURFACES` | const | Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements. |
+| `AGENT_PROFILE_MEASURED_SURFACES` | const | Portable profile surfaces eligible for shared measured comparisons. |
 | `defaultEffortTier` | const | The default tier when a client declares no effort. `'standard'` turns |
 | `exactProcessCandidateExperimentExecutionSupport` | const | Candidate surfaces implemented by the neutral exact-process executor. |
 | `AgentCandidateExperimentCellExecutionError` | class | A failed baseline or candidate cell with its complete Runtime failure result. |
@@ -384,6 +390,8 @@ Import from `@tangle-network/agent-runtime/intelligence` — 155 exports.
 | `AgentImprovementActivationResult` | interface | Immutable outcome of one idempotent, transaction-wide activation attempt. |
 | `AgentImprovementMeasuredComparison` | interface | Portable paired held-out comparison produced by a sealed candidate executor. |
 | `AgentImprovementReview` | interface | Human or tenant-policy decision bound to one exact proposal. |
+| `AgentProfileImprovementBenchmark` | interface | Product-owned task material that Runtime freezes before either profile state runs. |
+| `AgentProfileImprovementExecutor` | interface | One product execution adapter shared by optimizer search and exact profile |
 | `AppliedIntelligence` | interface | What the hook hands the agent each run. Additive over the prompt-only |
 | `CandidateExecutionEvidence` | interface | Complete execution of one exact experiment attempt. |
 | `CandidateProfileMaterialization` | interface | Exact native profile files and the canonical plan that activated them. |
@@ -408,6 +416,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 155 exports.
 | `IntelligenceHookConfig` | interface | `withIntelligence` config = the Observe config plus the pull target, refresh |
 | `ModeReadiness` | interface | One mode's readiness verdict. |
 | `ProfileImprovementActivationTransitionInput` | interface | A measured profile change without raw profile bytes. |
+| `ProposeAgentProfileImprovementOptions` | interface | Complete profile-improvement path for a product-owned source. |
 | `ProposedProfileDiff` | interface | A gate-certified profile diff the plane has already promoted, plus the |
 | `ProtectedExactProcessCandidateExperimentExecutor` | interface | Exact-process executor plus the ports required for durable recovery. |
 | `ProvisionedHost` | interface | A live, provisioned host the resolver tore up for a `process-on-infra` arm. |
@@ -433,6 +442,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 155 exports.
 | `AgentImprovementProfileStateDigest` | type | Product-defined hash of the complete profile state that actually runs. |
 | `AgentImprovementProfileStateResolver` | type | Product-owned retained-state lookup used only for an explicit restore. |
 | `AgentImprovementProposalSubmissionState` | type | What Runtime knows about a failed proposal submission. |
+| `AgentProfileImprovementMethodOptions` | type | The portable profile changes that the measured-profile contract permits. |
 | `CapabilityAuth` | type | How a binding authenticates at resolve time. Declared as a REQUIREMENT in the |
 | `CapabilityInterface` | type | What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each |
 | `CapabilitySurface` | type | Every interface surface tag — the closed set the resolver fans into slots. |
@@ -450,7 +460,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 155 exports.
 | `SubmitAgentImprovementProposalOutcome` | type | Typed result for proposal submission. A successful result contains the |
 | `UsageClass` | type | Usage class for billing. Base-stream tokens bill `'inference'`; every |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementProfileReplacement`, `AgentImprovementProfileStateDigestInput`, `AgentImprovementProfileStateResolverInput`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `AgentProfileImprovementActivationTargetPlan`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `OptimizationActivationReceipt`, `OptimizationReceiptCost`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SealedCandidateActivationTransitionInput`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementActivationTransitionInput`, `AgentImprovementProfileActivationInput`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`, `AgentProfileImprovementActivationOperation`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateExperimentCellPlacement`, `AgentImprovementActivationResultStore`, `AgentImprovementActivationTargetPlan`, `AgentImprovementProfileReplacement`, `AgentImprovementProfileStateDigestInput`, `AgentImprovementProfileStateResolverInput`, `AgentImprovementProposal`, `AgentImprovementTargetProfileDiffOptions`, `AgentProfileImprovementActivationTargetPlan`, `CreateAgentImprovementActivationOptions`, `CreateAgentImprovementActivationResultOptions`, `CreateAgentImprovementProposalOptions`, `CreateExactProcessCandidateExperimentExecutorOptions`, `ExactProcessCandidateExperimentExecution`, `ExactProcessCandidateExperimentExecutor`, `ExecuteAgentCandidateExperimentCellOptions`, `ExecuteAgentImprovementActivationInput`, `ExecuteAgentImprovementActivationOptions`, `OptimizationActivationReceipt`, `OptimizationReceiptCost`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `ProposeAgentProfileImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `RunAgentCandidateExperimentOptions`, `RunAgentCandidateExperimentResult`, `SealedCandidateActivationTransitionInput`, `VerifyCandidateExecutionEvidenceOptions`, `AgentImprovementActivationIntent`, `AgentImprovementActivationOutcome`, `AgentImprovementActivationTargetIdentity`, `AgentImprovementActivationTransitionInput`, `AgentImprovementAnalysisOptions`, `AgentImprovementProfileActivationInput`, `AgentImprovementProfileActivationPreparation`, `AgentImprovementProfileActivationTarget`, `AgentImprovementProfileSurface`, `AgentImprovementProfileTargetState`, `AgentImprovementProfileTargetTransition`, `AgentImprovementReviewDecision`, `AgentProfileImprovementActivationOperation`, `AgentProfileMeasuredSurface`.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 

@@ -686,6 +686,7 @@ function usage(
     cachedInputTokens: modelCalls * 17,
     reasoningTokens: modelCalls * 11,
     modelCalls,
+    costProvenance: 'observed',
     ...overrides,
   }
 }

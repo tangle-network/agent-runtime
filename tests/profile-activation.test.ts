@@ -63,6 +63,9 @@ async function captureProfileTransition(
     reason: 'The exact profile change passed paired held-out work.',
     now: () => new Date('2026-07-24T00:01:00.000Z'),
   })
+  if (proposal.evaluation.kind !== 'agent-profile-improvement-measured-comparison') {
+    throw new Error('expected profile improvement proposal')
+  }
   const activation = createAgentImprovementActivation(proposal, review, {
     intent,
     targets: [

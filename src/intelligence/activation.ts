@@ -355,6 +355,9 @@ function assertProfileImprovementTransitionInput(
   transition: ProfileImprovementActivationTransitionInput,
 ): void {
   assertAuthorizedTransitionTargets(activation, transition.targets)
+  const targetsAgentProfile = activation.targets.some(
+    (target) => target.surface === 'agent-profile',
+  )
   const experiment = agentProfileImprovementExperimentSchema.parse(transition.experiment)
   const sourceArm = activation.intent === 'activate-candidate' ? 'baseline' : 'candidate'
   const targetArm = activation.intent === 'activate-candidate' ? 'candidate' : 'baseline'
@@ -371,6 +374,10 @@ function assertProfileImprovementTransitionInput(
     transition.expired !== Date.parse(transition.attemptedAt) >= Date.parse(activation.expiresAt) ||
     experiment.digest !== activation.experimentDigest ||
     experiment.candidate.stateDigest !== activation.candidateDigest ||
+    (targetsAgentProfile &&
+      (activation.executionRef === undefined ||
+        canonicalCandidateDigest(activation.executionRef) !==
+          canonicalCandidateDigest(experiment.executionRef))) ||
     transition.sourceStateDigest !== sourceStateDigest ||
     transition.desiredStateDigest !== desiredStateDigest ||
     canonicalCandidateDigest(transition.operation) !== canonicalCandidateDigest(operation) ||

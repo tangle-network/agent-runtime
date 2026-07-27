@@ -66,6 +66,7 @@ function stubRegistry(
           cost_usd: 0,
         })),
         total_cost_usd: 0,
+        total_cost_provenance: { kind: 'observed' as const, usd: 0 },
         ...result,
       }
     }),
@@ -74,6 +75,23 @@ function stubRegistry(
 }
 
 describe('runAnalystLoop', () => {
+  it('returns the full loop duration', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValueOnce(10).mockReturnValueOnce(35)
+    try {
+      const out = await runAnalystLoop({
+        runId: 'timed-run',
+        registry: stubRegistry({ findings: [] }, []),
+        inputs: {},
+        findingsStore: null,
+        log: () => {},
+      })
+      expect(out.durationMs).toBe(25)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it('runs registry → persists findings → diffs against the auto-picked baseline', async () => {
     const store = inMemoryStore()
     await store.append('run-prev', [f('f-old', 'failure-mode')])
