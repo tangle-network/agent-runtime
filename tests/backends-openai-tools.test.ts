@@ -360,6 +360,90 @@ describe('createOpenAICompatibleBackend — OpenAI-shape tool_call streaming', (
     expect(calls[0].toolCallId).toBe('call_q')
     expect(calls[0].args).toEqual({ question: 'x' })
   })
+
+  /**
+   * The Tangle router's Gemini lane is OpenAI-COMPATIBLE but not OpenAI-exact:
+   * it emits every parallel tool call COMPLETE inside a single delta and puts
+   * NO `index` on the entries (the one `"index":0` in the frame is the CHOICE
+   * index). Keying those on `index ?? 0` collapsed all of them into one
+   * accumulator and concatenated their `arguments` JSON, which then failed to
+   * parse and surfaced as a raw string — a six-deliverable turn produced none,
+   * silently. Frames below are the captured shape from
+   * router.tangle.tools/v1 + gemini-2.5-flash-lite.
+   */
+  it('keeps parallel calls distinct when a compat gateway omits per-call index', async () => {
+    const sse =
+      'data: {"choices":[{"delta":{"role":"assistant","tool_calls":[' +
+      '{"function":{"arguments":"{\\"question\\":\\"first\\"}","name":"delegate_research"},"id":"function-call-1","type":"function"},' +
+      '{"function":{"arguments":"{\\"goal\\":\\"second\\"}","name":"delegate_code"},"id":"function-call-2","type":"function"},' +
+      '{"function":{"arguments":"{\\"question\\":\\"third\\"}","name":"delegate_research"},"id":"function-call-3","type":"function"}' +
+      ']},"finish_reason":"tool_calls","index":0}],"model":"gemini-2.5-flash-lite"}\n\n' +
+      'data: [DONE]\n\n'
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.tangle.tools/v1',
+      model: 'gemini-2.5-flash-lite',
+      tools: [delegateResearchTool, delegateCodeTool],
+      fetchImpl: async () => new Response(sse, { status: 200 }),
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'tc-noindex', intent: 'go', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'do three things' },
+      }),
+    )
+    const calls = events.filter((e) => e.type === 'tool_call')
+    expect(calls).toHaveLength(3)
+    expect(calls.map((c) => (c.type === 'tool_call' ? c.toolCallId : undefined))).toEqual([
+      'function-call-1',
+      'function-call-2',
+      'function-call-3',
+    ])
+    expect(calls.map((c) => (c.type === 'tool_call' ? c.toolName : undefined))).toEqual([
+      'delegate_research',
+      'delegate_code',
+      'delegate_research',
+    ])
+    // Every args payload is a parsed object, never the concatenated raw string.
+    expect(calls.map((c) => (c.type === 'tool_call' ? c.args : undefined))).toEqual([
+      { question: 'first' },
+      { goal: 'second' },
+      { question: 'third' },
+    ])
+  })
+
+  /**
+   * An index-less gateway may still fragment: the first frame carries the id +
+   * name, later frames carry arguments only. Those continuations must append to
+   * the call they belong to, not open a new one.
+   */
+  it('appends index-less argument-only fragments to the open call', async () => {
+    const sse =
+      'data: {"choices":[{"delta":{"tool_calls":[{"id":"fc-1","type":"function","function":{"name":"delegate_research","arguments":"{\\"question\\":"}}]}}]}\n\n' +
+      'data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"\\"split arg\\"}"}}]}}]}\n\n' +
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n' +
+      'data: [DONE]\n\n'
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.tangle.tools/v1',
+      model: 'gemini-2.5-flash-lite',
+      tools: [delegateResearchTool],
+      fetchImpl: async () => new Response(sse, { status: 200 }),
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'tc-noindex-frag', intent: 'go', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'go' },
+      }),
+    )
+    const calls = events.filter((e) => e.type === 'tool_call')
+    expect(calls).toHaveLength(1)
+    if (calls[0].type !== 'tool_call') throw new Error('expected tool_call')
+    expect(calls[0].toolCallId).toBe('fc-1')
+    expect(calls[0].args).toEqual({ question: 'split arg' })
+  })
 })
 
 describe('createOpenAICompatibleBackend — Anthropic-shape tool_use streaming', () => {
