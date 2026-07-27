@@ -87,7 +87,11 @@ const judge: JudgeConfig<string, PackedScenario> = {
 const method: ImproveMethodFactory<PackedScenario, string> = (context) => ({
   name: 'packed-cohort-deterministic-method',
   async optimize() {
-    if (!context.findings.some((item) => item.finding_id === finding.finding_id)) {
+    if (
+      !context.findings.some(
+        (item) => (item as { finding_id?: string }).finding_id === finding.finding_id,
+      )
+    ) {
       throw new Error('analysis finding did not reach the optimization method')
     }
     return {
