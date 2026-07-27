@@ -10,7 +10,7 @@
 
 ### WritePrimeIntellectPackageOptions
 
-Defined in: src/primeintellect/package.ts:23
+Defined in: [src/primeintellect/package.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L23)
 
 #### Properties
 
@@ -18,7 +18,7 @@ Defined in: src/primeintellect/package.ts:23
 
 > `optional` **replace?**: `boolean`
 
-Defined in: src/primeintellect/package.ts:25
+Defined in: [src/primeintellect/package.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L25)
 
 Replace an existing generated package and restore it if the final swap fails.
 
@@ -26,7 +26,7 @@ Replace an existing generated package and restore it if the final swap fails.
 
 ### RunPrimeIntellectProgramOptions
 
-Defined in: src/primeintellect/runner.ts:17
+Defined in: [src/primeintellect/runner.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L17)
 
 #### Properties
 
@@ -34,13 +34,13 @@ Defined in: src/primeintellect/runner.ts:17
 
 > `optional` **env?**: `ProcessEnv`
 
-Defined in: src/primeintellect/runner.ts:18
+Defined in: [src/primeintellect/runner.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L18)
 
 ***
 
 ### PrimeUsage
 
-Defined in: src/primeintellect/traces.ts:3
+Defined in: [src/primeintellect/traces.ts:3](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L3)
 
 #### Properties
 
@@ -48,37 +48,37 @@ Defined in: src/primeintellect/traces.ts:3
 
 > **prompt\_tokens**: `number`
 
-Defined in: src/primeintellect/traces.ts:4
+Defined in: [src/primeintellect/traces.ts:4](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L4)
 
 ##### completion\_tokens
 
 > **completion\_tokens**: `number`
 
-Defined in: src/primeintellect/traces.ts:5
+Defined in: [src/primeintellect/traces.ts:5](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L5)
 
 ##### cached\_input\_tokens?
 
 > `optional` **cached\_input\_tokens?**: `number` \| `null`
 
-Defined in: src/primeintellect/traces.ts:6
+Defined in: [src/primeintellect/traces.ts:6](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L6)
 
 ##### reasoning\_tokens?
 
 > `optional` **reasoning\_tokens?**: `number` \| `null`
 
-Defined in: src/primeintellect/traces.ts:7
+Defined in: [src/primeintellect/traces.ts:7](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L7)
 
 ##### cost?
 
 > `optional` **cost?**: `number` \| `null`
 
-Defined in: src/primeintellect/traces.ts:8
+Defined in: [src/primeintellect/traces.ts:8](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L8)
 
 ***
 
 ### PrimeTraceNode
 
-Defined in: src/primeintellect/traces.ts:11
+Defined in: [src/primeintellect/traces.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L11)
 
 #### Properties
 
@@ -86,31 +86,31 @@ Defined in: src/primeintellect/traces.ts:11
 
 > `optional` **parent?**: `number` \| `null`
 
-Defined in: src/primeintellect/traces.ts:12
+Defined in: [src/primeintellect/traces.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L12)
 
 ##### sampled?
 
 > `optional` **sampled?**: `boolean`
 
-Defined in: src/primeintellect/traces.ts:13
+Defined in: [src/primeintellect/traces.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L13)
 
 ##### usage?
 
 > `optional` **usage?**: [`PrimeUsage`](#primeusage) \| `null`
 
-Defined in: src/primeintellect/traces.ts:14
+Defined in: [src/primeintellect/traces.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L14)
 
 ##### message?
 
 > `optional` **message?**: `unknown`
 
-Defined in: src/primeintellect/traces.ts:15
+Defined in: [src/primeintellect/traces.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L15)
 
 ***
 
 ### PrimeTimeSpan
 
-Defined in: src/primeintellect/traces.ts:18
+Defined in: [src/primeintellect/traces.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L18)
 
 #### Properties
 
@@ -118,19 +118,19 @@ Defined in: src/primeintellect/traces.ts:18
 
 > `optional` **start?**: `number`
 
-Defined in: src/primeintellect/traces.ts:19
+Defined in: [src/primeintellect/traces.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L19)
 
 ##### end?
 
 > `optional` **end?**: `number`
 
-Defined in: src/primeintellect/traces.ts:20
+Defined in: [src/primeintellect/traces.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L20)
 
 ***
 
 ### PrimeIntellectTrace
 
-Defined in: src/primeintellect/traces.ts:23
+Defined in: [src/primeintellect/traces.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L23)
 
 #### Properties
 
@@ -138,13 +138,13 @@ Defined in: src/primeintellect/traces.ts:23
 
 > **id**: `string`
 
-Defined in: src/primeintellect/traces.ts:24
+Defined in: [src/primeintellect/traces.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L24)
 
 ##### task
 
 > **task**: `object`
 
-Defined in: src/primeintellect/traces.ts:25
+Defined in: [src/primeintellect/traces.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L25)
 
 ###### type
 
@@ -186,55 +186,55 @@ Defined in: src/primeintellect/traces.ts:25
 
 > `optional` **runtime?**: `unknown`
 
-Defined in: src/primeintellect/traces.ts:37
+Defined in: [src/primeintellect/traces.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L37)
 
 ##### nodes
 
 > **nodes**: [`PrimeTraceNode`](#primetracenode)[]
 
-Defined in: src/primeintellect/traces.ts:38
+Defined in: [src/primeintellect/traces.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L38)
 
 ##### rewards
 
 > **rewards**: `Record`\<`string`, `number`\>
 
-Defined in: src/primeintellect/traces.ts:39
+Defined in: [src/primeintellect/traces.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L39)
 
 ##### metrics
 
 > **metrics**: `Record`\<`string`, `number`\>
 
-Defined in: src/primeintellect/traces.ts:40
+Defined in: [src/primeintellect/traces.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L40)
 
 ##### info?
 
 > `optional` **info?**: `Record`\<`string`, `unknown`\>
 
-Defined in: src/primeintellect/traces.ts:41
+Defined in: [src/primeintellect/traces.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L41)
 
 ##### extra\_usage?
 
 > `optional` **extra\_usage?**: [`PrimeUsage`](#primeusage)[]
 
-Defined in: src/primeintellect/traces.ts:42
+Defined in: [src/primeintellect/traces.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L42)
 
 ##### is\_completed?
 
 > `optional` **is\_completed?**: `boolean`
 
-Defined in: src/primeintellect/traces.ts:43
+Defined in: [src/primeintellect/traces.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L43)
 
 ##### stop\_condition?
 
 > `optional` **stop\_condition?**: `string` \| `null`
 
-Defined in: src/primeintellect/traces.ts:44
+Defined in: [src/primeintellect/traces.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L44)
 
 ##### errors?
 
 > `optional` **errors?**: `object`[]
 
-Defined in: src/primeintellect/traces.ts:45
+Defined in: [src/primeintellect/traces.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L45)
 
 ###### type
 
@@ -252,7 +252,7 @@ Defined in: src/primeintellect/traces.ts:45
 
 > `optional` **timing?**: `object`
 
-Defined in: src/primeintellect/traces.ts:46
+Defined in: [src/primeintellect/traces.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L46)
 
 ###### start?
 
@@ -278,7 +278,7 @@ Defined in: src/primeintellect/traces.ts:46
 
 ### PrimeIntellectTraceImportOptions
 
-Defined in: src/primeintellect/traces.ts:55
+Defined in: [src/primeintellect/traces.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L55)
 
 #### Properties
 
@@ -286,25 +286,25 @@ Defined in: src/primeintellect/traces.ts:55
 
 > **experimentId**: `string`
 
-Defined in: src/primeintellect/traces.ts:56
+Defined in: [src/primeintellect/traces.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L56)
 
 ##### candidateId
 
 > **candidateId**: `string`
 
-Defined in: src/primeintellect/traces.ts:57
+Defined in: [src/primeintellect/traces.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L57)
 
 ##### seed
 
 > **seed**: `number`
 
-Defined in: src/primeintellect/traces.ts:58
+Defined in: [src/primeintellect/traces.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L58)
 
 ##### model
 
 > **model**: `string`
 
-Defined in: src/primeintellect/traces.ts:60
+Defined in: [src/primeintellect/traces.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L60)
 
 Snapshot-pinned model id required by RunRecord validation.
 
@@ -312,25 +312,25 @@ Snapshot-pinned model id required by RunRecord validation.
 
 > **promptHash**: `string`
 
-Defined in: src/primeintellect/traces.ts:61
+Defined in: [src/primeintellect/traces.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L61)
 
 ##### configHash
 
 > **configHash**: `string`
 
-Defined in: src/primeintellect/traces.ts:62
+Defined in: [src/primeintellect/traces.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L62)
 
 ##### commitSha
 
 > **commitSha**: `string`
 
-Defined in: src/primeintellect/traces.ts:63
+Defined in: [src/primeintellect/traces.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L63)
 
 ***
 
 ### PrimeIntellectTask
 
-Defined in: src/primeintellect/types.ts:32
+Defined in: [src/primeintellect/types.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L32)
 
 One immutable problem. References stay inside Prime's task process.
 
@@ -340,43 +340,43 @@ One immutable problem. References stay inside Prime's task process.
 
 > **id**: `string`
 
-Defined in: src/primeintellect/types.ts:33
+Defined in: [src/primeintellect/types.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L33)
 
 ##### split
 
 > **split**: [`PrimeIntellectSplit`](#primeintellectsplit)
 
-Defined in: src/primeintellect/types.ts:34
+Defined in: [src/primeintellect/types.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L34)
 
 ##### prompt
 
 > **prompt**: `string` \| [`PrimeIntellectMessage`](#primeintellectmessage)[]
 
-Defined in: src/primeintellect/types.ts:35
+Defined in: [src/primeintellect/types.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L35)
 
 ##### systemPrompt?
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: src/primeintellect/types.ts:36
+Defined in: [src/primeintellect/types.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L36)
 
 ##### answer?
 
 > `optional` **answer?**: `string` \| `string`[]
 
-Defined in: src/primeintellect/types.ts:37
+Defined in: [src/primeintellect/types.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L37)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, [`PrimeIntellectJson`](#primeintellectjson)\>
 
-Defined in: src/primeintellect/types.ts:38
+Defined in: [src/primeintellect/types.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L38)
 
 ***
 
 ### PrimeIntellectRunner
 
-Defined in: src/primeintellect/types.ts:63
+Defined in: [src/primeintellect/types.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L63)
 
 Files and commands that make the caller's real agent program runnable.
 
@@ -386,31 +386,31 @@ Files and commands that make the caller's real agent program runnable.
 
 > **command**: readonly \[`string`, `string`\]
 
-Defined in: src/primeintellect/types.ts:64
+Defined in: [src/primeintellect/types.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L64)
 
 ##### files?
 
 > `optional` **files?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: src/primeintellect/types.ts:65
+Defined in: [src/primeintellect/types.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L65)
 
 ##### setup?
 
 > `optional` **setup?**: readonly [`PrimeIntellectSetupCommand`](#primeintellectsetupcommand)[]
 
-Defined in: src/primeintellect/types.ts:66
+Defined in: [src/primeintellect/types.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L66)
 
 ##### forwardEnv?
 
 > `optional` **forwardEnv?**: readonly `string`[]
 
-Defined in: src/primeintellect/types.ts:67
+Defined in: [src/primeintellect/types.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L67)
 
 ##### image
 
 > **image**: `string`
 
-Defined in: src/primeintellect/types.ts:69
+Defined in: [src/primeintellect/types.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L69)
 
 Container image used by the generated eval config.
 
@@ -418,7 +418,7 @@ Container image used by the generated eval config.
 
 ### PrimeIntellectPackageOptions
 
-Defined in: src/primeintellect/types.ts:72
+Defined in: [src/primeintellect/types.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L72)
 
 #### Properties
 
@@ -426,43 +426,43 @@ Defined in: src/primeintellect/types.ts:72
 
 > **name**: `string`
 
-Defined in: src/primeintellect/types.ts:73
+Defined in: [src/primeintellect/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L73)
 
 ##### version
 
 > **version**: `string`
 
-Defined in: src/primeintellect/types.ts:74
+Defined in: [src/primeintellect/types.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L74)
 
 ##### description?
 
 > `optional` **description?**: `string`
 
-Defined in: src/primeintellect/types.ts:75
+Defined in: [src/primeintellect/types.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L75)
 
 ##### tasks
 
 > **tasks**: readonly [`PrimeIntellectTask`](#primeintellecttask)[]
 
-Defined in: src/primeintellect/types.ts:76
+Defined in: [src/primeintellect/types.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L76)
 
 ##### scoring
 
 > **scoring**: [`PrimeIntellectScoring`](#primeintellectscoring)
 
-Defined in: src/primeintellect/types.ts:77
+Defined in: [src/primeintellect/types.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L77)
 
 ##### runner
 
 > **runner**: [`PrimeIntellectRunner`](#primeintellectrunner)
 
-Defined in: src/primeintellect/types.ts:78
+Defined in: [src/primeintellect/types.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L78)
 
 ##### maxTurns?
 
 > `optional` **maxTurns?**: `number`
 
-Defined in: src/primeintellect/types.ts:80
+Defined in: [src/primeintellect/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L80)
 
 Prime-enforced model turn cap. Default 16.
 
@@ -470,37 +470,37 @@ Prime-enforced model turn cap. Default 16.
 
 > `optional` **maxInputTokens?**: `number`
 
-Defined in: src/primeintellect/types.ts:81
+Defined in: [src/primeintellect/types.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L81)
 
 ##### maxOutputTokens?
 
 > `optional` **maxOutputTokens?**: `number`
 
-Defined in: src/primeintellect/types.ts:82
+Defined in: [src/primeintellect/types.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L82)
 
 ##### maxTotalTokens?
 
 > `optional` **maxTotalTokens?**: `number`
 
-Defined in: src/primeintellect/types.ts:83
+Defined in: [src/primeintellect/types.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L83)
 
 ##### rolloutTimeoutSeconds?
 
 > `optional` **rolloutTimeoutSeconds?**: `number`
 
-Defined in: src/primeintellect/types.ts:84
+Defined in: [src/primeintellect/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L84)
 
 ##### scoringTimeoutSeconds?
 
 > `optional` **scoringTimeoutSeconds?**: `number`
 
-Defined in: src/primeintellect/types.ts:85
+Defined in: [src/primeintellect/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L85)
 
 ***
 
 ### PrimeIntellectPackageManifest
 
-Defined in: src/primeintellect/types.ts:88
+Defined in: [src/primeintellect/types.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L88)
 
 #### Properties
 
@@ -508,61 +508,61 @@ Defined in: src/primeintellect/types.ts:88
 
 > **kind**: `"tangle.primeintellect.package"`
 
-Defined in: src/primeintellect/types.ts:89
+Defined in: [src/primeintellect/types.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L89)
 
 ##### name
 
 > **name**: `string`
 
-Defined in: src/primeintellect/types.ts:90
+Defined in: [src/primeintellect/types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L90)
 
 ##### moduleName
 
 > **moduleName**: `string`
 
-Defined in: src/primeintellect/types.ts:91
+Defined in: [src/primeintellect/types.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L91)
 
 ##### version
 
 > **version**: `string`
 
-Defined in: src/primeintellect/types.ts:92
+Defined in: [src/primeintellect/types.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L92)
 
 ##### verifiers
 
 > **verifiers**: `">=0.2.0,<0.3.0"`
 
-Defined in: src/primeintellect/types.ts:93
+Defined in: [src/primeintellect/types.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L93)
 
 ##### taskCount
 
 > **taskCount**: `number`
 
-Defined in: src/primeintellect/types.ts:94
+Defined in: [src/primeintellect/types.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L94)
 
 ##### splits
 
 > **splits**: `Record`\<[`PrimeIntellectSplit`](#primeintellectsplit), `number`\>
 
-Defined in: src/primeintellect/types.ts:95
+Defined in: [src/primeintellect/types.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L95)
 
 ##### taskIdsSha256
 
 > **taskIdsSha256**: `string`
 
-Defined in: src/primeintellect/types.ts:96
+Defined in: [src/primeintellect/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L96)
 
 ##### filesSha256
 
 > **filesSha256**: `Record`\<`string`, `string`\>
 
-Defined in: src/primeintellect/types.ts:97
+Defined in: [src/primeintellect/types.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L97)
 
 ***
 
 ### PrimeIntellectPackageBundle
 
-Defined in: src/primeintellect/types.ts:100
+Defined in: [src/primeintellect/types.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L100)
 
 #### Properties
 
@@ -570,13 +570,13 @@ Defined in: src/primeintellect/types.ts:100
 
 > **manifest**: [`PrimeIntellectPackageManifest`](#primeintellectpackagemanifest)
 
-Defined in: src/primeintellect/types.ts:101
+Defined in: [src/primeintellect/types.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L101)
 
 ##### files
 
 > **files**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: src/primeintellect/types.ts:103
+Defined in: [src/primeintellect/types.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L103)
 
 Relative package path to UTF-8 contents.
 
@@ -584,7 +584,7 @@ Relative package path to UTF-8 contents.
 
 ### PrimeIntellectPublicTask
 
-Defined in: src/primeintellect/types.ts:107
+Defined in: [src/primeintellect/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L107)
 
 The answer-free task exposed to the caller's runtime program.
 
@@ -594,37 +594,37 @@ The answer-free task exposed to the caller's runtime program.
 
 > **id**: `string`
 
-Defined in: src/primeintellect/types.ts:108
+Defined in: [src/primeintellect/types.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L108)
 
 ##### split
 
 > **split**: [`PrimeIntellectSplit`](#primeintellectsplit)
 
-Defined in: src/primeintellect/types.ts:109
+Defined in: [src/primeintellect/types.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L109)
 
 ##### prompt
 
 > **prompt**: `string` \| [`PrimeIntellectMessage`](#primeintellectmessage)[]
 
-Defined in: src/primeintellect/types.ts:110
+Defined in: [src/primeintellect/types.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L110)
 
 ##### systemPrompt?
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: src/primeintellect/types.ts:111
+Defined in: [src/primeintellect/types.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L111)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, [`PrimeIntellectJson`](#primeintellectjson)\>
 
-Defined in: src/primeintellect/types.ts:112
+Defined in: [src/primeintellect/types.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L112)
 
 ***
 
 ### PrimeIntellectEpisodeContext
 
-Defined in: src/primeintellect/types.ts:115
+Defined in: [src/primeintellect/types.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L115)
 
 #### Properties
 
@@ -632,13 +632,13 @@ Defined in: src/primeintellect/types.ts:115
 
 > **task**: [`PrimeIntellectPublicTask`](#primeintellectpublictask)
 
-Defined in: src/primeintellect/types.ts:116
+Defined in: [src/primeintellect/types.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L116)
 
 ##### model
 
 > **model**: `object`
 
-Defined in: src/primeintellect/types.ts:117
+Defined in: [src/primeintellect/types.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L117)
 
 ###### name
 
@@ -656,7 +656,7 @@ Defined in: src/primeintellect/types.ts:117
 
 > **mcpServers**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: src/primeintellect/types.ts:122
+Defined in: [src/primeintellect/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L122)
 
 ## Type Aliases
 
@@ -664,7 +664,7 @@ Defined in: src/primeintellect/types.ts:122
 
 > **PrimeIntellectBackendOptions** = `Omit`\<`Parameters`\<*typeof* [`createOpenAICompatibleBackend`](index.md#createopenaicompatiblebackend)\>\[`0`\], `"apiKey"` \| `"baseUrl"` \| `"model"`\>
 
-Defined in: src/primeintellect/runner.ts:21
+Defined in: [src/primeintellect/runner.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L21)
 
 ***
 
@@ -672,7 +672,7 @@ Defined in: src/primeintellect/runner.ts:21
 
 > **PrimeIntellectImportDefaults** = [`PrimeIntellectTraceImportOptions`](#primeintellecttraceimportoptions)
 
-Defined in: src/primeintellect/traces.ts:66
+Defined in: [src/primeintellect/traces.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L66)
 
 ***
 
@@ -680,7 +680,7 @@ Defined in: src/primeintellect/traces.ts:66
 
 > **PrimeIntellectSplit** = `"train"` \| `"eval"`
 
-Defined in: src/primeintellect/types.ts:1
+Defined in: [src/primeintellect/types.ts:1](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L1)
 
 ***
 
@@ -688,7 +688,7 @@ Defined in: src/primeintellect/types.ts:1
 
 > **PrimeIntellectJson** = `null` \| `boolean` \| `number` \| `string` \| [`PrimeIntellectJson`](#primeintellectjson)[] \| \{\[`key`: `string`\]: [`PrimeIntellectJson`](#primeintellectjson); \}
 
-Defined in: src/primeintellect/types.ts:3
+Defined in: [src/primeintellect/types.ts:3](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L3)
 
 ***
 
@@ -696,7 +696,7 @@ Defined in: src/primeintellect/types.ts:3
 
 > **PrimeIntellectContent** = `string` \| (\{ `type`: `"text"`; `text`: `string`; \} \| \{ `type`: `"image_url"`; `image_url`: \{ `url`: `string`; \}; \})[]
 
-Defined in: src/primeintellect/types.ts:11
+Defined in: [src/primeintellect/types.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L11)
 
 ***
 
@@ -704,7 +704,7 @@ Defined in: src/primeintellect/types.ts:11
 
 > **PrimeIntellectMessage** = \{ `role`: `"system"` \| `"user"`; `content`: [`PrimeIntellectContent`](#primeintellectcontent); \} \| \{ `role`: `"assistant"`; `content?`: `string` \| `null`; `reasoning_content?`: `string` \| `null`; `tool_calls?`: `object`[]; `provider_state?`: `Record`\<`string`, [`PrimeIntellectJson`](#primeintellectjson)\>[]; \} \| \{ `role`: `"tool"`; `tool_call_id`: `string`; `content`: [`PrimeIntellectContent`](#primeintellectcontent); `name?`: `string`; \}
 
-Defined in: src/primeintellect/types.ts:15
+Defined in: [src/primeintellect/types.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L15)
 
 ***
 
@@ -712,7 +712,7 @@ Defined in: src/primeintellect/types.ts:15
 
 > **PrimeIntellectScoring** = \{ `kind`: `"exact"`; `normalization?`: `"none"` \| `"trim"` \| `"trim-casefold"`; \} \| \{ `kind`: `"reference-judge"`; `model`: `string`; `prompt?`: `string`; `view?`: `"last_reply"` \| `"full_trace"`; \} \| \{ `kind`: `"command"`; `command`: readonly \[`string`, `...string[]`\]; `files?`: `Readonly`\<`Record`\<`string`, `string`\>\>; `forwardEnv?`: readonly `string`[]; `timeoutSeconds?`: `number`; \}
 
-Defined in: src/primeintellect/types.ts:41
+Defined in: [src/primeintellect/types.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L41)
 
 ***
 
@@ -720,7 +720,7 @@ Defined in: src/primeintellect/types.ts:41
 
 > **PrimeIntellectSetupCommand** = readonly \[`string`, `...string[]`\]
 
-Defined in: src/primeintellect/types.ts:60
+Defined in: [src/primeintellect/types.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/types.ts#L60)
 
 ## Functions
 
@@ -728,7 +728,7 @@ Defined in: src/primeintellect/types.ts:60
 
 > **createPrimeIntellectPackage**(`options`): [`PrimeIntellectPackageBundle`](#primeintellectpackagebundle)
 
-Defined in: src/primeintellect/package.ts:29
+Defined in: [src/primeintellect/package.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L29)
 
 Build a complete PrimeIntellect Verifiers package without writing to disk.
 
@@ -748,7 +748,7 @@ Build a complete PrimeIntellect Verifiers package without writing to disk.
 
 > **writePrimeIntellectPackage**(`bundle`, `outputDirectory`, `options?`): `Promise`\<`string`\>
 
-Defined in: src/primeintellect/package.ts:90
+Defined in: [src/primeintellect/package.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/package.ts#L90)
 
 Write a bundle through a sibling temporary directory, then rename it into place.
 
@@ -776,7 +776,7 @@ Write a bundle through a sibling temporary directory, then rename it into place.
 
 > **readPrimeIntellectEpisodeContext**(`env?`): [`PrimeIntellectEpisodeContext`](#primeintellectepisodecontext)
 
-Defined in: src/primeintellect/runner.ts:27
+Defined in: [src/primeintellect/runner.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L27)
 
 Read and validate the private process contract installed by the generated Prime harness.
 
@@ -796,7 +796,7 @@ Read and validate the private process contract installed by the generated Prime 
 
 > **createPrimeIntellectBackend**(`context`, `options?`): [`AgentExecutionBackend`](index.md#agentexecutionbackend)\<[`AgentBackendInput`](index.md#agentbackendinput)\>
 
-Defined in: src/primeintellect/runner.ts:49
+Defined in: [src/primeintellect/runner.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L49)
 
 Build the existing runtime backend against Prime's intercepted model endpoint.
 
@@ -820,7 +820,7 @@ Build the existing runtime backend against Prime's intercepted model endpoint.
 
 > **runPrimeIntellectProgram**\<`Result`\>(`run`, `options?`): `Promise`\<`Result`\>
 
-Defined in: src/primeintellect/runner.ts:66
+Defined in: [src/primeintellect/runner.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/runner.ts#L66)
 
 Execute the caller's canonical runtime program inside a Prime rollout.
 The callback may call runPersonified, runAgentic, runAgentRounds, or any product wrapper.
@@ -851,7 +851,7 @@ The callback may call runPersonified, runAgentic, runAgentRounds, or any product
 
 > **parsePrimeIntellectTraces**(`jsonl`): [`PrimeIntellectTrace`](#primeintellecttrace)[]
 
-Defined in: src/primeintellect/traces.ts:69
+Defined in: [src/primeintellect/traces.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L69)
 
 Parse Prime's durable `traces.jsonl` and reject malformed rows with a line number.
 
@@ -871,7 +871,7 @@ Parse Prime's durable `traces.jsonl` and reject malformed rows with a line numbe
 
 > **importPrimeIntellectTraces**(`jsonl`, `defaults`): `RunRecord`[]
 
-Defined in: src/primeintellect/traces.ts:90
+Defined in: [src/primeintellect/traces.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L90)
 
 Convert all Prime traces to agent-eval RunRecords while retaining one shared run config.
 
@@ -895,7 +895,7 @@ Convert all Prime traces to agent-eval RunRecords while retaining one shared run
 
 > **primeIntellectTraceToRunRecord**(`trace`, `options`): `RunRecord`
 
-Defined in: src/primeintellect/traces.ts:100
+Defined in: [src/primeintellect/traces.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/primeintellect/traces.ts#L100)
 
 Project one complete Prime trace into the common agent-eval analysis row.
 

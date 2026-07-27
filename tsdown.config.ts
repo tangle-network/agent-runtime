@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsup'
+import { defineConfig } from 'tsdown'
 
 export default defineConfig({
   entry: {
@@ -6,7 +6,7 @@ export default defineConfig({
     agent: 'src/agent/index.ts',
     conversation: 'src/conversation/index.ts',
     intelligence: 'src/intelligence/index.ts',
-    loops: 'src/runtime/index.ts', // the loop kernel + recursive atom surface (the runtime/ directory)
+    loops: 'src/runtime/index.ts',
     'environment-provider': 'src/runtime/environment-provider.ts',
     'analyst-loop': 'src/analyst-loop/index.ts',
     knowledge: 'src/knowledge/index.ts',
@@ -23,6 +23,7 @@ export default defineConfig({
   format: ['esm'],
   dts: {
     compilerOptions: {
+      declarationMap: false,
       ignoreDeprecations: '6.0',
       types: ['node'],
     },
@@ -30,4 +31,9 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   target: 'es2022',
+  platform: 'node',
+  fixedExtension: false,
+  deps: {
+    neverBundle: true,
+  },
 })

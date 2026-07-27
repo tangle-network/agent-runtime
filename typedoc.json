@@ -36,7 +36,8 @@
     "src/loop-runner-bin.ts"
   ],
   "gitRevision": "main",
-  "sourceLinkTemplate": "https://github.com/tangle-network/agent-runtime/blob/{gitRevision}/{path}#L{line}",
+  "sourceLinkTemplate": "https://github.com/tangle-network/agent-runtime/blob/{gitRevision}/src/{path}#L{line}",
+  "disableGit": true,
   "disableSources": false,
   "hideGenerator": true,
   "skipErrorChecking": true,

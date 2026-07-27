@@ -10,7 +10,7 @@
 
 ### AgentManifestError
 
-Defined in: src/agent/define-agent.ts:248
+Defined in: [src/agent/define-agent.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L248)
 
 Thrown when `defineAgent` finds a required surface missing on disk.
 
@@ -24,7 +24,7 @@ Thrown when `defineAgent` finds a required surface missing on disk.
 
 > **new AgentManifestError**(`message`, `agentId`, `issues?`): [`AgentManifestError`](#agentmanifesterror)
 
-Defined in: src/agent/define-agent.ts:249
+Defined in: [src/agent/define-agent.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L249)
 
 ###### Parameters
 
@@ -54,19 +54,19 @@ readonly `unknown`[] = `[]`
 
 > `readonly` **agentId**: `string`
 
-Defined in: src/agent/define-agent.ts:251
+Defined in: [src/agent/define-agent.ts:251](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L251)
 
 ##### issues
 
 > `readonly` **issues**: readonly `unknown`[] = `[]`
 
-Defined in: src/agent/define-agent.ts:252
+Defined in: [src/agent/define-agent.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L252)
 
 ## Interfaces
 
 ### AgentManifest
 
-Defined in: src/agent/define-agent.ts:35
+Defined in: [src/agent/define-agent.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L35)
 
 The full agent manifest. Each agent ships ONE of these.
 
@@ -94,7 +94,7 @@ Generics:
 
 > **id**: `string`
 
-Defined in: src/agent/define-agent.ts:42
+Defined in: [src/agent/define-agent.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L42)
 
 Stable identifier — used as `projectId` in traces, as the analyst
 loop's `runId` prefix, and as the namespace under which findings
@@ -105,7 +105,7 @@ cross-repo telemetry joinable.
 
 > **repoRoot**: `string`
 
-Defined in: src/agent/define-agent.ts:50
+Defined in: [src/agent/define-agent.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L50)
 
 Filesystem root the substrate resolves surface paths against.
 Typically `process.cwd()` or a fixed absolute path. Use an
@@ -116,7 +116,7 @@ absolute path when the agent's tests may run from subdirectories
 
 > **surfaces**: [`AgentSurfaces`](#agentsurfaces)
 
-Defined in: src/agent/define-agent.ts:61
+Defined in: [src/agent/define-agent.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L61)
 
 Map of mutable surfaces the self-improvement loop can edit. See
 `AgentSurfaces` — required: `systemPrompt`, `tools`, `rubric`,
@@ -130,7 +130,7 @@ paths throw with the full list of offenders.
 
 > **rubric**: [`AgentRubric`](#agentrubric)\<`TRunOutput`\>
 
-Defined in: src/agent/define-agent.ts:68
+Defined in: [src/agent/define-agent.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L68)
 
 Rubric the substrate uses to score each run. Dimensions × weights
 × judges. The substrate computes the weighted composite and
@@ -140,7 +140,7 @@ stamps it into the RunRecord.
 
 > **runtime**: [`AgentRuntime`](#agentruntime)\<`TPersona`, `TRunOutput`\>
 
-Defined in: src/agent/define-agent.ts:79
+Defined in: [src/agent/define-agent.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L79)
 
 Runtime adapter — how the substrate INVOKES the agent against a
 persona. The `act` function takes a persona + a context (with the
@@ -154,7 +154,7 @@ substrate is intentionally thin around it.
 
 > **personas**: () => `Promise`\<readonly `TPersona`[]\>
 
-Defined in: src/agent/define-agent.ts:87
+Defined in: [src/agent/define-agent.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L87)
 
 Persona discovery — the substrate loads personas via this function
 at eval start. Can read from `surfaces.personas`, an API, or be
@@ -169,7 +169,7 @@ persona ordering is preserved.
 
 > **analystKinds**: readonly `TraceAnalystKindSpec`[]
 
-Defined in: src/agent/define-agent.ts:97
+Defined in: [src/agent/define-agent.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L97)
 
 Analyst kinds the substrate runs against each persona's trace.
 Defaults to `DEFAULT_TRACE_ANALYST_KINDS` from agent-eval. Per-agent
@@ -182,7 +182,7 @@ Empty array disables the loop — useful for `pnpm eval --no-analyst`.
 
 > **analyst**: [`AnalystConfig`](#analystconfig)
 
-Defined in: src/agent/define-agent.ts:103
+Defined in: [src/agent/define-agent.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L103)
 
 Analyst LLM configuration. The substrate uses these for all four
 kinds (override per-kind via `analystKinds` if needed).
@@ -191,7 +191,7 @@ kinds (override per-kind via `analystKinds` if needed).
 
 ### AgentRubric
 
-Defined in: src/agent/define-agent.ts:106
+Defined in: [src/agent/define-agent.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L106)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -213,7 +213,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **dimensions**: readonly [`RubricDimension`](#rubricdimension)\<`TRunOutput`\>[]
 
-Defined in: src/agent/define-agent.ts:108
+Defined in: [src/agent/define-agent.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L108)
 
 Dimensions composing the weighted score. Weights sum to 1.0 by convention.
 
@@ -221,7 +221,7 @@ Dimensions composing the weighted score. Weights sum to 1.0 by convention.
 
 > `optional` **judges?**: readonly [`JudgeConfig`](#judgeconfig)\<`TRunOutput`\>[]
 
-Defined in: src/agent/define-agent.ts:114
+Defined in: [src/agent/define-agent.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L114)
 
 Optional judges layered on top of deterministic dimensions. Each
 judge returns a score per dimension; the substrate averages judges
@@ -231,7 +231,7 @@ judge returns a score per dimension; the substrate averages judges
 
 ### RubricDimension
 
-Defined in: src/agent/define-agent.ts:117
+Defined in: [src/agent/define-agent.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L117)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -253,7 +253,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **id**: `string`
 
-Defined in: src/agent/define-agent.ts:119
+Defined in: [src/agent/define-agent.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L119)
 
 Unique identifier — appears in finding subjects (`rubric:<id>`).
 
@@ -261,7 +261,7 @@ Unique identifier — appears in finding subjects (`rubric:<id>`).
 
 > **weight**: `number`
 
-Defined in: src/agent/define-agent.ts:121
+Defined in: [src/agent/define-agent.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L121)
 
 0..1 — weight in the composite.
 
@@ -269,7 +269,7 @@ Defined in: src/agent/define-agent.ts:121
 
 > **score**: (`input`) => `number`
 
-Defined in: src/agent/define-agent.ts:127
+Defined in: [src/agent/define-agent.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L127)
 
 Deterministic scorer: given the persona + run output, returns a
 0..1 score. The substrate sums weight × score across dimensions
@@ -295,7 +295,7 @@ for the deterministic composite; judges supplement subjective dims.
 
 > `optional` **label?**: `string`
 
-Defined in: src/agent/define-agent.ts:129
+Defined in: [src/agent/define-agent.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L129)
 
 Optional human-readable label for reports.
 
@@ -303,7 +303,7 @@ Optional human-readable label for reports.
 
 ### JudgeConfig
 
-Defined in: src/agent/define-agent.ts:132
+Defined in: [src/agent/define-agent.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L132)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -325,7 +325,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **id**: `string`
 
-Defined in: src/agent/define-agent.ts:134
+Defined in: [src/agent/define-agent.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L134)
 
 Judge identifier — appears in trace spans + manifest.
 
@@ -333,7 +333,7 @@ Judge identifier — appears in trace spans + manifest.
 
 > **model**: `string`
 
-Defined in: src/agent/define-agent.ts:136
+Defined in: [src/agent/define-agent.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L136)
 
 Model snapshot to invoke. Pin the snapshot (`claude-sonnet-4-6@2025-04-15`); the validator rejects bare aliases.
 
@@ -341,7 +341,7 @@ Model snapshot to invoke. Pin the snapshot (`claude-sonnet-4-6@2025-04-15`); the
 
 > **dimensions**: readonly `string`[]
 
-Defined in: src/agent/define-agent.ts:138
+Defined in: [src/agent/define-agent.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L138)
 
 Dimensions this judge scores.
 
@@ -349,7 +349,7 @@ Dimensions this judge scores.
 
 > `optional` **anchors?**: readonly `object`[]
 
-Defined in: src/agent/define-agent.ts:144
+Defined in: [src/agent/define-agent.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L144)
 
 Optional rubric anchors — text examples the judge sees as a
 few-shot prompt to calibrate. STRONGLY recommended for subjective
@@ -359,7 +359,7 @@ dimensions; required by the calibration gate (Pearson ≥0.7).
 
 ### AgentRuntime
 
-Defined in: src/agent/define-agent.ts:147
+Defined in: [src/agent/define-agent.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L147)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -385,7 +385,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **act**: (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: src/agent/define-agent.ts:172
+Defined in: [src/agent/define-agent.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L172)
 
 Invoke the agent against one persona. Returns BOTH:
   - `events`: an `AsyncIterable<RuntimeStreamEvent>` the chat-centric
@@ -428,7 +428,7 @@ cancel. `ctx.signal` is the standard abort signal.
 
 ### AgentRunInvocation
 
-Defined in: src/agent/define-agent.ts:175
+Defined in: [src/agent/define-agent.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L175)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -450,7 +450,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **events**: `AsyncIterable`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
 
-Defined in: src/agent/define-agent.ts:177
+Defined in: [src/agent/define-agent.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L177)
 
 Live stream of typed runtime events. Consumed by chat UX directly.
 
@@ -458,7 +458,7 @@ Live stream of typed runtime events. Consumed by chat UX directly.
 
 > **output**: `Promise`\<`TRunOutput`\>
 
-Defined in: src/agent/define-agent.ts:179
+Defined in: [src/agent/define-agent.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L179)
 
 Final structured output the rubric scores. Resolves after `events` drains.
 
@@ -466,7 +466,7 @@ Final structured output the rubric scores. Resolves after `events` drains.
 
 ### AgentRunContext
 
-Defined in: src/agent/define-agent.ts:219
+Defined in: [src/agent/define-agent.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L219)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -482,7 +482,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **emitter**: `TraceEmitter`
 
-Defined in: src/agent/define-agent.ts:221
+Defined in: [src/agent/define-agent.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L221)
 
 Substrate-managed trace emitter.
 
@@ -490,7 +490,7 @@ Substrate-managed trace emitter.
 
 > **runId**: `string`
 
-Defined in: src/agent/define-agent.ts:223
+Defined in: [src/agent/define-agent.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L223)
 
 Stable run id for this persona × variant cell.
 
@@ -498,7 +498,7 @@ Stable run id for this persona × variant cell.
 
 > `optional` **variantId?**: `string`
 
-Defined in: src/agent/define-agent.ts:225
+Defined in: [src/agent/define-agent.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L225)
 
 Variant the runtime is exercising (e.g. `'baseline'`, `'source-grounded'`).
 
@@ -506,7 +506,7 @@ Variant the runtime is exercising (e.g. `'baseline'`, `'source-grounded'`).
 
 > `optional` **deadlineMs?**: `number`
 
-Defined in: src/agent/define-agent.ts:227
+Defined in: [src/agent/define-agent.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L227)
 
 Wall-clock deadline (epoch ms). The runtime SHOULD honour for graceful cancel.
 
@@ -514,7 +514,7 @@ Wall-clock deadline (epoch ms). The runtime SHOULD honour for graceful cancel.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: src/agent/define-agent.ts:229
+Defined in: [src/agent/define-agent.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L229)
 
 Optional abort signal.
 
@@ -522,7 +522,7 @@ Optional abort signal.
 
 ### AnalystConfig
 
-Defined in: src/agent/define-agent.ts:232
+Defined in: [src/agent/define-agent.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L232)
 
 `@tangle-network/agent-runtime/agent` — declarative agent manifest +
 substrate-default adapters.
@@ -538,7 +538,7 @@ No per-vertical glue. No fabricated paths. No theater.
 
 > **model**: `string`
 
-Defined in: src/agent/define-agent.ts:234
+Defined in: [src/agent/define-agent.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L234)
 
 Model the analyst kinds use. Override per-kind via `analystKinds[i].cost.models`.
 
@@ -546,7 +546,7 @@ Model the analyst kinds use. Override per-kind via `analystKinds[i].cost.models`
 
 > `optional` **budgetUsd?**: `number`
 
-Defined in: src/agent/define-agent.ts:236
+Defined in: [src/agent/define-agent.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L236)
 
 Optional total budget across all kinds for one run. Substrate enforces via `BudgetGuard`.
 
@@ -554,7 +554,7 @@ Optional total budget across all kinds for one run. Substrate enforces via `Budg
 
 > `optional` **backend?**: `object`
 
-Defined in: src/agent/define-agent.ts:238
+Defined in: [src/agent/define-agent.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L238)
 
 Backend hint for the AxAIService factory — same shape every kind uses.
 
@@ -574,7 +574,7 @@ Backend hint for the AxAIService factory — same shape every kind uses.
 
 ### SurfaceImprovementEdit
 
-Defined in: src/agent/improvement-adapter.ts:35
+Defined in: [src/agent/improvement-adapter.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L35)
 
 #### Properties
 
@@ -582,7 +582,7 @@ Defined in: src/agent/improvement-adapter.ts:35
 
 > **id**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:37
+Defined in: [src/agent/improvement-adapter.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L37)
 
 Stable id derived from the source finding so re-proposals are idempotent.
 
@@ -590,7 +590,7 @@ Stable id derived from the source finding so re-proposals are idempotent.
 
 > **sourceFindingId**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:39
+Defined in: [src/agent/improvement-adapter.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L39)
 
 The finding that produced this edit — for revert + audit trail.
 
@@ -598,7 +598,7 @@ The finding that produced this edit — for revert + audit trail.
 
 > **subject**: `FindingSubject`
 
-Defined in: src/agent/improvement-adapter.ts:41
+Defined in: [src/agent/improvement-adapter.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L41)
 
 Parsed subject; included so the apply step doesn't re-parse.
 
@@ -606,7 +606,7 @@ Parsed subject; included so the apply step doesn't re-parse.
 
 > **target**: [`ResolvedSurface`](#resolvedsurface)
 
-Defined in: src/agent/improvement-adapter.ts:43
+Defined in: [src/agent/improvement-adapter.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L43)
 
 Resolved on-disk target.
 
@@ -614,7 +614,7 @@ Resolved on-disk target.
 
 > **baseSha256**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:45
+Defined in: [src/agent/improvement-adapter.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L45)
 
 SHA-256 of the current file content the patch was drafted against.
 
@@ -622,7 +622,7 @@ SHA-256 of the current file content the patch was drafted against.
 
 > **patch**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:47
+Defined in: [src/agent/improvement-adapter.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L47)
 
 Unified-diff patch the LLM drafted (relative to `target.absolutePath`).
 
@@ -630,7 +630,7 @@ Unified-diff patch the LLM drafted (relative to `target.absolutePath`).
 
 > **summary**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:49
+Defined in: [src/agent/improvement-adapter.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L49)
 
 One-line summary the operator sees in the report / PR title.
 
@@ -638,7 +638,7 @@ One-line summary the operator sees in the report / PR title.
 
 > **rationale**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:51
+Defined in: [src/agent/improvement-adapter.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L51)
 
 Multi-line rationale for the PR body — finding context + LLM reasoning.
 
@@ -646,7 +646,7 @@ Multi-line rationale for the PR body — finding context + LLM reasoning.
 
 > **confidence**: `number`
 
-Defined in: src/agent/improvement-adapter.ts:53
+Defined in: [src/agent/improvement-adapter.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L53)
 
 Carry-forward from the finding so the apply gate can check the threshold.
 
@@ -654,7 +654,7 @@ Carry-forward from the finding so the apply gate can check the threshold.
 
 > **severity**: `AnalystSeverity`
 
-Defined in: src/agent/improvement-adapter.ts:55
+Defined in: [src/agent/improvement-adapter.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L55)
 
 Carry-forward severity for prioritization.
 
@@ -662,7 +662,7 @@ Carry-forward severity for prioritization.
 
 ### CreateSurfaceImprovementProposerOptions
 
-Defined in: src/agent/improvement-adapter.ts:58
+Defined in: [src/agent/improvement-adapter.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L58)
 
 #### Properties
 
@@ -670,19 +670,19 @@ Defined in: src/agent/improvement-adapter.ts:58
 
 > **surfaces**: [`AgentSurfaces`](#agentsurfaces)
 
-Defined in: src/agent/improvement-adapter.ts:59
+Defined in: [src/agent/improvement-adapter.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L59)
 
 ##### repoRoot
 
 > **repoRoot**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:60
+Defined in: [src/agent/improvement-adapter.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L60)
 
 ##### draftPatch
 
 > **draftPatch**: (`input`) => `Promise`\<[`DraftPatchOutput`](#draftpatchoutput)\>
 
-Defined in: src/agent/improvement-adapter.ts:69
+Defined in: [src/agent/improvement-adapter.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L69)
 
 LLM-draft callback. Given a finding + current file content + the
 resolved target, returns a unified-diff patch + summary + rationale.
@@ -705,7 +705,7 @@ substantive prompt rewrites, etc.) via this callback.
 
 > `optional` **allowCreateForKinds?**: readonly (`"code"` \| `"mcp"` \| `"memory"` \| `"agent-profile"` \| `"rollout-policy"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"skill"` \| `"tool-doc"` \| `"new-tool"` \| `"hook"` \| `"subagent"` \| `"workflow"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
 
-Defined in: src/agent/improvement-adapter.ts:77
+Defined in: [src/agent/improvement-adapter.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L77)
 
 When the resolved target doesn't exist, allow the substrate to
 CREATE the file (for `knowledge.wiki`, `new-tool` subjects). Default
@@ -717,7 +717,7 @@ scaffolding opportunity).
 
 ### DraftPatchInput
 
-Defined in: src/agent/improvement-adapter.ts:80
+Defined in: [src/agent/improvement-adapter.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L80)
 
 #### Properties
 
@@ -725,25 +725,25 @@ Defined in: src/agent/improvement-adapter.ts:80
 
 > **finding**: `AnalystFinding`
 
-Defined in: src/agent/improvement-adapter.ts:81
+Defined in: [src/agent/improvement-adapter.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L81)
 
 ##### subject
 
 > **subject**: `FindingSubject`
 
-Defined in: src/agent/improvement-adapter.ts:82
+Defined in: [src/agent/improvement-adapter.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L82)
 
 ##### target
 
 > **target**: [`ResolvedSurface`](#resolvedsurface)
 
-Defined in: src/agent/improvement-adapter.ts:83
+Defined in: [src/agent/improvement-adapter.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L83)
 
 ##### currentContent
 
 > **currentContent**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:85
+Defined in: [src/agent/improvement-adapter.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L85)
 
 Current file content (empty string when `intent === 'create-new'`).
 
@@ -751,7 +751,7 @@ Current file content (empty string when `intent === 'create-new'`).
 
 ### DraftPatchOutput
 
-Defined in: src/agent/improvement-adapter.ts:88
+Defined in: [src/agent/improvement-adapter.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L88)
 
 #### Properties
 
@@ -759,7 +759,7 @@ Defined in: src/agent/improvement-adapter.ts:88
 
 > **patch**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:90
+Defined in: [src/agent/improvement-adapter.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L90)
 
 Unified diff against the current file content. Empty string skips this finding.
 
@@ -767,7 +767,7 @@ Unified diff against the current file content. Empty string skips this finding.
 
 > **summary**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:92
+Defined in: [src/agent/improvement-adapter.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L92)
 
 One-line summary for the operator.
 
@@ -775,7 +775,7 @@ One-line summary for the operator.
 
 > **rationale**: `string`
 
-Defined in: src/agent/improvement-adapter.ts:94
+Defined in: [src/agent/improvement-adapter.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L94)
 
 Multi-line rationale for the PR body.
 
@@ -783,7 +783,7 @@ Multi-line rationale for the PR body.
 
 ### ProfileMaterializationContract
 
-Defined in: src/agent/profile-materialization.ts:40
+Defined in: [src/agent/profile-materialization.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L40)
 
 Declares which AgentProfile axes a concrete run path really carries.
 
@@ -793,7 +793,7 @@ Declares which AgentProfile axes a concrete run path really carries.
 
 > **name**: `string`
 
-Defined in: src/agent/profile-materialization.ts:42
+Defined in: [src/agent/profile-materialization.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L42)
 
 Human-readable run path, e.g. `createSandboxAct` or `prompt-only-message`.
 
@@ -801,7 +801,7 @@ Human-readable run path, e.g. `createSandboxAct` or `prompt-only-message`.
 
 > **axes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
 
-Defined in: src/agent/profile-materialization.ts:44
+Defined in: [src/agent/profile-materialization.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L44)
 
 Profile axes this run path actually carries into execution.
 
@@ -809,7 +809,7 @@ Profile axes this run path actually carries into execution.
 
 ### ProfileMaterializationIssue
 
-Defined in: src/agent/profile-materialization.ts:48
+Defined in: [src/agent/profile-materialization.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L48)
 
 One changed AgentProfile axis that would be dropped by a run path.
 
@@ -819,31 +819,31 @@ One changed AgentProfile axis that would be dropped by a run path.
 
 > **contract**: `string`
 
-Defined in: src/agent/profile-materialization.ts:49
+Defined in: [src/agent/profile-materialization.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L49)
 
 ##### axis
 
 > **axis**: [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)
 
-Defined in: src/agent/profile-materialization.ts:50
+Defined in: [src/agent/profile-materialization.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L50)
 
 ##### reason
 
 > **reason**: `"unsupported-axis"`
 
-Defined in: src/agent/profile-materialization.ts:51
+Defined in: [src/agent/profile-materialization.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L51)
 
 ##### supportedAxes
 
 > **supportedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
 
-Defined in: src/agent/profile-materialization.ts:52
+Defined in: [src/agent/profile-materialization.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L52)
 
 ***
 
 ### DefineProfileMaterializationContractOptions
 
-Defined in: src/agent/profile-materialization.ts:56
+Defined in: [src/agent/profile-materialization.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L56)
 
 Input for declaring a run path's profile-axis support.
 
@@ -853,19 +853,19 @@ Input for declaring a run path's profile-axis support.
 
 > **name**: `string`
 
-Defined in: src/agent/profile-materialization.ts:57
+Defined in: [src/agent/profile-materialization.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L57)
 
 ##### axes
 
 > **axes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
 
-Defined in: src/agent/profile-materialization.ts:58
+Defined in: [src/agent/profile-materialization.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L58)
 
 ***
 
 ### ValidateProfileMaterializationOptions
 
-Defined in: src/agent/profile-materialization.ts:62
+Defined in: [src/agent/profile-materialization.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L62)
 
 Input for checking a candidate diff against a run path.
 
@@ -879,19 +879,19 @@ Input for checking a candidate diff against a run path.
 
 > **contract**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Defined in: src/agent/profile-materialization.ts:63
+Defined in: [src/agent/profile-materialization.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L63)
 
 ##### changedAxes
 
 > **changedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
 
-Defined in: src/agent/profile-materialization.ts:64
+Defined in: [src/agent/profile-materialization.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L64)
 
 ***
 
 ### AssertProfileMaterializationOptions
 
-Defined in: src/agent/profile-materialization.ts:68
+Defined in: [src/agent/profile-materialization.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L68)
 
 Input for throwing on dropped profile axes.
 
@@ -905,7 +905,7 @@ Input for throwing on dropped profile axes.
 
 > **contract**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Defined in: src/agent/profile-materialization.ts:63
+Defined in: [src/agent/profile-materialization.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L63)
 
 ###### Inherited from
 
@@ -915,7 +915,7 @@ Defined in: src/agent/profile-materialization.ts:63
 
 > **changedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
 
-Defined in: src/agent/profile-materialization.ts:64
+Defined in: [src/agent/profile-materialization.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L64)
 
 ###### Inherited from
 
@@ -925,7 +925,7 @@ Defined in: src/agent/profile-materialization.ts:64
 
 > `optional` **context?**: `string`
 
-Defined in: src/agent/profile-materialization.ts:70
+Defined in: [src/agent/profile-materialization.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L70)
 
 Extra label included in the thrown error, usually the caller or run id.
 
@@ -933,7 +933,7 @@ Extra label included in the thrown error, usually the caller or run id.
 
 ### SandboxActComposeOverrides
 
-Defined in: src/agent/sandbox-act.ts:39
+Defined in: [src/agent/sandbox-act.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L39)
 
 Per-persona profile-merge slots applied over the base profile (§1.5: the caller authors the
  per-persona profile). Each slot overlays the base; an absent slot leaves the base untouched.
@@ -944,7 +944,7 @@ Per-persona profile-merge slots applied over the base profile (§1.5: the caller
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: src/agent/sandbox-act.ts:41
+Defined in: [src/agent/sandbox-act.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L41)
 
 Replace the base profile's system prompt (e.g. a workspace-augmented prompt).
 
@@ -952,7 +952,7 @@ Replace the base profile's system prompt (e.g. a workspace-augmented prompt).
 
 > `optional` **extraFiles?**: `AgentProfileFileMount`[]
 
-Defined in: src/agent/sandbox-act.ts:43
+Defined in: [src/agent/sandbox-act.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L43)
 
 Extra file mounts layered after the base profile's `resources.files`.
 
@@ -960,7 +960,7 @@ Extra file mounts layered after the base profile's `resources.files`.
 
 > `optional` **name?**: `string`
 
-Defined in: src/agent/sandbox-act.ts:45
+Defined in: [src/agent/sandbox-act.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L45)
 
 Override the profile `name`. Defaults to the base profile's name.
 
@@ -968,7 +968,7 @@ Override the profile `name`. Defaults to the base profile's name.
 
 > `optional` **tools?**: `Record`\<`string`, `boolean`\>
 
-Defined in: src/agent/sandbox-act.ts:47
+Defined in: [src/agent/sandbox-act.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L47)
 
 Box built-in tool ON/OFF flags merged over the base profile's `tools` (overlay wins per key).
 
@@ -976,7 +976,7 @@ Box built-in tool ON/OFF flags merged over the base profile's `tools` (overlay w
 
 > `optional` **mcpConnections?**: `Record`\<`string`, `AgentProfileMcpServer`\>
 
-Defined in: src/agent/sandbox-act.ts:49
+Defined in: [src/agent/sandbox-act.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L49)
 
 MCP connections merged over the base profile's `mcp` (overlay wins per key).
 
@@ -984,7 +984,7 @@ MCP connections merged over the base profile's `mcp` (overlay wins per key).
 
 ### CreateSandboxActOptions
 
-Defined in: src/agent/sandbox-act.ts:52
+Defined in: [src/agent/sandbox-act.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L52)
 
 #### Type Parameters
 
@@ -1002,7 +1002,7 @@ Defined in: src/agent/sandbox-act.ts:52
 
 > **baseProfile**: `AgentProfile`
 
-Defined in: src/agent/sandbox-act.ts:54
+Defined in: [src/agent/sandbox-act.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L54)
 
 Canonical agent profile — the same one the prod chat turn uses.
 
@@ -1010,7 +1010,7 @@ Canonical agent profile — the same one the prod chat turn uses.
 
 > **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-5)
 
-Defined in: src/agent/sandbox-act.ts:56
+Defined in: [src/agent/sandbox-act.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L56)
 
 Sandbox client used to boot the per-run sandbox.
 
@@ -1018,7 +1018,7 @@ Sandbox client used to boot the per-run sandbox.
 
 > **buildPrompt**: (`persona`) => `string`
 
-Defined in: src/agent/sandbox-act.ts:58
+Defined in: [src/agent/sandbox-act.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L58)
 
 Persona → prompt. Pure; the eval cell's input.
 
@@ -1036,7 +1036,7 @@ Persona → prompt. Pure; the eval cell's input.
 
 > **output**: [`OutputAdapter`](runtime.md#outputadapter)\<`TRunOutput`\>
 
-Defined in: src/agent/sandbox-act.ts:60
+Defined in: [src/agent/sandbox-act.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L60)
 
 Sandbox event stream → typed output the rubric scores.
 
@@ -1044,7 +1044,7 @@ Sandbox event stream → typed output the rubric scores.
 
 > `optional` **compose?**: (`persona`) => [`SandboxActComposeOverrides`](#sandboxactcomposeoverrides)
 
-Defined in: src/agent/sandbox-act.ts:65
+Defined in: [src/agent/sandbox-act.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L65)
 
 Per-persona profile overrides (workspace-augmented system prompt, extra
 file mounts, tool flags, MCP connections). Overlaid onto `baseProfile`.
@@ -1063,7 +1063,7 @@ file mounts, tool flags, MCP connections). Overlaid onto `baseProfile`.
 
 > `optional` **sandboxOverrides?**: `Partial`\<`Omit`\<`CreateSandboxOptions`, `"backend"`\>\> & `object`
 
-Defined in: src/agent/sandbox-act.ts:67
+Defined in: [src/agent/sandbox-act.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L67)
 
 Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
@@ -1077,7 +1077,7 @@ Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
 > `optional` **requiredProfileAxes?**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
 
-Defined in: src/agent/sandbox-act.ts:69
+Defined in: [src/agent/sandbox-act.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L69)
 
 Optional changed axes the caller expects this path to carry.
 
@@ -1085,7 +1085,7 @@ Optional changed axes the caller expects this path to carry.
 
 > `optional` **name?**: `string`
 
-Defined in: src/agent/sandbox-act.ts:71
+Defined in: [src/agent/sandbox-act.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L71)
 
 Stable run name surfaced in mapped `llm_call` events.
 
@@ -1093,7 +1093,7 @@ Stable run name surfaced in mapped `llm_call` events.
 
 > `optional` **mapEvent?**: (`event`, `opts`) => [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: src/agent/sandbox-act.ts:73
+Defined in: [src/agent/sandbox-act.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L73)
 
 Override the `SandboxEvent → RuntimeStreamEvent` mapper.
 
@@ -1117,7 +1117,7 @@ Override the `SandboxEvent → RuntimeStreamEvent` mapper.
 
 ### AgentSurfaces
 
-Defined in: src/agent/surfaces.ts:37
+Defined in: [src/agent/surfaces.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L37)
 
 Surface declarations. Every path is repo-relative (or absolute) at
 `defineAgent` time. At resolution time, paths are joined against the
@@ -1141,7 +1141,7 @@ clear log message instead of fabricating a path.
 
 > **systemPrompt**: `string`
 
-Defined in: src/agent/surfaces.ts:39
+Defined in: [src/agent/surfaces.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L39)
 
 Directory containing one markdown file per system-prompt section.
 
@@ -1149,7 +1149,7 @@ Directory containing one markdown file per system-prompt section.
 
 > **tools**: `string`
 
-Defined in: src/agent/surfaces.ts:41
+Defined in: [src/agent/surfaces.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L41)
 
 Directory containing one subdir per tool (`<tool>/README.md`).
 
@@ -1157,7 +1157,7 @@ Directory containing one subdir per tool (`<tool>/README.md`).
 
 > **rubric**: `string`
 
-Defined in: src/agent/surfaces.ts:43
+Defined in: [src/agent/surfaces.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L43)
 
 Single file (TypeScript module) defining the rubric weights + dimensions.
 
@@ -1165,7 +1165,7 @@ Single file (TypeScript module) defining the rubric weights + dimensions.
 
 > **knowledge**: `string`
 
-Defined in: src/agent/surfaces.ts:45
+Defined in: [src/agent/surfaces.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L45)
 
 Knowledge-base root; typically `.agent-knowledge`.
 
@@ -1173,7 +1173,7 @@ Knowledge-base root; typically `.agent-knowledge`.
 
 > **personas**: `string`
 
-Defined in: src/agent/surfaces.ts:47
+Defined in: [src/agent/surfaces.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L47)
 
 Directory containing one YAML/JSON file per persona.
 
@@ -1181,7 +1181,7 @@ Directory containing one YAML/JSON file per persona.
 
 > `optional` **scaffolding?**: `string`
 
-Defined in: src/agent/surfaces.ts:49
+Defined in: [src/agent/surfaces.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L49)
 
 Optional: directory containing scaffolding rules (precondition checks, retry policies).
 
@@ -1189,7 +1189,7 @@ Optional: directory containing scaffolding rules (precondition checks, retry pol
 
 > `optional` **memory?**: `string`
 
-Defined in: src/agent/surfaces.ts:51
+Defined in: [src/agent/surfaces.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L51)
 
 Optional: memory store path (JSONL / SQLite / DB).
 
@@ -1197,7 +1197,7 @@ Optional: memory store path (JSONL / SQLite / DB).
 
 > `optional` **rag?**: `string`
 
-Defined in: src/agent/surfaces.ts:53
+Defined in: [src/agent/surfaces.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L53)
 
 Optional: directory containing RAG corpora (`<corpus>/<doc-id>.md`).
 
@@ -1205,7 +1205,7 @@ Optional: directory containing RAG corpora (`<corpus>/<doc-id>.md`).
 
 > `optional` **outputSchema?**: `string`
 
-Defined in: src/agent/surfaces.ts:55
+Defined in: [src/agent/surfaces.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L55)
 
 Optional: single file defining the output schema (Zod / JSON Schema).
 
@@ -1213,7 +1213,7 @@ Optional: single file defining the output schema (Zod / JSON Schema).
 
 > `optional` **skills?**: `string`
 
-Defined in: src/agent/surfaces.ts:57
+Defined in: [src/agent/surfaces.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L57)
 
 Optional: directory containing Agent Skill packages.
 
@@ -1221,7 +1221,7 @@ Optional: directory containing Agent Skill packages.
 
 > `optional` **mcp?**: `string`
 
-Defined in: src/agent/surfaces.ts:59
+Defined in: [src/agent/surfaces.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L59)
 
 Optional: directory containing MCP server/tool configuration.
 
@@ -1229,7 +1229,7 @@ Optional: directory containing MCP server/tool configuration.
 
 > `optional` **hooks?**: `string`
 
-Defined in: src/agent/surfaces.ts:61
+Defined in: [src/agent/surfaces.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L61)
 
 Optional: directory containing hook definitions.
 
@@ -1237,7 +1237,7 @@ Optional: directory containing hook definitions.
 
 > `optional` **subagents?**: `string`
 
-Defined in: src/agent/surfaces.ts:63
+Defined in: [src/agent/surfaces.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L63)
 
 Optional: directory containing subagent definitions.
 
@@ -1245,7 +1245,7 @@ Optional: directory containing subagent definitions.
 
 > `optional` **workflows?**: `string`
 
-Defined in: src/agent/surfaces.ts:65
+Defined in: [src/agent/surfaces.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L65)
 
 Optional: directory containing orchestration/workflow policies.
 
@@ -1253,7 +1253,7 @@ Optional: directory containing orchestration/workflow policies.
 
 > `optional` **rolloutPolicy?**: `string`
 
-Defined in: src/agent/surfaces.ts:67
+Defined in: [src/agent/surfaces.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L67)
 
 Optional: single file containing rollout-policy settings.
 
@@ -1261,7 +1261,7 @@ Optional: single file containing rollout-policy settings.
 
 > `optional` **agentProfile?**: `string`
 
-Defined in: src/agent/surfaces.ts:69
+Defined in: [src/agent/surfaces.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L69)
 
 Optional: single canonical AgentProfile file.
 
@@ -1269,7 +1269,7 @@ Optional: single canonical AgentProfile file.
 
 > `optional` **code?**: `string`
 
-Defined in: src/agent/surfaces.ts:71
+Defined in: [src/agent/surfaces.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L71)
 
 Optional: source root for code findings.
 
@@ -1277,7 +1277,7 @@ Optional: source root for code findings.
 
 ### ResolvedSurface
 
-Defined in: src/agent/surfaces.ts:74
+Defined in: [src/agent/surfaces.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L74)
 
 #### Properties
 
@@ -1285,7 +1285,7 @@ Defined in: src/agent/surfaces.ts:74
 
 > **absolutePath**: `string`
 
-Defined in: src/agent/surfaces.ts:76
+Defined in: [src/agent/surfaces.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L76)
 
 Absolute filesystem path the operator can `cat` / `vim`.
 
@@ -1293,7 +1293,7 @@ Absolute filesystem path the operator can `cat` / `vim`.
 
 > **repoRelativePath**: `string`
 
-Defined in: src/agent/surfaces.ts:78
+Defined in: [src/agent/surfaces.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L78)
 
 Repo-relative path for PR descriptions, diffs, audit logs.
 
@@ -1301,7 +1301,7 @@ Repo-relative path for PR descriptions, diffs, audit logs.
 
 > **exists**: `boolean`
 
-Defined in: src/agent/surfaces.ts:80
+Defined in: [src/agent/surfaces.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L80)
 
 Whether the path currently exists on disk.
 
@@ -1309,7 +1309,7 @@ Whether the path currently exists on disk.
 
 > **intent**: `"edit-existing"` \| `"create-new"`
 
-Defined in: src/agent/surfaces.ts:82
+Defined in: [src/agent/surfaces.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L82)
 
 The substrate's intent: edit an existing file or create a new one.
 
@@ -1317,7 +1317,7 @@ The substrate's intent: edit an existing file or create a new one.
 
 ### SurfaceValidationIssue
 
-Defined in: src/agent/surfaces.ts:264
+Defined in: [src/agent/surfaces.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L264)
 
 Validate that every declared surface exists on disk under `repoRoot`.
 
@@ -1332,19 +1332,19 @@ the loop produces 20 minutes later).
 
 > **surface**: keyof [`AgentSurfaces`](#agentsurfaces)
 
-Defined in: src/agent/surfaces.ts:265
+Defined in: [src/agent/surfaces.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L265)
 
 ##### path
 
 > **path**: `string`
 
-Defined in: src/agent/surfaces.ts:266
+Defined in: [src/agent/surfaces.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L266)
 
 ##### reason
 
 > **reason**: `"missing"` \| `"not-directory"` \| `"not-file"`
 
-Defined in: src/agent/surfaces.ts:267
+Defined in: [src/agent/surfaces.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L267)
 
 ## Type Aliases
 
@@ -1352,7 +1352,7 @@ Defined in: src/agent/surfaces.ts:267
 
 > **KnownAgentProfileMaterializationAxis** = *typeof* [`AGENT_PROFILE_MATERIALIZATION_AXES`](#agent_profile_materialization_axes)\[`number`\]
 
-Defined in: src/agent/profile-materialization.ts:31
+Defined in: [src/agent/profile-materialization.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L31)
 
 ***
 
@@ -1360,7 +1360,7 @@ Defined in: src/agent/profile-materialization.ts:31
 
 > **AgentProfileMaterializationAxis** = [`KnownAgentProfileMaterializationAxis`](#knownagentprofilematerializationaxis) \| `` `custom:${string}` ``
 
-Defined in: src/agent/profile-materialization.ts:35
+Defined in: [src/agent/profile-materialization.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L35)
 
 AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions.
 
@@ -1370,7 +1370,7 @@ AgentProfile axis name, with `custom:<name>` reserved for caller-owned extension
 
 > `const` **AGENT\_PROFILE\_MATERIALIZATION\_AXES**: readonly \[`"identity"`, `"name"`, `"model"`, `"prompt"`, `"systemPrompt"`, `"instructions"`, `"resources"`, `"files"`, `"resourceInstructions"`, `"skills"`, `"resourceTools"`, `"resourceAgents"`, `"commands"`, `"tools"`, `"permissions"`, `"mcp"`, `"mcpConnections"`, `"connections"`, `"subagents"`, `"hooks"`, `"modes"`, `"confidential"`, `"metadata"`, `"extensions"`\]
 
-Defined in: src/agent/profile-materialization.ts:4
+Defined in: [src/agent/profile-materialization.ts:4](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L4)
 
 Known AgentProfile axes a run path may or may not carry into execution.
 
@@ -1380,7 +1380,7 @@ Known AgentProfile axes a run path may or may not carry into execution.
 
 > `const` **sandboxActProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Defined in: src/agent/profile-materialization.ts:91
+Defined in: [src/agent/profile-materialization.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L91)
 
 Materialization contract for `createSandboxAct`, which forwards the full AgentProfile.
 
@@ -1390,7 +1390,7 @@ Materialization contract for `createSandboxAct`, which forwards the full AgentPr
 
 > `const` **promptOnlyProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Defined in: src/agent/profile-materialization.ts:112
+Defined in: [src/agent/profile-materialization.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L112)
 
 Materialization contract for a run path that only injects prompt text.
 
@@ -1400,7 +1400,7 @@ Materialization contract for a run path that only injects prompt text.
 
 > `const` **promptResourceProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Defined in: src/agent/profile-materialization.ts:118
+Defined in: [src/agent/profile-materialization.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L118)
 
 Materialization contract for a run path that injects prompt text plus inline resources.
 
@@ -1410,7 +1410,7 @@ Materialization contract for a run path that injects prompt text plus inline res
 
 > **unimplementedAgentRun**\<`TRunOutput`\>(`reason?`): [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: src/agent/define-agent.ts:191
+Defined in: [src/agent/define-agent.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L191)
 
 Stub for agents whose `runtime.act` is not yet wired to the substrate's
 eval path. Preserves the streaming contract (empty event stream + a
@@ -1442,7 +1442,7 @@ the eval path consumes the manifest end-to-end.
 
 > **collectAgentRun**\<`TRunOutput`\>(`invocation`): `Promise`\<\{ `events`: readonly [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]; `output`: `TRunOutput`; \}\>
 
-Defined in: src/agent/define-agent.ts:210
+Defined in: [src/agent/define-agent.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L210)
 
 Drain `act`'s `events` into an array AND await its `output`. Useful for
 eval / outcome-measurement code paths that don't care about live
@@ -1475,7 +1475,7 @@ directly in the chat surface.
 
 > **defineAgent**\<`TPersona`, `TRunOutput`\>(`manifest`): [`AgentManifest`](#agentmanifest)\<`TPersona`, `TRunOutput`\>
 
-Defined in: src/agent/define-agent.ts:272
+Defined in: [src/agent/define-agent.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L272)
 
 Construct a validated agent manifest. Throws `AgentManifestError`
 if any required surface is missing on disk.
@@ -1515,7 +1515,7 @@ the call site.
 
 > **createSurfaceImprovementProposer**(`opts`): [`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
 
-Defined in: src/agent/improvement-adapter.ts:107
+Defined in: [src/agent/improvement-adapter.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L107)
 
 Resolve each finding to a real surface and draft a detached patch candidate.
 
@@ -1535,7 +1535,7 @@ Resolve each finding to a real surface and draft a detached patch candidate.
 
 > **defineProfileMaterializationContract**(`options`): [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Defined in: src/agent/profile-materialization.ts:124
+Defined in: [src/agent/profile-materialization.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L124)
 
 Define the profile axes a concrete run path actually carries into execution.
 
@@ -1555,7 +1555,7 @@ Define the profile axes a concrete run path actually carries into execution.
 
 > **validateProfileMaterialization**(`options`): readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
 
-Defined in: src/agent/profile-materialization.ts:138
+Defined in: [src/agent/profile-materialization.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L138)
 
 Return every changed profile axis that the selected run path would drop.
 
@@ -1575,7 +1575,7 @@ readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
 
 > **assertProfileMaterialization**(`options`): `void`
 
-Defined in: src/agent/profile-materialization.ts:159
+Defined in: [src/agent/profile-materialization.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L159)
 
 Throw when a candidate changes axes the selected run path cannot carry.
 
@@ -1595,7 +1595,7 @@ Throw when a candidate changes axes the selected run path cannot carry.
 
 > **renderProfileMaterializationIssues**(`issues`, `context?`): `string`
 
-Defined in: src/agent/profile-materialization.ts:166
+Defined in: [src/agent/profile-materialization.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L166)
 
 Format profile-axis drop issues into a concise operator-facing error.
 
@@ -1619,7 +1619,7 @@ readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
 
 > **createSandboxAct**\<`TPersona`, `TRunOutput`\>(`options`): (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: src/agent/sandbox-act.ts:85
+Defined in: [src/agent/sandbox-act.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L85)
 
 Build an `AgentRuntime.act` implementation backed by a single prod-profile
 sandbox run. The returned function honours the `act` contract: it returns
@@ -1652,7 +1652,7 @@ resolves only after the iterator drains.
 
 > **resolveSubjectPath**(`subject`, `surfaces`, `repoRoot`): [`ResolvedSurface`](#resolvedsurface) \| `null`
 
-Defined in: src/agent/surfaces.ts:102
+Defined in: [src/agent/surfaces.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L102)
 
 Resolve a parsed `FindingSubject` to the file path the substrate
 should edit (or create) on disk.
@@ -1694,7 +1694,7 @@ it's the whole point.
 
 > **validateSurfaces**(`surfaces`, `repoRoot`): readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
-Defined in: src/agent/surfaces.ts:271
+Defined in: [src/agent/surfaces.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L271)
 
 Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits.
 
@@ -1718,7 +1718,7 @@ readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
 > **renderSurfaceIssues**(`issues`, `repoRoot`): `string`
 
-Defined in: src/agent/surfaces.ts:345
+Defined in: [src/agent/surfaces.ts:345](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L345)
 
 Format a list of surface validation issues into a human-readable error string.
 

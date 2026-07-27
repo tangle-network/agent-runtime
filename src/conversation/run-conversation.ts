@@ -64,6 +64,7 @@ import type {
   TurnOrder,
 } from './types'
 
+/** Run a conversation to completion and return its terminal result. */
 export async function runConversation(
   conversation: Conversation,
   options: RunConversationOptions,

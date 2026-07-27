@@ -1,16 +1,15 @@
-import { defineConfig } from 'tsup'
+import { defineConfig } from 'tsdown'
 
 export default defineConfig({
   entry: ['src/index.ts', 'src/adapters.ts', 'src/benchmarks/*.ts'],
   format: ['esm'],
-  dts: {
-    compilerOptions: {
-      ignoreDeprecations: '6.0',
-      types: ['node'],
-    },
-  },
+  dts: true,
   sourcemap: true,
   clean: true,
-  splitting: true,
   target: 'es2022',
+  platform: 'node',
+  fixedExtension: false,
+  deps: {
+    neverBundle: true,
+  },
 })

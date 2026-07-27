@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { build } from 'tsup'
+import { build } from 'tsdown'
 import {
   createPrimeIntellectPackage,
   importPrimeIntellectTraces,
@@ -35,19 +35,20 @@ const runnerBundle = join(bundleDirectory, 'runner.js')
 await mkdir(root, { recursive: true })
 await writeFile(runnerSource, renderRunner(), 'utf8')
 await build({
-  entry: [runnerSource],
+  config: false,
+  entry: { runner: runnerSource },
   outDir: bundleDirectory,
   format: ['esm'],
   platform: 'node',
   target: 'node22',
-  bundle: true,
-  splitting: false,
+  outputOptions: { codeSplitting: false },
   clean: true,
   dts: false,
   sourcemap: false,
   minify: false,
-  noExternal: [/.*/],
-  silent: true,
+  fixedExtension: false,
+  deps: { alwaysBundle: [/.*/] },
+  logLevel: 'silent',
 })
 
 const bundledRunner = await readFile(runnerBundle, 'utf8')

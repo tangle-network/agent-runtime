@@ -10,7 +10,7 @@
 
 ### AgentEnvironmentProviderRegistry
 
-Defined in: src/runtime/environment-provider.ts:96
+Defined in: [src/runtime/environment-provider.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L96)
 
 **`Experimental`**
 
@@ -22,7 +22,7 @@ In-memory registry for named `AgentEnvironmentProvider` instances.
 
 > **register**(`provider`, `options?`): `void`
 
-Defined in: src/runtime/environment-provider.ts:97
+Defined in: [src/runtime/environment-provider.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L97)
 
 **`Experimental`**
 
@@ -46,7 +46,7 @@ Defined in: src/runtime/environment-provider.ts:97
 
 > **has**(`name`): `boolean`
 
-Defined in: src/runtime/environment-provider.ts:98
+Defined in: [src/runtime/environment-provider.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L98)
 
 **`Experimental`**
 
@@ -64,7 +64,7 @@ Defined in: src/runtime/environment-provider.ts:98
 
 > **get**(`name`): `AgentEnvironmentProvider` \| `undefined`
 
-Defined in: src/runtime/environment-provider.ts:99
+Defined in: [src/runtime/environment-provider.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L99)
 
 **`Experimental`**
 
@@ -82,7 +82,7 @@ Defined in: src/runtime/environment-provider.ts:99
 
 > **require**(`name`): `AgentEnvironmentProvider`
 
-Defined in: src/runtime/environment-provider.ts:100
+Defined in: [src/runtime/environment-provider.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L100)
 
 **`Experimental`**
 
@@ -100,7 +100,7 @@ Defined in: src/runtime/environment-provider.ts:100
 
 > **names**(): `string`[]
 
-Defined in: src/runtime/environment-provider.ts:101
+Defined in: [src/runtime/environment-provider.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L101)
 
 **`Experimental`**
 
@@ -112,7 +112,7 @@ Defined in: src/runtime/environment-provider.ts:101
 
 > **providers**(): `AgentEnvironmentProvider`[]
 
-Defined in: src/runtime/environment-provider.ts:102
+Defined in: [src/runtime/environment-provider.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L102)
 
 **`Experimental`**
 
@@ -124,7 +124,7 @@ Defined in: src/runtime/environment-provider.ts:102
 
 > **capabilities**(`name`): `Promise`\<`AgentEnvironmentCapabilities`\>
 
-Defined in: src/runtime/environment-provider.ts:103
+Defined in: [src/runtime/environment-provider.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L103)
 
 **`Experimental`**
 
@@ -142,7 +142,7 @@ Defined in: src/runtime/environment-provider.ts:103
 
 ### ProviderAsSandboxClientOptions
 
-Defined in: src/runtime/environment-provider.ts:174
+Defined in: [src/runtime/environment-provider.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L174)
 
 **`Experimental`**
 
@@ -154,7 +154,7 @@ Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox cl
 
 > `optional` **defaults?**: `Partial`\<`CreateAgentEnvironmentInput`\>
 
-Defined in: src/runtime/environment-provider.ts:175
+Defined in: [src/runtime/environment-provider.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L175)
 
 **`Experimental`**
 
@@ -162,7 +162,7 @@ Defined in: src/runtime/environment-provider.ts:175
 
 > `optional` **requireTerminalEvent?**: `boolean`
 
-Defined in: src/runtime/environment-provider.ts:176
+Defined in: [src/runtime/environment-provider.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L176)
 
 **`Experimental`**
 
@@ -170,7 +170,7 @@ Defined in: src/runtime/environment-provider.ts:176
 
 > `optional` **mapCreateOptions?**: (`options`) => `Partial`\<`CreateAgentEnvironmentInput`\>
 
-Defined in: src/runtime/environment-provider.ts:177
+Defined in: [src/runtime/environment-provider.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L177)
 
 **`Experimental`**
 
@@ -188,7 +188,7 @@ Defined in: src/runtime/environment-provider.ts:177
 
 ### SandboxClientProviderOptions
 
-Defined in: src/runtime/environment-provider.ts:210
+Defined in: [src/runtime/environment-provider.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L210)
 
 **`Experimental`**
 
@@ -200,7 +200,7 @@ Options for wrapping the current Tangle sandbox client as an environment provide
 
 > `optional` **name?**: `string`
 
-Defined in: src/runtime/environment-provider.ts:211
+Defined in: [src/runtime/environment-provider.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L211)
 
 **`Experimental`**
 
@@ -208,7 +208,7 @@ Defined in: src/runtime/environment-provider.ts:211
 
 > `optional` **defaultBackend?**: `BackendType$1`
 
-Defined in: src/runtime/environment-provider.ts:212
+Defined in: [src/runtime/environment-provider.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L212)
 
 **`Experimental`**
 
@@ -216,7 +216,7 @@ Defined in: src/runtime/environment-provider.ts:212
 
 > `optional` **capabilities?**: `AgentEnvironmentCapabilities` \| (() => `AgentEnvironmentCapabilities` \| `Promise`\<`AgentEnvironmentCapabilities`\>)
 
-Defined in: src/runtime/environment-provider.ts:213
+Defined in: [src/runtime/environment-provider.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L213)
 
 **`Experimental`**
 
@@ -224,7 +224,7 @@ Defined in: src/runtime/environment-provider.ts:213
 
 > `optional` **validateProfile?**: (`profile`) => `AgentProfileValidationResult` \| `Promise`\<`AgentProfileValidationResult`\>
 
-Defined in: src/runtime/environment-provider.ts:216
+Defined in: [src/runtime/environment-provider.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L216)
 
 **`Experimental`**
 
@@ -242,7 +242,7 @@ Defined in: src/runtime/environment-provider.ts:216
 
 > `optional` **resolveProfile?**: (`profileId`) => `AgentProfile` \| `Promise`\<`AgentProfile`\>
 
-Defined in: src/runtime/environment-provider.ts:220
+Defined in: [src/runtime/environment-provider.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L220)
 
 **`Experimental`**
 
@@ -262,7 +262,7 @@ Resolve a named profile before calling Sandbox, which accepts inline profiles on
 
 > `optional` **mapCreateInput?**: (`input`) => `CreateSandboxOptions`
 
-Defined in: src/runtime/environment-provider.ts:221
+Defined in: [src/runtime/environment-provider.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L221)
 
 **`Experimental`**
 
@@ -280,7 +280,7 @@ Defined in: src/runtime/environment-provider.ts:221
 
 ### ProviderExecutorOptions
 
-Defined in: src/runtime/environment-provider.ts:282
+Defined in: [src/runtime/environment-provider.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L282)
 
 **`Experimental`**
 
@@ -296,7 +296,7 @@ Options for running a provider as a supervise-mode executor.
 
 > `optional` **defaults?**: `Partial`\<`CreateAgentEnvironmentInput`\>
 
-Defined in: src/runtime/environment-provider.ts:283
+Defined in: [src/runtime/environment-provider.ts:283](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L283)
 
 **`Experimental`**
 
@@ -304,7 +304,7 @@ Defined in: src/runtime/environment-provider.ts:283
 
 > `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-3)
 
-Defined in: src/runtime/environment-provider.ts:284
+Defined in: [src/runtime/environment-provider.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L284)
 
 **`Experimental`**
 
@@ -312,7 +312,7 @@ Defined in: src/runtime/environment-provider.ts:284
 
 > `optional` **destroyOnSettle?**: `boolean`
 
-Defined in: src/runtime/environment-provider.ts:285
+Defined in: [src/runtime/environment-provider.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L285)
 
 **`Experimental`**
 
@@ -320,7 +320,7 @@ Defined in: src/runtime/environment-provider.ts:285
 
 > `optional` **requireTerminalEvent?**: `boolean`
 
-Defined in: src/runtime/environment-provider.ts:286
+Defined in: [src/runtime/environment-provider.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L286)
 
 **`Experimental`**
 
@@ -328,7 +328,7 @@ Defined in: src/runtime/environment-provider.ts:286
 
 > `optional` **taskToTurn?**: (`task`, `specProfile`) => `AgentTurnInput`
 
-Defined in: src/runtime/environment-provider.ts:287
+Defined in: [src/runtime/environment-provider.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L287)
 
 **`Experimental`**
 
@@ -352,7 +352,7 @@ Defined in: src/runtime/environment-provider.ts:287
 
 > **AgentEnvironmentProviderRef** = `AgentEnvironmentProvider` \| `string`
 
-Defined in: src/runtime/environment-provider.ts:92
+Defined in: [src/runtime/environment-provider.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L92)
 
 **`Experimental`**
 
@@ -364,7 +364,7 @@ Provider object or registry name accepted by runtime provider adapters.
 
 > **createAgentEnvironmentProviderRegistry**(`providers?`): [`AgentEnvironmentProviderRegistry`](#agentenvironmentproviderregistry)
 
-Defined in: src/runtime/environment-provider.ts:108
+Defined in: [src/runtime/environment-provider.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L108)
 
 **`Experimental`**
 
@@ -386,7 +386,7 @@ Create a registry that resolves provider names to concrete provider instances.
 
 > **resolveAgentEnvironmentProvider**(`provider`, `registry?`): `AgentEnvironmentProvider`
 
-Defined in: src/runtime/environment-provider.ts:159
+Defined in: [src/runtime/environment-provider.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L159)
 
 **`Experimental`**
 
@@ -412,7 +412,7 @@ Resolve a provider instance or registry name, failing loudly when a name is unkn
 
 > **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](../runtime.md#sandboxclient-5)
 
-Defined in: src/runtime/environment-provider.ts:184
+Defined in: [src/runtime/environment-provider.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L184)
 
 **`Experimental`**
 
@@ -438,7 +438,7 @@ Adapt a neutral environment provider to the `SandboxClient` interface used by ex
 
 > **sandboxClientAsProvider**(`client`, `options?`): `AgentEnvironmentProvider`
 
-Defined in: src/runtime/environment-provider.ts:226
+Defined in: [src/runtime/environment-provider.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L226)
 
 **`Experimental`**
 
@@ -464,7 +464,7 @@ Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
 
 > **providerAsExecutor**(`provider`, `options?`): [`ExecutorFactory`](../runtime.md#executorfactory)\<`unknown`\>
 
-Defined in: src/runtime/environment-provider.ts:292
+Defined in: [src/runtime/environment-provider.ts:292](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L292)
 
 **`Experimental`**
 

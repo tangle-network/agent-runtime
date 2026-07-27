@@ -44,6 +44,7 @@ import type {
  */
 const judgeEvidenceUri = /^(verdict|judge|score)\b/i
 
+/** Reject analyst findings derived from evaluation scores instead of execution traces. */
 export const assertTraceDerivedFindings: AssertTraceDerivedFindings = (findings) => {
   for (const f of findings) {
     for (const ref of f.evidence_refs ?? []) {

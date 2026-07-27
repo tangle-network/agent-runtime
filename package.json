@@ -99,8 +99,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "tsdown",
+    "dev": "tsdown --watch",
     "prepublishOnly": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -113,7 +113,7 @@
     "check:skills": "node scripts/check-skills.mjs",
     "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
     "verify:bench:published": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
-    "verify:package": "pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && node scripts/verify-package-exports.mjs",
+    "verify:package": "pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs",
     "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect.mjs",
     "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
@@ -122,6 +122,7 @@
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
     "@biomejs/biome": "^2.5.5",
     "@tangle-network/agent-eval": "catalog:",
     "@tangle-network/agent-interface": "catalog:",
@@ -129,7 +130,8 @@
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
     "playwright": "^1.62.0",
-    "tsup": "catalog:",
+    "publint": "catalog:",
+    "tsdown": "catalog:",
     "tsx": "catalog:",
     "typedoc": "0.28.20",
     "typedoc-plugin-markdown": "4.12.0",

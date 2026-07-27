@@ -26,7 +26,7 @@
   },
   "scripts": {
     "prebuild": "pnpm --dir .. build",
-    "build": "tsup",
+    "build": "tsdown",
     "prepack": "pnpm build",
     "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
     "gate-cli": "tsx src/gate-cli.mts",
@@ -35,8 +35,9 @@
     "terminal-compare": "tsx src/terminal-compare.ts",
     "test": "node scripts/run-package-tests.mjs",
     "typecheck:public": "tsc -p tsconfig.public.json",
-    "verify:package": "node scripts/verify-packed-consumer.mjs",
-    "verify:package:local-runtime": "node scripts/verify-packed-consumer.mjs --local-runtime",
+    "verify:package": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs",
+    "verify:package:local-runtime": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs --local-runtime",
+    "verify:package:static": "publint && attw --pack --profile esm-only .",
     "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
   "dependencies": {
@@ -47,8 +48,10 @@
     "@tangle-network/sandbox": "catalog:"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
     "@types/node": "catalog:",
-    "tsup": "catalog:",
+    "publint": "catalog:",
+    "tsdown": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:"
   },

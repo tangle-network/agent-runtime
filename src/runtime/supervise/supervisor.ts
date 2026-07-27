@@ -88,6 +88,7 @@ const defaultMaxDepth = 4
  *  produced no usable result". */
 type NoWinnerReason = (SupervisedResult<unknown> & { kind: 'no-winner' })['reason']
 
+/** Create a supervisor that owns one recursive agent execution tree. */
 export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
   let attached: RootControl | undefined
 

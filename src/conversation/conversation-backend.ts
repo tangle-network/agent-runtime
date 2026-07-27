@@ -26,6 +26,7 @@ import { FORWARD_HEADERS, readDepth } from './headers'
 import { runConversationStream } from './run-conversation'
 import type { Conversation, HaltReason } from './types'
 
+/** Adapt a multi-participant conversation into the standard execution backend contract. */
 export function createConversationBackend(options: {
   conversation: Conversation
   /** Optional backend kind label. Defaults to `'conversation'`. */
