@@ -377,11 +377,15 @@ function verifyPublicImports(appDir, artifacts) {
           imported += 1
         }
       }
-      process.stdout.write(JSON.stringify({ imported }) + '\\n')
+      process.stdout.write('PACKED_COHORT_IMPORTS=' + JSON.stringify({ imported }) + '\\n')
     `,
   )
   const output = captured(process.execPath, [scriptPath], appDir).trim().split('\n')
-  const result = JSON.parse(output.at(-1))
+  const report = output.find((line) => line.startsWith('PACKED_COHORT_IMPORTS='))
+  if (!report) {
+    throw new Error(`public import verification produced no report:\n${output.join('\n')}`)
+  }
+  const result = JSON.parse(report.slice('PACKED_COHORT_IMPORTS='.length))
   if (!Number.isInteger(result.imported) || result.imported < artifacts.length) {
     throw new Error(`public import verification returned ${JSON.stringify(result)}`)
   }
