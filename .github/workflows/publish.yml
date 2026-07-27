@@ -151,7 +151,20 @@ jobs:
             package="$(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -name '*.tgz' -print -quit)"
             test -n "$package"
             node scripts/verify-package-exports.mjs "$package"
-            npm publish "$package" --provenance --access public
+            # npm refuses to implicitly move `latest` to a LOWER version, which is
+            # exactly what a backport off release/<major>.<minor>.x is. When this
+            # version is not the highest published, publish it under a line-scoped
+            # dist-tag instead. Dist-tags do not affect semver range resolution, so
+            # a consumer pinned to ^0.84.0 still resolves 0.84.1.
+            LATEST=$(npm view "$NAME" version 2>/dev/null || true)
+            if [ -n "$LATEST" ] && \
+               [ "$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
+              LINE_TAG="release-${VERSION%.*}"
+              echo "$VERSION is below latest ($LATEST); publishing under dist-tag $LINE_TAG"
+              npm publish "$package" --provenance --access public --tag "$LINE_TAG"
+            else
+              npm publish "$package" --provenance --access public
+            fi
           fi
 
   verify-agent-bench:
