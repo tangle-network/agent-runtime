@@ -160,6 +160,8 @@ function buildAndPack({ packageName, sourceRepo, localPackages }) {
         localPackages.map((artifact) => [artifact.name, `file:${artifact.path}`]),
       ),
     }
+    packageJson.pnpm = { ...(packageJson.pnpm ?? {}), overrides }
+    writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
     captured(
       'corepack',
       [
