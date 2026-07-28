@@ -10,19 +10,23 @@
  *    coordination verbs: `serveCoordinationMcp` exposes spawn/await/steer/stop over the live scope,
  *    and the caller's `driveHarness` runs the harness with that MCP mounted. The harness IS the brain.
  *
- * Both arms spawn children through the SAME `makeWorkerAgent` seam and settle on the SAME completion
- * oracle (`finalizeBestDelivered` — the best DELIVERED child, never the driver's own prose).
+ * Both arms spawn children through the SAME `makeWorkerAgent` seam and finalize through the SAME
+ * seam (`runFinalizer` over DELIVERED children only — default keep-best, never the driver's own
+ * prose).
  */
 import { ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
+  CoordinationEvent,
   MakeWorkerAgent,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { type RouterConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
-import { driverAgent, finalizeBestDelivered } from './coordination-driver'
+import { driverAgent } from './coordination-driver'
+import type { PriorCoordination } from './coordination-log'
 import { serveCoordinationMcp } from './coordination-mcp'
+import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
 import type { StopRule } from './stop-rules'
 import type { Agent, Budget, ResultBlobStore, Scope } from './types'
 
@@ -121,6 +125,15 @@ export interface SupervisorAgentDeps {
    *  distills its coordination transcript to a compact progress note once it exceeds the threshold,
    *  instead of re-billing the whole thing every turn. See `DriverAgentOptions.compaction`. */
   readonly compaction?: ToolLoopCompactionOptions
+  /** Pass-through subscriber for every coordination bus event (both arms) — the seam a durable
+   *  caller hooks its coordination log onto. */
+  readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
+  /** Questions + findings replayed from a prior process of this run (a durable coordination log).
+   *  Router arm: seeds the question ledger + the resume brief. Sandbox arm: seeds the ledger. */
+  readonly priorCoordination?: PriorCoordination
+  /** How the settled ledger becomes the run's output (both arms). Default `bestDelivered` — the
+   *  exact keep-best every existing caller had. Always runs under the delivered-only invariant. */
+  readonly finalizer?: SupervisorFinalizer
 }
 
 /** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. */
@@ -160,6 +173,9 @@ export function supervisorAgent(
       ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
       ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
       ...(deps.compaction ? { compaction: deps.compaction } : {}),
+      ...(deps.onEvent ? { onEvent: deps.onEvent } : {}),
+      ...(deps.priorCoordination ? { priorCoordination: deps.priorCoordination } : {}),
+      ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
     })
   }
 
@@ -183,14 +199,24 @@ export function supervisorAgent(
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
+        ...(deps.onEvent ? { onEvent: deps.onEvent } : {}),
+        ...(deps.priorCoordination?.questions.length
+          ? { priorQuestions: deps.priorCoordination.questions }
+          : {}),
       })
       try {
         await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })
         // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
         // awaited must still reach the finalize ledger.
         await mcp.drainResolved()
-        // The deliverable is the best DELIVERED child, never the harness's own output (Foreman 0/18).
-        return await finalizeBestDelivered(mcp.settled(), deps.blobs)
+        // The deliverable comes from the finalizer seam over DELIVERED children only — never the
+        // harness's own output (Foreman 0/18). Default keep-best.
+        return await runFinalizer(deps.finalizer ?? bestDelivered, {
+          settled: mcp.settled(),
+          blobs: deps.blobs,
+          tree: runTree(scope),
+          budget: scope.budget,
+        })
       } finally {
         await mcp.close()
       }

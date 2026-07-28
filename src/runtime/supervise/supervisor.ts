@@ -42,9 +42,11 @@ import {
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
 import { type BudgetPool, createBudgetPool } from './budget'
+import { runTree } from './finalizer'
 import { createScope } from './scope'
 import type {
   Agent,
+  ResumedKeyState,
   RootHandle,
   RootSignal,
   Scope,
@@ -68,6 +70,41 @@ interface ResumeFrom {
   readonly maxCursorSeq: number
   readonly maxWaitOrdinal: number
   readonly waits: ReadonlyArray<PendingWait>
+  readonly keys: ReadonlyMap<string, ResumedKeyState<unknown>>
+  readonly priorSpend: { readonly childWork: Spend; readonly driverInference: Spend }
+}
+
+/**
+ * The keyed assignments a prior journal proves: every `spawned` event carrying a `key`, resolved
+ * against the replayed settlements. A key spawned more than once (a retry chain) resolves to its
+ * LATEST attempt — iterate in ordinal order so later spawns overwrite earlier ones. A spawned
+ * event with no matching settlement is `in-doubt`: the process died with it in flight.
+ */
+function keyedAssignments(
+  events: SpawnEvent[],
+  settled: ReadonlyArray<Settled<unknown>>,
+): ReadonlyMap<string, ResumedKeyState<unknown>> {
+  const byId = new Map(settled.map((s) => [s.handle.id, s]))
+  const keys = new Map<string, ResumedKeyState<unknown>>()
+  const spawns = events
+    .filter((ev): ev is Extract<SpawnEvent, { kind: 'spawned' }> => ev.kind === 'spawned')
+    .sort((a, b) => a.seq - b.seq)
+  for (const ev of spawns) {
+    if (ev.key === undefined) continue
+    const s = byId.get(ev.id)
+    keys.set(
+      ev.key,
+      s === undefined
+        ? { id: ev.id, label: ev.label, state: 'in-doubt' }
+        : {
+            id: ev.id,
+            label: ev.label,
+            state: s.kind === 'done' ? 'completed' : 'down',
+            settled: s,
+          },
+    )
+  }
+  return keys
 }
 
 /** Highest `seq` among events matching `pred`, or `-1` when none match (so a resumed scope's
@@ -128,6 +165,10 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // and re-arming the same label adopts the ORIGINAL absolute deadline rather than
         // restarting the countdown from this process's clock.
         waits: pendingWaits(prior),
+        // Keyed assignments + prior committed spend ride onto `Scope.resume`, so a resume-aware
+        // driver resolves keys instead of re-spawning and reports what the run already paid.
+        keys: keyedAssignments(prior, settled),
+        priorSpend: sumSpendFromEvents(prior),
       }
     } else {
       // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
@@ -218,7 +259,10 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       if (attached) attached.unbind()
     }
 
-    const tree = scope.view
+    // The run's tree, not this process's: on a resumed run the prior process's committed nodes are
+    // carried in, so `tree` covers the same work `spentTotal` bills for. Identical to `scope.view`
+    // on every run that did not resume.
+    const tree = runTree(scope)
     if (actOutcome.ok) {
       // Every child has settled (join barrier above); no reservation may remain. A leaked ticket
       // would silently corrupt the conserved spend total, so fail loud here — on the success path
@@ -495,11 +539,16 @@ async function spentFromJournal(
       `supervisor: spawn tree '${root}' is missing from the journal after run (corrupted log)`,
     )
   }
+  return sumSpendFromEvents(events)
+}
+
+/** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled);
+ *  `metered` = driver inference (re-homed up the tree, so a single root-tree pass already
+ *  includes every nested driver's inference). */
+function sumSpendFromEvents(events: SpawnEvent[]): { childWork: Spend; driverInference: Spend } {
   const childWork: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
   const driverInference: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
   for (const ev of events) {
-    // `settled` = spawned-child work (reconciled); `metered` = driver inference (re-homed up the
-    // tree, so this single root-tree pass already includes every nested driver's inference).
     if (ev.kind === 'settled') accumulate(childWork, ev.spent)
     else if (ev.kind === 'metered') accumulate(driverInference, ev.spend)
   }

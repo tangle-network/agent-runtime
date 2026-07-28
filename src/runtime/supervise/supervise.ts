@@ -17,6 +17,7 @@ import type {
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import type { SupervisorFinalizer } from './finalizer'
 import { assertModelAllowed } from './model-policy'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
@@ -116,18 +117,19 @@ export interface SuperviseOptions {
   /** Worker output store. Defaults to in-memory. */
   readonly blobs?: ResultBlobStore
   /**
-   * Make the run DURABLE: journal + result blobs are file-backed under this directory
-   * (`createFileRunContext`), fsynced per write, and the supervisor reads the prior tree first.
-   * Re-running with the same `runDir` AND the same `runId` resumes — the children that already
-   * settled are replayed onto `Scope.resume` with their real outputs, and the scope's counters
-   * continue past the journaled maxima. Unset = in-memory, fresh every call.
+   * Make the run DURABLE: journal + result blobs + the coordination side-log are file-backed under
+   * this directory (`createFileRunContext`), fsynced per write, and the supervisor reads the prior
+   * tree first. Re-running with the same `runDir` AND the same `runId` resumes, and the built-in
+   * driver is resume-AWARE out of the box: the children that already settled are replayed onto
+   * `Scope.resume` (and into the driver's settled ledger + its first context), keyed assignments
+   * (`spawn_agent`'s `key`) resolve to their committed results instead of re-running, pending
+   * waits re-arm on their original deadlines, prior questions/findings replay from the
+   * coordination log, and the finalize spans both processes' work. Unset = in-memory, fresh
+   * every call.
    *
-   * What that does and does not buy you, precisely: the run's history survives the process and is
-   * replayable, and a resumed run never corrupts the tree. It does NOT by itself make the built-in
-   * supervisor brain skip committed work — `supervisorAgent`'s driver does not read
-   * `Scope.resume`, so out of the box a resumed run re-spawns children it already paid for. Only a
-   * root `Agent.act` that reads `scope.resume.settled` (as the durable-resume test's root does)
-   * turns durability into work-skipping. Wiring that into the default brain is separate work.
+   * The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
+   * the built-in executors cannot re-attach to a dead process's executions, so those assignments
+   * resume as explicitly lost/in-doubt and re-run (reported, never silent).
    *
    * `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -168,6 +170,12 @@ export interface SuperviseOptions {
    *  supervisor router model, the profile's model, and the backend's model — must be a member,
    *  or `supervise()` throws a `ConfigError` before any compute is spent. Unset = unrestricted. */
   readonly allowedModels?: readonly string[]
+  /** How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
+   *  highest-scoring DELIVERED child (the exact behavior every existing caller had). Alternatives:
+   *  `collectDelivered` (every verified distinct output with provenance — a Pareto set / recorded
+   *  disagreement) or a custom `SupervisorFinalizer`. Whatever the finalizer, it operates on
+   *  structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. */
+  readonly finalizer?: SupervisorFinalizer
 }
 
 /** A quarter of the token pool per worker → ~4 workers fit before `poolStarved` halts spawning. */
@@ -208,36 +216,59 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     }
     makeWorkerAgent = workerFromBackend(opts.backend, opts.deliverable)
   }
+  const workerFactory = makeWorkerAgent
 
-  const agent = supervisorAgent(profile, {
-    blobs,
-    makeWorkerAgent,
-    perWorker,
-    ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
-    ...(opts.router ? { router: opts.router } : {}),
-    ...(opts.brain ? { brain: opts.brain } : {}),
-    ...(opts.driveHarness ? { driveHarness: opts.driveHarness } : {}),
-    ...(opts.extraTools ? { extraTools: opts.extraTools } : {}),
-    ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
-    ...(opts.analysts ? { analysts: opts.analysts } : {}),
-    ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
-    ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
-    ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-    ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
-    ...(opts.onProgressStop ? { onProgressStop: opts.onProgressStop } : {}),
-    ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
-    ...(opts.compaction ? { compaction: opts.compaction } : {}),
-  })
+  const runId = opts.runId ?? 'supervise'
+  const log = ctx.coordinationLog
+  const now = opts.now ?? Date.now
 
-  return createSupervisor<unknown, unknown>().run(agent, task, {
-    budget: opts.budget,
-    runId: opts.runId ?? 'supervise',
-    journal: opts.journal ?? ctx.journal,
-    blobs,
-    executors: ctx.executors,
-    maxDepth: opts.maxDepth ?? 8,
-    ...(opts.probes ? { probes: opts.probes } : {}),
-    ...(ctx.resume === true ? { resume: true } : {}),
-    ...(opts.now ? { now: opts.now } : {}),
-  })
+  // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
+  // `expect(() => supervise(...)).toThrow` still sees the throw, and no compute starts. Only the
+  // durable coordination replay needs to await, so the run begins inside this closure.
+  const start = async () => {
+    // The durable coordination side-log (file contexts only): replay the prior process's questions
+    // and findings into the driver, and append this process's as they publish — so a resumed run
+    // keeps the coordination context the spawn journal does not record.
+    const priorCoordination = log ? await log.load(runId) : undefined
+
+    const agent = supervisorAgent(profile, {
+      blobs,
+      makeWorkerAgent: workerFactory,
+      perWorker,
+      ...(log ? { onEvent: (ev) => log.append(runId, ev, new Date(now()).toISOString()) } : {}),
+      ...(priorCoordination &&
+      (priorCoordination.questions.length > 0 || priorCoordination.findings.length > 0)
+        ? { priorCoordination }
+        : {}),
+      ...(opts.finalizer ? { finalizer: opts.finalizer } : {}),
+      ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+      ...(opts.router ? { router: opts.router } : {}),
+      ...(opts.brain ? { brain: opts.brain } : {}),
+      ...(opts.driveHarness ? { driveHarness: opts.driveHarness } : {}),
+      ...(opts.extraTools ? { extraTools: opts.extraTools } : {}),
+      ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
+      ...(opts.analysts ? { analysts: opts.analysts } : {}),
+      ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+      ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
+      ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+      ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
+      ...(opts.onProgressStop ? { onProgressStop: opts.onProgressStop } : {}),
+      ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
+      ...(opts.compaction ? { compaction: opts.compaction } : {}),
+    })
+
+    return createSupervisor<unknown, unknown>().run(agent, task, {
+      budget: opts.budget,
+      runId,
+      journal: opts.journal ?? ctx.journal,
+      blobs,
+      executors: ctx.executors,
+      maxDepth: opts.maxDepth ?? 8,
+      ...(opts.probes ? { probes: opts.probes } : {}),
+      ...(ctx.resume === true ? { resume: true } : {}),
+      ...(opts.now ? { now: opts.now } : {}),
+    })
+  }
+
+  return start()
 }

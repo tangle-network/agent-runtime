@@ -6266,7 +6266,7 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-12)
+> **budget**: [`Budget`](runtime.md#budget-13)
 
 ##### readinessCheck?
 
@@ -6596,7 +6596,7 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-12)
+> **budget**: [`Budget`](runtime.md#budget-13)
 
 ##### backend?
 
@@ -6757,7 +6757,7 @@ The supervisor-authored harness profiles — one fanout item (one worktree-CLI l
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-12)
+> **budget**: [`Budget`](runtime.md#budget-13)
 
 **`Experimental`**
 

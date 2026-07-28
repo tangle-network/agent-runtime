@@ -147,6 +147,13 @@ export interface CoordinationToolsOptions {
    * killed or retried. Omit = the runtime default.
    */
   readonly stallAfterMs?: number
+  /**
+   * Questions carried over from a prior process of the SAME run (a durable coordination log a
+   * resuming caller replays). Seeded into the question ledger verbatim — `list_questions` shows
+   * them, the stop policy counts the still-blocking ones, and `answer_question` can decide them.
+   * Omit/empty = fresh ledger (every run that is not a resume).
+   */
+  readonly priorQuestions?: ReadonlyArray<QuestionRecord>
 }
 
 /** Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). */
@@ -222,8 +229,26 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   let reason: string | undefined
   let questionSeq = 0
   const ledger: SettledWorker[] = []
-  const questions: QuestionRecord[] = []
+  const questions: QuestionRecord[] = [...(opts.priorQuestions ?? [])]
   const questionPolicy = opts.questionPolicy ?? 'auto'
+
+  // A resumed scope's replayed settlements enter the ledger AT CONSTRUCTION, so `settled()` — and
+  // therefore the finalize that reads it — spans processes exactly as the journal does. They are
+  // NOT re-published on the bus: the driver's resume brief already lists them, and the scope
+  // cursor only yields THIS process's children, so nothing double-counts.
+  for (const s of opts.scope.resume?.settled ?? []) {
+    ledger.push(
+      s.kind === 'done'
+        ? {
+            id: s.handle.id,
+            status: 'done',
+            score: s.verdict?.score ?? 0,
+            valid: s.verdict?.valid ?? false,
+            outRef: s.outRef,
+          }
+        : { id: s.handle.id, status: 'down', reason: s.reason },
+    )
+  }
 
   // The one child→parent pipe. `onEvent` (back-compat) becomes a pass-through subscriber receiving
   // the bare event, so every kind — question, settled, finding — reaches it immediately, and the
@@ -597,6 +622,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'merges over the per-worker default; the conserved pool is still the hard fence. When a ' +
         'max-live-workers cap is set it also fails closed (`error: "max-live-workers"`) while that ' +
         'many workers are still in flight — settle or steer one before spawning another. ' +
+        'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
+        'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
+        'nothing is spent), a key whose prior attempt failed or was lost with a dead process ' +
+        'spawns fresh and says so (`resumed: "retried" | "lost"`), and a key still running is ' +
+        'refused (`error: "duplicate-key"`). ' +
         'Returns `freeSlots`: how many MORE workers you can start right now (`null` = uncapped). ' +
         'While `freeSlots > 0` there is idle capacity — call this again to fill it rather than ' +
         'waiting; parallel workers finish the run sooner than one at a time.',
@@ -606,6 +636,13 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           profile: { description: 'The worker/driver profile to run.' },
           task: { description: 'The task the worker should perform.' },
           label: { type: 'string', description: 'Optional trace label.' },
+          key: {
+            type: 'string',
+            description:
+              'Optional semantic name for this assignment (e.g. "summarize-ch3"). The same key ' +
+              'never runs twice: completed keys return their committed result, even after a ' +
+              'coordinator restart.',
+          },
           budget: {
             type: 'object',
             description:
@@ -623,9 +660,15 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       },
       handler: (raw) => {
         const a = obj(raw)
+        const key = a.key === undefined ? undefined : str(a.key, 'key')
+        // A key the RESUMED journal already proves complete resolves to committed work — no new
+        // live worker — so the concurrency fence does not apply to it.
+        const keyCompleted =
+          key !== undefined && opts.scope.resume?.keys?.get(key)?.state === 'completed'
         // Concurrency fence FIRST — fail closed before reserving budget, so a rejected spawn never
         // touches the pool. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work.
         if (
+          !keyCompleted &&
           maxLiveWorkers !== undefined &&
           maxLiveWorkers > 0 &&
           liveWorkerCount() >= maxLiveWorkers
@@ -641,14 +684,48 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const res = opts.scope.spawn(agent, a.task, {
           budget,
           label: typeof a.label === 'string' ? a.label : 'worker',
+          ...(key !== undefined ? { key } : {}),
         })
+        // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
+        // (it is already in the settled ledger, seeded from the resumed scope or recorded when the
+        // cursor yielded it), so the driver folds it in without an await_event round-trip.
+        if (res.ok && res.prior?.state === 'completed') {
+          const s = res.prior.settled
+          return Promise.resolve({
+            workerId: s.handle.id,
+            resumed: 'completed' as const,
+            status: 'done' as const,
+            score: s.verdict?.score ?? 0,
+            valid: s.verdict?.valid ?? false,
+            outRef: s.outRef,
+            live: liveWorkerCount(),
+            freeSlots: freeWorkerSlots(),
+          })
+        }
         if (res.ok) watchWorker(res.handle.id)
+        // A `completed` key returned above, so any prior still attached here is a real re-run:
+        // `retried` (the prior attempt failed) or `lost` (it died in flight with its process).
+        const priorHistory =
+          res.ok && res.prior !== undefined && res.prior.state !== 'completed'
+            ? {
+                resumed: res.prior.state,
+                priorWorkerId: res.prior.priorId,
+                ...(res.prior.state === 'retried' ? { priorReason: res.prior.reason } : {}),
+              }
+            : {}
         // Report the REMAINING capacity alongside the spawn, so one tool call tells the driver
         // both "it started" and "you can still open N more" — the feedback that lets it fill
-        // slots instead of opening one worker per turn. `null` = uncapped.
+        // slots instead of opening one worker per turn. `null` = uncapped. A fresh spawn under a
+        // key with a failed/lost prior attempt carries that history (`resumed`/`priorWorkerId`),
+        // so a re-run is always explicit, never a silent duplicate.
         return Promise.resolve(
           res.ok
-            ? { workerId: res.handle.id, live: liveWorkerCount(), freeSlots: freeWorkerSlots() }
+            ? {
+                workerId: res.handle.id,
+                live: liveWorkerCount(),
+                freeSlots: freeWorkerSlots(),
+                ...priorHistory,
+              }
             : { error: res.reason, live: liveWorkerCount(), freeSlots: freeWorkerSlots() },
         )
       },
@@ -667,7 +744,21 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       handler: async (raw) => {
         const id = str(obj(raw).workerId, 'workerId')
         const node = opts.scope.view.nodes.find((n) => n.id === id)
-        if (!node) return { error: `unknown workerId ${JSON.stringify(id)}` }
+        if (!node) {
+          // A worker from a PRIOR process of this run: not in the live nursery, but its committed
+          // record is on the resumed view — observable like any settled worker, marked `resumed`.
+          const resumed = opts.scope.resume?.view.nodes.find((n) => n.id === id)
+          if (!resumed) return { error: `unknown workerId ${JSON.stringify(id)}` }
+          const output = resumed.outRef ? await opts.blobs.get(resumed.outRef) : undefined
+          return {
+            status: resumed.status,
+            spent: resumed.spent,
+            outRef: resumed.outRef ?? null,
+            output: output ?? null,
+            progress: null,
+            resumed: true,
+          }
+        }
         const output = node.outRef ? await opts.blobs.get(node.outRef) : undefined
         const progress = readProgress(id)
         return {
