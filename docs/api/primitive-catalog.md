@@ -1119,11 +1119,13 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 104 exports.
 
 ### Testing fixtures — validated Runtime wire records
 
-Import from `@tangle-network/agent-runtime/testing` — 1 export.
+Import from `@tangle-network/agent-runtime/testing` — 3 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `loadAgentImprovementProposalFixture` | function | Load an isolated, production-validated Runtime proposal for consumer tests. |
+| `loadAgentProfileImprovementProposalFixture` | function | Load an isolated proposal containing profile state hashes and diffs, never profiles. |
+| `AgentProfileImprovementProposalFixture` | type | A proposal produced by Runtime's opaque profile-improvement path. |
 
 ### MCP servers — delegate / coordination / detached-session
 
