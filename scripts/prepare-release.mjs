@@ -5,7 +5,7 @@
  * Three checked-in artifacts carry the runtime version, and every one is
  * verified in CI, so a hand-written bump commit fails and the release does not
  * publish:
- *   - src/testing/fixtures/agent-improvement-proposal.json (tests/testing-fixture.test.ts)
+ *   - src/testing/fixtures/*.json (tests/testing-fixture.test.ts)
  *   - docs/api/primitive-catalog.md                        (pnpm run docs:check)
  *   - docs/canonical-api.md                                (pnpm run docs:freshness)
  *

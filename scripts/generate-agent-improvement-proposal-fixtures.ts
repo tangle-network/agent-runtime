@@ -10,6 +10,10 @@ const fixturePath = resolve(
   repoRoot,
   'src/testing/fixtures/agent-improvement-proposal.json',
 )
+const profileFixturePath = resolve(
+  repoRoot,
+  'src/testing/fixtures/agent-profile-improvement-proposal.json',
+)
 const biomePath = resolve(repoRoot, 'node_modules/.bin/biome')
 const packageJson = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
   version?: unknown
@@ -20,7 +24,7 @@ if (typeof packageJson.version !== 'string' || !packageJson.version) {
 
 const args = process.argv.slice(2)
 if (args.some((arg) => arg !== '--check') || args.length > 1) {
-  throw new Error('usage: generate-agent-improvement-proposal-fixture.ts [--check]')
+  throw new Error('usage: generate-agent-improvement-proposal-fixtures.ts [--check]')
 }
 
 const fixedNowMs = Date.parse('2026-07-10T00:00:00.000Z')
@@ -56,8 +60,8 @@ function deterministicBytes(size: number): Buffer {
   return output
 }
 
-function formatFixture(serialized: string): string {
-  return execFileSync(biomePath, ['format', `--stdin-file-path=${fixturePath}`], {
+function formatFixture(path: string, serialized: string): string {
+  return execFileSync(biomePath, ['format', `--stdin-file-path=${path}`], {
     cwd: repoRoot,
     encoding: 'utf8',
     env: { ...process.env, FORCE_COLOR: '0' },
@@ -96,10 +100,11 @@ Object.assign(process.env, {
 })
 
 try {
-  const [runtime, experimentFixtures, executionFixtures] = await Promise.all([
+  const [runtime, experimentFixtures, executionFixtures, profileFixtures] = await Promise.all([
     import('../src/intelligence/improvement-cycle'),
     import('../tests/helpers/candidate-experiment-fixture'),
     import('../tests/helpers/candidate-execution-fixture'),
+    import('../tests/helpers/profile-improvement-fixture'),
   ])
   cleanupCandidateExperimentFixtures = experimentFixtures.cleanupCandidateExperimentFixtures
   cleanupCandidateFixtures = executionFixtures.cleanupCandidateFixtures
@@ -137,20 +142,48 @@ try {
     now: () => new Date('2026-07-10T01:00:00.000Z'),
   })
   const serialized = formatFixture(
+    fixturePath,
     `${JSON.stringify(runtime.verifyAgentImprovementProposal(proposal), null, 2)}\n`,
   )
+  const profileFixture = profileFixtures.createProfileImprovementFixture()
+  const profileProposal = runtime.createAgentImprovementProposal({
+    runId: profileFixture.evaluation.provenance.runId,
+    findings: [],
+    evaluation: {
+      ...profileFixture.evaluation,
+      metadata: {
+        ...(profileFixture.evaluation.metadata ?? {}),
+        fixture: 'agent-profile-improvement-proposal',
+        runtimeVersion: packageJson.version,
+      },
+    },
+    now: () => new Date('2026-07-10T01:30:00.000Z'),
+  })
+  const serializedProfileFixture = formatFixture(
+    profileFixturePath,
+    `${JSON.stringify(runtime.verifyAgentImprovementProposal(profileProposal), null, 2)}\n`,
+  )
+  const fixtures = [
+    { path: fixturePath, serialized },
+    { path: profileFixturePath, serialized: serializedProfileFixture },
+  ]
 
   if (args[0] === '--check') {
-    if (readFileSync(fixturePath, 'utf8') !== serialized) {
+    const stale = fixtures
+      .filter((fixture) => readFileSync(fixture.path, 'utf8') !== fixture.serialized)
+      .map((fixture) => fixture.path)
+    if (stale.length > 0) {
       throw new Error(
-        'agent improvement proposal fixture is stale; run pnpm generate:testing-fixture',
+        `agent improvement proposal fixture(s) are stale: ${stale.join(', ')}; run pnpm generate:testing-fixture`,
       )
     }
-    process.stdout.write('agent improvement proposal fixture is current\n')
+    process.stdout.write('agent improvement proposal fixtures are current\n')
   } else {
-    mkdirSync(dirname(fixturePath), { recursive: true })
-    writeFileSync(fixturePath, serialized)
-    process.stdout.write(`wrote ${fixturePath}\n`)
+    for (const fixture of fixtures) {
+      mkdirSync(dirname(fixture.path), { recursive: true })
+      writeFileSync(fixture.path, fixture.serialized)
+      process.stdout.write(`wrote ${fixture.path}\n`)
+    }
   }
 } finally {
   cleanupCandidateExperimentFixtures?.()

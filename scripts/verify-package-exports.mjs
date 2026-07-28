@@ -153,7 +153,11 @@ try {
         CandidateExecutionEvidence,
         Sha256Digest,
       } from '@tangle-network/agent-interface'
-      import { loadAgentImprovementProposalFixture } from '@tangle-network/agent-runtime/testing'
+      import {
+        type AgentProfileImprovementProposalFixture,
+        loadAgentImprovementProposalFixture,
+        loadAgentProfileImprovementProposalFixture,
+      } from '@tangle-network/agent-runtime/testing'
       import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
       import {
         createExactProcessCandidateExperimentExecutor,
@@ -191,6 +195,10 @@ try {
       declare const profileEvaluation: AgentImprovementEvaluation
       declare const activeProfile: AgentProfile
       const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
+      const profileProposalFixture: AgentProfileImprovementProposalFixture =
+        loadAgentProfileImprovementProposalFixture()
+      const fixtureProfileExperimentDigest: Sha256Digest =
+        profileProposalFixture.evaluation.experiment.digest
 
       const executor = createExactProcessCandidateExperimentExecutor({
         provider,
@@ -271,6 +279,8 @@ try {
       void profileDiffs
       void profilePrepared
       void proposalFixture
+      void profileProposalFixture
+      void fixtureProfileExperimentDigest
     `,
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
@@ -359,8 +369,13 @@ try {
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
         }
-        if ('loadAgentImprovementProposalFixture' in intelligence) {
-          throw new Error('testing fixture leaked into the intelligence entrypoint')
+        for (const name of [
+          'loadAgentImprovementProposalFixture',
+          'loadAgentProfileImprovementProposalFixture',
+        ]) {
+          if (name in intelligence) {
+            throw new Error('testing fixture leaked into the intelligence entrypoint: ' + name)
+          }
         }
       `,
     ],
@@ -376,8 +391,13 @@ try {
         for (const name of ['improve', 'officialGepa', 'officialSkillOpt']) {
           if (typeof runtime[name] !== 'function') throw new Error('missing improvement export ' + name)
         }
-        if ('loadAgentImprovementProposalFixture' in runtime) {
-          throw new Error('testing fixture leaked into the production root entrypoint')
+        for (const name of [
+          'loadAgentImprovementProposalFixture',
+          'loadAgentProfileImprovementProposalFixture',
+        ]) {
+          if (name in runtime) {
+            throw new Error('testing fixture leaked into the production root entrypoint: ' + name)
+          }
         }
         const knowledge = await import('@tangle-network/agent-runtime/knowledge')
         for (const name of [
@@ -398,18 +418,37 @@ try {
       '--eval',
       `
         const testing = await import('@tangle-network/agent-runtime/testing')
-        const names = Object.keys(testing)
-        if (
-          names.length !== 1 ||
-          names[0] !== 'loadAgentImprovementProposalFixture' ||
-          typeof testing.loadAgentImprovementProposalFixture !== 'function'
-        ) {
-          throw new Error('testing entrypoint must export only the proposal fixture loader')
+        const expected = [
+          'loadAgentImprovementProposalFixture',
+          'loadAgentProfileImprovementProposalFixture',
+        ]
+        const names = Object.keys(testing).sort()
+        if (JSON.stringify(names) !== JSON.stringify(expected)) {
+          throw new Error('testing entrypoint must export only the proposal fixture loaders')
+        }
+        for (const name of expected) {
+          if (typeof testing[name] !== 'function') {
+            throw new Error('testing fixture export must be a function: ' + name)
+          }
         }
         const first = testing.loadAgentImprovementProposalFixture()
         const second = testing.loadAgentImprovementProposalFixture()
+        const firstProfile = testing.loadAgentProfileImprovementProposalFixture()
+        const secondProfile = testing.loadAgentProfileImprovementProposalFixture()
         if (first === second || first.evaluation === second.evaluation) {
           throw new Error('testing fixture loader did not return an isolated clone')
+        }
+        if (
+          first.evaluation.kind !== 'agent-improvement-measured-comparison' ||
+          firstProfile.evaluation.kind !== 'agent-profile-improvement-measured-comparison'
+        ) {
+          throw new Error('testing fixture loaders returned the wrong proposal shapes')
+        }
+        if (
+          firstProfile === secondProfile ||
+          firstProfile.evaluation === secondProfile.evaluation
+        ) {
+          throw new Error('profile testing fixture loader did not return an isolated clone')
         }
       `,
     ],
