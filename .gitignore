@@ -4,6 +4,7 @@ node_modules/
 
 # meta-harness / evolve loop runtime state
 .evolve/
+.cohort/
 bench/data/
 bench/experiments/
 bench/runs/
