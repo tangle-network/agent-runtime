@@ -6,6 +6,7 @@ import { hashKnowledgeBase } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MAX_CANDIDATE_TIMER_INTERVAL_MS } from '../src/candidate-execution/cleanup'
 import {
+  canonicalCandidateDigest,
   canonicalCandidateDocument,
   embeddedCandidateArtifact,
 } from '../src/candidate-execution/digest'
@@ -33,6 +34,145 @@ afterEach(() => {
 })
 
 describe('candidate execution preparation', () => {
+  it.each([
+    {
+      harness: 'codex',
+      executable: '/usr/local/bin/codex',
+      flags: ['-c', 'developer_instructions="Native \\"prompt\\"\\nsecond line\\tend"'],
+    },
+    {
+      harness: 'claude-code',
+      executable: 'claude',
+      flags: ['--system-prompt-file', '/workspace/task/.tangle/system-prompt.md'],
+    },
+    {
+      harness: 'opencode',
+      executable: 'opencode',
+      flags: [],
+    },
+    {
+      harness: 'pi',
+      executable: 'pi',
+      flags: ['--system-prompt', '/workspace/task/.tangle/system-prompt.md'],
+    },
+  ] as const)(
+    'projects the replacement system prompt onto the native $harness process',
+    async ({ harness, executable, flags }) => {
+      const value = fixture()
+      const systemPrompt = 'Native "prompt"\nsecond line\tend'
+      value.bundle = redigestBundle(value.bundle, {
+        profile: {
+          ...value.bundle.profile,
+          harness,
+          prompt: { ...value.bundle.profile.prompt, systemPrompt },
+        },
+        execution: {
+          ...value.bundle.execution,
+          harness,
+          launch: { kind: 'container-command', executable },
+        },
+      })
+      bindCandidateFixtureBundle(value)
+
+      const prepared = await prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      )
+
+      expect(prepared.profilePlan.value.material.systemPrompt).toBeUndefined()
+      expect(prepared.profilePlan.value.material.sourceProfileDigest).toBe(
+        canonicalCandidateDigest(value.bundle.profile),
+      )
+      expect(prepared.launch.flags).toEqual(flags)
+      expect(prepared.launch.args).toEqual(flags)
+      expect(prepared.executionPlan.value.material.launch.args.map((arg) => arg.value)).toEqual(
+        flags,
+      )
+      expect(Buffer.from(prepared.instruction.bytes)).toEqual(
+        Buffer.from(value.task.task.instruction),
+      )
+      expect(prepared.launch.args).not.toContain(value.task.task.instruction)
+
+      const openCodeConfig = prepared.profileActivation.files.find(
+        (file) => file.path === 'opencode.json',
+      )
+      const systemPromptFile = prepared.profileActivation.files.find(
+        (file) => file.path === '.tangle/system-prompt.md',
+      )
+      if (harness === 'opencode') {
+        expect(JSON.parse(openCodeConfig?.content ?? '')).toMatchObject({
+          instructions: ['.opencode/profile-instructions.md'],
+          agent: {
+            build: { prompt: systemPrompt },
+            plan: { prompt: systemPrompt },
+          },
+        })
+        expect(systemPromptFile).toBeUndefined()
+      } else if (harness === 'claude-code' || harness === 'pi') {
+        expect(openCodeConfig).toBeUndefined()
+        expect(systemPromptFile?.content).toBe(systemPrompt)
+      } else {
+        expect(openCodeConfig).toBeUndefined()
+        expect(systemPromptFile).toBeUndefined()
+      }
+    },
+  )
+
+  it('rejects a system prompt when an arbitrary candidate entrypoint cannot apply it', async () => {
+    const value = fixture(true)
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        prompt: {
+          ...value.bundle.profile.prompt,
+          systemPrompt: 'This replacement must be active.',
+        },
+      },
+    })
+    bindCandidateFixtureBundle(value)
+    let reservationCalls = 0
+    value.ports.models.reserveGrant = async () => {
+      reservationCalls++
+      throw new Error('candidate must fail before reserving protected access')
+    }
+
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/candidate-entrypoint launch cannot prove codex system-prompt replacement/)
+    expect(reservationCalls).toBe(0)
+  })
+
+  it('rejects a system prompt when the declared harness does not launch its native CLI', async () => {
+    const value = fixture()
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        prompt: {
+          ...value.bundle.profile.prompt,
+          systemPrompt: 'This replacement must be active.',
+        },
+      },
+      execution: {
+        ...value.bundle.execution,
+        launch: { kind: 'container-command', executable: 'tools/codex' },
+      },
+    })
+    bindCandidateFixtureBundle(value)
+
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/requires the native codex executable/)
+  })
+
   it('binds exact instruction, repository, profile, model, image, roots, and limits', async () => {
     const value = fixture()
     value.bundle = bundle({
