@@ -2889,7 +2889,7 @@ Override the analyst's system instruction — the prompt that turns a trace into
 
 ##### findings
 
-> **findings**: `AnalystFinding`[]
+> **findings**: `ProposalFinding`[]
 
 ##### learned
 

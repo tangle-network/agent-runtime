@@ -228,6 +228,7 @@ export interface CreateAgentImprovementActivationOptions {
 export type AgentImprovementAnalysisOptions = Omit<
   RunAnalystLoopOpts,
   | 'runId'
+  | 'inputs'
   | 'improvementProposalSource'
   | 'knowledgeProposalSource'
   | 'onEvent'
@@ -235,7 +236,9 @@ export type AgentImprovementAnalysisOptions = Omit<
   | 'costLedger'
   | 'costPhase'
   | 'signal'
->
+> & {
+  inputs: Omit<RunAnalystLoopOpts['inputs'], 'judgeInput'> & { judgeInput?: never }
+}
 
 type WithProposalFindings<T> = T extends unknown
   ? Omit<T, 'findings'> & { findings?: readonly ProposalFinding[] }
@@ -484,6 +487,16 @@ async function analyzeAgentImprovement(
     ...(signal ? { signal } : {}),
   })
   if (costLedger) assertAnalysisCostRecorded(analysis, costLedger)
+  const judgeDerived = analysis.analystResult.findings.filter(
+    (finding) => finding.derived_from_judge === true,
+  )
+  if (judgeDerived.length > 0) {
+    throw new Error(
+      `agent improvement analysis must not produce judge-derived findings: [${judgeDerived
+        .map((finding) => finding.finding_id)
+        .join(', ')}]`,
+    )
+  }
   const findings = assertProposalFindings(
     analysis.analystResult.findings.map((finding) => ({
       ...finding,
@@ -504,6 +517,9 @@ function assertMeasuredAnalysisOptions(options: AgentImprovementAnalysisOptions)
   }
   if (rawOptions.onEvent !== undefined || rawOptions.log !== undefined) {
     throw new Error('measured agent improvement analysis must not run callbacks')
+  }
+  if (rawOptions.inputs.judgeInput !== undefined) {
+    throw new Error('measured agent improvement analysis must not receive judge input')
   }
 }
 
@@ -781,13 +797,14 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     costLedger,
     options.signal,
   )
+  const proposalFindings = immutableCandidateValue([...inputFindings, ...findings])
   const improvement = await improve(profile, {
     ...options.improvement,
     executionRef: options.executor.executionRef.digest,
     agent: options.executor.optimize,
     costLedger,
     costCeiling: options.budgetUsd,
-    findings: [...inputFindings, ...findings],
+    findings: proposalFindings,
   })
   try {
     if (improvement.decision !== 'ship') {
@@ -869,7 +886,7 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     )
     const proposal = createAgentImprovementProposal({
       runId: options.runId,
-      findings,
+      findings: proposalFindings,
       evaluation,
       ...(options.now ? { now: options.now } : {}),
     })
@@ -895,9 +912,10 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
   )
   const { analysis, findings } = await analyzeAgentImprovement(options.runId, options.analysis)
   const analysisAccounting = completeAnalysisAccounting(analysis)
+  const proposalFindings = immutableCandidateValue([...inputFindings, ...findings])
   const improvementInput = {
     ...options.improvement,
-    findings: [...inputFindings, ...findings],
+    findings: proposalFindings,
   }
   const improvement =
     improvementInput.surface === 'code'
@@ -944,7 +962,7 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
     })
     const proposal = createAgentImprovementProposal({
       runId: options.runId,
-      findings,
+      findings: proposalFindings,
       evaluation: measured.evaluation,
       ...(options.now ? { now: options.now } : {}),
     })

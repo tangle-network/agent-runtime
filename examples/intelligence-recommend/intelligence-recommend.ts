@@ -16,7 +16,7 @@
  * Run:  pnpm tsx examples/intelligence-recommend/intelligence-recommend.ts
  */
 
-import { makeFinding } from '@tangle-network/agent-eval'
+import { makeProposalFinding } from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import { improve } from '@tangle-network/agent-runtime'
 import { createIntelligenceClient } from '@tangle-network/agent-runtime/intelligence'
@@ -58,21 +58,23 @@ const traceId = intelligence.recordTrace(events, { traceId: 'a'.repeat(32) })
 // In production a trace analyst reads the spans and emits these; offline we hand-derive two findings,
 // each citing the trace via an EvidenceRef so the provenance chain is real.
 const findings = [
-  makeFinding({
+  makeProposalFinding({
     analyst_id: 'demo-analyst',
     severity: 'medium',
     area: 'agent-reasoning',
     claim: 'the agent under-specifies its answer format, leading to retries',
     confidence: 0.8,
     evidence_refs: [{ kind: 'span', uri: `span://${traceId}/${runId}` }],
+    proposal_origin: 'production',
   }),
-  makeFinding({
+  makeProposalFinding({
     analyst_id: 'demo-analyst',
     severity: 'low',
     area: 'cost',
     claim: 'three iterations spent before the first valid answer',
     confidence: 0.7,
     evidence_refs: [{ kind: 'span', uri: `span://${traceId}/${runId}` }],
+    proposal_origin: 'production',
   }),
 ]
 

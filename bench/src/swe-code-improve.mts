@@ -33,6 +33,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { improve, agenticGenerator } from '@tangle-network/agent-runtime'
+import type { ProposalFinding } from '@tangle-network/agent-eval'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
@@ -238,7 +239,7 @@ async function main(): Promise<void> {
 
   // Domain prompt: name the EDIT BOUNDARY (scaffold logic only) + keep the raw-trace evidence discipline
   // (agenticGenerator discards a raw-trace candidate that doesn't inspect a trace + write the diagnosis).
-  const buildPrompt = (args: { report: unknown; findings: Array<{ severity?: string; claim?: string; recommended_action?: string }> }): string => {
+  const buildPrompt = (args: { findings: ReadonlyArray<ProposalFinding> }): string => {
     const lines: string[] = [
       'You are improving a SWE-bench coding SCAFFOLD: a harness that drives a FIXED worker model to fix real GitHub bugs via list_files/read_file/edit_file tools. Your job is to rewrite the SCAFFOLD LOGIC so the SAME worker model resolves MORE instances on a held-out split.',
       '',

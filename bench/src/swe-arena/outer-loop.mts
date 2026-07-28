@@ -73,7 +73,11 @@ import {
 } from '@tangle-network/agent-runtime'
 import { runLocalHarness } from '@tangle-network/agent-runtime/mcp'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
-import { makeFinding } from '@tangle-network/agent-eval'
+import {
+  makeProposalFinding,
+  type AnalystFinding,
+  type ProposalFinding,
+} from '@tangle-network/agent-eval'
 import {
   FsLabeledScenarioStore,
   surfaceHash,
@@ -1111,6 +1115,10 @@ export async function removeEvalWorktree(loopsRepo: string, dest: string): Promi
  *  artifact path its gate checks for. */
 export const RAW_TRACE_DIAGNOSIS_PATH = '.improve/raw-trace-diagnosis.md'
 
+function asSearchProposalFinding(finding: AnalystFinding): ProposalFinding {
+  return { ...finding, proposal_origin: 'search' }
+}
+
 export function changeSpaceInstruction(space: ChangeSpace = LOOPS_CHANGE_SPACE): string {
   return [
     'DECLARED CHANGE-SPACE (hard constraint, enforced by an automated gate):',
@@ -1123,7 +1131,7 @@ export function changeSpaceInstruction(space: ChangeSpace = LOOPS_CHANGE_SPACE):
   ].join('\n')
 }
 
-export function round4BuildPrompt(args: { report: unknown; findings: Array<Record<string, unknown>> }): string {
+export function round4BuildPrompt(args: { findings: ReadonlyArray<ProposalFinding> }): string {
   const lines: string[] = [
     'You are the optimizer of the "loops" pi SUPERVISOR — an agent that plans, spawns sandboxed coding',
     'workers, and settles a delivered patch for SWE-bench Verified instances (glm-5.2 in both seats, frozen).',
@@ -1274,8 +1282,7 @@ export function constrainedLoopsGenerator(config: OuterLoopConfig): CandidateGen
   const inner = agenticGenerator({
     harness: config.proposerHarness,
     timeoutMs: config.proposerTimeoutMs,
-    buildPrompt: (args) =>
-      round4BuildPrompt(args as unknown as { report: unknown; findings: Array<Record<string, unknown>> }),
+    buildPrompt: round4BuildPrompt,
     verify: loopsCandidateVerifier(config.loopsRepo),
     runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(config.proposerHarness) }),
     // Three runs died as "author shot exited with code 1" with the shot's
@@ -1982,7 +1989,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
 
   // ── diagnosis at the analyzeGeneration seam ──────────────────────────
   const rawTrace = rawTraceDistiller<Scenario, R4Artifact>({ fallbackFindings: [] })
-  const steeringFinding = makeFinding({
+  const steeringFinding = makeProposalFinding({
     analyst_id: 'round4-protocol',
     severity: 'high',
     area: 'constraint',
@@ -1992,13 +1999,14 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       '(plus the .improve/ diagnosis artifact). Judge, verify scripts, task prompts, model ids and budgets are immutable.',
     recommended_action: 'Keep every edit inside the change-space; out-of-space candidate diffs are rejected before evaluation.',
     evidence_refs: [],
+    proposal_origin: 'search',
   })
   const analyzeGeneration = async (input: {
     generation: number
     runDir: string
     candidates: Array<{ surfaceHash: string; composite: number; campaign: unknown }>
     history: unknown[]
-  }): Promise<unknown[]> => {
+  }): Promise<ProposalFinding[]> => {
     signal?.throwIfAborted()
     const runs: SupRunArtifacts[] = []
     if (input.generation === -1) {
@@ -2038,7 +2046,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         })
       }
     }
-    let ensembleFindings: unknown[] = []
+    let ensembleFindings: ProposalFinding[] = []
     if (runs.length > 0) {
       try {
         const scratch = join(config.outDir, 'diagnosis', `gen-${input.generation}`)
@@ -2058,7 +2066,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         ensembleFindings = fusedToAnalystFindings(ensemble.fused, {
           dirs: [...new Set(runs.map((r) => r.dir))],
           totalAnalysts: analysts.length,
-        })
+        }).map(asSearchProposalFinding)
       } catch (cause) {
         if (signal?.aborted) throw signal.reason
         // A dead router must not kill the round: the raw-trace context below
@@ -2084,7 +2092,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
             }),
           }
     signal?.throwIfAborted()
-    const rawFindings = (await rawTrace(censoredInput as Parameters<typeof rawTrace>[0])) as unknown[]
+    const rawFindings = await rawTrace(censoredInput as Parameters<typeof rawTrace>[0])
     signal?.throwIfAborted()
     return [steeringFinding, ...ensembleFindings, ...rawFindings]
   }

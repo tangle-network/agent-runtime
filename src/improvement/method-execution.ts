@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { assertProposalFindings } from '@tangle-network/agent-eval/analyst'
 import {
   compareOptimizationMethods,
   type OptimizationMethod,
@@ -94,7 +95,9 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     throw new ConfigError("improve(): profileComponents is valid only with surface 'agent-profile'")
   }
   const executionRef = validateExecutionRef(inputExecutionRef)
-  const findings = [...inputFindings]
+  const findings = immutableCandidateValue([
+    ...assertProposalFindings(inputFindings, 'improve() method findings'),
+  ])
   const preparedSurface = prepareProfileSurface(profile, surface, skills, profileComponents)
   const baselineSurface = preparedSurface.surface
   const baselineValue = immutableCandidateValue(preparedSurface.value)

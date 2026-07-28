@@ -20,6 +20,7 @@ import {
   makeProposalFinding,
   type ProposalFinding,
 } from '@tangle-network/agent-eval'
+import { assertProposalFindings } from '@tangle-network/agent-eval/analyst'
 import type { Corpus, CorpusRecord } from './personify/wave-types'
 
 const observerId = 'observe/trace'
@@ -166,21 +167,24 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
 
   const parsed = parseFindings(res.content)
   const producedAt = input.runId ? `${input.runId}` : observerId
-  const findings: ProposalFinding[] = parsed.map((f) =>
-    makeProposalFinding({
-      analyst_id: observerId,
-      area: `${f.area}`,
-      severity: f.severity,
-      claim: f.claim,
-      recommended_action: f.recommended_action,
-      confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
-      evidence_refs: [],
-      // The observer reads BEHAVIOR, never the judge verdict — firewall provenance.
-      derived_from_judge: false,
-      proposal_origin: 'production',
-      metadata: { audience: f.audience },
-      ...(input.runId ? { subject: input.runId } : {}),
-    }),
+  const findings = assertProposalFindings(
+    parsed.map((f) =>
+      makeProposalFinding({
+        analyst_id: observerId,
+        area: `${f.area}`,
+        severity: f.severity,
+        claim: f.claim,
+        recommended_action: f.recommended_action,
+        confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
+        evidence_refs: [],
+        // The observer reads behavior, never a final evaluation result.
+        derived_from_judge: false,
+        proposal_origin: 'production',
+        metadata: { audience: f.audience },
+        ...(input.runId ? { subject: input.runId } : {}),
+      }),
+    ),
+    'observe findings',
   )
 
   const learned: CorpusRecord[] = []
@@ -203,7 +207,7 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
     }
   }
 
-  return { findings, learned, report: renderReport(findings) }
+  return { findings: [...findings], learned, report: renderReport(findings) }
 }
 
 interface RawFinding {

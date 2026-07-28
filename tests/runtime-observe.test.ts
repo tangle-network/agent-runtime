@@ -46,4 +46,40 @@ describe('runtime observe', () => {
       subject: 'production-run-1',
     })
   })
+
+  it('rejects malformed model findings before returning them to callers', async () => {
+    const chat: ChatClient = {
+      transport: 'mock',
+      chat: async () => ({
+        content: JSON.stringify({
+          findings: [
+            {
+              area: 'verification',
+              severity: 'urgent',
+              claim: 'The worker skipped the requested check.',
+              recommended_action: 'Run the requested check.',
+              audience: 'agent',
+              confidence: 0.9,
+            },
+          ],
+        }),
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        costUsd: 0,
+        model: 'observer-test',
+        durationMs: 1,
+        raw: {},
+      }),
+    }
+
+    await expect(
+      observe(
+        {
+          task: 'Change the code and run the focused test.',
+          output: 'Changed the code.',
+          trace: [{ type: 'status', data: { status: 'completed' } }],
+        },
+        { chat },
+      ),
+    ).rejects.toThrow(/observe findings: every finding must match AnalystFinding/)
+  })
 })

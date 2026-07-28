@@ -49,7 +49,7 @@ import {
 } from '@tangle-network/agent-runtime'
 import { runLocalHarness } from '@tangle-network/agent-runtime/mcp'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { AnalystFinding, CostLedgerHandle } from '@tangle-network/agent-eval'
+import type { CostLedgerHandle, ProposalFinding } from '@tangle-network/agent-eval'
 import {
   changeSpaceViolations,
   loopsCandidateVerifier,
@@ -297,7 +297,7 @@ export function parentsPromptSection(parents: ParetoParentContext[]): string {
  *  stay (round4BuildPrompt), and the TASK is replaced with an explicit
  *  coherent-union merge of the parents' diffs. */
 export function mergeAuthorPrompt(
-  args: { report: unknown; findings: Array<Record<string, unknown>> },
+  args: { findings: ReadonlyArray<ProposalFinding> },
   spec: ProposerSpec,
   parents: ParetoParentContext[],
 ): string {
@@ -349,7 +349,10 @@ function isSteeringOrRawTrace(f: Record<string, unknown>): boolean {
 }
 
 /** Slice the diagnosis findings for one proposer. Pure. */
-export function sliceFindings(findings: AnalystFinding[], slice: ProposerSpec['diagnosisSlice']): AnalystFinding[] {
+export function sliceFindings(
+  findings: ReadonlyArray<ProposalFinding>,
+  slice: ProposerSpec['diagnosisSlice'],
+): ProposalFinding[] {
   if (slice === undefined || slice === 'all') return findings
   return findings.filter((finding) => {
     const f = finding as unknown as Record<string, unknown>
@@ -380,7 +383,7 @@ function appendGen5Sections(prompt: string, extras: Gen5PromptExtras): string {
  *  gen-5 briefing/activation sections when configured. A merge-seat spec gets
  *  the dedicated merge prompt instead (gen-5 sections still apply). */
 export function proposerBuildPrompt(
-  args: { report: unknown; findings: Array<Record<string, unknown>> },
+  args: { findings: ReadonlyArray<ProposalFinding> },
   spec: ProposerSpec,
   parents: ParetoParentContext[] = [],
   extras: Gen5PromptExtras = {},
@@ -543,16 +546,11 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
         harness,
         ...(profile ? { profile } : {}),
         timeoutMs: config.proposerTimeoutMs,
-        buildPrompt: (a) =>
-          proposerBuildPrompt(
-            a as unknown as { report: unknown; findings: Array<Record<string, unknown>> },
-            proposer,
-            deps.parents ?? [],
-            {
-              ...(deps.briefing ? { briefing: deps.briefing } : {}),
-              ...(config.activationGate === true ? { activationGate: true } : {}),
-            },
-          ),
+        buildPrompt: (args) =>
+          proposerBuildPrompt(args, proposer, deps.parents ?? [], {
+            ...(deps.briefing ? { briefing: deps.briefing } : {}),
+            ...(config.activationGate === true ? { activationGate: true } : {}),
+          }),
         verify: loopsCandidateVerifier(config.loopsRepo),
         runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(harness) }),
         onShotCompleted: proposerShotHooks({

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   defaultGen3Config,
@@ -37,19 +37,20 @@ import { runOk } from './proc.ts'
 // Pure pieces.
 // ---------------------------------------------------------------------------
 
-const finding = (over: Record<string, unknown>): AnalystFinding =>
-  ({
-    schema_version: '1.0.0',
-    finding_id: `f-${Math.random().toString(36).slice(2)}`,
+const finding = (
+  over: Partial<Pick<ProposalFinding, 'analyst_id' | 'area' | 'claim'>>,
+): ProposalFinding =>
+  makeProposalFinding({
     analyst_id: 'analyst',
-    produced_at: new Date(0).toISOString(),
     severity: 'high',
     area: 'mechanism',
     claim: 'workers drop build artifacts on clone',
     evidence_refs: [],
     confidence: 0.9,
     ...over,
-  }) as unknown as AnalystFinding
+    proposal_origin: 'search',
+    produced_at: new Date(0).toISOString(),
+  })
 
 describe('sliceFindings', () => {
   const mech = finding({ claim: 'sandbox clone drops untracked build artifacts' })
@@ -73,7 +74,7 @@ describe('sliceFindings', () => {
 describe('proposerBuildPrompt', () => {
   it('appends the lens AFTER the shared protocol prompt, leaving the change-space text intact', () => {
     const spec: ProposerSpec = { name: 'x', harness: 'claude', lens: 'Prefer code-path fixes.' }
-    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec)
+    const prompt = proposerBuildPrompt({ findings: [] }, spec)
     expect(prompt).toContain('DECLARED CHANGE-SPACE')
     expect(prompt.indexOf('DECLARED CHANGE-SPACE')).toBeLessThan(prompt.indexOf('YOUR AUTHORING LENS (x)'))
     expect(prompt).toContain('Prefer code-path fixes.')
@@ -81,7 +82,7 @@ describe('proposerBuildPrompt', () => {
 
   it('is the bare round prompt without a lens', () => {
     const spec: ProposerSpec = { name: 'x', harness: 'claude' }
-    expect(proposerBuildPrompt({ report: undefined, findings: [] }, spec)).not.toContain('AUTHORING LENS')
+    expect(proposerBuildPrompt({ findings: [] }, spec)).not.toContain('AUTHORING LENS')
   })
 })
 
@@ -134,7 +135,7 @@ describe('resolveAuthorProfile (pinned models)', () => {
 describe('proposerBuildPrompt with pareto parents', () => {
   it('appends the parents section (evidence + diffs) after the protocol prompt and lens', () => {
     const spec: ProposerSpec = { name: 'x', harness: 'claude', lens: 'Prefer code-path fixes.' }
-    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS)
+    const prompt = proposerBuildPrompt({ findings: [] }, spec, PARENTS)
     expect(prompt).toContain('DECLARED CHANGE-SPACE')
     expect(prompt).toContain('PARETO PARENTS')
     expect(prompt.indexOf('YOUR AUTHORING LENS')).toBeLessThan(prompt.indexOf('PARETO PARENTS'))
@@ -146,7 +147,7 @@ describe('proposerBuildPrompt with pareto parents', () => {
 
   it('leaves the prompt untouched when no parents are seeded (gen-3 behavior)', () => {
     const spec: ProposerSpec = { name: 'x', harness: 'claude' }
-    expect(proposerBuildPrompt({ report: undefined, findings: [] }, spec)).not.toContain('PARETO PARENTS')
+    expect(proposerBuildPrompt({ findings: [] }, spec)).not.toContain('PARETO PARENTS')
     expect(parentsPromptSection(PARENTS)).toContain('measured evidence')
   })
 })
@@ -155,7 +156,7 @@ describe('mergeAuthorPrompt', () => {
   const spec: ProposerSpec = { name: 'merge-author', harness: 'claude', merge: true }
 
   it('keeps the change-space contract and presents BOTH parent diffs with the coherent-union task', () => {
-    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS)
+    const prompt = proposerBuildPrompt({ findings: [] }, spec, PARENTS)
     expect(prompt).toContain('DECLARED CHANGE-SPACE')
     expect(prompt).toContain('MERGE SEAT')
     expect(prompt).toContain('UNION of the')
@@ -169,8 +170,8 @@ describe('mergeAuthorPrompt', () => {
   })
 
   it('fails loud with fewer than two parents', () => {
-    expect(() => mergeAuthorPrompt({ report: undefined, findings: [] }, spec, [PARENTS[0]!])).toThrow(/>=2/)
-    expect(() => proposerBuildPrompt({ report: undefined, findings: [] }, spec, [])).toThrow(/>=2/)
+    expect(() => mergeAuthorPrompt({ findings: [] }, spec, [PARENTS[0]!])).toThrow(/>=2/)
+    expect(() => proposerBuildPrompt({ findings: [] }, spec, [])).toThrow(/>=2/)
   })
 })
 
@@ -347,8 +348,7 @@ describe('fanOutLoopsGenerator', () => {
 
   const generatorArgs = (candidateIndex: number) => ({
     worktreePath: driverWt,
-    report: undefined,
-    findings: [] as AnalystFinding[],
+    findings: [] as ProposalFinding[],
     maxShots: 1,
     signal: new AbortController().signal,
     generation: 0,
@@ -586,7 +586,7 @@ describe('gen-5 prompt sections', () => {
 
   it('appends EVIDENCE MAP + briefing + activation contract after the protocol prompt', () => {
     const spec: ProposerSpec = { name: 'x', harness: 'claude' }
-    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec, [], {
+    const prompt = proposerBuildPrompt({ findings: [] }, spec, [], {
       briefing,
       activationGate: true,
     })
@@ -599,7 +599,7 @@ describe('gen-5 prompt sections', () => {
 
   it('the merge seat gets the gen-5 sections too', () => {
     const spec: ProposerSpec = { name: 'merge-author', harness: 'claude', merge: true }
-    const prompt = proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS, {
+    const prompt = proposerBuildPrompt({ findings: [] }, spec, PARENTS, {
       briefing,
       activationGate: true,
     })
@@ -610,9 +610,9 @@ describe('gen-5 prompt sections', () => {
 
   it('leaves gen-3/gen-4 prompts byte-identical when no extras are passed', () => {
     const spec: ProposerSpec = { name: 'x', harness: 'claude' }
-    const legacy = proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS)
+    const legacy = proposerBuildPrompt({ findings: [] }, spec, PARENTS)
     expect(legacy).not.toContain('EVIDENCE MAP')
     expect(legacy).not.toContain('ACTIVATION PREDICATE')
-    expect(proposerBuildPrompt({ report: undefined, findings: [] }, spec, PARENTS, {})).toBe(legacy)
+    expect(proposerBuildPrompt({ findings: [] }, spec, PARENTS, {})).toBe(legacy)
   })
 })

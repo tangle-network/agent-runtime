@@ -286,6 +286,48 @@ describe('improve method execution', () => {
     expect(result.decision).toBe('ship')
   })
 
+  it('validates and isolates findings before method identity is computed', async () => {
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(fixedMethod('unused')),
+        findings: [{ proposal_origin: 'production' } as never],
+      }),
+    ).rejects.toThrow(/improve\(\) method findings/)
+
+    const callerFinding = structuredClone(
+      makeProposalFinding({
+        analyst_id: 'test',
+        proposal_origin: 'production',
+        severity: 'medium',
+        area: 'response',
+        claim: 'answers omit citations',
+        confidence: 1,
+        evidence_refs: [],
+      }),
+    )
+    const original = structuredClone(callerFinding)
+    const callerFindings = [callerFinding]
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('unused')),
+      findings: callerFindings,
+      method: (context) => {
+        expect(context.findings).not.toBe(callerFindings)
+        expect(context.findings[0]).not.toBe(callerFinding)
+        expect(Object.isFrozen(context.findings)).toBe(true)
+        expect(Object.isFrozen(context.findings[0])).toBe(true)
+        expect(() => {
+          Object.assign(context.findings[0] as { claim: string }, {
+            claim: 'tampered after hashing',
+          })
+        }).toThrow()
+        return fixedMethod('improved prompt')
+      },
+    })
+
+    expect(callerFinding).toEqual(original)
+    expect(result.decision).toBe('ship')
+  })
+
   it('holds when the final-test interval does not clear the requested lift', async () => {
     const result = await improve(promptProfile(), {
       ...methodOptions(fixedMethod('improved prompt')),
@@ -683,6 +725,15 @@ async function paidCodeText(
 }
 
 describe('improve code execution', () => {
+  it('rejects malformed findings before preparing a repository', async () => {
+    await expect(
+      improve({
+        surface: 'code',
+        findings: [{ proposal_origin: 'production' }],
+      } as never),
+    ).rejects.toThrow(/improve\(\) code findings/)
+  })
+
   it('runs candidate generation in isolated worktrees and retains only the winner', async () => {
     const repo = createRepo('improve-code-')
     try {

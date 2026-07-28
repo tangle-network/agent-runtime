@@ -1,4 +1,5 @@
 import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
+import { assertProposalFindings } from '@tangle-network/agent-eval/analyst'
 import {
   gitWorktreeAdapter,
   type Worktree,
@@ -221,7 +222,9 @@ export async function runCodeImprovement<TScenario extends Scenario, TArtifact>(
     surface: _surface,
     ...sharedOptions
   } = opts
-  const findings = [...inputFindings]
+  const findings = immutableCandidateValue([
+    ...assertProposalFindings(inputFindings, 'improve() code findings'),
+  ])
   const preparedCode = await prepareCodeRun(code)
 
   const budget: SelfImproveBudget =

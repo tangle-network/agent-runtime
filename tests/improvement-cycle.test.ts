@@ -420,7 +420,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         inputs: {},
         findingsStore: null,
       },
-      improvement,
+      improvement: { ...improvement, findings: [searchFinding] },
       benchmark: {
         tasks: [taskMaterial],
         reps: minimumPairedRuns,
@@ -457,6 +457,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     expect(result.experiment.source).toEqual(source)
     expect(result.experiment.executionRef).toEqual(executorRef)
     expect(result.proposal.changedSurfaces).toEqual(['prompt'])
+    expect(result.proposal.findings).toEqual([searchFinding, productionFinding])
     expect(result.proposal.evaluation).toMatchObject({
       kind: 'agent-profile-improvement-measured-comparison',
       metadata: { agentImprovementSource: source },
@@ -673,6 +674,55 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     expect(registryCalls).toBe(0)
   })
 
+  it('rejects final-evaluation input before analysis runs', async () => {
+    let registryCalls = 0
+    await expect(
+      proposeAgentImprovement({
+        runId: 'judge-input',
+        profile: {} as AgentProfile,
+        analysis: {
+          registry: {
+            list: () => [],
+            run: async () => {
+              registryCalls += 1
+              throw new Error('judge input must fail before analysis')
+            },
+          },
+          inputs: { judgeInput: {} },
+          findingsStore: null,
+        },
+      } as never),
+    ).rejects.toThrow('measured agent improvement analysis must not receive judge input')
+    expect(registryCalls).toBe(0)
+  })
+
+  it('rejects judge-derived production analysis before optimization', async () => {
+    await expect(
+      proposeAgentImprovement({
+        runId: 'judge-derived-analysis',
+        profile: {} as AgentProfile,
+        analysis: {
+          registry: {
+            list: () => [{ id: 'improvement' }],
+            run: async () => ({
+              run_id: 'judge-derived-analysis',
+              correlation_id: 'judge-derived-analysis',
+              started_at: '2026-07-10T00:00:00.000Z',
+              ended_at: '2026-07-10T00:00:01.000Z',
+              findings: [{ ...finding, derived_from_judge: true }],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed', usd: 0 },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: improvementOptions(),
+      } as never),
+    ).rejects.toThrow(/must not produce judge-derived findings/)
+  })
+
   it('rejects unmetered analysis callbacks before analysis runs', async () => {
     for (const callbacks of [{ onEvent: async () => {} }, { log: () => {} }]) {
       let registryCalls = 0
@@ -781,6 +831,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     )
 
     expect(result.proposal.changedSurfaces).toEqual(['prompt'])
+    expect(result.proposal.findings).toEqual([searchFinding, productionFinding])
     expect(result.proposal.evaluation.evaluation.preparation.cost.provenance).toBe('estimated')
     expect(result.proposal.evaluation.evaluation.preparation.cost.usd).toBeCloseTo(0.2508)
     expect(result.proposal.evaluation.evaluation.total.cost.usd).toBeCloseTo(

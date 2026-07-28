@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { makeProposalFinding } from '@tangle-network/agent-eval'
 import { gitWorktreeAdapter } from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { agenticGenerator, commandVerifier } from '../src/improvement/agentic-generator'
@@ -36,19 +36,18 @@ beforeEach(() => {
 afterEach(() => rmSync(repoRoot, { recursive: true, force: true }))
 
 const FINDINGS = [
-  {
-    schema_version: '1.0.0',
-    finding_id: 'f1',
+  makeProposalFinding({
     analyst_id: 'a1',
-    produced_at: '2026-01-01',
     severity: 'high',
     area: 'capability',
     claim: 'the agent needs a ledger-lookup tool',
     recommended_action: 'build it',
     evidence_refs: [],
     confidence: 0.9,
-  },
-] as unknown as AnalystFinding[]
+    proposal_origin: 'production',
+    produced_at: '2026-01-01',
+  }),
+]
 
 const HARNESS_OK: LocalHarnessResult = {
   exitCode: 0,
@@ -61,7 +60,6 @@ const HARNESS_OK: LocalHarnessResult = {
 
 const gen = (worktreePath: string) => ({
   worktreePath,
-  report: undefined,
   findings: FINDINGS,
   maxShots: 2,
   signal: new AbortController().signal,

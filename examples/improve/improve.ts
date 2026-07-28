@@ -1,6 +1,6 @@
 /** Complete-method prompt improvement, offline and deterministic. */
 
-import { makeFinding } from '@tangle-network/agent-eval'
+import { makeProposalFinding } from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
@@ -68,16 +68,17 @@ export const scriptedWinner: ImproveMethodFactory<DemoScenario, string> = (conte
   },
 })
 
-// What the loop reflects on: the trace analysts' read of what went wrong. `makeFinding` stamps the
-// schema-version / finding-id / timestamp the full `AnalystFinding` shape requires.
+// This evidence came from an observed production run, so it is explicitly
+// admitted as production input for candidate generation.
 const findings = [
-  makeFinding({
+  makeProposalFinding({
     analyst_id: 'demo-analyst',
     severity: 'medium',
     area: 'agent-reasoning',
     claim: 'the agent under-specifies its answer format',
     confidence: 0.8,
     evidence_refs: [],
+    proposal_origin: 'production',
   }),
 ]
 
