@@ -14,6 +14,10 @@ const profileFixturePath = resolve(
   repoRoot,
   'src/testing/fixtures/agent-profile-improvement-proposal.json',
 )
+const profileStateFixturePath = resolve(
+  repoRoot,
+  'src/testing/fixtures/agent-profile-improvement-state.json',
+)
 const biomePath = resolve(repoRoot, 'node_modules/.bin/biome')
 const packageJson = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
   version?: unknown
@@ -159,13 +163,26 @@ try {
     },
     now: () => new Date('2026-07-10T01:30:00.000Z'),
   })
-  const serializedProfileFixture = formatFixture(
+  const serializedProfileProposalFixture = formatFixture(
     profileFixturePath,
     `${JSON.stringify(runtime.verifyAgentImprovementProposal(profileProposal), null, 2)}\n`,
   )
+  const serializedProfileStateFixture = formatFixture(
+    profileStateFixturePath,
+    `${JSON.stringify(
+      {
+        baselineProfile: profileFixture.baselineProfile,
+        candidateProfile: profileFixture.candidateProfile,
+        recommendedSize: profileFixture.recommendedSize,
+      },
+      null,
+      2,
+    )}\n`,
+  )
   const fixtures = [
     { path: fixturePath, serialized },
-    { path: profileFixturePath, serialized: serializedProfileFixture },
+    { path: profileFixturePath, serialized: serializedProfileProposalFixture },
+    { path: profileStateFixturePath, serialized: serializedProfileStateFixture },
   ]
 
   if (args[0] === '--check') {

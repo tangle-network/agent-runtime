@@ -18862,7 +18862,7 @@ One OpenAI-compatible chat completion through the Tangle router, returning text 
 
 ###### reasoningEffort?
 
-`"none"` \| `"high"` \| `"medium"` \| `"low"`
+`"medium"` \| `"none"` \| `"high"` \| `"low"`
 
 Reasoning control for thinking models, forwarded as `reasoning_effort`.
 'none' is the load-bearing value: binary/single-token decisions (routing,

@@ -6,6 +6,30 @@
 
 # testing
 
+## Interfaces
+
+### AgentProfileImprovementFixture
+
+Complete private state for exercising profile activation and restore in consumer tests.
+
+#### Properties
+
+##### proposal
+
+> **proposal**: [`AgentProfileImprovementProposalFixture`](#agentprofileimprovementproposalfixture)
+
+##### baselineProfile
+
+> **baselineProfile**: `AgentProfile`
+
+##### candidateProfile
+
+> **candidateProfile**: `AgentProfile`
+
+##### recommendedSize
+
+> **recommendedSize**: `"nano"` \| `"small"` \| `"medium"` \| `"large"`
+
 ## Type Aliases
 
 ### AgentProfileImprovementProposalFixture
@@ -34,12 +58,12 @@ Load an isolated, production-validated Runtime proposal for consumer tests.
 
 ***
 
-### loadAgentProfileImprovementProposalFixture()
+### loadAgentProfileImprovementFixture()
 
-> **loadAgentProfileImprovementProposalFixture**(): [`AgentProfileImprovementProposalFixture`](#agentprofileimprovementproposalfixture)
+> **loadAgentProfileImprovementFixture**(): [`AgentProfileImprovementFixture`](#agentprofileimprovementfixture)
 
-Load an isolated proposal containing profile state hashes and diffs, never profiles.
+Load an isolated profile proposal and its private activation state for consumer tests.
 
 #### Returns
 
-[`AgentProfileImprovementProposalFixture`](#agentprofileimprovementproposalfixture)
+[`AgentProfileImprovementFixture`](#agentprofileimprovementfixture)
