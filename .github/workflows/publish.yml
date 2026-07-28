@@ -246,6 +246,10 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
+      - name: Wait for published agent-bench dependencies
+        timeout-minutes: 25
+        run: pnpm --filter @tangle-network/agent-bench run wait:published-dependencies
+
       - name: Verify packed agent-bench against published dependencies
         run: pnpm run verify:bench:published
 
