@@ -53,7 +53,7 @@ const SEVERITY_ORDER: Record<UiFinding['severity'], number> = {
 
 // Validate workspaceDir at every public entry point. The MCP tool checks
 // the same shape at the wire boundary, but the writer is independently
-// exported via `@tangle-network/agent-runtime/audit`, so direct callers
+// exported via `@tangle-network/agent-runtime/profiles`, so direct callers
 // would otherwise bypass that defense. Absolute + no `..` segments matches
 // the MCP tool's contract — any path that the writer joins for I/O must be
 // rooted at a deterministic location chosen by the caller.
