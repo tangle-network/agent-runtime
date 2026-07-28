@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import type { ProposalFinding } from '@tangle-network/agent-eval'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ACTIVATION_PREDICATE_RELPATH,
@@ -236,8 +236,7 @@ describe('activation-predicate prefilter', () => {
 
   const generatorArgs = (candidateIndex: number) => ({
     worktreePath: driverWt,
-    report: undefined,
-    findings: [] as AnalystFinding[],
+    findings: [] as ProposalFinding[],
     maxShots: 1,
     signal: new AbortController().signal,
     generation: 0,

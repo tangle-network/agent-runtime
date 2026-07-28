@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import {
   gitWorktreeAdapter,
   inMemoryCampaignStorage,
@@ -258,8 +259,18 @@ describe('improve method execution', () => {
   })
 
   it('passes current findings to a method factory', async () => {
-    const findings = [{ claim: 'answers omit citations' }]
-    let observedFindings: readonly unknown[] | undefined
+    const findings: ReadonlyArray<ProposalFinding> = [
+      makeProposalFinding({
+        analyst_id: 'test',
+        proposal_origin: 'production',
+        severity: 'medium',
+        area: 'response',
+        claim: 'answers omit citations',
+        confidence: 1,
+        evidence_refs: [],
+      }),
+    ]
+    let observedFindings: ReadonlyArray<ProposalFinding> | undefined
     const result = await improve(promptProfile(), {
       ...methodOptions(fixedMethod('unused')),
       findings,
@@ -272,6 +283,48 @@ describe('improve method execution', () => {
     })
 
     expect(observedFindings).toEqual(findings)
+    expect(result.decision).toBe('ship')
+  })
+
+  it('validates and isolates findings before method identity is computed', async () => {
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(fixedMethod('unused')),
+        findings: [{ proposal_origin: 'production' } as never],
+      }),
+    ).rejects.toThrow(/improve\(\) method findings/)
+
+    const callerFinding = structuredClone(
+      makeProposalFinding({
+        analyst_id: 'test',
+        proposal_origin: 'production',
+        severity: 'medium',
+        area: 'response',
+        claim: 'answers omit citations',
+        confidence: 1,
+        evidence_refs: [],
+      }),
+    )
+    const original = structuredClone(callerFinding)
+    const callerFindings = [callerFinding]
+    const result = await improve(promptProfile(), {
+      ...methodOptions(fixedMethod('unused')),
+      findings: callerFindings,
+      method: (context) => {
+        expect(context.findings).not.toBe(callerFindings)
+        expect(context.findings[0]).not.toBe(callerFinding)
+        expect(Object.isFrozen(context.findings)).toBe(true)
+        expect(Object.isFrozen(context.findings[0])).toBe(true)
+        expect(() => {
+          Object.assign(context.findings[0] as { claim: string }, {
+            claim: 'tampered after hashing',
+          })
+        }).toThrow()
+        return fixedMethod('improved prompt')
+      },
+    })
+
+    expect(callerFinding).toEqual(original)
     expect(result.decision).toBe('ship')
   })
 
@@ -672,13 +725,32 @@ async function paidCodeText(
 }
 
 describe('improve code execution', () => {
+  it('rejects malformed findings before preparing a repository', async () => {
+    await expect(
+      improve({
+        surface: 'code',
+        findings: [{ proposal_origin: 'production' }],
+      } as never),
+    ).rejects.toThrow(/improve\(\) code findings/)
+  })
+
   it('runs candidate generation in isolated worktrees and retains only the winner', async () => {
     const repo = createRepo('improve-code-')
     try {
       let generatorCalls = 0
       const result = await improve({
         surface: 'code',
-        findings: [{ claim: 'module.txt is stale' }],
+        findings: [
+          makeProposalFinding({
+            analyst_id: 'test',
+            proposal_origin: 'production',
+            severity: 'medium',
+            area: 'code',
+            claim: 'module.txt is stale',
+            confidence: 1,
+            evidence_refs: [],
+          }),
+        ],
         scenarios: allScenarios,
         judge: improvementJudge,
         agent: paidCodeText,

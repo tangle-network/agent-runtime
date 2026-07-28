@@ -4973,20 +4973,15 @@ Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
 > `optional` **buildPrompt?**: (`args`) => `string`
 
-Build the harness task prompt from the report + findings. Override for
- domain phrasing; the default turns findings into a concrete coder task.
+Build the harness task prompt from proposal findings.
 
 ###### Parameters
 
 ###### args
 
-###### report
-
-`unknown`
-
 ###### findings
 
-`AnalystFinding`[]
+readonly `ProposalFinding`[]
 
 ###### Returns
 
@@ -5065,13 +5060,9 @@ Evidence supplied to a generated tool or MCP build instruction.
 
 #### Properties
 
-##### report
-
-> **report**: `unknown`
-
 ##### findings
 
-> **findings**: `AnalystFinding`[]
+> **findings**: readonly `ProposalFinding`[]
 
 ***
 
@@ -5111,13 +5102,9 @@ Build the driver's task briefing (domain framing + method + findings) — the sa
 
 ###### args
 
-###### report
-
-`unknown`
-
 ###### findings
 
-`AnalystFinding`[]
+readonly `ProposalFinding`[]
 
 ###### Returns
 
@@ -5231,25 +5218,6 @@ Test seam — inject the changed-paths reader (defaults to `git status --porcela
 
 ***
 
-### ToAnalystFindingsOptions
-
-#### Properties
-
-##### analystId?
-
-> `optional` **analystId?**: `string`
-
-`analyst_id` stamped on lifted (non-conforming) values.
- Default [LIFTED\_FINDING\_ANALYST\_ID](#lifted_finding_analyst_id).
-
-##### area?
-
-> `optional` **area?**: `string`
-
-`area` stamped on lifted values. Default `'seed'`.
-
-***
-
 ### ImproveMethodContext
 
 #### Properties
@@ -5286,7 +5254,7 @@ Structured value represented by `baselineSurface`, before serialization.
 
 ##### findings
 
-> `readonly` **findings**: readonly `unknown`[]
+> `readonly` **findings**: readonly `ProposalFinding`[]
 
 Findings produced before this search, if any.
 
@@ -5927,7 +5895,7 @@ the returned code worktree and is a no-op for profile-only surfaces.
 
 ### CandidateGenerator
 
-The byte-producing seam — the ONE thing that differs between the cheap
+The byte-producing path that differs between the cheap
  reflective path and the full agentic path. A generator makes (uncommitted)
  changes inside `worktreePath`; the driver commits them via the worktree
  adapter's `finalize`.
@@ -5942,13 +5910,10 @@ The byte-producing seam — the ONE thing that differs between the cheap
 
 > `optional` **proposesWithoutFindings?**: `boolean`
 
-Whether this generator can produce a candidate from an EMPTY findings set
- and no phase-2 report — i.e. it draws its change signal from the repo and
- the raw-trace filesystem context on disk, not only from pre-summarized
- findings. An agentic coder (`agenticGenerator`) sets this: the seed repo +
- raw traces ARE the signal, so it must still run the full `populationSize`
- when the distiller yielded nothing (this is the meta-harness contract — the
- agent diagnoses from the raw traces itself). A patch-applier
+Whether this generator can produce a candidate from an empty findings set
+ because it draws its change signal from the repo and raw traces on disk.
+ An agentic coder (`agenticGenerator`) sets this so it still runs the full
+ `populationSize` when the distiller yielded nothing. A patch-applier
  (`reflectiveGenerator`) leaves it unset — with no findings there is no
  patch to draft, so the driver short-circuits rather than spin up worktrees
  for a guaranteed no-op. Default `false`.
@@ -5969,23 +5934,11 @@ Whether this generator can produce a candidate from an EMPTY findings set
 
 The candidate worktree — a clean checkout of the current incumbent.
 
-###### report
-
-`unknown`
-
-Phase-2 research report (analyst findings + diff), opaque.
-
 ###### findings
 
-`AnalystFinding`[]
+readonly `ProposalFinding`[]
 
-Findings resolved from the report or the loop context.
-
-###### dataset?
-
-`LabeledScenarioStore`
-
-Handle to all captured data, to ground the change.
+Search or production findings explicitly admitted for proposal use.
 
 ###### maxShots
 
@@ -6202,7 +6155,7 @@ Max concrete file paths to list per cell (the agent can always `ls` the dir
 
 ##### fallbackFindings?
 
-> `optional` **fallbackFindings?**: `unknown`[]
+> `optional` **fallbackFindings?**: readonly `ProposalFinding`[]
 
 Findings to fall back to when the generation had NO failing cells, so a
  clean round never wipes the proposer's steering context. Mirrors the default
@@ -10682,7 +10635,7 @@ Reject a materialized profile before it reaches the agent callback.
 
 ##### findings?
 
-> `optional` **findings?**: readonly `unknown`[]
+> `optional` **findings?**: `ReadonlyArray`\<`ProposalFinding`\>
 
 Trace or analyst findings available to a method factory.
 
@@ -10743,7 +10696,7 @@ Local code-search budget. Method-only selection controls do not apply.
 
 ##### findings?
 
-> `optional` **findings?**: readonly `unknown`[]
+> `optional` **findings?**: `ReadonlyArray`\<`ProposalFinding`\>
 
 Findings supplied to Runtime's code candidate driver.
 
@@ -11613,14 +11566,6 @@ Hard cap on chained gateway hops; refused beyond this. Default keeps recursion b
 
 Dedicated ephemeral root for generic author-profile files. Every declared
 file must live below this root so cleanup cannot alter candidate-owned files.
-
-***
-
-### LIFTED\_FINDING\_ANALYST\_ID
-
-> `const` **LIFTED\_FINDING\_ANALYST\_ID**: `"lifted-seed"` = `'lifted-seed'`
-
-Analyst id stamped on findings lifted from untyped seed values.
 
 ***
 
@@ -12828,20 +12773,16 @@ Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a rea
 
 > **defaultBuildPrompt**(`args`): `string`
 
-Turn the analyst's findings (+ optional report) into a concrete coder task —
+Turn proposal findings into a concrete coder task —
  the senior scientific-method framing shared with the tool/MCP build prompts.
 
 #### Parameters
 
 ##### args
 
-###### report
-
-`unknown`
-
 ###### findings
 
-`AnalystFinding`[]
+readonly `ProposalFinding`[]
 
 #### Returns
 
@@ -12890,7 +12831,7 @@ Render findings as the ranked-evidence block every build prompt ends with.
 
 ##### findings
 
-`AnalystFinding`[]
+readonly `ProposalFinding`[]
 
 #### Returns
 
@@ -12949,52 +12890,6 @@ Driver→worker `CandidateGenerator`: an LLM driver on the canonical tool-loop a
 #### Returns
 
 [`CandidateGenerator`](#candidategenerator)
-
-***
-
-### isAnalystFinding()
-
-> **isAnalystFinding**(`value`): `value is AnalystFinding`
-
-Structural guard for the schema-versioned `AnalystFinding` envelope.
- Strict on the identity fields `makeFinding` always populates — a partial
- look-alike is lifted (re-enveloped), not trusted.
-
-#### Parameters
-
-##### value
-
-`unknown`
-
-#### Returns
-
-`value is AnalystFinding`
-
-***
-
-### toAnalystFindings()
-
-> **toAnalystFindings**(`findings`, `opts?`): `AnalystFinding`[]
-
-Normalize a mixed `unknown[]` findings array to `AnalystFinding[]`:
-conforming findings pass through by reference; strings and finding-ish
-objects are lifted into envelopes (claim = most actionable text, original
-value under `metadata.raw`); values with no extractable text are dropped.
-Never throws — a malformed seed must not kill a proposal round.
-
-#### Parameters
-
-##### findings
-
-readonly `unknown`[]
-
-##### opts?
-
-[`ToAnalystFindingsOptions`](#toanalystfindingsoptions) = `{}`
-
-#### Returns
-
-`AnalystFinding`[]
 
 ***
 
@@ -13137,7 +13032,7 @@ Build a complete method backed by Microsoft's official SkillOpt trainer.
 
 ### rawTraceDistiller()
 
-> **rawTraceDistiller**\<`TScenario`, `TArtifact`\>(`options?`): (`input`) => `Promise`\<`unknown`[]\>
+> **rawTraceDistiller**\<`TScenario`, `TArtifact`\>(`options?`): (`input`) => `Promise`\<readonly `ProposalFinding`[]\>
 
 Build an `analyzeGeneration` producer that feeds the proposer RAW-TRACE
 FILESYSTEM CONTEXT — paths into the prior generation's real run traces plus a
@@ -13172,7 +13067,7 @@ Drop-in for `analyzeGeneration` on `improve({ surface: 'code' })`:
 
 #### Returns
 
-(`input`) => `Promise`\<`unknown`[]\>
+(`input`) => `Promise`\<readonly `ProposalFinding`[]\>
 
 ***
 

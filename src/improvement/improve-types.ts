@@ -1,3 +1,4 @@
+import type { ProposalFinding } from '@tangle-network/agent-eval'
 import type {
   CampaignScenarioIdentity,
   CompareOptimizationMethodsOptions,
@@ -49,7 +50,7 @@ export interface ImproveMethodContext {
   /** Structured value represented by `baselineSurface`, before serialization. */
   readonly baselineValue: unknown
   /** Findings produced before this search, if any. */
-  readonly findings: readonly unknown[]
+  readonly findings: ReadonlyArray<ProposalFinding>
 }
 
 /** Build a complete method after trace findings are available. */
@@ -110,7 +111,7 @@ export type ImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   /** Reject a materialized profile before it reaches the agent callback. */
   validateCandidate?: ImproveCandidateValidator
   /** Trace or analyst findings available to a method factory. */
-  findings?: readonly unknown[]
+  findings?: ReadonlyArray<ProposalFinding>
   /** Select the exact inline skill document for `surface: 'skills'`. */
   skills?: ImproveSkillsOptions
   /**
@@ -143,7 +144,7 @@ export type ImproveCodeRunOptions<TScenario extends Scenario, TArtifact> = Omit<
   /** Local code-search budget. Method-only selection controls do not apply. */
   budget?: Omit<SelfImproveBudget, 'selectionFraction'>
   /** Findings supplied to Runtime's code candidate driver. */
-  findings?: readonly unknown[]
+  findings?: ReadonlyArray<ProposalFinding>
   /** Gate mode. `'holdout'` (default) runs the held-out promotion gate;
    * `'none'` is a baseline-only run (`budget.generations = 0`). */
   gate?: 'holdout' | 'none'

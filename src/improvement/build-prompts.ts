@@ -15,17 +15,16 @@
  * acquires tools; raw tools matter where we control the loader.
  */
 
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import type { ProposalFinding } from '@tangle-network/agent-eval'
 import { optimizerMethod } from './optimizer-prompt'
 
 /** Evidence supplied to a generated tool or MCP build instruction. */
 export interface BuildPromptFindingsInput {
-  report: unknown
-  findings: AnalystFinding[]
+  findings: ReadonlyArray<ProposalFinding>
 }
 
 /** Render findings as the ranked-evidence block every build prompt ends with. */
-export function findingLines(findings: AnalystFinding[]): string[] {
+export function findingLines(findings: ReadonlyArray<ProposalFinding>): string[] {
   return findings.map((f) => {
     const where = f.subject ? ` [${f.subject}]` : ''
     const action = f.recommended_action ? ` → ${f.recommended_action}` : ''

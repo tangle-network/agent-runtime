@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt"],
-  "digest": "sha256:211d4c12c9ff05350abefb1372ed12e419ebbb29985a1d1fcf7b4ecd695e0f3e",
+  "digest": "sha256:cc46ea163fa7f1744bb25b587226b3f5c6a14d9c0106a227d36ae51365b284bf",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -4850,12 +4850,13 @@
       "confidence": 0.9,
       "evidence_refs": [
         {
-          "id": "runtime-testing-fixture-span",
-          "kind": "span"
+          "kind": "span",
+          "uri": "runtime-testing-fixture-span"
         }
       ],
       "finding_id": "runtime-testing-fixture-finding",
       "produced_at": "2026-07-10T00:30:00.000Z",
+      "proposal_origin": "production",
       "recommended_action": "Return the exact measured answer.",
       "schema_version": "1.0.0",
       "severity": "high",

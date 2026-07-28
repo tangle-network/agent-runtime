@@ -1,5 +1,5 @@
 import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
-import { type AnalystFinding, assertNoJudgeVerdict } from '@tangle-network/agent-eval/analyst'
+import { assertProposalFindings, type ProposalFinding } from '@tangle-network/agent-eval/analyst'
 import {
   type CampaignScenarioIdentity,
   campaignSplitDigestFromIdentities,
@@ -198,7 +198,7 @@ export class AgentCandidateExperimentCellExecutionError extends Error {
 
 export interface CreateAgentImprovementProposalOptions {
   runId: string
-  findings: readonly AnalystFinding[]
+  findings: readonly ProposalFinding[]
   evaluation: AgentImprovementEvaluation
   now?: () => Date
 }
@@ -228,6 +228,7 @@ export interface CreateAgentImprovementActivationOptions {
 export type AgentImprovementAnalysisOptions = Omit<
   RunAnalystLoopOpts,
   | 'runId'
+  | 'inputs'
   | 'improvementProposalSource'
   | 'knowledgeProposalSource'
   | 'onEvent'
@@ -235,13 +236,19 @@ export type AgentImprovementAnalysisOptions = Omit<
   | 'costLedger'
   | 'costPhase'
   | 'signal'
->
+> & {
+  inputs: Omit<RunAnalystLoopOpts['inputs'], 'judgeInput'> & { judgeInput?: never }
+}
+
+type WithProposalFindings<T> = T extends unknown
+  ? Omit<T, 'findings'> & { findings?: readonly ProposalFinding[] }
+  : never
 
 export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArtifact> {
   runId: string
   profile: AgentProfile
   analysis: AgentImprovementAnalysisOptions
-  improvement: ImproveOptions<TScenario, TArtifact>
+  improvement: WithProposalFindings<ImproveOptions<TScenario, TArtifact>>
   buildExperiment: (input: {
     analysis: RunAnalystLoopResult
     improvement: ImproveResult<TScenario, TArtifact>
@@ -291,9 +298,10 @@ export interface AgentProfileImprovementExecutor<TScenario extends Scenario, TAr
 /** The portable profile changes that the measured-profile contract permits. */
 export type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
   ImproveMethodOptions<TScenario, TArtifact>,
-  'agent' | 'executionRef' | 'surface'
+  'agent' | 'executionRef' | 'findings' | 'surface'
 > & {
   surface?: AgentProfileMeasuredSurface
+  findings?: readonly ProposalFinding[]
 }
 
 /**
@@ -359,8 +367,8 @@ function assertRuntimeOwnedExperimentFieldsAbsent(
   }
 }
 
-type AnalystImprovementProposal = Omit<AgentImprovementProposal, 'findings'> & {
-  findings: AnalystFinding[]
+type ProposalFindingImprovementProposal = Omit<AgentImprovementProposal, 'findings'> & {
+  findings: ProposalFinding[]
 }
 
 /** Execute both arms of one immutable experiment and derive its paired result. */
@@ -470,7 +478,36 @@ async function analyzeAgentImprovement(
   options: AgentImprovementAnalysisOptions,
   costLedger?: CostLedgerHandle,
   signal?: AbortSignal,
-): Promise<{ analysis: RunAnalystLoopResult; findings: AnalystFinding[] }> {
+): Promise<{ analysis: RunAnalystLoopResult; findings: ProposalFinding[] }> {
+  assertMeasuredAnalysisOptions(options)
+  const analysis = await runAnalystLoop({
+    ...options,
+    runId,
+    ...(costLedger ? { costLedger, costPhase: 'profile-improvement-analysis' } : {}),
+    ...(signal ? { signal } : {}),
+  })
+  if (costLedger) assertAnalysisCostRecorded(analysis, costLedger)
+  const judgeDerived = analysis.analystResult.findings.filter(
+    (finding) => finding.derived_from_judge === true,
+  )
+  if (judgeDerived.length > 0) {
+    throw new Error(
+      `agent improvement analysis must not produce judge-derived findings: [${judgeDerived
+        .map((finding) => finding.finding_id)
+        .join(', ')}]`,
+    )
+  }
+  const findings = assertProposalFindings(
+    analysis.analystResult.findings.map((finding) => ({
+      ...finding,
+      proposal_origin: 'production' as const,
+    })),
+    'agent improvement findings',
+  )
+  return { analysis, findings: [...findings] }
+}
+
+function assertMeasuredAnalysisOptions(options: AgentImprovementAnalysisOptions): void {
   const rawOptions = options as RunAnalystLoopOpts
   if (
     rawOptions.knowledgeProposalSource !== undefined ||
@@ -481,18 +518,9 @@ async function analyzeAgentImprovement(
   if (rawOptions.onEvent !== undefined || rawOptions.log !== undefined) {
     throw new Error('measured agent improvement analysis must not run callbacks')
   }
-  const analysis = await runAnalystLoop({
-    ...options,
-    runId,
-    ...(costLedger ? { costLedger, costPhase: 'profile-improvement-analysis' } : {}),
-    ...(signal ? { signal } : {}),
-  })
-  if (costLedger) assertAnalysisCostRecorded(analysis, costLedger)
-  const findings = assertNoJudgeVerdict(
-    analysis.analystResult.findings,
-    'agent improvement findings',
-  )
-  return { analysis, findings: [...findings] }
+  if (rawOptions.inputs.judgeInput !== undefined) {
+    throw new Error('measured agent improvement analysis must not receive judge input')
+  }
 }
 
 interface ImprovementSearchAccounting {
@@ -740,6 +768,11 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
       'measured profile improvement supports prompt or skills; use the sealed-candidate path for this surface',
     )
   }
+  assertMeasuredAnalysisOptions(options.analysis)
+  const inputFindings = assertProposalFindings(
+    options.improvement.findings ?? [],
+    'profile improvement input findings',
+  )
   const costLedger = createProfileImprovementCostLedger(options.budgetUsd)
   const preparationStartedAt = performance.now()
   const profile = parseExactAgentProfile(options.profile, 'profile improvement source')
@@ -764,13 +797,14 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     costLedger,
     options.signal,
   )
+  const proposalFindings = immutableCandidateValue([...inputFindings, ...findings])
   const improvement = await improve(profile, {
     ...options.improvement,
     executionRef: options.executor.executionRef.digest,
     agent: options.executor.optimize,
     costLedger,
     costCeiling: options.budgetUsd,
-    findings: [...(options.improvement.findings ?? []), ...findings],
+    findings: proposalFindings,
   })
   try {
     if (improvement.decision !== 'ship') {
@@ -852,7 +886,7 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     )
     const proposal = createAgentImprovementProposal({
       runId: options.runId,
-      findings,
+      findings: proposalFindings,
       evaluation,
       ...(options.now ? { now: options.now } : {}),
     })
@@ -871,11 +905,17 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
   options: ProposeAgentImprovementOptions<TScenario, TArtifact>,
 ): Promise<ProposeAgentImprovementResult<TScenario, TArtifact>> {
   assertNoCallerOptimizationReceipt(options.metadata)
+  assertMeasuredAnalysisOptions(options.analysis)
+  const inputFindings = assertProposalFindings(
+    options.improvement.findings ?? [],
+    'agent improvement input findings',
+  )
   const { analysis, findings } = await analyzeAgentImprovement(options.runId, options.analysis)
   const analysisAccounting = completeAnalysisAccounting(analysis)
+  const proposalFindings = immutableCandidateValue([...inputFindings, ...findings])
   const improvementInput = {
     ...options.improvement,
-    findings: [...(options.improvement.findings ?? []), ...findings],
+    findings: proposalFindings,
   }
   const improvement =
     improvementInput.surface === 'code'
@@ -922,7 +962,7 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
     })
     const proposal = createAgentImprovementProposal({
       runId: options.runId,
-      findings,
+      findings: proposalFindings,
       evaluation: measured.evaluation,
       ...(options.now ? { now: options.now } : {}),
     })
@@ -979,8 +1019,8 @@ function assertImprovementCandidateBinding<TScenario extends Scenario, TArtifact
 export function createAgentImprovementProposal(
   options: CreateAgentImprovementProposalOptions,
 ): AgentImprovementProposal {
-  const findings = assertNoJudgeVerdict(
-    [...options.findings],
+  const findings = assertProposalFindings(
+    options.findings,
     'createAgentImprovementProposal findings',
   )
   const { evaluation, changedSurfaces } = validateShippableAgentImprovementEvaluation(
@@ -989,7 +1029,7 @@ export function createAgentImprovementProposal(
     'agent improvement proposal',
   )
   return agentImprovementProposalSchema.parse(
-    canonicalCandidateDocument<AnalystImprovementProposal>({
+    canonicalCandidateDocument<ProposalFindingImprovementProposal>({
       kind: 'agent-improvement-proposal',
       runId: options.runId,
       changedSurfaces,
@@ -1090,7 +1130,7 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
   if (!changedSurfacesMatch) {
     throw new Error('proposal changed surfaces do not match its exact experiment')
   }
-  assertNoJudgeDerivedProposalFindings(proposal.findings)
+  assertProposalFindings(proposal.findings, 'agent improvement proposal findings')
   return proposal
 }
 
@@ -1371,18 +1411,4 @@ function assertEvidenceMaterialDigest(
 
 function sameOrderedValues<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index])
-}
-
-function assertNoJudgeDerivedProposalFindings(
-  findings: AgentImprovementProposal['findings'],
-): void {
-  const leaked = findings.filter((finding) => finding.derived_from_judge === true)
-  if (leaked.length === 0) return
-  const identifiers = leaked.map((finding) =>
-    typeof finding.finding_id === 'string' ? finding.finding_id : '<unknown>',
-  )
-  throw new Error(
-    'agent improvement proposal findings: judge-derived findings cannot steer an improvement: ' +
-      `[${identifiers.join(', ')}]`,
-  )
 }

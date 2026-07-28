@@ -28,7 +28,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, statSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import type { ProposalFinding } from '@tangle-network/agent-eval'
 import { type LocalHarness, runLocalHarness } from '../mcp/local-harness'
 import { runBrainLoop, type ToolLoopChat } from '../runtime/tool-loop'
 import {
@@ -54,7 +54,7 @@ export interface DriverLoopGeneratorOptions {
   /** Build the driver's task briefing (domain framing + method + findings) — the same senior
    *  prompt the worker path uses (`toolBuildPrompt` / `mcpBuildPrompt`). The driver reads it and
    *  folds what each worker needs into its instruction. Default `defaultBuildPrompt`. */
-  buildPrompt?: (args: { report: unknown; findings: AnalystFinding[] }) => string
+  buildPrompt?: (args: { findings: ReadonlyArray<ProposalFinding> }) => string
   /** Verify the worktree (the intrinsic check). Exposed to the driver as `run_verifier` AND
    *  re-run by code as the final keep/discard gate. Omitted ⇒ the final gate is dirty-tree only
    *  (legacy `agenticGenerator` behavior sans verifier). */
@@ -92,9 +92,9 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
 
   return {
     kind: `driver-loop:${harness}`,
-    async generate({ worktreePath, report, findings, maxShots, signal }) {
+    async generate({ worktreePath, findings, maxShots, signal }) {
       signal.throwIfAborted()
-      const briefing = buildPrompt({ report, findings })
+      const briefing = buildPrompt({ findings })
       const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
       const sessionCap = Math.max(1, maxShots)
       let sessionsUsed = 0

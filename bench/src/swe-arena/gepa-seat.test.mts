@@ -553,7 +553,6 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
 
   const generatorArgs = (candidateIndex: number) => ({
     worktreePath: driverWt,
-    report: undefined,
     findings: [],
     maxShots: 1,
     signal: new AbortController().signal,
@@ -1032,7 +1031,6 @@ describe('integration: real adapter roundtrip', () => {
       )
       const result = await gen.generate({
         worktreePath: driverWt,
-        report: undefined,
         findings: [],
         maxShots: 1,
         signal: new AbortController().signal,

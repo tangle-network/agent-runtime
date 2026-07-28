@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { makeProposalFinding } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import { runOk } from './proc.ts'
 import {
@@ -574,9 +575,17 @@ describe('launch guards', () => {
 describe('round4BuildPrompt', () => {
   it('declares the change-space and renders findings', () => {
     const prompt = round4BuildPrompt({
-      report: undefined,
       findings: [
-        { severity: 'high', claim: 'fix placement mismatch', recommended_action: 'settle where maintainers expect' },
+        makeProposalFinding({
+          analyst_id: 'test',
+          severity: 'high',
+          area: 'mechanism',
+          claim: 'fix placement mismatch',
+          recommended_action: 'settle where maintainers expect',
+          evidence_refs: [],
+          confidence: 1,
+          proposal_origin: 'search',
+        }),
       ],
     })
     expect(prompt).toContain('DECLARED CHANGE-SPACE')
@@ -591,8 +600,17 @@ describe('round4BuildPrompt', () => {
 
   it('adds the raw-trace evidence contract when raw-trace findings are present', () => {
     const prompt = round4BuildPrompt({
-      report: undefined,
-      findings: [{ severity: 'high', area: 'raw-trace-context', claim: 'traces at /run/gen-0' }],
+      findings: [
+        makeProposalFinding({
+          analyst_id: 'raw-trace-distiller',
+          severity: 'high',
+          area: 'raw-trace-context',
+          claim: 'traces at /run/gen-0',
+          evidence_refs: [],
+          confidence: 1,
+          proposal_origin: 'search',
+        }),
+      ],
     })
     expect(prompt).toContain('Raw trace evidence requirement')
     expect(prompt).toContain(RAW_TRACE_DIAGNOSIS_PATH)

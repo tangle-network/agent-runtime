@@ -1,3 +1,4 @@
+import { makeProposalFinding } from '@tangle-network/agent-eval'
 import {
   gepaOptimizationMethod,
   inMemoryCampaignStorage,
@@ -180,7 +181,17 @@ describe('profile improvement stack', () => {
       surface: 'prompt',
       executionRef,
       method: improvingMethod,
-      findings: [{ failure: 'single draft gets stuck' }],
+      findings: [
+        makeProposalFinding({
+          analyst_id: 'test',
+          proposal_origin: 'production',
+          severity: 'medium',
+          area: 'rollout',
+          claim: 'single draft gets stuck',
+          confidence: 1,
+          evidence_refs: [],
+        }),
+      ],
       trainScenarios,
       selectionScenarios,
       testScenarios,

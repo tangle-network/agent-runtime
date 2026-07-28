@@ -3,7 +3,7 @@
  * `agenticGenerator` — the full-agentic `CandidateGenerator`. It runs a real
  * coding harness (claude / codex / opencode) inside the candidate worktree the
  * driver already created, letting the agent read the codebase + the research
- * report and make the change in place. The driver then commits the worktree
+ * proposal findings and make the change in place. The driver then commits the worktree
  * into a `CodeSurface`.
  *
  * Mechanism: identical to the proven Phase-2.8 in-process executor — spawn the
@@ -36,11 +36,11 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import type {
-  AnalystFinding,
   CostLedgerHandle,
   CostReceipt,
   CostReceiptInput,
   MaximumCharge,
+  ProposalFinding,
 } from '@tangle-network/agent-eval'
 import type { AgentProfile, ReasoningEffort } from '@tangle-network/agent-interface'
 import {
@@ -194,9 +194,8 @@ export interface AgenticGeneratorOptions {
   maximumCharge?: MaximumCharge
   /** Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m). */
   timeoutMs?: number
-  /** Build the harness task prompt from the report + findings. Override for
-   *  domain phrasing; the default turns findings into a concrete coder task. */
-  buildPrompt?: (args: { report: unknown; findings: AnalystFinding[] }) => string
+  /** Build the harness task prompt from proposal findings. */
+  buildPrompt?: (args: { findings: ReadonlyArray<ProposalFinding> }) => string
   /** Verify the worktree after each dirtying shot. When set, a candidate that
    *  fails verification is NOT returned — the failure feeds the next shot
    *  (verify-in-session), up to `maxShots`; a candidate that never verifies is
@@ -242,7 +241,6 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
     proposesWithoutFindings: true,
     async generate({
       worktreePath,
-      report,
       findings,
       maxShots,
       signal,
@@ -261,10 +259,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         }
         reproducibleCostLedger = costLedger
       }
-      const basePrompt = appendProfileResourcePaths(
-        buildPrompt({ report, findings }),
-        profileResourcePlan,
-      )
+      const basePrompt = appendProfileResourcePaths(buildPrompt({ findings }), profileResourcePlan)
       const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
       const shots = Math.max(1, maxShots)
       // Feedback appended to the base prompt for the NEXT shot — empty on shot 0.
@@ -787,9 +782,9 @@ function sha256(value: string): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`
 }
 
-/** Turn the analyst's findings (+ optional report) into a concrete coder task —
+/** Turn proposal findings into a concrete coder task —
  *  the senior scientific-method framing shared with the tool/MCP build prompts. */
-export function defaultBuildPrompt(args: { report: unknown; findings: AnalystFinding[] }): string {
+export function defaultBuildPrompt(args: { findings: ReadonlyArray<ProposalFinding> }): string {
   const lines: string[] = [
     'You are improving this codebase based on an evaluation analysis: real runs failed, an',
     'analyst distilled the findings below, and your change will be measured on held-out tasks',
@@ -841,7 +836,7 @@ function failureNote(feedback?: string): string {
 
 export function rawTraceEvidenceProblem(
   worktreePath: string,
-  findings: AnalystFinding[],
+  findings: ReadonlyArray<ProposalFinding>,
 ): string | null {
   const changedPaths = worktreeChangedPaths(worktreePath)
   const substantive = changedPaths.filter((path) => path !== RAW_TRACE_DIAGNOSIS_PATH)
@@ -872,14 +867,14 @@ export function rawTraceEvidenceProblem(
   return null
 }
 
-export function requiresRawTraceEvidence(findings: AnalystFinding[]): boolean {
+export function requiresRawTraceEvidence(findings: ReadonlyArray<ProposalFinding>): boolean {
   return findings.some((finding) => {
     const f = finding as unknown as Record<string, unknown>
     return f.analyst_id === RAW_TRACE_ANALYST_ID || f.area === RAW_TRACE_AREA
   })
 }
 
-function traceEvidencePaths(findings: AnalystFinding[]): string[] {
+function traceEvidencePaths(findings: ReadonlyArray<ProposalFinding>): string[] {
   const out: string[] = []
   for (const finding of findings) {
     const refs = (finding as unknown as { evidence_refs?: unknown }).evidence_refs
@@ -938,7 +933,7 @@ export function commandVerifier(
 }
 
 /** A one-line summary for the commit message, derived from the findings. */
-export function summarizeFindings(findings: AnalystFinding[]): string {
+export function summarizeFindings(findings: ReadonlyArray<ProposalFinding>): string {
   if (findings.length === 0) return 'agentic improvement'
   if (findings.length === 1) return `agentic: ${truncate(findings[0]!.claim, 64)}`
   return `agentic: ${findings.length} findings addressed`
@@ -950,7 +945,7 @@ export function summarizeFindings(findings: AnalystFinding[]): string {
  * attributable through `GenerationRecord` and the emitted provenance instead
  * of landing as an anonymous surface.
  */
-function acceptedCandidate(findings: AnalystFinding[]): {
+function acceptedCandidate(findings: ReadonlyArray<ProposalFinding>): {
   applied: true
   summary: string
   label: string
@@ -976,7 +971,7 @@ function slugify(line: string): string {
 
 /** Bounded "because Z" for the candidate: the findings it addressed, or the
  *  summary itself when the change was proposed from raw repo/trace context. */
-function boundedRationale(summary: string, findings: AnalystFinding[]): string {
+function boundedRationale(summary: string, findings: ReadonlyArray<ProposalFinding>): string {
   if (findings.length === 0) return summary
   return truncate(
     findings.map((finding) => `(${finding.severity}) ${finding.claim}`).join('; '),

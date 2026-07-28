@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { type AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
+import { CostLedger, makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import {
   gitWorktreeAdapter,
   inMemoryCampaignStorage,
@@ -54,11 +54,9 @@ beforeEach(() => {
 afterEach(() => rmSync(repoRoot, { recursive: true, force: true }))
 
 const FINDINGS = [
-  {
-    schema_version: '1.0.0',
-    finding_id: 'f1',
+  makeProposalFinding({
     analyst_id: 'a1',
-    produced_at: '2026-01-01',
+    proposal_origin: 'production',
     severity: 'high',
     area: 'correctness',
     claim: 'x should be 2',
@@ -66,16 +64,15 @@ const FINDINGS = [
     evidence_refs: [],
     confidence: 0.9,
     subject: 'app.ts',
-  },
-] as unknown as AnalystFinding[]
+    produced_at: '2026-01-01',
+  }),
+]
 
 const TRACE_PATH = '/tmp/run/gen-0/candidate-0/task_0/spans.jsonl'
 const RAW_TRACE_FINDINGS = [
-  {
-    schema_version: '1.0.0',
-    finding_id: 'rt1',
+  makeProposalFinding({
     analyst_id: 'raw-trace-distiller',
-    produced_at: '2026-01-01',
+    proposal_origin: 'search',
     severity: 'high',
     area: 'raw-trace-context',
     claim: 'candidate failed after reading stale state',
@@ -83,8 +80,9 @@ const RAW_TRACE_FINDINGS = [
     evidence_refs: [{ kind: 'artifact', uri: TRACE_PATH }],
     confidence: 1,
     subject: 'candidate-hash',
-  },
-] as unknown as AnalystFinding[]
+    produced_at: '2026-01-01',
+  }),
+]
 
 const HARNESS_OK: LocalHarnessResult = {
   exitCode: 0,
@@ -115,7 +113,10 @@ const CODEX_EVIDENCE = {
   policy: {},
 } as NonNullable<LocalHarnessResult['evidence']>
 
-function ctx(findings: AnalystFinding[], maxShots = 1): ProposeContext<AnalystFinding> {
+function ctx(
+  findings: ReadonlyArray<ProposalFinding>,
+  maxShots = 1,
+): ProposeContext<ProposalFinding> {
   return {
     currentSurface: '',
     history: [],
@@ -197,7 +198,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 2,
       signal: new AbortController().signal,
@@ -313,7 +313,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 1,
       signal: new AbortController().signal,
@@ -363,7 +362,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 1,
       signal: new AbortController().signal,
@@ -391,7 +389,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -416,7 +413,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -443,7 +439,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -497,7 +492,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -533,7 +527,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -577,7 +570,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -608,7 +600,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -679,7 +670,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -732,7 +722,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
@@ -769,7 +758,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: controller.signal,
@@ -798,7 +786,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     await expect(
       gen.generate({
         worktreePath: wt.path,
-        report: undefined,
         findings: FINDINGS,
         maxShots: 1,
         signal: controller.signal,
@@ -838,7 +825,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cand' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 1,
       signal: new AbortController().signal,
@@ -867,7 +853,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'noop' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 3,
       signal: new AbortController().signal,
@@ -894,7 +879,6 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'second' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 5,
       signal: new AbortController().signal,
@@ -962,7 +946,6 @@ describe('agenticGenerator — verify-in-session loop', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'vok' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 3,
       signal: new AbortController().signal,
@@ -998,7 +981,6 @@ describe('agenticGenerator — verify-in-session loop', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'vresume' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 4,
       signal: new AbortController().signal,
@@ -1033,7 +1015,6 @@ describe('agenticGenerator — verify-in-session loop', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'vfail' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: FINDINGS,
       maxShots: 3,
       signal: new AbortController().signal,
@@ -1128,7 +1109,6 @@ describe('agenticGenerator — raw-trace evidence discipline', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'rt-miss' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: RAW_TRACE_FINDINGS,
       maxShots: 2,
       signal: new AbortController().signal,
@@ -1166,7 +1146,6 @@ describe('agenticGenerator — raw-trace evidence discipline', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'rt-only' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: RAW_TRACE_FINDINGS,
       maxShots: 1,
       signal: new AbortController().signal,
@@ -1195,7 +1174,6 @@ describe('agenticGenerator — raw-trace evidence discipline', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'rt-ok' })
     const out = await gen.generate({
       worktreePath: wt.path,
-      report: undefined,
       findings: RAW_TRACE_FINDINGS,
       maxShots: 1,
       signal: new AbortController().signal,

@@ -1767,7 +1767,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ##### findings
 
-> **findings**: readonly `AnalystFinding`[]
+> **findings**: readonly `ProposalFinding`[]
 
 ##### evaluation
 
@@ -1883,7 +1883,7 @@ Required only when an activation targets the complete `agent-profile` surface.
 
 ##### improvement
 
-> **improvement**: [`ImproveOptions`](index.md#improveoptions)\<`TScenario`, `TArtifact`\>
+> **improvement**: `Omit`\<[`ImproveMethodOptions`](index.md#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"findings"`\> & `object` \| `Omit`\<[`ImproveCodeRunOptions`](index.md#improvecoderunoptions)\<`TScenario`, `TArtifact`\>, `"findings"`\> & `object`
 
 ##### buildExperiment
 
@@ -3781,7 +3781,19 @@ Product-owned candidate ports other than protected model access.
 
 ### AgentImprovementAnalysisOptions
 
-> **AgentImprovementAnalysisOptions** = `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts), `"runId"` \| `"improvementProposalSource"` \| `"knowledgeProposalSource"` \| `"onEvent"` \| `"log"` \| `"costLedger"` \| `"costPhase"` \| `"signal"`\>
+> **AgentImprovementAnalysisOptions** = `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts), `"runId"` \| `"inputs"` \| `"improvementProposalSource"` \| `"knowledgeProposalSource"` \| `"onEvent"` \| `"log"` \| `"costLedger"` \| `"costPhase"` \| `"signal"`\> & `object`
+
+#### Type Declaration
+
+##### inputs
+
+> **inputs**: `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts)\[`"inputs"`\], `"judgeInput"`\> & `object`
+
+###### Type Declaration
+
+###### judgeInput?
+
+> `optional` **judgeInput?**: `never`
 
 ***
 
@@ -3795,7 +3807,7 @@ Product-supplied experiment material. Runtime supplies optimizer ancestry and th
 
 ### AgentProfileImprovementMethodOptions
 
-> **AgentProfileImprovementMethodOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](index.md#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"agent"` \| `"executionRef"` \| `"surface"`\> & `object`
+> **AgentProfileImprovementMethodOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](index.md#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"agent"` \| `"executionRef"` \| `"findings"` \| `"surface"`\> & `object`
 
 The portable profile changes that the measured-profile contract permits.
 
@@ -3804,6 +3816,10 @@ The portable profile changes that the measured-profile contract permits.
 ##### surface?
 
 > `optional` **surface?**: [`AgentProfileMeasuredSurface`](#agentprofilemeasuredsurface)
+
+##### findings?
+
+> `optional` **findings?**: readonly `ProposalFinding`[]
 
 #### Type Parameters
 

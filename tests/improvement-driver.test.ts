@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
+import { CostLedger, makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import {
   gitWorktreeAdapter,
   type ProposeContext,
@@ -37,10 +37,19 @@ beforeEach(() => {
 afterEach(() => rmSync(repoRoot, { recursive: true, force: true }))
 
 const FINDINGS = [
-  { finding_id: 'f1', subject: 'system-prompt:rubric', severity: 'medium', confidence: 0.8 },
-] as unknown as AnalystFinding[]
+  makeProposalFinding({
+    analyst_id: 'test',
+    proposal_origin: 'production',
+    subject: 'system-prompt:rubric',
+    severity: 'medium',
+    area: 'prompt',
+    claim: 'the rubric is too lax',
+    confidence: 0.8,
+    evidence_refs: [],
+  }),
+]
 
-function ctxWith(findings: AnalystFinding[], report?: unknown): ProposeContext<AnalystFinding> {
+function ctxWith(findings: ReadonlyArray<ProposalFinding>): ProposeContext<ProposalFinding> {
   return {
     currentSurface: '',
     history: [],
@@ -48,7 +57,6 @@ function ctxWith(findings: AnalystFinding[], report?: unknown): ProposeContext<A
     populationSize: 1,
     generation: 0,
     signal: new AbortController().signal,
-    report,
   }
 }
 
@@ -104,7 +112,7 @@ describe('improvementDriver — reflective generator', () => {
       ...ctxWith(FINDINGS),
       costLedger,
       costPhase: 'search.proposal',
-    } as ProposeContext<AnalystFinding>
+    } as ProposeContext<ProposalFinding>
 
     await expect(driver.propose(context)).resolves.toEqual([])
     expect(observed).toEqual([{ costLedger, costPhase: 'search.proposal' }])
@@ -131,39 +139,6 @@ describe('improvementDriver — reflective generator', () => {
     expect(git(['show', 'main:prompt.md'], repoRoot)).toBe('lax rubric')
   })
 
-  it('prefers the Phase-2 report findings over ctx.findings', async () => {
-    const seen: AnalystFinding[][] = []
-    const adapter: ImprovementProposalSource<SurfaceImprovementEdit> = {
-      proposeFromFindings: (f) => {
-        seen.push([...f])
-        return { edits: [editFixture(GOOD_PATCH)], skipped: 0, errors: [] }
-      },
-    }
-    const driver = reflectiveDriver(adapter)
-
-    // A CONFORMING envelope passes through `toAnalystFindings` by reference
-    // (a partial look-alike would be lifted and re-id'd — the P4 accessor's
-    // fail-closed contract), so the stable id proves the report arm won.
-    const reportFindings: AnalystFinding[] = [
-      {
-        schema_version: '1.0.0',
-        finding_id: 'from-report',
-        analyst_id: 'phase2-report',
-        produced_at: new Date().toISOString(),
-        severity: 'high',
-        area: 'report',
-        claim: 'the rubric is too lax',
-        subject: 'system-prompt:rubric',
-        confidence: 0.9,
-        evidence_refs: [],
-      },
-    ]
-    await driver.propose(ctxWith(FINDINGS, { findings: reportFindings, diff: {} }))
-
-    expect(seen).toHaveLength(1)
-    expect(seen[0]![0]!.finding_id).toBe('from-report')
-  })
-
   it('proposes nothing when there are no findings', async () => {
     const adapter = stubAdapter({ edits: [editFixture(GOOD_PATCH)], skipped: 0, errors: [] })
     expect(await reflectiveDriver(adapter).propose(ctxWith([]))).toEqual([])
@@ -187,8 +162,8 @@ describe('improvementDriver — reflective generator', () => {
   it('still proposes populationSize candidates on EMPTY findings when the generator opts in (proposesWithoutFindings)', async () => {
     // The meta-harness contract: an agentic coder draws its signal from the repo
     // + raw traces on disk, so it must run even when the distiller yielded no
-    // findings and there is no report (the first-generation case — its seed
-    // findings are empty and rawTraceDistiller has not run yet). Regression for
+    // findings (the first-generation case — its seed findings are empty and
+    // rawTraceDistiller has not run yet). Regression for
     // the "surface:'code' generates ZERO candidates" bug.
     let generateCalls = 0
     const seedDriver = improvementDriver({

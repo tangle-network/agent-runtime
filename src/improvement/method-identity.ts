@@ -1,3 +1,4 @@
+import type { ProposalFinding } from '@tangle-network/agent-eval'
 import {
   campaignScenarioIdentity,
   campaignSplitDigestFromIdentities,
@@ -38,7 +39,7 @@ export function buildMethodEvaluationIdentity<TScenario extends Scenario, TArtif
   surface: ImproveProfileSurface
   skills?: ImproveSkillsOptions
   validateCandidate?: ImproveCandidateValidator
-  findings: readonly unknown[]
+  findings: ReadonlyArray<ProposalFinding>
   trainScenarios: readonly TScenario[]
   selectionScenarios: readonly TScenario[]
   testScenarios: readonly TScenario[]

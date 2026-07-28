@@ -1,4 +1,8 @@
-import { type AnalystFinding, minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
+import {
+  makeProposalFinding,
+  minimumPairsForPairedDeltaTest,
+  type ProposalFinding,
+} from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 
@@ -18,19 +22,18 @@ import {
   createCandidateExperimentFixture,
 } from './candidate-experiment-fixture'
 
-export const improvementFinding: AnalystFinding = {
-  schema_version: '1.0.0',
-  finding_id: 'finding-1',
+export const improvementFinding: ProposalFinding = makeProposalFinding({
   analyst_id: 'improvement',
-  produced_at: '2026-07-10T00:00:00.000Z',
+  proposal_origin: 'production',
   severity: 'high',
   area: 'prompt',
   claim: 'The agent omits the required answer.',
-  evidence_refs: [{ kind: 'span', id: 'span-1' }],
+  evidence_refs: [{ kind: 'span', uri: 'span-1' }],
   recommended_action: 'Return the measured answer.',
   confidence: 0.9,
   subject: 'agent-profile:prompt.systemPrompt',
-}
+  produced_at: '2026-07-10T00:00:00.000Z',
+})
 
 export interface ImprovementScenario extends Scenario {
   kind: 'improvement-test'

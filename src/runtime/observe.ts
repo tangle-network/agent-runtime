@@ -9,13 +9,18 @@
  *   - `learned` — durable facts written to the cross-run `Corpus` so the NEXT
  *     run starts smarter (the continuous half of "continuous self-improvement").
  *
- * Findings are TRACE-derived, never JUDGE-derived (`derived_from_judge:false`):
- * the observer reads behavior, never the acceptance verdict — the selector≠judge
- * firewall (docs/learning-flywheel.md). The observer is harness-agnostic: it
+ * Findings are production observations (`proposal_origin:'production'`) and
+ * never come from final evaluation (`derived_from_judge:false`). The observer is harness-agnostic: it
  * reads a trace + an output, so it watches opencode, codex, hermes, or a BYO
  * agent identically.
  */
-import { type AnalystFinding, type ChatClient, makeFinding } from '@tangle-network/agent-eval'
+import {
+  type AnalystFinding,
+  type ChatClient,
+  makeProposalFinding,
+  type ProposalFinding,
+} from '@tangle-network/agent-eval'
+import { assertProposalFindings } from '@tangle-network/agent-eval/analyst'
 import type { Corpus, CorpusRecord } from './personify/wave-types'
 
 const observerId = 'observe/trace'
@@ -62,7 +67,7 @@ export const defaultAnalystInstruction =
   'Only claim what the trace shows. No findings if the run was clean.'
 
 export interface Observation {
-  findings: AnalystFinding[]
+  findings: ProposalFinding[]
   /** Facts persisted to the corpus (empty when no corpus was supplied). */
   learned: CorpusRecord[]
   /** Operator-facing markdown: what the observer noticed + what to change. */
@@ -162,20 +167,24 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
 
   const parsed = parseFindings(res.content)
   const producedAt = input.runId ? `${input.runId}` : observerId
-  const findings: AnalystFinding[] = parsed.map((f) =>
-    makeFinding({
-      analyst_id: observerId,
-      area: `${f.area}`,
-      severity: f.severity,
-      claim: f.claim,
-      recommended_action: f.recommended_action,
-      confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
-      evidence_refs: [],
-      // The observer reads BEHAVIOR, never the judge verdict — firewall provenance.
-      derived_from_judge: false,
-      metadata: { audience: f.audience },
-      ...(input.runId ? { subject: input.runId } : {}),
-    }),
+  const findings = assertProposalFindings(
+    parsed.map((f) =>
+      makeProposalFinding({
+        analyst_id: observerId,
+        area: `${f.area}`,
+        severity: f.severity,
+        claim: f.claim,
+        recommended_action: f.recommended_action,
+        confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
+        evidence_refs: [],
+        // The observer reads behavior, never a final evaluation result.
+        derived_from_judge: false,
+        proposal_origin: 'production',
+        metadata: { audience: f.audience },
+        ...(input.runId ? { subject: input.runId } : {}),
+      }),
+    ),
+    'observe findings',
   )
 
   const learned: CorpusRecord[] = []
@@ -198,7 +207,7 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
     }
   }
 
-  return { findings, learned, report: renderReport(findings) }
+  return { findings: [...findings], learned, report: renderReport(findings) }
 }
 
 interface RawFinding {

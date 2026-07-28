@@ -163,24 +163,18 @@ The same `f(trace)` plugs into **two places**: (1) runtime — what the worker s
 (2) **GEPA reflection input** — what the optimizer sees to rewrite the steer (canonical,
 trace-aware GEPA). Benchmarking `f`s = finding the best trace representation.
 
-**The firewall — observations, never verdicts.** `f(trace)` may read the trace, which means a
-steer can legitimately report the same *property* the judge scores (e.g. realness): an analyst
-that observes "the agent imported a stub" or "used a non-crypto PRNG where encryption was
-required" is steering on **observable behavior**, which is fair game. What it may NOT do is
-carry the judge's **verdict** — "this output is fake / will fail" — because that is `J` leaking
-into the loop, and the optimizer then games realness exactly as it games pass-rate. The line is
-*observation vs. verdict*, not *which property* — and the correct discriminator is **provenance,
-not evidence presence**: an evidence-less trace-analyst bullet is an observation, while a judge
-verdict that happens to cite an artifact is still a verdict. The substrate enforces this by
-keying on origin, set at the source: `AnalystFinding.derived_from_judge` (tagged where a judge
-score is lifted into a finding), `assertNoJudgeVerdict(findings)` (the steer gate — rejects
-judge-derived findings), and `ProposeContext.judgeScores?: never` (a compile-time tripwire on the
-direct channel). It is *necessary, not sufficient*: it stops provenance-tagged verdicts, so
-provenance must be set at every judge→finding lift, and the dual-role consumer must call the gate
-when it assembles findings for steering (the generic optimizer boundary is finding-type-agnostic,
-so it cannot auto-enforce). And it is *not sufficient alone* for a second reason: if the
-steer-detector and `J` measure a correlated property, optimizing the observable can still inflate
-`J` on the **training** split — only a frozen holdout (below) catches that. Gaps 4 and 2 interlock.
+**Candidate input must name its source.**
+Every finding used to generate a candidate is a `ProposalFinding`.
+`proposal_origin: 'production'` means the finding came from observed production behavior.
+`proposal_origin: 'search'` means it came from development work during candidate search.
+Runtime validates caller-supplied findings and never guesses their origin.
+Runtime labels only the production analysis it runs itself.
+Final evaluation results have no allowed proposal origin and never feed candidate generation.
+
+`derived_from_judge` remains descriptive metadata.
+Search-time judge feedback is valid when it is explicitly marked `proposal_origin: 'search'`.
+The final judge result is still isolated from search.
+A separate final-test partition is required because source labels alone cannot prevent overfitting.
 
 ## Architecture layers (ranked by leverage)
 
