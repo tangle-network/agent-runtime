@@ -522,6 +522,14 @@ export {
   driverAgent,
   finalizeBestDelivered,
 } from './supervise/coordination-driver'
+// The durable coordination side-log a file-backed `RunContext` carries: the questions and analyst
+// findings the spawn journal does not record, replayed into a resumed driver so a restarted
+// coordinator keeps the coordination context its workers produced.
+export {
+  type CoordinationLog,
+  FileCoordinationLog,
+  type PriorCoordination,
+} from './supervise/coordination-log'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
 export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
@@ -564,6 +572,22 @@ export {
   type EventBus,
   type PublishOptions,
 } from './supervise/event-bus'
+// FINALIZATION: how a driver's settled-worker ledger becomes the run's output. `bestDelivered` is
+// the default and the unchanged keep-best; `collectDelivered` returns every verified distinct
+// output with provenance (competing hypotheses, a Pareto set, a recorded evaluator split). Any
+// finalizer runs under the delivered-only invariant — an undelivered or invalid child's output is
+// unreachable, whatever the finalizer wants.
+export {
+  bestDelivered,
+  collectDelivered,
+  type DeliveredOutput,
+  type FinalizeContext,
+  type FinalizerSettled,
+  pickBestDelivered,
+  runFinalizer,
+  runTree,
+  type SupervisorFinalizer,
+} from './supervise/finalizer'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
@@ -702,6 +726,7 @@ export type {
   NodeStatus,
   Restart,
   ResultBlobStore,
+  ResumedKeyState,
   ResumedWork,
   RootHandle,
   RootSignal,
@@ -711,6 +736,8 @@ export type {
   SpawnEvent,
   SpawnJournal,
   SpawnOpts,
+  SpawnPrior,
+  SpawnRejection,
   Spend,
   SupervisedResult,
   Supervisor,

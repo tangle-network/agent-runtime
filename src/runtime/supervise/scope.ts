@@ -51,11 +51,14 @@ import type {
   NodeSnapshot,
   NodeStatus,
   ResultBlobStore,
+  ResumedKeyState,
   ResumedWork,
   Scope,
   Settled,
   SpawnJournal,
   SpawnOpts,
+  SpawnPrior,
+  SpawnRejection,
   Spend,
   TreeView,
   UsageEvent,
@@ -125,6 +128,10 @@ export interface ScopeArgs {
     /** Waits journaled as armed but never woken — re-armed (same node id, same absolute deadline)
      *  when `wait` is called again with the SAME label. */
     readonly waits: ReadonlyArray<PendingWait>
+    /** Keyed assignments from the prior journal — what a keyed re-spawn resolves against. */
+    readonly keys: ReadonlyMap<string, ResumedKeyState<unknown>>
+    /** Prior committed spend summed off the journal (settled child work + metered inference). */
+    readonly priorSpend: { readonly childWork: Spend; readonly driverInference: Spend }
   }
 }
 
@@ -141,6 +148,9 @@ interface LiveChild {
   runtime: NodeSnapshot['runtime']
   readonly budget: Budget
   readonly label: string
+  /** The semantic spawn key, when this child was spawned with one — the settle path folds the
+   *  terminal state back into the scope's key registry under it. */
+  readonly key?: string
   spent: Spend
   outRef?: string
   /** Resolves with the terminal settlement WITHOUT a `seq` — `next()` stamps the seq. */
@@ -274,13 +284,72 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     (args.resumeFrom?.waits ?? []).map((w) => [w.label, w]),
   )
 
+  // The semantic-key registry (`SpawnOpts.key`): every keyed assignment's current state, seeded
+  // from the prior journal on resume and updated live as keyed children spawn and settle. This is
+  // what makes a keyed spawn idempotent per key across process lifetimes: `done` returns the
+  // committed result, `live` refuses a concurrent duplicate, `down`/`in-doubt` spawn fresh but
+  // say so explicitly.
+  type KeyState =
+    | { readonly state: 'live'; readonly id: NodeId }
+    | {
+        readonly state: 'done'
+        readonly id: NodeId
+        readonly settled: Settled<Out> & { kind: 'done' }
+      }
+    | { readonly state: 'down'; readonly id: NodeId; readonly reason: string }
+    | { readonly state: 'in-doubt'; readonly id: NodeId }
+  const keyed = new Map<string, KeyState>()
+  for (const [key, prior] of args.resumeFrom?.keys ?? []) {
+    if (prior.state === 'completed' && prior.settled?.kind === 'done') {
+      keyed.set(key, {
+        state: 'done',
+        id: prior.id,
+        settled: prior.settled as Settled<Out> & { kind: 'done' },
+      })
+    } else if (prior.state === 'down' && prior.settled?.kind === 'down') {
+      keyed.set(key, { state: 'down', id: prior.id, reason: prior.settled.reason })
+    } else {
+      keyed.set(key, { state: 'in-doubt', id: prior.id })
+    }
+  }
+  /** Fold a keyed child's terminal settlement back into the registry, so a later spawn with the
+   *  same key resolves to it (done → committed result; down → explicit retry). */
+  const recordKeyedSettlement = (key: string, settled: Settled<Out>): void => {
+    if (settled.kind === 'done') {
+      keyed.set(key, { state: 'done', id: settled.handle.id, settled })
+    } else {
+      keyed.set(key, { state: 'down', id: settled.handle.id, reason: settled.reason })
+    }
+  }
+
   function spawn<C extends Out>(
     agent: Agent<unknown, C>,
     task: unknown,
     opts: SpawnOpts,
   ):
-    | { ok: true; handle: Handle<C> }
-    | { ok: false; reason: 'budget-exhausted' | 'depth-exceeded' } {
+    | { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> }
+    | { ok: false; reason: SpawnRejection } {
+    // Resolve the semantic key FIRST — a committed key spends nothing (no reservation, no
+    // executor, no journal record: the prior settlement is already the durable record), and a
+    // still-live duplicate is refused before any resource is touched.
+    let prior: SpawnPrior<C> | undefined
+    if (opts.key !== undefined) {
+      const existing = keyed.get(opts.key)
+      if (existing?.state === 'live') return { ok: false, reason: 'duplicate-key' }
+      if (existing?.state === 'done') {
+        return {
+          ok: true,
+          handle: existing.settled.handle as Handle<C>,
+          prior: { state: 'completed', settled: existing.settled as Settled<C> & { kind: 'done' } },
+        }
+      }
+      if (existing?.state === 'down') {
+        prior = { state: 'retried', priorId: existing.id, reason: existing.reason }
+      } else if (existing?.state === 'in-doubt') {
+        prior = { state: 'lost', priorId: existing.id }
+      }
+    }
+
     if (args.maxDepth !== undefined && args.depth >= args.maxDepth) {
       return { ok: false, reason: 'depth-exceeded' }
     }
@@ -349,6 +418,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         runtime: executor.runtime,
         budget: opts.budget,
         label: opts.label,
+        ...(opts.key !== undefined ? { key: opts.key } : {}),
         spent: zeroSpend(),
         settled: undefined as unknown as Promise<PreSeqSettled>,
         delivered: false,
@@ -360,12 +430,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
       }
       children.set(id, live)
+      if (opts.key !== undefined) keyed.set(opts.key, { state: 'live', id })
 
       void args.journal.appendEvent(args.root, {
         kind: 'spawned',
         id,
         parent: args.parentId,
         label: opts.label,
+        ...(opts.key !== undefined ? { key: opts.key } : {}),
         budget: opts.budget,
         runtime: executor.runtime,
         seq: ordinal,
@@ -416,7 +488,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         })
       ;(live as { settled: Promise<PreSeqSettled> }).settled = settled
 
-      return { ok: true, handle }
+      return { ok: true, handle, ...(prior ? { prior } : {}) }
     } catch (err) {
       args.pool.reconcile(reservation.ticket, zeroSpend())
       throw err
@@ -445,7 +517,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           `scope.next: child '${chosen.id}' won the settle race without a resolved value`,
         )
       }
-      return finalizeSettlement<Out>(chosen, settlement, seq, args, now)
+      const delivered = await finalizeSettlement<Out>(chosen, settlement, seq, args, now)
+      if (chosen.key !== undefined) recordKeyedSettlement(chosen.key, delivered)
+      return delivered
     }
   }
 
@@ -462,7 +536,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       if (pick.delivered) continue // lost the race with a concurrent cursor — pick again
       pick.delivered = true
       const seq = cursorSeq++
-      return finalizeSettlement<Out>(pick, settlement, seq, args, now)
+      const delivered = await finalizeSettlement<Out>(pick, settlement, seq, args, now)
+      if (pick.key !== undefined) recordKeyedSettlement(pick.key, delivered)
+      return delivered
     }
   }
 
@@ -701,6 +777,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         settled: args.resumeFrom.settled as ReadonlyArray<Settled<Out>>,
         view: args.resumeFrom.view,
         waits: args.resumeFrom.waits,
+        keys: args.resumeFrom.keys as ReadonlyMap<string, ResumedKeyState<Out>>,
+        priorSpend: args.resumeFrom.priorSpend,
       }
     : undefined
 

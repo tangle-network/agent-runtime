@@ -464,7 +464,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 579 exports.
+Import from `@tangle-network/agent-runtime/loops` — 594 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -568,6 +568,7 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `panel` | function | `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements, |
 | `patchDelivered` | function | Build the `DeliverableSpec<WorktreePatchArtifact>`: `check(artifact)` runs the shared mechanical |
 | `pendingWaits` | function | The waits a journaled tree shows as ARMED but never woken — what a resumed run re-arms with the |
+| `pickBestDelivered` | function | The single argmax both the default finalizer and `finalizeBestDelivered` share: highest |
 | `pickChampion` | function | The champion pick over a means table. 'score' takes the best mean score (ties → |
 | `pipeline` | function | `pipeline(stages)` — run the stages in order, feeding each stage's `done` deliverable into the |
 | `plateau` | function | "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than |
@@ -603,9 +604,11 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `runAgentic` | function | Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope. |
 | `runAgentRounds` | function | The round-synchronous MULTI-AGENT kernel: each round `driver.plan()` fans N tasks |
 | `runBenchmark` | function | Run the requested strategies over the tasks, scored by the Environment's own check. |
+| `runFinalizer` | function | Run a finalizer over a settled-worker ledger under the delivered-only invariant: filter the |
 | `runInWorkspace` | function | Run a worker `body` inside a FRESH clone of a shared `Workspace`, then commit its work back |
 | `runPersonified` | function | Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape |
 | `runStrategyEvolution` | function | Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice. |
+| `runTree` | function | The tree that describes the WHOLE run: this process's live nodes plus, on a resumed run, the |
 | `sampleFromSettled` | function | Build a `ProgressSample` from a scope settlement. The objective is the verdict score and |
 | `sandboxCheckRunner` | function | Default CheckRunner backend: pipes the check program into `python3` over the sandbox |
 | `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
@@ -639,8 +642,10 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `worktreeFanout` | function | Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })` |
 | `adaptiveRefine` | const | A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot |
 | `assertTraceDerivedFindings` | const | Reject analyst findings derived from evaluation scores instead of execution traces. |
+| `bestDelivered` | const | Keep-best under the completion oracle — the DEFAULT finalizer and the exact behavior every |
 | `builtinShapes` | const | The default registry `runPersonified` resolves a shape name against. Empty by construction — |
 | `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
+| `collectDelivered` | const | Every verified distinct output, highest score first — the shape for competing hypotheses, a |
 | `DEFAULT_AWAIT_EVENT_TIMEOUT_MS` | const | Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote |
 | `DEFAULT_SANDBOX_STEERING_MAX_TURNS` | const | Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so |
 | `DEFAULT_STALL_AFTER_MS` | const | How long a worker may produce no metered activity before a `progress()` read calls it stalled. |
@@ -658,6 +663,7 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
+| `FileCoordinationLog` | class | FS-backed `CoordinationLog`: append-only JSONL, fsynced per record. |
 | `FileCorpus` | class | JSONL on disk — one validated `CorpusRecord` per line, append-only. `query` replays the whole |
 | `FileResultBlobStore` | class | FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a |
 | `FileSpawnJournal` | class | JSONL on disk. One line per record: the first record is `begin`, subsequent records |
@@ -699,6 +705,7 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `CompletionPolicy` | interface | When a verdict authorizes the driver to END. Deterministic → trust (ground truth); |
 | `CompletionVerdict` | interface | The "is it done?" verdict an analyst returns to the parent. |
 | `ConcurrencyCaps` | interface | The caps a host can set on simultaneous work. See the ledger in this module's header for what |
+| `CoordinationLog` | interface | The durable coordination side-log seam. `append` records one bus event (kinds it does not |
 | `Corpus` | interface | The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal` |
 | `CorpusFilter` | interface | A corpus query filter — every field is an AND-narrowing; an omitted field does not constrain. |
 | `CorpusRecord` | interface | One accreted fact in the cross-run corpus — the learning-flywheel's durable unit. DISTINCT from |
@@ -709,6 +716,7 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `DefinePersonaInput` | interface | The minimal input to build a `Persona`. Mirrors `Persona` but lets the builder default |
 | `DelegateOptions` | interface | Inputs to {@link delegate}. The intent is the first positional arg; everything here is optional |
 | `DeliverableSpec` | interface | The deployable completion oracle passed to {@link gateOnDeliverable}: a `check` that |
+| `DeliveredOutput` | interface | One DELIVERED child, materialized: settled `done`, oracle-passed, output rehydrated. `out` is |
 | `DispatchUnit` | interface | One unit of queued work: the agent to run, its task, and the spawn options (budget + label). |
 | `DownMessageEvent` | interface | A parent→child message (the down-leg): recorded for observability, delivered via the child inbox, |
 | `DumbDriverOptions` | interface | Options for {@link dumbDriver}. |
@@ -723,6 +731,8 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `ExecutorResult` | interface | Terminal artifact of a one-shot `Executor.execute`. |
 | `FanoutOptions` | interface | `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by |
 | `FanoutSynthesis` | interface | How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child |
+| `FinalizeContext` | interface | What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled` |
+| `FinalizerSettled` | interface | One settled worker as the finalizer sees it — the ledger row (structural fields only). |
 | `ForkCapableBox` | interface | Loop-side widening of the box's optional fork method. |
 | `Handle` | interface | A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into |
 | `InboxMessage` | interface | The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as |
@@ -765,6 +775,7 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `PersonaExecutors` | interface | How a persona supplies executor resolution. Either a pre-built registry (factories already |
 | `PipelineStage` | interface | `pipeline(stages)` — sequential composition: each stage's `Outcome.deliverable` feeds the next |
 | `PiSeam` | interface | How to launch pi in its out-of-process RPC mode, and how long to wait on it. |
+| `PriorCoordination` | interface | What a prior process's coordination log replays into a resumed driver. |
 | `ProfileRichness` | interface | Per-field verdict on one authored profile — the raw material the bench renders + scores. |
 | `ProfileRichnessThresholds` | interface | Thresholds below which a system prompt is treated as a thin stub. Tunable per call. |
 | `ProgressSample` | interface | One settled unit of work, reduced to what a stop rule reads. `objective` is the run's own |
@@ -777,6 +788,7 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |
 | `ResultBlobStore` | interface | Content-addressed result blobs (the `outRef` → artifact map) backing the replay |
+| `ResumedKeyState` | interface | What the journal proves about one keyed assignment at resume time. |
 | `ResumedWork` | interface | The committed work a resumed run inherits from its journal. `settled` is the replayed |
 | `RootHandle` | interface | Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `signal` |
 | `RouterSeam` | interface | Router/inline connection seam. A direct OpenAI-compatible Router endpoint — |
@@ -883,12 +895,15 @@ Import from `@tangle-network/agent-runtime/loops` — 579 exports.
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `Shell` | type | Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`. |
 | `SpawnEvent` | type | Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO |
+| `SpawnPrior` | type | What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on |
+| `SpawnRejection` | type | Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, or a `key` |
 | `SteeringDecision` | type | Terminal-or-continue decision shared by all three steering drivers. The |
 | `StopDecision` | type | A stop rule's answer. `reason` is required when stopping — a run that ends must be able to say |
 | `StopRule` | type | Evaluated from the progress feed, never from the budget. Pure and synchronous: it is called on |
 | `StrategyMessage` | type | One provider-neutral conversation record carried between strategy shots. |
 | `StructuralRolloutMessage` | type | Provider-neutral conversation records read by structural candidate extraction. |
 | `SupervisedResult` | type | Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. |
+| `SupervisorFinalizer` | type | The finalization seam: ledger in, output (or `undefined` = nothing deliverable) out. |
 | `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |
 | `ToolLoopCompactionOptions` | type | Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional |
 | `ToolLoopMessageRecord` | type | Provider-neutral conversation record accepted by a tool-loop brain. |

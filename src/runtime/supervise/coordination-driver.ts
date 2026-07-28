@@ -26,10 +26,11 @@
  * @experimental
  */
 
-import { ValidationError } from '../../errors'
+import { RuntimeRunStateError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
+  type CoordinationEvent,
   coordinationVerbNames,
   createCoordinationTools,
   type MakeWorkerAgent,
@@ -43,13 +44,30 @@ import {
   type ToolLoopCompaction,
   type ToolLoopCompactionOptions,
 } from '../tool-loop'
+import type { PriorCoordination } from './coordination-log'
+import {
+  bestDelivered,
+  pickBestDelivered,
+  runFinalizer,
+  runTree,
+  type SupervisorFinalizer,
+} from './finalizer'
 import {
   createProgressTracker,
   type ProgressTracker,
   type StopDecision,
   type StopRule,
 } from './stop-rules'
-import type { Agent, Budget, NodeSnapshot, ResultBlobStore, Scope, Spend, TreeView } from './types'
+import type {
+  Agent,
+  Budget,
+  NodeSnapshot,
+  ResultBlobStore,
+  ResumedWork,
+  Scope,
+  Spend,
+  TreeView,
+} from './types'
 
 export interface DriverAgentOptions {
   readonly name: string
@@ -133,6 +151,18 @@ export interface DriverAgentOptions {
    *  off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
    *  with the factual settled-worker roster; override to supply your own. */
   readonly compaction?: ToolLoopCompactionOptions
+  /** Pass-through subscriber for every coordination bus event (settled / question / finding /
+   *  steer / answer) — what a durable caller hooks its coordination log onto. Omit = no observer. */
+  readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
+  /** Questions + findings a durable coordination log replayed from a prior process of this run.
+   *  Questions seed the ledger (`list_questions`, blocking-stop policy); both feed the resume
+   *  brief. Omit = fresh (every run that is not a resume). */
+  readonly priorCoordination?: PriorCoordination
+  /** How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
+   *  highest-scoring DELIVERED child (the exact keep-best every existing caller had). Runs under
+   *  the delivered-only invariant (`runFinalizer`): whatever the finalizer, an undelivered or
+   *  invalid child's output stays unreachable. */
+  readonly finalizer?: SupervisorFinalizer
 }
 
 /** The default chapter-close prompt: the brain summarizes its OWN progress for its future self before
@@ -282,7 +312,23 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+        ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
+        ...(opts.priorCoordination?.questions.length
+          ? { priorQuestions: opts.priorCoordination.questions }
+          : {}),
       })
+      // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
+      // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
+      // (they settle through the same cursor `await_event` drains). Fail loud on a wait that
+      // cannot be re-armed: silently dropping supervision state is worse than stopping.
+      for (const w of scope.resume?.waits ?? []) {
+        const rearmed = scope.wait(w.spec, { label: w.label })
+        if (!rearmed.ok) {
+          throw new RuntimeRunStateError(
+            `driverAgent: cannot re-arm resumed wait '${w.label}' (${rearmed.reason})`,
+          )
+        }
+      }
       const byName = new Map<string, McpToolDescriptor>(coord.tools.map((t) => [t.name, t]))
       const toolSpecs: ToolSpec[] = [
         ...coord.tools.map((t) => ({
@@ -390,6 +436,13 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         initialMessages: [
           { role: 'system', content: system },
           { role: 'user', content: stringifyTask(task) },
+          // The resume brief: on a resumed run the brain's FIRST context already carries the
+          // committed settlements, the key states, the re-armed waits, carried-over questions/
+          // findings, and the spend the run already paid — so it continues from the unresolved
+          // work instead of re-planning (and re-paying) from scratch.
+          ...(scope.resume
+            ? [{ role: 'user', content: resumeBrief(scope.resume, opts.priorCoordination) }]
+            : []),
         ],
         maxTurns,
         // The conserved-pool + deadline + external-stop bound (what maxTurns=0 relies on): a driver
@@ -431,11 +484,105 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // never be lost to the driver's pull discipline (e.g. a brain that spawned and stopped
       // without awaiting). Non-blocking: live children are the supervisor's to tear down.
       await coord.drainResolved()
-      // The driver's deliverable is the best DELIVERED child (the completion-oracle), never its own
-      // prose — a driver cannot self-declare done (Foreman 0/18). No delivered child → undefined.
-      return finalize(coord, opts.blobs)
+      // The driver's deliverable comes from the finalizer seam over DELIVERED children only
+      // (the completion-oracle), never its own prose — a driver cannot self-declare done
+      // (Foreman 0/18). Default keep-best; nothing delivered → undefined.
+      return runFinalizer(opts.finalizer ?? bestDelivered, {
+        settled: coord.settled(),
+        blobs: opts.blobs,
+        tree: runTree(scope),
+        budget: scope.budget,
+      })
     },
   }
+}
+
+/**
+ * The factual context a resumed driver starts from — everything the durable stores prove about
+ * the prior process(es): committed settlements, per-key states (completed / lost / failed),
+ * re-armed waits, carried-over questions and findings, and the spend already paid. Injected as
+ * the brain's first user-context on a resumed run so it continues from the unresolved work.
+ */
+function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): string {
+  const lines: string[] = [
+    'RESUME: this run continues a prior coordinator process. Its committed work is restored',
+    'below and already counts toward the deliverable — do NOT redo it. Continue from the',
+    'unresolved work only.',
+    '',
+    `Committed workers (${resume.settled.length}):`,
+  ]
+  if (resume.settled.length === 0) lines.push('- none')
+  for (const s of resume.settled) {
+    lines.push(
+      s.kind === 'done'
+        ? `- ${s.handle.id} (${s.handle.label}): done, score=${s.verdict?.score ?? 0}, valid=${
+            s.verdict?.valid ?? false
+          }, outRef=${s.outRef}`
+        : `- ${s.handle.id} (${s.handle.label}): down, reason=${s.reason}`,
+    )
+  }
+  const byState = (state: 'completed' | 'in-doubt' | 'down') =>
+    [...resume.keys].filter(([, v]) => v.state === state)
+  const completed = byState('completed')
+  const lost = byState('in-doubt')
+  const failed = byState('down')
+  if (completed.length > 0) {
+    lines.push(
+      '',
+      'COMPLETED keys — spawn_agent with the same key returns the finished result, spending nothing:',
+      ...completed.map(([k, v]) => `- ${k} → ${v.id} (${v.label})`),
+    )
+  }
+  if (lost.length > 0) {
+    lines.push(
+      '',
+      'Keys LOST in flight with the prior process — this is the unresolved work; spawn_agent with the same key starts a fresh attempt:',
+      ...lost.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
+    )
+  }
+  if (failed.length > 0) {
+    lines.push(
+      '',
+      'Keys whose prior attempt FAILED (settled down) — spawn_agent with the same key retries:',
+      ...failed.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
+    )
+  }
+  if (resume.waits.length > 0) {
+    lines.push(
+      '',
+      'Pending waits RE-ARMED on their original deadlines (they settle through await_event):',
+      ...resume.waits.map((w) => `- ${w.label} (${w.spec.kind})`),
+    )
+  }
+  const openQuestions = (prior?.questions ?? []).filter(
+    (q) => q.status === 'open' || q.status === 'escalated',
+  )
+  if (openQuestions.length > 0) {
+    lines.push(
+      '',
+      'Questions carried over, still undecided (answer_question decides them; list_questions shows all):',
+      ...openQuestions.map(
+        (q) => `- [${q.id}] from=${q.from}, urgency=${q.urgency}: ${q.question}`,
+      ),
+    )
+  }
+  if ((prior?.findings.length ?? 0) > 0) {
+    lines.push(
+      '',
+      'Analyst findings from the prior process:',
+      ...(prior?.findings ?? []).map(
+        (f) => `- ${f.analyst} on ${f.fromWorker}: ${safeJson(f.findings)}`,
+      ),
+    )
+  }
+  const spent = resume.priorSpend
+  lines.push(
+    '',
+    'Budget the run ALREADY spent before this process (it counts toward the run total):',
+    `- child work: tokens in=${spent.childWork.tokens.input} out=${spent.childWork.tokens.output}, usd=${spent.childWork.usd}, iterations=${spent.childWork.iterations}`,
+    `- driver inference: tokens in=${spent.driverInference.tokens.input} out=${spent.driverInference.tokens.output}, usd=${spent.driverInference.usd}`,
+  )
+  return lines.join('\n')
 }
 
 /** Run a work tool. A throw is data to the driver (it can recover next turn), not a crash — fold
@@ -467,25 +614,16 @@ async function runTool(tool: McpToolDescriptor, args: Record<string, unknown>): 
  *  child delivered — an honest "the driver produced nothing", never a high-scoring result that
  *  ran without passing its check (Foreman's 0/18 lesson). `valid` is the single delivery signal,
  *  matching `defaultSelectWinner`'s valid-first rule; the oracle just doesn't fall back to an
- *  unchecked best-effort. */
+ *  unchecked best-effort. The same argmax as the `bestDelivered` finalizer (`pickBestDelivered`);
+ *  this direct form serves callers that hold a bare ledger + blob store. */
 export async function finalizeBestDelivered(
   settled: ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>,
   blobs: ResultBlobStore,
 ): Promise<unknown> {
   const delivered = settled.filter((w) => w.status === 'done' && w.valid === true)
-  if (delivered.length === 0) return undefined
-  let best = delivered[0]!
-  for (const w of delivered) if ((w.score ?? 0) > (best.score ?? 0)) best = w
+  const best = pickBestDelivered(delivered)
+  if (best === undefined) return undefined
   return best.outRef ? await blobs.get(best.outRef) : undefined
-}
-
-async function finalize(
-  coord: {
-    settled(): ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>
-  },
-  blobs: ResultBlobStore,
-): Promise<unknown> {
-  return finalizeBestDelivered(coord.settled(), blobs)
 }
 
 function stringifyTask(task: unknown): string {
