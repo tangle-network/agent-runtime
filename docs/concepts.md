@@ -69,7 +69,7 @@ the cost ledger — all substrate. Streaming is the same shape:
 
 ## Execution continuity — substrate-owned
 
-Long-running execution durability — reconnect, replay, dedup — is the
+Long-running execution durability — reconnect, replay, and dispatch deduplication — is the
 substrate's job, not agent-runtime's. The `@tangle-network/sandbox`
 SDK + orchestrator already handle it:
 
@@ -77,17 +77,20 @@ SDK + orchestrator already handle it:
   the response's `execution.started` event and replays via the runtime
   endpoint if the stream drops. Transparent — callers do nothing.
 - **Cross-process reconnect**: a fresh Worker can resume a prior
-  Worker's execution by POSTing to the orchestrator's
-  `/agents/run/stream` with the `X-Execution-ID` header. The SDK's
-  public `PromptOptions` does not yet surface this; products bypass the
-  SDK and call the orchestrator directly when they need it (see
-  tax-agent's `sessions.ts`).
-- The orchestrator's buffer is 10k events / 2-min post-completion. A
-  retry past that window gets `execution_not_found` and re-runs.
+  Worker's execution by passing `PromptOptions.executionId` with
+  `lastEventId`; the SDK replays events strictly after that cursor
+  without dispatching the prompt again.
+- **Detached execution**: `PromptOptions.detach: true` keeps the run
+  executing server-side when the caller's stream closes so another
+  Worker can reconnect.
+- **Dispatch idempotency**: `PromptOptions.turnId` plus `sessionId`
+  makes a repeated logical-turn dispatch return the completed result
+  instead of issuing another model call. `executionId` alone does not.
 
 agent-runtime owns one helper, `deriveExecutionId({ projectId,
 sessionId, turnIndex })`, that produces the stable id the product
-persists on its session row.
+persists and passes as both `executionId` and `turnId` on the first
+dispatch. Replay uses the same `executionId` plus `lastEventId`.
 
 What lives in the Worker: auth, access control, product DB writes,
 prompt composition, routing. What lives in the substrate: the

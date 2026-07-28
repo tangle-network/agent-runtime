@@ -97,13 +97,6 @@ export {
   slugifySpeaker,
   turnId,
 } from './conversation'
-// ── Chat-turn HTTP orchestration ──────────────────────────────────────
-// `handleChatTurn` frames a producer with the `session.run.*` envelope
-// + NDJSON line protocol + persist/post-process/trace-flush hook order.
-// `deriveExecutionId` produces the stable id products persist so a
-// client retry can replay the same substrate execution. Long-running
-// execution durability itself lives in @tangle-network/sandbox.
-export * from './durable'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,

@@ -5,6 +5,7 @@ export default defineConfig({
     index: 'src/index.ts',
     agent: 'src/agent/index.ts',
     conversation: 'src/conversation/index.ts',
+    durable: 'src/durable/index.ts',
     intelligence: 'src/intelligence/index.ts',
     loops: 'src/runtime/index.ts',
     'environment-provider': 'src/runtime/environment-provider.ts',

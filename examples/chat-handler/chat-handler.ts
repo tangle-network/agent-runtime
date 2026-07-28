@@ -16,7 +16,7 @@ import {
   type ChatStreamEvent,
   type ChatTurnProducer,
   handleChatTurn,
-} from '@tangle-network/agent-runtime'
+} from '@tangle-network/agent-runtime/durable'
 
 function produce(userMessage: string): ChatTurnProducer<ChatStreamEvent> {
   let accumulated = ''

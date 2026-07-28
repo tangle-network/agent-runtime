@@ -2,7 +2,7 @@
 
 You have an agent that emits its reply token-by-token. You want to serve that to a browser as a
 live, streaming HTTP response, and once the reply finishes, save the final text to your database.
-`handleChatTurn` (a helper from `@tangle-network/agent-runtime`) does exactly that plumbing so you
+`handleChatTurn` (from the edge-safe `@tangle-network/agent-runtime/durable` entry point) does exactly that plumbing so you
 don't hand-roll it.
 
 Give it two things — a `produce()` function that yields your agent's token stream, and a
