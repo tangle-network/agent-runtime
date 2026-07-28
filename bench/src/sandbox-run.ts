@@ -15,8 +15,8 @@ import {
   type OutputAdapter,
   routerChatWithUsage,
 } from '@tangle-network/agent-runtime/kernel'
-// `BackendType` is the sandbox SDK's harness union — its canonical home. agent-runtime consumes
-// it from there too; it is not re-exported from the loops barrel.
+// `BackendType` is the sandbox SDK's harness union and its canonical home. agent-runtime consumes
+// it from there too; it is not re-exported from the kernel barrel.
 import type { BackendType } from '@tangle-network/sandbox'
 
 /** Parse the agent's final answer from the event stream (harness-agnostic).

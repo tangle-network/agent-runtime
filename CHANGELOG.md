@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.109.0
+
+- Rename the public `./loops` entrypoint to `./kernel` and remove the old entrypoint.
+- Export the kernel's main execution types from the package root for discovery without adding root runtime weight.
+- Align Runtime with Eval 0.135.1 and Knowledge 6.1.10.
+
 ## 0.108.1
 
 - Align Runtime with Eval 0.134.2 and Knowledge 6.1.8 so every knowledge and runtime evaluation uses complete multishot judge cost accounting.
