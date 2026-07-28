@@ -3,10 +3,24 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { runSupervisorShim, supervisorDriverKillGraceMs } from './arms.ts'
-import { run, TIMEOUT_RC } from './proc.ts'
+import { ABORT_RC, run } from './proc.ts'
 
 const dirs: string[] = []
 const workerPids: number[] = []
+
+async function waitForFile(path: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      await access(path)
+      return
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(`timed out waiting for ${path}`)
+}
 
 afterAll(async () => {
   for (const pid of workerPids) {
@@ -122,6 +136,7 @@ export default function fakeExtension(pi) {
       writeFileSync(join(runDir, 'state.json'), JSON.stringify({ status: 'running' }))
       appendFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({ kind: 'spawned', id, label: 'root' }) + '\\n')
       appendFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({ kind: 'spawned', id: id + ':s1', parent: id, label: 'w-0' }) + '\\n')
+      writeFileSync(join(ctx.cwd, 'outer-driver-ready.txt'), 'ready')
       return text('spawned supervisor ' + id)
     },
   })
@@ -140,10 +155,11 @@ export default function fakeExtension(pi) {
 `)
 
     const cancelTimeoutMs = 1_500
-    const result = await run(process.execPath, [
+    const controller = new AbortController()
+    const resultPromise = run(process.execPath, [
       '--import', 'tsx', runSupervisorShim, extension, workspace, params,
     ], {
-      timeoutMs: 1_000,
+      signal: controller.signal,
       killGraceMs: supervisorDriverKillGraceMs({
         DRIVER_CANCEL_TIMEOUT_MS: String(cancelTimeoutMs),
       }),
@@ -154,9 +170,19 @@ export default function fakeExtension(pi) {
         DRIVER_CANCEL_TIMEOUT_MS: String(cancelTimeoutMs),
       },
     })
+    try {
+      await waitForFile(join(workspace, 'outer-driver-ready.txt'))
+    } catch (error) {
+      controller.abort()
+      await resultPromise
+      throw error
+    }
+    controller.abort()
+    const result = await resultPromise
 
-    expect(result.code, result.stdout + result.stderr).toBe(TIMEOUT_RC)
-    expect(result.timedOut).toBe(true)
+    expect(result.code, result.stdout + result.stderr).toBe(ABORT_RC)
+    expect(result.aborted).toBe(true)
+    expect(result.timedOut).toBe(false)
     expect(await readFile(join(workspace, 'outer-cancel-settled.txt'), 'utf8')).toBe('settled')
     expect(JSON.parse(await readFile(join(workspace, '.loops', 'supervisor', 'sup-2-fake34', 'state.json'), 'utf8')))
       .toMatchObject({ status: 'cancelled' })
@@ -170,10 +196,10 @@ export default function fakeExtension(pi) {
     const extension = join(dir, 'fake-extension.mjs')
     await mkdir(workspace)
     await writeFile(params, '{}')
-    const workerScript = `const fs=require('node:fs'); const marker=process.argv[1]; process.on('SIGTERM',()=>setTimeout(()=>{fs.writeFileSync(marker,'clean'); process.exit(0)},30)); setInterval(()=>{},1000)`
+    const workerScript = `const fs=require('node:fs'); const marker=process.argv[1]; const ready=process.argv[2]; process.on('SIGTERM',()=>setTimeout(()=>{fs.writeFileSync(marker,'clean'); process.exit(0)},30)); fs.writeFileSync(ready,'ready'); setInterval(()=>{},1000)`
     await writeFile(extension, `
 import { spawn } from 'node:child_process'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const id = 'sup-3-signal56'
@@ -188,11 +214,13 @@ export default function fakeExtension(pi) {
       writeFileSync(join(runDir, 'state.json'), JSON.stringify({ status: 'running' }))
       appendFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({ kind: 'spawned', id, label: 'root' }) + '\\n')
       appendFileSync(join(runDir, 'journal.jsonl'), JSON.stringify({ kind: 'spawned', id: id + ':s1', parent: id, label: 'w-0' }) + '\\n')
-      child = spawn(process.execPath, ['-e', ${JSON.stringify(workerScript)}, join(ctx.cwd, 'signal-worker-cleaned.txt')], {
+      const readyPath = join(ctx.cwd, 'signal-worker-ready.txt')
+      child = spawn(process.execPath, ['-e', ${JSON.stringify(workerScript)}, join(ctx.cwd, 'signal-worker-cleaned.txt'), readyPath], {
         detached: true,
         stdio: 'ignore',
       })
       writeFileSync(join(ctx.cwd, 'signal-worker.pid'), String(child.pid))
+      while (!existsSync(readyPath)) await new Promise((resolve) => setTimeout(resolve, 5))
       writeFileSync(join(ctx.cwd, 'spawn-entered.txt'), 'entered')
       await new Promise((resolve) => setTimeout(resolve, 30_000))
       return text('spawned supervisor ' + id)
@@ -214,10 +242,11 @@ export default function fakeExtension(pi) {
 `)
 
     const cancelTimeoutMs = 2_000
-    const result = await run(process.execPath, [
+    const controller = new AbortController()
+    const resultPromise = run(process.execPath, [
       '--import', 'tsx', runSupervisorShim, extension, workspace, params,
     ], {
-      timeoutMs: 1_000,
+      signal: controller.signal,
       killGraceMs: supervisorDriverKillGraceMs({
         DRIVER_CANCEL_TIMEOUT_MS: String(cancelTimeoutMs),
       }),
@@ -228,11 +257,21 @@ export default function fakeExtension(pi) {
         DRIVER_CANCEL_TIMEOUT_MS: String(cancelTimeoutMs),
       },
     })
+    try {
+      await waitForFile(join(workspace, 'spawn-entered.txt'))
+    } catch (error) {
+      controller.abort()
+      await resultPromise
+      throw error
+    }
+    controller.abort()
+    const result = await resultPromise
     const workerPid = Number(await readFile(join(workspace, 'signal-worker.pid'), 'utf8'))
     workerPids.push(workerPid)
 
-    expect(result.code, result.stdout + result.stderr).toBe(TIMEOUT_RC)
-    expect(result.timedOut).toBe(true)
+    expect(result.code, result.stdout + result.stderr).toBe(ABORT_RC)
+    expect(result.aborted).toBe(true)
+    expect(result.timedOut).toBe(false)
     expect(await readFile(join(workspace, 'spawn-entered.txt'), 'utf8')).toBe('entered')
     expect(await readFile(join(workspace, 'signal-worker-cleaned.txt'), 'utf8')).toBe('clean')
     expect(await readFile(join(workspace, 'signal-cancel-settled.txt'), 'utf8')).toBe('settled')
