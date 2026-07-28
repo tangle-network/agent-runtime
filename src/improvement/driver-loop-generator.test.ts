@@ -13,25 +13,24 @@
  *   5. without a verifier the legacy contract holds (dirty tree = candidate).
  */
 
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import type { LocalHarnessResult, RunLocalHarnessOptions } from '../mcp/local-harness'
 import type { ToolLoopChat } from '../runtime/tool-loop'
 import type { VerifyResult } from './agentic-generator'
 import { driverLoopGenerator } from './driver-loop-generator'
 
-const finding = (claim: string): AnalystFinding =>
-  ({
-    schema_version: '1.0.0',
-    finding_id: `f-${claim}`,
+const finding = (claim: string): ProposalFinding =>
+  makeProposalFinding({
     analyst_id: 'test-analyst',
-    produced_at: new Date(0).toISOString(),
+    proposal_origin: 'search',
     severity: 'high',
     area: 'tool-use',
     claim,
     evidence_refs: [],
     confidence: 0.9,
-  }) as unknown as AnalystFinding
+    produced_at: new Date(0).toISOString(),
+  })
 
 /** One scripted driver turn: the tool calls the "LLM" emits (arguments as JSON strings). */
 type ScriptedTurn = { calls?: Array<{ name: string; args: Record<string, unknown> }>; say?: string }
@@ -74,12 +73,11 @@ function harnessStub(onRun?: (opts: RunLocalHarnessOptions) => void) {
 }
 
 const generateArgs = (
-  findings: AnalystFinding[],
+  findings: ReadonlyArray<ProposalFinding>,
   maxShots: number,
   signal = new AbortController().signal,
 ) => ({
   worktreePath: '/wt/cand0',
-  report: undefined,
   findings,
   maxShots,
   signal,

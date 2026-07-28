@@ -14,6 +14,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { makeProposalFinding } from '@tangle-network/agent-eval'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { rawTraceDistiller } from './raw-trace-distiller'
 
@@ -113,10 +114,11 @@ describe('rawTraceDistiller', () => {
     //    (defaultBuildPrompt reads severity + claim + recommended_action).
     expect(Array.isArray(findings)).toBe(true)
     expect(findings.length).toBeGreaterThanOrEqual(2)
-    for (const f of findings as Array<Record<string, unknown>>) {
+    for (const f of findings) {
       expect(typeof f.claim).toBe('string')
       expect(typeof f.recommended_action).toBe('string')
       expect(typeof f.severity).toBe('string')
+      expect(f.proposal_origin).toBe('search')
     }
 
     // 2. The findings reference the ACTUAL absolute trace-file paths on disk.
@@ -131,13 +133,11 @@ describe('rawTraceDistiller', () => {
     // 3. The grep/cat-to-diagnose instruction — the meta-harness recipe, not a digest.
     expect(blob.toLowerCase()).toContain('grep')
     expect(blob.toLowerCase()).toContain('cat')
-    const leader = findings[0] as Record<string, unknown>
+    const leader = findings[0]!
     expect(String(leader.recommended_action)).toMatch(/do not rely on a pre-summarized finding/i)
 
     // 4. Worst candidate first (composite 0 before 0.4), and paths are absolute.
-    const cand0Finding = (findings as Array<Record<string, unknown>>).find(
-      (f) => f.subject === 'cand0hash',
-    )!
+    const cand0Finding = findings.find((f) => f.subject === 'cand0hash')!
     expect(cand0Finding).toBeDefined()
     const meta = cand0Finding.metadata as { cells: Array<{ files: string[] }> }
     expect(meta.cells[0]!.files.every((p) => p.startsWith('/'))).toBe(true)
@@ -221,13 +221,11 @@ describe('rawTraceDistiller', () => {
     } as unknown as AnalyzeInput
 
     const findings = await rawTraceDistiller()(input)
-    const candidate = (findings as Array<Record<string, unknown>>).find(
-      (finding) => finding.subject === 'unscored',
-    )!
+    const candidate = findings.find((finding) => finding.subject === 'unscored')!
     expect(String(candidate.claim)).toContain('has no aggregate score')
     expect((candidate.metadata as { composite: number | null }).composite).toBeNull()
     expect(
-      (findings as Array<Record<string, unknown>>).flatMap((finding) =>
+      findings.flatMap((finding) =>
         finding.subject === 'scored' || finding.subject === 'unscored' ? [finding.subject] : [],
       ),
     ).toEqual(['scored', 'unscored'])
@@ -260,7 +258,17 @@ describe('rawTraceDistiller', () => {
   })
 
   it('falls back to the seed findings when a generation has no failing cells', async () => {
-    const seed = [{ seed: 'keep-me' }]
+    const seed = [
+      makeProposalFinding({
+        analyst_id: 'test',
+        proposal_origin: 'production',
+        severity: 'info',
+        area: 'seed',
+        claim: 'keep me',
+        confidence: 1,
+        evidence_refs: [],
+      }),
+    ]
     const input = {
       generation: 0,
       runDir: join(root, 'gen-0'),
@@ -306,5 +314,6 @@ describe('rawTraceDistiller', () => {
     const findings = await rawTraceDistiller({ fallbackFindings: [] })(input)
     expect(findings).toHaveLength(1)
     expect((findings[0] as unknown as { area: string }).area).toBe('raw-trace-context')
+    expect(findings[0]!.proposal_origin).toBe('search')
   })
 })

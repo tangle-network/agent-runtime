@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { makeProposalFinding } from '@tangle-network/agent-eval'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -76,6 +77,17 @@ const testCases: OptimizerScenario[] = [
   { id: 'test-b', kind: 'fixture', prompt: 'private test b', privateNote: 'TEST_SECRET_B' },
 ]
 const executionRef = canonicalCandidateDigest({ fixture: 'official-optimizer-method' })
+const proposalFinding = (claim: string, metadata?: Record<string, unknown>) =>
+  makeProposalFinding({
+    analyst_id: 'test',
+    proposal_origin: 'production',
+    severity: 'medium',
+    area: 'response',
+    claim,
+    confidence: 1,
+    evidence_refs: [],
+    ...(metadata ? { metadata } : {}),
+  })
 
 const runDirs: string[] = []
 
@@ -220,7 +232,7 @@ function commonOptions(method: ReturnType<typeof officialGepa<OptimizerScenario,
     surface: 'prompt' as const,
     executionRef,
     method,
-    findings: [{ claim: 'answers omit citations' }],
+    findings: [proposalFinding('answers omit citations')],
     trainScenarios: train,
     selectionScenarios: selection,
     testScenarios: testCases,
@@ -825,7 +837,7 @@ describe('official optimizer methods', () => {
           runner: fakeRunner('gepa', observedInputPath),
         }),
       ),
-      findings: [{ claim: 'answers omit citations', apiKey: privateValue }],
+      findings: [proposalFinding('answers omit citations', { apiKey: privateValue })],
       runDir: join(root, 'run'),
     })
 

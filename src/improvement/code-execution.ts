@@ -1,4 +1,4 @@
-import { makeFinding } from '@tangle-network/agent-eval'
+import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import {
   gitWorktreeAdapter,
   type Worktree,
@@ -37,7 +37,7 @@ const distilledErrorMaxChars = 500
 
 /** Distill failing cells into typed findings for the next proposal round. */
 function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
-  staticFindings: unknown[],
+  staticFindings: ReadonlyArray<ProposalFinding>,
 ): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
   const CAP = 12
   return async (input) => {
@@ -85,8 +85,9 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
     if (failures.length === 0) return staticFindings
     failures.sort((left, right) => left.composite - right.composite)
     return failures.slice(0, CAP).map((failure) =>
-      makeFinding({
+      makeProposalFinding({
         analyst_id: 'generation-failure-distiller',
+        proposal_origin: 'search',
         severity: failure.error !== undefined || failure.composite < 0.5 ? 'high' : 'medium',
         area: 'generation-failure',
         confidence: 1,
@@ -110,7 +111,7 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
  * bounded digest of failed cells. */
 function defaultDistillerFor<TScenario extends Scenario, TArtifact>(
   opts: ImproveCodeRunOptions<TScenario, TArtifact>,
-  findings: unknown[],
+  findings: ReadonlyArray<ProposalFinding>,
 ): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
   const durableRun = opts.runDir !== undefined && !opts.runDir.startsWith('mem://')
   const useRawTraces = opts.rawTraceContext ?? durableRun
@@ -120,7 +121,7 @@ function defaultDistillerFor<TScenario extends Scenario, TArtifact>(
 
 interface PreparedCodeRun {
   baseline: CodeSurface
-  proposer: SurfaceProposer
+  proposer: SurfaceProposer<ProposalFinding>
   cleanup(retainedWinner?: MutableSurface): Promise<void>
 }
 

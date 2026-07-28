@@ -29,12 +29,6 @@ export {
   driverLoopGenerator,
 } from './driver-loop-generator'
 export {
-  isAnalystFinding,
-  LIFTED_FINDING_ANALYST_ID,
-  type ToAnalystFindingsOptions,
-  toAnalystFindings,
-} from './findings'
-export {
   type ImproveCandidateValidationInput,
   type ImproveCandidateValidator,
   type ImproveCodeOptions,

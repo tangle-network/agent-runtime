@@ -1,3 +1,4 @@
+import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import {
   inMemoryCampaignStorage,
   type JudgeConfig,
@@ -41,6 +42,17 @@ const finalScenarios: IdentityScenario[] = [
 ]
 const executionRef = canonicalCandidateDigest({ callback: 'identity-fixture' })
 const profileDigest = canonicalCandidateDigest({ profile: 'identity-fixture' })
+const finding = (claim: string): ProposalFinding =>
+  makeProposalFinding({
+    analyst_id: 'test',
+    proposal_origin: 'production',
+    severity: 'medium',
+    area: 'response',
+    claim,
+    confidence: 1,
+    evidence_refs: [],
+    produced_at: new Date(0).toISOString(),
+  })
 
 describe('method evaluation identity', () => {
   it('retains frozen redacted identities for every optimizer task partition', () => {
@@ -83,7 +95,7 @@ describe('method evaluation identity', () => {
       baselineSurface: 'same bytes',
       surface: 'skills',
       skills: { resourceName: 'skill-a' },
-      findings: [{ issue: 'missing citation' }],
+      findings: [finding('missing citation')],
       trainScenarios: train,
       selectionScenarios: selection,
       testScenarios: finalScenarios,
@@ -93,7 +105,7 @@ describe('method evaluation identity', () => {
     }).evaluationRef
     const evaluationRef = (overrides: {
       skills?: { resourceName: string }
-      findings?: readonly unknown[]
+      findings?: ReadonlyArray<ProposalFinding>
       trainScenarios?: IdentityScenario[]
       testScenarios?: IdentityScenario[]
       judges?: JudgeConfig<IdentityArtifact, IdentityScenario>[]
@@ -107,7 +119,7 @@ describe('method evaluation identity', () => {
         baselineSurface: 'same bytes',
         surface: 'skills',
         skills: { resourceName: 'skill-a' },
-        findings: [{ issue: 'missing citation' }],
+        findings: [finding('missing citation')],
         trainScenarios: train,
         selectionScenarios: selection,
         testScenarios: finalScenarios,
@@ -139,7 +151,7 @@ describe('method evaluation identity', () => {
     expect(evaluationRef({ optimizationRunOptions: { reps: 2 } })).not.toBe(baseline)
     expect(evaluationRef({ reps: 2 })).not.toBe(baseline)
     expect(evaluationRef({ validateCandidate: () => undefined })).not.toBe(baseline)
-    expect(evaluationRef({ findings: [{ issue: 'different failure' }] })).not.toBe(baseline)
+    expect(evaluationRef({ findings: [finding('different failure')] })).not.toBe(baseline)
     expect(evaluationRef({})).toBe(baseline)
   })
 

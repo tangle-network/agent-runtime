@@ -13,7 +13,7 @@
  * instructs the agent to `grep`/`cat`/`ls` them to diagnose the failures itself
  * (up to the harness's full context, ~millions of tokens, vs a ~1500-char digest).
  *
- * It emits `AnalystFinding[]` so it drops into the SAME `opts.analyzeGeneration`
+ * It emits `ProposalFinding[]` so it drops into the same `opts.analyzeGeneration`
  * slot the default distiller uses, and renders through the same
  * `agenticGenerator` prompt path (`claim` + `recommended_action`). The findings
  * carry ABSOLUTE paths — the coding harness runs with `cwd` = a candidate
@@ -33,7 +33,7 @@
 
 import { type Dirent, existsSync, readdirSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { type AnalystFinding, makeFinding } from '@tangle-network/agent-eval'
+import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import type { Scenario, SelfImproveOptions } from '@tangle-network/agent-eval/contract'
 
 const ANALYST_ID = 'raw-trace-distiller'
@@ -58,7 +58,7 @@ export interface RawTraceDistillerOptions {
   /** Findings to fall back to when the generation had NO failing cells, so a
    *  clean round never wipes the proposer's steering context. Mirrors the default
    *  distiller's static-seed fallback. Default: a single instruction finding. */
-  fallbackFindings?: unknown[]
+  fallbackFindings?: ReadonlyArray<ProposalFinding>
 }
 
 interface CellTrace {
@@ -124,8 +124,9 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
         return options.fallbackFindings
       }
       return [
-        makeFinding({
+        makeProposalFinding({
           analyst_id: ANALYST_ID,
+          proposal_origin: 'search',
           severity: 'info',
           area: 'raw-trace-context',
           confidence: 1,
@@ -137,12 +138,13 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
       ]
     }
 
-    const findings: AnalystFinding[] = []
+    const findings: ProposalFinding[] = []
 
     // 1. The meta-harness instruction: diagnose from the RAW traces, not a digest.
     findings.push(
-      makeFinding({
+      makeProposalFinding({
         analyst_id: ANALYST_ID,
+        proposal_origin: 'search',
         severity: 'high',
         area: 'raw-trace-context',
         confidence: 1,
@@ -179,8 +181,9 @@ export function rawTraceDistiller<TScenario extends Scenario = Scenario, TArtifa
         .join('\n')
 
       findings.push(
-        makeFinding({
+        makeProposalFinding({
           analyst_id: ANALYST_ID,
+          proposal_origin: 'search',
           severity: cand.composite !== null && cand.composite < 0.5 ? 'critical' : 'high',
           area: 'raw-trace-context',
           confidence: 1,

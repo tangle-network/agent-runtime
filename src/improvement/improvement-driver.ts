@@ -8,10 +8,9 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import type { AnalystFinding, CostLedgerHandle } from '@tangle-network/agent-eval'
+import type { CostLedgerHandle, ProposalFinding } from '@tangle-network/agent-eval'
 import {
   type CodeSurface,
-  type LabeledScenarioStore,
   type ProposeContext,
   type ProposedCandidate,
   type SurfaceProposer,
@@ -20,21 +19,17 @@ import {
   type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 import { rethrowAfterCleanup } from './cleanup'
-import { toAnalystFindings } from './findings'
 
-/** The byte-producing seam — the ONE thing that differs between the cheap
+/** The byte-producing path that differs between the cheap
  *  reflective path and the full agentic path. A generator makes (uncommitted)
  *  changes inside `worktreePath`; the driver commits them via the worktree
  *  adapter's `finalize`. */
 export interface CandidateGenerator {
   kind: string
-  /** Whether this generator can produce a candidate from an EMPTY findings set
-   *  and no phase-2 report — i.e. it draws its change signal from the repo and
-   *  the raw-trace filesystem context on disk, not only from pre-summarized
-   *  findings. An agentic coder (`agenticGenerator`) sets this: the seed repo +
-   *  raw traces ARE the signal, so it must still run the full `populationSize`
-   *  when the distiller yielded nothing (this is the meta-harness contract — the
-   *  agent diagnoses from the raw traces itself). A patch-applier
+  /** Whether this generator can produce a candidate from an empty findings set
+   *  because it draws its change signal from the repo and raw traces on disk.
+   *  An agentic coder (`agenticGenerator`) sets this so it still runs the full
+   *  `populationSize` when the distiller yielded nothing. A patch-applier
    *  (`reflectiveGenerator`) leaves it unset — with no findings there is no
    *  patch to draft, so the driver short-circuits rather than spin up worktrees
    *  for a guaranteed no-op. Default `false`. */
@@ -42,12 +37,8 @@ export interface CandidateGenerator {
   generate(args: {
     /** The candidate worktree — a clean checkout of the current incumbent. */
     worktreePath: string
-    /** Phase-2 research report (analyst findings + diff), opaque. */
-    report: unknown
-    /** Findings resolved from the report or the loop context. */
-    findings: AnalystFinding[]
-    /** Handle to all captured data, to ground the change. */
-    dataset?: LabeledScenarioStore
+    /** Search or production findings explicitly admitted for proposal use. */
+    findings: ReadonlyArray<ProposalFinding>
     /** DEPTH: max iterations the generator may take (agentic uses this; the
      *  reflective generator ignores it). */
     maxShots: number
@@ -80,7 +71,7 @@ export interface ImprovementDriverOptions {
   baseRef?: string
 }
 
-export interface ManagedImprovementDriver extends SurfaceProposer<AnalystFinding> {
+export interface ManagedImprovementDriver extends SurfaceProposer<ProposalFinding> {
   /** Remove every owned candidate except explicitly retained finalized winners. */
   cleanup(retainWorktreeRefs?: readonly string[]): Promise<void>
 }
@@ -92,20 +83,16 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
 
   return {
     kind: `improvement:${opts.generator.kind}`,
-    async propose(ctx: ProposeContext<AnalystFinding>) {
-      const findings = resolveFindings(ctx)
-      // No findings AND no report AND a generator that can only act on findings
-      // (the reflective patch-applier) — propose nothing rather than spin up
+    async propose(ctx: ProposeContext<ProposalFinding>) {
+      const findings = ctx.findings
+      // No findings and a generator that can only act on findings (the
+      // reflective patch-applier): propose nothing rather than spin up
       // worktrees for a guaranteed no-op. An agentic coder draws its signal from
       // the repo + raw traces on disk, so it opts in via `proposesWithoutFindings`
       // and still runs the full populationSize even on an empty findings set —
       // otherwise the FIRST generation (whose seed findings are empty and whose
       // rawTraceDistiller has not run yet) would always generate ZERO candidates.
-      if (
-        findings.length === 0 &&
-        ctx.report === undefined &&
-        !opts.generator.proposesWithoutFindings
-      ) {
+      if (findings.length === 0 && !opts.generator.proposesWithoutFindings) {
         return []
       }
 
@@ -126,9 +113,7 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
           if (incumbent) advanceToIncumbent(wt, incumbent)
           const { applied, summary, label, rationale } = await opts.generator.generate({
             worktreePath: wt.path,
-            report: ctx.report,
             findings,
-            dataset: ctx.dataset,
             maxShots: ctx.maxImprovementShots ?? 1,
             signal: ctx.signal,
             generation: ctx.generation,
@@ -225,21 +210,4 @@ function advanceToIncumbent(worktree: Worktree, incumbent: CodeSurface): void {
   if (head.error || head.status !== 0 || head.stdout.trim() !== incumbent.candidateCommit) {
     throw new Error('improvementDriver: candidate worktree did not reach the incumbent commit')
   }
-}
-
-/** Phase-2 report carries `findings` when present; else fall back to the
- *  loop's `ctx.findings`. The report is opaque to the substrate, so probe it
- *  structurally. Both paths run through `toAnalystFindings` — the wire is
- *  `unknown[]` at runtime regardless of the generic (static seeds, legacy
- *  digests), and a bare cast here fed `undefined` claims into build prompts. */
-function resolveFindings(ctx: ProposeContext<AnalystFinding>): AnalystFinding[] {
-  const report = ctx.report
-  if (report && typeof report === 'object' && 'findings' in report) {
-    const f = (report as { findings: unknown }).findings
-    if (Array.isArray(f) && f.length > 0) {
-      const lifted = toAnalystFindings(f, { analystId: 'report-findings', area: 'report' })
-      if (lifted.length > 0) return lifted
-    }
-  }
-  return toAnalystFindings(ctx.findings ?? [], { analystId: 'loop-context', area: 'seed' })
 }

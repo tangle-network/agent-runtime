@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import {
   gitWorktreeAdapter,
   inMemoryCampaignStorage,
@@ -258,8 +259,18 @@ describe('improve method execution', () => {
   })
 
   it('passes current findings to a method factory', async () => {
-    const findings = [{ claim: 'answers omit citations' }]
-    let observedFindings: readonly unknown[] | undefined
+    const findings: ReadonlyArray<ProposalFinding> = [
+      makeProposalFinding({
+        analyst_id: 'test',
+        proposal_origin: 'production',
+        severity: 'medium',
+        area: 'response',
+        claim: 'answers omit citations',
+        confidence: 1,
+        evidence_refs: [],
+      }),
+    ]
+    let observedFindings: ReadonlyArray<ProposalFinding> | undefined
     const result = await improve(promptProfile(), {
       ...methodOptions(fixedMethod('unused')),
       findings,
@@ -678,7 +689,17 @@ describe('improve code execution', () => {
       let generatorCalls = 0
       const result = await improve({
         surface: 'code',
-        findings: [{ claim: 'module.txt is stale' }],
+        findings: [
+          makeProposalFinding({
+            analyst_id: 'test',
+            proposal_origin: 'production',
+            severity: 'medium',
+            area: 'code',
+            claim: 'module.txt is stale',
+            confidence: 1,
+            evidence_refs: [],
+          }),
+        ],
         scenarios: allScenarios,
         judge: improvementJudge,
         agent: paidCodeText,
