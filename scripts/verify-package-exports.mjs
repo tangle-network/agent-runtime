@@ -16,6 +16,7 @@ import {
   createStrictNodeConsumerTsconfig,
   requiredPackedDevelopmentDependency,
 } from './lib/packed-package-test.mjs'
+import { findStaticPackageImports } from './lib/static-imports.mjs'
 
 // Static imports of these packages mutate Node builtins at module load and can
 // make edge runtimes reject a Worker before startup. Scan installed first-party
@@ -637,7 +638,6 @@ try {
 }
 
 function assertNoEdgeUnsafeStaticImports(scopeDir) {
-  assertEdgeUnsafeStaticImportMatcher()
   if (!existsSync(scopeDir)) throw new Error(`expected an installed scope at ${scopeDir}`)
   const packageDirs = firstPartyPackageDirs(scopeDir)
   if (packageDirs.length === 0) throw new Error(`no @tangle-network packages installed at ${scopeDir}`)
@@ -648,10 +648,8 @@ function assertNoEdgeUnsafeStaticImports(scopeDir) {
     for (const file of ownJavascriptFiles(packageDir)) {
       scanned += 1
       const source = readFileSync(file, 'utf8')
-      for (const specifier of edgeUnsafeStaticImports) {
-        if (hasStaticImport(source, specifier)) {
-          offenders.push(`${file.slice(scopeDir.length + 1)} -> ${specifier}`)
-        }
+      for (const specifier of findStaticPackageImports(source, edgeUnsafeStaticImports, file)) {
+        offenders.push(`${file.slice(scopeDir.length + 1)} -> ${specifier}`)
       }
     }
   }
@@ -668,32 +666,6 @@ function assertNoEdgeUnsafeStaticImports(scopeDir) {
   process.stdout.write(
     `Edge module-load safety: ${packageDirs.length} first-party packages, ${scanned} shipped files, no blocked static imports.\n`,
   )
-}
-
-function hasStaticImport(source, specifier) {
-  const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const quoted = `["']${escaped}(?:/[^"'\\r\\n]*)?["']`
-  return new RegExp(
-    `(?:\\bfrom\\s*${quoted}|\\bimport\\s*${quoted}|\\brequire\\s*\\(\\s*${quoted}\\s*\\))`,
-  ).test(source)
-}
-
-function assertEdgeUnsafeStaticImportMatcher() {
-  const specifier = 'proper-lockfile'
-  const cases = [
-    ['bound ESM import', `import value from '${specifier}'`, true],
-    ['bare side-effect ESM import', `import '${specifier}'`, true],
-    ['ESM re-export', `export { value } from '${specifier}'`, true],
-    ['package subpath', `export * from '${specifier}/lib/lockfile.js'`, true],
-    ['spaced CommonJS require', `require ('${specifier}')`, true],
-    ['dynamic import', `await import('${specifier}')`, false],
-    ['lookalike package', `import value from '${specifier}-safe'`, false],
-  ]
-  for (const [label, source, expected] of cases) {
-    if (hasStaticImport(source, specifier) !== expected) {
-      throw new Error(`edge-unsafe static import matcher failed: ${label}`)
-    }
-  }
 }
 
 /** Every installed `@tangle-network/*` directory, including nested copies. */
