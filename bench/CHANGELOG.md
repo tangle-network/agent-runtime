@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.8
+
+- Consume Runtime 0.109.0 through the canonical `./kernel` entrypoint.
+- Align Bench with Eval 0.135.1, Interface 0.36.0, Knowledge 6.1.10, Materialize 0.9.2, and Sandbox 0.15.2.
+
 ## 0.4.7
 
 - Consume Runtime 0.108.1 with Eval 0.134.2, Interface 0.36.0, Knowledge 6.1.8, Materialize 0.9.2, and Sandbox 0.15.2.

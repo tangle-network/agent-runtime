@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,9 +17,15 @@ import {
   requiredPackedDevelopmentDependency,
 } from './lib/packed-package-test.mjs'
 
+// Static imports of these packages mutate Node builtins at module load and can
+// make edge runtimes reject a Worker before startup. Scan installed first-party
+// output because Runtime can inherit the failure through a transitive package.
+const edgeUnsafeStaticImports = ['graceful-fs', 'proper-lockfile']
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
+const suppliedKnowledgeTarball = process.argv[3] ? resolve(process.argv[3]) : undefined
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -23,6 +37,9 @@ try {
 
   if (suppliedTarball && !existsSync(suppliedTarball)) {
     throw new Error(`supplied release tarball does not exist: ${suppliedTarball}`)
+  }
+  if (suppliedKnowledgeTarball && !existsSync(suppliedKnowledgeTarball)) {
+    throw new Error(`supplied knowledge tarball does not exist: ${suppliedKnowledgeTarball}`)
   }
   if (!suppliedTarball) {
     run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
@@ -96,6 +113,9 @@ try {
   ) {
     throw new Error('packed consumer requires an installed @tangle-network/agent-knowledge release')
   }
+  const knowledgePackageSpec = suppliedKnowledgeTarball
+    ? `file:${suppliedKnowledgeTarball}`
+    : knowledgePackageJson.version
   const peerPackages = [
     '@tangle-network/agent-eval',
     '@tangle-network/agent-interface',
@@ -115,6 +135,7 @@ try {
         type: 'module',
         dependencies: {
           '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
+          '@tangle-network/agent-knowledge': knowledgePackageSpec,
           ...peerDependencies,
         },
         devDependencies: {
@@ -122,7 +143,7 @@ try {
           typescript: requiredPackedDevelopmentDependency(packageJson, 'typescript'),
         },
         overrides: {
-          '@tangle-network/agent-knowledge': knowledgePackageJson.version,
+          '@tangle-network/agent-knowledge': '$@tangle-network/agent-knowledge',
         },
       },
       null,
@@ -299,6 +320,7 @@ try {
   // This fixture type-checks with its declared dev toolchain; ambient production
   // install settings must not silently omit TypeScript or the Node declarations.
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
+  assertNoEdgeUnsafeStaticImports(join(appDir, 'node_modules', '@tangle-network'))
   run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
 
   run(
@@ -612,6 +634,90 @@ try {
   }
 } finally {
   rmSync(tempRoot, { recursive: true, force: true })
+}
+
+function assertNoEdgeUnsafeStaticImports(scopeDir) {
+  assertEdgeUnsafeStaticImportMatcher()
+  if (!existsSync(scopeDir)) throw new Error(`expected an installed scope at ${scopeDir}`)
+  const packageDirs = firstPartyPackageDirs(scopeDir)
+  if (packageDirs.length === 0) throw new Error(`no @tangle-network packages installed at ${scopeDir}`)
+  const offenders = []
+  let scanned = 0
+  for (const packageDir of packageDirs) {
+    // Third-party package bodies are outside this first-party artifact check.
+    for (const file of ownJavascriptFiles(packageDir)) {
+      scanned += 1
+      const source = readFileSync(file, 'utf8')
+      for (const specifier of edgeUnsafeStaticImports) {
+        if (hasStaticImport(source, specifier)) {
+          offenders.push(`${file.slice(scopeDir.length + 1)} -> ${specifier}`)
+        }
+      }
+    }
+  }
+  if (offenders.length > 0) {
+    throw new Error(
+      [
+        'an installed @tangle-network package statically imports a module that patches a Node builtin.',
+        'Cloudflare rejects the whole Worker on upload with code 10021, and a dry run cannot see it.',
+        'Fix it in the owning package with a dynamic import() inside the function that needs it.',
+        ...offenders.map((offender) => `  - ${offender}`),
+      ].join('\n'),
+    )
+  }
+  process.stdout.write(
+    `Edge module-load safety: ${packageDirs.length} first-party packages, ${scanned} shipped files, no blocked static imports.\n`,
+  )
+}
+
+function hasStaticImport(source, specifier) {
+  const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const quoted = `["']${escaped}(?:/[^"'\\r\\n]*)?["']`
+  return new RegExp(
+    `(?:\\bfrom\\s*${quoted}|\\bimport\\s*${quoted}|\\brequire\\s*\\(\\s*${quoted}\\s*\\))`,
+  ).test(source)
+}
+
+function assertEdgeUnsafeStaticImportMatcher() {
+  const specifier = 'proper-lockfile'
+  const cases = [
+    ['bound ESM import', `import value from '${specifier}'`, true],
+    ['bare side-effect ESM import', `import '${specifier}'`, true],
+    ['ESM re-export', `export { value } from '${specifier}'`, true],
+    ['package subpath', `export * from '${specifier}/lib/lockfile.js'`, true],
+    ['spaced CommonJS require', `require ('${specifier}')`, true],
+    ['dynamic import', `await import('${specifier}')`, false],
+    ['lookalike package', `import value from '${specifier}-safe'`, false],
+  ]
+  for (const [label, source, expected] of cases) {
+    if (hasStaticImport(source, specifier) !== expected) {
+      throw new Error(`edge-unsafe static import matcher failed: ${label}`)
+    }
+  }
+}
+
+/** Every installed `@tangle-network/*` directory, including nested copies. */
+function firstPartyPackageDirs(scopeDir) {
+  const dirs = []
+  for (const entry of readdirSync(scopeDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+    const packageDir = join(scopeDir, entry.name)
+    dirs.push(packageDir)
+    const nestedScope = join(packageDir, 'node_modules', '@tangle-network')
+    if (existsSync(nestedScope)) dirs.push(...firstPartyPackageDirs(nestedScope))
+  }
+  return dirs
+}
+
+function ownJavascriptFiles(directory) {
+  const files = []
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) files.push(...ownJavascriptFiles(path))
+    else if (/\.(?:js|mjs|cjs)$/.test(entry.name)) files.push(path)
+  }
+  return files
 }
 
 function run(command, args, cwd) {
