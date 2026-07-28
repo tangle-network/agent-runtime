@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.107.4
+
+- Pack `@tangle-network/agent-interface` from its exact source commit alongside Eval, Knowledge, and Runtime before merge and publish.
+- Align Runtime with `@tangle-network/agent-eval` 0.133.2 and `@tangle-network/agent-knowledge` 6.1.4.
+- Resolve local archive overrides at the pnpm workspace root for nested packages.
+
 ## 0.107.3
 
 - Add public proposal and private activation fixtures for profile-improvement consumer tests.
