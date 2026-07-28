@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt", "skills"],
-  "digest": "sha256:dab7beac271518dc40ca5d840fffbff93d02a52cf96961d81eedcfa06284e987",
+  "digest": "sha256:bbc234d8a7436784a9a020ed41ddd919b12a5c197171d10ecbbbe79f9cbf2bc2",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -1695,7 +1695,7 @@
     ],
     "metadata": {
       "fixture": "agent-profile-improvement-proposal",
-      "runtimeVersion": "0.107.4"
+      "runtimeVersion": "0.107.5"
     },
     "objectives": [
       {
