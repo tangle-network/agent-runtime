@@ -232,6 +232,16 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   const questions: QuestionRecord[] = [...(opts.priorQuestions ?? [])]
   const questionPolicy = opts.questionPolicy ?? 'auto'
 
+  // Keyed-assignment bookkeeping for the live-worker fence. `completedKeys` is every key this run
+  // can already answer from committed work — seeded from the prior journal on a resume, extended as
+  // keyed workers deliver in THIS process. A spawn under such a key starts nothing and occupies no
+  // slot, so the fence must not hold it back. `keyByWorker` is what lets a settlement find its key.
+  const completedKeys = new Set<string>()
+  const keyByWorker = new Map<string, string>()
+  for (const [key, prior] of opts.scope.resume?.keys ?? []) {
+    if (prior.state === 'completed') completedKeys.add(key)
+  }
+
   // A resumed scope's replayed settlements enter the ledger AT CONSTRUCTION, so `settled()` — and
   // therefore the finalize that reads it — spans processes exactly as the journal does. They are
   // NOT re-published on the bus: the driver's resume brief already lists them, and the scope
@@ -315,6 +325,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   const recordSettled = (s: Settled<unknown>): SettledWorker => {
     const settledAt = Date.now()
+    // A keyed assignment that just delivered is complete for the rest of this run, so a later
+    // spawn under the same key resolves for free instead of being held behind the live-worker
+    // fence (it starts no worker, so it occupies no slot).
+    const settledKey = keyByWorker.get(s.handle.id)
+    if (settledKey !== undefined && s.kind === 'done') completedKeys.add(settledKey)
     const w: SettledWorker =
       s.kind === 'done'
         ? {
@@ -661,10 +676,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       handler: (raw) => {
         const a = obj(raw)
         const key = a.key === undefined ? undefined : str(a.key, 'key')
-        // A key the RESUMED journal already proves complete resolves to committed work — no new
-        // live worker — so the concurrency fence does not apply to it.
-        const keyCompleted =
-          key !== undefined && opts.scope.resume?.keys?.get(key)?.state === 'completed'
+        // A key already proven complete — by the resumed journal or by a delivery earlier in this
+        // run — resolves to committed work and starts no live worker, so the concurrency fence
+        // does not apply to it.
+        const keyCompleted = key !== undefined && completedKeys.has(key)
         // Concurrency fence FIRST — fail closed before reserving budget, so a rejected spawn never
         // touches the pool. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work.
         if (
@@ -691,6 +706,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         // cursor yielded it), so the driver folds it in without an await_event round-trip.
         if (res.ok && res.prior?.state === 'completed') {
           const s = res.prior.settled
+          if (key !== undefined) completedKeys.add(key)
           return Promise.resolve({
             workerId: s.handle.id,
             resumed: 'completed' as const,
@@ -702,7 +718,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             freeSlots: freeWorkerSlots(),
           })
         }
-        if (res.ok) watchWorker(res.handle.id)
+        if (res.ok) {
+          watchWorker(res.handle.id)
+          // Bind the new worker to its key so its settlement can mark the key complete.
+          if (key !== undefined) keyByWorker.set(res.handle.id, key)
+        }
         // A `completed` key returned above, so any prior still attached here is a real re-run:
         // `retried` (the prior attempt failed) or `lost` (it died in flight with its process).
         const priorHistory =

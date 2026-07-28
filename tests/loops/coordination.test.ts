@@ -149,6 +149,93 @@ describe('coordination tools', () => {
     })
   })
 
+  it('a key already delivered in THIS run resolves at the cap — it starts no worker', async () => {
+    // The fence bounds SIMULTANEOUS work. A keyed spawn whose key already delivered starts nothing
+    // and occupies no slot, so holding it behind the cap would contradict the verb's own contract
+    // ("a key that already completed returns the finished result — nothing is spent").
+    const live: Array<{ id: string; status: string }> = []
+    const settled = {
+      kind: 'done' as const,
+      handle: { id: 'w0', label: 'a', status: 'done' as const, abort() {} },
+      out: 'A',
+      outRef: 'blob:a',
+      verdict: { score: 1, valid: true },
+      spent: zeroSpend(),
+      seq: 0,
+    }
+    let deliveredKey: string | undefined
+    let pending: typeof settled | undefined
+    const scope = {
+      spawn: (_a: unknown, _t: unknown, opts: { label: string; key?: string }) => {
+        // Mirrors the real scope: a key that already settled `done` resolves to it, spawning nothing.
+        if (opts.key !== undefined && opts.key === deliveredKey) {
+          return {
+            ok: true as const,
+            handle: settled.handle,
+            prior: { state: 'completed' as const, settled },
+          }
+        }
+        live.push({ id: `w${live.length}`, status: 'running' })
+        return {
+          ok: true as const,
+          handle: {
+            id: `w${live.length - 1}`,
+            label: opts.label,
+            status: 'running' as const,
+            abort() {},
+          },
+        }
+      },
+      next: async () => {
+        const s = pending
+        pending = undefined
+        return s ?? null
+      },
+      send: () => false,
+      get view() {
+        return { root: 'root', nodes: live, inFlight: live.length }
+      },
+      budget: { tokensLeft: 1e9, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
+      signal: new AbortController().signal,
+    } as unknown as Scope<unknown>
+
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      maxLiveWorkers: 1,
+    })
+    const spawnKeyed = (key: string) =>
+      tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go', key })
+
+    // Key 'a' runs and takes the only slot, then delivers.
+    expect(await spawnKeyed('a')).toEqual({ workerId: 'w0', live: 1, freeSlots: 0 })
+    live[0]!.status = 'done'
+    deliveredKey = 'a'
+    // Drain the settlement the way the driver does — this is what teaches the toolbox that key
+    // 'a' is complete.
+    pending = settled
+    await tool(tb, 'await_event').handler({ kinds: ['settled'] })
+
+    // A different assignment now occupies the single slot.
+    expect(await spawnKeyed('b')).toEqual({ workerId: 'w1', live: 1, freeSlots: 0 })
+
+    // Re-asking for the DELIVERED key at the cap must return its committed result, not a refusal.
+    expect(await spawnKeyed('a')).toEqual({
+      workerId: 'w0',
+      resumed: 'completed',
+      status: 'done',
+      score: 1,
+      valid: true,
+      outRef: 'blob:a',
+      live: 1,
+      freeSlots: 0,
+    })
+    // An unrelated new assignment is still correctly fenced.
+    expect(await spawnKeyed('c')).toEqual({ error: 'max-live-workers', live: 1, freeSlots: 0 })
+  })
+
   it('spawn_agent reserves the per-worker default when no budget is given', async () => {
     const { scope, spawns } = mockScope()
     const tb = createCoordinationTools({
