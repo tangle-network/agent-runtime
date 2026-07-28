@@ -3,6 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  assertPublishableDependencySpecs,
+  createStrictNodeConsumerTsconfig,
+  requiredPackedDevelopmentDependency,
+} from './lib/packed-package-test.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
@@ -125,22 +130,7 @@ try {
   )
   writeFileSync(
     join(appDir, 'tsconfig.json'),
-    `${JSON.stringify(
-      {
-        compilerOptions: {
-          target: 'ES2022',
-          module: 'NodeNext',
-          moduleResolution: 'NodeNext',
-          strict: true,
-          noEmit: true,
-          skipLibCheck: false,
-          types: ['node'],
-        },
-        include: ['consumer.ts'],
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify(createStrictNodeConsumerTsconfig(), null, 2)}\n`,
   )
   writeFileSync(
     join(appDir, 'consumer.ts'),
@@ -591,23 +581,4 @@ function run(command, args, cwd) {
     )
   }
   return result.stdout
-}
-
-function requiredPackedDevelopmentDependency(packageJson, name) {
-  const version = packageJson.devDependencies?.[name]
-  if (typeof version !== 'string' || version.length === 0 || version.startsWith('catalog:')) {
-    throw new Error(`packed consumer requires a resolved ${name} development dependency`)
-  }
-  return version
-}
-
-function assertPublishableDependencySpecs(packageJson) {
-  const unsupportedProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
-  for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
-    for (const [name, spec] of Object.entries(packageJson[section] ?? {})) {
-      if (typeof spec !== 'string' || unsupportedProtocol.test(spec)) {
-        throw new Error(`packed ${section}.${name} is not publishable: ${String(spec)}`)
-      }
-    }
-  }
 }

@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -50,6 +53,36 @@ jobs:
 
       - name: Docs (regenerate API reference + freshness gate)
         run: pnpm run docs:check
+
+  packed-cohort:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: tangle-network/agent-eval
+          ref: b9f8af674640707c268e2ffcf73704e727c0d644 # v0.133.0
+          path: .cohort/agent-eval
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: tangle-network/agent-knowledge
+          ref: a337c6cb5ef40627feb78ece059402eba73f344b # v6.1.2
+          path: .cohort/agent-knowledge
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Verify exact Eval, Knowledge, and Runtime archives together
+        run: >-
+          node scripts/verify-packed-cohort.mjs
+          --agent-eval-repo .cohort/agent-eval
+          --agent-knowledge-repo .cohort/agent-knowledge
 
   agent-bench:
     runs-on: ubuntu-latest

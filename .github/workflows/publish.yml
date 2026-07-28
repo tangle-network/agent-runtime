@@ -7,12 +7,29 @@ on:
       - 'agent-bench-v*'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: tangle-network/agent-eval
+          ref: b9f8af674640707c268e2ffcf73704e727c0d644 # v0.133.0
+          path: .cohort/agent-eval
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: tangle-network/agent-knowledge
+          ref: a337c6cb5ef40627feb78ece059402eba73f344b # v6.1.2
+          path: .cohort/agent-knowledge
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
@@ -88,6 +105,12 @@ jobs:
 
       - name: Verify packed package exports
         run: pnpm run verify:package
+
+      - name: Verify exact Eval, Knowledge, and Runtime archives together
+        run: >-
+          node scripts/verify-packed-cohort.mjs
+          --agent-eval-repo .cohort/agent-eval
+          --agent-knowledge-repo .cohort/agent-knowledge
 
       - name: Verify packed Runtime with official GEPA and SkillOpt
         run: pnpm run verify:official-optimizers
