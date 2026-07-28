@@ -3,7 +3,7 @@
 ## 0.4.6
 
 - Require typed proposal findings with explicit search or production origin throughout the SWE improvement loop.
-- Consume Runtime 0.108.0 with Eval 0.134.1, Interface 0.36.0, Knowledge 6.1.6, Materialize 0.9.2, and Sandbox 0.15.2.
+- Consume Runtime 0.108.0 with Eval 0.134.1, Interface 0.36.0, Knowledge 6.1.7, Materialize 0.9.2, and Sandbox 0.15.2.
 
 ## 0.4.5
 
