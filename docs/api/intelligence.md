@@ -3781,7 +3781,19 @@ Product-owned candidate ports other than protected model access.
 
 ### AgentImprovementAnalysisOptions
 
-> **AgentImprovementAnalysisOptions** = `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts), `"runId"` \| `"improvementProposalSource"` \| `"knowledgeProposalSource"` \| `"onEvent"` \| `"log"` \| `"costLedger"` \| `"costPhase"` \| `"signal"`\>
+> **AgentImprovementAnalysisOptions** = `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts), `"runId"` \| `"inputs"` \| `"improvementProposalSource"` \| `"knowledgeProposalSource"` \| `"onEvent"` \| `"log"` \| `"costLedger"` \| `"costPhase"` \| `"signal"`\> & `object`
+
+#### Type Declaration
+
+##### inputs
+
+> **inputs**: `Omit`\<[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts)\[`"inputs"`\], `"judgeInput"`\> & `object`
+
+###### Type Declaration
+
+###### judgeInput?
+
+> `optional` **judgeInput?**: `never`
 
 ***
 
