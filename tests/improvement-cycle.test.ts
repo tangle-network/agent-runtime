@@ -1,4 +1,8 @@
-import { type CostLedgerHandle, minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
+import {
+  type CostLedgerHandle,
+  minimumPairsForPairedDeltaTest,
+  type ProposalFinding,
+} from '@tangle-network/agent-eval'
 import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
   sealAgentProfileImprovementTask,
@@ -54,7 +58,7 @@ import {
 } from './helpers/candidate-experiment-fixture'
 import {
   candidateExperimentMaterial,
-  improvementFinding as finding,
+  improvementFinding as fixtureFinding,
   improvementOptions,
 } from './helpers/improvement-method-fixture'
 import {
@@ -67,6 +71,22 @@ afterEach(() => {
   cleanupCandidateFixtures()
 })
 const minimumPairedRuns = minimumPairsForPairedDeltaTest(0.95)
+const { proposal_origin: _fixtureOrigin, ...fixtureAnalystFinding } =
+  fixtureFinding as ProposalFinding
+const finding = {
+  ...fixtureAnalystFinding,
+  evidence_refs: [{ kind: 'span' as const, uri: 'span-1' }],
+}
+const productionFinding: ProposalFinding = {
+  ...finding,
+  proposal_origin: 'production',
+}
+const searchFinding: ProposalFinding = {
+  ...finding,
+  finding_id: 'search-finding-1',
+  proposal_origin: 'search',
+  derived_from_judge: true,
+}
 
 // These exercise the whole improvement lifecycle — real content-addressing, real file I/O, a
 // paired matrix — and on CI the slowest already burn ~4.3s of the 5s default. That leaves the
@@ -77,7 +97,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     const fixture = createProfileImprovementFixture()
     const proposal = createAgentImprovementProposal({
       runId: 'profile-improvement-1',
-      findings: [finding],
+      findings: [productionFinding],
       evaluation: fixture.evaluation,
       now: () => new Date('2026-07-24T00:00:00.000Z'),
     })
@@ -591,7 +611,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     expect(() =>
       createAgentImprovementProposal({
         runId: 'profile-improvement-1',
-        findings: [finding],
+        findings: [productionFinding],
         evaluation: {
           ...fixture.evaluation,
           metadata: { optimizationReceipt: { kind: 'caller-authored' } },
@@ -628,6 +648,29 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     ).rejects.toThrow('measured agent improvement analysis must not run proposal sources')
     expect(registryCalls).toBe(0)
     expect(proposalCalls).toBe(0)
+  })
+
+  it('rejects unclassified caller findings before analysis runs', async () => {
+    let registryCalls = 0
+    await expect(
+      proposeAgentImprovement({
+        runId: 'unclassified-proposal-finding',
+        profile: {} as AgentProfile,
+        analysis: {
+          registry: {
+            list: () => [],
+            run: async () => {
+              registryCalls += 1
+              throw new Error('invalid input must fail before analysis')
+            },
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: { ...improvementOptions(), findings: [finding] },
+      } as never),
+    ).rejects.toThrow(/proposal_origin/)
+    expect(registryCalls).toBe(0)
   })
 
   it('rejects unmetered analysis callbacks before analysis runs', async () => {
@@ -679,7 +722,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         inputs: {},
         findingsStore: null,
       },
-      improvement: improvementOptions(),
+      improvement: { ...improvementOptions(), findings: [searchFinding] },
       buildExperiment: ({ improvement }) => {
         if (!improvement.candidate.profile) throw new Error('expected a profile candidate')
         const candidate = redigestCandidateBundle(seed.experiment.baseline, {
@@ -1049,22 +1092,31 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
 
     const proposal = createAgentImprovementProposal({
       runId: 'paired-run-1',
-      findings: [finding],
+      findings: [productionFinding],
       evaluation: result.evaluation,
       now: () => new Date('2026-07-10T01:00:00.000Z'),
     })
     expect(proposal.changedSurfaces).toEqual(['prompt'])
     expect(verifyAgentImprovementProposal(proposal)).toEqual(proposal)
     const { digest: _proposalDigest, ...proposalWithoutDigest } = proposal
-    const judgeDerivedProposalWithoutDigest = {
+    const searchFeedbackProposalWithoutDigest = {
       ...proposalWithoutDigest,
-      findings: proposal.findings.map((item) => ({ ...item, derived_from_judge: true })),
+      findings: [searchFinding],
     }
-    const judgeDerivedProposal = {
-      ...judgeDerivedProposalWithoutDigest,
-      digest: canonicalCandidateDigest(judgeDerivedProposalWithoutDigest),
+    const searchFeedbackProposal = {
+      ...searchFeedbackProposalWithoutDigest,
+      digest: canonicalCandidateDigest(searchFeedbackProposalWithoutDigest),
     }
-    expect(() => verifyAgentImprovementProposal(judgeDerivedProposal)).toThrow(/judge-derived/)
+    expect(verifyAgentImprovementProposal(searchFeedbackProposal)).toEqual(searchFeedbackProposal)
+    const unclassifiedProposalWithoutDigest = {
+      ...proposalWithoutDigest,
+      findings: proposal.findings.map(({ proposal_origin: _origin, ...item }) => item),
+    }
+    const unclassifiedProposal = {
+      ...unclassifiedProposalWithoutDigest,
+      digest: canonicalCandidateDigest(unclassifiedProposalWithoutDigest),
+    }
+    expect(() => verifyAgentImprovementProposal(unclassifiedProposal)).toThrow(/proposal_origin/)
 
     expect(() =>
       reviewAgentImprovementProposal(proposal, {
@@ -1205,7 +1257,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     })
     const proposal = createAgentImprovementProposal({
       runId: 'memory-run-1',
-      findings: [finding],
+      findings: [productionFinding],
       evaluation: result.evaluation,
     })
 
@@ -1615,7 +1667,7 @@ async function approvedPromptImprovement(
   })
   const proposal = createAgentImprovementProposal({
     runId: `activation-${intent}`,
-    findings: [finding],
+    findings: [productionFinding],
     evaluation: measured.evaluation,
     now: () => new Date('2026-07-10T01:00:00.000Z'),
   })
