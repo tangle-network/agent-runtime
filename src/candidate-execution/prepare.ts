@@ -64,6 +64,7 @@ import {
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
 import { candidateMaterializerHarness } from './profile'
+import { projectCandidateSystemPrompt } from './system-prompt'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
@@ -177,9 +178,13 @@ export async function prepareAgentCandidateExecution(
   }
 
   await assertEmptyDirectory(task.stagingRoots.profileRoot)
-  const profileWorkspacePlan = materializeCandidateProfile(bundle.profile, harness, {
-    resolvedResources: verifiedResourceTextByDigest(candidate),
-  })
+  const profileWorkspacePlan = projectCandidateSystemPrompt(
+    materializeCandidateProfile(bundle.profile, harness, {
+      resolvedResources: verifiedResourceTextByDigest(candidate),
+    }),
+    bundle.execution.launch,
+    profileSystemPromptExecutionPath(bundle.execution.cwd.workspace, task.executionRoots),
+  )
   const profileApplication = applyAgentCandidateWorkspacePlan(
     profileWorkspacePlan,
     task.stagingRoots.profileRoot,
@@ -928,6 +933,15 @@ function absoluteExecutionCwd(
     throw new Error('candidate cwd escapes its execution workspace')
   }
   return absolute
+}
+
+function profileSystemPromptExecutionPath(
+  workspace: VerifiedAgentCandidate['bundle']['execution']['cwd']['workspace'],
+  roots: AgentCandidateTaskExecution['executionRoots'],
+): string {
+  const root = workspace === 'task' ? roots.taskRoot : roots.candidateRoot
+  if (!root) throw new Error('candidate profile target is missing its execution workspace root')
+  return posix.join(root, '.tangle/system-prompt.md')
 }
 
 function validateProtectedModelReservation(
