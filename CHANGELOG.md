@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.108.2
+
+- Adopt Knowledge 6.1.9, which loads `proper-lockfile` lazily.
+  It pulled in `graceful-fs`, which patches Node's `fs` at module scope; workerd exposes those as getter-only accessors, so Cloudflare rejected the whole Worker during startup validation on upload (`Cannot set property close of #<Object> which has only a getter [code: 10021]`).
+  Because this package pins Knowledge at an exact version and re-exports it from the root barrel, every Cloudflare Worker importing `runToolLoop` from `@tangle-network/agent-runtime` was undeployable.
+- Fail `verify:package` when any installed `@tangle-network` package statically imports a module that patches a Node builtin.
+  The defect was one package away and this repo's CI could not see it, because `wrangler deploy --dry-run` bundles without executing module scope.
+
 ## 0.108.1
 
 - Align Runtime with Eval 0.134.2 and Knowledge 6.1.8 so every knowledge and runtime evaluation uses complete multishot judge cost accounting.

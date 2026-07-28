@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +16,26 @@ import {
   createStrictNodeConsumerTsconfig,
   requiredPackedDevelopmentDependency,
 } from './lib/packed-package-test.mjs'
+
+// `graceful-fs` patches Node's `fs` at MODULE scope (`fs.close = ...`), and
+// `proper-lockfile` statically imports it. workerd exposes those as getter-only
+// accessors, so the assignment throws while Cloudflare validates an uploaded
+// Worker — `Cannot set property close of #<Object> which has only a getter
+// [code: 10021]` — and the ENTIRE Worker is rejected, with no request frame and
+// nothing the app can catch.
+//
+// This is a transitive hazard, which is why it belongs here and not only in the
+// package that trips it: agent-runtime pins `@tangle-network/agent-knowledge`
+// at an exact version and re-exports it from the root barrel, so when
+// agent-knowledge shipped a static `import { lock } from 'proper-lockfile'`,
+// every Cloudflare product importing `runToolLoop` from this package became
+// undeployable. The defect was one package away and this repo's CI could not
+// see it. Scanning the INSTALLED @tangle-network tree is what closes that gap.
+//
+// `wrangler deploy --dry-run` bundles without executing module scope, so it is
+// structurally blind to this class — a static check on the shipped bytes is the
+// only thing that catches it before a real upload does.
+const edgeUnsafeStaticImports = ['graceful-fs', 'proper-lockfile']
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
@@ -299,6 +327,7 @@ try {
   // This fixture type-checks with its declared dev toolchain; ambient production
   // install settings must not silently omit TypeScript or the Node declarations.
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
+  assertNoEdgeUnsafeStaticImports(join(appDir, 'node_modules', '@tangle-network'))
   run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
 
   run(
@@ -612,6 +641,95 @@ try {
   }
 } finally {
   rmSync(tempRoot, { recursive: true, force: true })
+}
+
+function assertNoEdgeUnsafeStaticImports(scopeDir) {
+  assertEdgeUnsafeStaticImportMatcher()
+  if (!existsSync(scopeDir)) throw new Error(`expected an installed scope at ${scopeDir}`)
+  const packageDirs = firstPartyPackageDirs(scopeDir)
+  if (packageDirs.length === 0) throw new Error(`no @tangle-network packages installed at ${scopeDir}`)
+  const offenders = []
+  let scanned = 0
+  for (const packageDir of packageDirs) {
+    // Only the package's OWN shipped files. Third-party code inside a nested
+    // `node_modules` is allowed to patch — `proper-lockfile` itself statically
+    // imports `graceful-fs`, and that is fine as long as no first-party bundle
+    // statically imports `proper-lockfile`.
+    for (const file of ownJavascriptFiles(packageDir)) {
+      scanned += 1
+      const source = readFileSync(file, 'utf8')
+      for (const specifier of edgeUnsafeStaticImports) {
+        if (hasStaticImport(source, specifier)) {
+          offenders.push(`${file.slice(scopeDir.length + 1)} -> ${specifier}`)
+        }
+      }
+    }
+  }
+  if (offenders.length > 0) {
+    throw new Error(
+      [
+        'an installed @tangle-network package statically imports a module that patches a Node builtin.',
+        'Cloudflare rejects the whole Worker on upload with code 10021, and a dry run cannot see it.',
+        'Fix it in the owning package with a dynamic import() inside the function that needs it.',
+        ...offenders.map((offender) => `  - ${offender}`),
+      ].join('\n'),
+    )
+  }
+  process.stdout.write(
+    `Edge module-load safety: ${packageDirs.length} first-party packages, ${scanned} shipped files, no builtin patching.\n`,
+  )
+}
+
+function hasStaticImport(source, specifier) {
+  const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const quoted = `["']${escaped}["']`
+  // Bound imports, bare side-effect imports, re-exports, and CommonJS require.
+  // Dynamic import() is deliberately excluded because it defers module scope.
+  return new RegExp(
+    `(?:\\bfrom\\s*${quoted}|\\bimport\\s*${quoted}|\\brequire\\(\\s*${quoted}\\s*\\))`,
+  ).test(source)
+}
+
+// The matcher is the whole guard, so prove it still separates the forms it
+// claims to separate before trusting a clean scan.
+function assertEdgeUnsafeStaticImportMatcher() {
+  const specifier = 'proper-lockfile'
+  const cases = [
+    ['bound ESM import', `import value from '${specifier}'`, true],
+    ['bare side-effect ESM import', `import '${specifier}'`, true],
+    ['ESM re-export', `export { value } from '${specifier}'`, true],
+    ['CommonJS require', `require('${specifier}')`, true],
+    ['dynamic import', `await import('${specifier}')`, false],
+  ]
+  for (const [label, source, expected] of cases) {
+    if (hasStaticImport(source, specifier) !== expected) {
+      throw new Error(`edge-unsafe static import matcher failed: ${label}`)
+    }
+  }
+}
+
+/** Every installed `@tangle-network/*` directory, including nested copies. */
+function firstPartyPackageDirs(scopeDir) {
+  const dirs = []
+  for (const entry of readdirSync(scopeDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+    const packageDir = join(scopeDir, entry.name)
+    dirs.push(packageDir)
+    const nestedScope = join(packageDir, 'node_modules', '@tangle-network')
+    if (existsSync(nestedScope)) dirs.push(...firstPartyPackageDirs(nestedScope))
+  }
+  return dirs
+}
+
+function ownJavascriptFiles(directory) {
+  const files = []
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) files.push(...ownJavascriptFiles(path))
+    else if (/\.(?:js|mjs|cjs)$/.test(entry.name)) files.push(path)
+  }
+  return files
 }
 
 function run(command, args, cwd) {

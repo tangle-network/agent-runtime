@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: 115f940faeea2cfc7c59175a4a129b8f61807d27 # v6.1.8
+          ref: f455a68b93c71bb4c9fa5561172e28857faedb2f # v6.1.9
           path: .cohort/agent-knowledge
           persist-credentials: false
 
