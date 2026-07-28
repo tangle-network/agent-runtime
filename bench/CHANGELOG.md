@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.6
+
+- Require typed proposal findings with explicit search or production origin throughout the SWE improvement loop.
+- Consume Runtime 0.108.0 with Eval 0.134.0, Interface 0.36.0, Knowledge 6.1.6, Materialize 0.9.2, and Sandbox 0.15.2.
+
 ## 0.4.5
 
 - Allow the zero-model Pier proof to complete a cold separate-verifier image build before its task and overall execution deadlines.
