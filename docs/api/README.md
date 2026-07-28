@@ -10,6 +10,7 @@
 - [analyst-loop](analyst-loop.md)
 - [candidate-execution](candidate-execution.md)
 - [conversation](conversation.md)
+- [durable](durable.md)
 - [index](index.md)
 - [intelligence](intelligence.md)
 - [knowledge](knowledge.md)

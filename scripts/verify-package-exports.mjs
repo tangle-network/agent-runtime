@@ -52,6 +52,7 @@ try {
     '.',
     './agent',
     './conversation',
+    './durable',
     './intelligence',
     './loops',
     './environment-provider',
@@ -149,6 +150,11 @@ try {
         loadAgentImprovementProposalFixture,
         loadAgentProfileImprovementFixture,
       } from '@tangle-network/agent-runtime/testing'
+      import {
+        deriveExecutionId,
+        handleChatTurn,
+        type ChatTurnResult,
+      } from '@tangle-network/agent-runtime/durable'
       import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
       import {
         createExactProcessCandidateExperimentExecutor,
@@ -193,6 +199,13 @@ try {
       const fixtureBaselineProfile: AgentProfile = profileFixture.baselineProfile
       const fixtureCandidateProfile: AgentProfile = profileFixture.candidateProfile
       const fixtureRecommendedSize: SandboxSizePreset = profileFixture.recommendedSize
+      const durableExecutionId: string = deriveExecutionId({
+        projectId: 'packed-consumer',
+        sessionId: 'thread-1',
+        turnIndex: 0,
+      })
+      const durableTurnHandler: typeof handleChatTurn = handleChatTurn
+      declare const durableTurnResult: ChatTurnResult
 
       const executor = createExactProcessCandidateExperimentExecutor({
         provider,
@@ -278,6 +291,9 @@ try {
       void fixtureBaselineProfile
       void fixtureCandidateProfile
       void fixtureRecommendedSize
+      void durableExecutionId
+      void durableTurnHandler
+      void durableTurnResult
     `,
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
@@ -299,6 +315,30 @@ try {
           const specifier =
             subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1)
           await import(specifier)
+        }
+      `,
+    ],
+    appDir,
+  )
+
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const durable = await import('@tangle-network/agent-runtime/durable')
+        for (const name of ['handleChatTurn', 'deriveExecutionId']) {
+          if (typeof durable[name] !== 'function') throw new Error('missing durable export ' + name)
+        }
+        if (
+          durable.deriveExecutionId({
+            projectId: 'packed-consumer',
+            sessionId: 'thread-1',
+            turnIndex: 0,
+          }) !== 'packed-consumer:thread-1:0'
+        ) {
+          throw new Error('packed durable execution id drift')
         }
       `,
     ],

@@ -77,6 +77,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|
+| Run one product chat turn with streamed events, ordered persistence hooks, and a stable retry identity | `handleChatTurn(...)` + `deriveExecutionId(...)`: `/durable` | importing the broad package entry from an edge worker or rebuilding NDJSON framing, persistence ordering, and retry identity in the product |
 | Run a supervisor toward a goal with default setup | `supervise(profile, task, { budget, backend? })`: `/loops` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for lower-level calls before you need a specific counterparty |
 | **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })`: `/loops` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |
 | Run a profile through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })`: `/loops` | a hand-rolled `createSupervisor().run` + seam-wiring helper |

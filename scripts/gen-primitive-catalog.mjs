@@ -64,6 +64,7 @@ const ownSurfaceLabels = {
   '.': 'Root — task lifecycle, conversation, RSI verbs, observability',
   './agent': 'Vertical agent — manifest + surface proposal source',
   './conversation': 'Multi-turn conversations',
+  './durable': 'Product chat turns — edge-safe streaming, persistence, and stable execution IDs',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
   './loops': 'Recursive atom + loop kernel (alias of ./runtime)',
   './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',

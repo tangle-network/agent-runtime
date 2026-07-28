@@ -327,6 +327,20 @@ Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BackendCallPolicy`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationJournalEntry`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `HaltContext`, `HaltSignal`, `PersonaConversationResult`, `RunConversationOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `AuthSource`, `ConversationStreamEvent`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `TurnOrder`.
 
+### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
+
+Import from `@tangle-network/agent-runtime/durable` — 8 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `deriveExecutionId` | function | Derive a stable executionId from the run identity. The same |
+| `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
+| `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
+| `ChatTurnIdentity` | interface | Identity of a chat turn. `tenantId` is the workspace id for workspace- |
+| `ChatTurnProducer` | interface | The live side of a turn — what the product's `produce` hook returns. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `ChatTurnHooks`, `ChatTurnResult`, `RunChatTurnInput`.
+
 ### Intelligence SDK — Observe + provable-OFF billing
 
 Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.

@@ -4,6 +4,7 @@
     "src/index.ts",
     "src/agent/index.ts",
     "src/conversation/index.ts",
+    "src/durable/index.ts",
     "src/intelligence/index.ts",
     "src/runtime/index.ts",
     "src/runtime/environment-provider.ts",
