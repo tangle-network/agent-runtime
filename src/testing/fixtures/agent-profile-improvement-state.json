@@ -1,0 +1,44 @@
+{
+  "baselineProfile": {
+    "name": "support-agent",
+    "prompt": {
+      "systemPrompt": "Answer directly."
+    },
+    "tools": {
+      "Read": true
+    },
+    "resources": {
+      "skills": [
+        {
+          "kind": "inline",
+          "name": "support.SKILL.md",
+          "content": "Use the support case context."
+        }
+      ]
+    }
+  },
+  "candidateProfile": {
+    "name": "support-agent",
+    "prompt": {
+      "systemPrompt": "Answer directly, cite the source, and state uncertainty."
+    },
+    "tools": {
+      "Read": true
+    },
+    "resources": {
+      "skills": [
+        {
+          "kind": "inline",
+          "name": "support.SKILL.md",
+          "content": "Use the support case context."
+        },
+        {
+          "kind": "inline",
+          "name": "sources.SKILL.md",
+          "content": "Cite the evidence you use."
+        }
+      ]
+    }
+  },
+  "recommendedSize": "small"
+}

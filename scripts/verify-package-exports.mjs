@@ -151,12 +151,13 @@ try {
         AgentImprovementProposal,
         AgentProfile,
         CandidateExecutionEvidence,
+        SandboxSizePreset,
         Sha256Digest,
       } from '@tangle-network/agent-interface'
       import {
-        type AgentProfileImprovementProposalFixture,
+        type AgentProfileImprovementFixture,
         loadAgentImprovementProposalFixture,
-        loadAgentProfileImprovementProposalFixture,
+        loadAgentProfileImprovementFixture,
       } from '@tangle-network/agent-runtime/testing'
       import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
       import {
@@ -195,10 +196,13 @@ try {
       declare const profileEvaluation: AgentImprovementEvaluation
       declare const activeProfile: AgentProfile
       const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
-      const profileProposalFixture: AgentProfileImprovementProposalFixture =
-        loadAgentProfileImprovementProposalFixture()
+      const profileFixture: AgentProfileImprovementFixture =
+        loadAgentProfileImprovementFixture()
       const fixtureProfileExperimentDigest: Sha256Digest =
-        profileProposalFixture.evaluation.experiment.digest
+        profileFixture.proposal.evaluation.experiment.digest
+      const fixtureBaselineProfile: AgentProfile = profileFixture.baselineProfile
+      const fixtureCandidateProfile: AgentProfile = profileFixture.candidateProfile
+      const fixtureRecommendedSize: SandboxSizePreset = profileFixture.recommendedSize
 
       const executor = createExactProcessCandidateExperimentExecutor({
         provider,
@@ -279,8 +283,11 @@ try {
       void profileDiffs
       void profilePrepared
       void proposalFixture
-      void profileProposalFixture
+      void profileFixture
       void fixtureProfileExperimentDigest
+      void fixtureBaselineProfile
+      void fixtureCandidateProfile
+      void fixtureRecommendedSize
     `,
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
@@ -371,7 +378,7 @@ try {
         }
         for (const name of [
           'loadAgentImprovementProposalFixture',
-          'loadAgentProfileImprovementProposalFixture',
+          'loadAgentProfileImprovementFixture',
         ]) {
           if (name in intelligence) {
             throw new Error('testing fixture leaked into the intelligence entrypoint: ' + name)
@@ -393,7 +400,7 @@ try {
         }
         for (const name of [
           'loadAgentImprovementProposalFixture',
-          'loadAgentProfileImprovementProposalFixture',
+          'loadAgentProfileImprovementFixture',
         ]) {
           if (name in runtime) {
             throw new Error('testing fixture leaked into the production root entrypoint: ' + name)
@@ -420,7 +427,7 @@ try {
         const testing = await import('@tangle-network/agent-runtime/testing')
         const expected = [
           'loadAgentImprovementProposalFixture',
-          'loadAgentProfileImprovementProposalFixture',
+          'loadAgentProfileImprovementFixture',
         ]
         const names = Object.keys(testing).sort()
         if (JSON.stringify(names) !== JSON.stringify(expected)) {
@@ -433,22 +440,39 @@ try {
         }
         const first = testing.loadAgentImprovementProposalFixture()
         const second = testing.loadAgentImprovementProposalFixture()
-        const firstProfile = testing.loadAgentProfileImprovementProposalFixture()
-        const secondProfile = testing.loadAgentProfileImprovementProposalFixture()
+        const firstProfile = testing.loadAgentProfileImprovementFixture()
+        const secondProfile = testing.loadAgentProfileImprovementFixture()
         if (first === second || first.evaluation === second.evaluation) {
           throw new Error('testing fixture loader did not return an isolated clone')
         }
         if (
           first.evaluation.kind !== 'agent-improvement-measured-comparison' ||
-          firstProfile.evaluation.kind !== 'agent-profile-improvement-measured-comparison'
+          firstProfile.proposal.evaluation.kind !==
+            'agent-profile-improvement-measured-comparison'
         ) {
           throw new Error('testing fixture loaders returned the wrong proposal shapes')
         }
         if (
           firstProfile === secondProfile ||
-          firstProfile.evaluation === secondProfile.evaluation
+          firstProfile.proposal === secondProfile.proposal ||
+          firstProfile.baselineProfile === secondProfile.baselineProfile ||
+          firstProfile.candidateProfile === secondProfile.candidateProfile
         ) {
           throw new Error('profile testing fixture loader did not return an isolated clone')
+        }
+        const { canonicalCandidateDigest } =
+          await import('@tangle-network/agent-interface')
+        const experiment = firstProfile.proposal.evaluation.experiment
+        const stateDigest = (profile) =>
+          canonicalCandidateDigest({
+            definition: profile,
+            recommendedSize: firstProfile.recommendedSize,
+          })
+        if (
+          stateDigest(firstProfile.baselineProfile) !== experiment.baseline.stateDigest ||
+          stateDigest(firstProfile.candidateProfile) !== experiment.candidate.stateDigest
+        ) {
+          throw new Error('profile testing fixture state does not match its proposal')
         }
       `,
     ],

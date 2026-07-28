@@ -2,11 +2,15 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentImprovementProposal } from '@tangle-network/agent-interface'
 import {
-  type AgentProfileImprovementProposalFixture,
+  type AgentImprovementProposal,
+  applyAgentProfileDiff,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
+import {
+  type AgentProfileImprovementFixture,
   loadAgentImprovementProposalFixture,
-  loadAgentProfileImprovementProposalFixture,
+  loadAgentProfileImprovementFixture,
 } from '@tangle-network/agent-runtime/testing'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -46,10 +50,11 @@ describe('agent improvement proposal testing fixture', () => {
   })
 })
 
-describe('agent profile improvement proposal testing fixture', () => {
+describe('agent profile improvement testing fixture', () => {
   it('round-trips an opaque profile comparison through production validation', () => {
-    const proposal = loadAgentProfileImprovementProposalFixture()
-    const roundTrip = JSON.parse(JSON.stringify(proposal)) as AgentProfileImprovementProposalFixture
+    const fixture = loadAgentProfileImprovementFixture()
+    const roundTrip = JSON.parse(JSON.stringify(fixture)) as AgentProfileImprovementFixture
+    const proposal = fixture.proposal
 
     expect(proposal.evaluation.kind).toBe('agent-profile-improvement-measured-comparison')
     expect(proposal.evaluation.metadata).toMatchObject({
@@ -58,21 +63,64 @@ describe('agent profile improvement proposal testing fixture', () => {
     })
     expect(Object.keys(proposal.evaluation.experiment.baseline)).toEqual(['stateDigest'])
     expect(Object.keys(proposal.evaluation.experiment.candidate)).toEqual(['stateDigest'])
-    expect(verifyAgentImprovementProposal(roundTrip)).toEqual(proposal)
+    expect(verifyAgentImprovementProposal(roundTrip.proposal)).toEqual(proposal)
+    expect(roundTrip).toEqual(fixture)
   })
 
-  it('rejects nested tampering and returns an isolated clone', () => {
-    const loaded = loadAgentProfileImprovementProposalFixture()
-    const proposal = JSON.parse(JSON.stringify(loaded)) as AgentProfileImprovementProposalFixture
+  it('binds the private profiles and size to the proposal state digests', () => {
+    const fixture = loadAgentProfileImprovementFixture()
+    const experiment = fixture.proposal.evaluation.experiment
+    const stateDigest = (profile: typeof fixture.baselineProfile) =>
+      canonicalCandidateDigest({
+        definition: profile,
+        recommendedSize: fixture.recommendedSize,
+      })
+
+    expect(stateDigest(fixture.baselineProfile)).toBe(experiment.baseline.stateDigest)
+    expect(stateDigest(fixture.candidateProfile)).toBe(experiment.candidate.stateDigest)
+    expect(
+      experiment.change.reduce(
+        (profile, change) => applyAgentProfileDiff(profile, change),
+        fixture.baselineProfile,
+      ),
+    ).toEqual(fixture.candidateProfile)
+  })
+
+  it('keeps every raw profile outside the serialized proposal', () => {
+    const fixture = loadAgentProfileImprovementFixture()
+    const proposal = fixture.proposal
+
+    expect(objectKeyPaths(proposal, ['profile', 'baselineProfile', 'candidateProfile'])).toEqual([])
+    expect(
+      objectPathsWithDigest(proposal, canonicalCandidateDigest(fixture.baselineProfile)),
+    ).toEqual([])
+    expect(
+      objectPathsWithDigest(proposal, canonicalCandidateDigest(fixture.candidateProfile)),
+    ).toEqual([])
+    expect(Object.keys(proposal.evaluation.experiment.baseline)).toEqual(['stateDigest'])
+    expect(Object.keys(proposal.evaluation.experiment.candidate)).toEqual(['stateDigest'])
+    expect(fixture.baselineProfile.name).toBe('support-agent')
+    expect(fixture.candidateProfile.name).toBe('support-agent')
+  })
+
+  it('rejects nested proposal tampering and returns isolated immutable values', () => {
+    const loaded = loadAgentProfileImprovementFixture()
+    const proposal = JSON.parse(
+      JSON.stringify(loaded.proposal),
+    ) as AgentProfileImprovementFixture['proposal']
     const prompt = proposal.evaluation.experiment.change[0]?.set.prompt
     if (!prompt) throw new Error('profile improvement fixture must include a prompt diff')
     prompt.systemPrompt = 'tampered profile improvement prompt'
 
     expect(() => verifyAgentImprovementProposal(proposal)).toThrow()
-    const reloaded = loadAgentProfileImprovementProposalFixture()
+    const reloaded = loadAgentProfileImprovementFixture()
     expect(reloaded).not.toBe(loaded)
-    expect(reloaded.evaluation).not.toBe(loaded.evaluation)
-    expect(reloaded.evaluation.experiment.change[0]?.set.prompt?.systemPrompt).toBe(
+    expect(reloaded.proposal).not.toBe(loaded.proposal)
+    expect(reloaded.baselineProfile).not.toBe(loaded.baselineProfile)
+    expect(reloaded.candidateProfile).not.toBe(loaded.candidateProfile)
+    expect(Object.isFrozen(reloaded)).toBe(true)
+    expect(Object.isFrozen(reloaded.baselineProfile)).toBe(true)
+    expect(reloaded.proposal.evaluation.experiment.change[0]?.set.prompt?.systemPrompt).toBe(
       'Answer directly, cite the source, and state uncertainty.',
     )
   })
@@ -127,6 +175,36 @@ function sourceFiles(root: string): string[] {
       ? [path]
       : []
   })
+}
+
+function objectKeyPaths(value: unknown, expectedKeys: readonly string[], path = '$'): string[] {
+  if (value === null || typeof value !== 'object') return []
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => objectKeyPaths(item, expectedKeys, `${path}[${index}]`))
+  }
+  return Object.entries(value).flatMap(([key, item]) => [
+    ...(expectedKeys.includes(key) ? [`${path}.${key}`] : []),
+    ...objectKeyPaths(item, expectedKeys, `${path}.${key}`),
+  ])
+}
+
+function objectPathsWithDigest(value: unknown, expectedDigest: string, path = '$'): string[] {
+  if (value === null || typeof value !== 'object') return []
+  const matches = canonicalCandidateDigest(value) === expectedDigest ? [path] : []
+  if (Array.isArray(value)) {
+    return [
+      ...matches,
+      ...value.flatMap((item, index) =>
+        objectPathsWithDigest(item, expectedDigest, `${path}[${index}]`),
+      ),
+    ]
+  }
+  return [
+    ...matches,
+    ...Object.entries(value).flatMap(([key, item]) =>
+      objectPathsWithDigest(item, expectedDigest, `${path}.${key}`),
+    ),
+  ]
 }
 
 function moduleSpecifiers(source: ts.SourceFile): string[] {
