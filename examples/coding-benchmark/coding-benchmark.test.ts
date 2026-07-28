@@ -14,7 +14,7 @@
  */
 
 import { exec as execCb } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -34,6 +34,7 @@ const execAsync = promisify(execCb)
  *  held-out execution is genuine (no creds, no network). */
 function tempBox(): { box: CheckBox; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'coding-bench-test-'))
+  writeFileSync(join(dir, 'package.json'), '{"type":"module"}\n', 'utf8')
   const box: CheckBox = {
     fs: {
       async write(path: string, content: string) {

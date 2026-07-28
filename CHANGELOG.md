@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.108.1
+
+- Align Runtime with Eval 0.134.2 and Knowledge 6.1.8 so every knowledge and runtime evaluation uses complete multishot judge cost accounting.
+- Retain both judge scores and cost records in the self-improving-loop example.
+- Declare temporary TypeScript coding workspaces as ESM so their real tests run on Node 24.
+
 ## 0.108.0
 
 - Add the edge-safe `@tangle-network/agent-runtime/durable` entrypoint for resumable chat turns with stable retry identities.
