@@ -8,6 +8,7 @@ import {
   applyAgentProfileDiff,
   canonicalCandidateDigest,
   defineInlineResource,
+  type SandboxSizePreset,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 
@@ -135,6 +136,7 @@ export interface ProfileImprovementFixture {
   evaluation: AgentImprovementEvaluation
   baselineProfile: AgentProfile
   candidateProfile: AgentProfile
+  recommendedSize: SandboxSizePreset
   stateDigest(profile: AgentProfile): Sha256Digest
 }
 
@@ -184,8 +186,9 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
     },
   }
   const candidateProfile = exactProfile(applyAgentProfileDiff(baselineProfile, change[0]))
+  const recommendedSize: SandboxSizePreset = 'small'
   const stateDigest = (profile: AgentProfile): Sha256Digest =>
-    canonicalCandidateDigest({ definition: exactProfile(profile), recommendedSize: 'small' })
+    canonicalCandidateDigest({ definition: exactProfile(profile), recommendedSize })
   const baseline = { stateDigest: stateDigest(baselineProfile) }
   const candidate = { stateDigest: stateDigest(candidateProfile) }
   const executionRef = {
@@ -398,5 +401,11 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
       },
     },
   })
-  return { evaluation: comparison, baselineProfile, candidateProfile, stateDigest }
+  return {
+    evaluation: comparison,
+    baselineProfile,
+    candidateProfile,
+    recommendedSize,
+    stateDigest,
+  }
 }

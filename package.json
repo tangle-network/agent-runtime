@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.107.2",
+  "version": "0.107.3",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -108,8 +108,8 @@
     "lint:fix": "biome check --write src tests examples",
     "typecheck": "tsc --noEmit && pnpm run typecheck:examples",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
-    "generate:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixture.ts",
-    "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixture.ts --check",
+    "generate:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts",
+    "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts --check",
     "check:skills": "node scripts/check-skills.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
     "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
@@ -146,7 +146,7 @@
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.133.0 <0.134.0",
+    "@tangle-network/agent-eval": ">=0.133.1 <0.134.0",
     "@tangle-network/agent-interface": ">=0.36.0 <0.37.0",
     "@tangle-network/sandbox": ">=0.15.0 <0.16.0",
     "playwright": "^1.40.0"

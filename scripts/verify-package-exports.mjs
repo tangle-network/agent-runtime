@@ -141,9 +141,14 @@ try {
         AgentImprovementProposal,
         AgentProfile,
         CandidateExecutionEvidence,
+        SandboxSizePreset,
         Sha256Digest,
       } from '@tangle-network/agent-interface'
-      import { loadAgentImprovementProposalFixture } from '@tangle-network/agent-runtime/testing'
+      import {
+        type AgentProfileImprovementFixture,
+        loadAgentImprovementProposalFixture,
+        loadAgentProfileImprovementFixture,
+      } from '@tangle-network/agent-runtime/testing'
       import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
       import {
         createExactProcessCandidateExperimentExecutor,
@@ -181,6 +186,13 @@ try {
       declare const profileEvaluation: AgentImprovementEvaluation
       declare const activeProfile: AgentProfile
       const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
+      const profileFixture: AgentProfileImprovementFixture =
+        loadAgentProfileImprovementFixture()
+      const fixtureProfileExperimentDigest: Sha256Digest =
+        profileFixture.proposal.evaluation.experiment.digest
+      const fixtureBaselineProfile: AgentProfile = profileFixture.baselineProfile
+      const fixtureCandidateProfile: AgentProfile = profileFixture.candidateProfile
+      const fixtureRecommendedSize: SandboxSizePreset = profileFixture.recommendedSize
 
       const executor = createExactProcessCandidateExperimentExecutor({
         provider,
@@ -261,6 +273,11 @@ try {
       void profileDiffs
       void profilePrepared
       void proposalFixture
+      void profileFixture
+      void fixtureProfileExperimentDigest
+      void fixtureBaselineProfile
+      void fixtureCandidateProfile
+      void fixtureRecommendedSize
     `,
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
@@ -349,8 +366,13 @@ try {
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
         }
-        if ('loadAgentImprovementProposalFixture' in intelligence) {
-          throw new Error('testing fixture leaked into the intelligence entrypoint')
+        for (const name of [
+          'loadAgentImprovementProposalFixture',
+          'loadAgentProfileImprovementFixture',
+        ]) {
+          if (name in intelligence) {
+            throw new Error('testing fixture leaked into the intelligence entrypoint: ' + name)
+          }
         }
       `,
     ],
@@ -366,8 +388,13 @@ try {
         for (const name of ['improve', 'officialGepa', 'officialSkillOpt']) {
           if (typeof runtime[name] !== 'function') throw new Error('missing improvement export ' + name)
         }
-        if ('loadAgentImprovementProposalFixture' in runtime) {
-          throw new Error('testing fixture leaked into the production root entrypoint')
+        for (const name of [
+          'loadAgentImprovementProposalFixture',
+          'loadAgentProfileImprovementFixture',
+        ]) {
+          if (name in runtime) {
+            throw new Error('testing fixture leaked into the production root entrypoint: ' + name)
+          }
         }
         const knowledge = await import('@tangle-network/agent-runtime/knowledge')
         for (const name of [
@@ -388,18 +415,54 @@ try {
       '--eval',
       `
         const testing = await import('@tangle-network/agent-runtime/testing')
-        const names = Object.keys(testing)
-        if (
-          names.length !== 1 ||
-          names[0] !== 'loadAgentImprovementProposalFixture' ||
-          typeof testing.loadAgentImprovementProposalFixture !== 'function'
-        ) {
-          throw new Error('testing entrypoint must export only the proposal fixture loader')
+        const expected = [
+          'loadAgentImprovementProposalFixture',
+          'loadAgentProfileImprovementFixture',
+        ]
+        const names = Object.keys(testing).sort()
+        if (JSON.stringify(names) !== JSON.stringify(expected)) {
+          throw new Error('testing entrypoint must export only the proposal fixture loaders')
+        }
+        for (const name of expected) {
+          if (typeof testing[name] !== 'function') {
+            throw new Error('testing fixture export must be a function: ' + name)
+          }
         }
         const first = testing.loadAgentImprovementProposalFixture()
         const second = testing.loadAgentImprovementProposalFixture()
+        const firstProfile = testing.loadAgentProfileImprovementFixture()
+        const secondProfile = testing.loadAgentProfileImprovementFixture()
         if (first === second || first.evaluation === second.evaluation) {
           throw new Error('testing fixture loader did not return an isolated clone')
+        }
+        if (
+          first.evaluation.kind !== 'agent-improvement-measured-comparison' ||
+          firstProfile.proposal.evaluation.kind !==
+            'agent-profile-improvement-measured-comparison'
+        ) {
+          throw new Error('testing fixture loaders returned the wrong proposal shapes')
+        }
+        if (
+          firstProfile === secondProfile ||
+          firstProfile.proposal === secondProfile.proposal ||
+          firstProfile.baselineProfile === secondProfile.baselineProfile ||
+          firstProfile.candidateProfile === secondProfile.candidateProfile
+        ) {
+          throw new Error('profile testing fixture loader did not return an isolated clone')
+        }
+        const { canonicalCandidateDigest } =
+          await import('@tangle-network/agent-interface')
+        const experiment = firstProfile.proposal.evaluation.experiment
+        const stateDigest = (profile) =>
+          canonicalCandidateDigest({
+            definition: profile,
+            recommendedSize: firstProfile.recommendedSize,
+          })
+        if (
+          stateDigest(firstProfile.baselineProfile) !== experiment.baseline.stateDigest ||
+          stateDigest(firstProfile.candidateProfile) !== experiment.candidate.stateDigest
+        ) {
+          throw new Error('profile testing fixture state does not match its proposal')
         }
       `,
     ],

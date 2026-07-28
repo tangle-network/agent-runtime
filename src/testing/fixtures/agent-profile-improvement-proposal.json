@@ -1,0 +1,1050 @@
+{
+  "changedSurfaces": ["prompt", "skills"],
+  "digest": "sha256:ce7b2603fcc264631f65df4a13433d371f88bf5d96882d62fe691fac8b867cc4",
+  "evaluation": {
+    "decision": {
+      "contributingChecks": [
+        {
+          "name": "paired-significance",
+          "passed": true
+        }
+      ],
+      "outcome": "ship",
+      "reasons": ["paired comparison passed"]
+    },
+    "diff": "prompt: add source and uncertainty instructions",
+    "evaluation": {
+      "generationsExplored": 1,
+      "measurement": {
+        "cost": {
+          "provenance": "observed",
+          "usd": 6.6e-7
+        },
+        "wallDurationMs": 0,
+        "workDurationMs": 660
+      },
+      "preparation": {
+        "cost": {
+          "provenance": "observed",
+          "usd": 0
+        },
+        "wallDurationMs": 0
+      },
+      "total": {
+        "cost": {
+          "provenance": "observed",
+          "usd": 6.6e-7
+        },
+        "wallDurationMs": 0
+      }
+    },
+    "experiment": {
+      "baseline": {
+        "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704"
+      },
+      "benchmark": {
+        "suite": {
+          "digest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+          "digestAlgorithm": "rfc8785-sha256",
+          "kind": "agent-profile-improvement-suite",
+          "reps": 3,
+          "seeds": [11, 12, 13],
+          "splitDigest": "sha256:a8f4bdc4df6d527e21bcfeedf9fcbc007723329c25da5da8c9ad3e6887623e22",
+          "taskDigests": ["sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e"]
+        },
+        "tasks": [
+          {
+            "digest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "digestAlgorithm": "rfc8785-sha256",
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "kind": "agent-profile-improvement-task",
+            "limits": {
+              "maxCostUsd": 1,
+              "maxInputTokens": 1000,
+              "maxModelCalls": 2,
+              "maxOutputTokens": 1000,
+              "maxSteps": 10,
+              "timeoutMs": 30000
+            },
+            "model": {
+              "model": "claude-sonnet-4-6",
+              "provider": "anthropic",
+              "reasoningEffort": "medium",
+              "requested": "anthropic/claude-sonnet-4-6",
+              "snapshot": "2026-06-01"
+            },
+            "scenario": {
+              "digest": "sha256:b50dec7031d699e2e0cfca8b4fd1eb958b687030a1af7a5339090dc9ca0892bf",
+              "id": "support-case-1",
+              "kind": "support-case"
+            }
+          }
+        ]
+      },
+      "candidate": {
+        "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9"
+      },
+      "candidateLineage": {
+        "developmentSplitDigest": "sha256:02da010d5b66a91bc293d928ed8297f05950f56f3127f058f94b8766bc6a2b76",
+        "parentDigests": [
+          "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704"
+        ],
+        "runIds": ["profile-improvement-1"],
+        "source": "optimizer"
+      },
+      "change": [
+        {
+          "id": "add-source-and-uncertainty",
+          "kind": "agent-profile-diff",
+          "set": {
+            "prompt": {
+              "systemPrompt": "Answer directly, cite the source, and state uncertainty."
+            },
+            "resources": {
+              "skills": [
+                {
+                  "content": "Cite the evidence you use.",
+                  "kind": "inline",
+                  "name": "sources.SKILL.md"
+                }
+              ]
+            }
+          },
+          "source": {
+            "artifacts": ["traces://run/profile-improvement-1"],
+            "kind": "optimizer"
+          }
+        }
+      ],
+      "digest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+      "digestAlgorithm": "rfc8785-sha256",
+      "executionRef": {
+        "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+        "identity": "profile-improvement-fixture-runner",
+        "kind": "agent-profile-improvement-execution-ref"
+      },
+      "kind": "agent-profile-improvement-experiment",
+      "policy": {
+        "bootstrapSeed": 17,
+        "confidenceLevel": 0.95,
+        "criticalDimensions": [],
+        "deltaThreshold": 0,
+        "minProductiveRuns": 3,
+        "regressionTolerance": 0,
+        "resamples": 100
+      },
+      "source": {
+        "kind": "platform-agent-profile",
+        "sourceDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
+        "sourceIdentity": "profile-support",
+        "sourceRevision": 7
+      }
+    },
+    "kind": "agent-profile-improvement-measured-comparison",
+    "measurements": [
+      {
+        "baseline": {
+          "billing": [
+            {
+              "digest": "sha256:f8df8abb545f964e51ae5dfbe371db8812ffc67e1ac620467004d1d14622aebb",
+              "identity": "bill-baseline-0",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:5f82aa16ab45fb06d00e5f04ecff5f746f2cd31121afb7c2ac31b8cd703ee316",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "baseline-0",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.2
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:d4df39e172d3701cceb170a3b4f809aebc61c050acc6f0ded51cd178bd8bad79",
+              "identity": "grade-baseline-0",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.2,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 110,
+              "startedAtMs": 100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:45115d63436a7d83e2f45b791804f24047db2f69377b9796c41b39337110de18",
+            "identity": "output-baseline-0",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "baseline",
+            "attempt": 1,
+            "digest": "sha256:40c8cbe747b60e7a3912a607182340232391b629d41cc6b2c914213f5702088e",
+            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 0,
+            "seed": 11,
+            "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
+            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:7e8cdb47c8f1c5200bd55f6ecbb05f060d13e93c542978a0cb67eef1f7ea7cd9",
+            "identity": "baseline-0",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 100,
+            "startedAtMs": 0
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:7bbb44eebc7f286a293da7309af86cb966ab31a37dc30e9d993523cddfb0a65c",
+              "identity": "trace-baseline-0",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        },
+        "candidate": {
+          "billing": [
+            {
+              "digest": "sha256:fc4aebe4eb99e761a95279dcfe7478596a505fd5c5611cfa62d2f1dbe5d98c2f",
+              "identity": "bill-candidate-0",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:daf0f586af2ac6a2287e5aefa5b29f7337962168abd5a7c70bb7e6b3837f9b95",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "candidate-0",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.6
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:d1c4971c7a415aaa1e2a1101611a18aa7c3870411c058cadba35b21fd2faf27a",
+              "identity": "grade-candidate-0",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.6,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 110,
+              "startedAtMs": 100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:3d57f4f4f14a76c3b7a5a9edc47e8e5d8033896d474a454da74125362456639f",
+            "identity": "output-candidate-0",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "candidate",
+            "attempt": 1,
+            "digest": "sha256:f9fb55d43947f101f10061b11eefd13ae1a56450e515dc6523d07d7261f94221",
+            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 0,
+            "seed": 11,
+            "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
+            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:9ea29e94240319216941b87edcc391aed43d45d8081f8b43849591748606e78f",
+            "identity": "candidate-0",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 100,
+            "startedAtMs": 0
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:63806d09543cd4337accb01f4806e6825e2fa40b219d0d90ffbcaf369b4cbb5f",
+              "identity": "trace-candidate-0",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        }
+      },
+      {
+        "baseline": {
+          "billing": [
+            {
+              "digest": "sha256:0ec2f0978881d5717c3b7bf9ea888b73580693ee5b8e232cb40cb7e57503f263",
+              "identity": "bill-baseline-1",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:44788b5fa495aa316b9e730f95dd870f7723171cfec1fff84016126b9346f17b",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "baseline-1",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.2
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:26079c88be9d35bb6505546daaaae5263a5a86ce7a2958656e95ce77f42d57db",
+              "identity": "grade-baseline-1",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.2,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 1110,
+              "startedAtMs": 1100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:c3a0a3eab137f6c1e232721d2c7db1237ecb9ec1625447ee1d8d90de0bf2bd33",
+            "identity": "output-baseline-1",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "baseline",
+            "attempt": 1,
+            "digest": "sha256:007bd4c6cadedf64e8792d7eb21a356b2b41b90ed9e04cb0d916bdf20cd2388e",
+            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 1,
+            "seed": 12,
+            "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
+            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:581e68267991f493474b1f35fc07a95efd9781b55ded5fde4080df55e4ee724b",
+            "identity": "baseline-1",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 1100,
+            "startedAtMs": 1000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:0be44b67b6482a4d6238a50f98edfd3b406b9a15ca39bc7002fba7fdefaf3a72",
+              "identity": "trace-baseline-1",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        },
+        "candidate": {
+          "billing": [
+            {
+              "digest": "sha256:f35d12be88a231cdfaf25ef346a075a2866f93d9fba24dfe6a33948d7d819ef7",
+              "identity": "bill-candidate-1",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:688a38e1dae394d7845e892bcee5644297a27e79c1f3813ca29afe30de090365",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "candidate-1",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.6
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:7ed258fae411110158ff573735ad08e4c0ca32b1e5edf8705a475b8f91aae055",
+              "identity": "grade-candidate-1",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.6,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 1110,
+              "startedAtMs": 1100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:abe4d04fa6375d75469aa41839eb34758c4a5cdf17b204a2294b1d1a9faa8ffb",
+            "identity": "output-candidate-1",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "candidate",
+            "attempt": 1,
+            "digest": "sha256:abad51b565dd3e740b87d260a553318eeb1b5907938841a5942b0df629aadfc3",
+            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 1,
+            "seed": 12,
+            "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
+            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:dafe5fbae73dab4b49b3411fc26cc436ddc463dfd0ef86ee23c8b0a91c81be67",
+            "identity": "candidate-1",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 1100,
+            "startedAtMs": 1000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:6a33d6b9699ebf78e92845bdae506a3b37e9598a3ead4b5f01676d9573c2fc1a",
+              "identity": "trace-candidate-1",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        }
+      },
+      {
+        "baseline": {
+          "billing": [
+            {
+              "digest": "sha256:6365caecc9b3f4a7d7fa3b3a7efea8a76fc50d93129b02f7ba448ceee6b806a1",
+              "identity": "bill-baseline-2",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:07f982ab59585df9b30fe498ce3969134625d5d3a5cc4cb3549cca83175ef2d4",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "baseline-2",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.2
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:2e6344b8ab46798df75c6c8bd2e9c1c4ba5371cfdb84ef12916226a06ee0bffc",
+              "identity": "grade-baseline-2",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.2,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 2110,
+              "startedAtMs": 2100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:7ecb1cb5e93f0154d39393745ca59c763725073a528396dacc06703ff6559a72",
+            "identity": "output-baseline-2",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "baseline",
+            "attempt": 1,
+            "digest": "sha256:b4f83f1ba81c01032326dba7523e68a41c50cdc2447452aff480b75dfa1e8894",
+            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 2,
+            "seed": 13,
+            "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
+            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:136ff81d5b2a688db3fbe00bbfabb593e6179d9e71142d687ef38208b2301cd3",
+            "identity": "baseline-2",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 2100,
+            "startedAtMs": 2000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:a9c52e32611334aa710c0930b36aa3a2faf45dfdb77f083e9e4c02ab67b2812e",
+              "identity": "trace-baseline-2",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        },
+        "candidate": {
+          "billing": [
+            {
+              "digest": "sha256:f5f6023645c3d531f29eb0b331787117a1c87d1cd5d53f434ab4a5ab8eb1caba",
+              "identity": "bill-candidate-2",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:4daa28e364e711b0896e7f8bbfc9153aaa4e997672578ac0a1cd6dcdeb2148e0",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "candidate-2",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.6
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:9046047f8a5ad8cda1e059047b3bac42abb438a8d9f9a60c0a139af5375dc313",
+              "identity": "grade-candidate-2",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.6,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 2110,
+              "startedAtMs": 2100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:58439d73500b422267dfc9d873a9132aa384ebbf706b75fdfa69793b70f65d65",
+            "identity": "output-candidate-2",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "candidate",
+            "attempt": 1,
+            "digest": "sha256:5f66650dc0f5238aeaca52750577fc2b280b8769e0b4b28d592a9a8173bd712a",
+            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 2,
+            "seed": 13,
+            "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
+            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:e3c9377d8fc6c3f427f8ba79a2e2cfec2319d2cf2e923f1344db26195780bc0f",
+            "identity": "candidate-2",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 2100,
+            "startedAtMs": 2000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:7b862fccf82622a8c3a5b0816f5a543ba61454972e8799219948df150fd0a7fa",
+              "identity": "trace-candidate-2",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        }
+      }
+    ],
+    "metadata": {
+      "fixture": "agent-profile-improvement-proposal",
+      "runtimeVersion": "0.107.3"
+    },
+    "objectives": [
+      {
+        "availability": "measured",
+        "baseline": 0.2,
+        "candidate": 0.6,
+        "confidenceInterval": {
+          "level": 0.95,
+          "lower": 0.29999999999999993,
+          "method": "paired-bootstrap",
+          "resamples": 100,
+          "statistic": "mean",
+          "upper": 0.5
+        },
+        "delta": 0.39999999999999997,
+        "direction": "higher-is-better",
+        "kind": "objective",
+        "n": 3,
+        "name": "quality",
+        "unit": "score"
+      },
+      {
+        "availability": "measured",
+        "baseline": 0.2,
+        "candidate": 0.6,
+        "confidenceInterval": {
+          "level": 0.95,
+          "lower": 0.29999999999999993,
+          "method": "paired-bootstrap",
+          "resamples": 100,
+          "statistic": "mean",
+          "upper": 0.5
+        },
+        "delta": 0.39999999999999997,
+        "direction": "higher-is-better",
+        "kind": "dimension",
+        "n": 3,
+        "name": "quality",
+        "objective": "quality",
+        "unit": "score"
+      },
+      {
+        "availability": "measured",
+        "baseline": 1.1e-7,
+        "candidate": 1.1e-7,
+        "confidenceInterval": {
+          "level": 0.95,
+          "lower": -0.1,
+          "method": "paired-bootstrap",
+          "resamples": 100,
+          "statistic": "mean",
+          "upper": 0.1
+        },
+        "delta": 0,
+        "direction": "lower-is-better",
+        "kind": "cost",
+        "n": 3,
+        "name": "cost",
+        "unit": "usd"
+      },
+      {
+        "availability": "measured",
+        "baseline": 110,
+        "candidate": 110,
+        "confidenceInterval": {
+          "level": 0.95,
+          "lower": -0.1,
+          "method": "paired-bootstrap",
+          "resamples": 100,
+          "statistic": "mean",
+          "upper": 0.1
+        },
+        "delta": 0,
+        "direction": "lower-is-better",
+        "kind": "latency",
+        "n": 3,
+        "name": "latency",
+        "unit": "milliseconds"
+      }
+    ],
+    "overall": {
+      "baseline": 0.2,
+      "candidate": 0.6,
+      "confidenceInterval": {
+        "level": 0.95,
+        "lower": 0.29999999999999993,
+        "method": "paired-bootstrap",
+        "resamples": 100,
+        "statistic": "mean",
+        "upper": 0.5
+      },
+      "delta": 0.39999999999999997,
+      "direction": "higher-is-better",
+      "n": 3,
+      "name": "composite",
+      "unit": "score"
+    },
+    "power": {
+      "confidenceLevel": 0.95,
+      "minimumDetectableDelta": 0.1,
+      "n": 3,
+      "reason": "three paired held-out runs",
+      "scaleAssumed": true,
+      "sharedScorerChannel": true,
+      "sufficient": true
+    },
+    "provenance": {
+      "baselineContentHash": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
+      "candidateContentHash": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
+      "kind": "agent-eval-loop",
+      "recordDigest": "sha256:44465d9d1b5b2f7697ad7a4617d7da80ccad97538b55e8a41b016cddc9c66bcf",
+      "runId": "profile-improvement-1",
+      "schema": "agent-eval/profile-matrix/v1"
+    }
+  },
+  "findings": [],
+  "kind": "agent-improvement-proposal",
+  "proposedAt": "2026-07-10T01:30:00.000Z",
+  "runId": "profile-improvement-1"
+}

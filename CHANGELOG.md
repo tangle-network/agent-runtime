@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.107.3
+
+- Add public proposal and private activation fixtures for profile-improvement consumer tests.
+- Verify the exact Eval, Knowledge, and Runtime package archives together before merge and publish.
+- Align the tested package cohort with `@tangle-network/agent-eval` 0.133.1, `@tangle-network/agent-knowledge` 6.1.3, and `@tangle-network/sandbox` 0.15.1.
+
 ## 0.107.2
 
 - Align Runtime's tested Sandbox dependency and public peer contract with `@tangle-network/sandbox` 0.15.0.
