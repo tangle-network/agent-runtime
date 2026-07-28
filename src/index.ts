@@ -193,6 +193,29 @@ export type { AgentBackendKind, ResolveAgentBackendOptions } from './resolve-age
 export { resolveAgentBackend } from './resolve-agent-backend'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
+// ── Execution kernel ─────────────────────────────────────────────────
+// The organism-level execution surface — supervision, the open `Executor` port and its
+// registry, conserved budgets, the finalizer seam, analyst wiring, and the
+// round-synchronous loop — ships on `@tangle-network/agent-runtime/kernel`.
+// These are its headline types; import the values (`supervise`, `createExecutor`,
+// `createSupervisor`, `runAgentRounds`, the combinators) from that subpath.
+export type {
+  AgentSpec,
+  AnalystRegistry,
+  Budget,
+  CoordinationEvent,
+  Driver,
+  Executor,
+  ExecutorRegistry,
+  FinalizeContext,
+  LoopResult,
+  Scope,
+  Settled,
+  Spend,
+  SupervisedResult,
+  Supervisor,
+  SupervisorFinalizer,
+} from './runtime'
 // ── Runtime hooks ────────────────────────────────────────────────────
 export type {
   RuntimeDecisionEvidenceRef,

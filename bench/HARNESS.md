@@ -4,7 +4,7 @@ If you're an agent picking this up: read this page, then run `pnpm help` + `pnpm
 do NOT re-derive the harness from source. This map is SHORT on purpose; if it disagrees
 with the code, the code wins — fix this page in the same turn (the anti-rediscovery law).
 Verified against source 2026-07-18 · agent-eval pinned `0.122.8`. The CANONICAL surface is now
-the published optimization suite (`@tangle-network/agent-runtime/loops`): `Environment` +
+the published optimization suite (`@tangle-network/agent-runtime/kernel`): `Environment` +
 `Strategy`/`defineStrategy` + `runBenchmark` — see the section below FIRST. The recursive
 diverse-vs-blind gate runs through the keystone (`gate-cli.mts` → `runGate`);
 the offline selector replay (`corpus-replay.mts` / `corpus-report.mts`) gates the legacy corpora.

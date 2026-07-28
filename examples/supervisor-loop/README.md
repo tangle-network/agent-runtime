@@ -33,7 +33,7 @@ For a $0, no-network wiring check (no agents, no key), two unit tests cover the
 spawn → wait → checked-settle loop:
 
 ```bash
-pnpm test tests/loops/coordination-driver.test.ts tests/supervisor-loop-example.test.ts
+pnpm test tests/kernel/coordination-driver.test.ts tests/supervisor-loop-example.test.ts
 ```
 
 ## Three runners

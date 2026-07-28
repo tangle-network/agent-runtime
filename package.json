@@ -39,10 +39,10 @@
       "import": "./dist/intelligence.js",
       "default": "./dist/intelligence.js"
     },
-    "./loops": {
-      "types": "./dist/loops.d.ts",
-      "import": "./dist/loops.js",
-      "default": "./dist/loops.js"
+    "./kernel": {
+      "types": "./dist/kernel.d.ts",
+      "import": "./dist/kernel.js",
+      "default": "./dist/kernel.js"
     },
     "./environment-provider": {
       "types": "./dist/environment-provider.d.ts",

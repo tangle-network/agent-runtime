@@ -7,7 +7,7 @@ export default defineConfig({
     conversation: 'src/conversation/index.ts',
     durable: 'src/durable/index.ts',
     intelligence: 'src/intelligence/index.ts',
-    loops: 'src/runtime/index.ts',
+    kernel: 'src/runtime/index.ts',
     'environment-provider': 'src/runtime/environment-provider.ts',
     'analyst-loop': 'src/analyst-loop/index.ts',
     knowledge: 'src/knowledge/index.ts',

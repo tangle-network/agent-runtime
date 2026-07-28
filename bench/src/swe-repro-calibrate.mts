@@ -27,7 +27,7 @@ import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgenticTask, ArtifactHandle } from '@tangle-network/agent-runtime/loops'
+import type { AgenticTask, ArtifactHandle } from '@tangle-network/agent-runtime/kernel'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata } from './swe-bench-env'
 import {

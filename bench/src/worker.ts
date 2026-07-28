@@ -10,7 +10,7 @@ import {
   type AgentRunSpec,
   type Deliverable,
   openSandboxRun,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
 import {

@@ -260,7 +260,7 @@ Options for running a provider as a supervise-mode executor.
 
 ##### runtime?
 
-> `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-3)
+> `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-2)
 
 **`Experimental`**
 

@@ -33,7 +33,7 @@ tsx examples/webcode-matrix/webcode-matrix.ts
 
 Search is **router-backed** — the agent's `web_search` goes through the Tangle router on `TANGLE_API_KEY` (provider picked by `TANGLE_SEARCH_DEFAULT_PROVIDER`, default `exa`); no separate Exa key. `you`/`perplexity`/`tavily`/`parallel`/`brave` work the same way.
 
-Writes **`report.md` + `report.svg` + `report.html`** to `RUN_DIR` — a ranked leaderboard, the full profile×task score matrix, and embeddable charts. That rendering is the general [`leaderboard`](../../docs/canonical-api.md) engine (`@tangle-network/agent-runtime/loops`), which turns any `runProfileMatrix` result into the same report for **any** benchmark in any domain.
+Writes **`report.md` + `report.svg` + `report.html`** to `RUN_DIR` — a ranked leaderboard, the full profile×task score matrix, and embeddable charts. That rendering is the general [`leaderboard`](../../docs/canonical-api.md) engine (`@tangle-network/agent-runtime/kernel`), which turns any `runProfileMatrix` result into the same report for **any** benchmark in any domain.
 
 ## The pieces
 

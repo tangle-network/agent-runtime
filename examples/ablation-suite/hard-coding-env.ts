@@ -32,7 +32,7 @@ import type {
   AgenticTool,
   ArtifactHandle,
   SurfaceScore,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 
 // ── Seed-derived dialect (the contract no model can recall) ──────────────────────
 /** The per-seed dialect of the calculator language. Every knob is read ONLY from the tests, so the agent

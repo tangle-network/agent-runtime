@@ -38,7 +38,7 @@ import {
   openSandboxRun,
   type SandboxClient,
   sumSandboxUsage,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { gradeOnHiddenCriteria, layerOutput, type RunArtifact, runChecks } from './eval'
 import { harnessOf, type ToolPreset, withTools } from './profiles'

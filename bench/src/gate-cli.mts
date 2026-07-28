@@ -15,7 +15,7 @@
  * single CLI run is the instrument, not the significance test).
  */
 
-import type { AgentProfile } from '@tangle-network/agent-runtime/loops'
+import type { AgentProfile } from '@tangle-network/agent-runtime/kernel'
 import { resolveAdapter } from './adapters'
 import { runGate } from './gate'
 

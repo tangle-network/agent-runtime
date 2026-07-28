@@ -13,7 +13,7 @@
  * Run it twice: the second run injects the first run's learnings into the workers.
  */
 import { createChatClient } from '@tangle-network/agent-eval'
-import { FileCorpus, observe, openSandboxRun, renderReport } from '@tangle-network/agent-runtime/loops'
+import { FileCorpus, observe, openSandboxRun, renderReport } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import { answerOutput, sandboxAgentRun, type WorkerBackendType } from './sandbox-run'
 

@@ -19,9 +19,9 @@
  *
  * For the coordination-MCP variant (a supervisor driving workers via `spawn_agent` over a served MCP),
  * see run-supervisor-mcp.ts. For a fully offline, no-creds wiring check:
- *   pnpm test tests/loops/coordination-driver.test.ts tests/supervisor-loop-example.test.ts
+ *   pnpm test tests/kernel/coordination-driver.test.ts tests/supervisor-loop-example.test.ts
  */
-import { supervise } from '@tangle-network/agent-runtime/loops'
+import { supervise } from '@tangle-network/agent-runtime/kernel'
 import { buildWorkerBackend, demoCheck, demoGoal, resolveSupervisorBrain } from './shared'
 
 async function main(): Promise<void> {

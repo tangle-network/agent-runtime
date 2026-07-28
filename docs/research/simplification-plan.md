@@ -87,7 +87,7 @@ The entries below preserve earlier decisions and rejected designs.
 |---|---|---|
 | `.` (main) | **KEEP, shrink** | core: AgentProfile + run/improve/gate + handleChatTurn. Hide conversation plumbing + journal types. |
 | `./runtime` (362 symbols) | **KEEP, SHRINK hard** | → ~100. Move seams/factories/recursion-plumbing to `./supervise/internal`. |
-| `./loops` | **KEEP/MERGE** | the strategy+benchmark surface (refine/sample/runBenchmark/gate). |
+| `./kernel` | **KEEP/MERGE** | the strategy+benchmark surface (refine/sample/runBenchmark/gate). |
 | `./mcp` (178) | **KEEP, shrink** | coordination + delegation tools; hide trace collectors + task-queue internals. |
 | `./agent` | **KEEP** | `defineAgent` / profile authoring. |
 | `./profiles` | **MERGE → ./agent** | one profile surface. |
@@ -155,7 +155,7 @@ The naming work converged on these calls. Each is settled — do not re-propose;
 
 1. **`AgentRunSpec` → `SandboxIterationSpec` — name DECIDED, rename DEFERRED.** The target name is right (it is the per-iteration sandbox spec, not a generic "agent run"), but the symbol is PUBLIC at `src/runtime/index.ts` with a ~28-file blast radius across the fleet. A rename needs a major bump + consumer migration PRs (the §9 non-goal: no public rename without that), so it is OUT of a usability PR. Ship the rename in its own breaking release with deprecation aliases one cycle.
 2. **`improvementDriver` KEEPS its internal name.** `improve()` is the public improvement verb; `improvementDriver` is the private code-surface implementation behind it. Profile fields use complete agent-eval methods and never receive this proposer.
-3. **`runLoop` KEEPS its name AND stays public.** It is a published `/loops` primitive (the round-synchronous leaf kernel the sandbox benches drive); internalizing or renaming it would break consumers for no taxonomy gain. The Scope/Supervisor core is the PREFERRED path for new recursive work, but `runLoop` is not deprecated.
+3. **`runLoop` KEEPS its name AND stays public.** It is a published `/kernel` primitive (the round-synchronous leaf kernel the sandbox benches drive); internalizing or renaming it would break consumers for no taxonomy gain. The Scope/Supervisor core is the PREFERRED path for new recursive work, but `runLoop` is not deprecated.
 4. **`runAgentic` and `runPersonified` BOTH stay.** They are distinct contracts (one-shot agentic run vs persona-driven cross-run combinator), not duplicates — a merge would conflate two real shapes. WS2's "one documented run path" is satisfied by `supervise()` as the one-call entry; the lower-level combinators remain for power use.
 5. **Superseded.** Every profile field now requires a complete method. Runtime supplies no zero-config prompt, skill, memory, or profile optimizer. Code requires explicit worktree configuration.
 

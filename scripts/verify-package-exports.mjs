@@ -42,7 +42,7 @@ try {
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
   assertPublishableDependencySpecs(packageJson)
   if (packageJson.peerDependenciesMeta?.['@tangle-network/agent-eval']?.optional) {
-    throw new Error('@tangle-network/agent-eval must stay required: root and ./loops import it at runtime')
+    throw new Error('@tangle-network/agent-eval must stay required: root and ./kernel import it at runtime')
   }
   const packageExports = packageJson.exports
   if (!packageExports || typeof packageExports !== 'object') {
@@ -54,7 +54,7 @@ try {
     './conversation',
     './durable',
     './intelligence',
-    './loops',
+    './kernel',
     './environment-provider',
     './analyst-loop',
     './knowledge',

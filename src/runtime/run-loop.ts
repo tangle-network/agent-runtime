@@ -401,7 +401,7 @@ export async function runAgentRounds<Task, Output, Decision>(
  *
  * @deprecated Use {@link runAgentRounds}. The clearer name says what it is: the
  * multi-agent fanout/vote/refine kernel over sandboxes, NOT the one-turn tool loop
- * (`runToolLoop` / `streamToolLoop`, package root entry). `runLoop` shipped on `/loops`
+ * (`runToolLoop` / `streamToolLoop`, package root entry). `runLoop` shipped on `/kernel`
  * next to `routerToolLoop`, which made the two read as variants of one thing. The alias
  * is removed in the next major.
  */

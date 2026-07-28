@@ -13,7 +13,7 @@
  * a recall-only answer; a valid-but-empty result returns an explicit "no results"
  * string the model can reason about.
  */
-import type { ToolSpec } from '@tangle-network/agent-runtime/loops'
+import type { ToolSpec } from '@tangle-network/agent-runtime/kernel'
 
 export const webSearchTool: ToolSpec = {
   type: 'function',

@@ -32,8 +32,8 @@ import {
   canonicalCandidateDigest,
   type AgentProfile,
 } from '@tangle-network/agent-interface'
-import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
+import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/kernel'
+import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'

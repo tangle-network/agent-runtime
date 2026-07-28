@@ -10,7 +10,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { adaptiveRefine, printBenchmarkReport, refine, runBenchmark, sample, type Strategy } from '@tangle-network/agent-runtime/loops'
+import { adaptiveRefine, printBenchmarkReport, refine, runBenchmark, sample, type Strategy } from '@tangle-network/agent-runtime/kernel'
 import { type Commit0Row, createCommit0Environment, rowToTask } from './commit0-env'
 
 function must(name: string): string {

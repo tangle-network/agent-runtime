@@ -5,7 +5,7 @@
 **Track:** reference · **Role:** canonical (terms). One definition per concept, grounded to `file:line`. When a term has drifted into synonyms, the **canonical** word is marked and the synonyms are listed as "avoid / say X instead". If code and this file disagree, the code wins — fix this file the same turn (the anti-staleness law, `CLAUDE.md`).
 
 Two substrates run the same "recursive agent decision" atom — the round-synchronous `runAgentRounds` and the reactive `Scope`/`Supervisor`. Terms below note which substrate they belong to; several are shared.
-`runAgentRounds` was named `runLoop`; that name is still exported from `/loops` as a deprecated alias. Neither is `runToolLoop`/`streamToolLoop` (package root), which run ONE chat turn and fold its tool calls back in.
+`runAgentRounds` was named `runLoop`; that name is still exported from `/kernel` as a deprecated alias. Neither is `runToolLoop`/`streamToolLoop` (package root), which run ONE chat turn and fold its tool calls back in.
 
 ## The execution units (most-confused — read first)
 
@@ -66,7 +66,7 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 | Term | Meaning | Anchor |
 |---|---|---|
 | **Agent.act** | The recursive atom: `act(task, scope) → Out`. A driver IS an `act` that spawns into its `scope`; replay-safe. The Supervisor calls `root.act(task, scope)`. | `supervise/types.ts:50`; `supervisor.ts:145` |
-| **Coordination toolbox ("Scope-as-MCP")** | The operator/driver verbs exposed as MCP tools over a live `Scope`: `spawn_agent`→`scope.spawn`, `await_event`→`scope.next` (the wake event), `steer_agent`→`scope.send` (chat/interrupt a running child), `observe_agent`→`scope.view`, `stop`, `list_analysts`/`run_analyst`. **Built + tested**, public on the `./mcp` subpath. This is how an LLM driver spawns and talks to its sub-agents. | `mcp/tools/coordination.ts`; tests `tests/loops/coordination.test.ts` |
+| **Coordination toolbox ("Scope-as-MCP")** | The operator/driver verbs exposed as MCP tools over a live `Scope`: `spawn_agent`→`scope.spawn`, `await_event`→`scope.next` (the wake event), `steer_agent`→`scope.send` (chat/interrupt a running child), `observe_agent`→`scope.view`, `stop`, `list_analysts`/`run_analyst`. **Built + tested**, public on the `./mcp` subpath. This is how an LLM driver spawns and talks to its sub-agents. | `mcp/tools/coordination.ts`; tests `tests/kernel/coordination.test.ts` |
 | **Scope.send / deliver** | The "steer a live worker" verb the toolbox's `steer_agent` binds to: `scope.send(nodeId, msg)` → child executor's `deliver()` inbox. **In-process binding is real**; the cross-box (A2A) binding is task #13. | `supervise/scope.ts:290` |
 | **Agent Bus / A2A** | The cross-process agent↔agent transport for the same verbs — **designed, not adopted**. The in-process toolbox works today; this is the unfinished edge. | task #13; `docs/agent-bus-protocol.md` |
 

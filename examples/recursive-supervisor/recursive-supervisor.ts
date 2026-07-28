@@ -28,7 +28,7 @@ import {
   runPersonified,
   type Scope,
   settledToIteration,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { leaf, scriptedPersonaRegistry } from './inline-executor'
 
 // ── 1. A driver Agent: spawn two children, drain, select the best valid ─────

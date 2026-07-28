@@ -66,7 +66,7 @@ evidence is worse than no gate.
 
 ## Going further
 
-`StrategyEvolutionConfig` in `@tangle-network/agent-runtime/loops` exposes more knobs this
+`StrategyEvolutionConfig` in `@tangle-network/agent-runtime/kernel` exposes more knobs this
 example leaves at defaults, including `objective: 'cost'` (promote a candidate that ties the
 score but is *cheaper*), a reference screen that drops already-solved tasks before the
 finalists run, an overfitting check that re-implements the champion from a summary and

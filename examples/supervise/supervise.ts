@@ -8,7 +8,7 @@
  *
  * Run:  TANGLE_API_KEY=<router key>  pnpm tsx examples/supervise/supervise.ts
  */
-import { type ExecutorConfig, supervise } from '@tangle-network/agent-runtime/loops'
+import { type ExecutorConfig, supervise } from '@tangle-network/agent-runtime/kernel'
 
 async function main(): Promise<void> {
   const routerBaseUrl = process.env.TANGLE_ROUTER_URL ?? 'https://router.tangle.tools/v1'

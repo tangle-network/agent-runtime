@@ -11,7 +11,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/loops'
+import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 
 type Task = { prompt: string }

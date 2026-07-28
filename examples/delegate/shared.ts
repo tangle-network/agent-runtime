@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import type { DeliverableSpec, ExecutorConfig } from '@tangle-network/agent-runtime/loops'
+import type { DeliverableSpec, ExecutorConfig } from '@tangle-network/agent-runtime/kernel'
 
 /** A fresh, isolated scratch dir + the relative/absolute target path the worker writes. */
 export function scratchTarget(): { workDir: string; target: string; targetAbs: string } {

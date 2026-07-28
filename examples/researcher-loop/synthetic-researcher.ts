@@ -12,7 +12,7 @@
  */
 
 import type { ResearchOutput, ResearchTask } from '@tangle-network/agent-knowledge/profiles'
-import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
+import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 
 export const namespace = 'example-tenant'

@@ -31,7 +31,7 @@ That file defines the scripted `worker`, `output`, and `validator` used below so
 Replace the scripted worker with a sandbox, CLI bridge, or router backend without changing the driver.
 
 ```ts
-import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/loops'
+import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/kernel'
 
 const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
   task: { prompt: 'Write a one-line release note for one-click restore.' },
@@ -113,7 +113,7 @@ For a repeated initial dispatch, reuse both `sessionId` and `turnId`; `execution
 One supervisor spawns and steers workers toward a goal. Where the workers run (an in-process loop, or a sandboxed coding harness) is one data value; the budget, journaling, and stopping are handled for you.
 
 ```ts
-import { supervise } from '@tangle-network/agent-runtime/loops'
+import { supervise } from '@tangle-network/agent-runtime/kernel'
 
 const result = await supervise(
   { name: 'supervisor', harness: null, systemPrompt: 'Delegate to workers; do not solve the task yourself.' },
@@ -434,11 +434,11 @@ The general-purpose pieces, by import path. Every export with its one-line summa
 
 | Primitive | What it does | Import |
 |---|---|---|
-| Chat-turn runtime | Stream and persist one production chat turn (`handleChatTurn`); derive its stable execution and turn identity (`deriveExecutionId`); normalize any backend's stream into one event shape (`streamAgentTurn`) | `/durable` · `/loops` |
-| Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/loops` · `/mcp` |
-| Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runAgentRounds`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/loops` |
+| Chat-turn runtime | Stream and persist one production chat turn (`handleChatTurn`); derive its stable execution and turn identity (`deriveExecutionId`); normalize any backend's stream into one event shape (`streamAgentTurn`) | `/durable` · `/kernel` |
+| Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/kernel` · `/mcp` |
+| Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runAgentRounds`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/kernel` |
 | Improvement driver | Optimize one part of an agent and ship only if it wins on tasks it never practiced on (`improve`); production proposal/review/activation flow | root · `/intelligence` |
-| Benchmarks + leaderboards | Compare strategies with significance stats (`runBenchmark`), stand up a harness×model leaderboard (`defineLeaderboard`, `leaderboard`) | `/loops` |
+| Benchmarks + leaderboards | Compare strategies with significance stats (`runBenchmark`), stand up a harness×model leaderboard (`defineLeaderboard`, `leaderboard`) | `/kernel` |
 | Knowledge improvement | Produce a measured candidate copy of a KB/wiki/RAG corpus without touching the live one (`runKnowledgeImprovementJob`) | `/knowledge` |
 | MCP tool servers | Give an agent a `delegate` tool or live worker-coordination tools over MCP | `/mcp` |
 | Conversations + durability | Multi-turn two-agent sessions with SQL-backed resume (D1/pg/sqlite/libSQL adapters) | `/conversation` |

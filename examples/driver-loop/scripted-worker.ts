@@ -19,7 +19,7 @@ import {
   type OutputAdapter,
   type SandboxClient,
   type Validator,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 
 // The task must draft a one-line release note that mentions the word "rollback". A real product

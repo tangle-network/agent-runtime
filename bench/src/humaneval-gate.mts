@@ -43,7 +43,7 @@
 
 import { composeStrategies } from './directives'
 import { basePrompt, type CheckResult, extractCode, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
-import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
+import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
 import { selfConsistencySelect, verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 

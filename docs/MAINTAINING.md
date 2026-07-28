@@ -24,8 +24,9 @@ turns them into a red build. The decision table's "do this, not that" is *judgme
 
 - Produced by `pnpm run docs:api` (TypeDoc + `typedoc-plugin-markdown`, config in
   `typedoc.json`). Entry points are the source files behind the public `package.json`
-  `exports` subpaths (the `./loops` alias of `./runtime` is intentionally not a second
-  entry — same source file).
+  `exports` subpaths. `./kernel` is the one subpath whose public name differs from its
+  source path (`src/runtime/index.ts`); `scripts/check-docs-freshness.mjs` resolves it
+  through a curated subpath→entryPoint map.
 - It reads **source** (`src/**`), not `dist/`. No build is required first.
 - It is **committed** to the repo so it is grep-able and PR-reviewable like the rest
   of `docs/`, and so the freshness gate can diff against it.
@@ -86,9 +87,10 @@ seven classes:
    §3 (not §5–§7 narrative prose), code-fences skipped, and lowercase method/field/option
    names + ALL-CAPS labels + generic params are not flagged — only a renamed, removed, or
    fabricated exported Type. This guards the bulk of the doc, not just the §2 table.
-5. **Exports-subpath coverage** — every `package.json` `exports` subpath (except the
-   `./loops`→`./runtime` alias) must have a matching `typedoc.json` entryPoint, so a new
-   public subpath can't ship undocumented (no api page, clean diff, symbols unguarded).
+5. **Exports-subpath coverage** — every `package.json` `exports` subpath must have a
+   matching `typedoc.json` entryPoint (name-derived, or via the curated map for `./kernel`),
+   so a new public subpath can't ship undocumented (no api page, clean diff, symbols
+   unguarded).
 6. **Prose-symbol resolution** — every backticked symbol in the **curated docs**
    (`canonical-api.md`, `concepts.md`, `architecture.md`), outside fenced code, must resolve
    to an export in `src/**` ∪ `bench/src/**` ∪ any `@tangle-network/*` substrate package

@@ -137,7 +137,7 @@ async function main(): Promise<void> {
   assert.equal(leakyPrompts[1]!.includes(leakyGold), false, 'retry prompt redacts hidden gold fields')
   assert.match(leakyPrompts[1]!, /publicHint/)
 
-  const runtime = await import('@tangle-network/agent-runtime/loops')
+  const runtime = await import('@tangle-network/agent-runtime/kernel')
   if (runtime.openSandboxRun.toString().includes('beforeStart')) {
     // The default shot path supports benchmark-owned box setup/extract without real sandbox infra.
     const order: string[] = []

@@ -9,7 +9,7 @@ export default defineConfig({
         replacement: resolve(__dirname, 'src/index.ts'),
       },
       {
-        find: /^@tangle-network\/agent-runtime\/loops$/,
+        find: /^@tangle-network\/agent-runtime\/kernel$/,
         replacement: resolve(__dirname, 'src/runtime/index.ts'),
       },
       {

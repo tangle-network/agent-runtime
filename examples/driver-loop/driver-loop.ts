@@ -36,7 +36,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/loops'
+import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/kernel'
 import {
   type NoteOutput,
   type NoteTask,

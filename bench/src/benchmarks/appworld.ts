@@ -22,7 +22,7 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { type OutputAdapter, routerToolLoop, type ToolSpec } from '@tangle-network/agent-runtime/loops'
+import { type OutputAdapter, routerToolLoop, type ToolSpec } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPython } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 

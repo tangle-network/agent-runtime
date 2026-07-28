@@ -12,7 +12,7 @@
  * The bridge model id IS the harness selector (e.g. `claude-code/sonnet`,
  * `opencode/zai-coding-plan/glm-5.1`), so `harness` here is just the label.
  */
-import { createExecutor } from '@tangle-network/agent-runtime/loops'
+import { createExecutor } from '@tangle-network/agent-runtime/kernel'
 import type { SearchArm } from './profiles'
 import { armLabel } from './profiles'
 import type { SearchCellResult } from './run.mts'

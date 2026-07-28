@@ -10,7 +10,7 @@
  * — the only difference is who drives the rounds (a flat best-of-k pool vs the real
  * `runLoop` kernel with analyst steering).
  */
-import { routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
+import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
 
 export interface ShotCfg {
   model: string

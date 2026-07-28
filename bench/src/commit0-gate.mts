@@ -57,7 +57,7 @@ import {
   type Deliverable,
   openSandboxRun,
   type SandboxRun,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'

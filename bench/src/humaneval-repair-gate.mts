@@ -20,7 +20,7 @@
  *     tsx src/humaneval-repair-gate.mts
  */
 import { type HumanEvalTask, basePrompt, extractCode, loadHumanEval, runChecker } from './benchmarks/humaneval'
-import { type RouterConfig, type ToolSpec, routerChatWithUsage, routerToolLoop } from '@tangle-network/agent-runtime/loops'
+import { type RouterConfig, type ToolSpec, routerChatWithUsage, routerToolLoop } from '@tangle-network/agent-runtime/kernel'
 import { verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 

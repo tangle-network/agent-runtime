@@ -74,7 +74,7 @@ Headline entrypoints: `runAgentTask`/`runAgentTaskStream` (`src/run.ts`), the mu
 
 ## Commands
 
-- `pnpm run lint` (Biome — **not** `npx biome`), `pnpm run build`, `pnpm test`, `pnpm run typecheck`. Tests live next to code and under `tests/`; the loops kernel is covered by `tests/loops/`.
+- `pnpm run lint` (Biome — **not** `npx biome`), `pnpm run build`, `pnpm test`, `pnpm run typecheck`. Tests live next to code and under `tests/`; the execution kernel is covered by `tests/kernel/`.
 - **Publish gotcha (Tangle obfuscate step):** never give a module-global `const` an UPPERCASE-prefixed name — the obfuscator (`--rename-globals false`) trips `pnpm pack`/verify-dist on a banned UPPERCASE pattern. (e.g. `SIDECAR_PERMISSION_KEYS` → `CANONICAL_PERMISSION_KEYS`.) Lowercase or rename module-globals.
 - Verify with the dedicated tools (Edit/Read errors if a change failed) — don't re-read files just to confirm an edit landed.
 

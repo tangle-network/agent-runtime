@@ -460,11 +460,22 @@ const typedocPath = join(repoRoot, 'typedoc.json')
 if (existsSync(typedocPath)) {
   const typedoc = JSON.parse(readFileSync(typedocPath, 'utf8'))
   const entryPoints = new Set(typedoc.entryPoints || [])
-  // The ./loops subpath is an intentional alias of ./runtime (same source file) — the
-  // doc and MAINTAINING.md both state this — so it correctly has no second entry point.
-  const aliasSubpaths = new Set(['./loops'])
+  // Subpaths whose public name differs from their source path resolve through this curated
+  // map instead of the name-derived candidates below.
+  const curatedEntryPoints = { './kernel': 'src/runtime/index.ts' }
   for (const [subpath, target] of Object.entries(pkg.exports || {})) {
-    if (subpath === '.' || aliasSubpaths.has(subpath)) continue
+    if (subpath === '.') continue
+    const curated = curatedEntryPoints[subpath]
+    if (curated) {
+      if (!entryPoints.has(curated)) {
+        report(
+          'SETUP',
+          0,
+          `package.json exports "${subpath}" maps to "${curated}", which is not a typedoc.json entryPoint — the subpath generates no api page and its symbols are unguarded; add it to typedoc.json entryPoints`,
+        )
+      }
+      continue
+    }
     // Resolve the subpath's source root from its dist "import"/"types" target. tsdown
     // flattens a directory barrel (`src/runtime/index.ts`) to a flat bundle
     // (`dist/runtime.js`), so a subpath's source is EITHER `src/<name>.ts` OR
