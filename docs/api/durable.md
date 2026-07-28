@@ -334,3 +334,11 @@ Wire integration:
 #### Returns
 
 `string`
+
+#### Throws
+
+`TypeError` when either string id is blank.
+
+#### Throws
+
+`RangeError` when `turnIndex` is invalid or the result exceeds 256 bytes.

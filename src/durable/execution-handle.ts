@@ -18,6 +18,9 @@
  * Wire integration:
  *   - Initial dispatch: pass the result as `executionId` and `turnId`.
  *   - Stream replay: pass it as `executionId` with `lastEventId`.
+ *
+ * @throws `TypeError` when either string id is blank.
+ * @throws `RangeError` when `turnIndex` is invalid or the result exceeds 256 bytes.
  */
 export function deriveExecutionId(input: {
   projectId: string
