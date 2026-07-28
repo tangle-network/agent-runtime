@@ -589,6 +589,78 @@ A missing start binary / spawn fault: a SETUP bug, never a failed candidate.
 
 `Error.constructor`
 
+***
+
+### FileCoordinationLog
+
+FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
+
+#### Implements
+
+- [`CoordinationLog`](#coordinationlog)
+
+#### Constructors
+
+##### Constructor
+
+> **new FileCoordinationLog**(`path`): [`FileCoordinationLog`](#filecoordinationlog)
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### Returns
+
+[`FileCoordinationLog`](#filecoordinationlog)
+
+#### Methods
+
+##### append()
+
+> **append**(`runId`, `event`, `at`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### runId
+
+`string`
+
+###### event
+
+[`CoordinationEvent`](#coordinationevent)
+
+###### at
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`CoordinationLog`](#coordinationlog).[`append`](#append-3)
+
+##### load()
+
+> **load**(`runId`): `Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+
+###### Parameters
+
+###### runId
+
+`string`
+
+###### Returns
+
+`Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+
+###### Implementation of
+
+[`CoordinationLog`](#coordinationlog).[`load`](#load)
+
 ## Interfaces
 
 ### AnalystRegistry
@@ -2930,7 +3002,7 @@ The analyst agent the combinator spawns over the trace. `harness` is the persona
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-12)
+> `readonly` **budget**: [`Budget`](#budget-13)
 
 The conserved budget reserved for one analyst spawn. The pool reserves against it and fails
  closed; an analyst that cannot be admitted is a fail-loud abort, never silent empty findings.
@@ -3176,7 +3248,7 @@ against them and fails closed, so an over-eager shape can never overspend.
 
 ##### perChild
 
-> `readonly` **perChild**: [`Budget`](#budget-12)
+> `readonly` **perChild**: [`Budget`](#budget-13)
 
 Per-child spawn budget the shape reserves for each leaf/sub-loop it opens.
 
@@ -3378,7 +3450,7 @@ A resolved shape factory OR a registered shape name.
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-12)
+> `readonly` **budget**: [`Budget`](#budget-13)
 
 ##### shapeBudget?
 
@@ -8158,7 +8230,7 @@ budget: refine→max shots; sample→rollout width.
 
 ##### rootBudget?
 
-> `optional` **rootBudget?**: [`Budget`](#budget-12)
+> `optional` **rootBudget?**: [`Budget`](#budget-13)
 
 ***
 
@@ -8763,7 +8835,7 @@ Where/how each worker runs the surface task.
 
 ##### budget?
 
-> `readonly` `optional` **budget?**: [`Budget`](#budget-12)
+> `readonly` `optional` **budget?**: [`Budget`](#budget-13)
 
 The conserved compute pool for the whole supervised run. Default: sized off the worker's inner-loop
  bounds for a handful of worker spawns — raise it to let the driver try more.
@@ -8994,7 +9066,7 @@ caller inspects `ok` before `ticket`.
 
 ###### b
 
-[`Budget`](#budget-12)
+[`Budget`](#budget-13)
 
 ###### Returns
 
@@ -9156,7 +9228,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-12)
+> `readonly` **perWorker**: [`Budget`](#budget-13)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -9301,6 +9373,105 @@ Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-bra
  off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
  with the factual settled-worker roster; override to supply your own.
 
+##### onEvent?
+
+> `readonly` `optional` **onEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
+
+Pass-through subscriber for every coordination bus event (settled / question / finding /
+ steer / answer) — what a durable caller hooks its coordination log onto. Omit = no observer.
+
+###### Parameters
+
+###### event
+
+[`CoordinationEvent`](#coordinationevent)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### priorCoordination?
+
+> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination-1)
+
+Questions + findings a durable coordination log replayed from a prior process of this run.
+ Questions seed the ledger (`list_questions`, blocking-stop policy); both feed the resume
+ brief. Omit = fresh (every run that is not a resume).
+
+##### finalizer?
+
+> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](#supervisorfinalizer)
+
+How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
+ highest-scoring DELIVERED child (the exact keep-best every existing caller had). Runs under
+ the delivered-only invariant (`runFinalizer`): whatever the finalizer, an undelivered or
+ invalid child's output stays unreachable.
+
+***
+
+### PriorCoordination
+
+What a prior process's coordination log replays into a resumed driver.
+
+#### Properties
+
+##### questions
+
+> `readonly` **questions**: readonly [`QuestionRecord`](mcp.md#questionrecord)[]
+
+Every question the prior process raised, with answer-status folded in, raise order.
+
+##### findings
+
+> `readonly` **findings**: readonly [`AnalystFindingEvent`](#analystfindingevent)[]
+
+Every analyst finding the prior process published, publish order.
+
+***
+
+### CoordinationLog
+
+The durable coordination side-log seam. `append` records one bus event (kinds it does not
+ persist are ignored); `load` replays a run's prior records folded into `PriorCoordination`.
+
+#### Methods
+
+##### append()
+
+> **append**(`runId`, `event`, `at`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### runId
+
+`string`
+
+###### event
+
+[`CoordinationEvent`](#coordinationevent)
+
+###### at
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### load()
+
+> **load**(`runId`): `Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+
+###### Parameters
+
+###### runId
+
+`string`
+
+###### Returns
+
+`Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+
 ***
 
 ### CoordinationMcpHandle
@@ -9385,13 +9556,13 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 ##### settled()
 
-> **settled**(): readonly `object`[]
+> **settled**(): readonly [`SettledWorker`](mcp.md#settledworker)[]
 
 The coordination tools' settled-worker ledger (for the driver's finalize).
 
 ###### Returns
 
-readonly `object`[]
+readonly [`SettledWorker`](mcp.md#settledworker)[]
 
 ##### isStopped()
 
@@ -9442,7 +9613,7 @@ WHERE the authored workers run — the worker-execution backend (`router-tools` 
 
 ##### budget?
 
-> `readonly` `optional` **budget?**: [`Budget`](#budget-12)
+> `readonly` `optional` **budget?**: [`Budget`](#budget-13)
 
 The conserved compute pool for the whole delegation. Defaults to [defaultDelegateBudget](#defaultdelegatebudget).
 
@@ -9856,6 +10027,93 @@ Throughput counters for observability dashboards.
 ###### Returns
 
 [`BusStats`](#busstats)
+
+***
+
+### FinalizerSettled
+
+One settled worker as the finalizer sees it — the ledger row (structural fields only).
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### status
+
+> `readonly` **status**: `"done"` \| `"down"`
+
+##### score?
+
+> `readonly` `optional` **score?**: `number`
+
+##### valid?
+
+> `readonly` `optional` **valid?**: `boolean`
+
+##### outRef?
+
+> `readonly` `optional` **outRef?**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+***
+
+### DeliveredOutput
+
+One DELIVERED child, materialized: settled `done`, oracle-passed, output rehydrated. `out` is
+ `undefined` only when the child settled without an `outRef` (no artifact to rehydrate).
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### score?
+
+> `readonly` `optional` **score?**: `number`
+
+##### outRef?
+
+> `readonly` `optional` **outRef?**: `string`
+
+##### out?
+
+> `readonly` `optional` **out?**: `unknown`
+
+***
+
+### FinalizeContext
+
+What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled`
+ and `tree` are metadata (record a disagreement, count the downs); `blobs` re-reads delivered
+ artifacts only; `budget` is the conserved-pool readout at finalize time.
+
+#### Properties
+
+##### delivered
+
+> `readonly` **delivered**: readonly [`DeliveredOutput`](#deliveredoutput)[]
+
+##### allSettled
+
+> `readonly` **allSettled**: readonly [`FinalizerSettled`](#finalizersettled)[]
+
+##### tree
+
+> `readonly` **tree**: [`TreeView`](#treeview)
+
+##### blobs
+
+> `readonly` **blobs**: `Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
+
+##### budget
+
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ***
 
@@ -10363,6 +10621,15 @@ The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
 Present (and `true`) only on a DURABLE context (`createFileRunContext`), so spreading the
 context into `SupervisorOpts` also opts the run into resume-first. An in-memory context
 leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
+
+##### coordinationLog?
+
+> `readonly` `optional` **coordinationLog?**: [`CoordinationLog`](#coordinationlog)
+
+Present only on a DURABLE context: the coordination side-log (questions + analyst findings —
+the bus messages the spawn journal does not record). `supervise({ runDir })` appends to it as
+they publish and replays it on resume, so a restarted coordinator keeps them. In-memory
+contexts have none: nothing outlives the process to replay into.
 
 ***
 
@@ -11155,6 +11422,26 @@ Highest `waiting` ordinal already journaled; new waits start at `+1`.
 Waits journaled as armed but never woken — re-armed (same node id, same absolute deadline)
  when `wait` is called again with the SAME label.
 
+###### keys
+
+> `readonly` **keys**: `ReadonlyMap`\<`string`, [`ResumedKeyState`](#resumedkeystate)\<`unknown`\>\>
+
+Keyed assignments from the prior journal — what a keyed re-spawn resolves against.
+
+###### priorSpend
+
+> `readonly` **priorSpend**: `object`
+
+Prior committed spend summed off the journal (settled child work + metered inference).
+
+###### priorSpend.childWork
+
+> `readonly` **childWork**: [`Spend`](#spend)
+
+###### priorSpend.driverInference
+
+> `readonly` **driverInference**: [`Spend`](#spend)
+
 ***
 
 ### ProgressSample
@@ -11463,7 +11750,7 @@ Idle time that counts as stalled, passed through to the live progress read. Omit
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-12)
+> `readonly` **budget**: [`Budget`](#budget-13)
 
 The conserved compute pool for the whole run.
 
@@ -11535,7 +11822,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](#budget-12)
+> `readonly` `optional` **perWorker?**: [`Budget`](#budget-13)
 
 Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
 
@@ -11592,18 +11879,19 @@ Worker output store. Defaults to in-memory.
 
 > `readonly` `optional` **runDir?**: `string`
 
-Make the run DURABLE: journal + result blobs are file-backed under this directory
-(`createFileRunContext`), fsynced per write, and the supervisor reads the prior tree first.
-Re-running with the same `runDir` AND the same `runId` resumes — the children that already
-settled are replayed onto `Scope.resume` with their real outputs, and the scope's counters
-continue past the journaled maxima. Unset = in-memory, fresh every call.
+Make the run DURABLE: journal + result blobs + the coordination side-log are file-backed under
+this directory (`createFileRunContext`), fsynced per write, and the supervisor reads the prior
+tree first. Re-running with the same `runDir` AND the same `runId` resumes, and the built-in
+driver is resume-AWARE out of the box: the children that already settled are replayed onto
+`Scope.resume` (and into the driver's settled ledger + its first context), keyed assignments
+(`spawn_agent`'s `key`) resolve to their committed results instead of re-running, pending
+waits re-arm on their original deadlines, prior questions/findings replay from the
+coordination log, and the finalize spans both processes' work. Unset = in-memory, fresh
+every call.
 
-What that does and does not buy you, precisely: the run's history survives the process and is
-replayable, and a resumed run never corrupts the tree. It does NOT by itself make the built-in
-supervisor brain skip committed work — `supervisorAgent`'s driver does not read
-`Scope.resume`, so out of the box a resumed run re-spawns children it already paid for. Only a
-root `Agent.act` that reads `scope.resume.settled` (as the durable-resume test's root does)
-turns durability into work-skipping. Wiring that into the default brain is separate work.
+The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
+the built-in executors cannot re-attach to a dead process's executions, so those assignments
+resume as explicitly lost/in-doubt and re-run (reported, never silent).
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -11691,6 +11979,16 @@ Restrict the run to this subset of models. When set, every configured model — 
  supervisor router model, the profile's model, and the backend's model — must be a member,
  or `supervise()` throws a `ConfigError` before any compute is spent. Unset = unrestricted.
 
+##### finalizer?
+
+> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](#supervisorfinalizer)
+
+How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
+ highest-scoring DELIVERED child (the exact behavior every existing caller had). Alternatives:
+ `collectDelivered` (every verified distinct output with provenance — a Pareto set / recorded
+ disagreement) or a custom `SupervisorFinalizer`. Whatever the finalizer, it operates on
+ structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible.
+
 ***
 
 ### SupervisorProfile
@@ -11740,7 +12038,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-12)
+> `readonly` **perWorker**: [`Budget`](#budget-13)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -11859,6 +12157,37 @@ One-shot notification of WHY a `stopRule` ended the run.
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
  distills its coordination transcript to a compact progress note once it exceeds the threshold,
  instead of re-billing the whole thing every turn. See `DriverAgentOptions.compaction`.
+
+##### onEvent?
+
+> `readonly` `optional` **onEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
+
+Pass-through subscriber for every coordination bus event (both arms) — the seam a durable
+ caller hooks its coordination log onto.
+
+###### Parameters
+
+###### event
+
+[`CoordinationEvent`](#coordinationevent)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### priorCoordination?
+
+> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination-1)
+
+Questions + findings replayed from a prior process of this run (a durable coordination log).
+ Router arm: seeds the question ledger + the resume brief. Sandbox arm: seeds the ledger.
+
+##### finalizer?
+
+> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](#supervisorfinalizer)
+
+How the settled ledger becomes the run's output (both arms). Default `bestDelivered` — the
+ exact keep-best every existing caller had. Always runs under the delivered-only invariant.
 
 ***
 
@@ -12442,7 +12771,7 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-12)
+> `readonly` **budget**: [`Budget`](#budget-13)
 
 ##### label
 
@@ -12457,6 +12786,19 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 > `readonly` `optional` **shutdown?**: `number` \| `"brutalKill"` \| `"infinity"`
 
 Teardown grace handed to the executor when this node is reaped.
+
+##### key?
+
+> `readonly` `optional` **key?**: `string`
+
+Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
+idempotent per key: once a child spawned under a key settles `done` — in this process or in a
+journaled prior one — spawning the same key returns that committed result (`prior.state:
+'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
+or was journaled as started-but-never-settled spawns FRESH but says so explicitly
+(`prior.state: 'retried' | 'lost'`), and a key that is currently LIVE is refused
+(`'duplicate-key'`) — the same assignment can never run twice concurrently. Unkeyed spawns
+(the default) are position-identified and always run.
 
 ***
 
@@ -12563,11 +12905,13 @@ Conserved-pool readouts (post-reservation).
 
 ##### spawn()
 
-> **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](#handle-2)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"` \| `"depth-exceeded"`; \}
+> **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](#handle-2)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); \}
 
 Spawn a child. Reserves `opts.budget` from the conserved pool atomically; refunds the
 unspent remainder on settle. Returns a typed outcome — fail-closed on an exhausted
-pool or an exceeded depth ceiling (the caller inspects `ok` before `handle`).
+pool, an exceeded depth ceiling, or a still-live duplicate `key` (the caller inspects
+`ok` before `handle`). A KEYED spawn whose key already settled `done` spends nothing:
+it returns the committed result on `prior` instead of re-running (see `SpawnOpts.key`).
 
 ###### Type Parameters
 
@@ -12591,7 +12935,7 @@ pool or an exceeded depth ceiling (the caller inspects `ok` before `handle`).
 
 ###### Returns
 
-\{ `ok`: `true`; `handle`: [`Handle`](#handle-2)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"` \| `"depth-exceeded"`; \}
+\{ `ok`: `true`; `handle`: [`Handle`](#handle-2)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); \}
 
 ##### next()
 
@@ -12790,6 +13134,65 @@ carries the ORIGINAL arm instant and absolute deadline, so re-arming the same `l
 `Scope.wait` resumes the countdown instead of restarting it. Empty on a fresh run and on a
 resumed run that was not waiting.
 
+##### keys
+
+> `readonly` **keys**: `ReadonlyMap`\<`string`, [`ResumedKeyState`](#resumedkeystate)\<`Out`\>\>
+
+Keyed assignments from the prior journal: `SpawnOpts.key` → what the journal proves about it.
+`completed`/`down` carry the rehydrated settlement; `in-doubt` means the spawn was journaled
+but no settlement ever landed — the process died with it in flight. `Scope.spawn` consults
+this so a keyed re-spawn resolves instead of duplicating (see `SpawnOpts.key`). Empty when no
+prior spawn carried a key.
+
+##### priorSpend
+
+> `readonly` **priorSpend**: `object`
+
+The conserved spend the prior process(es) already committed for this run, summed off the same
+journal replay reads: every `settled` child's reconciled spend (`childWork`) plus every
+`metered` driver-inference record (`driverInference`). What a resume-aware driver reports as
+"already paid" — the run's final `spentTotal` includes it because the journal spans processes.
+
+###### childWork
+
+> `readonly` **childWork**: [`Spend`](#spend)
+
+###### driverInference
+
+> `readonly` **driverInference**: [`Spend`](#spend)
+
+***
+
+### ResumedKeyState
+
+What the journal proves about one keyed assignment at resume time.
+
+#### Type Parameters
+
+##### Out
+
+`Out` = `unknown`
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### label
+
+> `readonly` **label**: `string`
+
+##### state
+
+> `readonly` **state**: `"completed"` \| `"down"` \| `"in-doubt"`
+
+##### settled?
+
+> `readonly` `optional` **settled?**: [`Settled`](#settled-3)\<`Out`\>
+
+The rehydrated settlement; absent exactly when `state` is `'in-doubt'`.
+
 ***
 
 ### NodeSnapshot
@@ -12818,7 +13221,7 @@ resumed run that was not waiting.
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-12)
+> `readonly` **budget**: [`Budget`](#budget-13)
 
 ##### spent
 
@@ -13028,7 +13431,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-12)
+> `readonly` **budget**: [`Budget`](#budget-13)
 
 The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
@@ -16476,6 +16879,24 @@ Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the or
 
 ***
 
+### SupervisorFinalizer
+
+> **SupervisorFinalizer** = (`ctx`) => `Promise`\<`unknown` \| `undefined`\> \| `unknown` \| `undefined`
+
+The finalization seam: ledger in, output (or `undefined` = nothing deliverable) out.
+
+#### Parameters
+
+##### ctx
+
+[`FinalizeContext`](#finalizecontext)
+
+#### Returns
+
+`Promise`\<`unknown` \| `undefined`\> \| `unknown` \| `undefined`
+
+***
+
 ### RunContext
 
 > **RunContext** = [`InMemoryRunContext`](#inmemoryruncontext)
@@ -16635,6 +17056,36 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ***
 
+### SpawnRejection
+
+> **SpawnRejection** = `"budget-exhausted"` \| `"depth-exceeded"` \| `"duplicate-key"`
+
+Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, or a `key`
+ that is still LIVE in this scope (the same assignment may not run twice concurrently).
+
+***
+
+### SpawnPrior
+
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-3)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-1); `reason`: `string`; \} \| \{ `state`: `"lost"`; `priorId`: [`NodeId`](#nodeid-1); \}
+
+What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
+every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
+references the prior settled node and `settled` is the committed result. `'retried'` /
+`'lost'` DID spawn fresh: the prior attempt settled `down` (retried) or was journaled as
+started but never settled — the process died with it in flight and the built-in executors
+cannot re-attach to a dead process's work, so the result is explicitly in doubt (lost), never
+silently duplicated. An executor that CAN re-attach to a still-running external execution (a
+live sandbox box) extends this union with an adoption state; none of the built-ins can today.
+
+#### Type Parameters
+
+##### Out
+
+`Out` = `unknown`
+
+***
+
 ### Settled
 
 > **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `seq`: `number`; \}
@@ -16691,7 +17142,7 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `budget`: [`Budget`](#budget-12); `runtime`: [`Runtime`](#runtime-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-1); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `infra?`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-1); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-1); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-1); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `key?`: `string`; `budget`: [`Budget`](#budget-13); `runtime`: [`Runtime`](#runtime-3); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-1); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `infra?`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-1); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-1); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-1); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -16700,7 +17151,46 @@ Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `budget`: [`Budget`](#budget-12); `runtime`: [`Runtime`](#runtime-3); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-1); `parent?`: [`NodeId`](#nodeid-1); `label`: `string`; `key?`: `string`; `budget`: [`Budget`](#budget-13); `runtime`: [`Runtime`](#runtime-3); `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"spawned"`
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-1)
+
+###### parent?
+
+> `optional` **parent?**: [`NodeId`](#nodeid-1)
+
+###### label
+
+> **label**: `string`
+
+###### key?
+
+> `optional` **key?**: `string`
+
+The semantic spawn key (`SpawnOpts.key`), when the spawn carried one — what a resumed
+ run matches to resolve the same assignment to its committed result.
+
+###### budget
+
+> **budget**: [`Budget`](#budget-13)
+
+###### runtime
+
+> **runtime**: [`Runtime`](#runtime-3)
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
 
 ***
 
@@ -17349,11 +17839,33 @@ Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minim
 
 ### defaultDelegateBudget
 
-> `const` **defaultDelegateBudget**: [`Budget`](#budget-12)
+> `const` **defaultDelegateBudget**: [`Budget`](#budget-13)
 
 The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`.
  A modest token ceiling + a small iteration ceiling — generous enough for a few-worker decompose,
  bounded enough that an unsupervised intent cannot run away. Callers override via `opts.budget`.
+
+***
+
+### bestDelivered
+
+> `const` **bestDelivered**: [`SupervisorFinalizer`](#supervisorfinalizer)
+
+Keep-best under the completion oracle — the DEFAULT finalizer and the exact behavior every
+ existing caller had: the highest-scoring delivered child's output, `undefined` when nothing
+ delivered (or the best delivered child carries no artifact).
+
+***
+
+### collectDelivered
+
+> `const` **collectDelivered**: [`SupervisorFinalizer`](#supervisorfinalizer)
+
+Every verified distinct output, highest score first — the shape for competing hypotheses, a
+Pareto front, or a recorded evaluator split (three judges 2:1 → both outputs survive, with
+provenance, instead of the minority report being erased). Distinct by `outRef` (content
+address), so identical outputs collapse to one entry. `undefined` when nothing delivered —
+an empty collection is a no-winner, not a winner wrapping `[]`.
 
 ***
 
@@ -20389,7 +20901,7 @@ readout's `deadlineMs` is a stable wall-clock instant, not a shrinking remainder
 
 ##### root
 
-[`Budget`](#budget-12)
+[`Budget`](#budget-13)
 
 ##### now?
 
@@ -20460,7 +20972,8 @@ Keep-best finalize under the completion-oracle: return the highest-scoring DELIV
  child delivered — an honest "the driver produced nothing", never a high-scoring result that
  ran without passing its check (Foreman's 0/18 lesson). `valid` is the single delivery signal,
  matching `defaultSelectWinner`'s valid-first rule; the oracle just doesn't fall back to an
- unchecked best-effort.
+ unchecked best-effort. The same argmax as the `bestDelivered` finalizer (`pickBestDelivered`);
+ this direct form serves callers that hold a bare ledger + blob store.
 
 #### Parameters
 
@@ -20503,7 +21016,7 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 
 ###### perWorker
 
-[`Budget`](#budget-12)
+[`Budget`](#budget-13)
 
 ###### maxLiveWorkers?
 
@@ -20561,6 +21074,12 @@ Pass-through subscriber for every bus event (settled / question / finding).
 ###### questionPolicy?
 
 [`QuestionPolicy`](mcp.md#questionpolicy)
+
+###### priorQuestions?
+
+readonly [`QuestionRecord`](mcp.md#questionrecord)[]
+
+Questions replayed from a prior process of this run — seeds the question ledger.
 
 #### Returns
 
@@ -20747,7 +21266,7 @@ readonly `object`[]
 
 ##### budget
 
-[`Budget`](#budget-12)
+[`Budget`](#budget-13)
 
 #### Returns
 
@@ -20776,6 +21295,94 @@ Create the child→parent coordination bus: one typed pipe for settled outputs, 
 #### Returns
 
 [`EventBus`](#eventbus)\<`E`\>
+
+***
+
+### runTree()
+
+> **runTree**(`scope`): [`TreeView`](#treeview)
+
+The tree that describes the WHOLE run: this process's live nodes plus, on a resumed run, the
+committed nodes of the prior process(es). Node ids are assigned by the journal and unique across
+processes, so the union needs no reconciliation. `inFlight`/`waiting` stay the LIVE counts — a
+prior process's in-flight node died with it and is not in flight now.
+
+Without this, a resumed run reports spend for work whose nodes are missing from its own tree.
+On a run that never resumed there is nothing to merge and the live view is returned unchanged.
+
+#### Parameters
+
+##### scope
+
+`Pick`\<[`Scope`](#scope-1)\<`unknown`\>, `"view"` \| `"resume"`\>
+
+#### Returns
+
+[`TreeView`](#treeview)
+
+***
+
+### pickBestDelivered()
+
+> **pickBestDelivered**\<`T`\>(`delivered`): `T` \| `undefined`
+
+The single argmax both the default finalizer and `finalizeBestDelivered` share: highest
+ score wins, missing scores count 0, ties keep the earliest ledger entry.
+
+#### Type Parameters
+
+##### T
+
+`T` *extends* `object`
+
+#### Parameters
+
+##### delivered
+
+readonly `T`[]
+
+#### Returns
+
+`T` \| `undefined`
+
+***
+
+### runFinalizer()
+
+> **runFinalizer**(`finalizer`, `args`): `Promise`\<`unknown`\>
+
+Run a finalizer over a settled-worker ledger under the delivered-only invariant: filter the
+ledger to structurally delivered children, materialize their outputs, and hand the finalizer a
+blob reader that throws on any ref outside that set. This is the one call site both driver arms
+(the in-process tool-loop and the MCP-mounted harness) finalize through.
+
+#### Parameters
+
+##### finalizer
+
+[`SupervisorFinalizer`](#supervisorfinalizer)
+
+##### args
+
+###### settled
+
+readonly [`FinalizerSettled`](#finalizersettled)[]
+
+###### blobs
+
+[`ResultBlobStore`](#resultblobstore)
+
+###### tree
+
+[`TreeView`](#treeview)
+
+###### budget
+
+`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+
+#### Returns
+
+`Promise`\<`unknown`\>
 
 ***
 
@@ -20915,8 +21522,9 @@ per append/write) under `dir`, and the context carries `resume: true` so spreadi
 resumes when it is re-run with the SAME `runId` and the SAME `dir`: the committed children come
 back on `Scope.resume` (rehydrated by `replaySpawnTree`) instead of being re-executed.
 
-Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event) and `${dir}/blobs/` (one
-content-addressed JSON file per settled result). The directory is created on first write.
+Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event), `${dir}/blobs/` (one
+content-addressed JSON file per settled result), and `${dir}/coordination-log.jsonl` (questions
++ findings, replayed into a resumed driver). The directory is created on first write.
 
 Opt-in by construction — `createInMemoryRunContext()` is unchanged and stays the default, so no
 existing consumer writes to disk or resumes unless it asks for this.

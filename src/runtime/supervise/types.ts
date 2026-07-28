@@ -284,7 +284,37 @@ export interface SpawnOpts {
   readonly restart?: Restart
   /** Teardown grace handed to the executor when this node is reaped. */
   readonly shutdown?: number | 'brutalKill' | 'infinity'
+  /**
+   * Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
+   * idempotent per key: once a child spawned under a key settles `done` — in this process or in a
+   * journaled prior one — spawning the same key returns that committed result (`prior.state:
+   * 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
+   * or was journaled as started-but-never-settled spawns FRESH but says so explicitly
+   * (`prior.state: 'retried' | 'lost'`), and a key that is currently LIVE is refused
+   * (`'duplicate-key'`) — the same assignment can never run twice concurrently. Unkeyed spawns
+   * (the default) are position-identified and always run.
+   */
+  readonly key?: string
 }
+
+/** Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, or a `key`
+ *  that is still LIVE in this scope (the same assignment may not run twice concurrently). */
+export type SpawnRejection = 'budget-exhausted' | 'depth-exceeded' | 'duplicate-key'
+
+/**
+ * What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
+ * every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
+ * references the prior settled node and `settled` is the committed result. `'retried'` /
+ * `'lost'` DID spawn fresh: the prior attempt settled `down` (retried) or was journaled as
+ * started but never settled — the process died with it in flight and the built-in executors
+ * cannot re-attach to a dead process's work, so the result is explicitly in doubt (lost), never
+ * silently duplicated. An executor that CAN re-attach to a still-running external execution (a
+ * live sandbox box) extends this union with an adoption state; none of the built-ins can today.
+ */
+export type SpawnPrior<Out = unknown> =
+  | { readonly state: 'completed'; readonly settled: Settled<Out> & { kind: 'done' } }
+  | { readonly state: 'retried'; readonly priorId: NodeId; readonly reason: string }
+  | { readonly state: 'lost'; readonly priorId: NodeId }
 
 /**
  * A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into
@@ -338,13 +368,15 @@ export interface Scope<Out> {
   /**
    * Spawn a child. Reserves `opts.budget` from the conserved pool atomically; refunds the
    * unspent remainder on settle. Returns a typed outcome — fail-closed on an exhausted
-   * pool or an exceeded depth ceiling (the caller inspects `ok` before `handle`).
+   * pool, an exceeded depth ceiling, or a still-live duplicate `key` (the caller inspects
+   * `ok` before `handle`). A KEYED spawn whose key already settled `done` spends nothing:
+   * it returns the committed result on `prior` instead of re-running (see `SpawnOpts.key`).
    */
   spawn<C extends Out>(
     agent: Agent<unknown, C>,
     task: unknown,
     opts: SpawnOpts,
-  ): { ok: true; handle: Handle<C> } | { ok: false; reason: 'budget-exhausted' | 'depth-exceeded' }
+  ): { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> } | { ok: false; reason: SpawnRejection }
   /** ray.wait n=1 over this scope's in-memory live set; resolves as each child settles;
    *  `null` when the live set is empty. */
   next(): Promise<Settled<Out> | null>
@@ -459,6 +491,30 @@ export interface ResumedWork<Out> {
    * resumed run that was not waiting.
    */
   readonly waits: ReadonlyArray<PendingWait>
+  /**
+   * Keyed assignments from the prior journal: `SpawnOpts.key` → what the journal proves about it.
+   * `completed`/`down` carry the rehydrated settlement; `in-doubt` means the spawn was journaled
+   * but no settlement ever landed — the process died with it in flight. `Scope.spawn` consults
+   * this so a keyed re-spawn resolves instead of duplicating (see `SpawnOpts.key`). Empty when no
+   * prior spawn carried a key.
+   */
+  readonly keys: ReadonlyMap<string, ResumedKeyState<Out>>
+  /**
+   * The conserved spend the prior process(es) already committed for this run, summed off the same
+   * journal replay reads: every `settled` child's reconciled spend (`childWork`) plus every
+   * `metered` driver-inference record (`driverInference`). What a resume-aware driver reports as
+   * "already paid" — the run's final `spentTotal` includes it because the journal spans processes.
+   */
+  readonly priorSpend: { readonly childWork: Spend; readonly driverInference: Spend }
+}
+
+/** What the journal proves about one keyed assignment at resume time. */
+export interface ResumedKeyState<Out = unknown> {
+  readonly id: NodeId
+  readonly label: string
+  readonly state: 'completed' | 'down' | 'in-doubt'
+  /** The rehydrated settlement; absent exactly when `state` is `'in-doubt'`. */
+  readonly settled?: Settled<Out>
 }
 
 // ── Observability view (read off the in-memory nursery) ────────────────────────
@@ -498,6 +554,9 @@ export type SpawnEvent =
       id: NodeId
       parent?: NodeId
       label: string
+      /** The semantic spawn key (`SpawnOpts.key`), when the spawn carried one — what a resumed
+       *  run matches to resolve the same assignment to its committed result. */
+      key?: string
       budget: Budget
       runtime: Runtime
       seq: number

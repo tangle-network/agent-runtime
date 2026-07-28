@@ -30,6 +30,7 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../../durable/spawn-journal'
+import { type CoordinationLog, FileCoordinationLog } from './coordination-log'
 import { withDriverExecutor } from './driver-executor'
 import { createExecutorRegistry } from './runtime'
 import type { ExecutorRegistry, ResultBlobStore, SpawnJournal } from './types'
@@ -59,6 +60,13 @@ export interface InMemoryRunContext {
    * leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
    */
   readonly resume?: boolean
+  /**
+   * Present only on a DURABLE context: the coordination side-log (questions + analyst findings —
+   * the bus messages the spawn journal does not record). `supervise({ runDir })` appends to it as
+   * they publish and replays it on resume, so a restarted coordinator keeps them. In-memory
+   * contexts have none: nothing outlives the process to replay into.
+   */
+  readonly coordinationLog?: CoordinationLog
 }
 
 /** The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the
@@ -85,8 +93,9 @@ export function createInMemoryRunContext(opts: InMemoryRunContextOptions = {}): 
  * resumes when it is re-run with the SAME `runId` and the SAME `dir`: the committed children come
  * back on `Scope.resume` (rehydrated by `replaySpawnTree`) instead of being re-executed.
  *
- * Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event) and `${dir}/blobs/` (one
- * content-addressed JSON file per settled result). The directory is created on first write.
+ * Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event), `${dir}/blobs/` (one
+ * content-addressed JSON file per settled result), and `${dir}/coordination-log.jsonl` (questions
+ * + findings, replayed into a resumed driver). The directory is created on first write.
  *
  * Opt-in by construction — `createInMemoryRunContext()` is unchanged and stays the default, so no
  * existing consumer writes to disk or resumes unless it asks for this.
@@ -101,5 +110,6 @@ export function createFileRunContext(
     blobs: new FileResultBlobStore(`${dir}/blobs`),
     executors: opts.withDriver ? withDriverExecutor(base) : base,
     resume: true,
+    coordinationLog: new FileCoordinationLog(`${dir}/coordination-log.jsonl`),
   }
 }

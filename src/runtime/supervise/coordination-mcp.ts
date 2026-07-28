@@ -29,6 +29,8 @@ import {
   DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   type MakeWorkerAgent,
   type QuestionPolicy,
+  type QuestionRecord,
+  type SettledWorker,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { Budget, ResultBlobStore, Scope } from './types'
@@ -38,7 +40,7 @@ export interface CoordinationMcpHandle {
   readonly url: string
   readonly port: number
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
-  settled(): ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>
+  settled(): ReadonlyArray<SettledWorker>
   /** Post-loop drain of already-settled, unpulled children into the ledger — call before reading
    *  `settled()` for a finalize, so a delivered child the harness never awaited is not lost. */
   drainResolved: CoordinationTools['drainResolved']
@@ -79,6 +81,8 @@ export async function serveCoordinationMcp(opts: {
   /** Pass-through subscriber for every bus event (settled / question / finding). */
   onEvent?: (event: CoordinationEvent) => void | Promise<void>
   questionPolicy?: QuestionPolicy
+  /** Questions replayed from a prior process of this run — seeds the question ledger. */
+  priorQuestions?: ReadonlyArray<QuestionRecord>
 }): Promise<CoordinationMcpHandle> {
   const coord = createCoordinationTools({
     scope: opts.scope,
@@ -93,6 +97,7 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
     ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
     ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
+    ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
   })
   const mcp = createMcpServer({ extraTools: coord.tools, serverName: 'coordination' })
   const host = opts.host ?? '127.0.0.1'

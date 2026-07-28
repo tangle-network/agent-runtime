@@ -4071,7 +4071,7 @@ Epoch ms the ledger recorded this settlement — the resolution a progress-based
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-12)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-13)
 
 ##### analysts?
 
@@ -4150,6 +4150,15 @@ Omit = no online watching (the settle-time analysts are unaffected).
 How long a worker may go without metered activity before `observe_agent` reports it as
 `stalled`. A derived read at observation time, never a background watchdog — nothing is
 killed or retried. Omit = the runtime default.
+
+##### priorQuestions?
+
+> `readonly` `optional` **priorQuestions?**: readonly [`QuestionRecord`](#questionrecord)[]
+
+Questions carried over from a prior process of the SAME run (a durable coordination log a
+resuming caller replays). Seeded into the question ledger verbatim — `list_questions` shows
+them, the stop policy counts the still-blocking ones, and `answer_question` can decide them.
+Omit/empty = fresh ledger (every run that is not a resume).
 
 ***
 
