@@ -1,14 +1,14 @@
 /**
  * Turn-lifecycle helpers for `@tangle-network/agent-runtime`.
  *
- * Execution state — long-running execution, reconnect, replay, dedup —
- * lives in the substrate (`@tangle-network/sandbox` + orchestrator).
+ * Long-running execution, reconnect, replay, and duplicate-dispatch
+ * protection live in `@tangle-network/sandbox` and its orchestrator.
  * agent-runtime owns:
  *
- *   - `handleChatTurn` — framework-neutral turn lifecycle: NDJSON framing,
+ *   - `handleChatTurn`: framework-neutral turn lifecycle with NDJSON framing,
  *     `session.run.*` envelope, persist / post-process / trace-flush
  *     hook ordering.
- *   - `deriveExecutionId` — convention helper for the stable id products
+ *   - `deriveExecutionId`: convention helper for the stable id products
  *     persist and pass as both execution and turn identity on dispatch.
  */
 

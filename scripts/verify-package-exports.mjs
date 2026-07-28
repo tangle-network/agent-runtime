@@ -327,9 +327,11 @@ try {
       '--input-type=module',
       '--eval',
       `
+        const root = await import('@tangle-network/agent-runtime')
         const durable = await import('@tangle-network/agent-runtime/durable')
         for (const name of ['handleChatTurn', 'deriveExecutionId']) {
           if (typeof durable[name] !== 'function') throw new Error('missing durable export ' + name)
+          if (name in root) throw new Error('durable export leaked through broad package root: ' + name)
         }
         if (
           durable.deriveExecutionId({
@@ -339,6 +341,15 @@ try {
           }) !== 'packed-consumer:thread-1:0'
         ) {
           throw new Error('packed durable execution id drift')
+        }
+        if (
+          durable.deriveExecutionId({
+            projectId: 'packed:consumer',
+            sessionId: 'thread:1',
+            turnIndex: 0,
+          }) !== 'packed%3Aconsumer:thread%3A1:0'
+        ) {
+          throw new Error('packed durable execution id is not collision-safe')
         }
       `,
     ],
