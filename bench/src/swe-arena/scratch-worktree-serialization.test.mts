@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -39,25 +39,22 @@ import {
 } from './scratch-worktree.ts'
 
 describe('scratch worktree mutation serialization', () => {
-  const destinations: string[] = []
+  const roots: string[] = []
 
   afterEach(async () => {
     gitCalls.activeByRepository.clear()
     gitCalls.maximumByRepository.clear()
     gitCalls.active = 0
     gitCalls.maximum = 0
-    await Promise.all(
-      destinations.splice(0).map((destination) =>
-        rm(destination, { recursive: true, force: true }),
-      ),
-    )
+    await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
   })
 
   it('serializes metadata changes per repository without blocking separate repositories', async () => {
+    const output = await mkdtemp(join(tmpdir(), 'scratch-worktree-serialization-'))
+    roots.push(output)
     const operations = ['repository-a', 'repository-b'].flatMap((repository) =>
       Array.from({ length: 4 }, (_, index) => {
-        const destination = join(tmpdir(), `${repository}-candidate-${index}`)
-        destinations.push(destination)
+        const destination = join(output, `${repository}-candidate-${index}`)
         return [
           createDetachedWorktree(repository, 'commit', destination),
           removeDetachedWorktree(repository, destination),
