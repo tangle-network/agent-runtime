@@ -157,6 +157,10 @@ describe('exact process candidate experiment executor', () => {
     )
     rmSync(join(hashRoot, 'knowledge'), { recursive: true })
     const candidate = redigestCandidateBundle(baseline, {
+      profile: {
+        ...baseline.profile,
+        prompt: { ...baseline.profile.prompt, systemPrompt: 'Candidate prompt.' },
+      },
       knowledge: {
         candidate: {
           kind: 'knowledge-improvement-candidate',
@@ -259,6 +263,7 @@ describe('exact process candidate experiment executor', () => {
     expect(spawnOperation?.signal).toBeInstanceOf(AbortSignal)
     expect(launch).toMatchObject({
       executable: 'codex',
+      args: ['-c', 'developer_instructions="Candidate prompt."'],
       cwd: '/workspace/task',
       stdin: fixture.task.task.instruction,
       timeoutMs: 0,

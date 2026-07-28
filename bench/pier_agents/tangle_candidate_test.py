@@ -850,6 +850,28 @@ class WorkspaceBoundaryTest(unittest.TestCase):
 
 
 class CandidateContractTest(unittest.TestCase):
+    def test_preserves_native_system_prompt_args_separate_from_task_instruction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            native_prompt = 'developer_instructions="Candidate prompt."'
+            fixture["plan"]["launch"]["args"].extend(
+                [
+                    {"kind": "public", "value": "-c"},
+                    {"kind": "public", "value": native_prompt},
+                ]
+            )
+            _rewrite_signed_plan(fixture)
+
+            loaded = contract_module.load_prepared_candidate_contract(
+                fixture["plan_path"],
+                fixture["receipt_path"],
+                fixture["receipt_digest"],
+            )
+
+            self.assertEqual(loaded.args[-2:], ("-c", native_prompt))
+            self.assertEqual(loaded.instruction.delivery_kind, "argv-append")
+            self.assertNotIn(fixture["task"]["instruction"], loaded.args)
+
     def test_loads_exact_runtime_artifacts_and_rejects_plan_substitution(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = _fixture(Path(directory))
