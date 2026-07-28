@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.107.4` and `@tangle-network/agent-eval@0.133.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.107.4` and `@tangle-network/agent-eval@0.133.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1327,7 +1327,7 @@ Import from `@tangle-network/agent-eval` — 10 exports.
 
 ### STATISTICS — significance, intervals, effect size
 
-Import from `@tangle-network/agent-eval` — 52 exports.
+Import from `@tangle-network/agent-eval` — 53 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1335,19 +1335,20 @@ Import from `@tangle-network/agent-eval` — 52 exports.
 | `bonferroni` | function | Bonferroni adjustment: multiply every p-value by the test count, clamp at 1. |
 | `cliffsDelta` | function | Cliff's delta — a non-parametric effect size for two independent samples. |
 | `cohensD` | function | Cohen's d — standardized effect size for two independent groups. |
-| `confidenceInterval` | function | Bootstrap confidence interval |
+| `confidenceInterval` | function | Percentile bootstrap confidence interval on the mean of `scores`. |
 | `corpusInterRaterAgreement` | function | Corpus-wide inter-rater agreement across N items × M judges × D dimensions. |
 | `corpusInterRaterAgreementFromJudgeScores` | function | Convenience adapter for `JudgeScore[]` data keyed externally by item. |
 | `eProcess` | function | Betting test-martingale for bounded observations — the e-process core of |
 | `interpretCliffs` | function | Map a Cliff's delta to a qualitative magnitude using the standard |
-| `interRaterReliability` | function | Inter-rater reliability — simplified Krippendorff's alpha. |
-| `mannWhitneyU` | function | Mann-Whitney U test for comparing two independent groups. |
+| `interRaterReliability` | function | Inter-rater reliability — Krippendorff's α under the squared-difference |
+| `mannWhitneyU` | function | Mann-Whitney U — two independent samples, no distributional assumption. |
 | `mcnemar` | function | McNemar's test for paired binary outcomes — the correct significance test for |
 | `mcnemarPower` | function | Power of a McNemar test at a given number of paired observations, the inverse |
 | `mcnemarRequiredN` | function | Number of paired observations needed for a McNemar test to reach a target |
 | `mulberry32` | function | Tiny seedable PRNG (mulberry32) — deterministic resampling/shuffling, not |
 | `pairedBootstrap` | function | Paired bootstrap on (after − before) deltas. Returns a CI on the chosen |
 | `pairedCohensDz` | function | Cohen's dz for paired observations: mean(after - before) divided by the |
+| `pairedDeltaTest` | function | Tests whether a paired candidate-minus-baseline delta clears a threshold. |
 | `pairedEvalueSequence` | function | Run the paired e-value sequence over an in-order delta stream. |
 | `pairedMde` | function | Minimum detectable paired effect (standardised units) for a target paired |
 | `pairedRiskDifference` | function | Paired risk difference (the effect-size companion to {@link mcnemar}): the |
@@ -1361,7 +1362,7 @@ Import from `@tangle-network/agent-eval` — 52 exports.
 | `spearmanR` | function | Spearman's rank correlation ρ — Pearson over the average-rank-with-ties |
 | `weightedComposite` | function | Weighted composite over judge dimensions: `Σ(score_d · w_d) / Σ(w_d)` across |
 | `weightedMean` | function | Weighted mean — falls back to uniform weights when omitted |
-| `wilcoxonSignedRank` | function | Wilcoxon signed-rank test — paired non-parametric alternative. |
+| `wilcoxonSignedRank` | function | Wilcoxon signed-rank — paired, no distributional assumption on the deltas. |
 | `wilson` | function | Wilson score interval for a binomial proportion. Correct at small n and near |
 | `normalizeScores` | const | Identity: dimensions already follow "higher = better" by prompt convention |
 | `McNemarResult` | interface | Result of a McNemar paired-binary significance test. |

@@ -11,6 +11,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BenchmarkReport } from '../../src/runtime/run-benchmark'
 import type { AgenticSurface, AgenticTask } from '../../src/runtime/strategy'
@@ -360,6 +361,7 @@ describe('band-aware scoring', () => {
   it('holdout band screening keeps only headroom tasks; estimand recorded', async () => {
     stubWorkerRouter()
     const { chat } = scriptedChat([fenced(twoShotDepthModule)])
+    const minimumPairedTasks = minimumPairsForPairedDeltaTest(0.95)
     const mixed = (offset: number, n: number): Promise<AgenticTask[]> =>
       Promise.resolve(
         Array.from({ length: n }, (_, i) => {
@@ -375,19 +377,19 @@ describe('band-aware scoring', () => {
       environment: difficultySurface(),
       tasks: mixed,
       trainN: 6,
-      holdoutN: 4,
+      holdoutN: minimumPairedTasks,
       worker,
       author: { chat },
       budget: 3,
       generations: 1,
       populationSize: 1,
       baselines: [sample],
-      band: { holdoutPoolN: 10 },
-      minPairedTasks: 4,
+      band: { holdoutPoolN: minimumPairedTasks * 2 },
+      minPairedTasks: minimumPairedTasks,
       outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
     })
-    expect(report.band?.screened).toBe(10)
-    expect(report.band?.inBand).toBe(5)
+    expect(report.band?.screened).toBe(minimumPairedTasks * 2)
+    expect(report.band?.inBand).toBe(minimumPairedTasks)
     for (const row of report.holdout.perTask) expect(row.taskId.startsWith('band-')).toBe(true)
     expect(report.verdict.promoted).toBe(true)
   })

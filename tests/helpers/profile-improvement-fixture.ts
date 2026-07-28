@@ -1,3 +1,4 @@
+import { minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
 import type { AgentProfileImprovementExperimentExecutionInput } from '@tangle-network/agent-eval/contract'
 import {
   type AgentImprovementEvaluation,
@@ -131,6 +132,7 @@ const limits = {
   maxOutputTokens: 1_000,
   maxCostUsd: 1,
 }
+const pairedRunCount = minimumPairsForPairedDeltaTest(0.95)
 
 export interface ProfileImprovementFixture {
   evaluation: AgentImprovementEvaluation
@@ -159,8 +161,11 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
     digestAlgorithm: 'rfc8785-sha256' as const,
     splitDigest: canonicalCandidateDigest({ split: 'profile-final' }),
     taskDigests: [task.digest] as [typeof task.digest],
-    reps: 3,
-    seeds: [11, 12, 13] as [number, number, number],
+    reps: pairedRunCount,
+    seeds: Array.from({ length: pairedRunCount }, (_, index) => 11 + index) as [
+      number,
+      ...number[],
+    ],
   })
   const change = [
     {
@@ -221,7 +226,7 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
       resamples: 100,
       bootstrapSeed: 17,
       deltaThreshold: 0,
-      minProductiveRuns: 3,
+      minProductiveRuns: pairedRunCount,
       criticalDimensions: [],
       regressionTolerance: 0,
     },
@@ -311,12 +316,12 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
       statistic: 'mean' as const,
       resamples: 100,
     },
-    n: 3,
+    n: pairedRunCount,
   })
   const comparison = agentProfileImprovementMeasuredComparisonSchema.parse({
     kind: 'agent-profile-improvement-measured-comparison',
     experiment,
-    measurements: [0, 1, 2].map((repetition) => ({
+    measurements: Array.from({ length: pairedRunCount }, (_, repetition) => ({
       baseline: receipt('baseline', repetition, 0.2),
       candidate: receipt('candidate', repetition, 0.6),
     })),
@@ -368,12 +373,12 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
     },
     power: {
       sufficient: true,
-      n: 3,
+      n: pairedRunCount,
       minimumDetectableDelta: 0.1,
       confidenceLevel: 0.95,
       scaleAssumed: true,
       sharedScorerChannel: true,
-      reason: 'three paired held-out runs',
+      reason: `${pairedRunCount} paired held-out runs`,
     },
     provenance: {
       kind: 'agent-eval-loop',
@@ -392,12 +397,12 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
       },
       measurement: {
         wallDurationMs: 0,
-        workDurationMs: 660,
-        cost: { usd: 0.00000066, provenance: 'observed' as const },
+        workDurationMs: pairedRunCount * 2 * 110,
+        cost: { usd: (pairedRunCount * 2 * 110) / 1_000_000_000, provenance: 'observed' as const },
       },
       total: {
         wallDurationMs: 0,
-        cost: { usd: 0.00000066, provenance: 'observed' as const },
+        cost: { usd: (pairedRunCount * 2 * 110) / 1_000_000_000, provenance: 'observed' as const },
       },
     },
   })

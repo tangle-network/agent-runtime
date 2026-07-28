@@ -1,4 +1,8 @@
-import { pairedSignTest, type AnalystFinding } from '@tangle-network/agent-eval'
+import {
+  minimumPairsForPairedDeltaTest,
+  pairedSignTest,
+  type AnalystFinding,
+} from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import { sealAgentProfileImprovementTask } from '@tangle-network/agent-eval/contract'
 import type {
@@ -34,6 +38,7 @@ const scenarios: PackedScenario[] = Array.from({ length: 12 }, (_, index) => ({
   id: `packed-${index}`,
   kind: 'packed-cohort',
 }))
+const minimumPairedRuns = minimumPairsForPairedDeltaTest(0.95)
 
 const finding: AnalystFinding = {
   schema_version: '1.0.0',
@@ -290,14 +295,17 @@ const result = await proposeAgentProfileImprovement({
   },
   benchmark: {
     tasks: [task],
-    reps: 3,
-    seeds: [41, 42, 43],
+    reps: minimumPairedRuns,
+    seeds: Array.from({ length: minimumPairedRuns }, (_, index) => 41 + index) as [
+      number,
+      ...number[],
+    ],
     policy: {
       confidenceLevel: 0.95,
       resamples: 100,
       bootstrapSeed: 17,
       deltaThreshold: 0,
-      minProductiveRuns: 3,
+      minProductiveRuns: minimumPairedRuns,
       criticalDimensions: [],
       regressionTolerance: 0,
     },
@@ -325,7 +333,7 @@ try {
   if (
     proposal.evaluation.overall.baseline !== 0 ||
     proposal.evaluation.overall.candidate !== 1 ||
-    proposal.evaluation.overall.n !== 3
+    proposal.evaluation.overall.n !== minimumPairedRuns
   ) {
     throw new Error('packed Runtime proposal lost the deterministic measured lift')
   }
@@ -335,8 +343,8 @@ try {
   const baselineExecutions = executed.filter(({ arm }) => arm === 'baseline')
   const candidateExecutions = executed.filter(({ arm }) => arm === 'candidate')
   if (
-    baselineExecutions.length !== 3 ||
-    candidateExecutions.length !== 3 ||
+    baselineExecutions.length !== minimumPairedRuns ||
+    candidateExecutions.length !== minimumPairedRuns ||
     baselineExecutions.some(({ prompt }) => prompt !== 'BASELINE') ||
     candidateExecutions.some(({ prompt }) => prompt !== 'CANDIDATE')
   ) {
