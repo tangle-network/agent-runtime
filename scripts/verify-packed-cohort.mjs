@@ -18,6 +18,11 @@ import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import {
+  assertPublishableDependencySpecs,
+  createStrictNodeConsumerTsconfig,
+  requiredPackedDevelopmentDependency,
+} from './lib/packed-package-test.mjs'
 
 const PACKAGE_NAMES = [
   '@tangle-network/agent-eval',
@@ -254,8 +259,14 @@ function verifyConsumer(artifacts) {
       ([name]) => !byName.has(name),
     ),
   )
-  const typescriptVersion = requiredDevelopmentDependency(runtime.packageJson, 'typescript')
-  const nodeTypesVersion = requiredDevelopmentDependency(runtime.packageJson, '@types/node')
+  const typescriptVersion = requiredPackedDevelopmentDependency(
+    runtime.packageJson,
+    'typescript',
+  )
+  const nodeTypesVersion = requiredPackedDevelopmentDependency(
+    runtime.packageJson,
+    '@types/node',
+  )
   writeFileSync(
     join(appDir, 'package.json'),
     `${JSON.stringify(
@@ -296,22 +307,7 @@ function verifyConsumer(artifacts) {
   )
   writeFileSync(
     join(appDir, 'tsconfig.json'),
-    `${JSON.stringify(
-      {
-        compilerOptions: {
-          target: 'ES2022',
-          module: 'NodeNext',
-          moduleResolution: 'NodeNext',
-          strict: true,
-          skipLibCheck: false,
-          outDir: 'dist',
-          types: ['node'],
-        },
-        include: ['consumer.ts'],
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify(createStrictNodeConsumerTsconfig({ outputDirectory: 'dist' }), null, 2)}\n`,
   )
   copyFileSync(
     join(repoRoot, 'scripts', 'fixtures', 'packed-cohort-consumer.ts'),
@@ -505,27 +501,6 @@ function assertCleanGitCheckout(sourceRepo, packageName) {
   if (changes) {
     throw new Error(`${packageName} source has tracked changes:\n${changes}`)
   }
-}
-
-function assertPublishableDependencySpecs(packageJson) {
-  const unsupportedProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
-  for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
-    for (const [name, spec] of Object.entries(packageJson[section] ?? {})) {
-      if (typeof spec !== 'string' || unsupportedProtocol.test(spec)) {
-        throw new Error(
-          `${packageJson.name} packed ${section}.${name} is not publishable: ${String(spec)}`,
-        )
-      }
-    }
-  }
-}
-
-function requiredDevelopmentDependency(packageJson, name) {
-  const version = packageJson.devDependencies?.[name]
-  if (typeof version !== 'string' || !version || version.startsWith('catalog:')) {
-    throw new Error(`${packageJson.name} archive has no resolved ${name} development dependency`)
-  }
-  return version
 }
 
 function archiveFileSpec(from, archivePath) {

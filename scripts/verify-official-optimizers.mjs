@@ -11,6 +11,10 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  requiredPackedDevelopmentDependency,
+  requiredPackedPackageVersion,
+} from './lib/packed-package-test.mjs'
 
 const gepaVersion = '0.1.4'
 const gepaSourceRevision = 'f919db0a622e2e9f9204779b81fe00cc1b2d808f'
@@ -283,19 +287,12 @@ function installedPackageVersion(root, packageName) {
   return packageJson.version
 }
 
-function requiredPackedDevelopmentDependency(packageJson, packageName) {
-  return requiredPackedPackageVersion(packageJson.devDependencies?.[packageName], packageName)
-}
-
 function requiredPackedDependency(packageJson, packageName) {
-  return requiredPackedPackageVersion(packageJson.dependencies?.[packageName], packageName)
-}
-
-function requiredPackedPackageVersion(version, packageName) {
-  if (typeof version !== 'string' || version.length === 0 || version.startsWith('catalog:')) {
-    throw new Error(`packed package requires a resolved ${packageName} version`)
-  }
-  return version
+  return requiredPackedPackageVersion(
+    packageJson.dependencies?.[packageName],
+    packageName,
+    packageJson.name,
+  )
 }
 
 function assertVersion(actual, expected, label) {
