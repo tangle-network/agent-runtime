@@ -22,6 +22,7 @@
 import { type AnalystFinding, makeFinding, pairedBootstrap } from '@tangle-network/agent-eval'
 import {
   type JudgeConfig,
+  type JudgeRunResult,
   type MultishotMessage,
   type MultishotPersona,
   type MultishotResult,
@@ -127,15 +128,15 @@ const conversationJudge: JudgeConfig<{ transcript: MultishotMessage[]; persona: 
 // `recommended_action`. Offline we derive it deterministically so the demo stays reproducible.
 
 async function runAnalyst(
-  v0Runs: Array<{ persona: FounderPersona; result: MultishotResult; score: { composite: number } }>,
+  v0Runs: Array<{ persona: FounderPersona; result: MultishotResult; judge: JudgeRunResult }>,
 ): Promise<AnalystFinding> {
-  const worst = [...v0Runs].sort((a, b) => a.score.composite - b.score.composite)[0]
+  const worst = [...v0Runs].sort((a, b) => a.judge.score.composite - b.judge.score.composite)[0]
   if (!worst) throw new Error('analyst: no v0 runs to analyze')
   return makeFinding({
     analyst_id: 'content-quality-analyst',
     severity: 'high',
     area: 'agent-reasoning',
-    claim: `${worst.persona.name} run scored ${worst.score.composite.toFixed(1)} — output was too generic, no concrete posts.`,
+    claim: `${worst.persona.name} run scored ${worst.judge.score.composite.toFixed(1)} — output was too generic, no concrete posts.`,
     confidence: 0.9,
     evidence_refs: [],
     recommended_action:
@@ -193,16 +194,16 @@ async function runVariant(profile: AgentProfile, scriptedReplies: ScriptedReply[
     const runs: Array<{
       persona: FounderPersona
       result: MultishotResult
-      score: { composite: number }
+      judge: JudgeRunResult
     }> = []
     for (const persona of PERSONAS) {
       // Each persona gets one shot (`maxTurns: 1`). `runMultishot` plays N shots in
       // parallel. (shot/round vocabulary: see examples/driver-loop/.)
       const result = await runMultishot({ profile, persona, shape, maxTurns: 1 })
-      const score = await runJudge(conversationJudge, { transcript: result.transcript, persona })
-      runs.push({ persona, result, score })
+      const judge = await runJudge(conversationJudge, { transcript: result.transcript, persona })
+      runs.push({ persona, result, judge })
     }
-    const mean = runs.reduce((s, r) => s + r.score.composite, 0) / runs.length
+    const mean = runs.reduce((s, r) => s + r.judge.score.composite, 0) / runs.length
     return { runs, mean }
   } finally {
     restore()
@@ -225,7 +226,7 @@ async function main(): Promise<void> {
   const v0 = await runVariant(baseline, v0Replies)
   console.log(`  v0 mean: ${v0.mean.toFixed(2)} (over ${v0.runs.length} personas)`)
   for (const r of v0.runs)
-    console.log(`    ${r.persona.id.padEnd(14)} composite=${r.score.composite.toFixed(2)}`)
+    console.log(`    ${r.persona.id.padEnd(14)} composite=${r.judge.score.composite.toFixed(2)}`)
 
   console.log('\n— Phase 2: analyst proposes mutation')
   const finding = await runAnalyst(v0.runs)
@@ -256,13 +257,13 @@ async function main(): Promise<void> {
   const v1Result = await runVariant(v1, v1Replies)
   console.log(`  v1 mean: ${v1Result.mean.toFixed(2)} (over ${v1Result.runs.length} personas)`)
   for (const r of v1Result.runs)
-    console.log(`    ${r.persona.id.padEnd(14)} composite=${r.score.composite.toFixed(2)}`)
+    console.log(`    ${r.persona.id.padEnd(14)} composite=${r.judge.score.composite.toFixed(2)}`)
 
   console.log('\n— Phase 5: gate decision')
   // Pair v1 against v0 per persona (both iterate PERSONAS in order, so index aligns) and gate on the
   // paired-bootstrap CI — the production held-out gate's statistical core, not a bare mean delta.
-  const v0Scores = v0.runs.map((r) => r.score.composite)
-  const v1Scores = v1Result.runs.map((r) => r.score.composite)
+  const v0Scores = v0.runs.map((r) => r.judge.score.composite)
+  const v1Scores = v1Result.runs.map((r) => r.judge.score.composite)
   const verdict = gate(v0Scores, v1Scores)
   console.log(
     `  ship: ${verdict.ship} | paired median delta: ${verdict.delta >= 0 ? '+' : ''}${verdict.delta.toFixed(2)} | ${verdict.reason}`,

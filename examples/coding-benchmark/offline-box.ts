@@ -104,6 +104,7 @@ export function offlineSandboxClient(script: OfflineScript): SandboxClient {
   return {
     async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {
       const workdir = mkdtempSync(join(tmpdir(), 'coding-bench-'))
+      await writeFile(join(workdir, 'package.json'), '{"type":"module"}\n', 'utf8')
       // Subset-as-`SandboxInstance` (the offline seam — see the module docstring).
       return instanceMethods(workdir, script) as unknown as SandboxInstance
     },

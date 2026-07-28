@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.7
+
+- Consume Runtime 0.108.1 with Eval 0.134.2, Interface 0.36.0, Knowledge 6.1.8, Materialize 0.9.2, and Sandbox 0.15.2.
+- Keep the HumanEval Docker test executable portable across supported Node versions.
+
 ## 0.4.6
 
 - Require typed proposal findings with explicit search or production origin throughout the SWE improvement loop.
