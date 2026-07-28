@@ -435,7 +435,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
     workspace: taskWorkspace,
     evaluatorTaskContainer: container,
     limits: {
-      timeoutMs: 180_000,
+      timeoutMs: 600_000,
       maxSteps: 8,
       maxModelCalls: 0,
       maxInputTokens: 0,

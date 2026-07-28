@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5
+
+- Allow the zero-model Pier proof to complete a cold separate-verifier image build before its task and overall execution deadlines.
+- Consume Runtime 0.107.5 with Eval 0.133.3, Interface 0.36.0, Knowledge 6.1.5, and Sandbox 0.15.1.
+
 ## 0.4.4
 
 - Consume Runtime 0.107.2 and Sandbox 0.15.0 with the current Eval, Interface, and Knowledge packages.
