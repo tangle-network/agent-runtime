@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.108.0
+
+- Add the edge-safe `@tangle-network/agent-runtime/durable` entrypoint for resumable chat turns with stable retry identities.
+- Resume built-in supervised runs without repeating completed keyed work, while carrying prior settlements, questions, findings, wait deadlines, output trees, and spent budget into the new process.
+- Add pluggable finalization with built-in best-output and collect-all modes, and prevent finalizers from reading outputs that did not pass completion checks.
+- Require profile-improvement proposals to cite typed findings with explicit search or production origin.
+- Serialize Git worktree metadata changes per repository while keeping candidate evaluation parallel.
+- Align Runtime with Eval 0.134.1, Interface 0.36.0, Knowledge 6.1.7, Materialize 0.9.2, and Sandbox 0.15.2.
+
 ## 0.107.5
 
 - Replace the invalid paired t-test in benchmark reports with `@tangle-network/agent-eval`'s cross-checked Wilcoxon signed-rank test.
