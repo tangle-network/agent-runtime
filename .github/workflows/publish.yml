@@ -19,15 +19,22 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: tangle-network/agent-sdk
+          ref: 149259a78bfa187e0b10ce840a03d25dd722e064 # @tangle-network/agent-interface@0.36.0
+          path: .cohort/agent-sdk
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           repository: tangle-network/agent-eval
-          ref: b9f8af674640707c268e2ffcf73704e727c0d644 # v0.133.0
+          ref: 98a0126cd1e337b35e69cdb83836a59a14a712df # v0.133.1
           path: .cohort/agent-eval
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: a337c6cb5ef40627feb78ece059402eba73f344b # v6.1.2
+          ref: fa32fcfb91536721832c13182ea8972e8d3524e9 # v6.1.3
           path: .cohort/agent-knowledge
           persist-credentials: false
 
@@ -106,9 +113,10 @@ jobs:
       - name: Verify packed package exports
         run: pnpm run verify:package
 
-      - name: Verify exact Eval, Knowledge, and Runtime archives together
+      - name: Verify exact Interface, Eval, Knowledge, and Runtime archives together
         run: >-
           node scripts/verify-packed-cohort.mjs
+          --agent-interface-repo .cohort/agent-sdk
           --agent-eval-repo .cohort/agent-eval
           --agent-knowledge-repo .cohort/agent-knowledge
 

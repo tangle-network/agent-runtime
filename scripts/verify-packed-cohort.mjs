@@ -24,17 +24,20 @@ import {
   requiredPackedDevelopmentDependency,
 } from './lib/packed-package-test.mjs'
 
-const PACKAGE_NAMES = [
-  '@tangle-network/agent-eval',
-  '@tangle-network/agent-knowledge',
-  '@tangle-network/agent-runtime',
-]
+const PACKAGES = {
+  agentInterface: '@tangle-network/agent-interface',
+  agentEval: '@tangle-network/agent-eval',
+  agentKnowledge: '@tangle-network/agent-knowledge',
+  agentRuntime: '@tangle-network/agent-runtime',
+}
+const PACKAGE_NAMES = Object.values(PACKAGES)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
 if (args[0] === '--') args.shift()
 const { values } = parseArgs({
   args,
   options: {
+    'agent-interface-repo': { type: 'string' },
     'agent-eval-repo': { type: 'string' },
     'agent-knowledge-repo': { type: 'string' },
     'agent-runtime-repo': { type: 'string' },
@@ -50,6 +53,7 @@ if (values.help) {
       'Usage: pnpm run verify:cohort -- [options]',
       '',
       'Options:',
+      '  --agent-interface-repo <path>  Clean agent-sdk Git checkout',
       '  --agent-eval-repo <path>       Clean agent-eval Git checkout',
       '  --agent-knowledge-repo <path>  Clean agent-knowledge Git checkout',
       '  --agent-runtime-repo <path>    Clean agent-runtime Git checkout',
@@ -63,13 +67,16 @@ if (values.help) {
 }
 
 const sourceRepos = {
-  '@tangle-network/agent-eval': resolve(
+  [PACKAGES.agentInterface]: resolve(
+    values['agent-interface-repo'] ?? join(repoRoot, '..', 'agent-sdk'),
+  ),
+  [PACKAGES.agentEval]: resolve(
     values['agent-eval-repo'] ?? join(repoRoot, '..', 'agent-eval'),
   ),
-  '@tangle-network/agent-knowledge': resolve(
+  [PACKAGES.agentKnowledge]: resolve(
     values['agent-knowledge-repo'] ?? join(repoRoot, '..', 'agent-knowledge'),
   ),
-  '@tangle-network/agent-runtime': resolve(values['agent-runtime-repo'] ?? repoRoot),
+  [PACKAGES.agentRuntime]: resolve(values['agent-runtime-repo'] ?? repoRoot),
 }
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-package-cohort-'))
 const artifactsDir = join(tempRoot, 'artifacts')
@@ -86,31 +93,45 @@ try {
   const artifacts = []
   const artifactsByIdentity = new Map()
 
-  const agentEval = buildAndPack({
-    packageName: PACKAGE_NAMES[0],
-    sourceRepo: sourceRepos[PACKAGE_NAMES[0]],
+  const agentInterface = buildAndPack({
+    packageName: PACKAGES.agentInterface,
+    sourceRepo: sourceRepos[PACKAGES.agentInterface],
+    packageDirectory: 'packages/agent-interface',
     localPackages: [],
+  })
+  registerArtifact(agentInterface)
+  artifacts.push(agentInterface)
+
+  const agentEval = buildAndPack({
+    packageName: PACKAGES.agentEval,
+    sourceRepo: sourceRepos[PACKAGES.agentEval],
+    localPackages: [agentInterface],
   })
   registerArtifact(agentEval)
   artifacts.push(agentEval)
 
   const agentKnowledge = buildAndPack({
-    packageName: PACKAGE_NAMES[1],
-    sourceRepo: sourceRepos[PACKAGE_NAMES[1]],
-    localPackages: [agentEval],
+    packageName: PACKAGES.agentKnowledge,
+    sourceRepo: sourceRepos[PACKAGES.agentKnowledge],
+    localPackages: [agentInterface, agentEval],
   })
   registerArtifact(agentKnowledge)
   artifacts.push(agentKnowledge)
 
   const agentRuntime = buildAndPack({
-    packageName: PACKAGE_NAMES[2],
-    sourceRepo: sourceRepos[PACKAGE_NAMES[2]],
-    localPackages: [agentEval, agentKnowledge],
+    packageName: PACKAGES.agentRuntime,
+    sourceRepo: sourceRepos[PACKAGES.agentRuntime],
+    localPackages: [agentInterface, agentEval, agentKnowledge],
   })
   registerArtifact(agentRuntime)
   artifacts.push(agentRuntime)
 
-  assertCohortPackageContracts({ agentEval, agentKnowledge, agentRuntime })
+  assertCohortPackageContracts({
+    agentInterface,
+    agentEval,
+    agentKnowledge,
+    agentRuntime,
+  })
   const consumer = verifyConsumer(artifacts)
 
   process.stdout.write('Packed package cohort verified.\n')
@@ -149,16 +170,28 @@ try {
   }
 }
 
-function buildAndPack({ packageName, sourceRepo, localPackages }) {
+function buildAndPack({
+  packageName,
+  sourceRepo,
+  packageDirectory = '.',
+  localPackages,
+}) {
   assertCleanGitCheckout(sourceRepo, packageName)
   const sourceCommit = captured('git', ['rev-parse', 'HEAD'], sourceRepo).trim()
-  const buildDir = join(tempRoot, 'build', packageName.replace('@tangle-network/', ''))
-  mkdirSync(buildDir, { recursive: true })
+  const buildRoot = join(tempRoot, 'build', packageName.replace('@tangle-network/', ''))
+  mkdirSync(buildRoot, { recursive: true })
   const sourceArchive = join(tempRoot, `${packageName.replace('@tangle-network/', '')}.tar`)
   captured('git', ['archive', '--format=tar', '--output', sourceArchive, sourceCommit], sourceRepo)
-  captured('tar', ['-xf', sourceArchive, '-C', buildDir], sourceRepo)
+  captured('tar', ['-xf', sourceArchive, '-C', buildRoot], sourceRepo)
 
+  const buildDir = resolve(buildRoot, packageDirectory)
+  if (buildDir !== buildRoot && !buildDir.startsWith(`${buildRoot}${sep}`)) {
+    throw new Error(`${packageName} package directory escapes its source archive`)
+  }
   const packagePath = join(buildDir, 'package.json')
+  if (!existsSync(packagePath)) {
+    throw new Error(`${packageName} has no package.json at ${packageDirectory}`)
+  }
   const packageText = readFileSync(packagePath, 'utf8')
   const packageJson = JSON.parse(packageText)
   if (packageJson.name !== packageName) {
@@ -476,24 +509,35 @@ function packageFileManifest(root) {
   return entries.sort(([left], [right]) => left.localeCompare(right))
 }
 
-function assertCohortPackageContracts({ agentEval, agentKnowledge, agentRuntime }) {
-  const knowledgeEval = agentKnowledge.packageJson.dependencies?.[agentEval.name]
-  if (knowledgeEval !== agentEval.version) {
+function assertCohortPackageContracts({
+  agentInterface,
+  agentEval,
+  agentKnowledge,
+  agentRuntime,
+}) {
+  assertExactDependency(agentEval, agentInterface)
+  assertExactDependency(agentKnowledge, agentInterface)
+  assertExactDependency(agentKnowledge, agentEval)
+  assertExactDependency(agentRuntime, agentKnowledge)
+  assertRequiredPeer(agentRuntime, agentInterface)
+  assertRequiredPeer(agentRuntime, agentEval)
+}
+
+function assertExactDependency(owner, dependency) {
+  const declared = owner.packageJson.dependencies?.[dependency.name]
+  if (declared !== dependency.version) {
     throw new Error(
-      `${agentKnowledge.name} requires ${agentEval.name}@${knowledgeEval}, packed ${agentEval.version}`,
+      `${owner.name} requires ${dependency.name}@${declared}, packed ${dependency.version}`,
     )
   }
-  const runtimeKnowledge = agentRuntime.packageJson.dependencies?.[agentKnowledge.name]
-  if (runtimeKnowledge !== agentKnowledge.version) {
-    throw new Error(
-      `${agentRuntime.name} requires ${agentKnowledge.name}@${runtimeKnowledge}, packed ${agentKnowledge.version}`,
-    )
+}
+
+function assertRequiredPeer(owner, dependency) {
+  if (!owner.packageJson.peerDependencies?.[dependency.name]) {
+    throw new Error(`${owner.name} must declare ${dependency.name} as a required peer`)
   }
-  if (!agentRuntime.packageJson.peerDependencies?.[agentEval.name]) {
-    throw new Error(`${agentRuntime.name} must declare ${agentEval.name} as a required peer`)
-  }
-  if (agentRuntime.packageJson.peerDependenciesMeta?.[agentEval.name]?.optional) {
-    throw new Error(`${agentRuntime.name} cannot make ${agentEval.name} optional`)
+  if (owner.packageJson.peerDependenciesMeta?.[dependency.name]?.optional) {
+    throw new Error(`${owner.name} cannot make ${dependency.name} optional`)
   }
 }
 
