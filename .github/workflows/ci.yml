@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     runs-on: ubuntu-latest
@@ -60,14 +63,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-eval
-          ref: v0.133.0
+          ref: b9f8af674640707c268e2ffcf73704e727c0d644 # v0.133.0
           path: .cohort/agent-eval
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: v6.1.2
+          ref: a337c6cb5ef40627feb78ece059402eba73f344b # v6.1.2
           path: .cohort/agent-knowledge
           persist-credentials: false
 

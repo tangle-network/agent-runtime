@@ -23,7 +23,11 @@ export function requiredPackedDevelopmentDependency(packageJson, name) {
 }
 
 export function requiredPackedPackageVersion(version, name, owner) {
-  if (typeof version !== 'string' || !version || version.startsWith('catalog:')) {
+  if (
+    typeof version !== 'string' ||
+    !version ||
+    unsupportedDependencyProtocol.test(version)
+  ) {
     const packageName = typeof owner === 'string' ? owner : 'packed package'
     throw new Error(`${packageName} has no resolved ${name} dependency version`)
   }

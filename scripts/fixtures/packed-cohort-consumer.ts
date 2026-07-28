@@ -1,8 +1,4 @@
-import {
-  pairedSignTest,
-  type AnalystFinding,
-  type CostLedgerHandle,
-} from '@tangle-network/agent-eval'
+import { pairedSignTest, type AnalystFinding } from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import { sealAgentProfileImprovementTask } from '@tangle-network/agent-eval/contract'
 import type {
@@ -183,7 +179,7 @@ function measurementReceipt(
         costProvenance: 'observed' as const,
       },
       score,
-      passed: true,
+      passed: score > 0,
       dimensions: [{ name: 'quality', score }],
     },
   })
@@ -333,12 +329,20 @@ try {
   ) {
     throw new Error('packed Runtime proposal lost the deterministic measured lift')
   }
+  if (proposal.changedSurfaces.length !== 1 || proposal.changedSurfaces[0] !== 'prompt') {
+    throw new Error('packed Runtime proposal changed the wrong profile surface')
+  }
+  const baselineExecutions = executed.filter(({ arm }) => arm === 'baseline')
+  const candidateExecutions = executed.filter(({ arm }) => arm === 'candidate')
   if (
-    proposal.changedSurfaces.length !== 1 ||
-    proposal.changedSurfaces[0] !== 'prompt' ||
-    executed.length !== 6
+    baselineExecutions.length !== 3 ||
+    candidateExecutions.length !== 3 ||
+    baselineExecutions.some(({ prompt }) => prompt !== 'BASELINE') ||
+    candidateExecutions.some(({ prompt }) => prompt !== 'CANDIDATE')
   ) {
-    throw new Error('packed Runtime proposal did not execute the exact profile pair')
+    throw new Error(
+      `packed Runtime proposal executed the wrong profile pair: ${JSON.stringify(executed)}`,
+    )
   }
   process.stdout.write(
     `PACKED_COHORT_PROPOSAL=${JSON.stringify({

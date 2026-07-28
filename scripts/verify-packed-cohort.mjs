@@ -159,8 +159,8 @@ function buildAndPack({ packageName, sourceRepo, localPackages }) {
   captured('tar', ['-xf', sourceArchive, '-C', buildDir], sourceRepo)
 
   const packagePath = join(buildDir, 'package.json')
-  const originalPackageText = readFileSync(packagePath, 'utf8')
-  const packageJson = JSON.parse(originalPackageText)
+  const packageText = readFileSync(packagePath, 'utf8')
+  const packageJson = JSON.parse(packageText)
   if (packageJson.name !== packageName) {
     throw new Error(`${sourceRepo} contains ${packageJson.name}, expected ${packageName}`)
   }
@@ -172,32 +172,40 @@ function buildAndPack({ packageName, sourceRepo, localPackages }) {
         localPackages.map((artifact) => [artifact.name, `file:${artifact.path}`]),
       ),
     }
-    packageJson.pnpm = { ...(packageJson.pnpm ?? {}), overrides }
-    writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
-    captured(
-      'corepack',
-      [
-        'pnpm',
-        'config',
-        'set',
-        '--location=project',
-        '--json',
-        'overrides',
-        JSON.stringify(overrides),
-      ],
-      buildDir,
-    )
+    if (existsSync(join(buildDir, 'pnpm-workspace.yaml'))) {
+      captured(
+        'corepack',
+        [
+          'pnpm',
+          'config',
+          'set',
+          '--location=project',
+          '--json',
+          'overrides',
+          JSON.stringify(overrides),
+        ],
+        buildDir,
+      )
+    } else {
+      packageJson.pnpm = { ...(packageJson.pnpm ?? {}), overrides }
+      writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`)
+    }
   }
 
-  captured('corepack', ['pnpm', 'install', '--no-frozen-lockfile'], buildDir, {
-    HUSKY: '0',
-  })
+  captured(
+    'corepack',
+    ['pnpm', 'install', '--no-frozen-lockfile', '--ignore-scripts'],
+    buildDir,
+    {
+      HUSKY: '0',
+    },
+  )
   assertArchiveDependencies(buildDir, localPackages, `${packageName} build`)
   captured('corepack', ['pnpm', 'run', 'build'], buildDir)
 
-  writeFileSync(packagePath, originalPackageText)
+  writeFileSync(packagePath, packageText)
   const before = new Set(readdirSync(artifactsDir))
-  if (originalPackageText.includes('catalog:')) {
+  if (packageText.includes('catalog:')) {
     captured(
       'corepack',
       ['pnpm', 'pack', '--pack-destination', artifactsDir],
