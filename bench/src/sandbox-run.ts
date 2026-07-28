@@ -14,7 +14,7 @@ import {
   type AgentRunSpec,
   type OutputAdapter,
   routerChatWithUsage,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 // `BackendType` is the sandbox SDK's harness union — its canonical home. agent-runtime consumes
 // it from there too; it is not re-exported from the loops barrel.
 import type { BackendType } from '@tangle-network/sandbox'

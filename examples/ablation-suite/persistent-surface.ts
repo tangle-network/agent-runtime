@@ -12,7 +12,7 @@ import type {
   AgenticSurface,
   AgenticTask,
   ArtifactHandle,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 
 export function persistentSurface(base: AgenticSurface): AgenticSurface {
   // One opened handle per task id, shared by every worker on that task. Reference-counted so the shared

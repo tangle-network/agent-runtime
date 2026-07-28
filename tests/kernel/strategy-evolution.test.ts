@@ -48,7 +48,7 @@ function shotCountingSurface(): AgenticSurface {
   }
 }
 
-const twoShotDepthModule = `import { defineStrategy } from '@tangle-network/agent-runtime/loops'
+const twoShotDepthModule = `import { defineStrategy } from '@tangle-network/agent-runtime/kernel'
 export default defineStrategy('two-shot-depth', async ({ surface, task, shot }) => {
   const handle = await surface.open(task)
   const progression: number[] = []
@@ -65,7 +65,7 @@ export default defineStrategy('two-shot-depth', async ({ surface, task, shot }) 
   return { score, resolved: score >= 1, completions, progression, shots: progression.length }
 })`
 
-const oneShotModule = `import { defineStrategy } from '@tangle-network/agent-runtime/loops'
+const oneShotModule = `import { defineStrategy } from '@tangle-network/agent-runtime/kernel'
 export default defineStrategy('one-shot', async ({ shot }) => {
   const out = await shot()
   return { score: out?.score ?? 0, resolved: false, completions: out?.completions ?? 0, progression: [out?.score ?? 0], shots: 1 }

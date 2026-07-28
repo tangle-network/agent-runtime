@@ -4059,7 +4059,7 @@ Epoch ms the ledger recorded this settlement — the resolution a progress-based
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](runtime.md#scope-1)\<`unknown`\>
+> `readonly` **scope**: [`Scope`](index.md#scope)\<`unknown`\>
 
 ##### blobs
 
@@ -4071,11 +4071,11 @@ Epoch ms the ledger recorded this settlement — the resolution a progress-based
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-13)
+> `readonly` **perWorker**: [`Budget`](index.md#budget-4)
 
 ##### analysts?
 
-> `readonly` `optional` **analysts?**: [`AnalystRegistry`](runtime.md#analystregistry)
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
 
 ##### onEvent?
 
@@ -4085,7 +4085,7 @@ Epoch ms the ledger recorded this settlement — the resolution a progress-based
 
 ###### event
 
-[`CoordinationEvent`](runtime.md#coordinationevent)
+[`CoordinationEvent`](index.md#coordinationevent)
 
 ###### Returns
 
@@ -4233,7 +4233,7 @@ readonly [`QuestionRecord`](#questionrecord)[]
 
 ##### history()
 
-> **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
+> **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
 
 The full ordered log of every bus event — UP (settled / question / finding) and DOWN
  (steer / answer) — the observability audit + replay trail. Each record carries seq,
@@ -4241,7 +4241,7 @@ The full ordered log of every bus event — UP (settled / question / finding) an
 
 ###### Returns
 
-readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
+readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
 
 ##### stats()
 
@@ -5731,7 +5731,7 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 ### DelegateResult
 
-> **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](runtime.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `spentTotal`: [`Spend`](runtime.md#spend); \}
+> **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](index.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `spentTotal`: [`Spend`](index.md#spend); \}
 
 The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or
  the no-winner reason) PLUS the conserved spend of the whole delegation.
@@ -7741,13 +7741,13 @@ Re-exports [AnalystFindingEvent](runtime.md#analystfindingevent)
 
 ### AnalystRegistry
 
-Re-exports [AnalystRegistry](runtime.md#analystregistry)
+Re-exports [AnalystRegistry](index.md#analystregistry)
 
 ***
 
 ### CoordinationEvent
 
-Re-exports [CoordinationEvent](runtime.md#coordinationevent)
+Re-exports [CoordinationEvent](index.md#coordinationevent)
 
 ***
 

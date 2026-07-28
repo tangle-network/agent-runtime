@@ -3,7 +3,7 @@
  * completion check, and a SCRIPTED driver brain so the box / cli-bridge runners
  * exercise their wiring with no inference.
  *
- * The supervisor itself is `supervise()` (`@tangle-network/agent-runtime/loops`);
+ * The supervisor itself is `supervise()` (`@tangle-network/agent-runtime/kernel`);
  * these are only the per-example task + the offline brain it can be driven with.
  */
 
@@ -12,7 +12,7 @@ import {
   type SandboxClient as RuntimeSandboxClient,
   routerBrain,
   type ToolLoopChat,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import type { BackendType } from '@tangle-network/sandbox'
 import { Sandbox } from '@tangle-network/sandbox'
 

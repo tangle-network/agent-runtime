@@ -33,7 +33,7 @@ import type {
   TreeView,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
-import { scriptedBrain } from '../loops/scripted-brain'
+import { scriptedBrain } from '../kernel/scripted-brain'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 

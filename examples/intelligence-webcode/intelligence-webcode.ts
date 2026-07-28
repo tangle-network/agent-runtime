@@ -37,7 +37,7 @@ import {
   openSandboxRun,
   type SandboxClient,
   sumSandboxUsage,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import type { BackendType } from '@tangle-network/sandbox'
 import {
   loadWebCodeTasks,

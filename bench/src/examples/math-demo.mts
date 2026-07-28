@@ -19,7 +19,7 @@ import {
   runBenchmark,
   sample,
   sampleThenRefine,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 
 // GSM8K-style problems; meta.answer is the ground truth the deployable check compares to.
 const problems: Array<{ q: string; answer: number }> = [

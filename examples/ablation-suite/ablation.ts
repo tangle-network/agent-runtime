@@ -27,7 +27,7 @@ import {
   sample,
   sampleThenRefine,
   superviseSurface,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { codingEnv, codingTasks } from '../self-improving-coder/self-improving-coder'
 import { countingSurface } from './counting-surface'
 import { optimizeDriverPrompt } from './gepa-driver-prompt'

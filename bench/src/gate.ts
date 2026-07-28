@@ -46,7 +46,7 @@ import type {
   Spend,
   SupervisedResult,
   TrajectoryReport,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import {
   definePersona,
   routerChatWithUsage,
@@ -56,7 +56,7 @@ import {
   InMemorySpawnJournal,
   runPersonified,
   trajectoryReport,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 
 /** A fanout child's task: the prompt to solve with + the instance to grade against. The instance

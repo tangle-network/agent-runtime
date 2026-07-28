@@ -13,10 +13,10 @@ The full suite includes these focused local coordination files:
 
 ```bash
 pnpm exec vitest run \
-  tests/loops/coordination-mcp.test.ts \
-  tests/loops/supervisor-agent.test.ts \
-  tests/loops/coordination.test.ts \
-  tests/loops/event-bus.test.ts \
+  tests/kernel/coordination-mcp.test.ts \
+  tests/kernel/supervisor-agent.test.ts \
+  tests/kernel/coordination.test.ts \
+  tests/kernel/event-bus.test.ts \
   tests/mcp/task-queue-durable.test.ts \
   src/runtime/environment-provider.test.ts
 ```

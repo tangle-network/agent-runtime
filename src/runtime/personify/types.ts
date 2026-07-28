@@ -2,7 +2,7 @@
  *
  * The personify layer — the "act like X" knob on top of the recursive keystone.
  *
- * The keystone (`src/loops/supervise/`) is pure STRUCTURE: a recursive `Agent` atom inside
+ * The keystone (`src/runtime/supervise/`) is pure STRUCTURE: a recursive `Agent` atom inside
  * a budget-conserving `Scope`, an `ExecutorRegistry` mapping an `AgentSpec` to a runtime,
  * and a `Supervisor` that runs a root agent to a typed `SupervisedResult`. It carries no
  * CONTENT — no model, no prompt, no goal framing, no notion of "who this loop is".

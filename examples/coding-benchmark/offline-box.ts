@@ -33,7 +33,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
+import type { SandboxClient } from '@tangle-network/agent-runtime/kernel'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 
 const execAsync = promisify(execCb)

@@ -30,7 +30,7 @@
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
+import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, runVenvScriptStdin } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 

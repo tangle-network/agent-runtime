@@ -22,8 +22,8 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/loops'
+import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/kernel'
+import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import { createSweBenchEnvironment, SWE_SEED_PROMPT, SWE_SEED_PROMPT_WITH_RUN } from './swe-bench-env'
 
 const exec = promisify(execFile)

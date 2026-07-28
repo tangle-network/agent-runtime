@@ -41,7 +41,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
-import { scriptedBrain } from '../loops/scripted-brain'
+import { scriptedBrain } from '../kernel/scripted-brain'
 
 // ── A scored offline leaf: fixed token cost, a verdict score the rules read ─────────────────────
 

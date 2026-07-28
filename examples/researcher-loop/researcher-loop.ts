@@ -17,7 +17,7 @@ import {
   type ResearchTask,
   researcherProfile,
 } from '@tangle-network/agent-knowledge/profiles'
-import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/loops'
+import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/kernel'
 import { sandboxClient, task } from './synthetic-researcher'
 
 async function main(): Promise<void> {

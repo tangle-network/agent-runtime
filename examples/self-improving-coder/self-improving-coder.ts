@@ -38,7 +38,7 @@ import {
   runStrategyEvolution,
   type SurfaceScore,
   sample,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 
 // ── The contamination-proof task generator (deterministic per seed) ──────────────
 /** A small wire-protocol library, fully specified by its tests, with seed-derived constants. The
@@ -281,7 +281,7 @@ async function main(): Promise<void> {
   const authorModel = process.env.AUTHOR_MODEL ?? 'gemini-2.5-pro'
 
   // The author writes candidate-strategy .mts files into outDir, then dynamically imports them — they
-  // `import '@tangle-network/agent-runtime/loops'`, which only resolves UNDER the package (self-reference).
+  // `import '@tangle-network/agent-runtime/kernel'`, which only resolves UNDER the package (self-reference).
   // A /tmp outDir would fail to resolve it; keep it under the project root.
   const report = await (async () => {
     const outDir = mkdtempSync(join(process.cwd(), '.sic-run-'))

@@ -16,7 +16,7 @@ import {
   renderLeaderboardHtml,
   renderLeaderboardMarkdown,
   renderLeaderboardSvg,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import type { BenchCellTaskResult, RunBenchmarksReport } from './run-benchmarks'
 
 /** Project the runner's per-task results into `RunRecord`s the leaderboard engine reads. Cost/tokens are

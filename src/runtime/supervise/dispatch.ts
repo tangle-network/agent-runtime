@@ -26,7 +26,7 @@
  *   2. `SandboxLineage`'s `maxConcurrency` / `DEFAULT_FORK_CONCURRENCY = 4`
  *      (`src/runtime/sandbox-lineage.ts`) — kernel level. How many BOXES one `runAgentRounds` fork wave
  *      provisions at once. It bounds a single leaf's fanout, not the supervisor's worker count.
- *   3. A host's own live-box governor (e.g. loops' `ComputeGovernor`, `maxSandboxes = 4`) — fleet
+ *   3. A host's own live-box governor (e.g. the kernel's `ComputeGovernor`, `maxSandboxes = 4`) — fleet
  *      level. How many sandboxes may exist across the whole host process.
  *
  * The honest effective limit on simultaneous WORKERS is the minimum of the caps that apply to the

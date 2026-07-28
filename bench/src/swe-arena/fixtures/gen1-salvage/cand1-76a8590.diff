@@ -71,7 +71,7 @@ index e83e6d9..3529d79 100644
 --- a/extensions/pi/loops.ts
 +++ b/extensions/pi/loops.ts
 @@ -42,7 +42,7 @@ import {
- } from '@tangle-network/agent-runtime/loops'
+ } from '@tangle-network/agent-runtime/kernel'
  import { resumeStrategyLoop } from '../../src/runner.js'
  import { cancelStrategyLoop, listStrategyLoops, renderStrategyLoop, startStrategyLoop } from '../../src/strategy-loop.js'
 -import { type BestEffortDelivery, deliverBestEffortPatch } from '../../src/best-effort.js'

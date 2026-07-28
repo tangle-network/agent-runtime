@@ -22,7 +22,7 @@ import {
   runBenchmark,
   sample,
   sampleThenRefine,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { ensureLeanImage, leanCheck } from './lean-verify.js'
 
 // Real, mathlib-free Lean 4 theorems (compile in core Lean). `header` is everything up to `:=`;

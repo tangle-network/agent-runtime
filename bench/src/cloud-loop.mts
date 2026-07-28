@@ -30,7 +30,7 @@
  *     env MODEL=gpt-4.1 ROUNDS=3 pnpm exec tsx src/cloud-loop.mts
  */
 import { createChatClient } from '@tangle-network/agent-eval'
-import { observe, openSandboxRun } from '@tangle-network/agent-runtime/loops'
+import { observe, openSandboxRun } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import { answerOutput, sandboxAgentRun } from './sandbox-run'
 

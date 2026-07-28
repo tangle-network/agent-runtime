@@ -23,7 +23,7 @@
 
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
-import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
+import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPythonAt } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 

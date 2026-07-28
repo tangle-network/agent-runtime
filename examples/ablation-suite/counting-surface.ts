@@ -13,7 +13,7 @@ import type {
   AgenticSurface,
   AgenticTask,
   ArtifactHandle,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 
 export interface CountingSurface extends AgenticSurface {
   /** A snapshot of how many times each tool was called, keyed by tool name. Reading it

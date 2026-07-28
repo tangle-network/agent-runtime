@@ -57,7 +57,7 @@ import type {
   AgenticTool,
   ArtifactHandle,
   SurfaceScore,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 
 // ── Seed-derived constants (the contract no model can recall) ────────────────────
 /** A well-mixed per-(seed,salt) hash. Each convention and each function draws under its OWN salt so they

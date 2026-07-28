@@ -20,7 +20,7 @@
 
 import { createChatClient, llmJudge } from '@tangle-network/agent-eval'
 import type { JudgeConfig } from '@tangle-network/agent-eval/campaign'
-import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
+import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { DataExample, SolverArtifact } from './agentic-data-creation'
 

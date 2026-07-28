@@ -1677,7 +1677,7 @@ picks the highest-scoring valid output.
 
 ##### driver
 
-> **driver**: [`Driver`](runtime.md#driver-2)\<[`ResearchTask`](#researchtask), [`ResearchOutput`](#researchoutput), `"done"`\>
+> **driver**: [`Driver`](index.md#driver)\<[`ResearchTask`](#researchtask), [`ResearchOutput`](#researchoutput), `"done"`\>
 
 ***
 

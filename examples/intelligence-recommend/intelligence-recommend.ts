@@ -20,7 +20,7 @@ import { makeProposalFinding } from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import { improve } from '@tangle-network/agent-runtime'
 import { createIntelligenceClient } from '@tangle-network/agent-runtime/intelligence'
-import type { LoopTraceEvent } from '@tangle-network/agent-runtime/loops'
+import type { LoopTraceEvent } from '@tangle-network/agent-runtime/kernel'
 import {
   agent,
   executionRef,

@@ -19,8 +19,8 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Driver } from '@tangle-network/agent-runtime/loops'
-import { runAgentRounds } from '@tangle-network/agent-runtime/loops'
+import type { Driver } from '@tangle-network/agent-runtime/kernel'
+import { runAgentRounds } from '@tangle-network/agent-runtime/kernel'
 import {
   appendFindings,
   createInProcessUiAuditClient,

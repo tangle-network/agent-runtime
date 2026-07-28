@@ -314,8 +314,8 @@ A separate final-test partition is required because source labels alone cannot p
   leaf execution backend) and the canonical agent-driver:
   `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`
   substrate (`src/runtime/supervise/`), with `runAgentic`/`defineStrategy`/`runPersonified`.
-- **The published optimization suite**: `@tangle-network/agent-runtime/loops` (a build
-  alias — the source is `src/runtime/`, there is no `src/loops/` directory):
+- **The published optimization suite**: `@tangle-network/agent-runtime/kernel` (source:
+  `src/runtime/`):
   `Environment`/`Strategy`/`defineStrategy`/`ShotPersona` (`strategy.ts`), `runBenchmark`
   (`run-benchmark.ts`), `createVerifierEnvironment`/`createMcpEnvironment`,
   `harvestCorpus`, `authorStrategy` (`strategy-author.ts`), `auditIntent`, and

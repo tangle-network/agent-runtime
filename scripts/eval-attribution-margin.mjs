@@ -16,7 +16,7 @@
  *
  * Deterministic per seed (seeded RNG); reps over master seeds give variance.
  */
-import { attributeSteer } from '../dist/loops.js'
+import { attributeSteer } from '../dist/kernel.js'
 
 const SIGMA = Number(process.env.SIGMA ?? 0.1) // validator score noise (std dev)
 const POP = Number(process.env.POP ?? 400) // scenarios per population

@@ -6,7 +6,7 @@
  * A real domain opens a repo / browser / MCP server the same way.
  */
 
-import type { AgenticTask, ArtifactHandle, Environment } from '@tangle-network/agent-runtime/loops'
+import type { AgenticTask, ArtifactHandle, Environment } from '@tangle-network/agent-runtime/kernel'
 
 export const target = 5
 const counters = new Map<string, { count: number }>()

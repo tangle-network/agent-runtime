@@ -7,7 +7,7 @@ import type {
   Executor,
   ExecutorContext,
   ExecutorResult,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import {
   buildTbDockerExecArgs,
   createTbContainerExecutor,

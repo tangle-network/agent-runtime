@@ -22,7 +22,7 @@ import {
   refine,
   runBenchmark,
   sample,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { counterEnv, counterTask, target } from './counter-env'
 
 // ── 1. The domain — the only thing a new domain writes ──────────────────────

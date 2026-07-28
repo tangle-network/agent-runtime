@@ -12,7 +12,7 @@
  *                          plus a brain.
  * If respawn-fresh beats continuous on long tasks, Ralph > refine. If the brain earns its cost, supervisor > Ralph.
  */
-import { defineStrategy } from '@tangle-network/agent-runtime/loops'
+import { defineStrategy } from '@tangle-network/agent-runtime/kernel'
 
 const ralphContinue =
   'A previous attempt may have left partial work in the implementation file. FIRST read the current file and ' +

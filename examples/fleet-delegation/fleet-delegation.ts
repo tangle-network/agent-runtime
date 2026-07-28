@@ -1,6 +1,6 @@
 // TANGLE_FLEET_ID flips delegation from sibling-sandbox to fleet-workspace dispatch. See README.md.
 
-import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
+import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/kernel'
 import {
   createFleetWorkspaceExecutor,
   createSiblingSandboxExecutor,

@@ -38,7 +38,7 @@ import {
   renderLeaderboardMarkdown,
   renderPairwiseMarkdown,
   type SandboxClient,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { codingDispatch } from './dispatch'
 import { ensembleCodeJudge, type RubricDim, type RunArtifact, singleCodeJudge } from './eval'
 import { csvParserSource, lruCacheSource } from './fixtures'

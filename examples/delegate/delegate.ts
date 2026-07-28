@@ -15,7 +15,7 @@
  * Run:  TANGLE_API_KEY=<router key>  pnpm tsx examples/delegate/delegate.ts
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { delegate } from '@tangle-network/agent-runtime/loops'
+import { delegate } from '@tangle-network/agent-runtime/kernel'
 import { fileDeliverable, makeWriteFileBackend, scratchTarget } from './shared'
 
 async function main(): Promise<void> {

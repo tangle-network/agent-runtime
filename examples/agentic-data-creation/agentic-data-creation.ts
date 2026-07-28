@@ -47,7 +47,7 @@ import {
   runAgentRounds,
   type SandboxClient,
   type Validator,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 
 // ── The four-role data shapes ─────────────────────────────────────────────────────────────

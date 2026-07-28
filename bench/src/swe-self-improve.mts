@@ -10,7 +10,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { createChatClient } from '@tangle-network/agent-eval'
-import { refine, runAgentic, runStrategyEvolution, sample } from '@tangle-network/agent-runtime/loops'
+import { refine, runAgentic, runStrategyEvolution, sample } from '@tangle-network/agent-runtime/kernel'
 import { createSweBenchEnvironment } from './swe-bench-env'
 
 async function main(): Promise<void> {

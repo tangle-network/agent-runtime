@@ -24,7 +24,7 @@ import {
   inlineSandboxClient,
   resolveSandboxClient,
   type SandboxClient,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import { makeSearchExecutor, webSearchTool } from './search-tool'
 

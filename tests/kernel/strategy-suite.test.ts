@@ -294,7 +294,7 @@ describe('strategy surface close', () => {
 // ── The authored-module contract lint ─────────────────────────────────────────────
 
 describe('assertStrategyContract', () => {
-  const clean = `import { defineStrategy } from '@tangle-network/agent-runtime/loops'
+  const clean = `import { defineStrategy } from '@tangle-network/agent-runtime/kernel'
 export default defineStrategy('ok', async ({ shot }) => {
   const out = await shot()
   return { score: out?.score ?? 0, resolved: false, completions: 1, progression: [], shots: 1 }

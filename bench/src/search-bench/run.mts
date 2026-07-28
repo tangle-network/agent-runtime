@@ -15,7 +15,7 @@
  */
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { extractLlmCallEvent, openSandboxRun } from '@tangle-network/agent-runtime/loops'
+import { extractLlmCallEvent, openSandboxRun } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox, type SandboxEvent } from '@tangle-network/sandbox'
 import { answerOutput, sandboxAgentRun, type WorkerBackendType } from '../sandbox-run'
 import { type BridgeCfg, runBridgeCell } from './bridge'

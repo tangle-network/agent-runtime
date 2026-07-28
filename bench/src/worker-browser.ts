@@ -18,7 +18,7 @@
 import { readFile } from 'node:fs/promises'
 import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
-import { routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
+import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
 
 export interface BrowserLocalConfig {
   routerBaseUrl: string

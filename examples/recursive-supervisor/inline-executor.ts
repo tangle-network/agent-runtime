@@ -18,8 +18,8 @@ import type {
   Executor,
   ExecutorResult,
   UsageEvent,
-} from '@tangle-network/agent-runtime/loops'
-import { createExecutorRegistry } from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
+import { createExecutorRegistry } from '@tangle-network/agent-runtime/kernel'
 
 export interface Script {
   out: string

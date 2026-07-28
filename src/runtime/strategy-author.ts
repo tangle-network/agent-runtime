@@ -69,7 +69,7 @@ Rules:
   you reached (keep-best, never final-state), progression = score after each shot.
 - The module must be EXACTLY this shape (no other imports, no commentary outside code):
 
-import { defineStrategy } from '@tangle-network/agent-runtime/loops'
+import { defineStrategy } from '@tangle-network/agent-runtime/kernel'
 export default defineStrategy('your-strategy-name', async ({ surface, task, budget, shot, critique, listTools }) => {
   // your composition (listTools comes from the destructured context — it is NOT a global)
 })
@@ -104,7 +104,7 @@ export interface AuthorStrategyOptions {
 
 /** Static CONTRACT lint over an authored strategy module — the module-boundary
  *  enforcement of the harness's two measurement invariants:
- *    - author blindness: the only import allowed is the loops surface. A body that could
+ *    - author blindness: the only import allowed is the kernel surface. A body that could
  *      reach the filesystem, network, or process could read or mutate verifier/artifact
  *      state outside the brokered shots, and the harness-verified score would stop
  *      meaning "what the shots achieved".
@@ -114,7 +114,7 @@ export interface AuthorStrategyOptions {
  *  A lint, not a sandbox: its job is keeping the benchmark numbers interpretable. */
 export function assertStrategyContract(code: string): void {
   const allowedImport =
-    /^\s*import\s+\{[^}]*\}\s+from\s+['"]@tangle-network\/agent-runtime\/loops['"]/
+    /^\s*import\s+\{[^}]*\}\s+from\s+['"]@tangle-network\/agent-runtime\/kernel['"]/
   for (const line of code.split('\n')) {
     if (/^\s*import\s/.test(line) && !allowedImport.test(line)) {
       throw new Error(`authored code rejected: foreign import — ${line.trim().slice(0, 120)}`)

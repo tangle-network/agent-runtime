@@ -39,7 +39,7 @@ import {
   type Scope,
   serveCoordinationMcp,
   workerFromBackend,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { buildWorkerBackend, demoCheck, expectedAnswer } from './shared'
 
 /** The supervisor's standing instructions — it delegates, it does not solve. */

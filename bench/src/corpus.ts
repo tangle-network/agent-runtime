@@ -16,7 +16,7 @@ import { appendFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { hashContent, type RunSplitTag, validateRunRecord } from '@tangle-network/agent-eval'
 import type { CorpusRecord } from '@tangle-network/agent-eval/rl'
-import type { Iteration } from '@tangle-network/agent-runtime/loops'
+import type { Iteration } from '@tangle-network/agent-runtime/kernel'
 import type { BenchRuntimeDecisionPoint, BenchRuntimeHookEvent } from './runtime-hook-recorder'
 
 /** One attempt within a condition-run: the prompt/steer sent, the output, the

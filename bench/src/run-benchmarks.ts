@@ -34,8 +34,8 @@ import type {
   AgentRunSpec,
   Deliverable,
   OpenSandboxRunOptions,
-} from '@tangle-network/agent-runtime/loops'
-import { openSandboxRun } from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
+import { openSandboxRun } from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { resolveAdapter } from './adapters'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'

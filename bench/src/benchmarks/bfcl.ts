@@ -11,7 +11,7 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
+import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 

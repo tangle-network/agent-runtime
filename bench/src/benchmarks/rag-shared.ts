@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
+import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import type { BenchScore, BenchTask, LoadOptions } from './types'
 
 export const FINAL_ANSWER_SENTINEL = 'FINAL ANSWER:'

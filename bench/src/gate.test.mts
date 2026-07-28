@@ -19,7 +19,7 @@ import type {
   Executor,
   ExecutorFactory,
   ExecutorResult,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
 import { runGate, type SolveTask } from './gate'
 

@@ -24,7 +24,7 @@ import {
   refine,
   runStrategyEvolution,
   sample,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import { counterEnv, counterTask } from '../strategy-suite/counter-env'
 
 // ── The domain ──────────────────────────────────────────────────────────────

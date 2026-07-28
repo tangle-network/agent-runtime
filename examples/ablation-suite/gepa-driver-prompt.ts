@@ -20,7 +20,7 @@ import {
   type AgenticTask,
   failuresAnalyst,
   superviseSurface,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 import {
   assertCompleteCost,
   officialOptimizerModel,

@@ -66,7 +66,7 @@ const ownSurfaceLabels = {
   './conversation': 'Multi-turn conversations',
   './durable': 'Product chat turns — edge-safe streaming, persistence, and stable execution IDs',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
-  './loops': 'Recursive atom + loop kernel (alias of ./runtime)',
+  './kernel': 'Execution kernel — recursive atom, supervision, executors, round-synchronous loop',
   './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',
   './analyst-loop': 'Analyst loop — trace findings on a running loop',
   './knowledge': 'Knowledge orchestration — supervised KB updates',
@@ -77,10 +77,6 @@ const ownSurfaceLabels = {
   './testing': 'Testing fixtures — validated Runtime wire records',
   './mcp': 'MCP servers — delegate / coordination / detached-session',
 }
-// ./loops is an intentional alias of ./runtime (same source) — list it once as ./loops,
-// since that is the public name the canonical doc and the codebase use.
-const ownSubpathAliases = new Set(['./runtime'])
-
 // SUBSTRATE surface (agent-eval): the curated category -> exports-map subpath map. These
 // are the reuse surfaces the canonical doc points agents at; the SYMBOLS under each are
 // generated, the category↔subpath mapping is the judgment.
@@ -215,7 +211,6 @@ function firstDocLine(checker, sym) {
 
 const ownModules = []
 for (const subpath of Object.keys(pkg.exports || {})) {
-  if (ownSubpathAliases.has(subpath)) continue
   const specifier = subpath === '.' ? pkg.name : `${pkg.name}/${subpath.replace(/^\.\//, '')}`
   ownModules.push({ specifier, label: ownSurfaceLabels[subpath], subpath })
 }

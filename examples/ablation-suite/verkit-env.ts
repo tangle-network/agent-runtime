@@ -48,7 +48,7 @@ import type {
   AgenticTool,
   ArtifactHandle,
   SurfaceScore,
-} from '@tangle-network/agent-runtime/loops'
+} from '@tangle-network/agent-runtime/kernel'
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'verkit')
 

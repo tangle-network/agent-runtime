@@ -8,7 +8,7 @@
  * from the benchmark's published evaluation harness.
  */
 
-import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
+import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 
 export interface BenchTask {
   /** Stable benchmark instance id. */
