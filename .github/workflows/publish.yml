@@ -6,6 +6,11 @@ on:
       - 'v*'
       - 'agent-bench-v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v* tag to retry
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,8 +19,39 @@ jobs:
   verify:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      release-sha: ${{ steps.release.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+
+      - name: Verify release source and version
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+        run: |
+          if [[ "$RELEASE_TAG" != v* ]] ||
+             ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
+            echo "::error::Expected an existing v* release tag, got '$RELEASE_TAG'."
+            exit 1
+          fi
+          git fetch --force --no-tags --depth=1 origin \
+            "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          TAG_SHA=$(git rev-parse "$RELEASE_TAG^{}")
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          if [ "$CHECKOUT_SHA" != "$TAG_SHA" ]; then
+            echo "::error::Checkout $CHECKOUT_SHA does not match $RELEASE_TAG at $TAG_SHA."
+            exit 1
+          fi
+          NPM_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${RELEASE_TAG#v}"
+          if [ "$TAG_VERSION" != "$NPM_VERSION" ]; then
+            echo "::error::Tag/version mismatch: tag=$TAG_VERSION package=$NPM_VERSION."
+            exit 1
+          fi
+          echo "sha=$TAG_SHA" >> "$GITHUB_OUTPUT"
+          echo "Release source locked: $RELEASE_TAG at $TAG_SHA"
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
@@ -123,18 +159,6 @@ jobs:
       - name: Verify agent-bench against this release
         run: pnpm run verify:bench
 
-      - name: Verify tag/version lock
-        run: |
-          NPM_VERSION=$(node -p "require('./package.json').version")
-          if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
-            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-            if [ "$TAG_VERSION" != "$NPM_VERSION" ]; then
-              echo "::error::Tag/version mismatch: tag=$TAG_VERSION package=$NPM_VERSION."
-              exit 1
-            fi
-          fi
-          echo "Version locked: $NPM_VERSION"
-
   publish-npm:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -144,6 +168,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify.outputs.release-sha }}
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
