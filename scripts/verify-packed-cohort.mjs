@@ -174,7 +174,7 @@ function buildAndPack({
   packageName,
   sourceRepo,
   packageDirectory = '.',
-  localPackages,
+  localPackages = [],
 }) {
   assertCleanGitCheckout(sourceRepo, packageName)
   const sourceCommit = captured('git', ['rev-parse', 'HEAD'], sourceRepo).trim()
@@ -205,7 +205,8 @@ function buildAndPack({
         localPackages.map((artifact) => [artifact.name, `file:${artifact.path}`]),
       ),
     }
-    if (existsSync(join(buildDir, 'pnpm-workspace.yaml'))) {
+    const workspaceRoot = findPnpmWorkspaceRoot(buildDir, buildRoot)
+    if (workspaceRoot) {
       captured(
         'corepack',
         [
@@ -217,7 +218,7 @@ function buildAndPack({
           'overrides',
           JSON.stringify(overrides),
         ],
-        buildDir,
+        workspaceRoot,
       )
     } else {
       packageJson.pnpm = { ...(packageJson.pnpm ?? {}), overrides }
@@ -282,6 +283,15 @@ function buildAndPack({
     path: archivePath,
     extractedPackageDir,
     packageJson: packedPackageJson,
+  }
+}
+
+function findPnpmWorkspaceRoot(startDirectory, sourceRoot) {
+  let directory = startDirectory
+  while (true) {
+    if (existsSync(join(directory, 'pnpm-workspace.yaml'))) return directory
+    if (directory === sourceRoot) return undefined
+    directory = dirname(directory)
   }
 }
 
