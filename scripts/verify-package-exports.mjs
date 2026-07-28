@@ -17,29 +17,15 @@ import {
   requiredPackedDevelopmentDependency,
 } from './lib/packed-package-test.mjs'
 
-// `graceful-fs` patches Node's `fs` at MODULE scope (`fs.close = ...`), and
-// `proper-lockfile` statically imports it. workerd exposes those as getter-only
-// accessors, so the assignment throws while Cloudflare validates an uploaded
-// Worker — `Cannot set property close of #<Object> which has only a getter
-// [code: 10021]` — and the ENTIRE Worker is rejected, with no request frame and
-// nothing the app can catch.
-//
-// This is a transitive hazard, which is why it belongs here and not only in the
-// package that trips it: agent-runtime pins `@tangle-network/agent-knowledge`
-// at an exact version and re-exports it from the root barrel, so when
-// agent-knowledge shipped a static `import { lock } from 'proper-lockfile'`,
-// every Cloudflare product importing `runToolLoop` from this package became
-// undeployable. The defect was one package away and this repo's CI could not
-// see it. Scanning the INSTALLED @tangle-network tree is what closes that gap.
-//
-// `wrangler deploy --dry-run` bundles without executing module scope, so it is
-// structurally blind to this class — a static check on the shipped bytes is the
-// only thing that catches it before a real upload does.
+// Static imports of these packages mutate Node builtins at module load and can
+// make edge runtimes reject a Worker before startup. Scan installed first-party
+// output because Runtime can inherit the failure through a transitive package.
 const edgeUnsafeStaticImports = ['graceful-fs', 'proper-lockfile']
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
+const suppliedKnowledgeTarball = process.argv[3] ? resolve(process.argv[3]) : undefined
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -51,6 +37,9 @@ try {
 
   if (suppliedTarball && !existsSync(suppliedTarball)) {
     throw new Error(`supplied release tarball does not exist: ${suppliedTarball}`)
+  }
+  if (suppliedKnowledgeTarball && !existsSync(suppliedKnowledgeTarball)) {
+    throw new Error(`supplied knowledge tarball does not exist: ${suppliedKnowledgeTarball}`)
   }
   if (!suppliedTarball) {
     run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
@@ -124,6 +113,9 @@ try {
   ) {
     throw new Error('packed consumer requires an installed @tangle-network/agent-knowledge release')
   }
+  const knowledgePackageSpec = suppliedKnowledgeTarball
+    ? `file:${suppliedKnowledgeTarball}`
+    : knowledgePackageJson.version
   const peerPackages = [
     '@tangle-network/agent-eval',
     '@tangle-network/agent-interface',
@@ -143,6 +135,7 @@ try {
         type: 'module',
         dependencies: {
           '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
+          '@tangle-network/agent-knowledge': knowledgePackageSpec,
           ...peerDependencies,
         },
         devDependencies: {
@@ -150,7 +143,7 @@ try {
           typescript: requiredPackedDevelopmentDependency(packageJson, 'typescript'),
         },
         overrides: {
-          '@tangle-network/agent-knowledge': knowledgePackageJson.version,
+          '@tangle-network/agent-knowledge': '$@tangle-network/agent-knowledge',
         },
       },
       null,
@@ -651,10 +644,7 @@ function assertNoEdgeUnsafeStaticImports(scopeDir) {
   const offenders = []
   let scanned = 0
   for (const packageDir of packageDirs) {
-    // Only the package's OWN shipped files. Third-party code inside a nested
-    // `node_modules` is allowed to patch — `proper-lockfile` itself statically
-    // imports `graceful-fs`, and that is fine as long as no first-party bundle
-    // statically imports `proper-lockfile`.
+    // Third-party package bodies are outside this first-party artifact check.
     for (const file of ownJavascriptFiles(packageDir)) {
       scanned += 1
       const source = readFileSync(file, 'utf8')
@@ -676,30 +666,28 @@ function assertNoEdgeUnsafeStaticImports(scopeDir) {
     )
   }
   process.stdout.write(
-    `Edge module-load safety: ${packageDirs.length} first-party packages, ${scanned} shipped files, no builtin patching.\n`,
+    `Edge module-load safety: ${packageDirs.length} first-party packages, ${scanned} shipped files, no blocked static imports.\n`,
   )
 }
 
 function hasStaticImport(source, specifier) {
   const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const quoted = `["']${escaped}["']`
-  // Bound imports, bare side-effect imports, re-exports, and CommonJS require.
-  // Dynamic import() is deliberately excluded because it defers module scope.
+  const quoted = `["']${escaped}(?:/[^"'\\r\\n]*)?["']`
   return new RegExp(
-    `(?:\\bfrom\\s*${quoted}|\\bimport\\s*${quoted}|\\brequire\\(\\s*${quoted}\\s*\\))`,
+    `(?:\\bfrom\\s*${quoted}|\\bimport\\s*${quoted}|\\brequire\\s*\\(\\s*${quoted}\\s*\\))`,
   ).test(source)
 }
 
-// The matcher is the whole guard, so prove it still separates the forms it
-// claims to separate before trusting a clean scan.
 function assertEdgeUnsafeStaticImportMatcher() {
   const specifier = 'proper-lockfile'
   const cases = [
     ['bound ESM import', `import value from '${specifier}'`, true],
     ['bare side-effect ESM import', `import '${specifier}'`, true],
     ['ESM re-export', `export { value } from '${specifier}'`, true],
-    ['CommonJS require', `require('${specifier}')`, true],
+    ['package subpath', `export * from '${specifier}/lib/lockfile.js'`, true],
+    ['spaced CommonJS require', `require ('${specifier}')`, true],
     ['dynamic import', `await import('${specifier}')`, false],
+    ['lookalike package', `import value from '${specifier}-safe'`, false],
   ]
   for (const [label, source, expected] of cases) {
     if (hasStaticImport(source, specifier) !== expected) {
