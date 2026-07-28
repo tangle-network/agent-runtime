@@ -1,22 +1,21 @@
 /**
- * `handleChatTurn` — framework-neutral chat-turn HTTP orchestrator.
+ * `handleChatTurn` is a framework-neutral chat-turn HTTP orchestrator.
  * Owns the NDJSON `ChatStreamEvent` line protocol, the `session.run.*`
  * lifecycle vocabulary, and the persist / post-process / trace-flush
  * hook order. Returns a `ReadableStream` body the product hands to its
  * platform `Response`.
  *
- * Execution durability is the substrate's concern: `box.streamPrompt`
- * auto-reconnects in-call; cross-process reconnect via `X-Execution-ID`
- * is the product's job. The producer this engine wraps already speaks
- * that protocol — the engine just frames the events.
+ * Sandbox owns long-running execution, reconnect, and replay.
+ * The producer this engine wraps already speaks that protocol; this
+ * engine frames the events and orders product callbacks.
  *
  * Hooks (`ChatTurnHooks`):
- *   - `produce`                  — build the backend event stream
- *   - `persistAssistantMessage`  — write the assistant turn to the product DB
- *   - `onTurnComplete?`          — post-process (proposals, citations, …)
- *   - `onEvent?`                 — per-event side channel (e.g. DO broadcast)
- *   - `transformFinalText?`      — pre-persist transform (e.g. PII redact)
- *   - `traceFlush?`              — handed to waitUntil so OTLP export lands
+ *   - `produce`: build the backend event stream
+ *   - `persistAssistantMessage`: write the assistant turn to the product DB
+ *   - `onTurnComplete?`: post-process proposals, citations, and similar work
+ *   - `onEvent?`: send each event to another consumer
+ *   - `transformFinalText?`: transform text before persistence
+ *   - `traceFlush?`: let `waitUntil` keep the worker alive for export
  *
  * Framework neutrality: takes already-resolved values (`identity` tuple,
  * a `waitUntil`), never a `Request` or a `Context`. The product's thin
@@ -41,7 +40,7 @@ export interface ChatTurnIdentity {
   turnIndex: number
 }
 
-/** The live side of a turn — what the product's `produce` hook returns. */
+/** The live side of a turn returned by the product's `produce` hook. */
 export interface ChatTurnProducer<TEvent extends ChatStreamEvent = ChatStreamEvent> {
   /** The turn's event stream. Forwarded verbatim to the caller. */
   stream: AsyncGenerator<TEvent, void, unknown>
@@ -49,6 +48,7 @@ export interface ChatTurnProducer<TEvent extends ChatStreamEvent = ChatStreamEve
   finalText(): string
 }
 
+/** Product callbacks invoked while one chat turn runs. */
 export interface ChatTurnHooks {
   /** Build the backend stream. The engine forwards events verbatim and
    *  reads `finalText()` once the stream drains. */
@@ -56,23 +56,23 @@ export interface ChatTurnHooks {
   /** Persist the assistant message to the product's own store. Called
    *  once, after drain, with the assembled (transform-applied) text. */
   persistAssistantMessage(input: { identity: ChatTurnIdentity; finalText: string }): Promise<void>
-  /** Optional post-processing (proposals, citations, credit metering …).
-   *  Errors are swallowed + logged — post-process must never fail a turn
-   *  that already streamed successfully. */
+  /** Optional post-processing for proposals, citations, or credit metering.
+   *  Errors are logged without failing a turn that already streamed. */
   onTurnComplete?(input: { identity: ChatTurnIdentity; finalText: string }): Promise<void>
-  /** Optional per-event side channel (e.g. DO broadcast). Runs for every
-   *  emitted event, lifecycle envelope included. Errors swallowed — a
-   *  broadcast failure must not break the chat stream. */
+  /** Optional per-event side channel, such as a Durable Object broadcast.
+   *  Runs for every emitted event, including the lifecycle envelope.
+   *  Errors are logged without breaking the chat stream. */
   onEvent?(event: ChatStreamEvent): void | Promise<void>
   /** Optional pre-persist transform of the final text (e.g. PII
    *  redaction). Affects only what is persisted; the live stream is
    *  never altered. */
   transformFinalText?(text: string): string | Promise<string>
-  /** Optional trace flush — resolves when OTLP export completes. Handed
-   *  to `waitUntil` so the worker isolate stays alive for the POST. */
+  /** Optional trace flush. Handed to `waitUntil` so the worker stays alive
+   *  until export completes. */
   traceFlush?(): Promise<void>
 }
 
+/** Inputs for one streamed product chat turn. */
 export interface RunChatTurnInput {
   identity: ChatTurnIdentity
   hooks: ChatTurnHooks
@@ -84,8 +84,9 @@ export interface RunChatTurnInput {
   log?: (message: string, meta?: Record<string, unknown>) => void
 }
 
+/** HTTP response values returned for one chat turn. */
 export interface ChatTurnResult {
-  /** NDJSON body — return this as the platform `Response` body. */
+  /** NDJSON body to return as the platform `Response` body. */
   body: ReadableStream<Uint8Array>
   /** Content type for the response. */
   contentType: 'application/x-ndjson'
@@ -104,7 +105,7 @@ function defaultLog(message: string, meta?: Record<string, unknown>): void {
 
 /**
  * Run one chat turn. Returns immediately with a `ReadableStream` body;
- * the turn executes as the body is pulled. Never rejects — backend
+ * execution starts while the stream is constructed. Backend
  * failures surface as `error` + `session.run.failed` events.
  */
 export function handleChatTurn(input: RunChatTurnInput): ChatTurnResult {

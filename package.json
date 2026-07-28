@@ -29,6 +29,11 @@
       "import": "./dist/conversation.js",
       "default": "./dist/conversation.js"
     },
+    "./durable": {
+      "types": "./dist/durable.d.ts",
+      "import": "./dist/durable.js",
+      "default": "./dist/durable.js"
+    },
     "./intelligence": {
       "types": "./dist/intelligence.d.ts",
       "import": "./dist/intelligence.js",
