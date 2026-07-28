@@ -18,8 +18,9 @@ import {
   benjaminiHochberg,
   confidenceInterval,
   pairedBootstrap,
-  pairedTTest,
+  type RankTestMethod,
   type RunRecord,
+  wilcoxonSignedRank,
   wilson,
 } from '@tangle-network/agent-eval'
 
@@ -312,9 +313,17 @@ export interface PairwiseVerdict {
   readonly delta: number
   readonly ciLow: number
   readonly ciHigh: number
-  /** Paired-test p-value (before correction). */
+  /** Non-zero paired differences used by the signed-rank test. */
+  readonly nonZeroPairs: number
+  /** How the signed-rank p-value was computed. */
+  readonly testMethod: RankTestMethod
+  /** Smallest p-value attainable by this paired design. */
+  readonly pFloor: number
+  /** Raw two-sided signed-rank p-value. */
   readonly p: number
-  /** BH-significant across ALL pairs AND above the `minPairs` power floor. */
+  /** Benjamini-Hochberg adjusted q-value across every profile pair. */
+  readonly q: number
+  /** BH-significant and above the `minPairs` observation floor. */
   readonly significant: boolean
 }
 
@@ -351,7 +360,7 @@ export function pairwiseSignificance(
   const keys = [...byProfile.keys()].sort()
   const collapsed = new Map(keys.map((k) => [k, meanByScenario(byProfile.get(k) ?? [], scoreOf)]))
 
-  const raw: Array<Omit<PairwiseVerdict, 'significant'>> = []
+  const raw: Array<Omit<PairwiseVerdict, 'q' | 'significant'>> = []
   for (let i = 0; i < keys.length; i += 1) {
     for (let j = i + 1; j < keys.length; j += 1) {
       const ka = keys[i] as string
@@ -369,7 +378,7 @@ export function pairwiseSignificance(
       }
       if (aScores.length === 0) continue
       const boot = pairedBootstrap(aScores, bScores, { seed: 7, statistic: 'median' })
-      const p = pairedTTest(aScores, bScores).p
+      const test = wilcoxonSignedRank(aScores, bScores, { seed: 7 })
       raw.push({
         a: labelOf(ka),
         b: labelOf(kb),
@@ -377,16 +386,20 @@ export function pairwiseSignificance(
         delta: boot.median,
         ciLow: boot.low,
         ciHigh: boot.high,
-        p,
+        nonZeroPairs: test.nNonZero,
+        testMethod: test.method,
+        pFloor: test.pFloor,
+        p: test.p,
       })
     }
   }
-  const { significant } = benjaminiHochberg(
-    raw.map((r) => r.p),
+  const { qValues, significant } = benjaminiHochberg(
+    raw.map((result) => result.p),
     opts.fdr ?? 0.05,
   )
   return raw.map((r, i) => ({
     ...r,
+    q: qValues[i] ?? 1,
     significant: (significant[i] ?? false) && r.pairs >= minPairs,
   }))
 }
@@ -454,19 +467,26 @@ export function renderPairwiseMarkdown(
 ): string {
   const lines: string[] = [`## ${title}`, '']
   if (verdicts.length === 0) return lines.concat('_no comparable pairs_').join('\n')
-  lines.push('| A vs B | Δ(b−a) median | 95% CI | pairs | p | verdict |')
-  lines.push('|---|--:|--:|--:|--:|---|')
+  lines.push(
+    '| A vs B | Δ(b−a) median | 95% CI | pairs | changed | test | p | p floor | q | verdict |',
+  )
+  lines.push('|---|--:|--:|--:|--:|---|--:|--:|--:|---|')
   for (const v of verdicts) {
-    const verdict = v.significant ? `**${v.delta >= 0 ? v.b : v.a} wins**` : 'ns'
+    const verdict =
+      v.nonZeroPairs === 0 ? 'tie' : v.significant ? `**${v.delta >= 0 ? v.b : v.a} wins**` : 'ns'
     lines.push(
-      `| ${v.a} vs ${v.b} | ${v.delta >= 0 ? '+' : ''}${pct(v.delta)} | [${pct(v.ciLow)}, ${pct(v.ciHigh)}] | ${v.pairs} | ${v.p.toFixed(3)} | ${verdict} |`,
+      `| ${v.a} vs ${v.b} | ${v.delta >= 0 ? '+' : ''}${pct(v.delta)} | [${pct(v.ciLow)}, ${pct(v.ciHigh)}] | ${v.pairs} | ${v.nonZeroPairs} | ${v.testMethod} | ${formatProbability(v.p)} | ${formatProbability(v.pFloor)} | ${formatProbability(v.q)} | ${verdict} |`,
     )
   }
   lines.push(
     '',
-    '> `ns` = not significant after Benjamini–Hochberg (or below the paired-count floor).',
+    '> `changed` excludes exact ties. `p` is the raw two-sided signed-rank probability; `q` is Benjamini-Hochberg adjusted. `ns` means q did not clear the target or the pair count was below the configured minimum.',
   )
   return lines.join('\n')
+}
+
+function formatProbability(value: number): string {
+  return value > 0 && value < 0.001 ? value.toExponential(2) : value.toFixed(3)
 }
 
 function esc(s: string): string {

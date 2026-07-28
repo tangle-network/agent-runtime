@@ -1,4 +1,4 @@
-import type { CostLedgerHandle } from '@tangle-network/agent-eval'
+import { type CostLedgerHandle, minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
 import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
   sealAgentProfileImprovementTask,
@@ -66,6 +66,7 @@ afterEach(() => {
   cleanupCandidateExperimentFixtures()
   cleanupCandidateFixtures()
 })
+const minimumPairedRuns = minimumPairsForPairedDeltaTest(0.95)
 
 // These exercise the whole improvement lifecycle — real content-addressing, real file I/O, a
 // paired matrix — and on CI the slowest already burn ~4.3s of the 5s default. That leaves the
@@ -358,7 +359,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
 
     const result = await proposeAgentProfileImprovement({
       runId: 'profile-proposal-run',
-      budgetUsd: 7,
+      budgetUsd: minimumPairedRuns * 2 + 1,
       source,
       profile,
       stateDigest,
@@ -402,8 +403,11 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       improvement,
       benchmark: {
         tasks: [taskMaterial],
-        reps: 3,
-        seeds: [41, 42, 43],
+        reps: minimumPairedRuns,
+        seeds: Array.from({ length: minimumPairedRuns }, (_, index) => 41 + index) as [
+          number,
+          ...number[],
+        ],
         policy: template.evaluation.experiment.policy,
       },
       executor: {
@@ -417,24 +421,26 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       now: () => new Date('2026-07-27T00:02:00.000Z'),
     })
 
-    expect(executed).toHaveLength(6)
-    expect(executed.filter((entry) => entry.arm === 'baseline')).toEqual([
-      { arm: 'baseline', prompt: 'BASELINE' },
-      { arm: 'baseline', prompt: 'BASELINE' },
-      { arm: 'baseline', prompt: 'BASELINE' },
-    ])
-    expect(executed.filter((entry) => entry.arm === 'candidate')).toEqual([
-      { arm: 'candidate', prompt: 'PROMOTED' },
-      { arm: 'candidate', prompt: 'PROMOTED' },
-      { arm: 'candidate', prompt: 'PROMOTED' },
-    ])
+    expect(executed).toHaveLength(minimumPairedRuns * 2)
+    expect(executed.filter((entry) => entry.arm === 'baseline')).toEqual(
+      Array.from({ length: minimumPairedRuns }, () => ({
+        arm: 'baseline',
+        prompt: 'BASELINE',
+      })),
+    )
+    expect(executed.filter((entry) => entry.arm === 'candidate')).toEqual(
+      Array.from({ length: minimumPairedRuns }, () => ({
+        arm: 'candidate',
+        prompt: 'PROMOTED',
+      })),
+    )
     expect(result.experiment.source).toEqual(source)
     expect(result.experiment.executionRef).toEqual(executorRef)
     expect(result.proposal.changedSurfaces).toEqual(['prompt'])
     expect(result.proposal.evaluation).toMatchObject({
       kind: 'agent-profile-improvement-measured-comparison',
       metadata: { agentImprovementSource: source },
-      overall: { baseline: 0, candidate: 1, n: 3 },
+      overall: { baseline: 0, candidate: 1, n: minimumPairedRuns },
     })
     expect(result.proposal.evaluation.evaluation.preparation.cost.provenance).toBe('observed')
     expect(result.proposal.evaluation.evaluation.preparation.cost.usd).toBeCloseTo(0.2508)
@@ -1023,18 +1029,15 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       },
     })
 
-    expect(executed.sort()).toEqual([
-      'baseline:0',
-      'baseline:1',
-      'baseline:2',
-      'candidate:0',
-      'candidate:1',
-      'candidate:2',
-    ])
-    expect(result.measurements).toHaveLength(3)
+    expect(executed.sort()).toEqual(
+      (['baseline', 'candidate'] as const).flatMap((arm) =>
+        Array.from({ length: minimumPairedRuns }, (_, repetition) => `${arm}:${repetition}`),
+      ),
+    )
+    expect(result.measurements).toHaveLength(minimumPairedRuns)
     expect(result.evaluation).toMatchObject({
       experiment: { digest: rig.experiment.digest },
-      overall: { baseline: 0, candidate: 1, delta: 1, n: 3 },
+      overall: { baseline: 0, candidate: 1, delta: 1, n: minimumPairedRuns },
       decision: { outcome: 'ship' },
       evaluation: {
         preparation: {
@@ -1189,7 +1192,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       placeCell: rig.placeCell,
     })
 
-    expect(result.measurements).toHaveLength(3)
+    expect(result.measurements).toHaveLength(minimumPairedRuns)
     expect(result.evaluation.decision.outcome).toBe('ship')
   })
 
@@ -1207,7 +1210,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     })
 
     expect(proposal.changedSurfaces).toEqual(['memory'])
-    expect(result.measurements).toHaveLength(3)
+    expect(result.measurements).toHaveLength(minimumPairedRuns)
     for (const measurement of result.measurements) {
       expect(measurement.baseline.receipt.memory.mode).toBe('disabled')
       expect(measurement.candidate.receipt.memory.mode).toBe('isolated')

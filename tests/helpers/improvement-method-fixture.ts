@@ -1,4 +1,4 @@
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { type AnalystFinding, minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 
@@ -36,10 +36,13 @@ export interface ImprovementScenario extends Scenario {
   kind: 'improvement-test'
 }
 
-const improvementScenarios: ImprovementScenario[] = Array.from({ length: 12 }, (_, index) => ({
-  id: `improvement-${index}`,
-  kind: 'improvement-test',
-}))
+const improvementScenarios: ImprovementScenario[] = Array.from(
+  { length: 8 + minimumPairsForPairedDeltaTest(0.95) },
+  (_, index) => ({
+    id: `improvement-${index}`,
+    kind: 'improvement-test',
+  }),
+)
 const improvementTrain = improvementScenarios.slice(0, 4)
 const improvementSelection = improvementScenarios.slice(4, 8)
 const improvementTest = improvementScenarios.slice(8)

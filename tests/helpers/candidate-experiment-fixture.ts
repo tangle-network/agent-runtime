@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { InMemoryTraceStore } from '@tangle-network/agent-eval'
+import { InMemoryTraceStore, minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
 import {
   type CandidateExperimentExecutionInput,
   sealCandidateBenchmarkSuite,
@@ -72,7 +72,8 @@ export function createCandidateExperimentFixture(
             },
           },
         }))
-  const reps = options.reps ?? 3
+  const minimumPairs = minimumPairsForPairedDeltaTest(0.95)
+  const reps = options.reps ?? minimumPairs
   const seeds = Array.from({ length: reps }, (_, index) => 101 + index) as [number, ...number[]]
   const experiment = sealCandidateExperiment({
     kind: 'agent-candidate-experiment',
@@ -86,7 +87,7 @@ export function createCandidateExperimentFixture(
       resamples: 500,
       bootstrapSeed: 1_337,
       deltaThreshold: 0,
-      minProductiveRuns: 3,
+      minProductiveRuns: minimumPairs,
       budgetUsd: fixture.task.task.limits.maxCostUsd * reps * 2,
       criticalDimensions: ['quality'],
       regressionTolerance: 0.05,

@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt", "skills"],
-  "digest": "sha256:3849a917dfe1460f0bf6519beb8f8488e9cfdc48f94537ea669316a068a49dd5",
+  "digest": "sha256:dab7beac271518dc40ca5d840fffbff93d02a52cf96961d81eedcfa06284e987",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -18,10 +18,10 @@
       "measurement": {
         "cost": {
           "provenance": "observed",
-          "usd": 6.6e-7
+          "usd": 0.00000132
         },
         "wallDurationMs": 0,
-        "workDurationMs": 660
+        "workDurationMs": 1320
       },
       "preparation": {
         "cost": {
@@ -33,7 +33,7 @@
       "total": {
         "cost": {
           "provenance": "observed",
-          "usd": 6.6e-7
+          "usd": 0.00000132
         },
         "wallDurationMs": 0
       }
@@ -44,11 +44,11 @@
       },
       "benchmark": {
         "suite": {
-          "digest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+          "digest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
           "digestAlgorithm": "rfc8785-sha256",
           "kind": "agent-profile-improvement-suite",
-          "reps": 3,
-          "seeds": [11, 12, 13],
+          "reps": 6,
+          "seeds": [11, 12, 13, 14, 15, 16],
           "splitDigest": "sha256:a8f4bdc4df6d527e21bcfeedf9fcbc007723329c25da5da8c9ad3e6887623e22",
           "taskDigests": ["sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e"]
         },
@@ -130,7 +130,7 @@
           }
         }
       ],
-      "digest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+      "digest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
       "digestAlgorithm": "rfc8785-sha256",
       "executionRef": {
         "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
@@ -143,7 +143,7 @@
         "confidenceLevel": 0.95,
         "criticalDimensions": [],
         "deltaThreshold": 0,
-        "minProductiveRuns": 3,
+        "minProductiveRuns": 6,
         "regressionTolerance": 0,
         "resamples": 100
       },
@@ -165,7 +165,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:5f82aa16ab45fb06d00e5f04ecff5f746f2cd31121afb7c2ac31b8cd703ee316",
+          "digest": "sha256:53e9a7340ff97286ab016388519ce56ea2f8ba89fd9d02f19b62ccd559c2a0e6",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-0",
           "executionRef": {
@@ -244,13 +244,13 @@
           "runCell": {
             "arm": "baseline",
             "attempt": 1,
-            "digest": "sha256:40c8cbe747b60e7a3912a607182340232391b629d41cc6b2c914213f5702088e",
-            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "digest": "sha256:745c5a3301ab1efb555d3b42246fa4cfcaaf3439e4767b03d698ee2225125991",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
             "kind": "agent-profile-improvement-run-cell",
             "repetition": 0,
             "seed": 11,
             "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
-            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
             "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
             "taskIndex": 0
           },
@@ -292,7 +292,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:daf0f586af2ac6a2287e5aefa5b29f7337962168abd5a7c70bb7e6b3837f9b95",
+          "digest": "sha256:bb83b019f5a68bb0b0ea3dcc4d334aac6cea8f46309957b7d8ec71d6c2aaeb6f",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-0",
           "executionRef": {
@@ -371,13 +371,13 @@
           "runCell": {
             "arm": "candidate",
             "attempt": 1,
-            "digest": "sha256:f9fb55d43947f101f10061b11eefd13ae1a56450e515dc6523d07d7261f94221",
-            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "digest": "sha256:2f3d62d5445c7465c2c00a5d01b9c63fb78fb5010db53a29f1f874f063d4a6f1",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
             "kind": "agent-profile-improvement-run-cell",
             "repetition": 0,
             "seed": 11,
             "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
-            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
             "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
             "taskIndex": 0
           },
@@ -421,7 +421,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:44788b5fa495aa316b9e730f95dd870f7723171cfec1fff84016126b9346f17b",
+          "digest": "sha256:52d1089da764e5f52b4edf339dbd74b7f419ca704b10f6661633d8e9e220ecb9",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-1",
           "executionRef": {
@@ -500,13 +500,13 @@
           "runCell": {
             "arm": "baseline",
             "attempt": 1,
-            "digest": "sha256:007bd4c6cadedf64e8792d7eb21a356b2b41b90ed9e04cb0d916bdf20cd2388e",
-            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "digest": "sha256:e9160f85a2f4260e664edea9eb2331bd082cc7831a339422e59fb29cdd2f2165",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
             "kind": "agent-profile-improvement-run-cell",
             "repetition": 1,
             "seed": 12,
             "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
-            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
             "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
             "taskIndex": 0
           },
@@ -548,7 +548,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:688a38e1dae394d7845e892bcee5644297a27e79c1f3813ca29afe30de090365",
+          "digest": "sha256:29d6ae794827b4a764cad22533f9e6795ac1379dc448341c16e92b55be56fb43",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-1",
           "executionRef": {
@@ -627,13 +627,13 @@
           "runCell": {
             "arm": "candidate",
             "attempt": 1,
-            "digest": "sha256:abad51b565dd3e740b87d260a553318eeb1b5907938841a5942b0df629aadfc3",
-            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "digest": "sha256:cf228d0b37c328ff8db272fd19471309b5a7702c8f0daa7e7f90ea0fa045e1a1",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
             "kind": "agent-profile-improvement-run-cell",
             "repetition": 1,
             "seed": 12,
             "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
-            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
             "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
             "taskIndex": 0
           },
@@ -677,7 +677,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:07f982ab59585df9b30fe498ce3969134625d5d3a5cc4cb3549cca83175ef2d4",
+          "digest": "sha256:5a7186c9b471c4f23d2f3cbccbe7958f8d4c8233fb2ee09ee66c5499cfaffaa1",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-2",
           "executionRef": {
@@ -756,13 +756,13 @@
           "runCell": {
             "arm": "baseline",
             "attempt": 1,
-            "digest": "sha256:b4f83f1ba81c01032326dba7523e68a41c50cdc2447452aff480b75dfa1e8894",
-            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "digest": "sha256:939650c27cbe81bc0c4cff1fc7a82de336f7320055c747263ae8f48956eb553b",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
             "kind": "agent-profile-improvement-run-cell",
             "repetition": 2,
             "seed": 13,
             "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
-            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
             "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
             "taskIndex": 0
           },
@@ -804,7 +804,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:4daa28e364e711b0896e7f8bbfc9153aaa4e997672578ac0a1cd6dcdeb2148e0",
+          "digest": "sha256:bef149104e0f613fc1b734ca951c57b2251bbec315ac3937094d98bd1be0621e",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-2",
           "executionRef": {
@@ -883,13 +883,13 @@
           "runCell": {
             "arm": "candidate",
             "attempt": 1,
-            "digest": "sha256:5f66650dc0f5238aeaca52750577fc2b280b8769e0b4b28d592a9a8173bd712a",
-            "experimentDigest": "sha256:ae081dce69d225fd69db1f6b9e553182ef149092553f246723abf26fdcc5a70b",
+            "digest": "sha256:592b772b5b6f4173326d63dfc26385dec1afd341a02652d1ab3e2565db00618d",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
             "kind": "agent-profile-improvement-run-cell",
             "repetition": 2,
             "seed": 13,
             "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
-            "suiteDigest": "sha256:b625b9c8791b5482f5b4e7c2471eb3ca1b719b5424e86d2bcb1044defbba635e",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
             "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
             "taskIndex": 0
           },
@@ -909,6 +909,774 @@
             "evidence": {
               "digest": "sha256:7b862fccf82622a8c3a5b0816f5a543ba61454972e8799219948df150fd0a7fa",
               "identity": "trace-candidate-2",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        }
+      },
+      {
+        "baseline": {
+          "billing": [
+            {
+              "digest": "sha256:892c93e38d998923d0b8554e263697d3464d5c72fb65c906d2670c96ed2772d9",
+              "identity": "bill-baseline-3",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:930e0e0df73a8be4e8d260c76a6926a425a5226b1363e0bf4beab1ccc44149de",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "baseline-3",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.2
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:07788322298c858cafa5bb76dd6157c829c62aca6a4704ac79f22c6b4b21336f",
+              "identity": "grade-baseline-3",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.2,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 3110,
+              "startedAtMs": 3100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:81727faee4350b38ca7595dba4285c789e10593a0f6aea2b9ce76d4f86cea599",
+            "identity": "output-baseline-3",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "baseline",
+            "attempt": 1,
+            "digest": "sha256:342f37fe2e308da563441ce55032c5ddb0c6346ce164be8fdac8ccb721363d4b",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 3,
+            "seed": 14,
+            "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:fb00c3123bf7fcccac400841d61016c16887862d31a550e5d23257bc668896ba",
+            "identity": "baseline-3",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 3100,
+            "startedAtMs": 3000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:e717d226e3e2ce07ba3e3c4414e2a2a4f6d6cac74ec0150a6b801e77c4b39316",
+              "identity": "trace-baseline-3",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        },
+        "candidate": {
+          "billing": [
+            {
+              "digest": "sha256:30531e299ca8bb791ec3d5ab7c971e4936b6684618edff82e8e1a2d4dd290b3f",
+              "identity": "bill-candidate-3",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:252b13293837d3f1375d3f4ba8ab062a98fff6474eb5a88a10c493c728a35d1b",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "candidate-3",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.6
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:71a58edd2c20b7fea3b0d3a7bdf5c74d07202fafe2e732095bae9278eac5b116",
+              "identity": "grade-candidate-3",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.6,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 3110,
+              "startedAtMs": 3100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:c16851a93cdefe33b8b45cb867778311fd4dd9558a8f8a07e01e0f85cf1b185d",
+            "identity": "output-candidate-3",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "candidate",
+            "attempt": 1,
+            "digest": "sha256:6881c9a48aff99ff04cf6cd093ed4874b738d5caafe037ec092ef01a14952e91",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 3,
+            "seed": 14,
+            "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:484098e5361aebc2a329b1e1bc6115eb25e875b70c6d5304ba3ed60061342f04",
+            "identity": "candidate-3",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 3100,
+            "startedAtMs": 3000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:a28cba5e9ec92bdd10f9f40e0b1c03afb5fe3b02ff0336eac99e90fa13d8e90a",
+              "identity": "trace-candidate-3",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        }
+      },
+      {
+        "baseline": {
+          "billing": [
+            {
+              "digest": "sha256:a92691643d523f9b2c65a07bad3ebb7cab1208d9e6f8b89e02a03dff94118e50",
+              "identity": "bill-baseline-4",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:d7fec1bb98d479d00bc1e887ee81b0e221a3e307404388a3f124966a5a0ee604",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "baseline-4",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.2
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:6c58123a53b460008177098be12a383f0b5374f316a7140174ac82be0db3adaa",
+              "identity": "grade-baseline-4",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.2,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 4110,
+              "startedAtMs": 4100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:615106eb847006697d4620d05c187a94823889a4473badd0a07303a9032b2284",
+            "identity": "output-baseline-4",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "baseline",
+            "attempt": 1,
+            "digest": "sha256:dee290df063907e15670b5698b2e63e3e864ecc00488996542653ed9044af0cf",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 4,
+            "seed": 15,
+            "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:69fb92a630f39d09af62d90c6804776f323fe9f77296dc9fe108a0fd3158b900",
+            "identity": "baseline-4",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 4100,
+            "startedAtMs": 4000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:083c3243eb09de3156aa11368682870650e5200b5b2fd22db455713a06ce9a8a",
+              "identity": "trace-baseline-4",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        },
+        "candidate": {
+          "billing": [
+            {
+              "digest": "sha256:fab7b18e8e7d41e1505389c8705777e9e2aec69282001a0add7daee20e24c336",
+              "identity": "bill-candidate-4",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:1f26865bfd63cb64e333b5c78fa1a9113191ae5ed76d5d918c6b3c0c6b3088bb",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "candidate-4",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.6
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:6ead9603dd9ea15cfc402a0f950dd9e8205a6465aa7acac314160336d2aba0e4",
+              "identity": "grade-candidate-4",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.6,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 4110,
+              "startedAtMs": 4100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:aca68029442903352a2805700cf9ea9186496527c6bf39f838a12390187f4682",
+            "identity": "output-candidate-4",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "candidate",
+            "attempt": 1,
+            "digest": "sha256:773c46a77bfdfa531ace1366f89ecb828af2b2aea0a0672ea1b98ea454caf851",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 4,
+            "seed": 15,
+            "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:0f08a0e6efa47853f0a659c773e9123a895df05d40880652a2179c3c9c2d961b",
+            "identity": "candidate-4",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 4100,
+            "startedAtMs": 4000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:efe9b7967f778cfec64888cda8a1f453046570908f76968fb590dd431b4f6548",
+              "identity": "trace-candidate-4",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        }
+      },
+      {
+        "baseline": {
+          "billing": [
+            {
+              "digest": "sha256:5183f6e4e7e365b20ce28c8eea515dc92f2216e68bf23bdf9992246f654e61f8",
+              "identity": "bill-baseline-5",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:447f2531ea14a8d81cd083f9136eb874c49f90f968ad760c69d9ea4a482d8d27",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "baseline-5",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.2
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:32fdacdb9349ddc2ca221951feef7560ca9f3979d303ac67bd8fc3ff04093a03",
+              "identity": "grade-baseline-5",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.2,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 5110,
+              "startedAtMs": 5100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:1fa52a28ead42ebc954be9366f6bec527b94bb5544814aa1e7e1587d6d899dbc",
+            "identity": "output-baseline-5",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "baseline",
+            "attempt": 1,
+            "digest": "sha256:0c5c88a7c96db14b417d02647f9c279945359a4b0fc6d00e553db98516edbe0b",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 5,
+            "seed": 16,
+            "stateDigest": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:6a8b89a9be3f5aaf16483e2e8f2a0cf431257a2a5b35d360725e91ddb8e18c3f",
+            "identity": "baseline-5",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 5100,
+            "startedAtMs": 5000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:3eaea5954686eb541298a788423c3fed03650cf4f812d8f965f10f64f0e05407",
+              "identity": "trace-baseline-5",
+              "kind": "platform-trace"
+            },
+            "modelCallCount": 1
+          },
+          "usage": {
+            "cachedInputTokens": 0,
+            "costProvenance": "observed",
+            "costUsdNanos": 100,
+            "inputTokens": 10,
+            "modelCalls": 1,
+            "outputTokens": 5,
+            "reasoningTokens": 0
+          }
+        },
+        "candidate": {
+          "billing": [
+            {
+              "digest": "sha256:85584f14379aaef9fce4de620491db34c5398138d2a27ab4993beaafd7fb2ded",
+              "identity": "bill-candidate-5",
+              "kind": "platform-billing"
+            }
+          ],
+          "digest": "sha256:25f5a04b59c28ff22cccda9e24e6bfca7b8a20b3d298e85f1f3a514917f762c5",
+          "digestAlgorithm": "rfc8785-sha256",
+          "executionId": "candidate-5",
+          "executionRef": {
+            "digest": "sha256:42c6816336a75799acbb6db06649ebac5ec2802924f5173f7df692a46f5b9356",
+            "identity": "profile-improvement-fixture-runner",
+            "kind": "agent-profile-improvement-execution-ref"
+          },
+          "grading": {
+            "dimensions": [
+              {
+                "name": "quality",
+                "score": 0.6
+              }
+            ],
+            "evidence": {
+              "digest": "sha256:f4aa4f3e1f909ab5fcca1c12bd80787c184472092abfdac52dc8ec1588c3b144",
+              "identity": "grade-candidate-5",
+              "kind": "agent-eval-grading"
+            },
+            "grader": {
+              "artifact": {
+                "byteLength": 1,
+                "locator": {
+                  "bucket": "agent-eval",
+                  "key": "graders/profile-quality.json",
+                  "kind": "s3",
+                  "region": "us-east-1"
+                },
+                "sha256": "sha256:1f576a8a9d7f4af7bf070698b2be73904847d6f28efec0c2366d1f2bc6117e0f"
+              },
+              "format": "tangle-grader",
+              "name": "profile-quality",
+              "version": "1"
+            },
+            "passed": true,
+            "score": 0.6,
+            "timing": {
+              "durationMs": 10,
+              "endedAtMs": 5110,
+              "startedAtMs": 5100
+            },
+            "usage": {
+              "cachedInputTokens": 0,
+              "costProvenance": "observed",
+              "costUsdNanos": 10,
+              "inputTokens": 2,
+              "modelCalls": 1,
+              "outputTokens": 1,
+              "reasoningTokens": 0
+            }
+          },
+          "kind": "agent-profile-improvement-run",
+          "limits": {
+            "maxCostUsd": 1,
+            "maxInputTokens": 1000,
+            "maxModelCalls": 2,
+            "maxOutputTokens": 1000,
+            "maxSteps": 10,
+            "timeoutMs": 30000
+          },
+          "outcome": {
+            "status": "succeeded"
+          },
+          "output": {
+            "digest": "sha256:3eb6e825ca334f34f765d10168e669ffcfe85738e727ddafc333e4f201b76661",
+            "identity": "output-candidate-5",
+            "kind": "platform-output"
+          },
+          "resolvedModel": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "reasoningEffort": "medium",
+            "requested": "anthropic/claude-sonnet-4-6",
+            "snapshot": "2026-06-01"
+          },
+          "runCell": {
+            "arm": "candidate",
+            "attempt": 1,
+            "digest": "sha256:f75ad3abf708448d6f305ff5a489e55aa8555056ac7a2898af711a032cd0962c",
+            "experimentDigest": "sha256:736f9dfed636de4b3f0a24526c6fa8e1265700d3b506753e943e507d665148c9",
+            "kind": "agent-profile-improvement-run-cell",
+            "repetition": 5,
+            "seed": 16,
+            "stateDigest": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
+            "suiteDigest": "sha256:ae6a128ac345faa69b7628f6a6257e37c1e41c75613309a4fd5f1c263ea29ad8",
+            "taskDigest": "sha256:7e5db980d166e67bc366f2f08e25cab5a2f8558530744f6755ee5997ef345c1e",
+            "taskIndex": 0
+          },
+          "runRecord": {
+            "digest": "sha256:ab58376b10681039d0472ab1c1bf5e76a8e1967b9158a956e9ca78aa81526277",
+            "identity": "candidate-5",
+            "kind": "agent-eval-run-record"
+          },
+          "steps": 1,
+          "timing": {
+            "durationMs": 100,
+            "endedAtMs": 5100,
+            "startedAtMs": 5000
+          },
+          "trace": {
+            "eventCount": 4,
+            "evidence": {
+              "digest": "sha256:297f74e8c102a1049b4d30a8cc359bcce03e5b4367c15b051676662b768114c3",
+              "identity": "trace-candidate-5",
               "kind": "platform-trace"
             },
             "modelCallCount": 1
@@ -945,7 +1713,7 @@
         "delta": 0.39999999999999997,
         "direction": "higher-is-better",
         "kind": "objective",
-        "n": 3,
+        "n": 6,
         "name": "quality",
         "unit": "score"
       },
@@ -964,7 +1732,7 @@
         "delta": 0.39999999999999997,
         "direction": "higher-is-better",
         "kind": "dimension",
-        "n": 3,
+        "n": 6,
         "name": "quality",
         "objective": "quality",
         "unit": "score"
@@ -984,7 +1752,7 @@
         "delta": 0,
         "direction": "lower-is-better",
         "kind": "cost",
-        "n": 3,
+        "n": 6,
         "name": "cost",
         "unit": "usd"
       },
@@ -1003,7 +1771,7 @@
         "delta": 0,
         "direction": "lower-is-better",
         "kind": "latency",
-        "n": 3,
+        "n": 6,
         "name": "latency",
         "unit": "milliseconds"
       }
@@ -1021,15 +1789,15 @@
       },
       "delta": 0.39999999999999997,
       "direction": "higher-is-better",
-      "n": 3,
+      "n": 6,
       "name": "composite",
       "unit": "score"
     },
     "power": {
       "confidenceLevel": 0.95,
       "minimumDetectableDelta": 0.1,
-      "n": 3,
-      "reason": "three paired held-out runs",
+      "n": 6,
+      "reason": "6 paired held-out runs",
       "scaleAssumed": true,
       "sharedScorerChannel": true,
       "sufficient": true

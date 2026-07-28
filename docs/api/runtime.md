@@ -1393,17 +1393,41 @@ Median paired delta (b − a) and its bootstrap CI.
 
 > `readonly` **ciHigh**: `number`
 
+##### nonZeroPairs
+
+> `readonly` **nonZeroPairs**: `number`
+
+Non-zero paired differences used by the signed-rank test.
+
+##### testMethod
+
+> `readonly` **testMethod**: `RankTestMethod`
+
+How the signed-rank p-value was computed.
+
+##### pFloor
+
+> `readonly` **pFloor**: `number`
+
+Smallest p-value attainable by this paired design.
+
 ##### p
 
 > `readonly` **p**: `number`
 
-Paired-test p-value (before correction).
+Raw two-sided signed-rank p-value.
+
+##### q
+
+> `readonly` **q**: `number`
+
+Benjamini-Hochberg adjusted q-value across every profile pair.
 
 ##### significant
 
 > `readonly` **significant**: `boolean`
 
-BH-significant across ALL pairs AND above the `minPairs` power floor.
+BH-significant and above the `minPairs` observation floor.
 
 ***
 

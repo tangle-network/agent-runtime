@@ -182,18 +182,78 @@ describe('leaderboard', () => {
   })
 
   it('pairwiseSignificance compares profiles on shared scenarios (BH-corrected, power floor)', () => {
-    // Strong beats weak on every one of 20 shared scenarios → a clear, significant win.
+    // Strong beats weak on every one of 20 shared scenarios with non-zero delta variance.
     const recs: RunRecord[] = []
     for (let i = 0; i < 20; i++) {
       recs.push(rec({ model: 'strong', harness: 'a', scenarioId: `s${i}`, score: 1 }))
-      recs.push(rec({ model: 'weak', harness: 'b', scenarioId: `s${i}`, score: 0 }))
+      recs.push(
+        rec({
+          model: 'weak',
+          harness: 'b',
+          scenarioId: `s${i}`,
+          score: i % 2 === 0 ? 0 : 0.2,
+        }),
+      )
     }
     const verdicts = pairwiseSignificance(recs, { minPairs: 12 })
     expect(verdicts).toHaveLength(1)
     const v = verdicts[0]!
     expect(v.pairs).toBe(20)
+    expect(v.nonZeroPairs).toBe(20)
+    expect(v.testMethod).toBe('exact')
+    expect(v.q).toBeLessThanOrEqual(0.05)
     expect(v.significant).toBe(true)
     expect(renderPairwiseMarkdown(verdicts)).toContain('wins')
+  })
+
+  it('measures a deterministic paired shift with the exact signed-rank test', () => {
+    const recs: RunRecord[] = []
+    for (let i = 0; i < 20; i++) {
+      recs.push(rec({ model: 'a', scenarioId: `s${i}`, score: 0 }))
+      recs.push(rec({ model: 'b', scenarioId: `s${i}`, score: 0.25 }))
+      recs.push(rec({ model: 'c', scenarioId: `s${i}`, score: i % 2 === 0 ? 0.75 : 1 }))
+    }
+
+    const verdicts = pairwiseSignificance(recs)
+    expect(verdicts).toHaveLength(3)
+    expect(verdicts[0]).toMatchObject({
+      a: 'a',
+      b: 'b',
+      delta: 0.25,
+      nonZeroPairs: 20,
+      testMethod: 'exact',
+      pFloor: 2 ** (1 - 20),
+      p: 2 ** (1 - 20),
+      q: 2 ** (1 - 20),
+      significant: true,
+    })
+    expect(verdicts[1]).toMatchObject({ a: 'a', b: 'c', significant: true })
+    expect(verdicts[2]).toMatchObject({ a: 'b', b: 'c', significant: true })
+
+    const markdown = renderPairwiseMarkdown(verdicts)
+    expect(markdown).toContain(
+      '| a vs b | +25.0% | [25.0%, 25.0%] | 20 | 20 | exact | 1.91e-6 | 1.91e-6 | 1.91e-6 | **b wins** |',
+    )
+  })
+
+  it('reports an all-tie comparison without inventing evidence', () => {
+    const recs: RunRecord[] = []
+    for (let i = 0; i < 20; i++) {
+      recs.push(rec({ model: 'a', scenarioId: `s${i}`, score: i / 20 }))
+      recs.push(rec({ model: 'b', scenarioId: `s${i}`, score: i / 20 }))
+    }
+
+    const verdict = pairwiseSignificance(recs)[0]!
+    expect(verdict).toMatchObject({
+      delta: 0,
+      nonZeroPairs: 0,
+      testMethod: 'exact',
+      pFloor: 1,
+      p: 1,
+      q: 1,
+      significant: false,
+    })
+    expect(renderPairwiseMarkdown([verdict])).toContain('| tie |')
   })
 
   it('pairwiseSignificance suppresses the verdict below the paired-count floor', () => {
