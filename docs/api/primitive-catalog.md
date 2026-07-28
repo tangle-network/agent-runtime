@@ -56,7 +56,7 @@ Import from `@tangle-network/agent-runtime` — 406 exports.
 | `defaultBuildPrompt` | function | Turn proposal findings into a concrete coder task — |
 | `defineConversation` | function | Validate and define a conversation before execution. |
 | `defineRuntimeHooks` | function | Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. |
-| `deriveExecutionId` | function | Derive a stable executionId from the run identity. The same |
+| `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `disposePreparedAgentCandidateExecution` | function | Revoke reservations held by a prepared candidate that will not be executed. |
 | `driverLoopGenerator` | function | Driver→worker `CandidateGenerator`: an LLM driver on the canonical tool-loop authors, observes, rates, and steers coding-harness sessions in the worktree until the verifier passes or the session budge |
 | `exactProcessProviderAsCandidateExecutor` | function | Adapt one neutral exact-process provider to Runtime's trusted candidate boundary. |
@@ -333,7 +333,7 @@ Import from `@tangle-network/agent-runtime/durable` — 8 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `deriveExecutionId` | function | Derive a stable executionId from the run identity. The same |
+| `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
 | `ChatTurnIdentity` | interface | Identity of a chat turn. `tenantId` is the workspace id for workspace- |

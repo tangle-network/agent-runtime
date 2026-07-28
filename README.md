@@ -82,18 +82,31 @@ The annotated version is [`examples/driver-loop`](./examples/driver-loop).
 A product agent is one `handleChatTurn` call inside a route. You give it how to produce the response and how to persist it; it streams, traces, and persists.
 
 ```ts
-import { handleChatTurn } from '@tangle-network/agent-runtime/durable'
+import { deriveExecutionId, handleChatTurn } from '@tangle-network/agent-runtime/durable'
 
+const turnIndex = 0
+const executionId = deriveExecutionId({ projectId, sessionId: threadId, turnIndex })
 const result = handleChatTurn({
-  identity: { tenantId, sessionId: threadId, userId, turnIndex: 0 },
+  identity: { tenantId, sessionId: threadId, userId, turnIndex },
   hooks: {
-    produce: () => ({ stream: box.streamPrompt(userMessage), finalText: () => box.lastResponse() }),
+    produce: () => ({
+      stream: box.streamPrompt(userMessage, {
+        sessionId: threadId,
+        executionId,
+        turnId: executionId,
+        detach: true,
+      }),
+      finalText: () => box.lastResponse(),
+    }),
     persistAssistantMessage: async ({ identity, finalText }) => db.insertMessage(identity, finalText),
   },
   waitUntil,
 })
 return new Response(result.body, { headers: { 'content-type': result.contentType } })
 ```
+
+For a stream reconnect, call `streamPrompt` with the same `executionId` and the last event id the client received.
+For a repeated initial dispatch, reuse both `sessionId` and `turnId`; `executionId` alone is not an idempotency key.
 
 ### Supervise a team of agents
 
@@ -421,7 +434,7 @@ The general-purpose pieces, by import path. Every export with its one-line summa
 
 | Primitive | What it does | Import |
 |---|---|---|
-| Chat-turn runtime | Stream and persist one production chat turn (`handleChatTurn`); derive its stable retry identity (`deriveExecutionId`); normalize any backend's stream into one event shape (`streamAgentTurn`) | `/durable` · `/loops` |
+| Chat-turn runtime | Stream and persist one production chat turn (`handleChatTurn`); derive its stable execution and turn identity (`deriveExecutionId`); normalize any backend's stream into one event shape (`streamAgentTurn`) | `/durable` · `/loops` |
 | Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/loops` · `/mcp` |
 | Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runAgentRounds`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/loops` |
 | Improvement driver | Optimize one part of an agent and ship only if it wins on tasks it never practiced on (`improve`); production proposal/review/activation flow | root · `/intelligence` |

@@ -9,7 +9,7 @@
  *     `session.run.*` envelope, persist / post-process / trace-flush
  *     hook ordering.
  *   - `deriveExecutionId` — convention helper for the stable id products
- *     persist so a retry of the same turn lands on the same execution.
+ *     persist and pass as both execution and turn identity on dispatch.
  */
 
 export type {
