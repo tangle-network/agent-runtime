@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.9
+
+- Consume Runtime 0.109.2 with Eval 0.135.2 and Knowledge 6.1.11 so benchmark runs use the corrected paired promotion decisions.
+
 ## 0.4.8
 
 - Consume Runtime 0.109.0 through the canonical `./kernel` entrypoint.

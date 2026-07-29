@@ -13,6 +13,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { heldoutSignificance } from '@tangle-network/agent-eval/campaign'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryCorpus } from '../../src/runtime/personify/corpus'
 import { promotionGate } from '../../src/runtime/promotion-gate'
@@ -387,6 +388,25 @@ describe('promotionGate', () => {
     expect(b).toEqual(a)
   })
 
+  it('reports the paired binary decision interval instead of bootstrap diagnostics', () => {
+    const before = Array<number>(20).fill(0)
+    const after = Array.from({ length: 20 }, (_, i) => (i < 12 ? 1 : 0))
+    const cellIds = before.map((_, i) => `t${i}`)
+    const report = reportWith(cellIds.map((id, i) => ({ id, inc: before[i]!, cand: after[i]! })))
+    const significance = heldoutSignificance({ before, after, cellIds })
+    const verdict = promotionGate({
+      report,
+      incumbent: 'incumbent',
+      candidate: 'candidate',
+    })
+
+    expect(verdict.promoted).toBe(true)
+    expect(verdict.lift.low).toBe(significance.decision.low)
+    expect(verdict.lift.high).toBe(significance.decision.high)
+    expect(verdict.lift.low).not.toBe(significance.bootstrap.low)
+    expect(verdict.lift.high).not.toBe(significance.bootstrap.high)
+  })
+
   it('symmetric noise does not promote (CI includes zero)', () => {
     const rows = Array.from({ length: 12 }, (_, i) => ({
       id: `t${i}`,
@@ -655,13 +675,19 @@ describe('promotionGate non-inferiority', () => {
   })
 
   it('same quality at half the cost PROMOTES', () => {
-    const rows = Array.from({ length: 12 }, (_, i) => ({
-      id: `t${i}`,
-      incScore: 0.6 + (i % 3) * 0.05,
-      candScore: 0.59 + (i % 3) * 0.05 + (i % 2) * 0.004,
-      incUsd: 0.027 + (i % 3) * 0.001,
-      candUsd: 0.012 + (i % 2) * 0.002,
-    }))
+    const scoreDeltas = [-0.018, -0.012, -0.008, -0.004, 0, 0.006, 0.011, -0.006]
+    const costSavings = [0.011, 0.014, 0.016, 0.013, 0.018, 0.015, 0.012, 0.017]
+    const rows = Array.from({ length: 24 }, (_, i) => {
+      const incScore = 0.48 + (i % 7) * 0.055
+      const incUsd = 0.024 + (i % 5) * 0.0014
+      return {
+        id: `t${i}`,
+        incScore,
+        candScore: incScore + scoreDeltas[i % scoreDeltas.length]!,
+        incUsd,
+        candUsd: incUsd - costSavings[i % costSavings.length]!,
+      }
+    })
     const v = promotionGate({
       report: costReport(rows),
       incumbent: 'incumbent',
@@ -693,13 +719,19 @@ describe('promotionGate non-inferiority', () => {
   })
 
   it('same quality at the same cost is NOT a promotion', () => {
-    const rows = Array.from({ length: 12 }, (_, i) => ({
-      id: `t${i}`,
-      incScore: 0.6,
-      candScore: 0.608 + (i % 3) * 0.002,
-      incUsd: 0.02,
-      candUsd: i % 2 === 0 ? 0.021 : 0.019,
-    }))
+    const scoreDeltas = [-0.006, -0.002, 0.003, 0.008, 0.012, 0.005]
+    const costSavings = [-0.0018, 0.0012, -0.0007, 0.0005, 0.0017, -0.0011]
+    const rows = Array.from({ length: 24 }, (_, i) => {
+      const incScore = 0.5 + (i % 6) * 0.06
+      const incUsd = 0.018 + (i % 5) * 0.0012
+      return {
+        id: `t${i}`,
+        incScore,
+        candScore: incScore + scoreDeltas[i % scoreDeltas.length]!,
+        incUsd,
+        candUsd: incUsd - costSavings[i % costSavings.length]!,
+      }
+    })
     const v = promotionGate({
       report: costReport(rows),
       incumbent: 'incumbent',
@@ -711,13 +743,19 @@ describe('promotionGate non-inferiority', () => {
   })
 
   it('the verdict is deterministic', () => {
-    const rows = Array.from({ length: 12 }, (_, i) => ({
-      id: `t${i}`,
-      incScore: 0.6,
-      candScore: 0.598 + (i % 3) * 0.002,
-      incUsd: 0.03,
-      candUsd: 0.012 + (i % 2) * 0.002,
-    }))
+    const scoreDeltas = [-0.01, -0.006, -0.002, 0.003, 0.007, 0.011]
+    const costSavings = [0.014, 0.016, 0.018, 0.013, 0.017, 0.015]
+    const rows = Array.from({ length: 24 }, (_, i) => {
+      const incScore = 0.47 + (i % 7) * 0.058
+      const incUsd = 0.027 + (i % 5) * 0.0013
+      return {
+        id: `t${i}`,
+        incScore,
+        candScore: incScore + scoreDeltas[i % scoreDeltas.length]!,
+        incUsd,
+        candUsd: incUsd - costSavings[i % costSavings.length]!,
+      }
+    })
     const report = costReport(rows)
     const a = promotionGate({
       report,

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.109.2
+
+- Align Runtime with Eval 0.135.2 and Knowledge 6.1.11 so every improvement path uses the corrected paired promotion decisions.
+
 ## 0.109.1
 
 - Move `runToolLoop` and `streamToolLoop` to the Worker-safe `@tangle-network/agent-runtime/tool-loop` entrypoint.
