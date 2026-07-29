@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,9 +9,10 @@ const execFileAsync = promisify(execFile)
 const benchDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(benchDir, '..')
 const scratch = await mkdtemp(path.join(tmpdir(), 'agent-bench-consumer-'))
-const args = new Set(process.argv.slice(2))
-const useLocalRuntime = args.delete('--local-runtime')
-if (args.size > 0) throw new Error(`unknown arguments: ${[...args].join(', ')}`)
+const args = process.argv.slice(2)
+const useLocalRuntime = removeFlag(args, '--local-runtime')
+const suppliedTarball = removeOption(args, '--tarball')
+if (args.length > 0) throw new Error(`unknown arguments: ${args.join(', ')}`)
 
 const TYPESCRIPT_5 = '5.9.3'
 const TYPESCRIPT_6 = '6.0.3'
@@ -105,18 +106,24 @@ writeFileSync(
     { mode: 0o755 },
   )
 
-  // Build explicitly so verification cannot inherit a machine-level
-  // ignore-scripts setting and accidentally pack stale or missing output.
-  await run('pnpm', ['build'], benchDir)
-  await run('pnpm', ['pack', '--pack-destination', packDir], benchDir, {
-    ...process.env,
-    npm_config_ignore_scripts: 'true',
-  })
-  const packedFiles = (await readdir(packDir)).filter((name) => name.endsWith('.tgz'))
-  if (packedFiles.length !== 1) {
-    throw new Error(`expected one packed agent-bench tarball, found ${packedFiles.length}`)
+  let tarball
+  if (suppliedTarball) {
+    tarball = path.resolve(suppliedTarball)
+    await access(tarball)
+  } else {
+    // Build explicitly so verification cannot inherit a machine-level
+    // ignore-scripts setting and accidentally pack stale or missing output.
+    await run('pnpm', ['build'], benchDir)
+    await run('pnpm', ['pack', '--pack-destination', packDir], benchDir, {
+      ...process.env,
+      npm_config_ignore_scripts: 'true',
+    })
+    const packedFiles = (await readdir(packDir)).filter((name) => name.endsWith('.tgz'))
+    if (packedFiles.length !== 1) {
+      throw new Error(`expected one packed agent-bench tarball, found ${packedFiles.length}`)
+    }
+    tarball = path.join(packDir, packedFiles[0])
   }
-  const tarball = path.join(packDir, packedFiles[0])
   await run('tar', ['-xzf', tarball, '-C', unpackDir], benchDir)
   const runtimePackage = await resolveRuntimePackage(runtimePackDir)
   const packedManifest = JSON.parse(
@@ -299,4 +306,20 @@ function requiredPackedDevelopmentDependency(packageJson, name) {
     throw new Error(`packed consumer requires a resolved ${name} development dependency`)
   }
   return version
+}
+
+function removeFlag(args, flag) {
+  const index = args.indexOf(flag)
+  if (index === -1) return false
+  args.splice(index, 1)
+  return true
+}
+
+function removeOption(args, option) {
+  const index = args.indexOf(option)
+  if (index === -1) return undefined
+  const value = args[index + 1]
+  if (!value || value.startsWith('--')) throw new Error(`${option} requires a value`)
+  args.splice(index, 2)
+  return value
 }
