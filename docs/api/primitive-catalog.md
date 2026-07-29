@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.109.1` and `@tangle-network/agent-eval@0.135.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.109.2` and `@tangle-network/agent-eval@0.135.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -605,7 +605,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 594 exports.
 | `printBenchmarkReport` | function | Pretty-print a report — the "free optimization" verdict, with the cost vector. |
 | `probeSandboxCapabilities` | function | Probe (and memoize per client) what the loop may rely on. A client without a |
 | `profileRichnessFinding` | function | Turn a {@link ProfileRichness} verdict into a bus-routable `AnalystFinding` (area `profile-quality`). |
-| `promotionGate` | function | Statistical promotion decision over a holdout benchmark: a seeded paired bootstrap (`heldoutSignificance`) whose CI lower bound must clear `deltaThreshold`. |
+| `promotionGate` | function | Statistical promotion decision over a holdout benchmark using the outcome-appropriate interval selected by `heldoutSignificance`. |
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
@@ -1370,7 +1370,7 @@ Import from `@tangle-network/agent-eval` — 10 exports.
 
 ### STATISTICS — significance, intervals, effect size
 
-Import from `@tangle-network/agent-eval` — 53 exports.
+Import from `@tangle-network/agent-eval` — 61 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1389,12 +1389,17 @@ Import from `@tangle-network/agent-eval` — 53 exports.
 | `mcnemarPower` | function | Power of a McNemar test at a given number of paired observations, the inverse |
 | `mcnemarRequiredN` | function | Number of paired observations needed for a McNemar test to reach a target |
 | `mulberry32` | function | Tiny seedable PRNG (mulberry32) — deterministic resampling/shuffling, not |
+| `pairedBinaryScale` | function | The common positive level `s` such that EVERY value across both paired arms is |
 | `pairedBootstrap` | function | Paired bootstrap on (after − before) deltas. Returns a CI on the chosen |
 | `pairedCohensDz` | function | Cohen's dz for paired observations: mean(after - before) divided by the |
+| `pairedDecisionShape` | function | Which estimator {@link decidePairedPromotion} would use on this data, and the |
 | `pairedDeltaTest` | function | Tests whether a paired candidate-minus-baseline delta clears a threshold. |
+| `pairedDeltaTieFraction` | function | Fraction of paired observations whose delta is an exact tie (\|after − before\| |
 | `pairedEvalueSequence` | function | Run the paired e-value sequence over an in-order delta stream. |
 | `pairedMde` | function | Minimum detectable paired effect (standardised units) for a target paired |
 | `pairedRiskDifference` | function | Paired risk difference (the effect-size companion to {@link mcnemar}): the |
+| `pairedRiskDifferenceExact` | function | Paired risk difference with the EXACT CONDITIONAL interval — the estimator a |
+| `pairedRiskDifferenceScore` | function | Paired risk difference with TANGO'S (1998) SCORE INTERVAL — the estimator a |
 | `pairedSignTest` | function | Exact one-sided sign test over paired differences. |
 | `pairedTTest` | function | Paired t-test — before/after measurements on the SAME items. |
 | `partialCredit` | function | Partial credit: returns 0-1 ratio of current toward target |
@@ -1408,9 +1413,12 @@ Import from `@tangle-network/agent-eval` — 53 exports.
 | `wilcoxonSignedRank` | function | Wilcoxon signed-rank — paired, no distributional assumption on the deltas. |
 | `wilson` | function | Wilson score interval for a binomial proportion. Correct at small n and near |
 | `normalizeScores` | const | Identity: dimensions already follow "higher = better" by prompt convention |
+| `ExactRiskDifferenceResult` | interface | A paired binary effect size with an EXACT interval and the exact test that |
 | `McNemarResult` | interface | Result of a McNemar paired-binary significance test. |
+| `PairedMcNemarEvidence` | interface | McNemar's exact paired-binary evidence, on the two-point path only. |
 | `ProportionInterval` | interface | A binomial proportion estimate with a confidence interval. |
 | `RiskDifferenceResult` | interface | A paired binary effect size (treatment rate − control rate) with a CI. |
+| `ScoreRiskDifferenceResult` | interface | A paired binary effect size with an interval that is valid at a NONZERO |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BootstrapOptions`, `BootstrapResult`, `ClusterBootstrapInterval`, `CorpusAgreementOptions`, `CorpusAgreementPerDimension`, `CorpusAgreementReport`, `CorpusScoreRecord`, `EProcess`, `EProcessOptions`, `EProcessState`, `EProcessStep`, `PairedBootstrapOptions`, `PairedBootstrapResult`, `WeightedCompositeInput`, `WeightedCompositeResult`, `CliffsMagnitude`.
 
@@ -1455,8 +1463,8 @@ Import from `@tangle-network/agent-eval/campaign` — 329 exports.
 | `fsCampaignStorage` | function | Node-filesystem storage — the default. Lazily requires `node:fs` so the |
 | `gepaOptimizationMethod` | function | Turn an optional GEPA installation into an `OptimizationMethod`. |
 | `gitWorktreeAdapter` | function | Git-backed `WorktreeAdapter`: creates isolated worktrees on fresh branches, commits agent changes, and discards losers. |
-| `heldOutGate` | function | Composable held-out gate: ships only when the PAIRED bootstrap CI lower bound |
-| `heldoutSignificance` | function | Significance of the held-out composite lift: ship only when the paired |
+| `heldOutGate` | function | Composable held-out gate: ships only when the lower bound of the DECIDING |
+| `heldoutSignificance` | function | Significance of the held-out composite lift: ship only when the lower bound |
 | `inMemoryCampaignStorage` | function | In-memory storage for filesystem-less runtimes. Artifacts + trace spans |
 | `isProposedCandidate` | function | Type guard: a proposal carrying its rationale vs a bare |
 | `isTransientTransportFailure` | function | True when the error text describes an infrastructure hiccup that should be |

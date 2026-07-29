@@ -1,11 +1,10 @@
 /**
  * promotionGate — the statistical promotion decision over a holdout benchmark: does the
  * candidate strategy beat the incumbent on held-out tasks by a margin the task noise
- * cannot fake? The statistics are the substrate's (`heldoutSignificance`): a SEEDED
- * paired bootstrap over per-task (candidate − incumbent) deltas — deterministic verdict,
- * a minimum-evidence floor, and the CI lower bound must clear `deltaThreshold`. A raw
- * h1>h0 point comparison on m≈8 holdout tasks certifies false champions at near
- * coin-flip rates; this gate is the instrument-grade replacement.
+ * cannot fake? The statistics come from `heldoutSignificance`, which chooses the
+ * decision interval that matches the outcome shape, applies a minimum-evidence floor,
+ * and requires the interval's lower bound to clear `deltaThreshold`. A raw h1>h0 point
+ * comparison on m≈8 holdout tasks certifies false champions at near coin-flip rates.
  */
 import { heldoutSignificance } from '@tangle-network/agent-eval/campaign'
 import type { BenchmarkReport } from './run-benchmark'
@@ -49,10 +48,11 @@ export interface PromotionVerdict {
   mode: 'superiority' | 'non-inferiority'
   /** Paired tasks that carried both strategies' cells. */
   n: number
-  /** Paired (candidate − incumbent) lift across the holdout tasks. */
+  /** Paired (candidate − incumbent) lift across the holdout tasks. `low` and `high`
+   *  are the bounds that carried the decision; `mean` and `median` are diagnostics. */
   lift: { mean: number; median: number; low: number; high: number }
-  /** non-inferiority mode: paired (incumbent − candidate) cost SAVINGS per task (usd) —
-   *  positive means the candidate is cheaper; significant iff the CI low clears zero. */
+  /** non-inferiority mode: paired (incumbent − candidate) cost savings per task (usd).
+   *  Positive means the candidate is cheaper; `low` and `high` carried the decision. */
   costSavings?: { mean: number; median: number; low: number; high: number }
   /** Paired (candidate − incumbent) wall-clock per task (ms) — negative = the candidate
    *  is FASTER. Informational in every mode (never gates); the latency answer to "what
@@ -60,7 +60,7 @@ export interface PromotionVerdict {
   latency?: { mean: number; median: number; low: number; high: number }
 }
 
-/** Statistical promotion decision over a holdout benchmark: a seeded paired bootstrap (`heldoutSignificance`) whose CI lower bound must clear `deltaThreshold`. */
+/** Statistical promotion decision over a holdout benchmark using the outcome-appropriate interval selected by `heldoutSignificance`. */
 export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
   const mode = opts.mode ?? 'superiority'
   if (opts.candidate === opts.incumbent) {
@@ -109,8 +109,8 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
   const lift = {
     mean: sig.bootstrap.mean,
     median: sig.bootstrap.median,
-    low: sig.bootstrap.low,
-    high: sig.bootstrap.high,
+    low: sig.decision.low,
+    high: sig.decision.high,
   }
   const latSig = heldoutSignificance(
     { before: incMs, after: candMs, cellIds },
@@ -125,8 +125,8 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
   const latency = {
     mean: latSig.bootstrap.mean,
     median: latSig.bootstrap.median,
-    low: latSig.bootstrap.low,
-    high: latSig.bootstrap.high,
+    low: latSig.decision.low,
+    high: latSig.decision.high,
   }
   if (mode === 'superiority') {
     if (sig.fewRuns) return { promoted: false, reason: 'few-tasks', mode, n: sig.n, lift, latency }
@@ -160,8 +160,8 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
   const costSavings = {
     mean: costSig.bootstrap.mean,
     median: costSig.bootstrap.median,
-    low: costSig.bootstrap.low,
-    high: costSig.bootstrap.high,
+    low: costSig.decision.low,
+    high: costSig.decision.high,
   }
   if (scoreSig.fewRuns)
     return { promoted: false, reason: 'few-tasks', mode, n: scoreSig.n, lift, costSavings, latency }

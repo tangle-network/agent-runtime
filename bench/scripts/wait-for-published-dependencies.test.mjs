@@ -10,8 +10,8 @@ test('collects required published Tangle dependencies from a packed manifest', (
   const dependencies = collectRequiredTangleDependencies({
     name: '@tangle-network/agent-bench',
     dependencies: {
-      '@tangle-network/agent-runtime': '0.109.0',
-      '@tangle-network/agent-eval': '0.135.1',
+      '@tangle-network/agent-runtime': '0.109.2',
+      '@tangle-network/agent-eval': '0.135.2',
       undici: '^7.0.0',
     },
     peerDependencies: {
@@ -27,9 +27,9 @@ test('collects required published Tangle dependencies from a packed manifest', (
   })
 
   assert.deepEqual(dependencies, [
-    { name: '@tangle-network/agent-eval', spec: '0.135.1' },
+    { name: '@tangle-network/agent-eval', spec: '0.135.2' },
     { name: '@tangle-network/agent-interface', spec: '>=0.36.0 <0.37.0' },
-    { name: '@tangle-network/agent-runtime', spec: '0.109.0' },
+    { name: '@tangle-network/agent-runtime', spec: '0.109.2' },
   ])
 })
 
