@@ -20,18 +20,26 @@ import { runStrategyEvolution, selectChampion } from '../../src/runtime/strategy
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────────
 
-/** Deterministic surface: score = shots taken on the handle, capped at 2 of 2 — one
- *  worker pass per shot is observable via tools() calls. Depth (2 shots, one handle)
- *  scores 1.0; breadth (fresh handle per shot) scores 0.5. */
+const taskCheckTotal = (taskId: string | undefined): number => {
+  const index = Number(taskId?.match(/\d+$/)?.[0] ?? 0)
+  return 2 + (index % 3)
+}
+
+/** Deterministic surface with task difficulty varying from 2 to 4 checks. One worker
+ *  pass per shot is observable via tools() calls. Depth takes two shots on one handle;
+ *  breadth takes one shot on each fresh handle, so every paired task favors depth while
+ *  producing varied holdout gains. */
 function shotCountingSurface(): AgenticSurface {
   const shotsByHandle = new Map<string, number>()
+  const taskByHandle = new Map<string, string>()
   let seq = 0
   return {
     name: 'shot-counter',
-    async open() {
+    async open(task) {
       seq += 1
       const id = `h-${seq}`
       shotsByHandle.set(id, 0)
+      taskByHandle.set(id, task.id)
       return { id, surface: 'shot-counter' }
     },
     async tools(_t, handle) {
@@ -42,7 +50,11 @@ function shotCountingSurface(): AgenticSurface {
       return 'ok'
     },
     async score(_t, handle) {
-      return { passes: Math.min(shotsByHandle.get(handle.id) ?? 0, 2), total: 2, errored: 0 }
+      return {
+        passes: Math.min(shotsByHandle.get(handle.id) ?? 0, 2),
+        total: taskCheckTotal(taskByHandle.get(handle.id)),
+        errored: 0,
+      }
     },
     async close() {},
   }
@@ -319,7 +331,11 @@ function difficultySurface(): AgenticSurface {
     async score(_t, handle) {
       if (taskByHandle.get(handle.id)?.startsWith('easy-'))
         return { passes: 2, total: 2, errored: 0 }
-      return { passes: Math.min(shotsByHandle.get(handle.id) ?? 0, 2), total: 2, errored: 0 }
+      return {
+        passes: Math.min(shotsByHandle.get(handle.id) ?? 0, 2),
+        total: taskCheckTotal(taskByHandle.get(handle.id)),
+        errored: 0,
+      }
     },
     async close() {},
   }

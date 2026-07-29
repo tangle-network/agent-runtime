@@ -4923,7 +4923,8 @@ Paired tasks that carried both strategies' cells.
 
 > **lift**: `object`
 
-Paired (candidate − incumbent) lift across the holdout tasks.
+Paired (candidate − incumbent) lift across the holdout tasks. `low` and `high`
+ are the bounds that carried the decision; `mean` and `median` are diagnostics.
 
 ###### mean
 
@@ -4945,8 +4946,8 @@ Paired (candidate − incumbent) lift across the holdout tasks.
 
 > `optional` **costSavings?**: `object`
 
-non-inferiority mode: paired (incumbent − candidate) cost SAVINGS per task (usd) —
- positive means the candidate is cheaper; significant iff the CI low clears zero.
+non-inferiority mode: paired (incumbent − candidate) cost savings per task (usd).
+ Positive means the candidate is cheaper; `low` and `high` carried the decision.
 
 ###### mean
 
@@ -18282,7 +18283,7 @@ readonly [`EqualKArm`](#equalkarm)[]
 
 > **promotionGate**(`opts`): [`PromotionVerdict`](#promotionverdict)
 
-Statistical promotion decision over a holdout benchmark: a seeded paired bootstrap (`heldoutSignificance`) whose CI lower bound must clear `deltaThreshold`.
+Statistical promotion decision over a holdout benchmark using the outcome-appropriate interval selected by `heldoutSignificance`.
 
 #### Parameters
 
