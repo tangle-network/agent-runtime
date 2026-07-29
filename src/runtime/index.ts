@@ -724,6 +724,7 @@ export {
   type SupervisorNodeContextSeed,
   type SupervisorProfile,
   type SupervisorToolDescriptor,
+  type SupervisorToolInvocationContext,
   supervisorAgent,
 } from './supervise/supervisor-agent'
 export {

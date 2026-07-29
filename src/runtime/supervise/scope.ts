@@ -578,8 +578,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // the executor's signal into its acquireSandbox find-by-name reap, so an acquiring node
       // never leaks.
       const controller = new AbortController()
-      cascadeAbort = () => controller.abort()
-      if (args.signal.aborted) controller.abort()
+      cascadeAbort = () => controller.abort(args.signal.reason)
+      if (args.signal.aborted) controller.abort(args.signal.reason)
       else args.signal.addEventListener('abort', cascadeAbort, { once: true })
       if (childDeadlineAtMs !== undefined) {
         clearChildDeadline = armDeadlineTimer(Math.max(0, childDeadlineAtMs - now()), () =>

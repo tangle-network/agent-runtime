@@ -538,7 +538,9 @@ export interface SuperviseOptions {
    * full-profile contract. */
   readonly driveHarnessMaterialization?: ProfileMaterializationContract
   /** Resolve product-owned tools from the exact trusted manager context. The same descriptors and
-   * handlers are bound to router and external-harness managers; resolution happens once per node. */
+   * handlers are bound to router and external-harness managers; resolution happens once per node.
+   * Each handler receives that manager scope's live cancellation signal in its trusted invocation
+   * context, including recursive parent and root cascades. */
   readonly resolveSupervisorTools?: ResolveSupervisorTools
   /** Awaited product transaction hook for every coordination record. `eventId` is stable across a
    * lost acknowledgement and durable restart; the record is not pull-visible until this commits. */

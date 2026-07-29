@@ -89,10 +89,19 @@ export interface SupervisorNodeContext {
 /** Context known before `Agent.act`; Runtime adds the concrete node, profile, and task. */
 export type SupervisorNodeContextSeed = Omit<SupervisorNodeContext, 'nodeId' | 'profile' | 'task'>
 
+/** Trusted context for one product-tool invocation. The node identity remains the same detached,
+ * immutable snapshot supplied to the resolver; `signal` is the one live control reference Runtime
+ * adds. It aborts when this manager's scope is cancelled by the caller, RootHandle, deadline,
+ * breaker, or a recursive parent. */
+export interface SupervisorToolInvocationContext extends SupervisorNodeContext {
+  readonly signal: AbortSignal
+}
+
 /** One product-owned tool. It reuses the canonical MCP descriptor fields while Runtime supplies
- *  the trusted node context as a separate argument and binds the result for either transport. */
+ *  the trusted invocation context as a separate argument and binds the result for either
+ *  transport. Existing handlers remain compatible: the second argument only gains `signal`. */
 export interface SupervisorToolDescriptor extends Omit<McpToolDescriptor, 'handler'> {
-  readonly handler: (raw: unknown, context: SupervisorNodeContext) => Promise<unknown>
+  readonly handler: (raw: unknown, context: SupervisorToolInvocationContext) => Promise<unknown>
 }
 
 /** Product policy for the tools one exact supervisor node may call. Resolved once per node. */
@@ -297,7 +306,9 @@ export function supervisorAgent(
           : undefined
         const priorCoordination = await deps.loadPriorCoordination?.()
         const nodeTools =
-          resolveTools && context ? await bindSupervisorTools(resolveTools, context) : undefined
+          resolveTools && context
+            ? await bindSupervisorTools(resolveTools, context, scope.signal)
+            : undefined
         const onEvent = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
         return build(priorCoordination, nodeTools, onEvent).act(task, scope)
       },
@@ -329,7 +340,9 @@ export function supervisorAgent(
         ? await deps.loadPriorCoordination()
         : deps.priorCoordination
       const nodeTools =
-        resolveTools && context ? await bindSupervisorTools(resolveTools, context) : undefined
+        resolveTools && context
+          ? await bindSupervisorTools(resolveTools, context, scope.signal)
+          : undefined
       const onEvent = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
       const mcp = await serveCoordinationMcp({
         scope,
@@ -398,11 +411,16 @@ function supervisorNodeContext(
 async function bindSupervisorTools(
   resolveTools: ResolveSupervisorTools,
   context: SupervisorNodeContext,
+  signal: AbortSignal,
 ): Promise<ReadonlyArray<McpToolDescriptor>> {
   const resolved = await resolveTools(context)
   if (!Array.isArray(resolved)) {
     throw new ValidationError('supervisorAgent: resolveSupervisorTools must return an array')
   }
+  // Keep the durable node snapshot free of live process objects. The invocation wrapper is frozen
+  // shallowly so handlers cannot replace identity or signal, while the AbortSignal itself remains
+  // live and follows the manager scope's existing root/parent cascade.
+  const invocationContext: SupervisorToolInvocationContext = Object.freeze({ ...context, signal })
   const names = new Set<string>(coordinationVerbNames)
   return Object.freeze(
     resolved.map((rawTool, index) => {
@@ -441,7 +459,7 @@ async function bindSupervisorTools(
         handler: (raw: unknown) =>
           handler(
             detachedSnapshot(raw, `supervisorAgent tool ${JSON.stringify(name)} input`),
-            context,
+            invocationContext,
           ),
       })
     }),

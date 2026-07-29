@@ -505,7 +505,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 644 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 645 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -902,6 +902,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 644 exports.
 | `Supervisor` | interface | Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, |
 | `SupervisorNodeContext` | interface | Trusted run/node identity Runtime binds to one manager. Model-authored tool arguments cannot |
 | `SupervisorToolDescriptor` | interface | One product-owned tool. It reuses the canonical MCP descriptor fields while Runtime supplies |
+| `SupervisorToolInvocationContext` | interface | Trusted context for one product-tool invocation. The node identity remains the same detached, |
 | `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
 | `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |

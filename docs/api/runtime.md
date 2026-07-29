@@ -795,7 +795,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`assignmentId`](#assignmentid-6)
+[`NodeSnapshot`](#nodesnapshot).[`assignmentId`](#assignmentid-7)
 
 ##### identity?
 
@@ -803,7 +803,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-5)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-6)
 
 ##### materialization?
 
@@ -12484,6 +12484,8 @@ full-profile contract.
 
 Resolve product-owned tools from the exact trusted manager context. The same descriptors and
 handlers are bound to router and external-harness managers; resolution happens once per node.
+Each handler receives that manager scope's live cancellation signal in its trusted invocation
+context, including recursive parent and root cascades.
 
 ##### onCoordinationEvent?
 
@@ -12789,6 +12791,10 @@ Exact trusted context after a manager-authored spawn has passed product authoriz
 Trusted run/node identity Runtime binds to one manager. Model-authored tool arguments cannot
  provide or replace any of these fields.
 
+#### Extended by
+
+- [`SupervisorToolInvocationContext`](#supervisortoolinvocationcontext)
+
 #### Properties
 
 ##### runId
@@ -12837,10 +12843,110 @@ Assignment identity within the parent manager; absent only for the root.
 
 ***
 
+### SupervisorToolInvocationContext
+
+Trusted context for one product-tool invocation. The node identity remains the same detached,
+immutable snapshot supplied to the resolver; `signal` is the one live control reference Runtime
+adds. It aborts when this manager's scope is cancelled by the caller, RootHandle, deadline,
+breaker, or a recursive parent.
+
+#### Extends
+
+- [`SupervisorNodeContext`](#supervisornodecontext)
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-12)
+
+##### runNamespace
+
+> `readonly` **runNamespace**: `string`
+
+Stable across a durable restart; unique per in-memory invocation.
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`runNamespace`](#runnamespace)
+
+##### nodeId
+
+> `readonly` **nodeId**: `string`
+
+Concrete Scope node that owns this manager's coordination stream.
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`nodeId`](#nodeid-2)
+
+##### ownerId
+
+> `readonly` **ownerId**: `string`
+
+Stable identity of this manager's coordination stream.
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`ownerId`](#ownerid-1)
+
+##### depth
+
+> `readonly` **depth**: `number`
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-2)
+
+##### identity
+
+> `readonly` **identity**: [`NodeExecutionIdentity`](#nodeexecutionidentity)
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-1)
+
+##### assignmentId?
+
+> `readonly` `optional` **assignmentId?**: `string`
+
+Assignment identity within the parent manager; absent only for the root.
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`assignmentId`](#assignmentid-3)
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-5)
+
+##### task
+
+> `readonly` **task**: `unknown`
+
+###### Inherited from
+
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-25)
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+***
+
 ### SupervisorToolDescriptor
 
 One product-owned tool. It reuses the canonical MCP descriptor fields while Runtime supplies
- the trusted node context as a separate argument and binds the result for either transport.
+ the trusted invocation context as a separate argument and binds the result for either
+ transport. Existing handlers remain compatible: the second argument only gains `signal`.
 
 #### Extends
 
@@ -12884,7 +12990,7 @@ One product-owned tool. It reuses the canonical MCP descriptor fields while Runt
 
 ###### context
 
-[`SupervisorNodeContext`](#supervisornodecontext)
+[`SupervisorToolInvocationContext`](#supervisortoolinvocationcontext)
 
 ###### Returns
 
@@ -14345,7 +14451,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-1).[`signal`](#signal-15)
+[`RootHandle`](#roothandle-1).[`signal`](#signal-16)
 
 ##### abort()
 
@@ -17263,7 +17369,7 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 ##### root
 
-[`NodeId`](#nodeid-4)
+[`NodeId`](#nodeid-5)
 
 ##### options?
 
@@ -17893,7 +17999,7 @@ Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, 
 
 ### SpawnPrior
 
-> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](index.md#settled)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-4); `reason`: `string`; \} \| \{ `state`: `"lost"`; `priorId`: [`NodeId`](#nodeid-4); \}
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](index.md#settled)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-5); `reason`: `string`; \} \| \{ `state`: `"lost"`; `priorId`: [`NodeId`](#nodeid-5); \}
 
 What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
 every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
@@ -17916,7 +18022,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-4); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-4); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-4); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-4); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-4); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-4); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -17925,7 +18031,7 @@ Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -17933,11 +18039,11 @@ Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-4)
+> **id**: [`NodeId`](#nodeid-5)
 
 ###### parent?
 
-> `optional` **parent?**: [`NodeId`](#nodeid-4)
+> `optional` **parent?**: [`NodeId`](#nodeid-5)
 
 ###### label
 
@@ -17966,7 +18072,7 @@ Manager-scoped assignment identity used to join unkeyed and keyed work alike.
 
 ###### ownedTreeRoot?
 
-> `optional` **ownedTreeRoot?**: [`NodeId`](#nodeid-4)
+> `optional` **ownedTreeRoot?**: [`NodeId`](#nodeid-5)
 
 Exact nested journal tree this node owns. Runtime writes this only after privately
 attesting the executor as a recursive scope owner. Its absence means no tree is followed,
@@ -17990,7 +18096,7 @@ Exact profile/task digests plus trusted candidate/campaign attribution when avai
 
 ##### Type Literal
 
-\{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-4); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -18001,7 +18107,7 @@ only by digest; descriptor fields are safe structural labels, never credential-b
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-4)
+> **id**: [`NodeId`](#nodeid-5)
 
 ###### binding
 
@@ -18019,7 +18125,7 @@ only by digest; descriptor fields are safe structural labels, never credential-b
 
 ##### Type Literal
 
-\{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-4); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -18029,7 +18135,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-4)
+> **id**: [`NodeId`](#nodeid-5)
 
 ###### receipt
 
@@ -18047,7 +18153,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ##### Type Literal
 
-\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-4); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -18055,7 +18161,7 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-4)
+> **id**: [`NodeId`](#nodeid-5)
 
 ###### status
 
@@ -18104,13 +18210,13 @@ Structured tool evidence. Optional only for journals written before trace captur
 
 ##### Type Literal
 
-\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-4); `reason`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ***
 
 ##### Type Literal
 
-\{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -18123,11 +18229,11 @@ A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the 
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-4)
+> **id**: [`NodeId`](#nodeid-5)
 
 ###### parent?
 
-> `optional` **parent?**: [`NodeId`](#nodeid-4)
+> `optional` **parent?**: [`NodeId`](#nodeid-5)
 
 ###### label
 
@@ -18153,7 +18259,7 @@ A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the 
 
 ##### Type Literal
 
-\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-4); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -18166,7 +18272,7 @@ A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept disti
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-4)
+> **id**: [`NodeId`](#nodeid-5)
 
 ###### by
 
@@ -18188,7 +18294,7 @@ A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept disti
 
 ##### Type Literal
 
-\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-4); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -18204,7 +18310,7 @@ A driver's OWN inference spend, journaled separately from spawned-child work —
 
 ###### id
 
-> **id**: [`NodeId`](#nodeid-4)
+> **id**: [`NodeId`](#nodeid-5)
 
 ###### spend
 
