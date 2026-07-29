@@ -121,6 +121,7 @@
     "generate:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts",
     "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts --check",
     "check:skills": "node scripts/check-skills.mjs",
+    "check:publish-workflow": "node scripts/check-publish-workflow.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
     "verify:static-imports": "node scripts/verify-static-imports.mjs",
     "verify:edge-tool-loop": "node scripts/verify-edge-tool-loop.mjs",
@@ -152,7 +153,8 @@
     "typedoc-plugin-markdown": "4.12.0",
     "typescript": "catalog:",
     "vitest": "^4.1.10",
-    "wrangler": "4.114.0"
+    "wrangler": "4.114.0",
+    "yaml": "2.9.0"
   },
   "engines": {
     "node": ">=22.13.0"

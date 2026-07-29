@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -12,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { Miniflare } from 'miniflare'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const suppliedArchive = process.argv[2] ? resolve(process.argv[2]) : undefined
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-edge-tool-loop-'))
 const packDir = join(tempRoot, 'pack')
 const appDir = join(tempRoot, 'app')
@@ -21,13 +23,19 @@ try {
   mkdirSync(packDir, { recursive: true })
   mkdirSync(join(appDir, 'src'), { recursive: true })
 
-  const pack = JSON.parse(
-    run('pnpm', ['pack', '--json', '--pack-destination', packDir], repoRoot),
-  )
-  if (!pack || Array.isArray(pack) || typeof pack.filename !== 'string') {
-    throw new Error('expected one packed Runtime archive')
+  if (suppliedArchive && !existsSync(suppliedArchive)) {
+    throw new Error(`supplied Runtime archive does not exist: ${suppliedArchive}`)
   }
-  const archive = resolve(pack.filename)
+  let archive = suppliedArchive
+  if (!archive) {
+    const pack = JSON.parse(
+      run('pnpm', ['pack', '--json', '--pack-destination', packDir], repoRoot),
+    )
+    if (!pack || Array.isArray(pack) || typeof pack.filename !== 'string') {
+      throw new Error('expected one packed Runtime archive')
+    }
+    archive = resolve(pack.filename)
+  }
 
   writeFileSync(
     join(appDir, 'package.json'),

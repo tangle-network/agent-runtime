@@ -20,11 +20,13 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
-      release-sha: ${{ steps.release.outputs.sha }}
+      release-version: ${{ steps.release.outputs.version }}
+      package-sha256: ${{ steps.package.outputs.sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+          persist-credentials: false
 
       - name: Verify release source and version
         id: release
@@ -50,7 +52,7 @@ jobs:
             echo "::error::Tag/version mismatch: tag=$TAG_VERSION package=$NPM_VERSION."
             exit 1
           fi
-          echo "sha=$TAG_SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$NPM_VERSION" >> "$GITHUB_OUTPUT"
           echo "Release source locked: $RELEASE_TAG at $TAG_SHA"
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -82,7 +84,8 @@ jobs:
       # ship a fix to a consumer pinned to an older minor). Comparing SHAs needs no
       # shared history, so a shallow fetch is sufficient.
       - name: Verify tag is the tip of its release line
-        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
         run: |
           TAG_SHA=$(git rev-parse HEAD)
           git fetch --no-tags --depth=100 origin +refs/heads/main:refs/remotes/origin/main
@@ -91,7 +94,7 @@ jobs:
             echo "Tag is the tip of main: $TAG_SHA"
             exit 0
           fi
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          VERSION="${RELEASE_TAG#v}"
           LINE="release/${VERSION%.*}.x"
           if git fetch --no-tags --depth=100 origin "+refs/heads/$LINE:refs/remotes/origin/$LINE" 2>/dev/null; then
             LINE_SHA=$(git rev-parse "refs/remotes/origin/$LINE")
@@ -168,6 +171,33 @@ jobs:
       - name: Verify agent-bench against this release
         run: pnpm run verify:bench
 
+      - name: Package and verify the exact Runtime archive
+        id: package
+        run: |
+          package_dir="$RUNNER_TEMP/agent-runtime-package"
+          mkdir -p "$package_dir"
+          npm_config_ignore_scripts=true pnpm pack --pack-destination "$package_dir"
+          mapfile -t packages < <(find "$package_dir" -maxdepth 1 -type f -name '*.tgz' -print)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "::error::Expected one Runtime archive, found ${#packages[@]}."
+            exit 1
+          fi
+          package="${packages[0]}"
+          node scripts/verify-package-exports.mjs "$package"
+          node scripts/verify-edge-tool-loop.mjs "$package"
+          sha256=$(sha256sum "$package" | cut -d' ' -f1)
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "Runtime archive locked: $package ($sha256)"
+
+      - name: Upload exact Runtime archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-runtime-package
+          path: ${{ runner.temp }}/agent-runtime-package/*.tgz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   publish-npm:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -175,55 +205,65 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      EXPECTED_NAME: '@tangle-network/agent-runtime'
+      EXPECTED_VERSION: ${{ needs.verify.outputs.release-version }}
+      EXPECTED_SHA256: ${{ needs.verify.outputs.package-sha256 }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.verify.outputs.release-sha }}
-
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
-          cache: pnpm
+          node-version: 24.18.0
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run build
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-runtime-package
+          path: ${{ runner.temp }}/agent-runtime-package
 
-      # Tokenless OIDC trusted publishing requires npm >= 11.5.1. pnpm creates
-      # the release tarball because it resolves catalog dependencies; npm then
-      # publishes that exact, consumer-tested file. No setup-node registry-url:
-      # it writes an empty-authToken .npmrc that blocks OIDC. Idempotent.
+      # Node 24.18.0 bundles npm 11.16.0, which supports trusted publishing.
+      # This job has no source checkout and runs no dependency or package build.
       # Requires the npmjs Trusted Publisher: org tangle-network, repo
       # agent-runtime, workflow publish.yml.
-      - name: Publish to npm (OIDC trusted publishing)
+      - name: Publish exact Runtime archive
         run: |
-          # npm 12.0.0 ships a broken provenance publish (libnpmpublish requires
-          # sigstore without bundling it); OIDC needs npm >= 11.5.1, so pin major 11.
-          npm install -g npm@11
-          NAME=$(node -p "require('./package.json').name")
-          VERSION=$(node -p "require('./package.json').version")
-          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
-            echo "$NAME@$VERSION already on registry; skipping publish"
+          npm_version=$(npm --version)
+          if [[ "$npm_version" != 11.* ]]; then
+            echo "::error::Expected npm 11, received $npm_version."
+            exit 1
+          fi
+          mapfile -t packages < <(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -type f -name '*.tgz' -print)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "::error::Expected one Runtime archive, found ${#packages[@]}."
+            exit 1
+          fi
+          package="${packages[0]}"
+          actual_sha256=$(sha256sum "$package" | cut -d' ' -f1)
+          if [ "$actual_sha256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::Runtime archive digest mismatch."
+            exit 1
+          fi
+          manifest=$(tar -xOzf "$package" package/package.json)
+          name=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).name)' "$manifest")
+          version=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$manifest")
+          if [ "$name" != "$EXPECTED_NAME" ] || [ "$version" != "$EXPECTED_VERSION" ]; then
+            echo "::error::Runtime archive identity mismatch: $name@$version."
+            exit 1
+          fi
+          if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "$name@$version already on registry; skipping publish"
           else
-            mkdir -p "$RUNNER_TEMP/agent-runtime-package"
-            npm_config_ignore_scripts=true pnpm pack --pack-destination "$RUNNER_TEMP/agent-runtime-package"
-            package="$(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -name '*.tgz' -print -quit)"
-            test -n "$package"
-            node scripts/verify-package-exports.mjs "$package"
             # npm refuses to implicitly move `latest` to a LOWER version, which is
             # exactly what a backport off release/<major>.<minor>.x is. When this
             # version is not the highest published, publish it under a line-scoped
             # dist-tag instead. Dist-tags do not affect semver range resolution, so
             # a consumer pinned to ^0.84.0 still resolves 0.84.1.
-            LATEST=$(npm view "$NAME" version 2>/dev/null || true)
-            if [ -n "$LATEST" ] && \
-               [ "$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
-              LINE_TAG="release-${VERSION%.*}"
-              echo "$VERSION is below latest ($LATEST); publishing under dist-tag $LINE_TAG"
-              npm publish "$package" --provenance --access public --tag "$LINE_TAG"
+            latest=$(npm view "$name" version --registry=https://registry.npmjs.org 2>/dev/null || true)
+            if [ -n "$latest" ] && \
+               [ "$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -1)" != "$version" ]; then
+              line_tag="release-${version%.*}"
+              echo "$version is below latest ($latest); publishing under dist-tag $line_tag"
+              npm publish "$package" --ignore-scripts --provenance --access public --tag "$line_tag" --registry=https://registry.npmjs.org
             else
-              npm publish "$package" --provenance --access public
+              npm publish "$package" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
             fi
           fi
 
@@ -232,8 +272,13 @@ jobs:
     # tag/version locking stays intact and the root package is never co-published.
     if: startsWith(github.ref, 'refs/tags/agent-bench-v')
     runs-on: ubuntu-latest
+    outputs:
+      release-version: ${{ steps.release.outputs.version }}
+      package-sha256: ${{ steps.package.outputs.sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
@@ -254,6 +299,7 @@ jobs:
         run: pnpm run verify:bench:published
 
       - name: Verify tag/version lock
+        id: release
         run: |
           NPM_VERSION=$(node -p "require('./bench/package.json').version")
           TAG_VERSION="${GITHUB_REF#refs/tags/agent-bench-v}"
@@ -261,7 +307,34 @@ jobs:
             echo "::error::Tag/version mismatch: tag=$TAG_VERSION package=$NPM_VERSION."
             exit 1
           fi
+          echo "version=$NPM_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version locked: $NPM_VERSION"
+
+      - name: Package and verify the exact agent-bench archive
+        id: package
+        run: |
+          package_dir="$RUNNER_TEMP/agent-bench-package"
+          mkdir -p "$package_dir"
+          npm_config_ignore_scripts=true pnpm --dir bench pack --pack-destination "$package_dir"
+          mapfile -t packages < <(find "$package_dir" -maxdepth 1 -type f -name '*.tgz' -print)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "::error::Expected one agent-bench archive, found ${#packages[@]}."
+            exit 1
+          fi
+          package="${packages[0]}"
+          node bench/scripts/verify-packed-consumer.mjs --tarball "$package"
+          sha256=$(sha256sum "$package" | cut -d' ' -f1)
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "agent-bench archive locked: $package ($sha256)"
+
+      - name: Upload exact agent-bench archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-bench-package
+          path: ${{ runner.temp }}/agent-bench-package/*.tgz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
 
   publish-agent-bench:
     needs: verify-agent-bench
@@ -270,33 +343,49 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      EXPECTED_NAME: '@tangle-network/agent-bench'
+      EXPECTED_VERSION: ${{ needs.verify-agent-bench.outputs.release-version }}
+      EXPECTED_SHA256: ${{ needs.verify-agent-bench.outputs.package-sha256 }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          node-version: 24.18.0
 
-      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-bench-package
+          path: ${{ runner.temp }}/agent-bench-package
 
-      - name: Publish to npm (OIDC trusted publishing)
+      - name: Publish exact agent-bench archive
         run: |
           # Requires the npmjs Trusted Publisher on @tangle-network/agent-bench:
           # org tangle-network, repo agent-runtime, workflow publish.yml.
-          npm install -g npm@11
-          NAME=$(node -p "require('./bench/package.json').name")
-          VERSION=$(node -p "require('./bench/package.json').version")
-          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
-            echo "$NAME@$VERSION already on registry; skipping publish"
+          npm_version=$(npm --version)
+          if [[ "$npm_version" != 11.* ]]; then
+            echo "::error::Expected npm 11, received $npm_version."
+            exit 1
+          fi
+          mapfile -t packages < <(find "$RUNNER_TEMP/agent-bench-package" -maxdepth 1 -type f -name '*.tgz' -print)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "::error::Expected one agent-bench archive, found ${#packages[@]}."
+            exit 1
+          fi
+          package="${packages[0]}"
+          actual_sha256=$(sha256sum "$package" | cut -d' ' -f1)
+          if [ "$actual_sha256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::agent-bench archive digest mismatch."
+            exit 1
+          fi
+          manifest=$(tar -xOzf "$package" package/package.json)
+          name=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).name)' "$manifest")
+          version=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).version)' "$manifest")
+          if [ "$name" != "$EXPECTED_NAME" ] || [ "$version" != "$EXPECTED_VERSION" ]; then
+            echo "::error::agent-bench archive identity mismatch: $name@$version."
+            exit 1
+          fi
+          if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "$name@$version already on registry; skipping publish"
           else
-            mkdir -p "$RUNNER_TEMP/agent-bench-package"
-            pnpm --dir bench build
-            npm_config_ignore_scripts=true pnpm --dir bench pack --pack-destination "$RUNNER_TEMP/agent-bench-package"
-            package="$(find "$RUNNER_TEMP/agent-bench-package" -maxdepth 1 -name '*.tgz' -print -quit)"
-            test -n "$package"
-            npm publish "$package" --provenance --access public
+            npm publish "$package" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
           fi
