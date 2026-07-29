@@ -593,6 +593,13 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       actOutcome = { ok: false, error }
     } finally {
       executionAborted = controller.signal.aborted
+      // A child inherits the root cutoff and can settle the root act on that exact timer turn.
+      // If its settlement callback runs before the root timer callback, the finally block clears
+      // the still-pending root timer. Preserve the deadline cause from the shared absolute clock;
+      // do not overwrite a caller/breaker abort that already won the controller race.
+      if (!controller.signal.aborted && rootDeadlineAtMs > 0 && now() >= rootDeadlineAtMs) {
+        deadlineExceeded = true
+      }
       clearRootDeadline?.()
       // Join barrier: tear down every still-live child. Generalizes the kernel's
       // `finally{ Promise.allSettled(destroy) }` — a teardown throw is allSettled'd and
