@@ -145,6 +145,7 @@ async function runRegistry(
   const reg = opts.registry as AnalystRegistryStreamingLike
   const registryOptions = {
     ...(priorFindings ? { priorFindings } : {}),
+    ...(opts.chainFindings !== undefined ? { chainFindings: opts.chainFindings } : {}),
     ...(opts.costLedger ? { costLedger: opts.costLedger } : {}),
     ...(opts.costPhase ? { costPhase: opts.costPhase } : {}),
     ...(opts.signal ? { signal: opts.signal } : {}),

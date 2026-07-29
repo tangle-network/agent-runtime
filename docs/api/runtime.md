@@ -3038,6 +3038,10 @@ Optional `run` opts (e.g. `priorFindings`) forwarded verbatim to the registry.
 
 > `optional` **priorFindings?**: readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
 
+###### chainFindings?
+
+> `optional` **chainFindings?**: `boolean`
+
 ***
 
 ### Persona
