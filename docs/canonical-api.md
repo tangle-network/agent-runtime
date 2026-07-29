@@ -6,7 +6,7 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.109.1.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.135.1 <0.136.0`.
+> `agent-eval` must satisfy `>=0.135.3 <0.136.0`.
 > `sandbox` must satisfy `>=0.15.0 <0.16.0`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.36.0 <0.37.0`.
 >
@@ -94,6 +94,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 |---|---|---|
 | Run one product chat turn with streamed events, ordered persistence hooks, and stable execution/turn identity | `handleChatTurn(...)` + `deriveExecutionId(...)`: `/durable`; pass the derived id as both `executionId` and `turnId` on initial dispatch | importing the broad package entry from an edge worker, treating `executionId` alone as dispatch idempotency, or rebuilding framing and persistence ordering in the product |
 | Run a supervisor toward a goal with default setup | `supervise(profile, task, { budget, backend? })`: `/kernel` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for lower-level calls before you need a specific counterparty |
+| Analyze a settled worker's tool use | `run_analyst` over the worker's persisted `WorkerTraceEvidence`; Runtime reconstructs agent-eval's bounded `TraceAnalysisStore`: `/kernel` + `/mcp` | passing the worker's final prose or result blob to a trace analyst; a worker with no structured tool spans carries an explicit unavailable reason and analysis is refused |
 | **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })`: `/kernel` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |
 | Run a profile through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })`: `/kernel` | a hand-rolled `createSupervisor().run` + seam-wiring helper |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape`: `/kernel` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |

@@ -1,10 +1,64 @@
+import type { ToolSpan, TraceAnalysisStore } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import { createMcpServer } from '../../src/mcp/server'
 import { type CoordinationEvent, createCoordinationTools } from '../../src/mcp/tools/coordination'
-import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
-import { createPushTraceSource, watchTrace } from '../../src/runtime'
+import type { Agent, ResultBlobStore, Scope, Spend, WorkerTraceEvidence } from '../../src/runtime'
+import {
+  contentAddress,
+  createPushTraceSource,
+  WORKER_TOOL_TRACE_SCHEMA_VERSION,
+  watchTrace,
+} from '../../src/runtime'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
+
+const noTrace = {
+  status: 'unavailable',
+  reason: 'executor-did-not-expose-trace-source',
+} as const satisfies WorkerTraceEvidence
+
+const toolSpan = {
+  spanId: 'worker-trace-t0',
+  runId: 'worker-trace',
+  kind: 'tool',
+  name: 'read_file',
+  toolName: 'read_file',
+  args: { path: 'actual.ts' },
+  result: { text: 'structured tool result' },
+  status: 'ok',
+  startedAt: 100,
+  endedAt: 105,
+} as const satisfies ToolSpan
+const traceArtifact = {
+  schemaVersion: WORKER_TOOL_TRACE_SCHEMA_VERSION,
+  spans: [toolSpan],
+}
+const traceRef = contentAddress(traceArtifact)
+const availableTrace = {
+  status: 'available',
+  traceRef,
+  spanCount: 1,
+} as const satisfies WorkerTraceEvidence
+
+function traceBlobStore(outputRef: string, output: unknown): ResultBlobStore {
+  return {
+    get: async (ref) => {
+      if (ref === traceRef) return traceArtifact
+      if (ref === outputRef) return output
+      return undefined
+    },
+    put: async () => {},
+  }
+}
+
+async function traceSummary(trace: TraceAnalysisStore) {
+  const overview = await trace.getOverview()
+  return {
+    traces: overview.total_traces,
+    tools: overview.tool_names,
+    traceIds: overview.sample_trace_ids,
+  }
+}
 
 function mockScope() {
   const sent: Array<{ id: string; msg: unknown }> = []
@@ -30,6 +84,7 @@ function mockScope() {
       budget: { maxIterations: 1, maxTokens: 10 },
       spent: zeroSpend(),
       outRef: 'blob:w1',
+      trace: noTrace,
     },
   ]
   let admit = true
@@ -242,6 +297,7 @@ describe('coordination tools', () => {
       outRef: 'blob:a',
       verdict: { score: 1, valid: true },
       spent: zeroSpend(),
+      trace: noTrace,
       seq: 0,
     }
     let deliveredKey: string | undefined
@@ -321,6 +377,7 @@ describe('coordination tools', () => {
       valid: true,
       outRef: 'blob:a',
       spent: zeroSpend(),
+      trace: noTrace,
       live: 1,
       freeSlots: 0,
     })
@@ -443,6 +500,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w7',
         verdict: { valid: true, score: 0.83 },
         spent: zeroSpend(),
+        trace: noTrace,
         seq: 0,
       },
     ]
@@ -466,6 +524,7 @@ describe('coordination tools', () => {
       valid: true,
       outRef: 'blob:w7',
       spent: zeroSpend(),
+      trace: noTrace,
       freeSlots: null,
     })
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
@@ -524,6 +583,7 @@ describe('coordination tools', () => {
       outRef: 'blob:w0',
       verdict: { valid: true, score: 0.5 },
       spent: zeroSpend(),
+      trace: noTrace,
       seq: 0,
     }
     release()
@@ -657,11 +717,11 @@ describe('coordination tools', () => {
 
   it('list_analysts surfaces the menu and run_analyst applies a lens to a settled worker', async () => {
     const { scope } = mockScope()
-    const traceBlobs: ResultBlobStore = {
-      get: async (ref) => (ref === 'blob:w1' ? { messages: ['trace'] } : undefined),
-      put: async () => {},
-    }
-    const seen: Array<{ kind: string; trace: unknown }> = []
+    Object.assign(scope.view.nodes.find((node) => node.id === 'w1')!, { trace: availableTrace })
+    const traceBlobs = traceBlobStore('blob:w1', {
+      messages: ['WORKER PROSE THAT MUST NEVER REACH A TRACE ANALYST'],
+    })
+    const seen: Array<{ kind: string; trace: Awaited<ReturnType<typeof traceSummary>> }> = []
     const tb = createCoordinationTools({
       scope,
       blobs: traceBlobs,
@@ -670,7 +730,7 @@ describe('coordination tools', () => {
       analysts: {
         kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
         run: async (kind, trace) => {
-          seen.push({ kind, trace })
+          seen.push({ kind, trace: await traceSummary(trace) })
           return [{ claim: 'X missing' }]
         },
       },
@@ -683,12 +743,45 @@ describe('coordination tools', () => {
         findings: [{ claim: 'X missing' }],
       },
     )
-    expect(seen).toEqual([{ kind: 'completeness', trace: { messages: ['trace'] } }])
+    expect(seen).toEqual([
+      {
+        kind: 'completeness',
+        trace: { traces: 1, tools: ['read_file'], traceIds: ['worker-trace'] },
+      },
+    ])
     expect(await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w0' })).toEqual(
       {
         error: expect.stringContaining('has not settled'),
       },
     )
+  })
+
+  it('refuses trace analysis when a settled worker has no structured tool spans', async () => {
+    const { scope } = mockScope()
+    let analystCalls = 0
+    const tb = createCoordinationTools({
+      scope,
+      blobs: traceBlobStore('blob:w1', {
+        messages: ['plausible-looking worker prose is still not tool evidence'],
+      }),
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      analysts: {
+        kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+        run: async () => {
+          analystCalls += 1
+          return []
+        },
+      },
+    })
+
+    await expect(
+      tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w1' }),
+    ).resolves.toEqual({
+      error: expect.stringContaining('trace evidence is missing'),
+      trace: noTrace,
+    })
+    expect(analystCalls).toBe(0)
   })
 
   it('await_event bumps a blocking question ahead of a non-blocking one (urgency→priority)', async () => {
@@ -903,6 +996,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w7',
         verdict: { valid: false, score: 0.1 },
         spent: zeroSpend(),
+        trace: availableTrace,
         seq: 0,
       },
     ]
@@ -913,15 +1007,21 @@ describe('coordination tools', () => {
     const emitted: string[] = []
     const tb = createCoordinationTools({
       scope: drainScope,
-      blobs: {
-        get: async (ref) => (ref === 'blob:w7' ? { messages: ['trace'] } : undefined),
-        put: async () => {},
-      },
+      blobs: traceBlobStore('blob:w7', {
+        messages: ['worker final prose must not be analyzed as a trace'],
+      }),
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
       analysts: {
         kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
-        run: async () => [{ claim: 'stub left in place' }],
+        run: async (_kind, trace) => {
+          expect(await traceSummary(trace)).toEqual({
+            traces: 1,
+            tools: ['read_file'],
+            traceIds: ['worker-trace'],
+          })
+          return [{ claim: 'stub left in place' }]
+        },
       },
       analyzeOnSettle: ['completeness'],
       onEvent: (e) => emitted.push(e.type),
@@ -936,6 +1036,7 @@ describe('coordination tools', () => {
       valid: false,
       outRef: 'blob:w7',
       spent: zeroSpend(),
+      trace: availableTrace,
       freeSlots: null,
     })
     // The analyze-on-settle finding is now queued; the next pull surfaces it.
@@ -962,6 +1063,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w-retry',
         verdict: { valid: true, score: 0.8 },
         spent: zeroSpend(),
+        trace: noTrace,
         seq: 0,
       },
     ]
@@ -1009,6 +1111,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w8',
         verdict: { valid: true, score: 1 },
         spent: zeroSpend(),
+        trace: noTrace,
         seq: 0,
       },
     ]
@@ -1023,6 +1126,7 @@ describe('coordination tools', () => {
       type: 'settled',
       settled: 'w8',
       valid: true,
+      trace: noTrace,
     })
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
       idle: true,
@@ -1040,6 +1144,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w9',
         verdict: { valid: true, score: 1 },
         spent: zeroSpend(),
+        trace: noTrace,
         seq: 0,
       },
     ]
@@ -1058,6 +1163,7 @@ describe('coordination tools', () => {
     // The drained settled event was queued, not lost — a caller that asks for it still gets it.
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toMatchObject({
       settled: 'w9',
+      trace: noTrace,
     })
   })
 

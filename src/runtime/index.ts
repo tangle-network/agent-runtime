@@ -715,6 +715,13 @@ export {
   type SupervisorToolDescriptor,
   supervisorAgent,
 } from './supervise/supervisor-agent'
+export {
+  captureWorkerTraceEvidence,
+  parseWorkerToolTraceArtifact,
+  WORKER_TOOL_TRACE_SCHEMA_VERSION,
+  type WorkerToolTraceArtifact,
+  workerTraceAnalysisStore,
+} from './supervise/trace-evidence'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {
@@ -776,6 +783,8 @@ export type {
   UsageEvent,
   WaitOpts,
   WidenGate,
+  WorkerTraceEvidence,
+  WorkerTraceUnavailableReason,
 } from './supervise/types'
 // WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
 // (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute

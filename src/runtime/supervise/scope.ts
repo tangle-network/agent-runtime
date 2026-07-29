@@ -60,6 +60,7 @@ import {
   type WorkerProgress,
 } from './progress'
 import { detachedSnapshot } from './snapshot'
+import { captureWorkerTraceEvidence } from './trace-evidence'
 import type { TraceSource } from './trace-source'
 import type {
   Agent,
@@ -92,6 +93,7 @@ import type {
   TreeView,
   UsageEvent,
   WaitOpts,
+  WorkerTraceEvidence,
 } from './types'
 import {
   assertWaitWithinDeadline,
@@ -209,6 +211,8 @@ interface LiveChild {
   readonly key?: string
   spent: Spend
   outRef?: string
+  /** Durable structured tool evidence once this executor is terminal. */
+  trace?: WorkerTraceEvidence
   /** Exact terminal timestamp committed to the journal. */
   settledAt?: number
   /** Resolves with the terminal settlement WITHOUT a `seq` — `next()` stamps the seq. */
@@ -259,6 +263,7 @@ type PreSeqSettled =
       outRef: string
       verdict?: DefaultVerdict
       spent: Spend
+      trace: WorkerTraceEvidence
       /** A driver child's OWN-inference subtree total (from `Executor.metered()`) — journaled as a
        *  `metered` event for this node, NOT reconciled (already debited live via `observe`). */
       metered?: Spend
@@ -268,6 +273,7 @@ type PreSeqSettled =
       reason: string
       infra: boolean
       restartCount: number
+      trace: WorkerTraceEvidence
       /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
        *  too, so the journal matches the pool (which already debited it via `observe`). */
       metered?: Spend
@@ -992,15 +998,33 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         live.executorDone = true
         live.lastActivityAt = now()
         if (resolution.kind === 'cancelled') {
-          return { kind: 'down', reason: resolution.reason, infra: false, restartCount: 0 }
+          return {
+            kind: 'down',
+            reason: resolution.reason,
+            infra: false,
+            restartCount: 0,
+            trace: { status: 'unavailable', reason: 'not-an-executor' },
+          }
         }
         const outRef = contentAddress(resolution.outcome)
         await args.blobs.put(outRef, resolution.outcome)
-        return { kind: 'done', out: resolution.outcome, outRef, spent: zeroSpend() }
+        return {
+          kind: 'done',
+          out: resolution.outcome,
+          outRef,
+          spent: zeroSpend(),
+          trace: { status: 'unavailable', reason: 'not-an-executor' },
+        }
       })
       .catch((err): PreSeqSettled => {
         live.executorDone = true
-        return { kind: 'down', reason: errMessage(err), infra: true, restartCount: 0 }
+        return {
+          kind: 'down',
+          reason: errMessage(err),
+          infra: true,
+          restartCount: 0,
+          trace: { status: 'unavailable', reason: 'not-an-executor' },
+        }
       })
       .then((s) => {
         live.resolved = s
@@ -1428,6 +1452,7 @@ async function finalizeSettlement<Out>(
   const at = new Date(settledAt).toISOString()
   if (settlement.kind === 'down') {
     child.status = 'failed'
+    child.trace = settlement.trace
     await args.journal.appendEvent(args.root, {
       kind: 'settled',
       id: child.id,
@@ -1435,6 +1460,7 @@ async function finalizeSettlement<Out>(
       spent: child.spent,
       infra: settlement.infra,
       reason: settlement.reason,
+      trace: settlement.trace,
       seq,
       at,
     })
@@ -1475,6 +1501,7 @@ async function finalizeSettlement<Out>(
       reason: settlement.reason,
       infra: settlement.infra,
       restartCount: settlement.restartCount,
+      trace: settlement.trace,
       settledAt,
       seq,
     }
@@ -1483,6 +1510,7 @@ async function finalizeSettlement<Out>(
   child.status = 'done'
   child.outRef = settlement.outRef
   child.spent = settlement.spent
+  child.trace = settlement.trace
   await args.journal.appendEvent(args.root, {
     kind: 'settled',
     id: child.id,
@@ -1490,6 +1518,7 @@ async function finalizeSettlement<Out>(
     outRef: settlement.outRef,
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),
     spent: settlement.spent,
+    trace: settlement.trace,
     seq,
     at,
   })
@@ -1533,6 +1562,7 @@ async function finalizeSettlement<Out>(
     outRef: settlement.outRef,
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),
     spent: settlement.spent,
+    trace: settlement.trace,
     settledAt,
     seq,
   }
@@ -1571,6 +1601,7 @@ async function finalizeWait<Out>(
       reason: settlement.reason,
       infra: settlement.infra,
       restartCount: settlement.restartCount,
+      trace: settlement.trace,
       settledAt,
       seq,
     }
@@ -1606,6 +1637,7 @@ async function finalizeWait<Out>(
     out: settlement.out as Out,
     outRef: settlement.outRef,
     spent: settlement.spent,
+    trace: settlement.trace,
     settledAt,
     seq,
   }
@@ -1639,6 +1671,11 @@ async function runChild<C>(
   let started = false
   let terminalTelemetryCaptured = false
   let teardownStarted = false
+  let traceEvidence: WorkerTraceEvidence | undefined
+  const captureTraceOnce = async (): Promise<WorkerTraceEvidence> => {
+    traceEvidence ??= await captureWorkerTraceEvidence(live.readTraceSource, blobs, started)
+    return traceEvidence
+  }
   const teardownOnce = async (grace: number | 'brutalKill' | 'infinity'): Promise<void> => {
     if (teardownStarted) return
     teardownStarted = true
@@ -1711,10 +1748,11 @@ async function runChild<C>(
     // A driver child's OWN-inference subtree total — re-homed by the parent on EVERY settle exit
     // (done, aborted, crash) so the journal always matches what the pool already debited.
     const ownMetered = executor.metered?.()
+    const trace = await captureTraceOnce()
 
     if (childAbort.signal.aborted) {
       await teardownOnce(opts.shutdown ?? 'brutalKill')
-      return downRecord('aborted before settle', true, ownMetered)
+      return downRecord('aborted before settle', true, trace, ownMetered)
     }
 
     // The durable record is keyed by the canonical content address of the output — the
@@ -1732,6 +1770,7 @@ async function runChild<C>(
       outRef,
       ...(artifact.verdict ? { verdict: artifact.verdict } : {}),
       spent: live.spent,
+      trace,
       ...(ownMetered ? { metered: ownMetered } : {}),
     }
   } catch (err) {
@@ -1740,6 +1779,8 @@ async function runChild<C>(
     live.executorDone = true
     // A recursive executor can still report the nested work committed before it threw.
     // Reconcile that whole partial subtree while journaling its child-work component separately.
+    // A box-backed trace must be collected before teardown destroys the session that owns it.
+    const trace = await captureTraceOnce()
     let teardownError: unknown
     try {
       await teardownOnce('brutalKill')
@@ -1767,6 +1808,7 @@ async function runChild<C>(
       // failure itself in the durable record.
       errMessage(err),
       teardownError !== undefined || reconcileError !== undefined || aborted || isInfraError(err),
+      trace,
       executor.metered?.(),
     )
   }
@@ -1851,6 +1893,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     spent: c.spent,
     ...(c.settledAt === undefined ? {} : { settledAt: c.settledAt }),
     ...(c.outRef ? { outRef: c.outRef } : {}),
+    ...(c.trace ? { trace: c.trace } : {}),
   }))
   return {
     root,
@@ -2042,8 +2085,13 @@ function abortError(signal: AbortSignal): Error {
   return error
 }
 
-function downRecord(reason: string, infra: boolean, metered?: Spend): PreSeqSettled {
-  return { kind: 'down', reason, infra, restartCount: 0, ...(metered ? { metered } : {}) }
+function downRecord(
+  reason: string,
+  infra: boolean,
+  trace: WorkerTraceEvidence,
+  metered?: Spend,
+): PreSeqSettled {
+  return { kind: 'down', reason, infra, restartCount: 0, trace, ...(metered ? { metered } : {}) }
 }
 
 function zeroSpend(): Spend {

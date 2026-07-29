@@ -165,6 +165,31 @@ export interface Executor<Out> {
   metered?(): Spend | undefined
 }
 
+/** Why Runtime cannot provide structured tool-call evidence for one settled execution. */
+export type WorkerTraceUnavailableReason =
+  | 'execution-did-not-start'
+  | 'executor-did-not-expose-trace-source'
+  | 'trace-source-unavailable'
+  | 'no-tool-spans-captured'
+  | 'invalid-tool-spans'
+  | 'trace-collection-failed'
+  | 'trace-persistence-failed'
+  | 'legacy-settlement-without-trace-evidence'
+  | 'not-an-executor'
+
+/** Durable proof of a worker's structured tool trace, or the exact reason it is unavailable. */
+export type WorkerTraceEvidence =
+  | {
+      readonly status: 'available'
+      /** Content-addressed pointer to a persisted `WorkerToolTraceArtifact`. */
+      readonly traceRef: string
+      readonly spanCount: number
+    }
+  | {
+      readonly status: 'unavailable'
+      readonly reason: WorkerTraceUnavailableReason
+    }
+
 /** Split used by a recursive executor when journaled child work differs from the full amount
  * reconciled against its parent reservation. */
 export interface ExecutorAccounting {
@@ -516,6 +541,8 @@ export type Settled<Out> =
       outRef: string
       verdict?: DefaultVerdict
       spent: Spend
+      /** Structured tool evidence captured before this settlement was journaled. */
+      trace: WorkerTraceEvidence
       /** Epoch ms parsed from the durable settlement record when available. */
       settledAt?: number
       seq: number
@@ -527,6 +554,8 @@ export type Settled<Out> =
       /** True = infrastructure failure (excluded from merge `n` / equal-k), not a bad result. */
       infra: boolean
       restartCount: number
+      /** Partial structured tool evidence captured before this failure was journaled. */
+      trace: WorkerTraceEvidence
       /** Epoch ms parsed from the durable settlement/cancellation record when available. */
       settledAt?: number
       seq: number
@@ -730,6 +759,8 @@ export interface NodeSnapshot {
   readonly spent: Spend
   /** `outRef` once the node is `done` (the replay/result pointer). */
   readonly outRef?: string
+  /** Present on terminal executor nodes; legacy records carry an explicit unavailable reason. */
+  readonly trace?: WorkerTraceEvidence
 }
 
 /** The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer. */
@@ -795,6 +826,8 @@ export type SpawnEvent =
       /** Exact child failure. Present on every new `status: 'down'` record; optional only so
        * journals written before this field existed remain replayable. */
       reason?: string
+      /** Structured tool evidence. Optional only for journals written before trace capture. */
+      trace?: WorkerTraceEvidence
       seq: number
       at: string
     }

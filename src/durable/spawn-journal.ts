@@ -20,7 +20,7 @@
  * @experimental
  */
 
-import { createHash } from 'node:crypto'
+import { workerTraceAnalysisStore } from '../runtime/supervise/trace-evidence'
 import type {
   NodeExecutionIdentity,
   NodeId,
@@ -36,7 +36,10 @@ import type {
 } from '../runtime/supervise/types'
 import type { PendingWait } from '../runtime/supervise/wait'
 import { zeroTokenUsage } from '../runtime/util'
+import { contentAddress } from './content-address'
 import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
+
+export { contentAddress } from './content-address'
 
 // ── Content addressing ──────────────────────────────────────────────────────
 
@@ -49,20 +52,6 @@ import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './js
  * Stable encoding: object keys are sorted recursively so two structurally-equal
  * artifacts hash identically regardless of key insertion order.
  */
-export function contentAddress(artifact: unknown): string {
-  const hex = createHash('sha256').update(stableStringify(artifact), 'utf-8').digest('hex')
-  return `sha256:${hex}`
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`
-}
-
 // ── Result blob store ─────────────────────────────────────────────────────────
 
 /**
@@ -413,6 +402,7 @@ export async function replaySpawnTree(
           reason: 'wait cancelled',
           infra: false,
           restartCount: 0,
+          trace: { status: 'unavailable', reason: 'not-an-executor' },
           ...settlementTime(ev.at),
           seq: ev.seq,
         })
@@ -430,6 +420,7 @@ export async function replaySpawnTree(
         out: outcome,
         outRef: ev.outRef,
         spent: zeroSpend(),
+        trace: { status: 'unavailable', reason: 'not-an-executor' },
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -442,12 +433,15 @@ export async function replaySpawnTree(
         reason: ev.reason,
         infra: false,
         restartCount: 0,
+        trace: { status: 'unavailable', reason: 'execution-did-not-start' },
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
       continue
     }
     if (ev.status === 'down') {
+      const trace = traceEvidenceFor(ev)
+      if (trace.status === 'available') await workerTraceAnalysisStore(trace, blobs)
       settled.push({
         kind: 'down',
         handle: handleFor(ev.id, 'failed'),
@@ -456,6 +450,7 @@ export async function replaySpawnTree(
         reason: ev.reason ?? ev.verdict?.notes ?? 'child down',
         infra: ev.infra === true,
         restartCount: 0,
+        trace,
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -473,6 +468,8 @@ export async function replaySpawnTree(
         `replaySpawnTree: blob store has no artifact for outRef '${ev.outRef}' (node '${ev.id}', seq ${ev.seq})`,
       )
     }
+    const trace = traceEvidenceFor(ev)
+    if (trace.status === 'available') await workerTraceAnalysisStore(trace, blobs)
     settled.push({
       kind: 'done',
       handle: handleFor(ev.id, 'done'),
@@ -480,6 +477,7 @@ export async function replaySpawnTree(
       outRef: ev.outRef,
       verdict: ev.verdict,
       spent: ev.spent,
+      trace,
       ...settlementTime(ev.at),
       seq: ev.seq,
     })
@@ -595,17 +593,20 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.status = ev.status === 'done' ? 'done' : 'failed'
       node.spent = ev.spent
       node.outRef = ev.outRef
+      node.trace = traceEvidenceFor(ev)
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else if (ev.kind === 'woken') {
       const node = requireNode(nodes, ev.id)
       node.status = ev.by === 'cancelled' ? 'cancelled' : 'done'
       node.outRef = ev.outRef
+      node.trace = { status: 'unavailable', reason: 'not-an-executor' }
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else {
       const node = requireNode(nodes, ev.id)
       node.status = 'cancelled'
+      node.trace = { status: 'unavailable', reason: 'execution-did-not-start' }
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     }
@@ -675,6 +676,7 @@ interface MutableSnapshot {
   executionBindings?: NonNullable<NodeSnapshot['executionBindings']>[number][]
   spent: Spend
   outRef?: string
+  trace?: NodeSnapshot['trace']
   settledAt?: number
 }
 
@@ -717,8 +719,20 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
       node.executionBindings === undefined ? undefined : Object.freeze([...node.executionBindings]),
     spent: node.spent,
     outRef: node.outRef,
+    trace: node.trace,
     settledAt: node.settledAt,
   }
+}
+
+function traceEvidenceFor(
+  event: Extract<SpawnEvent, { kind: 'settled' }>,
+): NonNullable<NodeSnapshot['trace']> {
+  return (
+    event.trace ?? {
+      status: 'unavailable',
+      reason: 'legacy-settlement-without-trace-evidence',
+    }
+  )
 }
 
 function isNoEntError(err: unknown): boolean {

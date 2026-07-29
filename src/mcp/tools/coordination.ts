@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { TraceAnalysisStore } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   agentProfileSchema,
@@ -25,12 +26,14 @@ import type {
   Settled,
   Spend,
   Agent as SuperviseAgent,
+  WorkerTraceEvidence,
 } from '../../runtime'
 import { assertValidBudget } from '../../runtime/supervise/budget'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import type { WorkerProgress } from '../../runtime/supervise/progress'
+import { workerTraceAnalysisStore } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
 
 /** A worker the driver has drained via `await_event`. */
@@ -51,6 +54,8 @@ export interface SettledWorker {
   readonly valid?: boolean
   readonly outRef?: string
   readonly reason?: string
+  /** Structured tool-call evidence, never the worker's final prose. */
+  readonly trace: WorkerTraceEvidence
   /** True when projected from a prior process of the same durable run. */
   readonly resumed?: boolean
   /** Epoch ms from the durable terminal record — the resolution a progress-based stop rule needs
@@ -92,7 +97,7 @@ export type QuestionPolicy = 'auto' | 'mustDecide' | 'bubble' | 'failClosed'
 
 export interface AnalystRegistry {
   readonly kinds: ReadonlyArray<{ id: string; description: string; area: string }>
-  readonly run: (kindId: string, trace: unknown) => Promise<unknown>
+  readonly run: (kindId: string, trace: TraceAnalysisStore) => Promise<unknown>
 }
 
 /** A trace-analyst result re-entered as a message on the bus (the `finding` event kind). */
@@ -379,6 +384,13 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     const materialization = settled.handle.materialization ?? node?.materialization
     const executionBindings = settled.handle.executionBindings ?? node?.executionBindings
     const settledAt = settled.settledAt ?? node?.settledAt
+    const trace =
+      settled.trace ??
+      node?.trace ??
+      ({
+        status: 'unavailable',
+        reason: 'legacy-settlement-without-trace-evidence',
+      } as const)
     const common = {
       id: settled.handle.id,
       ...(assignmentId === undefined ? {} : { assignmentId }),
@@ -386,6 +398,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       ...(materialization === undefined ? {} : { materialization }),
       ...(executionBindings === undefined ? {} : { executionBindings }),
       ...(settledAt === undefined ? {} : { settledAt }),
+      trace,
       ...(resumed ? { resumed: true as const } : {}),
     }
     return deepFreezeDetached<SettledWorker>(
@@ -537,11 +550,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     if (
       pending.analyze &&
       pending.worker.status === 'done' &&
-      pending.worker.outRef &&
+      pending.worker.trace.status === 'available' &&
       opts.analysts &&
       opts.analyzeOnSettle?.length
     ) {
-      const trace = await opts.blobs.get(pending.worker.outRef)
+      const trace = await workerTraceAnalysisStore(pending.worker.trace, opts.blobs)
       for (const analyst of opts.analyzeOnSettle) {
         const findings = await opts.analysts.run(analyst, trace)
         await bus.publish({
@@ -863,6 +876,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     spent: node.spent,
     ...(node.settledAt === undefined ? {} : { settledAt: node.settledAt }),
     ...(node.outRef === undefined ? {} : { outRef: node.outRef }),
+    ...(node.trace === undefined ? {} : { trace: node.trace }),
     ...(resumed ? { resumed: true } : {}),
   })
 
@@ -1438,12 +1452,28 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       handler: async (raw) => {
         const a = obj(raw)
         const id = str(a.workerId, 'workerId')
-        const node = opts.scope.view.nodes.find((n) => n.id === id)
+        const node = nodeForWorker(id)
         if (!node) return { error: `unknown workerId ${JSON.stringify(id)}` }
-        if (!node.outRef)
+        if (isLive(node.status)) {
           return { error: `worker ${JSON.stringify(id)} has not settled — no trace to analyze yet` }
-        const trace = await opts.blobs.get(node.outRef)
-        return { findings: await opts.analysts?.run(str(a.kind, 'kind'), trace) }
+        }
+        const trace =
+          ledger.find((worker) => worker.id === id)?.trace ??
+          node.trace ??
+          ({
+            status: 'unavailable',
+            reason: 'legacy-settlement-without-trace-evidence',
+          } as const)
+        let store: TraceAnalysisStore
+        try {
+          store = await workerTraceAnalysisStore(trace, opts.blobs)
+        } catch (error) {
+          return {
+            error: error instanceof Error ? error.message : String(error),
+            trace,
+          }
+        }
+        return { findings: await opts.analysts?.run(str(a.kind, 'kind'), store) }
       },
     })
   }
