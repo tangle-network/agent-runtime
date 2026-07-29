@@ -30,6 +30,21 @@ export interface WorkerToolTraceArtifact {
   readonly spans: ReadonlyArray<ToolSpan>
 }
 
+/** Structural guard for the official bounded trace-analysis read contract. */
+export function isTraceAnalysisStore(value: unknown): value is TraceAnalysisStore {
+  if (value === null || typeof value !== 'object') return false
+  const store = value as Partial<Record<keyof TraceAnalysisStore, unknown>>
+  return (
+    typeof store.getOverview === 'function' &&
+    typeof store.queryTraces === 'function' &&
+    typeof store.countTraces === 'function' &&
+    typeof store.viewTrace === 'function' &&
+    typeof store.viewSpans === 'function' &&
+    typeof store.searchTrace === 'function' &&
+    typeof store.searchSpan === 'function'
+  )
+}
+
 /** Collect and persist one executor's structured tool trace without changing its task outcome. */
 export async function captureWorkerTraceEvidence(
   readSource: (() => TraceSource | undefined) | undefined,

@@ -1,3 +1,4 @@
+import { toolSpansToTraceAnalysisStore } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import {
   type Check,
@@ -65,6 +66,31 @@ describe('analyst-kind directory', () => {
     expect(t).toContain('RESULT ok')
   })
 
+  it('renders bounded TraceAnalysisStore views instead of stringifying the store to an empty object', async () => {
+    const store = toolSpansToTraceAnalysisStore([
+      {
+        spanId: 'tests-1',
+        runId: 'surface-worker-1',
+        kind: 'tool',
+        name: 'run_tests',
+        toolName: 'run_tests',
+        args: {},
+        result: '2/3 tests passed. FAILING: test_exact_case',
+        status: 'ok',
+        startedAt: 1,
+        endedAt: 2,
+      },
+    ])
+
+    const rendered = await renderTrace(store)
+
+    expect(rendered).toContain('OVERVIEW')
+    expect(rendered).toContain('surface-worker-1')
+    expect(rendered).toContain('run_tests')
+    expect(rendered).toContain('test_exact_case')
+    expect(rendered).not.toBe('{}')
+  })
+
   it('runCheck applies the lens via an injected chat → findings', async () => {
     const chat = async () =>
       '```json\n[{"severity":"medium","claim":"incidents not migrated","evidence_uri":"artifact://db.json","confidence":0.7}]\n```'
@@ -77,6 +103,43 @@ describe('analyst-kind directory', () => {
     expect(out).toHaveLength(1)
     expect(out[0]?.claim).toBe('incidents not migrated')
     expect(out[0]?.evidence_refs[0]?.kind).toBe('artifact')
+  })
+
+  it('passes a bounded store rendering to the MCP check model', async () => {
+    const store = toolSpansToTraceAnalysisStore([
+      {
+        spanId: 'tests-2',
+        runId: 'surface-worker-2',
+        kind: 'tool',
+        name: 'run_tests',
+        toolName: 'run_tests',
+        args: {},
+        result: '1/2 tests passed. FAILING: test_rendered',
+        status: 'ok',
+        startedAt: 3,
+        endedAt: 4,
+      },
+    ])
+    let userPrompt = ''
+
+    await runCheck(
+      kind,
+      store,
+      {
+        routerBaseUrl: 'x',
+        routerKey: 'x',
+        model: 'm',
+        chat: async (_system, user) => {
+          userPrompt = user
+          return '```json\n[]\n```'
+        },
+      },
+      AT,
+    )
+
+    expect(userPrompt).toContain('run_tests')
+    expect(userPrompt).toContain('test_rendered')
+    expect(userPrompt).not.toContain('WORKER TRACE:\n{}')
   })
 
   it('makeCheckRunner dispatches by kind id; unknown kind → typed error', async () => {

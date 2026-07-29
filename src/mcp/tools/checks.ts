@@ -21,8 +21,10 @@ import {
   type AnalystSeverity,
   type EvidenceRef,
   makeFinding,
+  type TraceAnalysisStore,
 } from '@tangle-network/agent-eval'
 import { assertTraceDerivedFindings } from '../../runtime'
+import { isTraceAnalysisStore } from '../../runtime/supervise/trace-evidence'
 
 // agent-eval's root entry exports the lift (`makeFinding`) + the `AnalystFinding`/`EvidenceRef` shapes
 // but NOT the raw-row validator / schema prompt (kind-factory-internal). We inline a minimal,
@@ -179,9 +181,13 @@ function evidenceRefs(uri: string, excerpt?: string): EvidenceRef[] {
   return [{ kind, uri, ...(excerpt ? { excerpt } : {}) }]
 }
 
-/** Render a worker's trace (tool calls + results) into the text an analyst lens reads. Generic over
- *  the trace shape: a `{ messages }` conversation, a bare message array, else stringified. */
-export function renderTrace(trace: unknown): string {
+/** Render a worker's trace (tool calls + results) into the text an analyst lens reads. Conversation
+ *  values remain synchronous; the official bounded store is read asynchronously through its own
+ *  overview and view operations instead of stringifying its prototype to `{}`. */
+export function renderTrace(trace: TraceAnalysisStore): Promise<string>
+export function renderTrace(trace: unknown): string
+export function renderTrace(trace: unknown): string | Promise<string> {
+  if (isTraceAnalysisStore(trace)) return renderTraceStore(trace)
   const messages = Array.isArray(trace)
     ? trace
     : trace &&
@@ -207,6 +213,24 @@ export function renderTrace(trace: unknown): string {
     .slice(0, 8000)
 }
 
+async function renderTraceStore(trace: TraceAnalysisStore): Promise<string> {
+  const overview = await trace.getOverview()
+  const views = await Promise.all(
+    overview.sample_trace_ids.slice(0, 3).map(async (traceId) =>
+      trace.viewTrace({
+        trace_id: traceId,
+        per_attribute_byte_cap: 2048,
+      }),
+    ),
+  )
+  return [
+    `OVERVIEW ${JSON.stringify(overview)}`,
+    ...views.map((view) => `TRACE ${view.trace_id} ${JSON.stringify(view)}`),
+  ]
+    .join('\n')
+    .slice(0, 8000)
+}
+
 export interface CheckRunnerOptions {
   routerBaseUrl: string
   routerKey: string
@@ -226,7 +250,8 @@ export async function runCheck(
   const sys =
     `You are a trace analyst applying ONE lens: look for ${kind.lookFor}\n\n` +
     `${FINDING_SCHEMA_PROMPT}\n\nReturn ONLY a fenced \`\`\`json array of finding objects (possibly empty).`
-  const user = `WORKER TRACE:\n${renderTrace(trace)}\n\nApply your lens and emit the findings array.`
+  const renderedTrace = await Promise.resolve(renderTrace(trace))
+  const user = `WORKER TRACE:\n${renderedTrace}\n\nApply your lens and emit the findings array.`
   const chat = opts.chat ?? defaultChat(opts)
   const content = await chat(sys, user)
   const match = content.match(/```(?:json)?\s*([\s\S]*?)```/)
