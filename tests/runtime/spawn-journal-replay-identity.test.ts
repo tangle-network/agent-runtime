@@ -1,13 +1,27 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   contentAddress,
+  FileResultBlobStore,
+  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   materializeTreeView,
   replaySpawnTree,
 } from '../../src/durable/spawn-journal'
-import type { NodeExecutionIdentity, SpawnEvent } from '../../src/runtime/supervise/types'
+import { createBudgetPool } from '../../src/runtime/supervise/budget'
+import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createScope } from '../../src/runtime/supervise/scope'
+import type {
+  Agent,
+  AgentSpec,
+  Executor,
+  NodeExecutionIdentity,
+  SpawnEvent,
+} from '../../src/runtime/supervise/types'
 
 const spent = {
   iterations: 1,
@@ -169,5 +183,117 @@ describe('spawn journal replay identity', () => {
       expectedIdentity,
       expectedIdentity,
     ])
+  })
+
+  it('preserves an exact child failure across a durable restart and still reads legacy records', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'spawn-down-replay-'))
+    try {
+      const root = 'down-restart'
+      const exactReason = 'provider lost session at turn 7'
+      const journalPath = join(dir, 'spawn-journal.jsonl')
+      const blobPath = join(dir, 'blobs')
+      const journal = new FileSpawnJournal(journalPath)
+      const blobs = new FileResultBlobStore(blobPath)
+      await journal.beginTree(root, new Date(0).toISOString())
+
+      const executor: Executor<unknown> = {
+        runtime: 'router',
+        async execute() {
+          throw new Error(exactReason)
+        },
+        async teardown() {
+          return { destroyed: true }
+        },
+        resultArtifact() {
+          return {
+            outRef: 'unreachable',
+            out: undefined,
+            spent: {
+              iterations: 0,
+              tokens: { input: 0, output: 0 },
+              usd: 0,
+              ms: 0,
+            },
+          }
+        },
+      }
+      const spec: AgentSpec = {
+        profile: { name: 'failing worker' },
+        harness: null,
+        executor,
+      }
+      const agent = {
+        name: 'failing worker',
+        act: async () => undefined,
+        executorSpec: spec,
+      } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+      const scope = createScope<unknown>({
+        parentId: root,
+        root,
+        pool: createBudgetPool({ maxIterations: 1, maxTokens: 10 }, () => 0),
+        journal,
+        blobs,
+        executors: createExecutorRegistry(),
+        seams: {},
+        depth: 0,
+        maxDepth: 4,
+        signal: new AbortController().signal,
+        now: () => 0,
+      })
+
+      const spawned = scope.spawn(agent, 'fail exactly once', {
+        budget: { maxIterations: 1, maxTokens: 10 },
+        label: 'failure',
+      })
+      expect(spawned.ok).toBe(true)
+      const live = await scope.next()
+      expect(live).toMatchObject({ kind: 'down', reason: exactReason })
+
+      // A new store instance has no in-memory state from the writer: this is the restart boundary.
+      const restartedJournal = new FileSpawnJournal(journalPath)
+      const durableEvents = await restartedJournal.loadTree(root)
+      expect(
+        durableEvents?.find((event) => event.kind === 'settled' && event.status === 'down'),
+      ).toMatchObject({ reason: exactReason })
+      const replayed = await replaySpawnTree(
+        restartedJournal,
+        new FileResultBlobStore(blobPath),
+        root,
+      )
+      expect(replayed).toEqual([expect.objectContaining({ kind: 'down', reason: exactReason })])
+
+      // Before the reason field existed, some down records carried only verdict.notes and some
+      // carried neither. Both remain readable; no migration is required to resume an old run.
+      const legacy = new InMemorySpawnJournal()
+      await legacy.beginTree('legacy-down', new Date(0).toISOString())
+      await legacy.appendEvent('legacy-down', {
+        kind: 'spawned',
+        id: 'legacy-down:s0',
+        parent: 'legacy-down',
+        label: 'legacy',
+        budget: { maxIterations: 1, maxTokens: 10 },
+        runtime: 'router',
+        seq: 0,
+        at: new Date(0).toISOString(),
+      })
+      await legacy.appendEvent('legacy-down', {
+        kind: 'settled',
+        id: 'legacy-down:s0',
+        status: 'down',
+        spent,
+        seq: 0,
+        at: new Date(0).toISOString(),
+      })
+      const legacyReplay = await replaySpawnTree(
+        legacy,
+        new InMemoryResultBlobStore(),
+        'legacy-down',
+      )
+      expect(legacyReplay).toEqual([
+        expect.objectContaining({ kind: 'down', reason: 'child down' }),
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })

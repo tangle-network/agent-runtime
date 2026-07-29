@@ -158,12 +158,12 @@ describe('supervisor durable resume across a real process kill', () => {
     expect(finalLabels[2]).toBe('c')
   })
 
-  it('without `resume`, the same durable stores start a FRESH tree (opt-in, not a default)', {
+  it('refuses a reused durable runId without `resume` before executing or mutating its tree', {
     timeout: 120_000,
   }, async () => {
-    // The default-safety claim: durability is a store choice, resume is a separate opt-in. A
-    // supervisor run that does not pass `resume` re-runs everything even against a journal that
-    // already holds committed work.
+    // A durable run id is one execution identity. Starting fresh under an existing id would mix
+    // two executions into one journal, so continuing requires an explicit resume and starting over
+    // requires a new id.
     const { createSupervisor } = await import('../../src/runtime/supervise/supervisor')
     const { InMemoryResultBlobStore, InMemorySpawnJournal } = await import(
       '../../src/durable/spawn-journal'
@@ -191,10 +191,12 @@ describe('supervisor durable resume across a real process kill', () => {
     }
     const a = await createSupervisor<unknown, string>().run(root, 't', opts)
     expect(a.kind).toBe('winner')
-    // A second run on the SAME journal + runId still takes the fresh path (`beginTree` is
-    // idempotent for an identical `at`), and `Scope.resume` was never populated.
-    const b = await createSupervisor<unknown, string>().run(root, 't', opts)
-    expect(b.kind).toBe('winner')
-    expect(acts).toBe(2)
+    const committed = await journal.loadTree(opts.runId)
+
+    await expect(createSupervisor<unknown, string>().run(root, 't', opts)).rejects.toThrow(
+      /runId 'no-resume' already exists.*resume: true.*new runId/,
+    )
+    expect(acts).toBe(1)
+    expect(await journal.loadTree(opts.runId)).toEqual(committed)
   })
 })

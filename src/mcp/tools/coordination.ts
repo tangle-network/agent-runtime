@@ -359,7 +359,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // slot, so the fence must not hold it back. `keyByWorker` is what lets a settlement find its key.
   const completedKeys = new Set<string>()
   const keyByWorker = new Map<string, string>()
-  let unkeyedAssignmentOrdinal = 0
+  // `Scope` advances its node/cursor ordinals on resume, but assignment identity belongs to this
+  // manager. Seed it independently from durable evidence so a restarted manager never calls new
+  // work `ordinal:0` when a prior process already used that assignment. Use the maximum rather
+  // than the number of rows: journals can contain gaps, keyed assignments, and legacy/custom ids.
+  let unkeyedAssignmentOrdinal = nextUnkeyedAssignmentOrdinal(opts.scope)
   for (const [key, prior] of opts.scope.resume?.keys ?? []) {
     if (prior.state === 'completed') completedKeys.add(key)
   }
@@ -1456,6 +1460,29 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     questions: () => questions,
     drainResolved,
   }
+}
+
+function nextUnkeyedAssignmentOrdinal(scope: Scope<unknown>): number {
+  let next = 0
+  const views = [scope.resume?.view, scope.view]
+  for (const view of views) {
+    if (view === undefined) continue
+    for (const node of view.nodes) {
+      const match = /^ordinal:(\d+)$/.exec(node.assignmentId ?? '')
+      if (match === null) continue
+      const ordinal = Number(match[1])
+      if (!Number.isSafeInteger(ordinal)) {
+        throw new Error(
+          `coordination: durable assignment id '${node.assignmentId}' exceeds the safe ordinal range`,
+        )
+      }
+      next = Math.max(next, ordinal + 1)
+    }
+  }
+  if (!Number.isSafeInteger(next)) {
+    throw new Error('coordination: durable assignment ordinal space is exhausted')
+  }
+  return next
 }
 
 function deepFreezeDetached<T>(value: T): T {

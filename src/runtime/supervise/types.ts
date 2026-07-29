@@ -792,6 +792,9 @@ export type SpawnEvent =
       verdict?: DefaultVerdict
       spent: Spend
       infra?: boolean
+      /** Exact child failure. Present on every new `status: 'down'` record; optional only so
+       * journals written before this field existed remain replayable. */
+      reason?: string
       seq: number
       at: string
     }

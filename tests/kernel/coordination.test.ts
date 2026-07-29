@@ -92,6 +92,66 @@ describe('coordination tools', () => {
     })
   })
 
+  it('continues unkeyed assignment identity past the highest durable resume ordinal', async () => {
+    const { scope } = mockScope()
+    Object.defineProperty(scope, 'resume', {
+      value: {
+        settled: [],
+        view: {
+          root: 'root',
+          nodes: [
+            {
+              id: 'prior-0',
+              parent: 'root',
+              label: 'prior 0',
+              status: 'done',
+              runtime: 'router',
+              budget: { maxIterations: 1, maxTokens: 10 },
+              assignmentId: 'ordinal:0',
+              spent: zeroSpend(),
+            },
+            {
+              id: 'prior-3',
+              parent: 'root',
+              label: 'prior 3',
+              status: 'done',
+              runtime: 'router',
+              budget: { maxIterations: 1, maxTokens: 10 },
+              assignmentId: 'ordinal:3',
+              spent: zeroSpend(),
+            },
+            {
+              id: 'prior-keyed',
+              parent: 'root',
+              label: 'prior keyed',
+              status: 'done',
+              runtime: 'router',
+              budget: { maxIterations: 1, maxTokens: 10 },
+              assignmentId: 'key:control',
+              spent: zeroSpend(),
+            },
+          ],
+          inFlight: 0,
+          waiting: 0,
+        },
+        waits: [],
+        keys: new Map(),
+        priorSpend: { childWork: zeroSpend(), driverInference: zeroSpend() },
+      },
+    })
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+
+    expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'new work' })).toMatchObject({
+      workerId: 'w0',
+      assignmentId: 'ordinal:4',
+    })
+  })
+
   it('spawn_agent fails closed at the maxLiveWorkers cap WITHOUT touching the pool', async () => {
     // A scope whose live (non-terminal) node set is driven by the spawns we make: each successful
     // spawn appends a `running` node; nothing settles. The conserved pool always admits, so the

@@ -397,7 +397,13 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
     // starting over. An empty/absent tree — and every run that did NOT opt in — takes the fresh
     // path unchanged. This wires the already-built+tested resume primitives
     // (`replaySpawnTree`/`materializeTreeView`); the journal/blob store decide durability.
-    const prior = opts.resume === true ? await opts.journal.loadTree(opts.runId) : undefined
+    const existing = await opts.journal.loadTree(opts.runId)
+    if (opts.resume !== true && existing !== undefined) {
+      throw new RuntimeRunStateError(
+        `supervisor: runId '${opts.runId}' already exists; pass resume: true to continue it or use a new runId`,
+      )
+    }
+    const prior = opts.resume === true ? existing : undefined
     const resuming = prior !== undefined && prior.length > 0
     let resumeFrom: ResumeFrom | undefined
     let pool: BudgetPool
@@ -658,7 +664,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
       return {
         kind: 'no-winner',
-        reason: classifyNoWinner(controller, pool, opts, breaker, deadlineExceeded),
+        reason: classifyNoWinner(controller, pool, opts, breaker, deadlineExceeded, tree),
         tree,
         downCount: breaker.downCount(),
         spentTotal: addSpend(childWork, driverInference),
@@ -911,6 +917,7 @@ function classifyNoWinner(
   opts: SupervisorOpts,
   breaker: IntensityBreaker,
   deadlineExceeded: boolean,
+  tree: TreeView,
 ): NoWinnerReason {
   // A tripped breaker is the most specific cause (children kept dying), so it outranks
   // the abort it raised. A deadline that won the abort race remains budget exhaustion;
@@ -919,8 +926,18 @@ function classifyNoWinner(
   if (breaker.tripped()) return 'all-children-down'
   if (deadlineExceeded) return 'budget-exhausted'
   if (controller.signal.aborted) return 'aborted'
+  // Unknown terminal usage correctly seals the remaining pool, but that accounting consequence is
+  // not the cause of a run where every child failed. Preserve the lifecycle outcome before asking
+  // whether any budget channel is now unavailable. A real admission failure with no failed child
+  // still classifies as budget exhaustion below.
+  if (allSpawnedChildrenDown(tree)) return 'all-children-down'
   if (poolExhausted(pool, opts)) return 'budget-exhausted'
   return 'all-children-down'
+}
+
+function allSpawnedChildrenDown(tree: TreeView): boolean {
+  const children = tree.nodes.filter((node) => node.id !== tree.root)
+  return children.length > 0 && children.every((node) => node.status === 'failed')
 }
 
 function poolExhausted(pool: BudgetPool, opts: SupervisorOpts): boolean {

@@ -451,7 +451,9 @@ export async function replaySpawnTree(
       settled.push({
         kind: 'down',
         handle: handleFor(ev.id, 'failed'),
-        reason: ev.verdict?.notes ?? 'child down',
+        // `reason` is written by every current scope. The verdict fallback preserves the
+        // pre-field convention and the generic text keeps still-older reasonless journals usable.
+        reason: ev.reason ?? ev.verdict?.notes ?? 'child down',
         infra: ev.infra === true,
         restartCount: 0,
         ...settlementTime(ev.at),

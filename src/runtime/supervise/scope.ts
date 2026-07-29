@@ -1434,6 +1434,7 @@ async function finalizeSettlement<Out>(
       status: 'down',
       spent: child.spent,
       infra: settlement.infra,
+      reason: settlement.reason,
       seq,
       at,
     })
@@ -1759,7 +1760,12 @@ async function runChild<C>(
     const reconcileError = reconcileOnce(accounting?.reservation ?? live.spent)
     // A crashed driver child still re-homes the partial inference it durably metered.
     return downRecord(
-      errMessage(teardownError ?? reconcileError ?? err),
+      // The operation that failed is the causal error. Cleanup and accounting can independently
+      // fail while handling it, but must never replace it with a secondary diagnostic (for
+      // example, missing terminal usage after a provider crash). Their presence still marks the
+      // settlement as infrastructure-related, while the unknown spend flags retain the accounting
+      // failure itself in the durable record.
+      errMessage(err),
       teardownError !== undefined || reconcileError !== undefined || aborted || isInfraError(err),
       executor.metered?.(),
     )
