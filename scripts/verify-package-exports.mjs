@@ -9,14 +9,17 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   assertPublishableDependencySpecs,
   createStrictNodeConsumerTsconfig,
   requiredPackedDevelopmentDependency,
 } from './lib/packed-package-test.mjs'
-import { findStaticPackageImports } from './lib/static-imports.mjs'
+import {
+  findLiteralModuleSpecifiers,
+  findStaticPackageImports,
+} from './lib/static-imports.mjs'
 
 // Static imports of these packages mutate Node builtins at module load and can
 // make edge runtimes reject a Worker before startup. Scan installed first-party
@@ -71,6 +74,7 @@ try {
     './agent',
     './conversation',
     './durable',
+    './tool-loop',
     './intelligence',
     './kernel',
     './environment-provider',
@@ -96,6 +100,13 @@ try {
       }
       run('test', ['-f', join(packageDir, relativeTarget)], repoRoot)
     }
+  }
+  const toolLoopPath = join(packageDir, packageExports['./tool-loop'].import)
+  const toolLoopExternalImports = staticExternalImportClosure(toolLoopPath, packageDir)
+  if (toolLoopExternalImports.length > 0) {
+    throw new Error(
+      `tool-loop entry has static external imports: ${toolLoopExternalImports.join(', ')}`,
+    )
   }
 
   const knowledgePackageDir = join(
@@ -338,6 +349,40 @@ try {
           const specifier =
             subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1)
           await import(specifier)
+        }
+      `,
+    ],
+    appDir,
+  )
+
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const root = await import('@tangle-network/agent-runtime')
+        const toolLoop = await import('@tangle-network/agent-runtime/tool-loop')
+        for (const name of ['runToolLoop', 'streamToolLoop']) {
+          if (typeof toolLoop[name] !== 'function') throw new Error('missing tool-loop export ' + name)
+          if (name in root) throw new Error('tool-loop export leaked through broad package root: ' + name)
+        }
+        async function* streamTurn() {
+          yield { type: 'text', text: 'done' }
+        }
+        const result = await toolLoop.runToolLoop({
+          systemPrompt: 'Finish the turn.',
+          userMessage: 'Return done.',
+          streamTurn,
+          executeToolCall: async () => ({ ok: true, result: null }),
+          isExecutableTool: () => false,
+        })
+        if (
+          result.finalText !== 'done' ||
+          result.stopReason !== 'completed' ||
+          result.turns !== 1
+        ) {
+          throw new Error('packed tool-loop smoke failed: ' + JSON.stringify(result))
         }
       `,
     ],
@@ -666,6 +711,38 @@ function assertNoEdgeUnsafeStaticImports(scopeDir) {
   process.stdout.write(
     `Edge module-load safety: ${packageDirs.length} first-party packages, ${scanned} shipped files, no blocked static imports.\n`,
   )
+}
+
+function staticExternalImportClosure(entryPath, packageDir) {
+  const queue = [resolve(entryPath)]
+  const visited = new Set()
+  const externalImports = new Set()
+
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (visited.has(file)) continue
+    visited.add(file)
+
+    const source = readFileSync(file, 'utf8')
+    for (const specifier of findLiteralModuleSpecifiers(source, file)) {
+      if (!specifier.startsWith('.')) {
+        externalImports.add(specifier)
+        continue
+      }
+
+      const importedFile = resolve(dirname(file), specifier)
+      const packageRelativePath = relative(packageDir, importedFile)
+      if (packageRelativePath.startsWith('..') || isAbsolute(packageRelativePath)) {
+        throw new Error(`tool-loop import escapes the packed package: ${specifier}`)
+      }
+      if (!existsSync(importedFile)) {
+        throw new Error(`tool-loop import is missing from the packed package: ${specifier}`)
+      }
+      queue.push(importedFile)
+    }
+  }
+
+  return [...externalImports].sort()
 }
 
 /** Every installed `@tangle-network/*` directory, including nested copies. */

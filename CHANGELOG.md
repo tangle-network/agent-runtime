@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.109.1
+
+- Move `runToolLoop` and `streamToolLoop` to the Worker-safe `@tangle-network/agent-runtime/tool-loop` entrypoint.
+- Keep the tool-loop bundle free of static external imports and exercise the exact packed entrypoint before publishing.
+
 ## 0.109.0
 
 - Rename the public `./loops` entrypoint to `./kernel` and remove the old entrypoint.

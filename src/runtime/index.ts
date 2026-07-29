@@ -337,7 +337,7 @@ export {
   runBenchmark,
 } from './run-benchmark'
 // `runAgentRounds` is the multi-agent fanout/vote/refine kernel (many sandbox sessions per
-// call). It is NOT `runToolLoop`/`streamToolLoop` (package root: one chat turn, tool calls
+// call). It is NOT `runToolLoop`/`streamToolLoop` (`/tool-loop`: one chat turn, tool calls
 // folded back in) and NOT `routerToolLoop` (also on this subpath — router chat + tools).
 // `runLoop`/`RunLoopOptions` are the pre-rename names, kept as deprecated aliases.
 export {

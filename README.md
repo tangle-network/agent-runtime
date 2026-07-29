@@ -435,6 +435,7 @@ The general-purpose pieces, by import path. Every export with its one-line summa
 | Primitive | What it does | Import |
 |---|---|---|
 | Chat-turn runtime | Stream and persist one production chat turn (`handleChatTurn`); derive its stable execution and turn identity (`deriveExecutionId`); normalize any backend's stream into one event shape (`streamAgentTurn`) | `/durable` · `/kernel` |
+| Tool-call loop | Run one model turn, execute requested tools, feed results back, and stop on completion, repetition, time, or cost limits (`runToolLoop`, `streamToolLoop`) | `/tool-loop` |
 | Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/kernel` · `/mcp` |
 | Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runAgentRounds`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/kernel` |
 | Improvement driver | Optimize one part of an agent and ship only if it wins on tasks it never practiced on (`improve`); production proposal/review/activation flow | root · `/intelligence` |

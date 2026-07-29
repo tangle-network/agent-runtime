@@ -6,6 +6,7 @@ export default defineConfig({
     agent: 'src/agent/index.ts',
     conversation: 'src/conversation/index.ts',
     durable: 'src/durable/index.ts',
+    'tool-loop': 'src/tool-loop.ts',
     intelligence: 'src/intelligence/index.ts',
     kernel: 'src/runtime/index.ts',
     'environment-provider': 'src/runtime/environment-provider.ts',

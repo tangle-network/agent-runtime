@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.109.0.**
+> **Version 0.109.1.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.135.1 <0.136.0`.
 > `sandbox` must satisfy `>=0.15.0 <0.16.0`.
@@ -38,7 +38,7 @@ Two substrates implement the same recursive-atom over the one `Executor` port an
 The reactive `Supervisor`/`Scope` plus personify combinators drive dynamic agent trees; the round-synchronous `runAgentRounds` kernel is one leaf backend.
 `inlineSandboxClient` adapts any non-box `Executor` into a `SandboxClient` for `runAgentRounds`, and `settledToIteration` bridges reactive `Settled` results into the kernel's `Iteration`.
 `runAgentRounds` was named `runLoop`, which remains a deprecated `/kernel` alias.
-It is separate from root `runToolLoop` and `streamToolLoop`, which run one chat turn and fold tool calls back into it.
+It is separate from `runToolLoop` and `streamToolLoop` in `/tool-loop`, which run one chat turn and fold tool calls back into it.
 
 ## 1.5 The AgentProfile rule: author the profile, the substrate materializes it
 
