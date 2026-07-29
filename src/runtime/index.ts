@@ -53,6 +53,7 @@ export {
   type SpawnForestNode,
   type SpawnForestTree,
 } from '../durable/spawn-journal'
+export type { FilesystemSnapshotLimits } from '../filesystem-snapshot'
 // The typed coordination-bus event (up: settled/question/finding; authorized instruction receipt;
 // down: steer/answer delivery outcome) — surfaced here so a host folding the bus onto its own timeline can
 // type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides
@@ -314,6 +315,27 @@ export type {
   WidenSpec,
   WinnerStrategy,
 } from './personify/wave-types'
+export {
+  type BindLocalPrivateWorkspaceExecutionInput,
+  type CreateLocalPrivateWorkspaceManagerOptions,
+  createLocalPrivateWorkspaceManager,
+  createLocalPrivateWorkspaceOwnerToken,
+  type DestroyLocalPrivateWorkspaceResult,
+  type LocalPrivateWorkspaceAuthorization,
+  LocalPrivateWorkspaceCleanupError,
+  LocalPrivateWorkspaceIdempotencyConflictError,
+  type LocalPrivateWorkspaceManager,
+  type LocalPrivateWorkspacePhase,
+  type LocalPrivateWorkspaceRecord,
+  type LocalPrivateWorkspaceRootEntryDisposition,
+  LocalPrivateWorkspaceSourceChangedError,
+  type LocalPrivateWorkspaceSourcePolicyInput,
+  type LocalPrivateWorkspaceSourcePolicyMaterial,
+  type PrepareLocalPrivateWorkspaceInput,
+  type ReapExpiredLocalPrivateWorkspacesResult,
+  type RenewLocalPrivateWorkspaceInput,
+  type SealLocalPrivateWorkspaceInput,
+} from './private-workspace'
 export {
   type PromotionGateOptions,
   type PromotionVerdict,
