@@ -47,6 +47,7 @@ import {
   type NestedScopeSeam,
   nestedScopeSeamKey,
 } from './scope'
+import { attestNestedDriverTreeOwner, driverRuntime, nestedDriverTreeRoot } from './tree-key'
 import type {
   Agent,
   AgentExecutionRef,
@@ -65,7 +66,7 @@ import type {
 } from './types'
 
 /** The runtime tag the registry maps a driver child to. */
-export const driverRuntime = 'driver' as const
+export { driverRuntime } from './tree-key'
 
 /** The metadata marker on a driver child's spec the recursive registry routes on. */
 const driverRole = 'driver'
@@ -105,9 +106,17 @@ export function driverChild<Out>(
     driver: driver as Agent<unknown, unknown>,
     journal,
   }
+  const deliver = driver.deliver?.bind(driver)
   return {
     name,
     executorSpec: spec,
+    ...(deliver
+      ? {
+          deliver(message: unknown): boolean {
+            return deliver(message) !== false
+          },
+        }
+      : {}),
     act(): Promise<Out> {
       throw new ValidationError(
         `driverChild: "${name}" was run directly; a driver child runs through its nested-scope executor`,
@@ -148,6 +157,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
     )
   }
   const driver = spec.driver
+  const deliver = driver.deliver?.bind(driver)
   const journal = spec.journal
   const seam = readNestedScopeSeam(ctx)
 
@@ -173,10 +183,17 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
 
   const executor: Executor<unknown> = {
     runtime: driverRuntime,
+    ...(deliver
+      ? {
+          deliver(message: unknown): boolean {
+            return deliver(message) !== false
+          },
+        }
+      : {}),
     async execute(task, signal): Promise<ExecutorResult<unknown>> {
       // The nested tree key namespaces this driver's children inside the ONE shared
       // journal, so its cursor seqs never collide with the parent's per-tree guard.
-      const nestedRoot = nestedTreeKey(seam)
+      const nestedRoot = nestedDriverTreeRoot(seam.journalRoot, seam.nodeId)
       await journal.beginTree(nestedRoot, new Date(0).toISOString())
 
       const controller = new AbortController()
@@ -208,12 +225,11 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
           reported: childWork,
           reservation: addSpend(childWork, meteredSpend ?? zeroSpend()),
         }
-        // Completion-oracle propagation: a driver "delivered" iff at least one of its DIRECT
-        // children settled `valid` (the child its keep-best finalize returns). Deriving the
-        // driver child's verdict this way composes delivery UP the recursion — a sub-driver is
-        // `valid` only when it itself selected a delivered child — so a node never settles
-        // "done = delivered" on a sub-tree that delivered nothing (Foreman's 0/18 lesson).
-        const verdict = deriveDeliveryVerdict(settled)
+        // Completion propagation follows both facts: the subtree delivered at least one valid
+        // child, and this manager's finalizer actually accepted an output. A custom finalizer may
+        // refuse an otherwise valid child because product state is incomplete; that refusal must
+        // remain invalid when the nested manager settles into its parent.
+        const verdict = deriveDeliveryVerdict(settled, out)
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
           out,
@@ -254,10 +270,11 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
       return artifact
     },
   }
+  const treeOwner = attestNestedDriverTreeOwner(executor)
   const ownerRuntime = runtimeOwnedScopeOwnerRuntime(driver)
   return ownerRuntime === undefined
-    ? executor
-    : attestRuntimeOwnedDeferredExecutor(executor, ownerRuntime)
+    ? treeOwner
+    : attestRuntimeOwnedDeferredExecutor(treeOwner, ownerRuntime)
 }
 
 /**
@@ -280,12 +297,6 @@ export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
-
-/** Derive the nested-tree key from the parent's durable journal root and this driver child's stable
- * node id. Sibling node ids are unique within the parent tree, and replay derives the same key. */
-function nestedTreeKey(seam: NestedScopeSeam): string {
-  return `${seam.journalRoot}/${seam.nodeId}`
-}
 
 async function closeNestedScope(
   scope: Scope<unknown>,
@@ -463,13 +474,15 @@ async function safeRollup(
   }
 }
 
-/** Derive the driver child's delivery verdict from its DIRECT children's settlements:
- *  `valid` iff any direct child settled `done` AND `valid` (the keep-best finalize's pick);
+/** Derive the driver child's delivery verdict from its DIRECT children's settlements and the
+ *  manager's actual finalized output: `valid` iff a direct child delivered AND the finalizer
+ *  returned a defined output;
  *  `score` = the best delivered score. Returns `undefined` when no child settled at all (the
  *  driver itself produced nothing to bubble a verdict from). Fail-closed: a child whose verdict
  *  carried no `valid` counts as not-delivered. */
 function deriveDeliveryVerdict(
   settled: ReadonlyArray<{ status: 'done' | 'down'; verdict?: DefaultVerdict }>,
+  finalizedOutput: unknown,
 ): DefaultVerdict | undefined {
   let sawChild = false
   let anyValid = false
@@ -490,9 +503,10 @@ function deriveDeliveryVerdict(
     }
   }
   if (!sawChild) return undefined
+  const accepted = anyValid && finalizedOutput !== undefined
   return {
-    valid: anyValid,
-    score: anyValid ? (bestValidScore ?? 1) : (bestDoneScore ?? 0),
+    valid: accepted,
+    score: accepted ? (bestValidScore ?? 1) : (bestDoneScore ?? 0),
   }
 }
 

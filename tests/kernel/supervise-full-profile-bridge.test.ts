@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { supervise } from '../../src/runtime/supervise/supervise'
+import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 
 type BridgeRequest = {
   model: string
@@ -115,9 +116,323 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     server = undefined
   })
 
+  it('forcefully steers a live bridge root and resumes the same manager session', async () => {
+    const requests: BridgeRequest[] = []
+    const cancelled: string[] = []
+    let markFirstRequest!: () => void
+    const firstRequest = new Promise<void>((resolve) => {
+      markFirstRequest = resolve
+    })
+    server = createServer(async (req, res) => {
+      const cancelledId = cancelledRunId(req.url)
+      if (cancelledId !== undefined) {
+        cancelled.push(cancelledId)
+        respondWithTerminalCancellation(res, cancelledId)
+        return
+      }
+      const body = await readJson(req)
+      requests.push(body)
+      if (requests.length === 1) {
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'x-run-id': body.run_id,
+          'x-run-request-digest': TEST_RUN_DIGEST,
+        })
+        res.write(
+          `id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0.01 } })}\n\n`,
+        )
+        markFirstRequest()
+        return
+      }
+      respondWithBridgeStream(res, body, successStream('corrected manager turn'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const handle = createRootHandle<unknown>()
+    const running = supervise(
+      {
+        name: 'pi-leader',
+        harness: 'codex',
+        prompt: { systemPrompt: 'Lead the pursuit.' },
+        model: { default: 'gpt-5.6' },
+      },
+      'Choose the next experiment.',
+      {
+        rootHandle: handle,
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+          model: 'codex/gpt-5.6',
+        },
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+      },
+    )
+
+    await firstRequest
+    expect(
+      handle.deliver({
+        steer: 'replace the weak plan with the falsification test',
+        interrupt: true,
+      }),
+    ).toBe(true)
+    await running
+
+    expect(requests).toHaveLength(2)
+    expect(cancelled).toEqual([requests[0]?.run_id])
+    expect(requests[1]?.session_id).toBe(requests[0]?.session_id)
+    expect(requests[1]?.messages).toEqual([
+      {
+        role: 'user',
+        content: expect.stringContaining('replace the weak plan with the falsification test'),
+      },
+    ])
+    expect(() => handle.deliver({ steer: 'after completion' })).toThrow()
+  })
+
+  it('selects heterogeneous leaf completion checks from the exact authorized spawn context', async () => {
+    const requests: BridgeRequest[] = []
+    server = createServer(async (req, res) => {
+      const body = await readJson(req)
+      requests.push(body)
+      const content =
+        body.agent_profile.name === 'worker'
+          ? 'WORK=42'
+          : body.agent_profile.name === 'evaluator'
+            ? 'EVAL=pass'
+            : 'FALLBACK=ready'
+      respondWithBridgeStream(res, body, successStream(content))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const contexts: Array<{
+      name: string | undefined
+      task: unknown
+      key: string | undefined
+      assignmentId: string
+      depth: number
+      frozen: boolean
+      candidateDigest: string | undefined
+    }> = []
+    let turn = 0
+    const result = await supervise(
+      { name: 'root', harness: 'cli-base', prompt: { systemPrompt: 'Run all checks.' } },
+      'Compare implementation and evaluation evidence.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+          model: 'codex/test',
+        },
+        budget: { maxIterations: 20, maxTokens: 20_000 },
+        perWorker: { maxIterations: 4, maxTokens: 2_000 },
+        deliverable: {
+          check: (out) =>
+            typeof out === 'object' &&
+            out !== null &&
+            (out as { content?: unknown }).content === 'FALLBACK=ready',
+          describe: 'fallback artifact is ready',
+        },
+        brain: async () => {
+          turn += 1
+          if (turn === 1) {
+            return {
+              toolCalls: [
+                {
+                  id: 'worker',
+                  name: 'spawn_agent',
+                  arguments: JSON.stringify({
+                    profile: { name: 'worker' },
+                    task: { kind: 'implement', expected: 'WORK=42' },
+                    key: 'worker',
+                  }),
+                },
+                {
+                  id: 'evaluator',
+                  name: 'spawn_agent',
+                  arguments: JSON.stringify({
+                    profile: { name: 'evaluator' },
+                    task: { kind: 'evaluate', expected: 'EVAL=pass' },
+                    key: 'evaluator',
+                  }),
+                },
+                {
+                  id: 'fallback',
+                  name: 'spawn_agent',
+                  arguments: JSON.stringify({
+                    profile: { name: 'fallback' },
+                    task: { kind: 'archive', expected: 'FALLBACK=ready' },
+                    key: 'fallback',
+                  }),
+                },
+              ],
+            }
+          }
+          if (turn <= 4) {
+            return {
+              toolCalls: [
+                { id: `await-${turn}`, name: 'await_event', arguments: JSON.stringify({}) },
+              ],
+            }
+          }
+          return { content: 'done', toolCalls: [] }
+        },
+        authorizeSpawn: (input) => ({
+          profile: input.profile,
+          execution: {
+            candidateDigest: canonicalCandidateDigest({ candidate: input.profile.name }),
+            correlation: { campaign: 'heterogeneous-checks' },
+          },
+        }),
+        resolveDeliverable: (input) => {
+          contexts.push({
+            name: input.profile.name,
+            task: input.task,
+            key: input.key,
+            assignmentId: input.assignmentId,
+            depth: input.depth,
+            frozen:
+              Object.isFrozen(input) &&
+              Object.isFrozen(input.profile) &&
+              Object.isFrozen(input.parent) &&
+              Object.isFrozen(input.parentIdentity) &&
+              Object.isFrozen(input.execution) &&
+              Object.isFrozen(input.task) &&
+              Object.isFrozen(input.budget),
+            candidateDigest: input.execution.candidateDigest,
+          })
+          if (input.profile.name === 'fallback') return undefined
+          const expected = input.profile.name === 'worker' ? 'WORK=42' : 'EVAL=pass'
+          return {
+            check: (out) =>
+              typeof out === 'object' &&
+              out !== null &&
+              (out as { content?: unknown }).content === expected,
+            describe: `${input.profile.name} emits ${expected}`,
+          }
+        },
+      },
+    )
+
+    expect(result.kind).toBe('winner')
+    expect(requests.map((request) => request.agent_profile.name).sort()).toEqual([
+      'evaluator',
+      'fallback',
+      'worker',
+    ])
+    expect(contexts).toHaveLength(3)
+    expect(contexts.map((context) => context.name).sort()).toEqual([
+      'evaluator',
+      'fallback',
+      'worker',
+    ])
+    expect(contexts.every((context) => context.frozen)).toBe(true)
+    expect(contexts.map((context) => context.depth)).toEqual([1, 1, 1])
+    expect(contexts.map((context) => context.assignmentId).sort()).toEqual([
+      'key:evaluator',
+      'key:fallback',
+      'key:worker',
+    ])
+    for (const context of contexts) {
+      expect(context.candidateDigest).toBe(canonicalCandidateDigest({ candidate: context.name }))
+      expect(context.task).toMatchObject({ expected: expect.any(String) })
+      expect(context.key).toBe(context.name)
+    }
+  })
+
+  it('reuses the recorded per-spawn completion result on durable resume', async () => {
+    let requests = 0
+    server = createServer(async (req, res) => {
+      const body = await readJson(req)
+      requests += 1
+      respondWithBridgeStream(res, body, successStream('RESULT=durable'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const runDir = await mkdtemp(join(tmpdir(), 'per-spawn-deliverable-resume-'))
+    let resolutions = 0
+    const makeBrain = () => {
+      let turn = 0
+      return async () => {
+        turn += 1
+        if (turn === 1) {
+          return {
+            toolCalls: [
+              {
+                id: 'spawn',
+                name: 'spawn_agent',
+                arguments: JSON.stringify({
+                  profile: { name: 'durable-worker' },
+                  task: 'produce the durable result',
+                  key: 'durable-worker',
+                }),
+              },
+            ],
+          }
+        }
+        if (turn === 2) {
+          return {
+            toolCalls: [{ id: 'await', name: 'await_event', arguments: JSON.stringify({}) }],
+          }
+        }
+        return { content: 'done', toolCalls: [] }
+      }
+    }
+    const common = {
+      backend: {
+        backend: 'bridge' as const,
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+        model: 'codex/test',
+      },
+      budget: { maxIterations: 8, maxTokens: 10_000 },
+      perWorker: { maxIterations: 2, maxTokens: 1_000 },
+      runDir,
+      runId: 'per-spawn-deliverable-resume',
+      resolveDeliverable: () => {
+        resolutions += 1
+        return {
+          check: (out: unknown) =>
+            typeof out === 'object' &&
+            out !== null &&
+            (out as { content?: unknown }).content === 'RESULT=durable',
+        }
+      },
+    }
+    const profile = { name: 'root', harness: 'cli-base' as const }
+    try {
+      const first = await supervise(profile, 'resume the exact result', {
+        ...common,
+        brain: makeBrain(),
+      })
+      const second = await supervise(profile, 'resume the exact result', {
+        ...common,
+        brain: makeBrain(),
+      })
+
+      expect(first.kind).toBe('winner')
+      expect(second.kind).toBe('winner')
+      expect(requests).toBe(1)
+      // The resumed manager re-authorizes and re-resolves the exact keyed request, but Scope returns
+      // the recorded settlement before constructing or executing a replacement backend worker.
+      expect(resolutions).toBe(2)
+    } finally {
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
   it('runs PI → nested supervisor → worker without dropping any authored profile axis', async () => {
     const requests: BridgeRequest[] = []
     const journal = new InMemorySpawnJournal()
+    const resolvedDeliverables: string[] = []
+    const classifications: Array<{
+      name: string | undefined
+      metadataRole: unknown
+      experimentId: string | undefined
+      frozen: boolean
+      isDriver: boolean
+    }> = []
     const authorizations: Array<{
       depth: number
       frozen: boolean
@@ -156,7 +471,9 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                   critic: { description: 'Find a confound', prompt: 'Challenge the result.' },
                 },
                 modes: { adversarial: { prompt: 'Try to falsify the claim.' } },
-                metadata: { role: 'driver', depth: 1, family: 'scientific-method' },
+                // Deliberately false model-authored authority: product authorization below makes
+                // this profile recursive even though the authored metadata calls it a worker.
+                metadata: { role: 'worker', depth: 1, family: 'scientific-method' },
               },
               task: 'Run one experiment and return its measured result.',
             })
@@ -183,7 +500,9 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                   ],
                   failOnError: true,
                 },
-                metadata: { role: 'worker', depth: 2, family: 'scientific-method' },
+                // Deliberately false in the other direction: model-authored metadata cannot make a
+                // profile recursive when product authorization classifies it as a leaf.
+                metadata: { role: 'driver', depth: 2, family: 'scientific-method' },
               },
               task: 'Measure the system and report RESULT=42.',
             })
@@ -273,6 +592,29 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           },
         }
       },
+      isDriverProfile: (input) => {
+        const isDriver = input.execution.correlation?.experimentId === 'experiment-1'
+        classifications.push({
+          name: input.profile.name,
+          metadataRole: input.profile.metadata?.role,
+          experimentId: input.execution.correlation?.experimentId,
+          frozen:
+            Object.isFrozen(input) &&
+            Object.isFrozen(input.profile) &&
+            Object.isFrozen(input.parent) &&
+            Object.isFrozen(input.parentIdentity) &&
+            Object.isFrozen(input.execution) &&
+            Object.isFrozen(input.execution.correlation) &&
+            Object.isFrozen(input.task) &&
+            Object.isFrozen(input.budget),
+          isDriver,
+        })
+        return isDriver
+      },
+      resolveDeliverable: (input) => {
+        resolvedDeliverables.push(input.profile.name ?? 'unnamed')
+        return undefined
+      },
     })
 
     expect(result.kind).toBe('winner')
@@ -328,6 +670,23 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         task: 'Measure the system and report RESULT=42.',
       },
     ])
+    expect(classifications).toEqual([
+      {
+        name: 'methods-supervisor',
+        metadataRole: 'worker',
+        experimentId: 'experiment-1',
+        frozen: true,
+        isDriver: true,
+      },
+      {
+        name: 'experiment-worker',
+        metadataRole: 'driver',
+        experimentId: 'experiment-2',
+        frozen: true,
+        isDriver: false,
+      },
+    ])
+    expect(resolvedDeliverables).toEqual(['experiment-worker'])
 
     const rootEvents = await journal.loadTree('identity-run')
     expect(JSON.stringify(rootEvents)).not.toContain(backend.bridgeUrl)

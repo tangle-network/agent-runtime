@@ -9,6 +9,7 @@ import {
 import { ValidationError } from '../../src/errors'
 import { defaultSelectWinner } from '../../src/runtime/run-loop'
 import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
+import { createInbox } from '../../src/runtime/supervise/inbox'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope, settledToIteration } from '../../src/runtime/supervise/scope'
 import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -70,7 +71,13 @@ function mockExecutor(script: MockScript): Executor<unknown> {
         for (const ev of script.events) yield ev
       })()
     },
-    ...(script.inbox ? { deliver: (m: unknown) => script.inbox?.push(m) } : {}),
+    ...(script.inbox
+      ? {
+          deliver(message: unknown): void {
+            script.inbox?.push(message)
+          },
+        }
+      : {}),
     teardown(): Promise<{ destroyed: boolean }> {
       return Promise.resolve({ destroyed: true })
     },
@@ -452,7 +459,7 @@ describe('reactive scope', () => {
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })
 
-  it('send() steers a LIVE child via its inbox; false for settled / unknown / no-inbox', async () => {
+  it('accepts a void-returning Executor.deliver and steers its live child', async () => {
     const { scope } = await beginScope()
     const inbox: unknown[] = []
     let release!: () => void
@@ -498,6 +505,39 @@ describe('reactive scope', () => {
     )
     if (!res.ok) throw new Error('spawn should have succeeded')
     expect(scope.send(res.handle.id, { steer: 'x' })).toBe(false) // no `deliver` on the executor
+    release()
+    await scope.next()
+  })
+
+  it('send() returns false when a live child inbox rejects a malformed message', async () => {
+    const { scope } = await beginScope()
+    const inbox = createInbox()
+    let release!: () => void
+    const block = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const executor = mockExecutor({ out: 1, events: tokensOnly(1, 1, 1), block })
+    executor.deliver = (message) => inbox.deliver(message)
+    const agent = {
+      name: 'validated-inbox',
+      act: async () => 1,
+      executorSpec: {
+        profile: { name: 'validated-inbox' } as AgentProfile,
+        harness: null,
+        executor,
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const spawned = scope.spawn(agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'validated-inbox',
+    })
+    if (!spawned.ok) throw new Error('spawn should have succeeded')
+
+    expect(scope.send(spawned.handle.id, { junk: true })).toBe(false)
+    expect(scope.send(spawned.handle.id, { steer: 'use the valid route' })).toBe(true)
+    expect(inbox.drain()).toEqual([
+      { kind: 'steer', text: 'use the valid route', interrupt: false },
+    ])
     release()
     await scope.next()
   })
@@ -889,26 +929,205 @@ describe('supervisor', () => {
     const handle = createRootHandle<unknown>()
     // Detached: every method is a typed throw, never a silent no-op.
     expect(() => handle.view()).toThrow()
+    expect(() => handle.deliver({ steer: 'too early' })).toThrow()
     const supervisor = createSupervisor<unknown, unknown>()
     supervisor.attach(handle)
     let observed = -1
+    let received: unknown
+    const started = deferred()
+    const release = deferred()
     const driver: Agent<unknown, unknown> = {
       name: 'observe',
+      deliver(message): boolean {
+        received = message
+        return true
+      },
       async act(_t, scope: Scope<unknown>): Promise<unknown> {
         scope.spawn(leafAgent('c', { out: 'c', events: tokensOnly(1, 1, 1) }), 't', {
           budget: { maxIterations: 1, maxTokens: 10 },
           label: 'c',
         })
         observed = handle.view().nodes.length
+        started.resolve()
+        await release.promise
         await scope.next()
         return 'c'
       },
     }
-    const result = await supervisor.run(driver, 't', supervisorOpts())
+    const running = supervisor.run(driver, 't', supervisorOpts())
+    await started.promise
+    expect(handle.deliver({ steer: 'use the corrected plan', interrupt: true })).toBe(true)
+    release.resolve()
+    const result = await running
     expect(result.kind).toBe('winner')
     expect(observed).toBe(1)
+    expect(received).toEqual({ steer: 'use the corrected plan', interrupt: true })
     // Unbound again after the run completes.
     expect(() => handle.view()).toThrow()
+    expect(() => handle.deliver({ steer: 'too late' })).toThrow()
+  })
+
+  it('a live root manager without an inbox reports that delivery was not accepted', async () => {
+    const handle = createRootHandle<unknown>()
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const started = deferred()
+    const release = deferred()
+    const running = supervisor.run(
+      {
+        name: 'no-inbox',
+        async act() {
+          started.resolve()
+          await release.promise
+          return 'done'
+        },
+      },
+      't',
+      supervisorOpts(),
+    )
+    await started.promise
+    expect(handle.deliver({ steer: 'cannot receive this' })).toBe(false)
+    release.resolve()
+    await running
+  })
+
+  it('RootHandle returns false when the live manager inbox rejects malformed input', async () => {
+    const handle = createRootHandle<unknown>()
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const inbox = createInbox()
+    const started = deferred()
+    const release = deferred()
+    const running = supervisor.run(
+      {
+        name: 'validated-root-inbox',
+        deliver: (message) => inbox.deliver(message),
+        async act() {
+          started.resolve()
+          await release.promise
+          return 'done'
+        },
+      },
+      't',
+      supervisorOpts({ runId: 'validated-root-inbox' }),
+    )
+    await started.promise
+
+    expect(handle.deliver({ junk: true })).toBe(false)
+    expect(handle.deliver({ steer: 'valid correction' })).toBe(true)
+    expect(inbox.drain()).toEqual([{ kind: 'steer', text: 'valid correction', interrupt: false }])
+    release.resolve()
+    await running
+  })
+
+  it('refuses to cross-route one RootHandle across concurrent runs', async () => {
+    const handle = createRootHandle<unknown>()
+    const firstSupervisor = createSupervisor<unknown, unknown>()
+    const secondSupervisor = createSupervisor<unknown, unknown>()
+    firstSupervisor.attach(handle)
+    secondSupervisor.attach(handle)
+
+    const firstStarted = deferred()
+    const releaseFirst = deferred()
+    const firstMessages: unknown[] = []
+    const first = firstSupervisor.run(
+      {
+        name: 'first-owner',
+        deliver(message): boolean {
+          firstMessages.push(message)
+          return true
+        },
+        async act() {
+          firstStarted.resolve()
+          await releaseFirst.promise
+          return 'first'
+        },
+      },
+      't',
+      supervisorOpts({ runId: 'root-handle-first' }),
+    )
+    await firstStarted.promise
+
+    let secondActed = false
+    await expect(
+      secondSupervisor.run(
+        {
+          name: 'second-owner',
+          async act() {
+            secondActed = true
+            return 'second'
+          },
+        },
+        't',
+        supervisorOpts({ runId: 'root-handle-second' }),
+      ),
+    ).rejects.toThrow(/already controls a live run/)
+    expect(secondActed).toBe(false)
+    expect(handle.deliver({ steer: 'still for first' })).toBe(true)
+    expect(firstMessages).toEqual([{ steer: 'still for first' }])
+
+    releaseFirst.resolve()
+    await expect(first).resolves.toMatchObject({ kind: 'winner', out: 'first' })
+
+    const secondStarted = deferred()
+    const releaseSecond = deferred()
+    const secondMessages: unknown[] = []
+    const sequential = secondSupervisor.run(
+      {
+        name: 'second-owner-after-release',
+        deliver(message): boolean {
+          secondMessages.push(message)
+          return true
+        },
+        async act() {
+          secondStarted.resolve()
+          await releaseSecond.promise
+          return 'second'
+        },
+      },
+      't',
+      supervisorOpts({ runId: 'root-handle-sequential' }),
+    )
+    await secondStarted.promise
+    expect(handle.deliver({ steer: 'now for second' })).toBe(true)
+    expect(secondMessages).toEqual([{ steer: 'now for second' }])
+    releaseSecond.resolve()
+    await expect(sequential).resolves.toMatchObject({ kind: 'winner', out: 'second' })
+  })
+
+  it('releases a RootHandle lease when startup fails before the manager runs', async () => {
+    const handle = createRootHandle<unknown>()
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const occupied = new InMemorySpawnJournal()
+    await occupied.beginTree('occupied-root-handle', new Date(0).toISOString())
+
+    await expect(
+      supervisor.run(
+        { name: 'never-starts', act: async () => 'unreachable' },
+        't',
+        supervisorOpts({ runId: 'occupied-root-handle', journal: occupied }),
+      ),
+    ).rejects.toThrow(/already exists/)
+
+    const started = deferred()
+    const release = deferred()
+    const running = supervisor.run(
+      {
+        name: 'starts-after-failure',
+        async act() {
+          started.resolve()
+          await release.promise
+          return 'done'
+        },
+      },
+      't',
+      supervisorOpts({ runId: 'root-handle-after-startup-failure' }),
+    )
+    await started.promise
+    expect(handle.view().root).toBe('root-handle-after-startup-failure')
+    release.resolve()
+    await expect(running).resolves.toMatchObject({ kind: 'winner', out: 'done' })
   })
 
   it('attach rejects a foreign handle not minted by createRootHandle', () => {

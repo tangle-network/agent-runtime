@@ -7981,7 +7981,7 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-2)
+> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-4)
 
 Stable runtime tag for traces + the equal-k exemption check.
 
@@ -8020,7 +8020,7 @@ the terminal artifact is read from `resultArtifact()` after the stream drains.
 
 ##### deliver()?
 
-> `optional` **deliver**(`msg`): `void`
+> `optional` **deliver**(`msg`): `boolean` \| `void`
 
 Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
 verb). A streaming executor drains pending messages between turns and folds them into the next
@@ -8036,7 +8036,7 @@ executor's to ignore.
 
 ###### Returns
 
-`void`
+`boolean` \| `void`
 
 ##### progress()?
 
@@ -8219,7 +8219,7 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 ###### runtime
 
-[`Runtime`](runtime.md#runtime-2)
+[`Runtime`](runtime.md#runtime-4)
 
 ###### factory
 
@@ -8627,7 +8627,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ###### h
 
-[`RootHandle`](runtime.md#roothandle)\<`Out`\>
+[`RootHandle`](runtime.md#roothandle-1)\<`Out`\>
 
 ###### Returns
 
@@ -12491,6 +12491,24 @@ Materializes a verified candidate into one immutable evaluator-owned execution p
 
 ***
 
+### freezeGenericAgentCandidateProfile()
+
+> **freezeGenericAgentCandidateProfile**(`input`): `AgentCandidateProfile`
+
+Convert only behavior-preserving generic profile fields into the closed candidate contract.
+
+#### Parameters
+
+##### input
+
+`AgentProfile`
+
+#### Returns
+
+`AgentCandidateProfile`
+
+***
+
 ### assertCandidateProfileBinding()
 
 > **assertCandidateProfileBinding**(`measuredInput`, `bundled`): `void`
@@ -12583,6 +12601,24 @@ Apply one exact diff and reject any value that cannot be preserved canonically.
 
 ***
 
+### parseExactCandidateProfile()
+
+> **parseExactCandidateProfile**(`input`): `AgentCandidateProfile`
+
+Parse a candidate profile without silently discarding unsupported or non-canonical fields.
+
+#### Parameters
+
+##### input
+
+`unknown`
+
+#### Returns
+
+`AgentCandidateProfile`
+
+***
+
 ### agentCandidateProfileAsAgentProfile()
 
 > **agentCandidateProfileAsAgentProfile**(`candidate`): `AgentProfile`
@@ -12598,6 +12634,28 @@ Convert the candidate profile contract into the portable interface profile it re
 #### Returns
 
 `AgentProfile`
+
+***
+
+### omitUndefinedObjectFields()
+
+> **omitUndefinedObjectFields**(`value`, `path`): `unknown`
+
+Recursively remove undefined object fields while refusing undefined array entries.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+##### path
+
+`string`
+
+#### Returns
+
+`unknown`
 
 ***
 

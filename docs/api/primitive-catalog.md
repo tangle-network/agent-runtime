@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.109.2` and `@tangle-network/agent-eval@0.135.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.110.0` and `@tangle-network/agent-eval@0.135.4` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 404 exports.
+Import from `@tangle-network/agent-runtime` — 407 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -64,6 +64,7 @@ Import from `@tangle-network/agent-runtime` — 404 exports.
 | `exportEvalRuns` | function | Ship self-improvement eval-run events to Tangle Intelligence. Unlike the |
 | `findingLines` | function | Render findings as the ranked-evidence block every build prompt ends with. |
 | `formatSupervisedKnowledgeTask` | function | Format the supervisor task with the KB root, readiness requirements, current findings, and metadata. |
+| `freezeGenericAgentCandidateProfile` | function | Convert only behavior-preserving generic profile fields into the closed candidate contract. |
 | `getModels` | function | Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx |
 | `improve` | function | Optimize one exact profile surface with a complete method. |
 | `isDelegatedLoopMode` | function | Type guard — returns true when `value` is a valid `DelegatedLoopMode` string. |
@@ -80,8 +81,10 @@ Import from `@tangle-network/agent-runtime` — 404 exports.
 | `notifyRuntimeHookEvent` | function | Fire `hooks.onEvent`, swallowing sync throws and surfacing async failures to `onError`. |
 | `officialGepa` | function | Build a complete method backed by GEPA's official Optimize Anything API. |
 | `officialSkillOpt` | function | Build a complete method backed by Microsoft's official SkillOpt trainer. |
+| `omitUndefinedObjectFields` | function | Recursively remove undefined object fields while refusing undefined array entries. |
 | `parseExactAgentProfile` | function | Parse a complete profile without silently discarding unsupported fields. |
 | `parseExactAgentProfileDiff` | function | Parse a profile diff without silently discarding unsupported fields. |
+| `parseExactCandidateProfile` | function | Parse a candidate profile without silently discarding unsupported or non-canonical fields. |
 | `parseLoopRunnerArgv` | function | Parse `--mode X --config Y` from an argv tail (`process.argv.slice(2)`). |
 | `parseRolloutPolicy` | function | Parse a serialized policy surface. Returns `undefined` for non-strings, |
 | `persistCandidateOutputArtifact` | function | Persist evaluator evidence, read it back, and bind the returned locator to the exact bytes. |
@@ -502,7 +505,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 631 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 643 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -588,6 +591,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 631 exports.
 | `isWaitOutcome` | function | Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cursor as workers, |
 | `jjWorkspace` | function | A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote). |
 | `leaderboard` | function | Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic. |
+| `loadSpawnForest` | function | Load every journal tree owned by one recursive supervision run and flatten its nodes/events. |
 | `localSandboxClient` | function | A same-host `SandboxClient` adapter with no process isolation. Local MCP is |
 | `localShell` | function | Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit). |
 | `loopCampaignDispatch` | function | Adapter for plain `runCampaign` scenarios. This is the Runtime-side pair for |
@@ -731,6 +735,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 631 exports.
 | `AnalystFindingEvent` | interface | A trace-analyst result re-entered as a message on the bus (the `finding` event kind). |
 | `AuthorizedDownMessage` | interface | Product-authorized continuation bytes. Returning a narrowed instruction replaces the proposed |
 | `AuthorizedSpawn` | interface | The product-authorized result for one complete spawn request. Attribution is never accepted |
+| `AuthorizedSpawnContext` | interface | Exact trusted context after a manager-authored spawn has passed product authorization. |
 | `BenchmarkCell` | interface | One strategy's outcome on one task — the per-task cell an optimizer consumes. |
 | `BenchmarkReport` | interface | Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines. |
 | `BridgeSeam` | interface | cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs |
@@ -769,6 +774,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 631 exports.
 | `DownMessageAuthorizationInput` | interface | Detached continuation bytes and exact worker identity presented to product authorization before |
 | `DownMessageDeliveryAttempt` | interface | A durable marker written after authorization and immediately before Runtime calls `Scope.send`. |
 | `DownMessageEvent` | interface | A parent→child delivery result (the down-leg): recorded for observability, never pulled back by |
+| `DriveHarness` | interface | How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate |
 | `DumbDriverOptions` | interface | Options for {@link dumbDriver}. |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
 | `EqualKOnCostOptions` | interface | `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST |
@@ -846,7 +852,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 631 exports.
 | `ResultBlobStore` | interface | Content-addressed result blobs (the `outRef` → artifact map) backing the replay |
 | `ResumedKeyState` | interface | What the journal proves about one keyed assignment at resume time. |
 | `ResumedWork` | interface | The committed work a resumed run inherits from its journal. `settled` is the replayed |
-| `RootHandle` | interface | Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `signal` |
+| `RootHandle` | interface | Live root handle — a chat/pi-viz client uses it to inspect and control one root run. |
 | `RouterSeam` | interface | Router/inline connection seam. A direct OpenAI-compatible Router endpoint — |
 | `RouterToolCall` | interface | A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallRequest). |
 | `RouterToolsSeam` | interface | Router seam WITH tool use — the tool-using router backend. Same direct |
@@ -875,8 +881,15 @@ Import from `@tangle-network/agent-runtime/kernel` — 631 exports.
 | `ShapeContext` | interface | The construction context a `LoopShape` factory receives. Carries the persona's resolved |
 | `ShapeRegistry` | interface | The open shape registry — the extension point that makes a new loop-shape ONE file + one |
 | `ShotPersona` | interface | A role for one shot — multi-agent loops (researcher + engineer, a panel of k |
+| `SpawnForest` | interface | Complete cold-readable view of one recursive supervision run. |
+| `SpawnForestEvent` | interface | One event with the journal tree that establishes its cursor namespace. |
+| `SpawnForestInDoubtNode` | interface | A spawned worker with no terminal record in a cold snapshot. Resume treats the same state as |
+| `SpawnForestMissingTree` | interface | A driver spawn whose owned journal tree was never begun before the process stopped. |
+| `SpawnForestNode` | interface | One flattened node with the journal tree that owns its records. |
+| `SpawnForestTree` | interface | One journal tree in a recursively loaded supervision forest. |
 | `SpawnJournal` | interface | The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape). |
 | `Spend` | interface | Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd |
+| `SteerableRootHandle` | interface | A Runtime-minted root handle that can deliver raw steering or answers to a live manager inbox. |
 | `SteerableSandboxSession` | interface | What the steerable session exposes to its executor: the usage stream plus the live reads. |
 | `SteerContext` | interface | How a combinator's `act` consumes findings to steer — the SINGLE firewalled steer surface a |
 | `StrategyArtifacts` | interface | Artifact lifecycle a strategy may manage itself — open/close ONLY. Raw `call`/`score` |
@@ -925,9 +938,10 @@ Import from `@tangle-network/agent-runtime/kernel` — 631 exports.
 | `CoordinationOwnerId` | type | Stable identity of the supervisor that owns one coordination stream. High-level supervision |
 | `DefinePersona` | type | Builds a frozen `Persona`, failing loud on the executors-supplied invariant (neither a |
 | `Deliverable` | type | How a typed deliverable `Out` is materialized from a finished turn. |
+| `DeliverableResolutionInput` | type | Exact trusted context for selecting one backend-derived leaf's completion check. |
 | `DispatchStopReason` | type | Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end); |
 | `DownMessageDeliveryOutcome` | type | The exact result of one parent→child delivery attempt. |
-| `DriveHarness` | type | How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate |
+| `DriveHarnessOwnerContext` | type | Trusted manager identity available before its external harness starts. A product uses this to |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
 | `ExecutionBindingReceipt` | type | One attempt's immutable link from a stable materialization plan to its actual transport. |
@@ -953,6 +967,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 631 exports.
 | `ProfileKeyOf` | type | The profile (matrix row) a record belongs to — default `harness·model` from the record's profile cell, |
 | `ProfileMaterializationReceipt` | type | What the kernel can prove about one node's actual execution plan. |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
+| `ResolveDriveHarness` | type | Resolve an external harness for one exact Runtime-owned manager identity. |
 | `ResolveSupervisorTools` | type | Product policy for the tools one exact supervisor node may call. Resolved once per node. |
 | `Restart` | type | OTP child-spec restart class. |
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |
@@ -1135,7 +1150,7 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 30 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 105 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1152,8 +1167,11 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 105 exports.
 | `disposePreparedAgentCandidateExecution` | function | Revoke reservations held by a prepared candidate that will not be executed. |
 | `exactProcessProviderAsCandidateExecutor` | function | Adapt one neutral exact-process provider to Runtime's trusted candidate boundary. |
 | `executePreparedAgentCandidate` | function | Executes and finalizes one durably claimed candidate without exposing an unproven result. |
+| `freezeGenericAgentCandidateProfile` | function | Convert only behavior-preserving generic profile fields into the closed candidate contract. |
+| `omitUndefinedObjectFields` | function | Recursively remove undefined object fields while refusing undefined array entries. |
 | `parseExactAgentProfile` | function | Parse a complete profile without silently discarding unsupported fields. |
 | `parseExactAgentProfileDiff` | function | Parse a profile diff without silently discarding unsupported fields. |
+| `parseExactCandidateProfile` | function | Parse a candidate profile without silently discarding unsupported or non-canonical fields. |
 | `persistCandidateOutputArtifact` | function | Persist evaluator evidence, read it back, and bind the returned locator to the exact bytes. |
 | `prepareAgentCandidateExecution` | function | Materializes a verified candidate into one immutable evaluator-owned execution plan. |
 | `recoverExpiredAgentCandidateExecution` | function | Close an expired crashed attempt from persisted non-secret handles, then record failure. |

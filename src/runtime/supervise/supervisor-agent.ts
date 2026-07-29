@@ -34,6 +34,7 @@ import type { PriorCoordination } from './coordination-log'
 import { serveCoordinationMcp } from './coordination-mcp'
 import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
+import { createInbox } from './inbox'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
 import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
@@ -110,15 +111,27 @@ export type ObserveSupervisorNodeEvent = (
  *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  *  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
  *  so the harness calls spawn_agent / await_event / stop as native tools over the live scope. */
-export type DriveHarness = (args: {
-  readonly profile: SupervisorProfile
-  readonly task: unknown
-  readonly scope: Scope<unknown>
-  readonly coordinationMcpUrl: string
-  /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
-   *  this in their materialization evidence without persisting executable handlers. */
-  readonly coordinationTools: ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
-}) => Promise<void>
+export interface DriveHarness {
+  (args: {
+    readonly profile: SupervisorProfile
+    readonly task: unknown
+    readonly scope: Scope<unknown>
+    readonly coordinationMcpUrl: string
+    /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
+     *  this in their materialization evidence without persisting executable handlers. */
+    readonly coordinationTools: ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
+  }): Promise<void>
+  /** Optional live inbox for the manager session this adapter currently drives. Return `false`
+   * when no executor inbox is active instead of claiming a message was delivered. */
+  deliver?(message: unknown): boolean
+}
+
+/** Trusted manager identity available before its external harness starts. A product uses this to
+ * return one independently steerable harness session per recursive manager. */
+export type DriveHarnessOwnerContext = Omit<SupervisorNodeContext, 'nodeId'>
+
+/** Resolve an external harness for one exact Runtime-owned manager identity. */
+export type ResolveDriveHarness = (context: DriveHarnessOwnerContext) => DriveHarness
 
 export interface SupervisorAgentDeps {
   readonly blobs: ResultBlobStore
@@ -238,6 +251,7 @@ export function supervisorAgent(
     // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller
     // passes a profile, not a hand-built brain (a test may still inject `deps.brain`).
     const brain = deps.brain ?? routerBrainFromProfile(stableProfile, deps)
+    const inbox = createInbox()
     const build = (
       priorCoordination?: PriorCoordination,
       nodeTools?: ReadonlyArray<McpToolDescriptor>,
@@ -267,12 +281,16 @@ export function supervisorAgent(
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
         ...(priorCoordination ? { priorCoordination } : {}),
         ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
+        inbox,
       })
     if (!deps.loadPriorCoordination && !resolveTools && !observeNodeEvent) {
       return build(deps.priorCoordination, undefined, deps.onEvent)
     }
     return {
       name,
+      deliver(message): boolean {
+        return inbox.deliver(message)
+      },
       async act(task, scope) {
         const context = nodeContextSeed
           ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)
@@ -293,8 +311,16 @@ export function supervisorAgent(
       `supervisorAgent: profile.harness="${harness}" needs deps.driveHarness (how to run the harness with the coordination MCP mounted)`,
     )
   }
+  const deliver = driveHarness.deliver?.bind(driveHarness)
   const externalAgent: Agent<unknown, unknown> = {
     name,
+    ...(deliver
+      ? {
+          deliver(message: unknown): boolean {
+            return deliver(message)
+          },
+        }
+      : {}),
     async act(task, scope) {
       const context = nodeContextSeed
         ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)

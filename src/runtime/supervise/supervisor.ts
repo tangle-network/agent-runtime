@@ -67,6 +67,7 @@ import type {
   SpawnEvent,
   SpawnJournal,
   Spend,
+  SteerableRootHandle,
   SupervisedResult,
   Supervisor,
   SupervisorOpts,
@@ -383,299 +384,313 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
     })
     task = input.task
     const rootAct = root.act.bind(root)
+    const rootDeliver = root.deliver?.bind(root)
     const now = opts.now ?? Date.now
     assertRootIdentity(opts)
-    const rootAttemptId = newExecutionAttemptId(opts.runId)
-    // One instant owns both the fresh pool's absolute deadline and its durable root records. Capture
-    // it before any asynchronous journal work so a slow begin cannot extend the run on restart.
-    const runStartedAtMs = now()
-    const runStartedAt = new Date(runStartedAtMs).toISOString()
-
-    // RESUME-FIRST (opt-in via `opts.resume`): read any prior journal tree for this runId BEFORE
-    // beginning a fresh one. A non-empty tree means a prior run for this runId already committed
-    // work (it crashed mid-flight, or this is an explicit resume), so rehydrate it instead of
-    // starting over. An empty/absent tree — and every run that did NOT opt in — takes the fresh
-    // path unchanged. This wires the already-built+tested resume primitives
-    // (`replaySpawnTree`/`materializeTreeView`); the journal/blob store decide durability.
-    const existing = await opts.journal.loadTree(opts.runId)
-    if (opts.resume !== true && existing !== undefined) {
-      throw new RuntimeRunStateError(
-        `supervisor: runId '${opts.runId}' already exists; pass resume: true to continue it or use a new runId`,
-      )
-    }
-    const prior = opts.resume === true ? existing : undefined
-    const resuming = prior !== undefined && prior.length > 0
-    let resumeFrom: ResumeFrom | undefined
-    let pool: BudgetPool
-    if (resuming) {
-      const rootEvent = assertResumeContract(prior, opts)
-      const measured = sumMeasuredSpendFromEvents(prior)
-      const uncertainReservations = uncertainSpawnBudgets(prior)
-      pool = createBudgetPool(opts.budget, now, {
-        committed: addSpend(measured.childWork, measured.driverInference),
-        uncertainReservations,
-        ...(rootEvent.budget.deadlineMs !== undefined
-          ? { absoluteDeadlineMs: rootDeadline(rootEvent) }
-          : {}),
-      })
-      // Rehydrate the committed work: the cursor-ordered `Settled[]` (from the blob store) plus the
-      // tree as it stood at the recorded cursor position. The new scope's ordinal/cursor counters
-      // continue past the recorded maxima so a fresh spawn never reuses a journaled `seq`.
-      const settled = await replaySpawnTree(opts.journal, opts.blobs, opts.runId)
-      const view = materializeTreeView(prior)
-      resumeFrom = {
-        settled,
-        view,
-        maxSpawnOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'spawned'),
-        maxCursorSeq: maxSeqOf(
-          prior,
-          (ev) => ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken',
-        ),
-        maxWaitOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'waiting'),
-        // Waits armed but never woken: the run died mid-wait. They ride onto `Scope.resume.waits`,
-        // and re-arming the same label adopts the ORIGINAL absolute deadline rather than
-        // restarting the countdown from this process's clock.
-        waits: pendingWaits(prior),
-        // Keyed assignments + prior committed spend ride onto `Scope.resume`, so a resume-aware
-        // driver resolves keys instead of re-spawning and reports what the run already paid.
-        keys: keyedAssignments(prior, settled),
-        priorSpend: sumSpendFromEvents(prior),
-      }
-    } else {
-      pool = createBudgetPool(opts.budget, now, {
-        ...(opts.budget.deadlineMs !== undefined
-          ? { absoluteDeadlineMs: runStartedAtMs + opts.budget.deadlineMs }
-          : {}),
-      })
-      // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
-      // spawn-ordinal-0 marker), so a journal-based reader — `trajectoryReport`, `replaySpawnTree`,
-      // `materializeTreeView` — can reconstruct the WHOLE realized tree from a real run, not only
-      // hand-built journals. The root is never `scope.spawn`ed (the supervisor runs `act` directly),
-      // so without this the root node is absent and `trajectoryReport` fails its `nodes.has(root)`
-      // invariant. The uniqueness guard skips `spawned` events (only the cursor namespace must be
-      // unique), so sharing ordinal 0 with the first child's spawn is not a collision; replay ignores
-      // `spawned` events for settlement reconstruction, so the replayed `Settled[]` is unchanged.
-      await opts.journal.beginTree(opts.runId, runStartedAt)
-      const rootReceipt = rootMaterializationReceipt(opts)
-      const rootRuntime = opts.rootMaterialization?.runtime ?? 'inline'
-      await opts.journal.appendEvent(opts.runId, {
-        kind: 'spawned',
-        id: opts.runId,
-        label: 'root',
-        budget: opts.budget,
-        runtime: rootRuntime,
-        ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
-        seq: 0,
-        at: runStartedAt,
-      })
-      if (rootReceipt !== undefined) {
-        await opts.journal.appendEvent(opts.runId, {
-          kind: 'materialized',
-          id: opts.runId,
-          receipt: rootReceipt,
-          seq: 0,
-          at: runStartedAt,
-        })
-      }
-    }
-
-    const stableRootReceipt = resuming
-      ? prior?.find(
-          (event): event is Extract<SpawnEvent, { kind: 'materialized' }> =>
-            event.kind === 'materialized' && event.id === opts.runId,
-        )?.receipt
-      : rootMaterializationReceipt(opts)
-    if (stableRootReceipt !== undefined) {
-      const rootBinding = rootExecutionBindingReceipt(opts, stableRootReceipt, rootAttemptId)
-      if (rootBinding !== undefined) {
-        await opts.journal.appendEvent(opts.runId, {
-          kind: 'execution-bound',
-          id: opts.runId,
-          binding: rootBinding,
-          seq: 0,
-          at: runStartedAt,
-        })
-      }
-    }
-
-    // ONE internal controller is the root scope's abort source. Every cascade path
-    // (caller signal, RootHandle.abort, breaker trip, deadline) aborts it; the scope
-    // fans it out to each live child's executor (acquire-aware reap included).
-    const controller = new AbortController()
-    const cascadeAbort = (reason?: string): boolean => {
-      if (controller.signal.aborted) return false
-      // Carry the reason on the signal so it chains down to each child's abort signal
-      // (`childAbort.signal.reason`) — the diagnostic the scope's executors observe.
-      controller.abort(reason)
-      return true
-    }
-
-    const onCallerAbort = () => cascadeAbort('caller signal aborted')
-    if (opts.signal) {
-      if (opts.signal.aborted) cascadeAbort('caller signal aborted')
-      else opts.signal.addEventListener('abort', onCallerAbort, { once: true })
-    }
-
-    // The breaker watches `down` settlements via a counting journal decorator, so it
-    // observes every child failure without intercepting `scope.next()` (the driver's
-    // private channel). Tripping aborts the same controller; the trip is recorded so the
-    // final result can name it.
-    const breaker = createIntensityBreaker(opts, () => cascadeAbort('intensity breaker tripped'))
-    const journal = wrapJournalForBreaker(opts.journal, breaker)
-    const priorRootMaterialization = prior?.find(
-      (event): event is Extract<SpawnEvent, { kind: 'materialized' }> =>
-        event.kind === 'materialized' && event.id === opts.runId,
-    )?.receipt
-
-    const scope = createScope<Out>({
-      parentId: opts.runId,
-      root: opts.runId,
-      pool,
-      journal,
-      blobs: opts.blobs,
-      executors: opts.executors,
-      seams: {},
-      depth: 0,
-      maxDepth: opts.maxDepth ?? defaultMaxDepth,
-      ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
-      signal: controller.signal,
-      now,
-      hooks: opts.hooks,
-      ...(opts.rootMaterialization?.declaration === 'deferred'
-        ? {
-            ownerMaterialization: {
-              runtime: opts.rootMaterialization.runtime,
-              authoredProfile: opts.rootMaterialization.authoredProfile,
-              attemptId: rootAttemptId,
-              requiredKnown: true,
-              ...(priorRootMaterialization === undefined
-                ? {}
-                : { prior: priorRootMaterialization }),
-            },
-          }
-        : {}),
-      ...(opts.probes ? { probes: opts.probes } : {}),
-      ...(resumeFrom ? { resumeFrom } : {}),
-    })
-
-    // `view`/drain read the scope opaquely (`Out` erased) — the supervisor never `spawn`s
-    // on it, so the live-tree readout and the join barrier are `Out`-agnostic.
-    const openScope = scope as unknown as Scope<unknown>
-
-    // Bind any attached RootHandle to THIS live run so view()/signal()/abort() reach the
-    // live scope + the one cascade controller. Detached again in the finally barrier.
-    if (attached) {
-      attached.bind({ scope: openScope, cascadeAbort, signal: pushRootSignal(cascadeAbort) })
-    }
-
-    let deadlineExceeded = false
-    const rootDeadlineAtMs = pool.readout().deadlineMs
-    if (rootDeadlineAtMs > 0 && now() >= rootDeadlineAtMs) {
-      deadlineExceeded = cascadeAbort('root budget deadline exceeded')
-    }
-    const clearRootDeadline =
-      opts.budget.deadlineMs === undefined
-        ? undefined
-        : armDeadlineTimer(Math.max(0, rootDeadlineAtMs - now()), () => {
-            deadlineExceeded = cascadeAbort('root budget deadline exceeded')
-          })
-    let actOutcome: { ok: true; out: Out } | { ok: false; error: unknown } = {
-      ok: false,
-      error: new RuntimeRunStateError('supervisor: root execution did not start'),
-    }
-    let executionAborted = controller.signal.aborted
+    // Reserve the attached control synchronously, before the first journal read or write. A handle
+    // is one live route, so two concurrent runs may never race to overwrite that route and later
+    // detach each other. The lease is released on every early failure as well as normal teardown.
+    const rootLease = attached?.acquire()
     try {
-      const out = await runAbortable(() => rootAct(task, scope), controller.signal)
-      actOutcome = { ok: true, out }
-    } catch (error) {
-      // act()'s rejection is the PRIMARY error; capture it before the join barrier so a
-      // teardown failure in the barrier can never overwrite it (firstError precedence).
-      actOutcome = { ok: false, error }
-    } finally {
-      executionAborted = controller.signal.aborted
-      // A child inherits the root cutoff and can settle the root act on that exact timer turn.
-      // If its settlement callback runs before the root timer callback, the finally block clears
-      // the still-pending root timer. Preserve the deadline cause from the shared absolute clock;
-      // do not overwrite a caller/breaker abort that already won the controller race.
-      if (!controller.signal.aborted && rootDeadlineAtMs > 0 && now() >= rootDeadlineAtMs) {
-        deadlineExceeded = true
-      }
-      clearRootDeadline?.()
-      // Join barrier: tear down every still-live child. Generalizes the kernel's
-      // `finally{ Promise.allSettled(destroy) }` — a teardown throw is allSettled'd and
-      // journaled, never re-thrown.
-      try {
-        await drainLiveChildren(openScope, controller)
-      } catch (error) {
-        if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
-      }
-      try {
-        await finalizeScopeOwnerMaterialization(openScope)
-      } catch (error) {
-        if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
-      }
-      if (opts.signal) opts.signal.removeEventListener('abort', onCallerAbort)
-      if (attached) attached.unbind()
-    }
+      const rootAttemptId = newExecutionAttemptId(opts.runId)
+      // One instant owns both the fresh pool's absolute deadline and its durable root records. Capture
+      // it before any asynchronous journal work so a slow begin cannot extend the run on restart.
+      const runStartedAtMs = now()
+      const runStartedAt = new Date(runStartedAtMs).toISOString()
 
-    // The run's tree, not this process's: on a resumed run the prior process's committed nodes are
-    // carried in, so `tree` covers the same work `spentTotal` bills for. Identical to `scope.view`
-    // on every run that did not resume.
-    const tree = runTree(scope)
-    // Success and failure both pass the same conservation check. A child promise is never allowed
-    // to disappear behind a swallowed cleanup error and leave a reservation open.
-    pool.assertNoOpenTickets()
-    if (actOutcome.ok) {
-      if (executionAborted) return noWinner()
-      // Every child has settled (join barrier above); no reservation may remain. A leaked ticket
-      // would silently corrupt the conserved spend total, so fail loud here — on the success path
-      // only, where the act() error precedence does not apply.
-      const out = actOutcome.out
-      // Completion-oracle at the root: a `winner` MUST carry a real `Out`. A driver that ran to
-      // completion but selected nothing (its keep-best finalize found no DELIVERED child) returns
-      // `undefined` — that is a no-winner, never a winner wrapping `undefined`. The supervisor's
-      // contract is to refuse coercing a non-result into a best-effort Out (Foreman's 0/18 lesson).
-      if (out !== undefined) {
-        // The driver synthesized a winner. Content-address it for the replay `outRef`, put it
-        // once, and sum the conserved spend off every journaled settlement. No re-ranking — the
-        // driver already selected.
-        const outRef = contentAddress(out)
-        await opts.blobs.put(outRef, out)
-        // ONE ledger: the journal. `settled` events carry spawned-child WORK; `metered` events carry
-        // the drivers' OWN inference (the twin of `pool.observe`). `spentTotal` is their sum and the
-        // breakdown keeps the two separable — the A++ view of where the tokens went. No pool bridge.
-        const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
-        return {
-          kind: 'winner',
-          out,
-          outRef,
-          tree,
-          spentTotal: addSpend(childWork, driverInference),
-          ...(isNonEmptySpend(driverInference)
-            ? { spentBreakdown: { driverInference, childWork } }
+      // RESUME-FIRST (opt-in via `opts.resume`): read any prior journal tree for this runId BEFORE
+      // beginning a fresh one. A non-empty tree means a prior run for this runId already committed
+      // work (it crashed mid-flight, or this is an explicit resume), so rehydrate it instead of
+      // starting over. An empty/absent tree — and every run that did NOT opt in — takes the fresh
+      // path unchanged. This wires the already-built+tested resume primitives
+      // (`replaySpawnTree`/`materializeTreeView`); the journal/blob store decide durability.
+      const existing = await opts.journal.loadTree(opts.runId)
+      if (opts.resume !== true && existing !== undefined) {
+        throw new RuntimeRunStateError(
+          `supervisor: runId '${opts.runId}' already exists; pass resume: true to continue it or use a new runId`,
+        )
+      }
+      const prior = opts.resume === true ? existing : undefined
+      const resuming = prior !== undefined && prior.length > 0
+      let resumeFrom: ResumeFrom | undefined
+      let pool: BudgetPool
+      if (resuming) {
+        const rootEvent = assertResumeContract(prior, opts)
+        const measured = sumMeasuredSpendFromEvents(prior)
+        const uncertainReservations = uncertainSpawnBudgets(prior)
+        pool = createBudgetPool(opts.budget, now, {
+          committed: addSpend(measured.childWork, measured.driverInference),
+          uncertainReservations,
+          ...(rootEvent.budget.deadlineMs !== undefined
+            ? { absoluteDeadlineMs: rootDeadline(rootEvent) }
             : {}),
+        })
+        // Rehydrate the committed work: the cursor-ordered `Settled[]` (from the blob store) plus the
+        // tree as it stood at the recorded cursor position. The new scope's ordinal/cursor counters
+        // continue past the recorded maxima so a fresh spawn never reuses a journaled `seq`.
+        const settled = await replaySpawnTree(opts.journal, opts.blobs, opts.runId)
+        const view = materializeTreeView(prior)
+        resumeFrom = {
+          settled,
+          view,
+          maxSpawnOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'spawned'),
+          maxCursorSeq: maxSeqOf(
+            prior,
+            (ev) => ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken',
+          ),
+          maxWaitOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'waiting'),
+          // Waits armed but never woken: the run died mid-wait. They ride onto `Scope.resume.waits`,
+          // and re-arming the same label adopts the ORIGINAL absolute deadline rather than
+          // restarting the countdown from this process's clock.
+          waits: pendingWaits(prior),
+          // Keyed assignments + prior committed spend ride onto `Scope.resume`, so a resume-aware
+          // driver resolves keys instead of re-spawning and reports what the run already paid.
+          keys: keyedAssignments(prior, settled),
+          priorSpend: sumSpendFromEvents(prior),
+        }
+      } else {
+        pool = createBudgetPool(opts.budget, now, {
+          ...(opts.budget.deadlineMs !== undefined
+            ? { absoluteDeadlineMs: runStartedAtMs + opts.budget.deadlineMs }
+            : {}),
+        })
+        // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
+        // spawn-ordinal-0 marker), so a journal-based reader — `trajectoryReport`, `replaySpawnTree`,
+        // `materializeTreeView` — can reconstruct the WHOLE realized tree from a real run, not only
+        // hand-built journals. The root is never `scope.spawn`ed (the supervisor runs `act` directly),
+        // so without this the root node is absent and `trajectoryReport` fails its `nodes.has(root)`
+        // invariant. The uniqueness guard skips `spawned` events (only the cursor namespace must be
+        // unique), so sharing ordinal 0 with the first child's spawn is not a collision; replay ignores
+        // `spawned` events for settlement reconstruction, so the replayed `Settled[]` is unchanged.
+        await opts.journal.beginTree(opts.runId, runStartedAt)
+        const rootReceipt = rootMaterializationReceipt(opts)
+        const rootRuntime = opts.rootMaterialization?.runtime ?? 'inline'
+        await opts.journal.appendEvent(opts.runId, {
+          kind: 'spawned',
+          id: opts.runId,
+          label: 'root',
+          budget: opts.budget,
+          runtime: rootRuntime,
+          ...(opts.rootIdentity ? { identity: opts.rootIdentity } : {}),
+          seq: 0,
+          at: runStartedAt,
+        })
+        if (rootReceipt !== undefined) {
+          await opts.journal.appendEvent(opts.runId, {
+            kind: 'materialized',
+            id: opts.runId,
+            receipt: rootReceipt,
+            seq: 0,
+            at: runStartedAt,
+          })
         }
       }
-      return noWinner()
-    }
 
-    // act() rejected. The reason is proven from lifecycle state, in precedence order:
-    // a tripped breaker outranks any abort (it is the most specific cause) outranks
-    // budget-exhaustion outranks the residual "the tree produced nothing usable" bucket.
-    // A no-winner is TYPED — never a best-effort coercion of a partial child (M2).
-    return noWinner()
-
-    // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
-    // summed off the SAME journal the winner path reads — the caller always learns the cost.
-    async function noWinner(): Promise<SupervisedResult<Out>> {
-      const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
-      return {
-        kind: 'no-winner',
-        reason: classifyNoWinner(controller, pool, opts, breaker, deadlineExceeded, tree),
-        tree,
-        downCount: breaker.downCount(),
-        spentTotal: addSpend(childWork, driverInference),
+      const stableRootReceipt = resuming
+        ? prior?.find(
+            (event): event is Extract<SpawnEvent, { kind: 'materialized' }> =>
+              event.kind === 'materialized' && event.id === opts.runId,
+          )?.receipt
+        : rootMaterializationReceipt(opts)
+      if (stableRootReceipt !== undefined) {
+        const rootBinding = rootExecutionBindingReceipt(opts, stableRootReceipt, rootAttemptId)
+        if (rootBinding !== undefined) {
+          await opts.journal.appendEvent(opts.runId, {
+            kind: 'execution-bound',
+            id: opts.runId,
+            binding: rootBinding,
+            seq: 0,
+            at: runStartedAt,
+          })
+        }
       }
+
+      // ONE internal controller is the root scope's abort source. Every cascade path
+      // (caller signal, RootHandle.abort, breaker trip, deadline) aborts it; the scope
+      // fans it out to each live child's executor (acquire-aware reap included).
+      const controller = new AbortController()
+      const cascadeAbort = (reason?: string): boolean => {
+        if (controller.signal.aborted) return false
+        // Carry the reason on the signal so it chains down to each child's abort signal
+        // (`childAbort.signal.reason`) — the diagnostic the scope's executors observe.
+        controller.abort(reason)
+        return true
+      }
+
+      const onCallerAbort = () => cascadeAbort('caller signal aborted')
+      if (opts.signal) {
+        if (opts.signal.aborted) cascadeAbort('caller signal aborted')
+        else opts.signal.addEventListener('abort', onCallerAbort, { once: true })
+      }
+
+      // The breaker watches `down` settlements via a counting journal decorator, so it
+      // observes every child failure without intercepting `scope.next()` (the driver's
+      // private channel). Tripping aborts the same controller; the trip is recorded so the
+      // final result can name it.
+      const breaker = createIntensityBreaker(opts, () => cascadeAbort('intensity breaker tripped'))
+      const journal = wrapJournalForBreaker(opts.journal, breaker)
+      const priorRootMaterialization = prior?.find(
+        (event): event is Extract<SpawnEvent, { kind: 'materialized' }> =>
+          event.kind === 'materialized' && event.id === opts.runId,
+      )?.receipt
+
+      const scope = createScope<Out>({
+        parentId: opts.runId,
+        root: opts.runId,
+        pool,
+        journal,
+        blobs: opts.blobs,
+        executors: opts.executors,
+        seams: {},
+        depth: 0,
+        maxDepth: opts.maxDepth ?? defaultMaxDepth,
+        ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+        signal: controller.signal,
+        now,
+        hooks: opts.hooks,
+        ...(opts.rootMaterialization?.declaration === 'deferred'
+          ? {
+              ownerMaterialization: {
+                runtime: opts.rootMaterialization.runtime,
+                authoredProfile: opts.rootMaterialization.authoredProfile,
+                attemptId: rootAttemptId,
+                requiredKnown: true,
+                ...(priorRootMaterialization === undefined
+                  ? {}
+                  : { prior: priorRootMaterialization }),
+              },
+            }
+          : {}),
+        ...(opts.probes ? { probes: opts.probes } : {}),
+        ...(resumeFrom ? { resumeFrom } : {}),
+      })
+
+      // `view`/drain read the scope opaquely (`Out` erased) — the supervisor never `spawn`s
+      // on it, so the live-tree readout and the join barrier are `Out`-agnostic.
+      const openScope = scope as unknown as Scope<unknown>
+
+      // Bind any attached RootHandle to THIS live run so view()/signal()/abort() reach the
+      // live scope + the one cascade controller. Detached again in the finally barrier.
+      if (rootLease) {
+        rootLease.bind({
+          scope: openScope,
+          cascadeAbort,
+          signal: pushRootSignal(cascadeAbort),
+          deliver: rootDeliver ? (message) => rootDeliver(message) !== false : () => false,
+        })
+      }
+
+      let deadlineExceeded = false
+      const rootDeadlineAtMs = pool.readout().deadlineMs
+      if (rootDeadlineAtMs > 0 && now() >= rootDeadlineAtMs) {
+        deadlineExceeded = cascadeAbort('root budget deadline exceeded')
+      }
+      const clearRootDeadline =
+        opts.budget.deadlineMs === undefined
+          ? undefined
+          : armDeadlineTimer(Math.max(0, rootDeadlineAtMs - now()), () => {
+              deadlineExceeded = cascadeAbort('root budget deadline exceeded')
+            })
+      let actOutcome: { ok: true; out: Out } | { ok: false; error: unknown } = {
+        ok: false,
+        error: new RuntimeRunStateError('supervisor: root execution did not start'),
+      }
+      let executionAborted = controller.signal.aborted
+      try {
+        const out = await runAbortable(() => rootAct(task, scope), controller.signal)
+        actOutcome = { ok: true, out }
+      } catch (error) {
+        // act()'s rejection is the PRIMARY error; capture it before the join barrier so a
+        // teardown failure in the barrier can never overwrite it (firstError precedence).
+        actOutcome = { ok: false, error }
+      } finally {
+        executionAborted = controller.signal.aborted
+        // A child inherits the root cutoff and can settle the root act on that exact timer turn.
+        // If its settlement callback runs before the root timer callback, the finally block clears
+        // the still-pending root timer. Preserve the deadline cause from the shared absolute clock;
+        // do not overwrite a caller/breaker abort that already won the controller race.
+        if (!controller.signal.aborted && rootDeadlineAtMs > 0 && now() >= rootDeadlineAtMs) {
+          deadlineExceeded = true
+        }
+        clearRootDeadline?.()
+        // Join barrier: tear down every still-live child. Generalizes the kernel's
+        // `finally{ Promise.allSettled(destroy) }` — a teardown throw is allSettled'd and
+        // journaled, never re-thrown.
+        try {
+          await drainLiveChildren(openScope, controller)
+        } catch (error) {
+          if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
+        }
+        try {
+          await finalizeScopeOwnerMaterialization(openScope)
+        } catch (error) {
+          if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
+        }
+        if (opts.signal) opts.signal.removeEventListener('abort', onCallerAbort)
+        rootLease?.release()
+      }
+
+      // The run's tree, not this process's: on a resumed run the prior process's committed nodes are
+      // carried in, so `tree` covers the same work `spentTotal` bills for. Identical to `scope.view`
+      // on every run that did not resume.
+      const tree = runTree(scope)
+      // Success and failure both pass the same conservation check. A child promise is never allowed
+      // to disappear behind a swallowed cleanup error and leave a reservation open.
+      pool.assertNoOpenTickets()
+      if (actOutcome.ok) {
+        if (executionAborted) return noWinner()
+        // Every child has settled (join barrier above); no reservation may remain. A leaked ticket
+        // would silently corrupt the conserved spend total, so fail loud here — on the success path
+        // only, where the act() error precedence does not apply.
+        const out = actOutcome.out
+        // Completion-oracle at the root: a `winner` MUST carry a real `Out`. A driver that ran to
+        // completion but selected nothing (its keep-best finalize found no DELIVERED child) returns
+        // `undefined` — that is a no-winner, never a winner wrapping `undefined`. The supervisor's
+        // contract is to refuse coercing a non-result into a best-effort Out (Foreman's 0/18 lesson).
+        if (out !== undefined) {
+          // The driver synthesized a winner. Content-address it for the replay `outRef`, put it
+          // once, and sum the conserved spend off every journaled settlement. No re-ranking — the
+          // driver already selected.
+          const outRef = contentAddress(out)
+          await opts.blobs.put(outRef, out)
+          // ONE ledger: the journal. `settled` events carry spawned-child WORK; `metered` events carry
+          // the drivers' OWN inference (the twin of `pool.observe`). `spentTotal` is their sum and the
+          // breakdown keeps the two separable — the A++ view of where the tokens went. No pool bridge.
+          const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
+          return {
+            kind: 'winner',
+            out,
+            outRef,
+            tree,
+            spentTotal: addSpend(childWork, driverInference),
+            ...(isNonEmptySpend(driverInference)
+              ? { spentBreakdown: { driverInference, childWork } }
+              : {}),
+          }
+        }
+        return noWinner()
+      }
+
+      // act() rejected. The reason is proven from lifecycle state, in precedence order:
+      // a tripped breaker outranks any abort (it is the most specific cause) outranks
+      // budget-exhaustion outranks the residual "the tree produced nothing usable" bucket.
+      // A no-winner is TYPED — never a best-effort coercion of a partial child (M2).
+      return noWinner()
+
+      // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
+      // summed off the SAME journal the winner path reads — the caller always learns the cost.
+      async function noWinner(): Promise<SupervisedResult<Out>> {
+        const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
+        return {
+          kind: 'no-winner',
+          reason: classifyNoWinner(controller, pool, opts, breaker, deadlineExceeded, tree),
+          tree,
+          downCount: breaker.downCount(),
+          spentTotal: addSpend(childWork, driverInference),
+        }
+      }
+    } finally {
+      rootLease?.release()
     }
   }
 
@@ -700,13 +715,18 @@ interface RunBinding {
   readonly scope: Scope<unknown>
   readonly cascadeAbort: (reason?: string) => void
   readonly signal: (msg: RootSignal) => void
+  readonly deliver: (msg: unknown) => boolean
 }
 
 /** The supervisor-private control behind a `RootHandle`. `createRootHandle` mints it and
  *  registers it in `rootControls`; `attach` looks it up and `bind`s it to the live run. */
-interface RootControl {
+interface RootLease {
   bind(binding: RunBinding): void
-  unbind(): void
+  release(): void
+}
+
+interface RootControl {
+  acquire(): RootLease
 }
 
 /** Module-private channel from a minted `RootHandle` to its `RootControl`, so `attach`
@@ -721,9 +741,10 @@ const rootControls = new WeakMap<RootHandle<unknown>, RootControl>()
  * unbinds it) the handle is fail-loud: a client that talks to a handle that is not
  * driving a live run gets a typed error, never a silent no-op.
  */
-export function createRootHandle<Out>(): RootHandle<Out> {
+export function createRootHandle<Out>(): SteerableRootHandle<Out> {
   let binding: RunBinding | undefined
-  const handle: RootHandle<Out> = {
+  let activeLease: symbol | undefined
+  const handle: SteerableRootHandle<Out> = {
     view(): TreeView {
       if (!binding) {
         throw new RuntimeRunStateError(
@@ -731,6 +752,12 @@ export function createRootHandle<Out>(): RootHandle<Out> {
         )
       }
       return binding.scope.view
+    },
+    deliver(msg: unknown): boolean {
+      if (!binding) {
+        throw new RuntimeRunStateError('RootHandle.deliver: handle is not bound to a live run')
+      }
+      return binding.deliver(msg)
     },
     signal(msg: RootSignal): void {
       if (!binding) {
@@ -746,11 +773,33 @@ export function createRootHandle<Out>(): RootHandle<Out> {
     },
   }
   rootControls.set(handle as RootHandle<unknown>, {
-    bind(b: RunBinding): void {
-      binding = b
-    },
-    unbind(): void {
-      binding = undefined
+    acquire(): RootLease {
+      if (activeLease !== undefined) {
+        throw new RuntimeRunStateError(
+          'RootHandle: handle already controls a live run; use one handle per concurrent run',
+        )
+      }
+      const token = Symbol('root-handle-lease')
+      activeLease = token
+      let released = false
+      return {
+        bind(next: RunBinding): void {
+          if (released || activeLease !== token) {
+            throw new RuntimeRunStateError('RootHandle: live-run lease is no longer active')
+          }
+          if (binding !== undefined) {
+            throw new RuntimeRunStateError('RootHandle: live-run lease is already bound')
+          }
+          binding = next
+        },
+        release(): void {
+          if (released) return
+          released = true
+          if (activeLease !== token) return
+          binding = undefined
+          activeLease = undefined
+        },
+      }
     },
   })
   return handle

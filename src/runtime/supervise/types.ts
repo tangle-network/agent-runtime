@@ -69,6 +69,13 @@ export interface WaitOpts {
 export interface Agent<Task, Out> {
   readonly name: string
   act(task: Task, scope: Scope<Out>): Promise<Out>
+  /**
+   * Optional manager inbox. A parent or attached `RootHandle` uses this to deliver the same raw
+   * down-message accepted by executor inboxes. Return `false` when the manager has no live receive
+   * path; returning `true` means the message was accepted for the current manager session.
+   */
+  // biome-ignore lint/suspicious/noConfusingVoidType: void is the legacy contract; boolean adds an acknowledgement without breaking existing agents.
+  deliver?(msg: unknown): void | boolean
 }
 
 // ── The open leaf runtime ─────────────────────────────────────────────────────
@@ -110,10 +117,11 @@ export interface Executor<Out> {
    * Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
    * verb). A streaming executor drains pending messages between turns and folds them into the next
    * step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
-   * this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the
-   * executor's to ignore.
+   * this; `Scope.send` then returns `false` for it. Never throws — an inbox that rejects a malformed
+   * message returns `false`, and that refusal propagates to the caller.
    */
-  deliver?(msg: unknown): void
+  // biome-ignore lint/suspicious/noConfusingVoidType: void is the legacy contract; boolean adds an acknowledgement without breaking existing executors.
+  deliver?(msg: unknown): void | boolean
   /**
    * Optional LIVE progress: what this worker is doing RIGHT NOW, read synchronously and
    * cheaply while `execute` is still streaming. The scope already derives activity timing,
@@ -746,6 +754,8 @@ export interface NodeSnapshot {
   readonly status: NodeStatus
   readonly runtime: Runtime
   readonly budget: Budget
+  /** Exact nested journal tree owned by this node, when Runtime attested recursive ownership. */
+  readonly ownedTreeRoot?: NodeId
   /** Manager-scoped assignment identity, including deterministic ids for unkeyed siblings. */
   readonly assignmentId?: string
   readonly identity?: NodeExecutionIdentity
@@ -792,6 +802,10 @@ export type SpawnEvent =
       assignmentId?: string
       budget: Budget
       runtime: Runtime
+      /** Exact nested journal tree this node owns. Runtime writes this only after privately
+       * attesting the executor as a recursive scope owner. Its absence means no tree is followed,
+       * including records written before this field existed and caller leaves named `driver`. */
+      ownedTreeRoot?: NodeId
       /** Exact profile/task digests plus trusted candidate/campaign attribution when available. */
       identity?: NodeExecutionIdentity
       seq: number
@@ -978,15 +992,23 @@ export type SupervisedResult<Out> =
       spentTotal: Spend
     }
 
-/** Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `signal`
- *  delivers an out-of-band message to the running root; `view()` materializes the tree. */
+/** Live root handle — a chat/pi-viz client uses it to inspect and control one root run. */
 export interface RootHandle<Out> {
   view(): TreeView
+  /** Optional for structural compatibility with existing view/signal/abort wrappers. Handles
+   * minted by `createRootHandle` implement the required form in `SteerableRootHandle`. */
+  deliver?(msg: unknown): boolean
   signal(msg: RootSignal): void
   abort(reason?: string): void
   /** Phantom: binds the handle to the supervised run's output type. Type-only — never
    *  present at runtime; lets `attach(h: RootHandle<Out>)` stay output-typed. */
   readonly __out?: Out
+}
+
+/** A Runtime-minted root handle that can deliver raw steering or answers to a live manager inbox.
+ * Delivery returns `false` when the manager has no receive path; detached calls fail loud. */
+export interface SteerableRootHandle<Out> extends RootHandle<Out> {
+  deliver(msg: unknown): boolean
 }
 
 /** Out-of-band message to a running root. Open by intent — a client extends it. */

@@ -20,7 +20,9 @@
  * @experimental
  */
 
+import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import { workerTraceAnalysisStore } from '../runtime/supervise/trace-evidence'
+import { nestedDriverTreeRoot } from '../runtime/supervise/tree-key'
 import type {
   NodeExecutionIdentity,
   NodeId,
@@ -40,6 +42,54 @@ import { contentAddress } from './content-address'
 import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
 
 export { contentAddress } from './content-address'
+
+/** One journal tree in a recursively loaded supervision forest. */
+export interface SpawnForestTree {
+  readonly root: NodeId
+  /** Driver node that owns this tree; absent for the requested root tree. */
+  readonly ownerNodeId?: NodeId
+  /** Journal tree containing `ownerNodeId`; absent for the requested root tree. */
+  readonly parentTreeRoot?: NodeId
+  readonly events: ReadonlyArray<SpawnEvent>
+  readonly view: TreeView
+}
+
+/** One event with the journal tree that establishes its cursor namespace. */
+export interface SpawnForestEvent {
+  readonly treeRoot: NodeId
+  readonly event: SpawnEvent
+}
+
+/** One flattened node with the journal tree that owns its records. */
+export interface SpawnForestNode extends NodeSnapshot {
+  readonly treeRoot: NodeId
+}
+
+/** A spawned worker with no terminal record in a cold snapshot. Resume treats the same state as
+ * in-doubt and conservatively retains its reservation. Root nodes and armed waits are excluded. */
+export interface SpawnForestInDoubtNode {
+  readonly treeRoot: NodeId
+  readonly nodeId: NodeId
+  readonly label: string
+  readonly runtime: Runtime
+}
+
+/** A driver spawn whose owned journal tree was never begun before the process stopped. */
+export interface SpawnForestMissingTree {
+  readonly parentTreeRoot: NodeId
+  readonly ownerNodeId: NodeId
+  readonly root: NodeId
+}
+
+/** Complete cold-readable view of one recursive supervision run. */
+export interface SpawnForest {
+  readonly root: NodeId
+  readonly trees: ReadonlyArray<SpawnForestTree>
+  readonly nodes: ReadonlyArray<SpawnForestNode>
+  readonly events: ReadonlyArray<SpawnForestEvent>
+  readonly inDoubt: ReadonlyArray<SpawnForestInDoubtNode>
+  readonly missingTrees: ReadonlyArray<SpawnForestMissingTree>
+}
 
 // ── Content addressing ──────────────────────────────────────────────────────
 
@@ -257,6 +307,116 @@ export class FileSpawnJournal implements SpawnJournal {
       await fh.close()
     }
   }
+}
+
+/**
+ * Load every journal tree owned by one recursive supervision run and flatten its nodes/events.
+ *
+ * Nested driver tree keys are a Runtime implementation detail; callers should use this reader
+ * instead of deriving or scanning keys themselves. The reader follows only the explicit
+ * `ownedTreeRoot` written after Runtime privately attested a recursive executor; the open runtime
+ * string `driver` is never treated as ownership. Legacy records without `ownedTreeRoot` are
+ * intentionally treated as leaves rather than guessing or scanning convention-derived keys.
+ * This preserves each tree's independent cursor namespace on flattened events.
+ * A driver whose subtree was never begun is reported in `missingTrees`; any spawned non-root node
+ * without a terminal record is reported in `inDoubt`, matching resume's conservative lost-work
+ * interpretation.
+ *
+ * This is a cold/quiescent reader, not a transaction across an actively mutating file. Every value
+ * returned is a detached immutable snapshot, so later journal writes or caller mutation cannot
+ * change the result already observed.
+ */
+export async function loadSpawnForest(journal: SpawnJournal, root: NodeId): Promise<SpawnForest> {
+  const rootEvents = await journal.loadTree(root)
+  if (rootEvents === undefined) {
+    throw new Error(`loadSpawnForest: no journaled tree for root '${root}'`)
+  }
+
+  const trees: SpawnForestTree[] = []
+  const nodes: SpawnForestNode[] = []
+  const events: SpawnForestEvent[] = []
+  const inDoubt: SpawnForestInDoubtNode[] = []
+  const missingTrees: SpawnForestMissingTree[] = []
+  const visited = new Set<NodeId>()
+  const queue: Array<{
+    readonly root: NodeId
+    readonly events: SpawnEvent[]
+    readonly ownerNodeId?: NodeId
+    readonly parentTreeRoot?: NodeId
+  }> = [{ root, events: rootEvents }]
+
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const current = queue[cursor]!
+    if (visited.has(current.root)) {
+      throw new Error(`loadSpawnForest: recursive journal tree '${current.root}' was reached twice`)
+    }
+    visited.add(current.root)
+    const stableEvents = detachedSnapshot(
+      current.events,
+      `loadSpawnForest tree ${JSON.stringify(current.root)}`,
+    )
+    const view = detachedSnapshot(
+      materializeTreeView([...stableEvents]),
+      `loadSpawnForest view ${JSON.stringify(current.root)}`,
+    )
+    trees.push({
+      root: current.root,
+      ...(current.ownerNodeId === undefined ? {} : { ownerNodeId: current.ownerNodeId }),
+      ...(current.parentTreeRoot === undefined ? {} : { parentTreeRoot: current.parentTreeRoot }),
+      events: stableEvents,
+      view,
+    })
+    nodes.push(...view.nodes.map((node) => ({ treeRoot: current.root, ...node })))
+    events.push(...stableEvents.map((event) => ({ treeRoot: current.root, event })))
+
+    const terminal = new Set<NodeId>()
+    for (const event of stableEvents) {
+      if (event.kind === 'settled' || event.kind === 'cancelled') terminal.add(event.id)
+    }
+    const spawns = stableEvents
+      .filter(
+        (event): event is Extract<SpawnEvent, { kind: 'spawned' }> => event.kind === 'spawned',
+      )
+      .sort((a, b) => a.seq - b.seq || a.id.localeCompare(b.id))
+    for (const spawn of spawns) {
+      if (spawn.parent !== undefined && !terminal.has(spawn.id)) {
+        inDoubt.push({
+          treeRoot: current.root,
+          nodeId: spawn.id,
+          label: spawn.label,
+          runtime: spawn.runtime,
+        })
+      }
+      if (spawn.ownedTreeRoot === undefined) continue
+      const expectedRoot = nestedDriverTreeRoot(current.root, spawn.id)
+      if (spawn.ownedTreeRoot !== expectedRoot) {
+        throw new Error(
+          `loadSpawnForest: node '${spawn.id}' owns non-canonical tree '${spawn.ownedTreeRoot}'; expected '${expectedRoot}'`,
+        )
+      }
+      const nestedRoot = spawn.ownedTreeRoot
+      const nestedEvents = await journal.loadTree(nestedRoot)
+      if (nestedEvents === undefined) {
+        missingTrees.push({
+          parentTreeRoot: current.root,
+          ownerNodeId: spawn.id,
+          root: nestedRoot,
+        })
+        continue
+      }
+      queue.push({
+        root: nestedRoot,
+        events: nestedEvents,
+        ownerNodeId: spawn.id,
+        parentTreeRoot: current.root,
+      })
+    }
+  }
+
+  return detachedSnapshot(
+    { root, trees, nodes, events, inDoubt, missingTrees },
+    'loadSpawnForest result',
+  )
 }
 
 type SpawnJournalRecord =
@@ -582,6 +742,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       status: 'pending',
       runtime: ev.runtime,
       budget: ev.budget,
+      ...(ev.ownedTreeRoot === undefined ? {} : { ownedTreeRoot: ev.ownedTreeRoot }),
       ...(ev.assignmentId === undefined ? {} : { assignmentId: ev.assignmentId }),
       ...(ev.identity ? { identity: ev.identity } : {}),
       spent: zeroSpend(),
@@ -670,6 +831,7 @@ interface MutableSnapshot {
   status: NodeStatus
   runtime: Runtime
   budget: NodeSnapshot['budget']
+  ownedTreeRoot?: NodeSnapshot['ownedTreeRoot']
   assignmentId?: string
   identity?: NodeSnapshot['identity']
   materialization?: NodeSnapshot['materialization']
@@ -712,6 +874,7 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     status: node.status,
     runtime: node.runtime,
     budget: node.budget,
+    ownedTreeRoot: node.ownedTreeRoot,
     assignmentId: node.assignmentId,
     identity: node.identity,
     materialization: node.materialization,

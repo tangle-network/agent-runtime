@@ -5,10 +5,10 @@ import { type AgentSpec, createBudgetPool, createExecutor, createInbox } from '.
 describe('worker inbox (down-leg receive end)', () => {
   it('parses the down-message shapes; ignores malformed', () => {
     const inbox = createInbox()
-    inbox.deliver({ steer: 'do X' })
-    inbox.deliver({ answer: 'use v2', questionId: 'q1' })
-    inbox.deliver({ junk: true }) // ignored, never throws
-    inbox.deliver(null)
+    expect(inbox.deliver({ steer: 'do X' })).toBe(true)
+    expect(inbox.deliver({ answer: 'use v2', questionId: 'q1' })).toBe(true)
+    expect(inbox.deliver({ junk: true })).toBe(false)
+    expect(inbox.deliver(null)).toBe(false)
     const drained = inbox.drain()
     expect(drained).toEqual([
       { kind: 'steer', text: 'do X', interrupt: false },

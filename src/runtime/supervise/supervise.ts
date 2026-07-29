@@ -72,6 +72,8 @@ import type { StopRule } from './stop-rules'
 import { createSupervisor } from './supervisor'
 import {
   type DriveHarness,
+  type DriveHarnessOwnerContext,
+  type ResolveDriveHarness,
   type ResolveSupervisorTools,
   type SupervisorNodeContext,
   type SupervisorProfile,
@@ -82,9 +84,11 @@ import type {
   AgentExecutionRef,
   AgentSpec,
   Budget,
+  Executor,
   ExecutorContext,
   NodeExecutionIdentity,
   ResultBlobStore,
+  RootHandle,
   SpawnJournal,
   UsageEvent,
 } from './types'
@@ -220,6 +224,7 @@ function driveHarnessFromBackend(
   const capturedBackend = captureReusableExecutorConfig(backend, 'driveHarnessFromBackend')
   const boundBackend = bindReusableExecutorExecutionId(capturedBackend, executionId)
   const baseFactory = createExecutor(boundBackend)
+  let activeExecutor: Executor<unknown> | undefined
   const drive: DriveHarness = async ({
     profile,
     task,
@@ -266,6 +271,7 @@ function driveHarnessFromBackend(
       node: scopeOwnerExecutorNodeContext(scope),
       seams: {},
     })
+    activeExecutor = executor
     let completed = false
     let started = false
     let terminalAccountingCaptured = false
@@ -425,8 +431,14 @@ function driveHarnessFromBackend(
           failure = error
         }
       }
+      if (activeExecutor === executor) activeExecutor = undefined
     }
     if (failed) throw failure
+  }
+  drive.deliver = (message): boolean => {
+    const deliver = activeExecutor?.deliver
+    if (!deliver) return false
+    return deliver.call(activeExecutor, message) !== false
   }
   return attestRuntimeOwnedScopeOwner(drive, 'cli')
 }
@@ -443,6 +455,9 @@ function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
 export interface SuperviseOptions {
   /** The conserved compute pool for the whole run. */
   readonly budget: Budget
+  /** Caller-created live handle for observing, steering, or cancelling this root manager. Runtime
+   * attaches it before execution and detaches it after the join barrier. */
+  readonly rootHandle?: RootHandle<unknown>
   /** Caller-owned cancellation for the complete recursive run. Aborting it cascades through the
    * root scope and every live child, including acquisition and backend execution. */
   readonly signal?: AbortSignal
@@ -455,6 +470,12 @@ export interface SuperviseOptions {
    *  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
    *  failure mode of a static orchestrator. */
   readonly deliverable?: DeliverableSpec<unknown>
+  /** Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
+   * after spawn authorization and driver classification, receives a detached immutable context,
+   * and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it. */
+  readonly resolveDeliverable?: (
+    input: DeliverableResolutionInput,
+  ) => DeliverableSpec<unknown> | undefined
   /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
    *  This is caller-owned execution: profile security, spawn authorization, and recursive-driver
    *  selection below apply only to the backend-derived worker path. `authorizeMessage` still
@@ -497,12 +518,10 @@ export interface SuperviseOptions {
     },
   ) => AuthorizedDownMessage
   /** Decide whether an authorized child becomes another supervisor. By default only
-   *  `metadata.role === 'driver'` does; products may bind this to their own authority record. */
-  readonly isDriverProfile?: (input: {
-    readonly profile: AgentProfile
-    readonly parent: AgentProfile
-    readonly depth: number
-  }) => boolean
+   *  `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
+   *  context as `resolveDeliverable`, so trusted execution/assignment authority can override
+   *  model-authored metadata without a side channel. */
+  readonly isDriverProfile?: (input: AuthorizedSpawnContext) => boolean
   /** The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The profile's
    *  model wins. */
   readonly router?: RouterConfig
@@ -511,8 +530,12 @@ export interface SuperviseOptions {
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
-  /** Required with a custom `driveHarness`: declares which complete AgentProfile axes that path
-   * really applies. Built-in bridge driving supplies its own full-profile contract. */
+  /** Resolve one custom external-harness session per trusted manager identity. Use this instead of
+   * `driveHarness` when recursive managers must be independently steerable. */
+  readonly resolveDriveHarness?: ResolveDriveHarness
+  /** Required with a custom `driveHarness` or `resolveDriveHarness`: declares which complete
+   * AgentProfile axes that path really applies. Built-in bridge driving supplies its own
+   * full-profile contract. */
   readonly driveHarnessMaterialization?: ProfileMaterializationContract
   /** Resolve product-owned tools from the exact trusted manager context. The same descriptors and
    * handlers are bound to router and external-harness managers; resolution happens once per node. */
@@ -641,6 +664,40 @@ export interface AuthorizedSpawn {
   readonly execution?: AgentExecutionRef
 }
 
+/** Exact trusted context after a manager-authored spawn has passed product authorization. */
+export interface AuthorizedSpawnContext {
+  readonly profile: AgentProfile
+  readonly parent: AgentProfile
+  readonly parentIdentity: NodeExecutionIdentity
+  readonly execution: NodeExecutionIdentity
+  readonly parentNodeId: string
+  readonly assignmentId: string
+  readonly task: unknown
+  readonly budget: Budget
+  readonly label: string
+  readonly key?: string
+  readonly depth: number
+}
+
+/** Exact trusted context for selecting one backend-derived leaf's completion check. */
+export type DeliverableResolutionInput = AuthorizedSpawnContext
+
+function captureDeliverable(
+  deliverable: DeliverableSpec<unknown>,
+  context: string,
+): DeliverableSpec<unknown> {
+  if (typeof deliverable !== 'object' || deliverable === null || Array.isArray(deliverable)) {
+    throw new ValidationError(`${context}: deliverable must be an object`)
+  }
+  if (typeof deliverable.check !== 'function') {
+    throw new ValidationError(`${context}: deliverable.check must be a function`)
+  }
+  return Object.freeze({
+    ...detachedSnapshot({ describe: deliverable.describe }, `${context} configuration`),
+    check: deliverable.check,
+  })
+}
+
 /** Capture the public one-call configuration before any asynchronous work starts. Decision data is
  * detached and frozen; executable ports are copied as the exact references selected at intake.
  * Service internals intentionally remain live, while replacing a callback/service on the caller's
@@ -650,6 +707,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     backend,
     driverBackend,
     deliverable,
+    resolveDeliverable,
     router,
     compaction,
     watchWorkers,
@@ -663,6 +721,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     isDriverProfile,
     brain,
     driveHarness,
+    resolveDriveHarness,
     resolveSupervisorTools,
     onCoordinationEvent,
     executeExtraTool,
@@ -671,6 +730,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     finalizer,
     now,
     signal,
+    rootHandle,
     ...decisionData
   } = opts
   const capturedData = detachedSnapshot(decisionData, 'supervise options')
@@ -678,15 +738,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
   const capturedDriverBackend =
     driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend)
   const capturedDeliverable =
-    deliverable === undefined
-      ? undefined
-      : Object.freeze({
-          ...detachedSnapshot(
-            { describe: deliverable.describe },
-            'supervise deliverable configuration',
-          ),
-          check: deliverable.check,
-        })
+    deliverable === undefined ? undefined : captureDeliverable(deliverable, 'supervise deliverable')
   const capturedRouter =
     router === undefined
       ? undefined
@@ -734,6 +786,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(capturedBackend === undefined ? {} : { backend: capturedBackend }),
     ...(capturedDriverBackend === undefined ? {} : { driverBackend: capturedDriverBackend }),
     ...(capturedDeliverable === undefined ? {} : { deliverable: capturedDeliverable }),
+    ...(resolveDeliverable === undefined ? {} : { resolveDeliverable }),
     ...(capturedRouter === undefined ? {} : { router: capturedRouter }),
     ...(capturedCompaction === undefined ? {} : { compaction: capturedCompaction }),
     ...(capturedWatchWorkers === undefined ? {} : { watchWorkers: capturedWatchWorkers }),
@@ -747,6 +800,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(isDriverProfile === undefined ? {} : { isDriverProfile }),
     ...(brain === undefined ? {} : { brain }),
     ...(driveHarness === undefined ? {} : { driveHarness }),
+    ...(resolveDriveHarness === undefined ? {} : { resolveDriveHarness }),
     ...(resolveSupervisorTools === undefined ? {} : { resolveSupervisorTools }),
     ...(onCoordinationEvent === undefined ? {} : { onCoordinationEvent }),
     ...(executeExtraTool === undefined ? {} : { executeExtraTool }),
@@ -755,6 +809,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(finalizer === undefined ? {} : { finalizer }),
     ...(now === undefined ? {} : { now }),
     ...(signal === undefined ? {} : { signal }),
+    ...(rootHandle === undefined ? {} : { rootHandle }),
   })
 }
 
@@ -891,6 +946,11 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       'supervise: authorizeSpawn cannot be combined with caller-owned makeWorkerAgent; wrap and authorize the custom factory explicitly or use backend-derived workers',
     )
   }
+  if (options.makeWorkerAgent && options.resolveDeliverable) {
+    throw new ValidationError(
+      'supervise: resolveDeliverable applies only to backend-derived workers; wrap a caller-owned makeWorkerAgent with its completion checks explicitly',
+    )
+  }
   const authorizeDownFor = (
     parent: AgentProfile,
     depth: number,
@@ -965,12 +1025,16 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       }
     : undefined
   const managerBackend = options.driverBackend ?? options.backend
-  if (options.driveHarness && !options.driveHarnessMaterialization) {
+  if (options.driveHarness && options.resolveDriveHarness) {
+    throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
+  }
+  const hasCustomDriveHarness = Boolean(options.driveHarness || options.resolveDriveHarness)
+  if (hasCustomDriveHarness && !options.driveHarnessMaterialization) {
     throw new ValidationError(
-      'supervise: custom driveHarness requires driveHarnessMaterialization so profile fields cannot be silently dropped',
+      'supervise: custom driveHarness or resolveDriveHarness requires driveHarnessMaterialization so profile fields cannot be silently dropped',
     )
   }
-  const driverMaterialization = options.driveHarness
+  const driverMaterialization = hasCustomDriveHarness
     ? options.driveHarnessMaterialization
     : managerBackend && automaticDriverBackendSupported(managerBackend)
       ? backendProfileMaterialization(managerBackend)
@@ -978,22 +1042,77 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   if (
     isExternalSupervisor(canonicalProfile) &&
     !options.driveHarness &&
+    !options.resolveDriveHarness &&
     (!managerBackend || !automaticDriverBackendSupported(managerBackend))
   ) {
     throw new ValidationError(
-      `supervise: external supervisor profile.harness=${JSON.stringify(canonicalProfile.harness)} requires a local bridge driverBackend or an explicit driveHarness with reachable coordination transport`,
+      `supervise: external supervisor profile.harness=${JSON.stringify(canonicalProfile.harness)} requires a local bridge driverBackend, an explicit driveHarness, or resolveDriveHarness with reachable coordination transport`,
     )
   }
-  const driveHarnessForOwner = (ownerId: string): DriveHarness | undefined =>
-    options.driveHarness ??
-    (managerBackend && automaticDriverBackendSupported(managerBackend)
+  const harnessClaims = new WeakMap<
+    DriveHarness,
+    { readonly owners: Set<string>; steerable: boolean }
+  >()
+  const claimDriveHarness = (rawHarness: unknown, ownerId: string): DriveHarness => {
+    if (typeof rawHarness !== 'function') {
+      throw new ValidationError(
+        'supervise: resolveDriveHarness must return a DriveHarness function',
+      )
+    }
+    const harness = rawHarness as DriveHarness
+    const deliver: unknown = harness.deliver
+    if (deliver !== undefined && typeof deliver !== 'function') {
+      throw new ValidationError('supervise: driveHarness.deliver must be a function when provided')
+    }
+    const claim = harnessClaims.get(harness)
+    const conflictingOwner = claim
+      ? [...claim.owners].find((claimedOwner) => claimedOwner !== ownerId)
+      : undefined
+    const steerable = typeof deliver === 'function'
+    if (conflictingOwner !== undefined && (steerable || claim?.steerable === true)) {
+      throw new ValidationError(
+        `supervise: steerable driveHarness is already bound to manager owner ${JSON.stringify(conflictingOwner)}; resolveDriveHarness must return a distinct steerable instance for owner ${JSON.stringify(ownerId)}`,
+      )
+    }
+    if (claim) {
+      claim.owners.add(ownerId)
+      claim.steerable ||= steerable
+    } else {
+      harnessClaims.set(harness, { owners: new Set([ownerId]), steerable })
+    }
+    return harness
+  }
+  const driveHarnessForOwner = (context: DriveHarnessOwnerContext): DriveHarness | undefined => {
+    if (options.resolveDriveHarness) {
+      return claimDriveHarness(options.resolveDriveHarness(context), context.ownerId)
+    }
+    if (options.driveHarness) {
+      return claimDriveHarness(options.driveHarness, context.ownerId)
+    }
+    return managerBackend && automaticDriverBackendSupported(managerBackend)
       ? driveHarnessFromBackend(
           managerBackend,
-          externalExecutionId('supervised-manager', { runNamespace, ownerId }),
+          externalExecutionId('supervised-manager', {
+            runNamespace,
+            ownerId: context.ownerId,
+          }),
           options.now ?? Date.now,
         )
-      : undefined)
-  const rootDriveHarness = driveHarnessForOwner(rootOwnerId)
+      : undefined
+  }
+  const rootDriveHarness = isExternalSupervisor(canonicalProfile)
+    ? driveHarnessForOwner(
+        freezeDetached({
+          runId,
+          runNamespace,
+          ownerId: rootOwnerId,
+          depth: 0,
+          identity: rootExecution.identity,
+          profile: canonicalProfile,
+          task: canonicalTask,
+        }),
+      )
+    : undefined
   const rootOwnerRuntime =
     !isExternalSupervisor(canonicalProfile) || rootDriveHarness === undefined
       ? undefined
@@ -1061,6 +1180,19 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
           ...spawnContext,
           ...(childExecution.ref ? { execution: childExecution.ref } : {}),
         })
+        const postAuthorizationContext: AuthorizedSpawnContext = freezeDetached({
+          profile: authorized,
+          parent,
+          parentIdentity,
+          execution: childExecution.identity,
+          parentNodeId: spawnContext.parentNodeId,
+          assignmentId: spawnContext.assignmentId,
+          task: spawnContext.task,
+          budget: spawnContext.budget,
+          label: spawnContext.label,
+          ...(spawnContext.key !== undefined ? { key: spawnContext.key } : {}),
+          depth,
+        })
         const security = validateAgentProfileSecurity(authorized, securityPolicy)
         if (!security.ok) {
           const details = security.issues
@@ -1070,12 +1202,30 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
           throw new ValidationError(`supervise: spawned AgentProfile refused: ${details}`)
         }
         assertProfileModelsAllowed(authorized, options.allowedModels)
-        const driverInput = { profile: authorized, parent, depth }
-        const isDriver = options.isDriverProfile
-          ? options.isDriverProfile(driverInput)
-          : authorized.metadata?.role === 'driver'
+        let isDriver: boolean
+        if (options.isDriverProfile) {
+          const driverDecision: unknown = options.isDriverProfile(postAuthorizationContext)
+          if (typeof driverDecision !== 'boolean') {
+            throw new ValidationError('supervise: isDriverProfile must return a boolean')
+          }
+          isDriver = driverDecision
+        } else {
+          isDriver = authorized.metadata?.role === 'driver'
+        }
         if (!isDriver) {
-          return makeLeaf(
+          const selectedDeliverable = options.resolveDeliverable?.(postAuthorizationContext)
+          const leafDeliverable =
+            selectedDeliverable === undefined
+              ? options.deliverable
+              : captureDeliverable(
+                  selectedDeliverable,
+                  `supervise deliverable for ${JSON.stringify(spawnContext.label)}`,
+                )
+          const makeSelectedLeaf =
+            leafDeliverable === options.deliverable
+              ? makeLeaf
+              : workerFromBackend(options.backend as ExecutorConfig, leafDeliverable)
+          return makeSelectedLeaf(
             authorized,
             Object.freeze({
               ...authorizedContext,
@@ -1093,10 +1243,23 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
           spawnContext,
           depth,
         )
-        const nestedDriveHarness = driveHarnessForOwner(ownerId)
+        const nestedDriveHarness = isExternalSupervisor(authorized)
+          ? driveHarnessForOwner(
+              freezeDetached({
+                runId,
+                runNamespace,
+                ownerId,
+                depth,
+                identity: childExecution.identity,
+                assignmentId: spawnContext.assignmentId,
+                profile: authorized,
+                task: spawnContext.task,
+              }),
+            )
+          : undefined
         if (isExternalSupervisor(authorized) && !nestedDriveHarness) {
           throw new ValidationError(
-            `supervise: authored external supervisor profile.harness=${JSON.stringify(authorized.harness)} requires a local bridge driverBackend or an explicit driveHarness with reachable coordination transport`,
+            `supervise: authored external supervisor profile.harness=${JSON.stringify(authorized.harness)} requires a local bridge driverBackend, an explicit driveHarness, or resolveDriveHarness with reachable coordination transport`,
           )
         }
         assertProfileContract(
@@ -1219,7 +1382,9 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(options.compaction ? { compaction: options.compaction } : {}),
     })
 
-    return createSupervisor<unknown, unknown>().run(agent, canonicalTask, {
+    const supervisor = createSupervisor<unknown, unknown>()
+    if (options.rootHandle) supervisor.attach(options.rootHandle)
+    return supervisor.run(agent, canonicalTask, {
       budget: options.budget,
       runId,
       journal,

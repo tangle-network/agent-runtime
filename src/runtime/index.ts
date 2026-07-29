@@ -39,12 +39,19 @@ export {
   FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  loadSpawnForest,
   materializeTreeView,
   // The waits a journaled tree shows as armed but never woken — what a resumed run re-arms with
   // the ORIGINAL deadline. Exported for the same reason the replay readers are: a durable wait a
   // consumer cannot read back is only a log line.
   pendingWaits,
   replaySpawnTree,
+  type SpawnForest,
+  type SpawnForestEvent,
+  type SpawnForestInDoubtNode,
+  type SpawnForestMissingTree,
+  type SpawnForestNode,
+  type SpawnForestTree,
 } from '../durable/spawn-journal'
 // The typed coordination-bus event (up: settled/question/finding; authorized instruction receipt;
 // down: steer/answer delivery outcome) — surfaced here so a host folding the bus onto its own timeline can
@@ -695,7 +702,9 @@ export {
 // from a backend config + an optional completion oracle (settled⟺delivered).
 export {
   type AuthorizedSpawn,
+  type AuthorizedSpawnContext,
   DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY,
+  type DeliverableResolutionInput,
   type SuperviseOptions,
   supervise,
   workerFromBackend,
@@ -706,7 +715,9 @@ export { createSupervisor } from './supervise/supervisor'
 // a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
 export {
   type DriveHarness,
+  type DriveHarnessOwnerContext,
   type ObserveSupervisorNodeEvent,
+  type ResolveDriveHarness,
   type ResolveSupervisorTools,
   type SupervisorAgentDeps,
   type SupervisorNodeContext,
@@ -775,6 +786,7 @@ export type {
   SpawnPrior,
   SpawnRejection,
   Spend,
+  SteerableRootHandle,
   SupervisedResult,
   Supervisor,
   SupervisorOpts,

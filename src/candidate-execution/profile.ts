@@ -213,6 +213,7 @@ export function applyExactAgentProfileDiff(
   return parseExactAgentProfile(applied, `${label} result`)
 }
 
+/** Parse a candidate profile without silently discarding unsupported or non-canonical fields. */
 export function parseExactCandidateProfile(input: unknown): AgentCandidateProfile {
   const parsed = agentCandidateProfileSchema.parse(input)
   assertCanonicalParse(input, parsed, 'candidate profile')
@@ -302,6 +303,7 @@ export function agentCandidateProfileAsAgentProfile(
   return output as AgentProfile
 }
 
+/** Recursively remove undefined object fields while refusing undefined array entries. */
 export function omitUndefinedObjectFields(value: unknown, path: string): unknown {
   if (Array.isArray(value)) {
     return value.map((entry, index) => {

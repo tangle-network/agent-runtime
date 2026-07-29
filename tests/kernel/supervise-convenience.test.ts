@@ -10,6 +10,7 @@ import {
   supervise,
   workerFromBackend,
 } from '../../src/runtime/supervise/supervise'
+import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
   AgentSpec,
@@ -146,6 +147,54 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
     expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
     expect(teardownCalled).toBe(true)
+  })
+
+  it('attaches a caller RootHandle and folds a live steer before the router manager next thinks', async () => {
+    const handle = createRootHandle<unknown>()
+    let entered!: () => void
+    const firstTurnEntered = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let release!: () => void
+    const releaseFirstTurn = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    let turn = 0
+    const running = supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+      budget,
+      rootHandle: handle,
+      makeWorkerAgent: () => deliveringLeaf('unused', {}),
+      brain: async (messages) => {
+        seen.push(messages)
+        turn += 1
+        if (turn === 1) {
+          entered()
+          await releaseFirstTurn
+          return {
+            toolCalls: [{ id: 'list', name: 'list_questions', arguments: JSON.stringify({}) }],
+          }
+        }
+        return { content: 'stopped after reading the steer', toolCalls: [] }
+      },
+    })
+
+    await firstTurnEntered
+    expect(handle.deliver({ junk: true })).toBe(false)
+    expect(handle.deliver({ steer: 'also test the negative case', interrupt: false })).toBe(true)
+    release()
+    await running
+
+    expect(seen).toHaveLength(2)
+    expect(seen[1]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'user',
+          content: expect.stringContaining('also test the negative case'),
+        }),
+      ]),
+    )
+    expect(() => handle.deliver({ steer: 'after completion' })).toThrow()
   })
 
   it('runDir makes the run durable and resumable; unset stays in-memory', async () => {
@@ -676,7 +725,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
           model: 'safe',
         },
       }),
-    ).toThrow(/requires a local bridge driverBackend or an explicit driveHarness/)
+    ).toThrow(/requires a local bridge driverBackend.*explicit driveHarness.*resolveDriveHarness/)
   })
 
   it('allowedModels rejects a router model outside the allowed set', () => {

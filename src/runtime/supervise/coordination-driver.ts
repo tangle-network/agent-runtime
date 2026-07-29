@@ -54,6 +54,7 @@ import {
   runTree,
   type SupervisorFinalizer,
 } from './finalizer'
+import { createInbox, type Inbox } from './inbox'
 import {
   createProgressTracker,
   type ProgressTracker,
@@ -175,6 +176,9 @@ export interface DriverAgentOptions {
    *  the delivered-only invariant (`runFinalizer`): whatever the finalizer, an undelivered or
    *  invalid child's output stays unreachable. */
   readonly finalizer?: SupervisorFinalizer
+  /** Optional shared manager inbox used by a wrapper that must accept messages before async node
+   * setup finishes. Ordinary callers omit it and the driver owns a fresh inbox. */
+  readonly inbox?: Inbox
 }
 
 /** The default chapter-close prompt: the brain summarizes its OWN progress for its future self before
@@ -322,9 +326,13 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   // pure anti-runaway guard, NOT the intended limit.
   const maxTurns = opts.maxTurns === 0 ? runawayTripwireTurns : (opts.maxTurns ?? 16)
   const now = opts.now ?? Date.now
+  const inbox = opts.inbox ?? createInbox()
 
   return {
     name: opts.name,
+    deliver(message): boolean {
+      return inbox.deliver(message)
+    },
     async act(task, scope: Scope<unknown>): Promise<unknown> {
       const coord = createCoordinationTools({
         scope,
@@ -489,6 +497,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         // that can no longer spawn (pool starved) or has run past the deadline stops here instead of
         // burning turns. Checked before each inference turn.
         hooks: {
+          beforeTurn: (_turn, messages) => {
+            const pending = inbox.drain()
+            if (pending.length > 0) {
+              messages.push({ role: 'user', content: inbox.fold(pending) })
+            }
+          },
           stopBefore: () => {
             // HARD CEILINGS FIRST, and independently — a progress rule may never keep a run alive
             // past one, so they are not folded into the same expression.

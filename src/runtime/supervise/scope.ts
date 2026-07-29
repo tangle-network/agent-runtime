@@ -62,6 +62,7 @@ import {
 import { detachedSnapshot } from './snapshot'
 import { captureWorkerTraceEvidence } from './trace-evidence'
 import type { TraceSource } from './trace-source'
+import { runtimeOwnedNestedDriverTreeRoot } from './tree-key'
 import type {
   Agent,
   AgentSpec,
@@ -202,6 +203,7 @@ interface LiveChild {
   readonly id: NodeId
   status: NodeStatus
   runtime: NodeSnapshot['runtime']
+  readonly ownedTreeRoot?: NodeId
   readonly budget: Budget
   readonly label: string
   readonly assignmentId?: string
@@ -229,7 +231,7 @@ interface LiveChild {
   /** True once `next()` has yielded this child's settlement. */
   delivered: boolean
   /** The executor's out-of-band inbox, captured at spawn — backs `scope.send`. */
-  readonly deliver?: (msg: unknown) => void
+  readonly deliver?: (msg: unknown) => boolean
   /** The executor's optional live progress read, captured at spawn — backs `scope.progress`. */
   readonly readProgress?: () => ExecutorProgress | undefined
   /** The executor's optional live tool trace, captured at spawn — backs `scope.traceSource`. */
@@ -612,6 +614,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         },
       }
       const executor = resolved.value(spec, ctx) as Executor<C>
+      const ownedTreeRoot = runtimeOwnedNestedDriverTreeRoot(executor, args.root, id)
 
       const handle: Handle<C> = {
         id,
@@ -637,6 +640,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         id,
         status: 'acquiring',
         runtime: executor.runtime,
+        ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
         ...(identity ? { identity } : {}),
         budget: opts.budget,
         label: opts.label,
@@ -650,7 +654,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         executionBindings: [],
         startedAt,
         lastActivityAt: startedAt,
-        ...(executor.deliver ? { deliver: executor.deliver.bind(executor) } : {}),
+        ...(executor.deliver
+          ? { deliver: (message: unknown): boolean => executor.deliver?.(message) !== false }
+          : {}),
         ...(executor.progress ? { readProgress: executor.progress.bind(executor) } : {}),
         ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
       }
@@ -672,6 +678,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
         budget: opts.budget,
         runtime: executor.runtime,
+        ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
         ...(identity ? { identity } : {}),
         seq: ordinal,
         at: new Date(now()).toISOString(),
@@ -858,7 +865,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // Deliver only to a child that is still LIVE (not yet yielded by the cursor) and whose executor
     // accepts an inbox. A settled/unknown child, or a leaf with no `deliver`, cannot be steered.
     if (!child || child.delivered || !child.deliver) return false
-    child.deliver(msg)
+    const accepted = child.deliver(msg) !== false
+    if (!accepted) return false
     // A delivered steer IS activity: it resets the idle clock so a worker that was about to read
     // as stalled is not immediately re-steered before it can act on the message it just got.
     child.lastActivityAt = now()
@@ -1884,6 +1892,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     status: c.status,
     runtime: c.runtime,
     budget: c.budget,
+    ...(c.ownedTreeRoot === undefined ? {} : { ownedTreeRoot: c.ownedTreeRoot }),
     ...(c.assignmentId === undefined ? {} : { assignmentId: c.assignmentId }),
     ...(c.identity ? { identity: c.identity } : {}),
     ...(c.materialization ? { materialization: c.materialization } : {}),

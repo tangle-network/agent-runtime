@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.110.0
+
+- Run every supervisor, including the root, from one complete `AgentProfile`, preserve exact profile/task/candidate identity through recursive delegation, and reject execution paths that would silently drop profile fields.
+- Expose node-scoped product tools, product authorization for exact spawns and continuations, awaited replay-safe coordination observation, structured worker traces, trace-derived failure guidance, and caller cancellation across the complete recursive run.
+- Make durable run and assignment identity stable across restart while retaining exact materialization, accounting, delivery, and settlement evidence for each node.
+- Add live root-manager steering, trusted post-authorization manager/leaf classification, per-assignment completion checks, a cold recursive forest reader, and public exact-profile candidate conversion helpers.
+- Align Runtime with Eval 0.135.4, Interface 0.37.0, Knowledge 7.0.0, and Materialize 0.9.3 so public-source provenance and exact knowledge claims use one package cohort.
+
 ## 0.109.2
 
 - Align Runtime with Eval 0.135.2 and Knowledge 6.1.11 so every improvement path uses the corrected paired promotion decisions.
