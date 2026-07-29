@@ -18,10 +18,11 @@ import type {
 } from './activation'
 import {
   type AgentImprovementProfileSurface,
+  type AgentProfileMeasuredSurface,
   agentImprovementProfileSurfaceDigest,
   agentImprovementTargetProfileDiffs,
   assertProfileImprovementTargetsShareIdentity,
-  isAgentImprovementProfileSurface,
+  isAgentProfileMeasuredSurface,
 } from './improvement-surfaces'
 
 export type AgentImprovementProfileActivationTarget = Omit<
@@ -31,15 +32,22 @@ export type AgentImprovementProfileActivationTarget = Omit<
   surface: AgentImprovementProfileSurface
 }
 
+type AgentProfileImprovementTransitionTarget = Omit<
+  AgentImprovementActivationTargetPlan,
+  'surface'
+> & {
+  surface: AgentProfileMeasuredSurface
+}
+
 export type AgentImprovementProfileTargetState = Omit<
   AgentImprovementActivationTargetState,
   'surface'
-> & { surface: AgentImprovementProfileSurface }
+> & { surface: AgentProfileMeasuredSurface }
 
 export type AgentImprovementProfileTargetTransition = Omit<
   AgentImprovementActivationTargetTransition,
   'surface'
-> & { surface: AgentImprovementProfileSurface }
+> & { surface: AgentProfileMeasuredSurface }
 
 export interface AgentImprovementProfileReplacement {
   identity: string
@@ -118,15 +126,17 @@ interface CurrentProfiles {
 export function prepareAgentImprovementProfileActivation(
   input: AgentImprovementProfileActivationInput,
 ): AgentImprovementProfileActivationPreparation {
-  const targets =
-    'profileTransition' in input ? profileTargets(input.profileTransition.targets) : input.targets
+  if ('profileTransition' in input) {
+    const targets = profileTargets(input.profileTransition.targets)
+    assertUniqueProfileTargets(targets)
+    const current = readCurrentProfiles(input.currentByIdentity, targets)
+    if ('status' in current) return immutableCandidateValue(current)
+    return prepareProfileImprovementActivation(input, targets, current)
+  }
+  const targets = input.targets
   assertUniqueProfileTargets(targets)
   const current = readCurrentProfiles(input.currentByIdentity, targets)
   if ('status' in current) return immutableCandidateValue(current)
-
-  if ('profileTransition' in input) {
-    return prepareProfileImprovementActivation(input, targets, current)
-  }
   return prepareSurfaceReplacementActivation(targets, current)
 }
 
@@ -191,8 +201,8 @@ function prepareSurfaceReplacementActivation(
 function prepareProfileImprovementActivation(
   input: Extract<AgentImprovementProfileActivationInput, { profileTransition: unknown }>,
   targets: readonly [
-    AgentImprovementProfileActivationTarget,
-    ...AgentImprovementProfileActivationTarget[],
+    AgentProfileImprovementTransitionTarget,
+    ...AgentProfileImprovementTransitionTarget[],
   ],
   currentProfiles: CurrentProfiles,
 ): AgentImprovementProfileActivationPreparation {
@@ -258,7 +268,7 @@ function restoreProfileState(
 
 function assertProfileTransitionTargets(
   transition: ProfileImprovementActivationTransitionInput,
-  targets: readonly AgentImprovementProfileActivationTarget[],
+  targets: readonly AgentProfileImprovementTransitionTarget[],
 ): void {
   assertProfileImprovementTargetsShareIdentity(targets)
   const operationDigest = canonicalCandidateDigest(transition.operation)
@@ -278,8 +288,8 @@ function appliedProfileReplacement(
   identities: readonly string[],
   profiles: ReadonlyMap<string, AgentProfile>,
   targets: readonly [
-    AgentImprovementProfileActivationTarget,
-    ...AgentImprovementProfileActivationTarget[],
+    AgentProfileImprovementTransitionTarget,
+    ...AgentProfileImprovementTransitionTarget[],
   ],
 ): AgentImprovementProfileActivationPreparation {
   return immutableCandidateValue({
@@ -300,7 +310,7 @@ function appliedProfileReplacement(
 
 function targetStates(
   current: readonly {
-    target: AgentImprovementProfileActivationTarget
+    target: AgentProfileImprovementTransitionTarget
     currentDigest: Sha256Digest
   }[],
 ): [AgentImprovementProfileTargetState, ...AgentImprovementProfileTargetState[]] {
@@ -324,7 +334,7 @@ function profileStateDigest(
 
 function readCurrentProfiles(
   currentByIdentity: ReadonlyMap<string, AgentProfile>,
-  targets: readonly AgentImprovementProfileActivationTarget[],
+  targets: readonly AgentProfileImprovementTransitionTarget[],
 ): CurrentProfiles | { status: 'missing'; identities: string[] } {
   const identities = [...new Set(targets.map((target) => target.identity))].sort()
   const missing = identities.filter((identity) => !currentByIdentity.has(identity))
@@ -344,20 +354,20 @@ function readCurrentProfiles(
 
 function profileTargets(
   targets: readonly AgentImprovementActivationTargetPlan[],
-): [AgentImprovementProfileActivationTarget, ...AgentImprovementProfileActivationTarget[]] {
-  if (!targets.every((target) => isAgentImprovementProfileSurface(target.surface))) {
+): [AgentProfileImprovementTransitionTarget, ...AgentProfileImprovementTransitionTarget[]] {
+  if (!targets.every((target) => isAgentProfileMeasuredSurface(target.surface))) {
     throw new Error('agent profile activation contains an unsupported surface')
   }
   const first = targets[0]
   if (!first) throw new Error('agent profile activation requires a target')
   return targets as [
-    AgentImprovementProfileActivationTarget,
-    ...AgentImprovementProfileActivationTarget[],
+    AgentProfileImprovementTransitionTarget,
+    ...AgentProfileImprovementTransitionTarget[],
   ]
 }
 
 function assertUniqueProfileTargets(
-  targets: readonly AgentImprovementProfileActivationTarget[],
+  targets: readonly AgentProfileImprovementTransitionTarget[],
 ): void {
   const targetKeys = targets.map((target) => `${target.identity}\u0000${target.surface}`)
   if (new Set(targetKeys).size !== targetKeys.length) {

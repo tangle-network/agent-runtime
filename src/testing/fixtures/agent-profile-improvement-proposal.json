@@ -1,18 +1,38 @@
 {
   "changedSurfaces": ["prompt", "skills"],
-  "digest": "sha256:5a6888221983315e661a139d32348538dc054443e03ce2ef7f0cdf6380fb3558",
+  "digest": "sha256:2d5c13dbf6aa5b331fd581294429e93e4313c41f196aab5bd9e58c0771592006",
   "evaluation": {
     "decision": {
       "contributingChecks": [
         {
           "name": "paired-significance",
           "passed": true
+        },
+        {
+          "name": "paired-precision",
+          "passed": true
+        },
+        {
+          "name": "all-runs-completed",
+          "passed": true
+        },
+        {
+          "name": "candidate-task-pass",
+          "passed": true
+        },
+        {
+          "name": "critical-dimensions",
+          "passed": true
+        },
+        {
+          "name": "budget",
+          "passed": true
         }
       ],
       "outcome": "ship",
-      "reasons": ["paired comparison passed"]
+      "reasons": ["all measured checks passed"]
     },
-    "diff": "prompt: add source and uncertainty instructions",
+    "diff": "[{\"id\":\"add-source-and-uncertainty\",\"kind\":\"agent-profile-diff\",\"set\":{\"prompt\":{\"systemPrompt\":\"Answer directly, cite the source, and state uncertainty.\"},\"resources\":{\"skills\":[{\"content\":\"Cite the evidence you use.\",\"kind\":\"inline\",\"name\":\"sources.SKILL.md\"}]}},\"source\":{\"artifacts\":[\"traces://run/profile-improvement-1\"],\"kind\":\"optimizer\"}}]",
     "evaluation": {
       "generationsExplored": 1,
       "measurement": {
@@ -165,7 +185,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:53e9a7340ff97286ab016388519ce56ea2f8ba89fd9d02f19b62ccd559c2a0e6",
+          "digest": "sha256:9fb7c227fa5da24956b7ea5b59dfe7cd33e4cd3aa21c81e1506191da9dc23843",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-0",
           "executionRef": {
@@ -177,7 +197,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.2
+                "score": 0
               }
             ],
             "evidence": {
@@ -201,7 +221,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.2,
+            "score": 0,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 110,
@@ -292,7 +312,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:bb83b019f5a68bb0b0ea3dcc4d334aac6cea8f46309957b7d8ec71d6c2aaeb6f",
+          "digest": "sha256:6caab48474a18ccb40129f298bc498434937ffd5274f98c4f82f5b615087a13c",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-0",
           "executionRef": {
@@ -304,7 +324,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.6
+                "score": 1
               }
             ],
             "evidence": {
@@ -328,7 +348,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.6,
+            "score": 1,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 110,
@@ -421,7 +441,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:52d1089da764e5f52b4edf339dbd74b7f419ca704b10f6661633d8e9e220ecb9",
+          "digest": "sha256:9b56aeae4c91105ad4b8b2c9f0ae0255292f3d62d4d30c7f067c22ed30823024",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-1",
           "executionRef": {
@@ -433,7 +453,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.2
+                "score": 0
               }
             ],
             "evidence": {
@@ -457,7 +477,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.2,
+            "score": 0,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 1110,
@@ -548,7 +568,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:29d6ae794827b4a764cad22533f9e6795ac1379dc448341c16e92b55be56fb43",
+          "digest": "sha256:ec0a2eea90dbccc5b45a49a8108f785da8e7113ac582576d96ec76e5a47b4b22",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-1",
           "executionRef": {
@@ -560,7 +580,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.6
+                "score": 1
               }
             ],
             "evidence": {
@@ -584,7 +604,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.6,
+            "score": 1,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 1110,
@@ -677,7 +697,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:5a7186c9b471c4f23d2f3cbccbe7958f8d4c8233fb2ee09ee66c5499cfaffaa1",
+          "digest": "sha256:81179ac7f44a5fb2d7235090b42d0f4a3323a559e8e223a3455a8351a85376d5",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-2",
           "executionRef": {
@@ -689,7 +709,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.2
+                "score": 0
               }
             ],
             "evidence": {
@@ -713,7 +733,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.2,
+            "score": 0,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 2110,
@@ -804,7 +824,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:bef149104e0f613fc1b734ca951c57b2251bbec315ac3937094d98bd1be0621e",
+          "digest": "sha256:e9435761e04ad9b55f189c4193da92db86d95dbd50c4070b6c39d08d6199f1a6",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-2",
           "executionRef": {
@@ -816,7 +836,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.6
+                "score": 1
               }
             ],
             "evidence": {
@@ -840,7 +860,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.6,
+            "score": 1,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 2110,
@@ -933,7 +953,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:930e0e0df73a8be4e8d260c76a6926a425a5226b1363e0bf4beab1ccc44149de",
+          "digest": "sha256:9814d56f62fe89eb2117c0d601277942dc3b39d1180ca2c4d99ce5eeb993855c",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-3",
           "executionRef": {
@@ -945,7 +965,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.2
+                "score": 0
               }
             ],
             "evidence": {
@@ -969,7 +989,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.2,
+            "score": 0,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 3110,
@@ -1060,7 +1080,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:252b13293837d3f1375d3f4ba8ab062a98fff6474eb5a88a10c493c728a35d1b",
+          "digest": "sha256:779310f3803ac4b11af3953f5ef0e4ed78a28b8623f296890d7bedfc2291241f",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-3",
           "executionRef": {
@@ -1072,7 +1092,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.6
+                "score": 1
               }
             ],
             "evidence": {
@@ -1096,7 +1116,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.6,
+            "score": 1,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 3110,
@@ -1189,7 +1209,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:d7fec1bb98d479d00bc1e887ee81b0e221a3e307404388a3f124966a5a0ee604",
+          "digest": "sha256:cacfbed32553c79cf82eaecb785ca862c08fe3574fb94c8959991deb441e6fef",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-4",
           "executionRef": {
@@ -1201,7 +1221,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.2
+                "score": 0
               }
             ],
             "evidence": {
@@ -1225,7 +1245,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.2,
+            "score": 0,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 4110,
@@ -1316,7 +1336,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:1f26865bfd63cb64e333b5c78fa1a9113191ae5ed76d5d918c6b3c0c6b3088bb",
+          "digest": "sha256:51730613cefb40c07f29ce0fe8c540ed05e7ace01425d0bd2ed5454329265f63",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-4",
           "executionRef": {
@@ -1328,7 +1348,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.6
+                "score": 1
               }
             ],
             "evidence": {
@@ -1352,7 +1372,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.6,
+            "score": 1,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 4110,
@@ -1445,7 +1465,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:447f2531ea14a8d81cd083f9136eb874c49f90f968ad760c69d9ea4a482d8d27",
+          "digest": "sha256:8ccb242c4ea5f495acae43066d834c1e8727e8dd26e87e55a347fc7cfbbce92b",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "baseline-5",
           "executionRef": {
@@ -1457,7 +1477,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.2
+                "score": 0
               }
             ],
             "evidence": {
@@ -1481,7 +1501,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.2,
+            "score": 0,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 5110,
@@ -1572,7 +1592,7 @@
               "kind": "platform-billing"
             }
           ],
-          "digest": "sha256:25f5a04b59c28ff22cccda9e24e6bfca7b8a20b3d298e85f1f3a514917f762c5",
+          "digest": "sha256:a310c0e890411558f35d66d9b7b6c8adfce8c9c8f9faa6b8b043de53acbb5f6e",
           "digestAlgorithm": "rfc8785-sha256",
           "executionId": "candidate-5",
           "executionRef": {
@@ -1584,7 +1604,7 @@
             "dimensions": [
               {
                 "name": "quality",
-                "score": 0.6
+                "score": 1
               }
             ],
             "evidence": {
@@ -1608,7 +1628,7 @@
               "version": "1"
             },
             "passed": true,
-            "score": 0.6,
+            "score": 1,
             "timing": {
               "durationMs": 10,
               "endedAtMs": 5110,
@@ -1700,41 +1720,41 @@
     "objectives": [
       {
         "availability": "measured",
-        "baseline": 0.2,
-        "candidate": 0.6,
+        "baseline": 0,
+        "candidate": 1,
         "confidenceInterval": {
           "level": 0.95,
-          "lower": 0.29999999999999993,
+          "lower": 1,
           "method": "paired-bootstrap",
           "resamples": 100,
           "statistic": "mean",
-          "upper": 0.5
+          "upper": 1
         },
-        "delta": 0.39999999999999997,
+        "delta": 1,
         "direction": "higher-is-better",
         "kind": "objective",
         "n": 6,
-        "name": "quality",
+        "name": "benchmark-score",
         "unit": "score"
       },
       {
         "availability": "measured",
-        "baseline": 0.2,
-        "candidate": 0.6,
+        "baseline": 0,
+        "candidate": 1,
         "confidenceInterval": {
           "level": 0.95,
-          "lower": 0.29999999999999993,
+          "lower": 1,
           "method": "paired-bootstrap",
           "resamples": 100,
           "statistic": "mean",
-          "upper": 0.5
+          "upper": 1
         },
-        "delta": 0.39999999999999997,
+        "delta": 1,
         "direction": "higher-is-better",
         "kind": "dimension",
         "n": 6,
         "name": "quality",
-        "objective": "quality",
+        "objective": "benchmark-score",
         "unit": "score"
       },
       {
@@ -1743,11 +1763,11 @@
         "candidate": 1.1e-7,
         "confidenceInterval": {
           "level": 0.95,
-          "lower": -0.1,
+          "lower": 0,
           "method": "paired-bootstrap",
           "resamples": 100,
           "statistic": "mean",
-          "upper": 0.1
+          "upper": 0
         },
         "delta": 0,
         "direction": "lower-is-better",
@@ -1762,11 +1782,11 @@
         "candidate": 110,
         "confidenceInterval": {
           "level": 0.95,
-          "lower": -0.1,
+          "lower": 0,
           "method": "paired-bootstrap",
           "resamples": 100,
           "statistic": "mean",
-          "upper": 0.1
+          "upper": 0
         },
         "delta": 0,
         "direction": "lower-is-better",
@@ -1777,17 +1797,17 @@
       }
     ],
     "overall": {
-      "baseline": 0.2,
-      "candidate": 0.6,
+      "baseline": 0,
+      "candidate": 1,
       "confidenceInterval": {
         "level": 0.95,
-        "lower": 0.29999999999999993,
+        "lower": 1,
         "method": "paired-bootstrap",
         "resamples": 100,
         "statistic": "mean",
-        "upper": 0.5
+        "upper": 1
       },
-      "delta": 0.39999999999999997,
+      "delta": 1,
       "direction": "higher-is-better",
       "n": 6,
       "name": "composite",
@@ -1795,9 +1815,9 @@
     },
     "power": {
       "confidenceLevel": 0.95,
-      "minimumDetectableDelta": 0.1,
+      "minimumDetectableDelta": 0,
       "n": 6,
-      "reason": "6 paired held-out runs",
+      "reason": "observed paired uncertainty gives a minimum detectable delta of 0.000 at 0.95 confidence from 6 runs. The same scorer evaluated both arms, so scorer bias is not measured.",
       "scaleAssumed": true,
       "sharedScorerChannel": true,
       "sufficient": true
@@ -1806,9 +1826,9 @@
       "baselineContentHash": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
       "candidateContentHash": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
       "kind": "agent-eval-loop",
-      "recordDigest": "sha256:44465d9d1b5b2f7697ad7a4617d7da80ccad97538b55e8a41b016cddc9c66bcf",
+      "recordDigest": "sha256:18649e2d7221df7654aed639416108172bf5797cc34fa7bdf4b933ecd3ec445d",
       "runId": "profile-improvement-1",
-      "schema": "agent-eval/profile-matrix/v1"
+      "schema": "agent-profile-improvement-experiment"
     }
   },
   "findings": [],

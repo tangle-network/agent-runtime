@@ -51,15 +51,56 @@ export const AGENT_IMPROVEMENT_PROFILE_SURFACES = [
 export type AgentImprovementProfileSurface = (typeof AGENT_IMPROVEMENT_PROFILE_SURFACES)[number]
 
 /**
- * Portable profile surfaces eligible for shared measured comparisons.
- * Other profile settings can contain credentials or executable configuration.
+ * Profile changes eligible for the product-owned measured comparison path.
+ * The six directly deliverable profile surfaces retain their granular labels;
+ * any residual profile axis also adds the complete `agent-profile` surface.
  */
 export const AGENT_PROFILE_MEASURED_SURFACES = [
-  'prompt',
-  'skills',
-] as const satisfies readonly AgentImprovementProfileSurface[]
+  ...AGENT_IMPROVEMENT_PROFILE_SURFACES,
+  'agent-profile',
+] as const satisfies readonly AgentImprovementSurface[]
 
 export type AgentProfileMeasuredSurface = (typeof AGENT_PROFILE_MEASURED_SURFACES)[number]
+
+type ProfileDifferHandledField =
+  | 'name'
+  | 'description'
+  | 'version'
+  | 'tags'
+  | 'prompt'
+  | 'model'
+  | 'harness'
+  | 'permissions'
+  | 'tools'
+  | 'mcp'
+  | 'connections'
+  | 'subagents'
+  | 'resources'
+  | 'hooks'
+  | 'modes'
+  | 'confidential'
+  | 'metadata'
+  | 'extensions'
+type MissingProfileDifferField = Exclude<keyof AgentProfile, ProfileDifferHandledField>
+const profileDifferIsExhaustive: MissingProfileDifferField extends never ? true : never = true
+void profileDifferIsExhaustive
+
+type ProfileResourceDifferHandledField =
+  | 'files'
+  | 'tools'
+  | 'skills'
+  | 'agents'
+  | 'commands'
+  | 'instructions'
+  | 'failOnError'
+type MissingProfileResourceDifferField = Exclude<
+  keyof NonNullable<AgentProfile['resources']>,
+  ProfileResourceDifferHandledField
+>
+const profileResourceDifferIsExhaustive: MissingProfileResourceDifferField extends never
+  ? true
+  : never = true
+void profileResourceDifferIsExhaustive
 
 export interface AgentImprovementTargetProfileDiffOptions {
   id: string
@@ -355,31 +396,189 @@ export function agentImprovementProfileDiffs(
     omitUndefinedObjectFields(candidateInput, 'profile improvement candidate'),
     'profile improvement candidate',
   )
-  const surfaces = AGENT_PROFILE_MEASURED_SURFACES.filter(
-    (surface) =>
-      agentImprovementProfileSurfaceDigest(baseline, surface) !==
-      agentImprovementProfileSurfaceDigest(candidate, surface),
-  )
-  if (surfaces.length === 0) {
-    throw new Error('profile improvement candidate does not change a deliverable profile surface')
+  if (canonicalCandidateDigest(baseline) === canonicalCandidateDigest(candidate)) {
+    throw new Error('profile improvement candidate does not change the profile')
   }
-  const changes = surfaces.flatMap((surface) =>
-    agentImprovementTargetProfileDiffs(
-      { surface, desiredInput: agentImprovementProfileSurfaceInput(candidate, surface) },
-      options,
-    ),
-  ) as [AgentProfileDiff, ...AgentProfileDiff[]]
-  const applied = changes.reduce(
+  const completeChanges = completeAgentProfileReplacementDiffs(baseline, candidate, options)
+  const applied = completeChanges.reduce(
     (profile, change) =>
-      applyExactAgentProfileDiff(profile, change, 'profile improvement candidate change'),
+      applyExactAgentProfileDiff(profile, change, 'complete profile improvement candidate change'),
     baseline,
   )
   if (canonicalCandidateDigest(applied) !== canonicalCandidateDigest(candidate)) {
-    throw new Error(
-      'profile improvement candidate changes fields that the measured profile contract cannot apply',
-    )
+    throw new Error('complete profile improvement change did not reproduce the candidate')
   }
-  return changes
+  return completeChanges
+}
+
+function completeAgentProfileReplacementDiffs(
+  baseline: AgentProfile,
+  candidate: AgentProfile,
+  options: AgentImprovementTargetProfileDiffOptions,
+): [AgentProfileDiff, ...AgentProfileDiff[]] {
+  const remove: AgentProfileDiffRemoval = {}
+  const set: AgentProfile = {}
+  if (
+    profileValuesDiffer(baseline.name, candidate.name) ||
+    profileValuesDiffer(baseline.description, candidate.description) ||
+    profileValuesDiffer(baseline.version, candidate.version)
+  ) {
+    remove.identity = true
+    if (candidate.name !== undefined) set.name = candidate.name
+    if (candidate.description !== undefined) set.description = candidate.description
+    if (candidate.version !== undefined) set.version = candidate.version
+  }
+  if (profileValuesDiffer(baseline.tags, candidate.tags)) {
+    remove.tags = true
+    if (candidate.tags !== undefined) set.tags = candidate.tags
+  }
+  if (profileValuesDiffer(baseline.prompt, candidate.prompt)) {
+    remove.prompt = true
+    if (candidate.prompt !== undefined) set.prompt = candidate.prompt
+  }
+  if (profileValuesDiffer(baseline.model, candidate.model)) {
+    remove.model = true
+    if (candidate.model !== undefined) set.model = candidate.model
+  }
+  if (profileValuesDiffer(baseline.harness, candidate.harness)) {
+    remove.harness = true
+    if (candidate.harness !== undefined) set.harness = candidate.harness
+  }
+  if (profileValuesDiffer(baseline.permissions, candidate.permissions)) {
+    remove.permissions = true
+    if (candidate.permissions !== undefined) set.permissions = candidate.permissions
+  }
+  if (profileValuesDiffer(baseline.tools, candidate.tools)) {
+    remove.tools = true
+    if (candidate.tools !== undefined) set.tools = candidate.tools
+  }
+  if (profileValuesDiffer(baseline.mcp, candidate.mcp)) {
+    remove.mcp = true
+    if (candidate.mcp !== undefined) set.mcp = candidate.mcp
+  }
+  if (profileValuesDiffer(baseline.connections, candidate.connections)) {
+    remove.connections = true
+    if (candidate.connections !== undefined) set.connections = candidate.connections
+  }
+  if (profileValuesDiffer(baseline.subagents, candidate.subagents)) {
+    remove.subagents = true
+    if (candidate.subagents !== undefined) set.subagents = candidate.subagents
+  }
+  replaceChangedProfileResources(baseline.resources, candidate.resources, remove, set)
+  if (profileValuesDiffer(baseline.hooks, candidate.hooks)) {
+    remove.hooks = true
+    if (candidate.hooks !== undefined) set.hooks = candidate.hooks
+  }
+  if (profileValuesDiffer(baseline.modes, candidate.modes)) {
+    remove.modes = true
+    if (candidate.modes !== undefined) set.modes = candidate.modes
+  }
+  if (profileValuesDiffer(baseline.confidential, candidate.confidential)) {
+    remove.confidential = true
+    if (candidate.confidential !== undefined) set.confidential = candidate.confidential
+  }
+  if (profileValuesDiffer(baseline.metadata, candidate.metadata)) {
+    remove.metadata = true
+    if (candidate.metadata !== undefined) set.metadata = candidate.metadata
+  }
+  if (profileValuesDiffer(baseline.extensions, candidate.extensions)) {
+    remove.extensions = true
+    if (candidate.extensions !== undefined) set.extensions = candidate.extensions
+  }
+  if (Object.keys(remove).length === 0) {
+    throw new Error('complete profile differ found no changed fields')
+  }
+  const common = {
+    kind: 'agent-profile-diff' as const,
+    ...(options.source ? { source: options.source } : {}),
+    metadata: {
+      ...(options.metadata ?? {}),
+      surface: 'agent-profile',
+    },
+  }
+  const reset = agentProfileDiffSchema.parse(
+    defineAgentProfileDiff({
+      ...common,
+      id: `${options.id}:agent-profile:reset`,
+      title: 'Reset changed agent profile fields',
+      remove,
+    }),
+  ) as AgentProfileDiff
+  if (Object.keys(set).length === 0) return [reset]
+  const replacement = agentProfileDiffSchema.parse(
+    defineAgentProfileDiff({
+      ...common,
+      id: `${options.id}:agent-profile:set`,
+      title: 'Set changed agent profile fields',
+      set,
+    }),
+  ) as AgentProfileDiff
+  return [reset, replacement]
+}
+
+function replaceChangedProfileResources(
+  baseline: AgentProfile['resources'],
+  candidate: AgentProfile['resources'],
+  remove: AgentProfileDiffRemoval,
+  set: AgentProfile,
+): void {
+  if (!profileValuesDiffer(baseline, candidate)) return
+  const resourceRemoval: Exclude<AgentProfileDiffRemoval['resources'], true | undefined> = {}
+  const resourceSet: NonNullable<AgentProfile['resources']> = {}
+  let changedSubfields = 0
+
+  if (profileValuesDiffer(baseline?.files, candidate?.files)) {
+    changedSubfields += 1
+    resourceRemoval.files = true
+    if (candidate?.files !== undefined) resourceSet.files = candidate.files
+  }
+  if (profileValuesDiffer(baseline?.tools, candidate?.tools)) {
+    changedSubfields += 1
+    resourceRemoval.tools = true
+    if (candidate?.tools !== undefined) resourceSet.tools = candidate.tools
+  }
+  if (profileValuesDiffer(baseline?.skills, candidate?.skills)) {
+    changedSubfields += 1
+    resourceRemoval.skills = true
+    if (candidate?.skills !== undefined) resourceSet.skills = candidate.skills
+  }
+  if (profileValuesDiffer(baseline?.agents, candidate?.agents)) {
+    changedSubfields += 1
+    resourceRemoval.agents = true
+    if (candidate?.agents !== undefined) resourceSet.agents = candidate.agents
+  }
+  if (profileValuesDiffer(baseline?.commands, candidate?.commands)) {
+    changedSubfields += 1
+    resourceRemoval.commands = true
+    if (candidate?.commands !== undefined) resourceSet.commands = candidate.commands
+  }
+  if (profileValuesDiffer(baseline?.instructions, candidate?.instructions)) {
+    changedSubfields += 1
+    resourceRemoval.instructions = true
+    if (candidate?.instructions !== undefined) resourceSet.instructions = candidate.instructions
+  }
+  if (profileValuesDiffer(baseline?.failOnError, candidate?.failOnError)) {
+    changedSubfields += 1
+    resourceRemoval.failOnError = true
+    if (candidate?.failOnError !== undefined) resourceSet.failOnError = candidate.failOnError
+  }
+
+  if (changedSubfields === 0) {
+    remove.resources = true
+    if (candidate !== undefined) set.resources = candidate
+    return
+  }
+  remove.resources = resourceRemoval
+  if (Object.keys(resourceSet).length > 0) set.resources = resourceSet
+}
+
+function profileValuesDiffer(baseline: unknown, candidate: unknown): boolean {
+  const comparable = (value: unknown) =>
+    value === undefined ? { present: false } : { present: true, value }
+  return (
+    canonicalCandidateDigest(comparable(baseline)) !==
+    canonicalCandidateDigest(comparable(candidate))
+  )
 }
 
 function improvementSurfaceReplacement(target: {

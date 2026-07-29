@@ -1,11 +1,15 @@
 import { minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
-import type { AgentProfileImprovementExperimentExecutionInput } from '@tangle-network/agent-eval/contract'
+import {
+  type AgentProfileImprovementExperimentExecutionInput,
+  measuredComparisonFromAgentProfileImprovementExperiment,
+  verifyAgentProfileImprovementExperimentComparison,
+} from '@tangle-network/agent-eval/contract'
 import {
   type AgentImprovementEvaluation,
   type AgentProfile,
   type AgentProfileDiff,
+  type AgentProfileImprovementMeasuredComparison,
   type AgentProfileImprovementRunReceipt,
-  agentProfileImprovementMeasuredComparisonSchema,
   applyAgentProfileDiff,
   canonicalCandidateDigest,
   defineInlineResource,
@@ -143,7 +147,9 @@ export interface ProfileImprovementFixture {
 }
 
 /** A valid opaque profile comparison: it contains changes and state hashes, never profiles. */
-export function createProfileImprovementFixture(): ProfileImprovementFixture {
+export function createProfileImprovementFixture(
+  options: { metadata?: AgentProfileImprovementMeasuredComparison['metadata'] } = {},
+): ProfileImprovementFixture {
   const task = signed({
     kind: 'agent-profile-improvement-task' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
@@ -304,92 +310,16 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
     })
   }
 
-  const estimate = (baselineValue: number, candidateValue: number) => ({
-    baseline: baselineValue,
-    candidate: candidateValue,
-    delta: candidateValue - baselineValue,
-    confidenceInterval: {
-      level: 0.95,
-      lower: candidateValue - baselineValue - 0.1,
-      upper: candidateValue - baselineValue + 0.1,
-      method: 'paired-bootstrap' as const,
-      statistic: 'mean' as const,
-      resamples: 100,
-    },
-    n: pairedRunCount,
-  })
-  const comparison = agentProfileImprovementMeasuredComparisonSchema.parse({
-    kind: 'agent-profile-improvement-measured-comparison',
-    experiment,
-    measurements: Array.from({ length: pairedRunCount }, (_, repetition) => ({
-      baseline: receipt('baseline', repetition, 0.2),
-      candidate: receipt('candidate', repetition, 0.6),
-    })),
-    overall: {
-      name: 'composite',
-      ...estimate(0.2, 0.6),
-      direction: 'higher-is-better',
-      unit: 'score',
-    },
-    objectives: [
-      {
-        kind: 'objective',
-        name: 'quality',
-        direction: 'higher-is-better',
-        unit: 'score',
-        availability: 'measured',
-        ...estimate(0.2, 0.6),
-      },
-      {
-        kind: 'dimension',
-        objective: 'quality',
-        name: 'quality',
-        direction: 'higher-is-better',
-        unit: 'score',
-        availability: 'measured',
-        ...estimate(0.2, 0.6),
-      },
-      {
-        kind: 'cost',
-        name: 'cost',
-        direction: 'lower-is-better',
-        unit: 'usd',
-        availability: 'measured',
-        ...estimate(0.00000011, 0.00000011),
-      },
-      {
-        kind: 'latency',
-        name: 'latency',
-        direction: 'lower-is-better',
-        unit: 'milliseconds',
-        availability: 'measured',
-        ...estimate(110, 110),
-      },
-    ],
-    decision: {
-      outcome: 'ship',
-      reasons: ['paired comparison passed'],
-      contributingChecks: [{ name: 'paired-significance', passed: true }],
-    },
-    power: {
-      sufficient: true,
-      n: pairedRunCount,
-      minimumDetectableDelta: 0.1,
-      confidenceLevel: 0.95,
-      scaleAssumed: true,
-      sharedScorerChannel: true,
-      reason: `${pairedRunCount} paired held-out runs`,
-    },
-    provenance: {
-      kind: 'agent-eval-loop',
-      schema: 'agent-eval/profile-matrix/v1',
+  const measurements = Array.from({ length: pairedRunCount }, (_, repetition) => ({
+    baseline: receipt('baseline', repetition, 0),
+    candidate: receipt('candidate', repetition, 1),
+  }))
+  const measurementCostUsd = (pairedRunCount * 2 * 110) / 1_000_000_000
+  const comparison = verifyAgentProfileImprovementExperimentComparison(
+    measuredComparisonFromAgentProfileImprovementExperiment({
+      experiment,
+      measurements,
       runId: 'profile-improvement-1',
-      recordDigest: canonicalCandidateDigest({ record: 'profile-improvement-1' }),
-      baselineContentHash: baseline.stateDigest,
-      candidateContentHash: candidate.stateDigest,
-    },
-    diff: 'prompt: add source and uncertainty instructions',
-    evaluation: {
       generationsExplored: 1,
       preparation: {
         wallDurationMs: 0,
@@ -397,15 +327,11 @@ export function createProfileImprovementFixture(): ProfileImprovementFixture {
       },
       measurement: {
         wallDurationMs: 0,
-        workDurationMs: pairedRunCount * 2 * 110,
-        cost: { usd: (pairedRunCount * 2 * 110) / 1_000_000_000, provenance: 'observed' as const },
+        cost: { usd: measurementCostUsd, provenance: 'observed' as const },
       },
-      total: {
-        wallDurationMs: 0,
-        cost: { usd: (pairedRunCount * 2 * 110) / 1_000_000_000, provenance: 'observed' as const },
-      },
-    },
-  })
+      ...(options.metadata ? { metadata: options.metadata } : {}),
+    }),
+  )
   return {
     evaluation: comparison,
     baselineProfile,
