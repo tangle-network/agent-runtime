@@ -28,8 +28,15 @@ vi.mock('node:http', async () => {
         end: () => {
           const payload = JSON.parse(body || '{}') as Record<string, unknown>
           if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
-          const res = bridgeHttpHandler(payload) as Readable & { statusCode?: number }
+          const res = bridgeHttpHandler(payload) as Readable & {
+            statusCode?: number
+            headers?: Record<string, string>
+          }
           res.statusCode = res.statusCode ?? 200
+          res.headers = {
+            'x-run-id': String(payload.run_id),
+            'x-run-request-digest': `sha256:${'d'.repeat(64)}`,
+          }
           cb(res)
         },
         on: () => {},
@@ -105,6 +112,7 @@ const reproducibleCodexProfile: AgentProfile = {
 
 function bridgeSseResponse(content: string): Readable {
   const payload = [
+    'id: 1',
     `data: ${JSON.stringify({
       choices: [{ delta: { content } }],
       usage: { prompt_tokens: 3, completion_tokens: 5, cost: 0.02 },
@@ -271,6 +279,25 @@ describe('createWorktreeCliExecutor', () => {
         runHarness: vi.fn(),
       }),
     ).toThrow(/requires codexReproducible/)
+  })
+
+  it('refuses an unsupported profile before creating a worktree', async () => {
+    const state = freshGitState()
+    expect(() =>
+      createWorktreeCliExecutor({
+        repoRoot: '/workspace',
+        profile: {
+          ...authoredProfile,
+          connections: [{ connectionId: 'github', capabilities: ['issues:read'] }],
+        },
+        harness: 'claude',
+        taskPrompt: 'x',
+        runGit: makeFakeGit(state),
+        runHarness: vi.fn(),
+      }),
+    ).toThrow(/profile cannot be materialized.*connections/)
+    expect(state.worktreesCreated).toEqual([])
+    expect(state.worktreesRemoved).toEqual([])
   })
 
   it('meters reproducible Codex usage and surfaces isolation evidence', async () => {
@@ -475,6 +502,34 @@ describe('createWorktreeCliExecutor', () => {
     expect(exec.budgetExempt).toBe(false)
   })
 
+  it('runs the execute task without requiring a fixed configured prompt', async () => {
+    const state = freshGitState()
+    let seen: RunLocalHarnessOptions | undefined
+    const executor = createWorktreeCliExecutor({
+      repoRoot: '/workspace',
+      profile: authoredProfile,
+      harness: 'claude',
+      runGit: makeFakeGit(state),
+      runHarness: vi.fn(async (options) => {
+        seen = options
+        return {
+          exitCode: 0,
+          stdout: 'done',
+          stderr: '',
+          killedBySignal: null,
+          durationMs: 1,
+          timedOut: false,
+        }
+      }),
+    })
+    const authorizedTask = { experimentId: 'exp-7', instruction: 'fix the authorized defect' }
+
+    await executor.execute(authorizedTask, new AbortController().signal)
+
+    const prompt = seen?.invocation?.args.find((arg) => arg.includes('exp-7'))
+    expect(prompt).toContain(JSON.stringify(authorizedTask))
+  })
+
   it('resultArtifact() before execute() resolves throws (fail loud, no fabricated artifact)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
@@ -594,7 +649,6 @@ describe('createWorktreeCliExecutor', () => {
     const factory = createExecutor({
       backend: 'cli-worktree',
       repoRoot: '/workspace',
-      taskPrompt: 'implement the feature',
       runId: 'run-live',
       bridge: {
         bridgeUrl: 'http://bridge.test',
@@ -611,9 +665,13 @@ describe('createWorktreeCliExecutor', () => {
     })
     const spec: AgentSpec = { profile: authoredProfile, harness: null }
     const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
+    const authorizedTask = {
+      experimentId: 'bridge-exp-9',
+      instruction: 'implement the authorized feature',
+    }
 
     exec.deliver?.({ steer: 'also update docs' })
-    const run = exec.execute(undefined, new AbortController().signal)
+    const run = exec.execute(authorizedTask, new AbortController().signal)
     await drain(run as AsyncIterable<unknown>)
 
     const worktreePath = state.worktreesCreated[0]
@@ -621,9 +679,9 @@ describe('createWorktreeCliExecutor', () => {
     expect(requests).toHaveLength(1)
     expect(requests[0]?.cwd).toBe(worktreePath)
     expect(requests[0]?.session_id).toBe('session-live')
-    expect(requests[0]?.messages?.some((m) => m.content.includes('implement the feature'))).toBe(
-      true,
-    )
+    expect(
+      requests[0]?.messages?.some((m) => m.content.includes(JSON.stringify(authorizedTask))),
+    ).toBe(true)
     expect(requests[0]?.messages?.some((m) => m.content.includes('also update docs'))).toBe(true)
     expect(checks).toEqual([{ command: 'pnpm test', cwd: worktreePath }])
 
@@ -642,7 +700,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(state.worktreesRemoved).toEqual(state.worktreesCreated)
   })
 
-  it('fails loud on a missing repoRoot / harness / taskPrompt', () => {
+  it('fails loud on a missing repoRoot, harness, or both task sources', async () => {
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '',
@@ -659,5 +717,14 @@ describe('createWorktreeCliExecutor', () => {
         taskPrompt: '',
       }),
     ).toThrow(/taskPrompt required/)
+
+    const noTask = createWorktreeCliExecutor({
+      repoRoot: '/workspace',
+      profile: authoredProfile,
+      harness: 'claude',
+    })
+    await expect(noTask.execute(undefined, new AbortController().signal)).rejects.toThrow(
+      /execute task required/,
+    )
   })
 })

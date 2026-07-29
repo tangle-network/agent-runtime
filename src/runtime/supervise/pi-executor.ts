@@ -24,16 +24,18 @@
  * are read structurally off JSON lines, so a pi that adds commands stays compatible and a pi that
  * is not installed simply fails loud at spawn instead of at import.
  *
- * Usage accounting: pi reports token usage on its assistant messages when the provider supplies
- * it. Nothing is fabricated — a turn whose usage pi does not report contributes an `iteration`
- * event and zero tokens, exactly like the other honest executors.
+ * Usage accounting: pi repeats the completed assistant message at `message_end` and `turn_end`.
+ * Only `turn_end` is authoritative for token and cost accounting. Nothing is fabricated — a
+ * turn whose usage pi does not report contributes an `iteration` event and marks telemetry unknown.
  *
  * @experimental
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { ValidationError } from '../../errors'
 import { createInbox, type Inbox, type InboxMessage } from './inbox'
+import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import { type ActivityLog, createActivityLog, type ExecutorProgress } from './progress'
 import { createPushTraceSource, type ToolStepInput, type TraceSource } from './trace-source'
 import type {
@@ -80,12 +82,20 @@ interface PiEvent {
 
 /** Build the `Executor` for one pi worker. Registered as runtime `'pi'`. */
 export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
-  const seam = readPiSeam(ctx)
+  const configured = readPiSeam(ctx)
+  const seam: PiSeam = {
+    ...configured,
+    // The backend model is a fallback for profiles that do not select one. AgentProfile is the
+    // experiment-owned knob, so an ambient/default seam must never override the authored arm.
+    ...(spec.profile.model?.default ? { model: spec.profile.model.default } : {}),
+  }
   const inbox = createInbox()
   const activity = createActivityLog(seam.activityWindow ?? 12)
   const trace = createPushTraceSource({
     runId: `pi-${spec.profile.name ?? 'worker'}-${Date.now()}`,
   })
+  const executionId = ctx.node?.nodeId ?? `pi-run-${randomUUID()}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
 
   const controller = new AbortController()
   const cascade = () => controller.abort()
@@ -100,50 +110,79 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     artifact: undefined as ExecutorResult<unknown> | undefined,
   }
 
-  return {
-    runtime: PI_RUNTIME,
-    // pi owns the queue; `deliver` only routes through its state-safe `prompt` command. Its
-    // streaming behavior chooses steer versus follow-up atomically in pi, rather than trusting
-    // this adapter's delayed view of whether the current run has already ended.
-    deliver: (m) => inbox.deliver(m),
-    progress: (): ExecutorProgress => ({
-      turns: state.turns,
-      pendingMessages: inbox.pending(),
-      recentActivity: activity.read(),
-      note: state.note,
-    }),
-    traceSource: (): TraceSource => trace.source,
-    execute(task, signal): AsyncIterable<UsageEvent> {
-      return streamPiSession({
-        task,
-        signal,
-        controller,
-        seam,
-        spec,
-        inbox,
-        activity,
-        record: (step: ToolStepInput) => {
-          trace.record(step)
-        },
-        state,
-      })
+  return attestRuntimeOwnedExecutor(
+    {
+      runtime: PI_RUNTIME,
+      // pi owns the queue; `deliver` only routes through its state-safe `prompt` command. Its
+      // streaming behavior chooses steer versus follow-up atomically in pi, rather than trusting
+      // this adapter's delayed view of whether the current run has already ended.
+      deliver: (m) => inbox.deliver(m),
+      progress: (): ExecutorProgress => ({
+        turns: state.turns,
+        pendingMessages: inbox.pending(),
+        recentActivity: activity.read(),
+        note: state.note,
+      }),
+      traceSource: (): TraceSource => trace.source,
+      execute(task, signal): AsyncIterable<UsageEvent> {
+        return streamPiSession({
+          task,
+          signal,
+          controller,
+          seam,
+          spec,
+          inbox,
+          activity,
+          record: (step: ToolStepInput) => {
+            trace.record(step)
+          },
+          state,
+        })
+      },
+      async teardown(grace): Promise<{ destroyed: boolean }> {
+        controller.abort()
+        const proc = state.proc
+        if (!proc || proc.exitCode !== null || proc.killed) return { destroyed: true }
+        // Ask pi to stop cleanly first — an `abort` lets it finalize its session JSONL, which is
+        // the whole reason to wrap pi rather than kill it.
+        sendCommand(proc, { type: 'abort' })
+        return killPi(proc, grace)
+      },
+      resultArtifact() {
+        if (!state.artifact) {
+          throw new ValidationError('piExecutor: resultArtifact() read before stream drained')
+        }
+        return state.artifact
+      },
     },
-    async teardown(grace): Promise<{ destroyed: boolean }> {
-      controller.abort()
-      const proc = state.proc
-      if (!proc || proc.exitCode !== null || proc.killed) return { destroyed: true }
-      // Ask pi to stop cleanly first — an `abort` lets it finalize its session JSONL, which is
-      // the whole reason to wrap pi rather than kill it.
-      sendCommand(proc, { type: 'abort' })
-      return killPi(proc, grace)
+    {
+      effectiveProfile: spec.profile,
+      backend: 'pi',
+      model: seam.model
+        ? { status: 'known', id: seam.model }
+        : { status: 'unknown', reason: 'pi selected its configured default model' },
+      execution: { kind: 'run', id: executionId },
+      materializer: 'pi-rpc-agent-profile',
+      plan: {
+        kind: 'pi-rpc-session',
+        bin: seam.bin ?? 'pi',
+        args: seam.args ?? [],
+        cwd: seam.cwd ?? null,
+        model: seam.model ?? null,
+        turnTimeoutMs: seam.turnTimeoutMs ?? null,
+      },
     },
-    resultArtifact() {
-      if (!state.artifact) {
-        throw new ValidationError('piExecutor: resultArtifact() read before stream drained')
-      }
-      return state.artifact
+    {
+      attemptId,
+      binding: {
+        executionId,
+        bin: seam.bin ?? 'pi',
+        cwd: seam.cwd ?? null,
+        model: seam.model ?? null,
+      },
+      descriptor: { kind: 'pi-rpc-run', transport: 'process', backend: 'pi' },
     },
-  }
+  )
 }
 
 interface StreamPiArgs {
@@ -151,7 +190,9 @@ interface StreamPiArgs {
   signal: AbortSignal
   controller: AbortController
   seam: PiSeam
-  spec: { profile: { name?: string; prompt?: { systemPrompt?: string } } }
+  spec: {
+    profile: { name?: string; prompt?: { systemPrompt?: string; instructions?: string[] } }
+  }
   inbox: Inbox
   activity: ActivityLog
   record: (step: ToolStepInput) => void
@@ -174,6 +215,10 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   const { seam, inbox, activity, state } = args
   const started = Date.now()
   const tokens = { input: 0, output: 0 }
+  let tokensKnown = true
+  let usdKnown = true
+  let turnTokensKnown = false
+  let turnUsdKnown = false
   let usd = 0
 
   const proc = spawnPi(seam)
@@ -222,7 +267,12 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     args.controller.signal.addEventListener('abort', abortAll, { once: true })
   }
 
-  const system = args.spec.profile.prompt?.systemPrompt
+  const system = [
+    args.spec.profile.prompt?.systemPrompt,
+    ...(args.spec.profile.prompt?.instructions ?? []),
+  ]
+    .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
+    .join('\n')
   const opening = system ? `${system}\n\n${taskText(args.task)}` : taskText(args.task)
 
   const deadline = seam.turnTimeoutMs ? Date.now() + seam.turnTimeoutMs : undefined
@@ -239,9 +289,20 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
       // Drain what pi has emitted so far, projecting usage + activity.
       while (events.length > 0) {
         const ev = events.shift() as PiEvent
+        if (ev.type === 'turn_end') {
+          const telemetry = readUsage(ev.message)
+          if (telemetry?.tokensKnown) turnTokensKnown = true
+          if (telemetry?.usdKnown) turnUsdKnown = true
+        }
         for (const usage of projectPiEvent(ev, args, tokens)) {
           if (usage.kind === 'cost') usd += usage.usd
           yield usage
+        }
+        if (ev.type === 'turn_end') {
+          if (!turnTokensKnown) tokensKnown = false
+          if (!turnUsdKnown) usdKnown = false
+          turnTokensKnown = false
+          turnUsdKnown = false
         }
       }
 
@@ -282,7 +343,14 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     await killPi(proc, 2_000).catch(() => ({ destroyed: false }))
   }
 
-  const spent: Spend = { iterations: state.turns, tokens, usd, ms: Date.now() - started }
+  const spent: Spend = {
+    iterations: state.turns,
+    tokens,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: Date.now() - started,
+  }
   state.artifact = {
     outRef: `pi:${hash(state.lastText)}`,
     out: { content: state.lastText, turns: state.turns },
@@ -340,13 +408,15 @@ function projectPiEvent(
     return out
   }
   if (ev.type === 'turn_end' || ev.type === 'message_end') {
-    const usage = readUsage(ev.message)
-    if (usage && (usage.input || usage.output)) {
-      tokens.input += usage.input
-      tokens.output += usage.output
-      out.push({ kind: 'tokens', input: usage.input, output: usage.output })
+    if (ev.type === 'turn_end') {
+      const usage = readUsage(ev.message)
+      if (usage && (usage.input || usage.output)) {
+        tokens.input += usage.input
+        tokens.output += usage.output
+        out.push({ kind: 'tokens', input: usage.input, output: usage.output })
+      }
+      if (usage?.usd) out.push({ kind: 'cost', usd: usage.usd })
     }
-    if (usage?.usd) out.push({ kind: 'cost', usd: usage.usd })
     const text = readText(ev.message)
     if (text) args.state.lastText = text
     if (ev.type === 'turn_end') {
@@ -360,20 +430,37 @@ function projectPiEvent(
 
 /** pi's assistant message carries provider usage when the provider reported it. Absent, nothing
  *  is fabricated — the turn still counts as an iteration with zero tokens. */
-function readUsage(message: unknown): { input: number; output: number; usd: number } | undefined {
+function readUsage(message: unknown):
+  | {
+      input: number
+      output: number
+      usd: number
+      tokensKnown: boolean
+      usdKnown: boolean
+    }
+  | undefined {
   if (!message || typeof message !== 'object') return undefined
   const usage = (message as { usage?: unknown }).usage
   if (!usage || typeof usage !== 'object') return undefined
   const u = usage as Record<string, unknown>
-  const input = num(u.input) ?? num(u.inputTokens) ?? num(u.prompt_tokens) ?? 0
-  const output = num(u.output) ?? num(u.outputTokens) ?? num(u.completion_tokens) ?? 0
+  const inputValue = num(u.input) ?? num(u.inputTokens) ?? num(u.prompt_tokens)
+  const outputValue = num(u.output) ?? num(u.outputTokens) ?? num(u.completion_tokens)
+  const input = inputValue ?? 0
+  const output = outputValue ?? 0
   const costRaw = u.cost
-  const usd =
+  const usdValue =
     num(costRaw) ??
     (costRaw && typeof costRaw === 'object'
-      ? (num((costRaw as Record<string, unknown>).totalCost) ?? 0)
-      : 0)
-  return { input, output, usd }
+      ? (num((costRaw as Record<string, unknown>).total) ??
+        num((costRaw as Record<string, unknown>).totalCost))
+      : undefined)
+  return {
+    input,
+    output,
+    usd: usdValue ?? 0,
+    tokensKnown: inputValue !== undefined && outputValue !== undefined,
+    usdKnown: usdValue !== undefined,
+  }
 }
 
 function readText(message: unknown): string | undefined {

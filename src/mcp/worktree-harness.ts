@@ -25,6 +25,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   applyWorkspacePlan,
   type HarnessId,
+  hashWorkspacePlan,
   materializeProfile,
   type WorkspacePlan,
   type WorkspacePlanReceipt,
@@ -76,6 +77,13 @@ export interface WorktreeProfileMaterializationReceipt {
     sha256: string | null
     byteLength: number
   }
+}
+
+/** Pure, pre-execution identity for the exact profile workspace plan this module later applies. */
+export interface WorktreeProfileExecutionPlan {
+  readonly workspacePlanDigest: string
+  readonly harness: HarnessId
+  readonly resourceInstructions: WorktreeProfileMaterializationReceipt['resourceInstructions']
 }
 
 /** The canonical result of one worktree-harness run, projected by each port to its own shape. */
@@ -209,6 +217,11 @@ export async function runWorktreeHarness(
   const checkTimeoutMs = opts.checkTimeoutMs ?? opts.harnessTimeoutMs ?? 5 * 60 * 1000
   const cap = opts.checkOutputCap ?? defaultCheckOutputCap
 
+  // Profile support is a pure admission decision. Resolve it before creating a branch/worktree so
+  // a refused candidate leaves no repository state behind and starts no external process.
+  const prepared = prepareWorktreeProfile(opts.profile, opts.harness)
+  const { plan, resourceInstructions } = prepared
+
   const worktree = await createWorktree({
     repoRoot: opts.repoRoot,
     runId: opts.runId,
@@ -224,19 +237,6 @@ export async function runWorktreeHarness(
     })
 
   try {
-    assertSupportedWorktreeProfile(opts.profile, opts.harness)
-    assertSafeProfileResourcePaths(opts.profile)
-    const resourceInstructions = resolveResourceInstructions(opts.profile)
-    const workspaceProfile = materializationOnlyProfile(opts.profile)
-    const plan = materializeProfile(workspaceProfile, materializerHarness(opts.harness))
-    if (plan.unsupported.length > 0) {
-      throw new Error(
-        `runWorktreeHarness: profile cannot be materialized for ${opts.harness}: ${plan.unsupported
-          .map(({ dimension, reason }) => `${dimension}: ${reason}`)
-          .join('; ')}`,
-      )
-    }
-    assertSafeMaterializedPaths(plan)
     const applied = applyWorkspacePlan(plan, worktree.path, { existingFiles: 'reject' })
     if (applied.unsupported.length > 0) {
       throw new Error('runWorktreeHarness: applied profile unexpectedly retained unsupported rows')
@@ -335,6 +335,42 @@ export async function runWorktreeHarness(
   }
 }
 
+/** Compute the same plan identity `runWorktreeHarness` consumes, with no repository or process IO. */
+export function worktreeProfileExecutionPlan(
+  profile: AgentProfile,
+  harness: LocalHarness,
+): WorktreeProfileExecutionPlan {
+  const { plan, resourceInstructions } = prepareWorktreeProfile(profile, harness)
+  return Object.freeze({
+    workspacePlanDigest: hashWorkspacePlan(plan),
+    harness: plan.harness,
+    resourceInstructions: resourceInstructionReceipt(resourceInstructions),
+  })
+}
+
+function prepareWorktreeProfile(
+  profile: AgentProfile,
+  harness: LocalHarness,
+): {
+  readonly plan: WorkspacePlan
+  readonly resourceInstructions: string | undefined
+} {
+  const resourceInstructions = resolveResourceInstructions(profile)
+  const workspaceProfile = materializationOnlyProfile(profile)
+  assertSupportedWorktreeProfile(profile, harness)
+  assertSafeProfileResourcePaths(profile)
+  const plan = materializeProfile(workspaceProfile, materializerHarness(harness))
+  if (plan.unsupported.length > 0) {
+    throw new Error(
+      `runWorktreeHarness: profile cannot be materialized for ${harness}: ${plan.unsupported
+        .map(({ dimension, reason }) => `${dimension}: ${reason}`)
+        .join('; ')}`,
+    )
+  }
+  assertSafeMaterializedPaths(plan)
+  return { plan, resourceInstructions }
+}
+
 function resolveResourceInstructions(profile: AgentProfile): string | undefined {
   const instructions = profile.resources?.instructions
   if (instructions === undefined) return undefined
@@ -393,45 +429,11 @@ function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHar
   // `profile.harness` is only a preference and the explicit run option wins. Model small/provider/
   // metadata fields are routing or descriptive hints; this fixed one-shot path only selects the
   // concrete `model.default`. `resources.failOnError` never weakens this path's fail-closed policy.
-  const unsupportedAxes = [
-    hasEntries(profile.tools) ? 'tools' : null,
-    hasEntries(profile.permissions) ? 'permissions' : null,
-    profile.connections && profile.connections.length > 0 ? 'connections' : null,
-    hasEntries(profile.confidential) ? 'confidential' : null,
-    hasEntries(profile.modes) ? 'modes' : null,
-    hasEntries(profile.extensions) ? 'extensions' : null,
-  ].filter((axis): axis is string => axis !== null)
+  const unsupportedAxes = [hasEntries(profile.extensions) ? 'extensions' : null].filter(
+    (axis): axis is string => axis !== null,
+  )
   if (profile.model?.reasoningEffort !== undefined && harness !== 'codex') {
     unsupportedAxes.push('model.reasoningEffort')
-  }
-  for (const [name, server] of Object.entries(profile.mcp ?? {})) {
-    const path = `mcp[${JSON.stringify(name)}]`
-    if (server.enabled === false && harness !== 'opencode') {
-      unsupportedAxes.push(`${path}.enabled`)
-    }
-    if (hasEntries(server.headers) && harness === 'codex') {
-      unsupportedAxes.push(`${path}.headers`)
-    }
-    if (server.cwd !== undefined && harness === 'opencode') {
-      unsupportedAxes.push(`${path}.cwd`)
-    }
-  }
-  if (harness === 'claude') {
-    for (const [event, commands] of Object.entries(profile.hooks ?? {})) {
-      for (const [index, command] of commands.entries()) {
-        const path = `hooks[${JSON.stringify(event)}][${index}]`
-        if (hasEntries(command.env)) unsupportedAxes.push(`${path}.env`)
-        if (command.blocking !== undefined) unsupportedAxes.push(`${path}.blocking`)
-      }
-    }
-  }
-  for (const [name, subagent] of Object.entries(profile.subagents ?? {})) {
-    const path = `subagents[${JSON.stringify(name)}]`
-    if (hasEntries(subagent.permissions)) unsupportedAxes.push(`${path}.permissions`)
-    if (subagent.maxSteps !== undefined) unsupportedAxes.push(`${path}.maxSteps`)
-    if (hasEntries(subagent.tools) && harness !== 'claude') {
-      unsupportedAxes.push(`${path}.tools`)
-    }
   }
   if (unsupportedAxes.length > 0) {
     throw new Error(
@@ -473,21 +475,27 @@ function profileMaterializationReceipt(
   applied: WorkspacePlanReceipt,
   resourceInstructions: string | undefined,
 ): WorktreeProfileMaterializationReceipt {
-  const instructionBytes =
-    resourceInstructions === undefined ? null : Buffer.from(resourceInstructions, 'utf8')
   return {
     workspacePlanDigest: applied.workspacePlanDigest,
     writtenPaths: [...applied.written],
     unsupported: [...applied.unsupported],
     environmentNames: Object.keys(applied.env).sort(),
     flags: [...applied.flags],
-    resourceInstructions: instructionBytes
-      ? {
-          delivery: 'invocation-prompt',
-          sha256: `sha256:${createHash('sha256').update(instructionBytes).digest('hex')}`,
-          byteLength: instructionBytes.byteLength,
-        }
-      : { delivery: 'none', sha256: null, byteLength: 0 },
+    resourceInstructions: resourceInstructionReceipt(resourceInstructions),
+  }
+}
+
+function resourceInstructionReceipt(
+  resourceInstructions: string | undefined,
+): WorktreeProfileMaterializationReceipt['resourceInstructions'] {
+  if (resourceInstructions === undefined) {
+    return { delivery: 'none', sha256: null, byteLength: 0 }
+  }
+  const instructionBytes = Buffer.from(resourceInstructions, 'utf8')
+  return {
+    delivery: 'invocation-prompt',
+    sha256: `sha256:${createHash('sha256').update(instructionBytes).digest('hex')}`,
+    byteLength: instructionBytes.byteLength,
   }
 }
 

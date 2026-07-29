@@ -1170,7 +1170,6 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       materializer: 'cli-bridge-agent-profile',
       plan: {
         kind: 'cli-bridge-session',
-        bridgeUrl: seam.bridgeUrl,
         cwd: seam.cwd ?? null,
         maxTurns,
         timeoutMs: seam.timeoutMs ?? null,
@@ -2077,7 +2076,6 @@ function bridgeWorktreeExecutor(
         runId,
         sessionId,
         baseRef: seam.baseRef ?? 'HEAD',
-        bridgeUrl: bridge.bridgeUrl,
         model: model ?? null,
         testCmd: seam.testCmd ?? null,
         typecheckCmd: seam.typecheckCmd ?? null,
