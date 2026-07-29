@@ -777,6 +777,16 @@ One flattened node with the journal tree that owns its records.
 
 [`NodeSnapshot`](#nodesnapshot).[`budget`](#budget-17)
 
+##### ownedTreeRoot?
+
+> `readonly` `optional` **ownedTreeRoot?**: `string`
+
+Exact nested journal tree owned by this node, when Runtime attested recursive ownership.
+
+###### Inherited from
+
+[`NodeSnapshot`](#nodesnapshot).[`ownedTreeRoot`](#ownedtreeroot-1)
+
 ##### assignmentId?
 
 > `readonly` `optional` **assignmentId?**: `string`
@@ -10617,7 +10627,8 @@ and the worker's agent loop drains them at two points (Drew's two delivery modes
     in-flight turn immediately, then re-plan with the message folded in — breaking the worker out
     of a wrong path mid-task instead of waiting for it to finish the step.
 
-`deliver` never throws — a malformed message is ignored, per the `Executor.deliver` contract.
+`deliver` never throws — a malformed message is ignored and returns `false`, so no caller can
+report delivery for bytes this inbox discarded.
 
 #### Properties
 
@@ -10657,9 +10668,10 @@ Present for an `answer` — the question id it resolves.
 
 ##### deliver()
 
-> **deliver**(`msg`): `void`
+> **deliver**(`msg`): `boolean`
 
-The `Executor.deliver` implementation — accept a raw down-message from `Scope.send`.
+The `Executor.deliver` implementation. Returns false when the raw message is malformed and
+therefore was not queued; callers must not acknowledge a message this inbox discarded.
 
 ###### Parameters
 
@@ -10669,7 +10681,7 @@ The `Executor.deliver` implementation — accept a raw down-message from `Scope.
 
 ###### Returns
 
-`void`
+`boolean`
 
 ##### drain()
 
@@ -13896,6 +13908,12 @@ The rehydrated settlement; absent exactly when `state` is `'in-doubt'`.
 
 > `readonly` **budget**: [`Budget`](index.md#budget-4)
 
+##### ownedTreeRoot?
+
+> `readonly` `optional` **ownedTreeRoot?**: `string`
+
+Exact nested journal tree owned by this node, when Runtime attested recursive ownership.
+
 ##### assignmentId?
 
 > `readonly` `optional` **assignmentId?**: `string`
@@ -14191,9 +14209,11 @@ Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle em
 
 ### RootHandle
 
-Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `deliver`
- sends a raw steer/answer to a manager inbox, `signal` controls the run, and `view()`
- materializes the tree.
+Live root handle — a chat/pi-viz client uses it to inspect and control one root run.
+
+#### Extended by
+
+- [`SteerableRootHandle`](#steerableroothandle)
 
 #### Type Parameters
 
@@ -14220,12 +14240,12 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 [`TreeView`](#treeview)
 
-##### deliver()
+##### deliver()?
 
-> **deliver**(`msg`): `boolean`
+> `optional` **deliver**(`msg`): `boolean`
 
-Deliver a raw down-message to the live root manager. Returns `false` when that manager has no
-inbox. Before binding and after completion this fails loud like the other handle methods.
+Optional for structural compatibility with existing view/signal/abort wrappers. Handles
+minted by `createRootHandle` implement the required form in `SteerableRootHandle`.
 
 ###### Parameters
 
@@ -14264,6 +14284,107 @@ inbox. Before binding and after completion this fails loud like the other handle
 ###### Returns
 
 `void`
+
+***
+
+### SteerableRootHandle
+
+A Runtime-minted root handle that can deliver raw steering or answers to a live manager inbox.
+Delivery returns `false` when the manager has no receive path; detached calls fail loud.
+
+#### Extends
+
+- [`RootHandle`](#roothandle-1)\<`Out`\>
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Properties
+
+##### \_\_out?
+
+> `readonly` `optional` **\_\_out?**: `Out`
+
+Phantom: binds the handle to the supervised run's output type. Type-only — never
+ present at runtime; lets `attach(h: RootHandle<Out>)` stay output-typed.
+
+###### Inherited from
+
+[`RootHandle`](#roothandle-1).[`__out`](#__out-1)
+
+#### Methods
+
+##### view()
+
+> **view**(): [`TreeView`](#treeview)
+
+###### Returns
+
+[`TreeView`](#treeview)
+
+###### Inherited from
+
+[`RootHandle`](#roothandle-1).[`view`](#view-3)
+
+##### signal()
+
+> **signal**(`msg`): `void`
+
+###### Parameters
+
+###### msg
+
+[`RootSignal`](#rootsignal)
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`RootHandle`](#roothandle-1).[`signal`](#signal-15)
+
+##### abort()
+
+> **abort**(`reason?`): `void`
+
+###### Parameters
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`RootHandle`](#roothandle-1).[`abort`](#abort-1)
+
+##### deliver()
+
+> **deliver**(`msg`): `boolean`
+
+Optional for structural compatibility with existing view/signal/abort wrappers. Handles
+minted by `createRootHandle` implement the required form in `SteerableRootHandle`.
+
+###### Parameters
+
+###### msg
+
+`unknown`
+
+###### Returns
+
+`boolean`
+
+###### Overrides
+
+[`RootHandle`](#roothandle-1).[`deliver`](#deliver-3)
 
 ***
 
@@ -17795,7 +17916,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-4); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-4); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-4); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-4); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-4); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-4); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-4); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-4); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-4); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-4); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-4); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-4); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -17804,7 +17925,7 @@ Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -17842,6 +17963,14 @@ Manager-scoped assignment identity used to join unkeyed and keyed work alike.
 ###### runtime
 
 > **runtime**: [`Runtime`](#runtime-4)
+
+###### ownedTreeRoot?
+
+> `optional` **ownedTreeRoot?**: [`NodeId`](#nodeid-4)
+
+Exact nested journal tree this node owns. Runtime writes this only after privately
+attesting the executor as a recursive scope owner. Its absence means no tree is followed,
+including records written before this field existed and caller leaves named `driver`.
 
 ###### identity?
 
@@ -18609,8 +18738,11 @@ Stable content address shared by result and trace artifacts.
 Load every journal tree owned by one recursive supervision run and flatten its nodes/events.
 
 Nested driver tree keys are a Runtime implementation detail; callers should use this reader
-instead of deriving or scanning keys themselves. The reader follows raw `spawned` records whose
-runtime is `driver`, preserving each tree's independent cursor namespace on flattened events.
+instead of deriving or scanning keys themselves. The reader follows only the explicit
+`ownedTreeRoot` written after Runtime privately attested a recursive executor; the open runtime
+string `driver` is never treated as ownership. Legacy records without `ownedTreeRoot` are
+intentionally treated as leaves rather than guessing or scanning convention-derived keys.
+This preserves each tree's independent cursor namespace on flattened events.
 A driver whose subtree was never begun is reported in `missingTrees`; any spawned non-root node
 without a terminal record is reported in `inDoubt`, matching resume's conservative lost-work
 interpretation.
@@ -22635,6 +22767,28 @@ Create a supervisor that owns one recursive agent execution tree.
 #### Returns
 
 [`Supervisor`](index.md#supervisor)\<`Task`, `Out`\>
+
+***
+
+### createRootHandle()
+
+> **createRootHandle**\<`Out`\>(): [`SteerableRootHandle`](#steerableroothandle)\<`Out`\>
+
+Mint a `RootHandle` plus its supervisor-private control. The handle is the substrate a
+chat/pi-viz client attaches to (Q2): `view()` reads the live tree, `signal()` delivers
+an out-of-band message, `abort()` cascades. Before `run` binds it (and after `run`
+unbinds it) the handle is fail-loud: a client that talks to a handle that is not
+driving a live run gets a typed error, never a silent no-op.
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Returns
+
+[`SteerableRootHandle`](#steerableroothandle)\<`Out`\>
 
 ***
 

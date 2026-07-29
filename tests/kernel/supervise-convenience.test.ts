@@ -4,13 +4,13 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { createRootHandle } from '../../src/runtime/index'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import {
   type SuperviseOptions,
   supervise,
   workerFromBackend,
 } from '../../src/runtime/supervise/supervise'
-import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
   AgentSpec,

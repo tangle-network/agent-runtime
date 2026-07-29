@@ -8025,8 +8025,8 @@ the terminal artifact is read from `resultArtifact()` after the stream drains.
 Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
 verb). A streaming executor drains pending messages between turns and folds them into the next
 step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
-this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the
-executor's to ignore.
+this; `Scope.send` then returns `false` for it. Never throws — an inbox that rejects a malformed
+message returns `false`, and that refusal propagates to the caller.
 
 ###### Parameters
 

@@ -709,7 +709,7 @@ export {
   supervise,
   workerFromBackend,
 } from './supervise/supervise'
-export { createSupervisor } from './supervise/supervisor'
+export { createRootHandle, createSupervisor } from './supervise/supervisor'
 // Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
 // `createExecutor({backend})` resolves a worker — omitted/`cli-base` → the in-process router tool-loop,
 // a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.

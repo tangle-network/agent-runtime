@@ -505,7 +505,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 643 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 644 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -548,6 +548,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 643 exports.
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
 | `createProgressTracker` | function | Build the settled-work ledger a `StopRule` decides from: record each settlement (idempotent by |
 | `createPushTraceSource` | function | A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): the loop calls |
+| `createRootHandle` | function | Mint a `RootHandle` plus its supervisor-private control. The handle is the substrate a |
 | `createSandboxLineage` | function | Build a lineage bound to one client + its probed capabilities. The |
 | `createSandboxToolPartState` | function | Fresh per-turn {@link SandboxToolPartState} for {@link mapSandboxToolEvent} — an |
 | `createScope` | function | Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. |
