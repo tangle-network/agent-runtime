@@ -102,4 +102,28 @@ describe('event bus', () => {
     await bus.publish({ type: 'finding' })
     expect(seen).toEqual(['settled'])
   })
+
+  it('keeps an event invisible until awaited subscribers commit and reuses its stamp on retry', async () => {
+    const bus = createEventBus<E>(fakeClock())
+    const event = { type: 'settled', id: 'w1' } as const
+    const attempts: BusRecord<E>[] = []
+    let fail = true
+    bus.subscribe((record) => {
+      attempts.push(record)
+      if (fail) throw new Error('product transaction unavailable')
+    })
+
+    await expect(bus.publish(event)).rejects.toThrow('product transaction unavailable')
+    expect(bus.pending()).toBe(0)
+    expect(bus.pull()).toBeUndefined()
+    expect(bus.history()).toEqual([])
+    expect(bus.stats()).toEqual({ published: 0, pulled: 0, byKind: {} })
+
+    fail = false
+    await expect(bus.publish(event)).resolves.toMatchObject({ seq: 0, at: 1000, event })
+    expect(attempts).toHaveLength(2)
+    expect(attempts[1]).toBe(attempts[0])
+    expect(bus.pull()).toBe(event)
+    expect(bus.stats()).toEqual({ published: 1, pulled: 1, byKind: { settled: 1 } })
+  })
 })

@@ -39,15 +39,69 @@ export interface ReservationTicket {
 /** Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  *  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
  *  `deadlineMs` is the ABSOLUTE wall-clock deadline (0 when the root set none).
+ *  `iterationsLeft` is the remaining iteration capacity. `tokensKnown`/`usdKnown` are false when
+ *  any prior or current execution lacks measured telemetry; the numeric remainder may still be a
+ *  safe admission bound when an in-doubt child has already been charged at its full reservation.
  *  `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion from an uncapped pool (which always
  *  reads `usdLeft: 0`) — the in-loop guard needs it to bound a usd-capped driver. */
 export type BudgetReadout = Readonly<{
   tokensLeft: number
+  tokensKnown: boolean
   usdLeft: number
   usdCapped: boolean
+  usdKnown: boolean
+  iterationsLeft: number
   deadlineMs: number
   reservedTokens: number
 }>
+
+/** State recovered from a prior process before new work is admitted. `committed` is measured spend
+ * already present in the durable journal. Each `uncertainReservation` is a child that was recorded
+ * as started but never recorded as settled: its full declared ceiling is charged conservatively,
+ * while the public readout remains explicitly unknown. */
+export interface BudgetPoolRestore {
+  readonly committed?: Spend
+  readonly uncertainReservations?: ReadonlyArray<Budget>
+  /** Original absolute deadline from the first process. It may never slide on restart. */
+  readonly absoluteDeadlineMs?: number
+}
+
+/** Reject malformed ceilings before they can mint capacity through negative reservations. */
+export function assertValidBudget(budget: Budget, label = 'budget'): void {
+  const safeInteger = (value: number, field: string) => {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${label}.${field} must be a non-negative safe integer`)
+    }
+  }
+  const finiteNonNegative = (value: number, field: string) => {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`${label}.${field} must be a non-negative finite number`)
+    }
+  }
+  safeInteger(budget.maxIterations, 'maxIterations')
+  safeInteger(budget.maxTokens, 'maxTokens')
+  if (budget.maxUsd !== undefined) finiteNonNegative(budget.maxUsd, 'maxUsd')
+  if (budget.deadlineMs !== undefined) finiteNonNegative(budget.deadlineMs, 'deadlineMs')
+}
+
+function assertValidSpend(spend: Spend, label: string): void {
+  if (!Number.isSafeInteger(spend.iterations) || spend.iterations < 0) {
+    throw new Error(`${label}.iterations must be a non-negative safe integer`)
+  }
+  for (const [field, value] of Object.entries(spend.tokens)) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${label}.tokens.${field} must be a non-negative safe integer`)
+    }
+  }
+  for (const [field, value] of [
+    ['usd', spend.usd],
+    ['ms', spend.ms],
+  ] as const) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`${label}.${field} must be a non-negative finite number`)
+    }
+  }
+}
 
 export interface BudgetPool {
   /**
@@ -130,25 +184,47 @@ function totalTokens(usage: LoopTokenUsage): number {
 /**
  * Create a conserved reservation pool from a root `Budget`. `now()` is injected so the
  * deadline readout is deterministic; defaults to `Date.now` for non-test callers. The
- * absolute deadline is fixed at construction (`now() + budget.deadlineMs`) so the
- * readout's `deadlineMs` is a stable wall-clock instant, not a shrinking remainder.
+ * absolute deadline for a fresh pool is fixed at construction (`now() + budget.deadlineMs`). A
+ * restored pool instead retains `restore.absoluteDeadlineMs`, so restart never slides the original
+ * wall-clock limit. The readout is an absolute instant, not a shrinking remainder.
  */
-export function createBudgetPool(root: Budget, now: () => number = Date.now): BudgetPool {
+export function createBudgetPool(
+  root: Budget,
+  now: () => number = Date.now,
+  restore: BudgetPoolRestore = {},
+): BudgetPool {
+  assertValidBudget(root, 'root budget')
+  if (
+    restore.absoluteDeadlineMs !== undefined &&
+    (!Number.isFinite(restore.absoluteDeadlineMs) || restore.absoluteDeadlineMs < 0)
+  ) {
+    throw new Error('budget restore.absoluteDeadlineMs must be a non-negative finite number')
+  }
   // free + reserved + committed ≡ root totals, per channel, always.
   let freeTokens = root.maxTokens
   let reservedTokens = 0
   let committedTokens = 0
+  let tokensKnown = true
 
   const usdCapped = root.maxUsd !== undefined
   let freeUsd = root.maxUsd ?? 0
   let reservedUsd = 0
   let committedUsd = 0
+  let usdKnown = true
+
+  // `Known` describes the final telemetry. `AdmissionSafe` describes whether the remaining
+  // numeric capacity is still a sound upper bound. A killed child makes telemetry unknown but its
+  // declared reservation can still be charged in full, leaving the rest safe to use. An executor
+  // that reports wholly unbounded usage consumes the remaining channel and makes it unsafe.
+  let tokensAdmissionSafe = true
+  let usdAdmissionSafe = true
 
   let freeIterations = root.maxIterations
   let reservedIterations = 0
   let committedIterations = 0
 
-  const absoluteDeadlineMs = root.deadlineMs !== undefined ? now() + root.deadlineMs : 0
+  const absoluteDeadlineMs =
+    restore.absoluteDeadlineMs ?? (root.deadlineMs !== undefined ? now() + root.deadlineMs : 0)
 
   let nextTicketId = 0
   const open = new Set<number>()
@@ -156,6 +232,10 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   function reserve(
     b: Budget,
   ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: 'budget-exhausted' } {
+    assertValidBudget(b, 'reservation budget')
+    if (!tokensAdmissionSafe || (usdCapped && !usdAdmissionSafe)) {
+      return { ok: false, reason: 'budget-exhausted' }
+    }
     const wantTokens = b.maxTokens
     const wantUsd = b.maxUsd ?? 0
     const wantIterations = b.maxIterations
@@ -188,47 +268,45 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     if (!open.has(ticket.id)) {
       throw new Error(`budget pool: reconcile of unknown or already-settled ticket ${ticket.id}`)
     }
-    open.delete(ticket.id)
 
+    assertValidSpend(spent, `budget pool ticket ${ticket.id} spend`)
     const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
-    if (usdCapped && spent.usdKnown === false) {
-      throw new Error(
-        `budget pool: ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`,
-      )
-    }
+    const unknownTokens = spent.tokensKnown === false
+    const unknownUsd = spent.usdKnown === false
+    const unknownCappedUsd = usdCapped && unknownUsd
+    if (unknownUsd) usdKnown = false
 
-    // Clamp actual spend to the reservation: a child must never commit more than it
-    // reserved (that would overdraw the conserved pool). Over-spend is a fail-loud bug.
     const spentTokens = totalTokens(spent.tokens)
-    if (spentTokens > rTokens) {
-      throw new Error(
-        `budget pool: ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`,
-      )
-    }
-    if (spent.iterations > rIterations) {
-      throw new Error(
-        `budget pool: ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`,
-      )
-    }
-    // USD is conserved ONLY when the root declared a ceiling. `maxUsd` is optional: when no
-    // root ceiling exists, usd is an OBSERVED quantity (committed for accounting), never a
-    // budgeted constraint — so an unset ceiling must not behave as a hard $0 limit that
-    // fail-closes a real priced spend. The over-spend clamp applies only to a capped pool.
-    if (usdCapped && spent.usd > rUsd) {
-      throw new Error(`budget pool: ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`)
-    }
-
-    // Release the whole reservation, then commit actual spend; the difference is the
-    // refund that flows back to `free`.
+    // Release the reservation and record ACTUAL spend. External providers can report an
+    // overshoot after it has happened; free capacity goes negative so later admission stops.
+    // Telemetry is never clamped to make the bookkeeping look within budget.
+    open.delete(ticket.id)
     reservedTokens -= rTokens
-    committedTokens += spentTokens
-    freeTokens += rTokens - spentTokens
+    if (unknownTokens) {
+      tokensKnown = false
+      tokensAdmissionSafe = false
+      committedTokens += rTokens + freeTokens
+      freeTokens = 0
+    } else {
+      committedTokens += spentTokens
+      freeTokens += rTokens - spentTokens
+    }
 
     reservedIterations -= rIterations
     committedIterations += spent.iterations
     freeIterations += rIterations - spent.iterations
 
-    if (usdCapped && rUsd > 0) {
+    if (unknownCappedUsd) {
+      // The work already ran, but its dollar cost cannot be compared with the declared ceiling.
+      // Close the ticket and consume all currently-free dollar capacity so no later work can treat
+      // the unknown amount as $0. The durable Spend keeps `usdKnown:false`; this is only the live
+      // pool's fail-closed upper bound.
+      reservedUsd -= rUsd
+      usdKnown = false
+      usdAdmissionSafe = false
+      committedUsd += rUsd + freeUsd
+      freeUsd = 0
+    } else if (usdCapped) {
       reservedUsd -= rUsd
       committedUsd += spent.usd
       freeUsd += rUsd - spent.usd
@@ -237,14 +315,20 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
       // without touching the reservation channel — usd is accounted, not conserved here.
       committedUsd += spent.usd
     }
+    if (unknownTokens || unknownCappedUsd) {
+      throw new Error(
+        `budget pool: ticket ${ticket.id} reported unknown ${[
+          ...(unknownTokens ? ['token usage'] : []),
+          ...(unknownCappedUsd ? ['dollar cost'] : []),
+        ].join(' and ')} under a capped budget`,
+      )
+    }
   }
 
   function observe(spend: Spend): void {
-    if (usdCapped && spend.usdKnown === false) {
-      throw new Error(
-        'budget pool: cannot observe unknown dollar cost under a dollar-capped budget',
-      )
-    }
+    assertValidSpend(spend, 'observed spend')
+    const unknownTokens = spend.tokensKnown === false
+    const unknownCappedUsd = usdCapped && spend.usdKnown === false
     const tokens = totalTokens(spend.tokens)
     // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
     // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
@@ -252,17 +336,51 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     // `Scope.meter`); this debit exists only to make the live `readout()` reflect driver inference.
     freeTokens -= tokens
     committedTokens += tokens
+    if (unknownTokens) {
+      tokensKnown = false
+      tokensAdmissionSafe = false
+      if (freeTokens > 0) {
+        committedTokens += freeTokens
+        freeTokens = 0
+      }
+    }
     freeIterations -= spend.iterations
     committedIterations += spend.iterations
-    committedUsd += spend.usd
-    if (usdCapped) freeUsd -= spend.usd
+    if (unknownCappedUsd) {
+      usdKnown = false
+      usdAdmissionSafe = false
+      committedUsd += spend.usd
+      freeUsd -= spend.usd
+      if (freeUsd > 0) {
+        committedUsd += freeUsd
+        freeUsd = 0
+      }
+    } else {
+      if (spend.usdKnown === false) usdKnown = false
+      committedUsd += spend.usd
+      if (usdCapped) freeUsd -= spend.usd
+    }
+    if (unknownTokens || unknownCappedUsd) {
+      throw new Error(
+        `budget pool: cannot observe unknown ${[
+          ...(unknownTokens ? ['token usage'] : []),
+          ...(unknownCappedUsd ? ['dollar cost'] : []),
+        ].join(' and ')} under a capped budget`,
+      )
+    }
   }
 
   function readout(): BudgetReadout {
     return {
+      // This is safe remaining capacity, not a claim that prior telemetry was measured. A resumed
+      // in-doubt child has already been charged at its full ceiling, so unrelated capacity can
+      // remain usable while `tokensKnown:false` keeps the report honest.
       tokensLeft: freeTokens,
+      tokensKnown,
       usdLeft: usdCapped ? freeUsd : 0,
       usdCapped,
+      usdKnown,
+      iterationsLeft: freeIterations,
       deadlineMs: absoluteDeadlineMs,
       reservedTokens,
     }
@@ -273,6 +391,42 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
       throw new Error(
         `budget pool: ${open.size} reservation(s) still open at join barrier (leaked ticket ids: ${[...open].join(', ')}) — conserved-pool invariant violated`,
       )
+    }
+  }
+
+  // Reconstruct the conserved balances before exposing the pool. Measured prior spend is debited
+  // exactly once. A started-without-terminal child is charged at its entire reservation: this
+  // never mints capacity on restart, but unlike treating unknown as zero it can leave unrelated
+  // capacity usable. The false known flags remain visible in every later report.
+  if (restore.committed !== undefined) {
+    // `observe` deliberately throws only after consuming unknown capped telemetry, but it also
+    // rejects malformed spend before mutation. Validate first so the narrow catch below cannot
+    // turn a corrupt durable record into a zero-cost restart.
+    assertValidSpend(restore.committed, 'budget restore committed')
+    try {
+      observe(restore.committed)
+    } catch {
+      // `observe` has already consumed the unsafe channel before it reports the unknown telemetry.
+    }
+  }
+  for (const [index, uncertain] of (restore.uncertainReservations ?? []).entries()) {
+    assertValidBudget(uncertain, `budget restore uncertainReservations[${index}]`)
+    tokensKnown = false
+    usdKnown = false
+    freeTokens -= uncertain.maxTokens
+    committedTokens += uncertain.maxTokens
+    freeIterations -= uncertain.maxIterations
+    committedIterations += uncertain.maxIterations
+    if (usdCapped) {
+      if (uncertain.maxUsd === undefined) {
+        // No child dollar ceiling existed, so the root's remaining dollar capacity is not safe.
+        committedUsd += freeUsd
+        freeUsd = 0
+        usdAdmissionSafe = false
+      } else {
+        freeUsd -= uncertain.maxUsd
+        committedUsd += uncertain.maxUsd
+      }
     }
   }
 

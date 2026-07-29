@@ -22,6 +22,7 @@
 
 import { createHash } from 'node:crypto'
 import type {
+  NodeExecutionIdentity,
   NodeId,
   NodeSnapshot,
   NodeStatus,
@@ -35,6 +36,7 @@ import type {
 } from '../runtime/supervise/types'
 import type { PendingWait } from '../runtime/supervise/wait'
 import { zeroTokenUsage } from '../runtime/util'
+import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
 
 // ── Content addressing ──────────────────────────────────────────────────────
 
@@ -178,6 +180,8 @@ export class InMemorySpawnJournal implements SpawnJournal {
  * writes never loses an acknowledged event.
  */
 export class FileSpawnJournal implements SpawnJournal {
+  private appendTail: Promise<void> = Promise.resolve()
+
   constructor(private readonly path: string) {}
 
   async loadTree(root: NodeId): Promise<SpawnEvent[] | undefined> {
@@ -189,11 +193,9 @@ export class FileSpawnJournal implements SpawnJournal {
       if (isNoEntError(err)) return undefined
       throw err
     }
-    const lines = text.split('\n').filter((line) => line.length > 0)
     let begun = false
     const events: SpawnEvent[] = []
-    for (const line of lines) {
-      const record = JSON.parse(line) as SpawnJournalRecord
+    for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
       if (record.root !== root) continue
       if (record.kind === 'begin') {
         begun = true
@@ -241,21 +243,26 @@ export class FileSpawnJournal implements SpawnJournal {
       if (isNoEntError(err)) return undefined
       throw err
     }
-    const lines = text.split('\n').filter((line) => line.length > 0)
-    for (const line of lines) {
-      const record = JSON.parse(line) as SpawnJournalRecord
+    for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
       if (record.root === root && record.kind === 'begin') return record.at
     }
     return undefined
   }
 
   private async appendRecord(record: SpawnJournalRecord): Promise<void> {
+    const append = this.appendTail.then(() => this.writeRecord(record))
+    this.appendTail = append.catch(() => undefined)
+    return append
+  }
+
+  private async writeRecord(record: SpawnJournalRecord): Promise<void> {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     await fs.mkdir(path.dirname(this.path), { recursive: true })
+    const needsSeparator = await prepareJsonlAppend(this.path)
     const fh = await fs.open(this.path, 'a')
     try {
-      await fh.write(`${JSON.stringify(record)}\n`)
+      await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
       await fh.sync()
     } finally {
       await fh.close()
@@ -276,6 +283,37 @@ type SpawnJournalRecord =
  * ordinal legitimately equals a later `settled` cursor seq and is not a collision.
  */
 function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): void {
+  if (ev.kind === 'materialized') {
+    if (events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
+      throw new Error(
+        `spawn journal corrupted: duplicate materialization receipt for node '${ev.id}' in tree '${root}'`,
+      )
+    }
+    if (!events.some((event) => event.kind === 'spawned' && event.id === ev.id)) {
+      throw new Error(
+        `spawn journal corrupted: materialization for node '${ev.id}' precedes its spawn in tree '${root}'`,
+      )
+    }
+  }
+  if (ev.kind === 'execution-bound') {
+    if (
+      events.some(
+        (event) =>
+          event.kind === 'execution-bound' &&
+          event.id === ev.id &&
+          event.binding.attemptId === ev.binding.attemptId,
+      )
+    ) {
+      throw new Error(
+        `spawn journal corrupted: duplicate execution binding for node '${ev.id}' attempt '${ev.binding.attemptId}' in tree '${root}'`,
+      )
+    }
+    if (!events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
+      throw new Error(
+        `spawn journal corrupted: execution binding for node '${ev.id}' precedes materialization in tree '${root}'`,
+      )
+    }
+  }
   // `spawned` (ordinal namespace), `waiting` (the wait-ordinal namespace — it CREATES a node, it
   // does not settle one), and `metered` (informational spend, no settlement order) live outside
   // the cursor-uniqueness namespace replay relies on. `woken` IS a settlement and does not.
@@ -292,7 +330,13 @@ function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): vo
  *  ordering rests on. The single predicate both the guard's sides read, so a new event kind is
  *  classified once. */
 function outsideCursorNamespace(ev: SpawnEvent): boolean {
-  return ev.kind === 'spawned' || ev.kind === 'waiting' || ev.kind === 'metered'
+  return (
+    ev.kind === 'spawned' ||
+    ev.kind === 'waiting' ||
+    ev.kind === 'metered' ||
+    ev.kind === 'materialized' ||
+    ev.kind === 'execution-bound'
+  )
 }
 
 // ── Replay executor (build step 7) ───────────────────────────────────────────────
@@ -319,24 +363,57 @@ export async function replaySpawnTree(
   }
   const ordered = [...events].sort((a, b) => a.seq - b.seq)
   const labels = new Map<NodeId, string>()
+  const assignmentIds = new Map<NodeId, string>()
+  const identities = new Map<NodeId, NodeExecutionIdentity>()
+  const materializations = new Map<NodeId, NodeSnapshot['materialization']>()
+  const executionBindings = new Map<
+    NodeId,
+    NonNullable<NodeSnapshot['executionBindings']>[number][]
+  >()
   for (const ev of ordered) {
     if (ev.kind === 'spawned' || ev.kind === 'waiting') labels.set(ev.id, ev.label)
+    if (ev.kind === 'spawned' && ev.assignmentId !== undefined) {
+      assignmentIds.set(ev.id, ev.assignmentId)
+    }
+    if (ev.kind === 'spawned' && ev.identity !== undefined) {
+      identities.set(ev.id, copyFrozenIdentity(ev.identity))
+    }
+    if (ev.kind === 'materialized') materializations.set(ev.id, ev.receipt)
+    if (ev.kind === 'execution-bound') {
+      const bindings = executionBindings.get(ev.id) ?? []
+      bindings.push(ev.binding)
+      executionBindings.set(ev.id, bindings)
+    }
+  }
+  const handleFor = (id: NodeId, status: NodeStatus) =>
+    replayHandle(id, labels.get(id) ?? id, status, {
+      assignmentId: assignmentIds.get(id),
+      identity: identities.get(id),
+      materialization: materializations.get(id),
+      executionBindings: executionBindings.get(id),
+    })
+  const settlementTime = (at: string): { readonly settledAt?: number } => {
+    const settledAt = Date.parse(at)
+    return Number.isFinite(settledAt) ? { settledAt } : {}
   }
   const settled: Settled<unknown>[] = []
   for (const ev of ordered) {
     if (ev.kind === 'spawned') continue
     if (ev.kind === 'waiting') continue // arms a wait node; `woken` is its settlement
     if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
+    if (ev.kind === 'materialized') continue // wire receipt, not a settlement
+    if (ev.kind === 'execution-bound') continue // attempt transport, not a settlement
     if (ev.kind === 'woken') {
       // A wait that was cancelled carries no outcome blob — it replays as a `down`, exactly as a
       // cancelled worker does. A fired/timed-out wait rehydrates its `WaitOutcome` and costs zero.
       if (ev.by === 'cancelled' || ev.outRef === undefined) {
         settled.push({
           kind: 'down',
-          handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'cancelled'),
+          handle: handleFor(ev.id, 'cancelled'),
           reason: 'wait cancelled',
           infra: false,
           restartCount: 0,
+          ...settlementTime(ev.at),
           seq: ev.seq,
         })
         continue
@@ -349,10 +426,11 @@ export async function replaySpawnTree(
       }
       settled.push({
         kind: 'done',
-        handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'done'),
+        handle: handleFor(ev.id, 'done'),
         out: outcome,
         outRef: ev.outRef,
         spent: zeroSpend(),
+        ...settlementTime(ev.at),
         seq: ev.seq,
       })
       continue
@@ -360,10 +438,11 @@ export async function replaySpawnTree(
     if (ev.kind === 'cancelled') {
       settled.push({
         kind: 'down',
-        handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'cancelled'),
+        handle: handleFor(ev.id, 'cancelled'),
         reason: ev.reason,
         infra: false,
         restartCount: 0,
+        ...settlementTime(ev.at),
         seq: ev.seq,
       })
       continue
@@ -371,10 +450,11 @@ export async function replaySpawnTree(
     if (ev.status === 'down') {
       settled.push({
         kind: 'down',
-        handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'failed'),
+        handle: handleFor(ev.id, 'failed'),
         reason: ev.verdict?.notes ?? 'child down',
         infra: ev.infra === true,
         restartCount: 0,
+        ...settlementTime(ev.at),
         seq: ev.seq,
       })
       continue
@@ -393,26 +473,61 @@ export async function replaySpawnTree(
     }
     settled.push({
       kind: 'done',
-      handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'done'),
+      handle: handleFor(ev.id, 'done'),
       out,
       outRef: ev.outRef,
       verdict: ev.verdict,
       spent: ev.spent,
+      ...settlementTime(ev.at),
       seq: ev.seq,
     })
   }
   return settled
 }
 
-function replayHandle(id: NodeId, label: string, status: NodeStatus) {
-  return {
+function replayHandle(
+  id: NodeId,
+  label: string,
+  status: NodeStatus,
+  evidence: {
+    readonly assignmentId?: string
+    readonly identity?: NodeExecutionIdentity
+    readonly materialization?: NodeSnapshot['materialization']
+    readonly executionBindings?: ReadonlyArray<
+      NonNullable<NodeSnapshot['executionBindings']>[number]
+    >
+  } = {},
+) {
+  return Object.freeze({
     id,
     label,
     status,
+    ...(evidence.assignmentId === undefined ? {} : { assignmentId: evidence.assignmentId }),
+    ...(evidence.identity === undefined ? {} : { identity: evidence.identity }),
+    ...(evidence.materialization === undefined
+      ? {}
+      : { materialization: evidence.materialization }),
+    ...(evidence.executionBindings === undefined
+      ? {}
+      : { executionBindings: Object.freeze([...evidence.executionBindings]) }),
     abort() {
       throw new Error(`cannot abort node '${id}': replayed handles are terminal, not live`)
     },
-  }
+  })
+}
+
+/** A replayed handle must not retain mutable references into the loaded journal event. */
+function copyFrozenIdentity(identity: NodeExecutionIdentity): NodeExecutionIdentity {
+  const correlation =
+    identity.correlation === undefined ? undefined : Object.freeze({ ...identity.correlation })
+  return Object.freeze({
+    ...(identity.profileDigest === undefined ? {} : { profileDigest: identity.profileDigest }),
+    ...(identity.taskDigest === undefined ? {} : { taskDigest: identity.taskDigest }),
+    ...(identity.candidateDigest === undefined
+      ? {}
+      : { candidateDigest: identity.candidateDigest }),
+    ...(correlation === undefined ? {} : { correlation }),
+  })
 }
 
 /**
@@ -435,7 +550,14 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     )
     .sort((a, b) => a.seq - b.seq)
   const settlements = events
-    .filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'waiting' && ev.kind !== 'metered')
+    .filter(
+      (ev) =>
+        ev.kind !== 'spawned' &&
+        ev.kind !== 'waiting' &&
+        ev.kind !== 'metered' &&
+        ev.kind !== 'materialized' &&
+        ev.kind !== 'execution-bound',
+    )
     .sort((a, b) => a.seq - b.seq)
   for (const ev of spawns) {
     if (ev.kind === 'waiting') {
@@ -460,6 +582,8 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       status: 'pending',
       runtime: ev.runtime,
       budget: ev.budget,
+      ...(ev.assignmentId === undefined ? {} : { assignmentId: ev.assignmentId }),
+      ...(ev.identity ? { identity: ev.identity } : {}),
       spent: zeroSpend(),
     })
   }
@@ -469,14 +593,34 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.status = ev.status === 'done' ? 'done' : 'failed'
       node.spent = ev.spent
       node.outRef = ev.outRef
+      const settledAt = Date.parse(ev.at)
+      if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else if (ev.kind === 'woken') {
       const node = requireNode(nodes, ev.id)
       node.status = ev.by === 'cancelled' ? 'cancelled' : 'done'
       node.outRef = ev.outRef
+      const settledAt = Date.parse(ev.at)
+      if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else {
       const node = requireNode(nodes, ev.id)
       node.status = 'cancelled'
+      const settledAt = Date.parse(ev.at)
+      if (Number.isFinite(settledAt)) node.settledAt = settledAt
     }
+  }
+  // Materialization is node evidence, not a settlement. Fold it after node creation and before
+  // freezing the view; exactly one receipt per node is enforced by the journal corruption guard.
+  for (const ev of events) {
+    if (ev.kind !== 'materialized') continue
+    const node = requireNode(nodes, ev.id)
+    node.materialization = ev.receipt
+    node.runtime = ev.receipt.runtime
+  }
+  for (const ev of events) {
+    if (ev.kind !== 'execution-bound') continue
+    const node = requireNode(nodes, ev.id)
+    node.executionBindings ??= []
+    node.executionBindings.push(ev.binding)
   }
   // Driver inference: a separate pass so it accumulates ONTO the settled child-work base (no
   // dependence on metered-vs-settled seq order) without touching node status.
@@ -523,8 +667,13 @@ interface MutableSnapshot {
   status: NodeStatus
   runtime: Runtime
   budget: NodeSnapshot['budget']
+  assignmentId?: string
+  identity?: NodeSnapshot['identity']
+  materialization?: NodeSnapshot['materialization']
+  executionBindings?: NonNullable<NodeSnapshot['executionBindings']>[number][]
   spent: Spend
   outRef?: string
+  settledAt?: number
 }
 
 function zeroSpend(): Spend {
@@ -536,6 +685,7 @@ function addJournalSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
@@ -558,8 +708,14 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     status: node.status,
     runtime: node.runtime,
     budget: node.budget,
+    assignmentId: node.assignmentId,
+    identity: node.identity,
+    materialization: node.materialization,
+    executionBindings:
+      node.executionBindings === undefined ? undefined : Object.freeze([...node.executionBindings]),
     spent: node.spent,
     outRef: node.outRef,
+    settledAt: node.settledAt,
   }
 }
 

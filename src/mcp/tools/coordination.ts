@@ -8,13 +8,25 @@
  * @experimental
  */
 
+import { randomUUID } from 'node:crypto'
+import {
+  type AgentProfile,
+  agentProfileSchema,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import type {
+  AgentExecutionRef,
   Budget,
+  ExecutionBindingReceipt,
+  NodeExecutionIdentity,
+  ProfileMaterializationReceipt,
   ResultBlobStore,
   Scope,
   Settled,
+  Spend,
   Agent as SuperviseAgent,
 } from '../../runtime'
+import { assertValidBudget } from '../../runtime/supervise/budget'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
@@ -25,13 +37,24 @@ import type { McpToolDescriptor } from '../server'
 export interface SettledWorker {
   readonly id: string
   readonly status: 'done' | 'down'
+  /** Stable manager-scoped assignment, including deterministic unkeyed siblings. */
+  readonly assignmentId?: string
+  /** Exact profile/task/candidate identity authorized for this node. */
+  readonly identity?: NodeExecutionIdentity
+  /** Stable effective execution plan, or an explicit unknown receipt. */
+  readonly materialization?: ProfileMaterializationReceipt
+  /** Backend bindings for each attempt, in durable oldest-first order. */
+  readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
+  /** Conserved spend. Missing means unavailable; unknown accounting remains explicitly unknown. */
+  readonly spent?: Spend
   readonly score?: number
   readonly valid?: boolean
   readonly outRef?: string
   readonly reason?: string
-  /** Epoch ms the ledger recorded this settlement — the resolution a progress-based stop rule
-   *  needs to answer "how long since anything landed?" without inventing a timestamp at read
-   *  time. Stamped when the cursor yields the settlement, not when a reader first looks. */
+  /** True when projected from a prior process of the same durable run. */
+  readonly resumed?: boolean
+  /** Epoch ms from the durable terminal record — the resolution a progress-based stop rule needs
+   *  to answer "how long since anything landed?" without inventing a timestamp at read time. */
   readonly settledAt?: number
 }
 
@@ -79,25 +102,110 @@ export interface AnalystFindingEvent {
   readonly findings: unknown
 }
 
-/** A parent→child message (the down-leg): recorded for observability, delivered via the child inbox,
- *  never pulled back by the parent. `delivered` mirrors whether the live child accepted it. */
-export interface DownMessageEvent {
+/** The exact result of one parent→child delivery attempt. */
+export type DownMessageDeliveryOutcome =
+  | 'delivered'
+  | 'unknown-worker'
+  | 'already-settled'
+  | 'runtime-has-no-inbox'
+  | 'scope-stopped'
+  | 'runtime-error'
+
+/** A durable marker written after authorization and immediately before Runtime calls `Scope.send`.
+ * If a process dies with this marker but no matching outcome, delivery is unknown and is never
+ * replayed automatically. */
+export interface DownMessageDeliveryAttempt {
+  readonly receiptId: string
+  readonly kind: 'steer' | 'answer'
   readonly toWorker: string
-  readonly instruction: string
-  readonly delivered: boolean
+  readonly instructionDigest: string
+  readonly interrupt: boolean
+  readonly questionId?: string
 }
 
+/** A parent→child delivery result (the down-leg): recorded for observability, never pulled back by
+ * the parent. `receiptId` and `instructionDigest` link it to the pre-delivery authorization receipt
+ * and attempt marker. */
+export interface DownMessageEvent {
+  readonly receiptId: string
+  readonly toWorker: string
+  readonly instruction: string
+  readonly instructionDigest: string
+  readonly delivered: boolean
+  readonly outcome: DownMessageDeliveryOutcome
+  readonly error?: string
+}
+
+/** Durable authorization receipt written before a continuation reaches a worker. */
+export interface ContinuationInstruction {
+  readonly receiptId: string
+  readonly kind: 'steer' | 'answer'
+  readonly toWorker: string
+  readonly instruction: string
+  readonly instructionDigest: string
+  readonly workerIdentity?: NodeExecutionIdentity
+  readonly interrupt: boolean
+  readonly questionId?: string
+}
+
+/** Detached continuation bytes and exact worker identity presented to product authorization before
+ * Runtime records or delivers a steer/answer. */
+export interface DownMessageAuthorizationInput {
+  readonly kind: 'steer' | 'answer'
+  readonly workerId: string
+  readonly workerIdentity: NodeExecutionIdentity
+  readonly instruction: string
+  readonly interrupt: boolean
+  readonly questionId?: string
+}
+
+/** Product-authorized continuation bytes. Returning a narrowed instruction replaces the proposed
+ * bytes; throwing refuses delivery. */
+export interface AuthorizedDownMessage {
+  readonly instruction: string
+}
+
+/** Product decision over an exact continuation before it is durably recorded or delivered. */
+export type AuthorizeDownMessage = (input: DownMessageAuthorizationInput) => AuthorizedDownMessage
+
 /** Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
- *  the driver to `pull`. DOWN (parent→child): steer / answer — record-only (history + subscribers),
- *  routed to the child inbox. New kinds are additive. */
+ *  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
+ *  as evidence. DOWN (parent→child): steer / answer — record-only (history + subscribers), routed
+ *  to the child inbox. Receipts are never auto-delivered on restart. New kinds are additive. */
 export type CoordinationEvent =
   | { readonly type: 'question'; readonly question: QuestionRecord }
   | { readonly type: 'settled'; readonly worker: SettledWorker }
   | { readonly type: 'finding'; readonly finding: AnalystFindingEvent }
   | { readonly type: 'steer'; readonly down: DownMessageEvent }
   | { readonly type: 'answer'; readonly down: DownMessageEvent; readonly questionId: string }
+  | { readonly type: 'instruction'; readonly instruction: ContinuationInstruction }
+  | { readonly type: 'delivery-attempt'; readonly attempt: DownMessageDeliveryAttempt }
 
-export type MakeWorkerAgent = (profile: unknown) => SuperviseAgent<unknown, unknown>
+/** Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
+ * complete worker profile is prepared for one spawn. */
+export interface WorkerSpawnContext {
+  /** Stable assignment identity within this manager. A semantic key wins; otherwise Runtime mints
+   * the manager's deterministic pre-factory spawn ordinal so identical unkeyed siblings stay
+   * isolated and can recover by issuing the same assignments in the same order. */
+  readonly assignmentId: string
+  /** Trusted concrete manager node authorizing this spawn. Never accepted from model arguments. */
+  readonly parentNodeId: string
+  /** The exact allocation this node receives after the tool's optional override is merged. */
+  readonly budget: Budget
+  /** Detached, deeply immutable task bytes from this spawn request. */
+  readonly task: unknown
+  /** Exact trace label selected for this spawn. */
+  readonly label: string
+  /** Semantic restart key, when the manager supplied one. */
+  readonly key?: string
+  /** Trusted candidate/campaign attribution attached by product authorization. */
+  readonly execution?: AgentExecutionRef
+}
+
+export type MakeWorkerAgent = (
+  profile: AgentProfile,
+  context?: WorkerSpawnContext,
+) => SuperviseAgent<unknown, unknown>
 
 export interface CoordinationToolsOptions {
   readonly scope: Scope<unknown>
@@ -105,7 +213,17 @@ export interface CoordinationToolsOptions {
   readonly makeWorkerAgent: MakeWorkerAgent
   readonly perWorker: Budget
   readonly analysts?: AnalystRegistry
-  readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
+  /** Event-first for source compatibility; the second argument is its exact bus ordering stamp. */
+  readonly onEvent?: (
+    event: CoordinationEvent,
+    record: BusRecord<CoordinationEvent>,
+  ) => void | Promise<void>
+  /** Re-publish resumed settlements through the awaited observer before the driver starts. This is
+   *  the crash-window recovery path for product transactions; off preserves low-level legacy reads. */
+  readonly replaySettlements?: boolean
+  /** Authorize each continuation against the exact worker identity. The returned instruction is
+   * detached, recorded durably through `onEvent`, and only then delivered. */
+  readonly authorizeDownMessage?: AuthorizeDownMessage
   readonly questionPolicy?: QuestionPolicy
   /** Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle
    *  hook). Each result is published as a `finding` event on the bus — pass-through to subscribers
@@ -116,7 +234,8 @@ export interface CoordinationToolsOptions {
    *  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
    *  reserving from the pool when the cap is already met — a concurrency fence on top of the
    *  conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
-   *  sandboxes/boxes). Omit or `<= 0` = no cap (the prior behavior; the pool stays the only fence). */
+   *  sandboxes/boxes). A tree-wide limit owned by `Scope` takes precedence when present; this field
+   *  is the local form for a caller-owned scope. Omit or `<= 0` = no local cap. */
   readonly maxLiveWorkers?: number
   /** Max wall-clock ms a single `await_event` call may block waiting on a live worker to settle
    *  before it returns a non-error `{ pending: true, live }` snapshot and lets the caller re-poll.
@@ -179,13 +298,15 @@ export const DEFAULT_AWAIT_EVENT_TIMEOUT_MS = 15_000
  */
 export interface CoordinationTools {
   readonly tools: McpToolDescriptor[]
+  /** Commit any resume-time event replay before a supervisor can reason or an MCP can listen. */
+  ready(): Promise<void>
   isStopped(): boolean
   stopReason(): string | undefined
   settled(): ReadonlyArray<SettledWorker>
   questions(): ReadonlyArray<QuestionRecord>
-  /** The full ordered log of every bus event — UP (settled / question / finding) and DOWN
-   *  (steer / answer) — the observability audit + replay trail. Each record carries seq,
-   *  timestamp, and priority. */
+  /** The full ordered log of every bus event — UP (settled / question / finding), authorized
+   *  instruction receipts, and DOWN delivery outcomes (steer / answer). Each record carries seq,
+   *  timestamp, and priority. A receipt is evidence and is never auto-delivered on restart. */
   history(): ReadonlyArray<BusRecord<CoordinationEvent>>
   /** Bus throughput counters (published / pulled / by-kind) for live dashboards. */
   stats(): BusStats
@@ -238,35 +359,90 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // slot, so the fence must not hold it back. `keyByWorker` is what lets a settlement find its key.
   const completedKeys = new Set<string>()
   const keyByWorker = new Map<string, string>()
+  let unkeyedAssignmentOrdinal = 0
   for (const [key, prior] of opts.scope.resume?.keys ?? []) {
     if (prior.state === 'completed') completedKeys.add(key)
   }
 
-  // A resumed scope's replayed settlements enter the ledger AT CONSTRUCTION, so `settled()` — and
-  // therefore the finalize that reads it — spans processes exactly as the journal does. They are
-  // NOT re-published on the bus: the driver's resume brief already lists them, and the scope
-  // cursor only yields THIS process's children, so nothing double-counts.
-  for (const s of opts.scope.resume?.settled ?? []) {
-    ledger.push(
-      s.kind === 'done'
+  const nodeForWorker = (id: string) =>
+    opts.scope.view.nodes.find((node) => node.id === id) ??
+    opts.scope.resume?.view.nodes.find((node) => node.id === id)
+
+  const projectSettled = (settled: Settled<unknown>, resumed = false): SettledWorker => {
+    const node = nodeForWorker(settled.handle.id)
+    const assignmentId = settled.handle.assignmentId ?? node?.assignmentId
+    const identity = settled.handle.identity ?? node?.identity
+    const materialization = settled.handle.materialization ?? node?.materialization
+    const executionBindings = settled.handle.executionBindings ?? node?.executionBindings
+    const settledAt = settled.settledAt ?? node?.settledAt
+    const common = {
+      id: settled.handle.id,
+      ...(assignmentId === undefined ? {} : { assignmentId }),
+      ...(identity === undefined ? {} : { identity }),
+      ...(materialization === undefined ? {} : { materialization }),
+      ...(executionBindings === undefined ? {} : { executionBindings }),
+      ...(settledAt === undefined ? {} : { settledAt }),
+      ...(resumed ? { resumed: true as const } : {}),
+    }
+    return deepFreezeDetached<SettledWorker>(
+      settled.kind === 'done'
         ? {
-            id: s.handle.id,
+            ...common,
             status: 'done',
-            score: s.verdict?.score ?? 0,
-            valid: s.verdict?.valid ?? false,
-            outRef: s.outRef,
+            spent: settled.spent,
+            ...(settled.verdict?.score === undefined ? {} : { score: settled.verdict.score }),
+            ...(settled.verdict?.valid === undefined ? {} : { valid: settled.verdict.valid }),
+            outRef: settled.outRef,
           }
-        : { id: s.handle.id, status: 'down', reason: s.reason },
+        : {
+            ...common,
+            status: 'down',
+            ...(node?.spent === undefined ? {} : { spent: node.spent }),
+            reason: settled.reason,
+          },
     )
   }
 
-  // The one child→parent pipe. `onEvent` (back-compat) becomes a pass-through subscriber receiving
-  // the bare event, so every kind — question, settled, finding — reaches it immediately, and the
-  // driver pulls queued findings / questions via `await_event`.
+  // A resumed scope's replayed settlements enter the ledger AT CONSTRUCTION, so `settled()` — and
+  // therefore the finalize that reads it — spans processes exactly as the journal does.
+  const resumedWorkers: SettledWorker[] = []
+  for (const s of opts.scope.resume?.settled ?? []) {
+    const worker = projectSettled(s, true)
+    resumedWorkers.push(worker)
+    ledger.push(worker)
+  }
+
+  // The one child→parent pipe. Keep the event-first callback and also pass its exact stamp, so a
+  // durable subscriber retains causal sequence, original timestamp, and priority.
   const bus = createEventBus<CoordinationEvent>()
   if (opts.onEvent) {
     const cb = opts.onEvent
-    bus.subscribe((rec) => cb(rec.event))
+    bus.subscribe((rec) => cb(rec.event, rec))
+  }
+  // A settlement can be durable in the spawn journal while the process dies before the product
+  // observer acknowledges it. Opted-in high-level callers replay those events at least once. Keep
+  // each frozen event object across an in-process retry so EventBus reuses its exact BusRecord.
+  const resumeEvents = opts.replaySettlements
+    ? resumedWorkers.map((worker) =>
+        deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
+      )
+    : []
+  let resumeEventIndex = 0
+  let readyInFlight: Promise<void> | undefined
+  const ready = (): Promise<void> => {
+    if (resumeEventIndex >= resumeEvents.length) return Promise.resolve()
+    if (readyInFlight) return readyInFlight
+    readyInFlight = (async () => {
+      while (resumeEventIndex < resumeEvents.length) {
+        const event = resumeEvents[resumeEventIndex]
+        if (!event) break
+        await bus.publish(event)
+        resumeEventIndex += 1
+      }
+    })().finally(() => {
+      readyInFlight = undefined
+    })
+    return readyInFlight
   }
 
   // Urgency → bus priority: a blocking question is bumped ahead of queued settles/findings so the
@@ -303,7 +479,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     const maxTokens = field('maxTokens')
     const maxUsd = field('maxUsd')
     const deadlineMs = field('deadlineMs')
-    return {
+    const merged: Budget = {
       maxIterations: maxIterations ?? base.maxIterations,
       maxTokens: maxTokens ?? base.maxTokens,
       ...((maxUsd ?? base.maxUsd) === undefined ? {} : { maxUsd: maxUsd ?? base.maxUsd }),
@@ -311,6 +487,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         ? {}
         : { deadlineMs: deadlineMs ?? base.deadlineMs }),
     }
+    assertValidBudget(merged, 'coordination tools: budget')
+    return merged
   }
   const level = (v: unknown): Question['level'] => {
     if (v === 'worker' || v === 'driver' || v === 'loop') return v
@@ -323,28 +501,52 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     )
   }
 
-  const recordSettled = (s: Settled<unknown>): SettledWorker => {
-    const settledAt = Date.now()
+  const commitSettled = (s: Settled<unknown>, w: SettledWorker): void => {
     // A keyed assignment that just delivered is complete for the rest of this run, so a later
     // spawn under the same key resolves for free instead of being held behind the live-worker
     // fence (it starts no worker, so it occupies no slot).
     const settledKey = keyByWorker.get(s.handle.id)
     if (settledKey !== undefined && s.kind === 'done') completedKeys.add(settledKey)
-    const w: SettledWorker =
-      s.kind === 'done'
-        ? {
-            id: s.handle.id,
-            status: 'done',
-            score: s.verdict?.score ?? 0,
-            valid: s.verdict?.valid ?? false,
-            outRef: s.outRef,
-            settledAt,
-          }
-        : { id: s.handle.id, status: 'down', reason: s.reason, settledAt }
     ledger.push(w)
     // A settled worker's trace source is finished; drop the online subscription with it.
     unwatchWorker(w.id)
-    return w
+  }
+
+  // `Scope.next()` is once-only, while an awaited observer may commit and lose its acknowledgement.
+  // Retain the exact event until publication succeeds so the next await retries rather than losing
+  // the settlement between the spawn journal and the product transaction.
+  let pendingSettlement:
+    | {
+        readonly settled: Settled<unknown>
+        readonly worker: SettledWorker
+        readonly event: CoordinationEvent
+        readonly analyze: boolean
+      }
+    | undefined
+
+  const flushPendingSettlement = async (): Promise<boolean> => {
+    const pending = pendingSettlement
+    if (!pending) return false
+    await bus.publish(pending.event)
+    commitSettled(pending.settled, pending.worker)
+    pendingSettlement = undefined
+    if (
+      pending.analyze &&
+      pending.worker.status === 'done' &&
+      pending.worker.outRef &&
+      opts.analysts &&
+      opts.analyzeOnSettle?.length
+    ) {
+      const trace = await opts.blobs.get(pending.worker.outRef)
+      for (const analyst of opts.analyzeOnSettle) {
+        const findings = await opts.analysts.run(analyst, trace)
+        await bus.publish({
+          type: 'finding',
+          finding: { fromWorker: pending.worker.id, analyst, findings },
+        })
+      }
+    }
+    return true
   }
 
   // Producer: drain exactly one settlement from the scope cursor onto the bus (a `settled` event),
@@ -352,18 +554,18 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // publish its result as a `finding`. Returns false when the cursor is idle (no live workers). The
   // cursor is a once-per-child source, so a settlement is produced at most once.
   const drainSettlement = async (): Promise<boolean> => {
-    const s = await opts.scope.next()
-    if (!s) return false
-    const w = recordSettled(s)
-    await bus.publish({ type: 'settled', worker: w })
-    if (w.status === 'done' && w.outRef && opts.analysts && opts.analyzeOnSettle?.length) {
-      const trace = await opts.blobs.get(w.outRef)
-      for (const analyst of opts.analyzeOnSettle) {
-        const findings = await opts.analysts.run(analyst, trace)
-        await bus.publish({ type: 'finding', finding: { fromWorker: w.id, analyst, findings } })
+    if (!pendingSettlement) {
+      const settled = await opts.scope.next()
+      if (!settled) return false
+      const worker = projectSettled(settled)
+      pendingSettlement = {
+        settled,
+        worker,
+        event: deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
+        analyze: true,
       }
     }
-    return true
+    return flushPendingSettlement()
   }
 
   // Post-loop drain: every ALREADY-settled, unpulled child enters the ledger + audit trail. No
@@ -372,10 +574,18 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   const drainResolved = async (): Promise<number> => {
     let drained = 0
     for (;;) {
-      const s = await opts.scope.nextResolved()
-      if (!s) return drained
-      const w = recordSettled(s)
-      await bus.publish({ type: 'settled', worker: w })
+      if (!pendingSettlement) {
+        const settled = await opts.scope.nextResolved()
+        if (!settled) return drained
+        const worker = projectSettled(settled)
+        pendingSettlement = {
+          settled,
+          worker,
+          event: deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
+          analyze: false,
+        }
+      }
+      await flushPendingSettlement()
       drained += 1
     }
   }
@@ -398,30 +608,143 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     )
   }
 
+  const authorizeInstruction = (
+    kind: 'steer' | 'answer',
+    workerId: string,
+    instruction: string,
+    interrupt: boolean,
+    questionId?: string,
+  ): ContinuationInstruction => {
+    const workerIdentity = opts.scope.view.nodes.find((node) => node.id === workerId)?.identity
+    let authorizedInstruction = instruction
+    if (opts.authorizeDownMessage) {
+      if (workerIdentity === undefined) {
+        throw new Error(
+          `coordination tools: cannot authorize ${kind} for worker ${JSON.stringify(workerId)} without durable identity`,
+        )
+      }
+      const decision = deepFreezeDetached(
+        opts.authorizeDownMessage(
+          deepFreezeDetached({
+            kind,
+            workerId,
+            workerIdentity,
+            instruction,
+            interrupt,
+            ...(questionId !== undefined ? { questionId } : {}),
+          }),
+        ),
+      )
+      if (
+        typeof decision !== 'object' ||
+        decision === null ||
+        Array.isArray(decision) ||
+        typeof decision.instruction !== 'string' ||
+        decision.instruction.length === 0
+      ) {
+        throw new Error('coordination tools: authorizeDownMessage must return an instruction')
+      }
+      authorizedInstruction = decision.instruction
+    }
+    return deepFreezeDetached({
+      receiptId: randomUUID(),
+      kind,
+      toWorker: workerId,
+      instruction: authorizedInstruction,
+      instructionDigest: canonicalCandidateDigest(authorizedInstruction),
+      ...(workerIdentity !== undefined ? { workerIdentity } : {}),
+      interrupt,
+      ...(questionId !== undefined ? { questionId } : {}),
+    })
+  }
+
+  /** Publish before `scope.send`: an awaited durable subscriber therefore commits the exact bytes
+   * before the worker can observe them. */
+  const recordInstruction = async (instruction: ContinuationInstruction): Promise<void> => {
+    await bus.publish({ type: 'instruction', instruction }, { queue: false })
+  }
+
+  /** Commit delivery intent after the authorization receipt and before `Scope.send`. An attempt with
+   * no matching outcome after a crash is explicitly unknown and must never be replayed. */
+  const recordDeliveryAttempt = async (
+    instruction: ContinuationInstruction,
+  ): Promise<DownMessageDeliveryAttempt> => {
+    const attempt = deepFreezeDetached({
+      receiptId: instruction.receiptId,
+      kind: instruction.kind,
+      toWorker: instruction.toWorker,
+      instructionDigest: instruction.instructionDigest,
+      interrupt: instruction.interrupt,
+      ...(instruction.questionId !== undefined ? { questionId: instruction.questionId } : {}),
+    })
+    await bus.publish({ type: 'delivery-attempt', attempt }, { queue: false })
+    return attempt
+  }
+
+  const deliveryOutcome = (workerId: string, delivered: boolean): DownMessageDeliveryOutcome => {
+    if (delivered) return 'delivered'
+    if (opts.scope.signal.aborted) return 'scope-stopped'
+    const node = opts.scope.view.nodes.find((candidate) => candidate.id === workerId)
+    if (!node) return 'unknown-worker'
+    if (!isLive(node.status)) return 'already-settled'
+    return 'runtime-has-no-inbox'
+  }
+
+  const attemptDelivery = async (
+    instruction: ContinuationInstruction,
+    message: unknown,
+  ): Promise<DownMessageEvent> => {
+    await recordDeliveryAttempt(instruction)
+    let delivered = false
+    let outcome: DownMessageDeliveryOutcome
+    let error: string | undefined
+    try {
+      delivered = opts.scope.send(instruction.toWorker, message)
+      outcome = deliveryOutcome(instruction.toWorker, delivered)
+    } catch (cause) {
+      outcome = 'runtime-error'
+      error = cause instanceof Error ? cause.message : String(cause)
+    }
+    const down = deepFreezeDetached({
+      receiptId: instruction.receiptId,
+      toWorker: instruction.toWorker,
+      instruction: instruction.instruction,
+      instructionDigest: instruction.instructionDigest,
+      delivered,
+      outcome,
+      ...(error !== undefined ? { error } : {}),
+    })
+    if (instruction.kind === 'answer') {
+      await sendDown('answer', down, str(instruction.questionId, 'questionId'))
+    } else {
+      await sendDown('steer', down)
+    }
+    if (error !== undefined) throw new Error(`coordination tools: delivery failed: ${error}`)
+    return down
+  }
+
   // Consumer projection: the wire shape the driver sees for a pulled bus event.
   const projectEvent = (ev: CoordinationEvent): Record<string, unknown> => {
     if (ev.type === 'settled') {
-      const w = ev.worker
-      return w.status === 'done'
-        ? {
-            type: 'settled',
-            settled: w.id,
-            status: 'done',
-            score: w.score,
-            valid: w.valid,
-            outRef: w.outRef,
-          }
-        : { type: 'settled', settled: w.id, status: 'down', reason: w.reason }
+      const { id, status, ...evidence } = ev.worker
+      return { type: 'settled', settled: id, status, ...evidence }
     }
     if (ev.type === 'question') return { type: 'question', question: ev.question }
     if (ev.type === 'finding') return { type: 'finding', ...ev.finding }
     if (ev.type === 'answer') return { type: 'answer', ...ev.down, questionId: ev.questionId }
+    if (ev.type === 'instruction') return { type: 'instruction', ...ev.instruction }
+    if (ev.type === 'delivery-attempt') return { type: 'delivery-attempt', ...ev.attempt }
     // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
     // defensively for completeness.
     return { type: ev.type, ...ev.down }
   }
 
-  const nextQuestionId = (from: string): string => `${from}:q${questionSeq++}`
+  const nextQuestionId = (from: string): string => {
+    for (;;) {
+      const id = `${from}:q${questionSeq++}`
+      if (!questions.some((question) => question.id === id)) return id
+    }
+  }
   const normalizeQuestion = (q: QuestionInput, fallbackFrom: string): Question => {
     const from = str(q.from ?? fallbackFrom, 'from')
     return {
@@ -499,21 +822,48 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     })
   }
 
-  // Count workers that are LIVE — spawned but not yet settled — off the scope's in-memory live set
-  // (O(live), synchronous). The terminal statuses are done/failed/cancelled; everything else
-  // (pending/acquiring/running) is still in flight. This is the concurrency fence's input.
+  // A supervised tree exposes one shared capacity reading; a caller-owned legacy scope falls back
+  // to this toolbox's direct-child count. The shared reading is what prevents each nested manager
+  // from multiplying the same cap independently.
   const maxLiveWorkers = opts.maxLiveWorkers
   const isLive = (status: string): boolean =>
     status !== 'done' && status !== 'failed' && status !== 'cancelled'
-  const liveWorkerCount = (): number => opts.scope.view.nodes.filter((n) => isLive(n.status)).length
+  const localLiveWorkerCount = (): number =>
+    opts.scope.view.nodes.filter((n) => isLive(n.status)).length
+  const sharedWorkerCapacity = (): Scope<unknown>['workerCapacity'] | undefined => {
+    const scope = opts.scope as Partial<Scope<unknown>>
+    return scope.workerCapacity
+  }
+  const usesTreeWideLimit = (): boolean => {
+    const capacity = sharedWorkerCapacity()
+    return capacity !== undefined && capacity.freeSlots !== null
+  }
+  const liveWorkerCount = (): number =>
+    usesTreeWideLimit()
+      ? (sharedWorkerCapacity()?.live ?? localLiveWorkerCount())
+      : localLiveWorkerCount()
 
   // A snapshot of every still-in-flight worker — the liveness signal a bounded `await_event`
   // returns when its wait elapses, so the supervisor can tell "worker still running, keep waiting"
   // apart from "nothing is happening" (the distinction it lost when the unbounded await erred out).
-  const liveSnapshot = (): Array<{ id: string; status: string; spent: unknown }> =>
-    opts.scope.view.nodes
-      .filter((n) => isLive(n.status))
-      .map((n) => ({ id: n.id, status: n.status, spent: n.spent }))
+  const projectNodeEvidence = (
+    node: Scope<unknown>['view']['nodes'][number],
+    resumed = false,
+  ): Record<string, unknown> => ({
+    id: node.id,
+    status: node.status,
+    ...(node.assignmentId === undefined ? {} : { assignmentId: node.assignmentId }),
+    ...(node.identity === undefined ? {} : { identity: node.identity }),
+    ...(node.materialization === undefined ? {} : { materialization: node.materialization }),
+    ...(node.executionBindings === undefined ? {} : { executionBindings: node.executionBindings }),
+    spent: node.spent,
+    ...(node.settledAt === undefined ? {} : { settledAt: node.settledAt }),
+    ...(node.outRef === undefined ? {} : { outRef: node.outRef }),
+    ...(resumed ? { resumed: true } : {}),
+  })
+
+  const liveSnapshot = (): Array<Record<string, unknown>> =>
+    opts.scope.view.nodes.filter((n) => isLive(n.status)).map((n) => projectNodeEvidence(n))
 
   // How many workers the driver could open RIGHT NOW without hitting the simultaneity fence, or
   // `null` when no cap is set (the conserved pool is then the only fence, so there is no finite
@@ -521,7 +871,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // so filling N slots meant emitting N blind tool calls with no feedback telling it to — the
   // mechanical reason a 5-worker run peaked at 2 live workers. Policy (whether to fill) stays with
   // the driver; this is only the reading.
-  const freeWorkerSlots = (): number | null => freeSlots(liveWorkerCount(), maxLiveWorkers)
+  const freeWorkerSlots = (): number | null =>
+    usesTreeWideLimit()
+      ? (sharedWorkerCapacity()?.freeSlots ?? null)
+      : freeSlots(localLiveWorkerCount(), maxLiveWorkers)
 
   // The LIVE read of one worker. Guarded because `createCoordinationTools` is bound to a `Scope`
   // it did not construct — an older or hand-rolled scope may not implement `progress` at all, and
@@ -664,10 +1017,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               'Optional per-spawn budget that merges over the per-worker default (per field). ' +
               'Only set the ceilings this sub-task needs raised; the conserved pool still fences.',
             properties: {
-              maxIterations: { type: 'number' },
-              maxTokens: { type: 'number' },
-              maxUsd: { type: 'number' },
-              deadlineMs: { type: 'number' },
+              maxIterations: { type: 'number', minimum: 0 },
+              maxTokens: { type: 'number', minimum: 0 },
+              maxUsd: { type: 'number', minimum: 0 },
+              deadlineMs: { type: 'number', minimum: 0 },
             },
           },
         },
@@ -684,6 +1037,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         // touches the pool. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work.
         if (
           !keyCompleted &&
+          !usesTreeWideLimit() &&
           maxLiveWorkers !== undefined &&
           maxLiveWorkers > 0 &&
           liveWorkerCount() >= maxLiveWorkers
@@ -693,12 +1047,36 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             live: liveWorkerCount(),
             freeSlots: freeWorkerSlots(),
           })
-        const agent = opts.makeWorkerAgent(a.profile)
-        const budget =
-          a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget)
-        const res = opts.scope.spawn(agent, a.task, {
+        const parsedProfile = agentProfileSchema.safeParse(a.profile)
+        if (!parsedProfile.success) {
+          return Promise.resolve({
+            error: 'invalid-profile' as const,
+            issues: parsedProfile.error.issues.map((issue) => ({
+              path: issue.path.join('.'),
+              message: issue.message,
+            })),
+          })
+        }
+        const profile = deepFreezeDetached(parsedProfile.data)
+        const task = deepFreezeDetached(a.task)
+        const label = typeof a.label === 'string' ? a.label : 'worker'
+        const budget = Object.freeze(
+          a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget),
+        )
+        const assignmentId =
+          key !== undefined ? `key:${key}` : `ordinal:${unkeyedAssignmentOrdinal++}`
+        const context: WorkerSpawnContext = Object.freeze({
+          assignmentId,
+          parentNodeId: opts.scope.view.root,
           budget,
-          label: typeof a.label === 'string' ? a.label : 'worker',
+          task,
+          label,
+          ...(key !== undefined ? { key } : {}),
+        })
+        const res = opts.scope.spawn(() => opts.makeWorkerAgent(profile, context), task, {
+          budget,
+          label,
+          assignmentId,
           ...(key !== undefined ? { key } : {}),
         })
         // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
@@ -707,13 +1085,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         if (res.ok && res.prior?.state === 'completed') {
           const s = res.prior.settled
           if (key !== undefined) completedKeys.add(key)
+          const { id, status, resumed: _resumed, ...evidence } = projectSettled(s)
           return Promise.resolve({
-            workerId: s.handle.id,
+            workerId: id,
             resumed: 'completed' as const,
-            status: 'done' as const,
-            score: s.verdict?.score ?? 0,
-            valid: s.verdict?.valid ?? false,
-            outRef: s.outRef,
+            status,
+            ...evidence,
             live: liveWorkerCount(),
             freeSlots: freeWorkerSlots(),
           })
@@ -742,6 +1119,14 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           res.ok
             ? {
                 workerId: res.handle.id,
+                assignmentId: res.handle.assignmentId ?? assignmentId,
+                ...(res.handle.identity === undefined ? {} : { identity: res.handle.identity }),
+                ...(res.handle.materialization === undefined
+                  ? {}
+                  : { materialization: res.handle.materialization }),
+                ...(res.handle.executionBindings === undefined
+                  ? {}
+                  : { executionBindings: res.handle.executionBindings }),
                 live: liveWorkerCount(),
                 freeSlots: freeWorkerSlots(),
                 ...priorHistory,
@@ -771,19 +1156,16 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           if (!resumed) return { error: `unknown workerId ${JSON.stringify(id)}` }
           const output = resumed.outRef ? await opts.blobs.get(resumed.outRef) : undefined
           return {
-            status: resumed.status,
-            spent: resumed.spent,
+            ...projectNodeEvidence(resumed, true),
             outRef: resumed.outRef ?? null,
             output: output ?? null,
             progress: null,
-            resumed: true,
           }
         }
         const output = node.outRef ? await opts.blobs.get(node.outRef) : undefined
         const progress = readProgress(id)
         return {
-          status: node.status,
-          spent: node.spent,
+          ...projectNodeEvidence(node),
           outRef: node.outRef ?? null,
           output: output ?? null,
           progress: progress ?? null,
@@ -817,18 +1199,20 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const workerId = str(a.workerId, 'workerId')
         const instruction = str(a.instruction, 'instruction')
         const interrupt = a.interrupt === true
-        const delivered = opts.scope.send(workerId, { steer: instruction, interrupt })
-        await sendDown('steer', { toWorker: workerId, instruction, delivered })
-        if (delivered) return { delivered, progress: readProgress(workerId) ?? null }
-        // Say WHY nothing landed. A silent `delivered:false` is how steering became a no-op:
-        // the driver could not tell "already finished" from "this runtime has no inbox at all".
-        const progress = readProgress(workerId)
-        const reason = !progress
-          ? 'unknown-worker'
-          : !progress.live
-            ? 'already-settled'
-            : 'runtime-has-no-inbox'
-        return { delivered, reason, progress: progress ?? null }
+        const authorized = authorizeInstruction('steer', workerId, instruction, interrupt)
+        await recordInstruction(authorized)
+        const delivery = await attemptDelivery(authorized, {
+          steer: authorized.instruction,
+          interrupt,
+        })
+        if (delivery.delivered) {
+          return { delivered: true, progress: readProgress(workerId) ?? null }
+        }
+        return {
+          delivered: false,
+          reason: delivery.outcome,
+          progress: readProgress(workerId) ?? null,
+        }
       },
     },
     {
@@ -908,24 +1292,45 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const questionId = str(a.questionId, 'questionId')
         if (typeof a.answer === 'string' && a.answer.length > 0) {
           const answer = a.answer
-          const question = decideQuestion(questionId, {
-            kind: 'answer',
-            answer,
-            by: typeof a.by === 'string' && a.by.length > 0 ? a.by : 'user',
-          })
+          const pendingQuestion = questions.find((question) => question.id === questionId)
+          if (pendingQuestion === undefined) {
+            throw new Error(`unknown questionId ${JSON.stringify(questionId)}`)
+          }
           // Route the answer DOWN to the worker that asked, unparking it, and record the down-leg.
           // A blocking question parked the worker, so deliver forcefully — it should resume on the
           // answer immediately, not wait for its next step boundary.
-          const interrupt = question.urgency === 'blocks-run' || question.urgency === 'blocks-step'
-          const delivered = opts.scope.send(question.from, { answer, questionId, interrupt })
-          await sendDown(
+          const interrupt =
+            pendingQuestion.urgency === 'blocks-run' || pendingQuestion.urgency === 'blocks-step'
+          const authorized = authorizeInstruction(
             'answer',
-            { toWorker: question.from, instruction: answer, delivered },
+            pendingQuestion.from,
+            answer,
+            interrupt,
             questionId,
           )
+          await recordInstruction(authorized)
+          const delivery = await attemptDelivery(authorized, {
+            answer: authorized.instruction,
+            questionId,
+            interrupt,
+          })
+          // Authorization is evidence of allowed bytes, not proof the blocked worker received them.
+          // Resolve the question only after the durable delivery outcome says the live inbox accepted
+          // the answer. A refusal stays open both in this process and after replay.
+          const question = delivery.delivered
+            ? decideQuestion(questionId, {
+                kind: 'answer',
+                answer: authorized.instruction,
+                by: typeof a.by === 'string' && a.by.length > 0 ? a.by : 'user',
+              })
+            : pendingQuestion
           // Surface `delivered` like steer_agent — the caller must see whether the answer actually
           // reached a live worker (false when it already settled or has no inbox).
-          return { question, delivered }
+          return {
+            question,
+            delivered: delivery.delivered,
+            ...(delivery.delivered ? {} : { reason: delivery.outcome }),
+          }
         }
         if (typeof a.deferReason === 'string' && a.deferReason.length > 0) {
           return Promise.resolve({
@@ -1041,6 +1446,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   return {
     tools,
+    ready,
     history: () => bus.history(),
     raiseFinding: (finding) => bus.publish({ type: 'finding', finding }).then(() => undefined),
     stats: () => bus.stats(),
@@ -1050,4 +1456,15 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     questions: () => questions,
     drainResolved,
   }
+}
+
+function deepFreezeDetached<T>(value: T): T {
+  return deepFreeze(structuredClone(value))
+}
+
+function deepFreeze<T>(value: T, seen = new Set<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value)) return value
+  seen.add(value)
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen)
+  return Object.freeze(value)
 }

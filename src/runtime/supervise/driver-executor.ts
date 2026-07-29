@@ -6,8 +6,8 @@
  * A spawned child resolves through the open registry to an `Executor`; the built-in
  * executors (router/inline, sandbox, cli) are LEAVES — `execute(task, signal)` runs the
  * work and settles. This executor is the recursive case: on `execute`, it mounts a NESTED
- * `Scope` (the scope hands it the mount via the `nested-scope` seam) over the SAME
- * conserved pool + shared journal/blobs + the same open registry, one `depth` deeper, then
+ * `Scope` (the scope hands it the mount via the `nested-scope` seam) over a child allocation
+ * carved from its parent reservation, plus shared journal/blobs and the same open registry, then
  * runs the wrapped driver `Agent.act(task, nestedScope)`. The driver spawns its own
  * children into that nested scope; each resolves to EITHER a leaf executor (a worker child)
  * OR this same driver-executor (a driver child) — recursively. So a driver spawns a driver
@@ -15,18 +15,16 @@
  *
  * Why this preserves every keystone invariant (the scope owns the sharing; this executor
  * only runs the driver over what the scope mounts):
- *  - Conserved budget: the nested scope reserves from the SAME `BudgetPool` the root owns
- *    (the scope mounts it over `args.pool`), so `Σk` is conserved ACROSS depth by
- *    construction — a deep tree cannot overspend the root ceiling (reserve-on-spawn fails
- *    closed at any depth).
+ *  - Conserved budget: the parent reserves the driver's whole allocation once. The nested scope
+ *    partitions only that allocation, and its actual child work + driver inference reconcile the
+ *    parent ticket once at settle. A deep tree cannot overspend or double-charge the root total.
  *  - Journal: the nested scope writes to its OWN tree key (`${journalRoot}/${nodeId}`) so
  *    its cursor `seq`s never collide with the parent's in the per-tree uniqueness guard,
  *    while every nested tree shares the one `SpawnJournal` — the whole recursion is one
  *    journal, queryable tree by tree.
- *  - Settlement bubbling: the driver child settles into its PARENT scope with the conserved
- *    spend summed off its nested tree's settled events, so the parent's pool reconcile +
- *    the supervisor's `spentTotal` see the whole sub-tree's spend rolled up — settlements
- *    bubble to the root.
+ *  - Settlement bubbling: the driver child settles into its PARENT scope with child work and
+ *    driver inference kept separate in the journal, while their sum reconciles the one parent
+ *    reservation. The supervisor sees the whole sub-tree exactly once.
  *  - Depth ceiling: the nested scope runs at `depth+1`, so the supervisor's `maxDepth`
  *    (paired with the conserved pool per R3) fails a spawn closed once the recursion is too
  *    deep — exactly as it does for a flat tree.
@@ -38,12 +36,24 @@
  * @experimental
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
-import { type NestedScopeSeam, nestedScopeSeamKey } from './scope'
+import {
+  attestRuntimeOwnedDeferredExecutor,
+  runtimeOwnedScopeOwnerRuntime,
+} from './materialization'
+import {
+  finalizeScopeOwnerMaterialization,
+  type NestedScopeSeam,
+  nestedScopeSeamKey,
+} from './scope'
 import type {
   Agent,
+  AgentExecutionRef,
   AgentSpec,
   DefaultVerdict,
+  Executor,
+  ExecutorAccounting,
   ExecutorContext,
   ExecutorFactory,
   ExecutorRegistry,
@@ -62,6 +72,7 @@ const driverRole = 'driver'
 
 /** A driver child's spec carries the `Agent` to run inside the nested scope. */
 interface DriverSpec extends AgentSpec {
+  readonly driverRuntime: typeof driverRuntime
   readonly driver: Agent<unknown, unknown>
   /** The shared journal the nested tree is one tree key inside (so the executor can
    *  begin its nested tree + sum its spend off the same record). */
@@ -76,13 +87,21 @@ interface DriverSpec extends AgentSpec {
  * called directly — a driver child runs THROUGH its nested-scope executor, never as a root.
  */
 export function driverChild<Out>(
-  name: string,
+  profileOrName: AgentProfile | string,
   driver: Agent<unknown, Out>,
   journal: SpawnJournal,
+  execution?: AgentExecutionRef,
 ): Agent<unknown, Out> {
+  const profile: AgentProfile =
+    typeof profileOrName === 'string'
+      ? { name: profileOrName, metadata: { role: driverRole } }
+      : profileOrName
+  const name = profile.name ?? driver.name
   const spec: DriverSpec = {
-    profile: { name, metadata: { role: driverRole } } as AgentSpec['profile'],
+    profile,
     harness: null,
+    ...(execution ? { execution } : {}),
+    driverRuntime,
     driver: driver as Agent<unknown, unknown>,
     journal,
   }
@@ -99,8 +118,7 @@ export function driverChild<Out>(
 
 /** True when a spec is a driver child (carries the role marker + a driver Agent). */
 export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
-  const role = (spec.profile.metadata as { role?: unknown } | undefined)?.role
-  if (role !== driverRole) return false
+  if ((spec as { driverRuntime?: unknown }).driverRuntime !== driverRuntime) return false
   const driver = (spec as { driver?: unknown }).driver
   if (!isAgent(driver)) {
     throw new ValidationError(
@@ -114,7 +132,7 @@ export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
  * The recursive driver-executor factory. `withDriverExecutor` routes a child marked
  * `role: 'driver'` here; any other child resolves to a leaf built-in. On `execute`, it
  * reads the `nested-scope` seam the SCOPE seeded, mounts a nested `Scope` one `depth`
- * deeper over the shared pool/journal/blobs/registry, runs the driver
+ * deeper over the driver's reserved child pool plus shared journal/blobs/registry, runs the driver
  * `Agent.act(task, nestedScope)`, and reports the conserved spend summed off the nested
  * tree's settled events — so the parent scope's reconcile rolls the whole sub-tree's spend
  * into the conserved total.
@@ -138,30 +156,58 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
   // on BOTH the success AND crash paths (metered events are durable in the nested tree regardless),
   // so a sub-driver that crashes mid-run still re-homes its partial inference — pool + journal agree.
   let meteredSpend: Spend | undefined
+  let accounting: ExecutorAccounting | undefined
+  let active:
+    | {
+        readonly controller: AbortController
+        readonly scope: Scope<unknown>
+        close?: Promise<void>
+      }
+    | undefined
 
-  return {
+  const closeActive = (reason: string): Promise<void> => {
+    if (active === undefined) return Promise.resolve()
+    active.close ??= closeNestedScope(active.scope, active.controller, reason)
+    return active.close
+  }
+
+  const executor: Executor<unknown> = {
     runtime: driverRuntime,
     async execute(task, signal): Promise<ExecutorResult<unknown>> {
       // The nested tree key namespaces this driver's children inside the ONE shared
       // journal, so its cursor seqs never collide with the parent's per-tree guard.
-      const nestedRoot = nestedTreeKey(seam, journal)
+      const nestedRoot = nestedTreeKey(seam)
       await journal.beginTree(nestedRoot, new Date(0).toISOString())
 
-      const nestedScope: Scope<unknown> = seam.mount(nestedRoot, signal)
+      const controller = new AbortController()
+      const onParentAbort = () => controller.abort(signal.reason)
+      if (signal.aborted) controller.abort(signal.reason)
+      else signal.addEventListener('abort', onParentAbort, { once: true })
+      const nestedScope: Scope<unknown> = seam.mount(nestedRoot, controller.signal)
+      active = { controller, scope: nestedScope }
 
       try {
         // Run the driver. Its `act` spawns children into the nested scope and reacts via
         // `scope.next()`; a thrown `act` propagates so the PARENT scope types it into a down.
-        const out = await driver.act(task, nestedScope)
+        const out = await driverActAbortable(() => driver.act(task, nestedScope), controller.signal)
+        await finalizeScopeOwnerMaterialization(nestedScope)
 
-        // Read the nested tree's events ONCE. Two roll-ups, kept separate so the conserved invariant
-        // is not double-charged:
-        //  - `spent` = settled child WORK → reconciled against THIS driver's reservation (as before).
-        //  - `metered` = the nested subtree's driver INFERENCE → re-homed by the parent scope as a
-        //    `metered` event, NOT reconciled (already pool-debited live via `observe`).
+        // A driver may choose its answer while descendants still run. Its allocation is not
+        // refundable until every descendant has stopped and reached a terminal journal record.
+        await closeActive('driver completed')
+
+        // Read the nested tree's events ONCE. Keep two journal categories while reconciling their
+        // sum against this driver's one parent reservation:
+        //  - `spent` = settled child WORK, written on this driver's settlement.
+        //  - `metered` = nested driver INFERENCE, re-homed as a separate metered event.
         const events = await loadTreeEvents(journal, nestedRoot)
         const settled = events.filter(isSettled)
+        const childWork = sumSpend(settled)
         meteredSpend = nonZeroOrUndef(sumMetered(events))
+        accounting = {
+          reported: childWork,
+          reservation: addSpend(childWork, meteredSpend ?? zeroSpend()),
+        }
         // Completion-oracle propagation: a driver "delivered" iff at least one of its DIRECT
         // children settled `valid` (the child its keep-best finalize returns). Deriving the
         // driver child's verdict this way composes delivery UP the recursion — a sub-driver is
@@ -171,27 +217,35 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
           out,
-          spent: sumSpend(settled),
+          spent: childWork,
           ...(verdict ? { verdict } : {}),
         }
         return artifact
       } catch (err) {
+        await finalizeScopeOwnerMaterialization(active?.scope ?? nestedScope).catch(() => undefined)
+        await closeActive('driver stopped')
         // Crash mid-run: the nested tree still holds the durable `metered` events the sub-driver
         // already wrote (pool already debited them). Cache them so the parent's down-path re-home
         // lands the partial inference and the two ledgers stay in agreement. A missing tree must
         // not mask the original error.
-        meteredSpend = await safeSumMetered(journal, nestedRoot)
+        const partial = await safeRollup(journal, nestedRoot)
+        meteredSpend = partial?.metered
+        accounting = partial?.accounting
         throw err
+      } finally {
+        signal.removeEventListener('abort', onParentAbort)
+        active = undefined
       }
+    },
+    accounting(): ExecutorAccounting | undefined {
+      return accounting
     },
     metered(): Spend | undefined {
       return meteredSpend
     },
-    teardown(): Promise<{ destroyed: boolean }> {
-      // The nested scope's live children are torn down by the driver's own `act` discipline
-      // (it drains to settlement) and by the parent's abort cascade through `signal`; there
-      // is no separate box/process to reap here.
-      return Promise.resolve({ destroyed: true })
+    async teardown(): Promise<{ destroyed: boolean }> {
+      await closeActive('driver executor teardown')
+      return { destroyed: true }
     },
     resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) {
@@ -200,6 +254,10 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
       return artifact
     },
   }
+  const ownerRuntime = runtimeOwnedScopeOwnerRuntime(driver)
+  return ownerRuntime === undefined
+    ? executor
+    : attestRuntimeOwnedDeferredExecutor(executor, ownerRuntime)
 }
 
 /**
@@ -213,8 +271,7 @@ export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
   return {
     register: base.register.bind(base),
     resolve<Out>(spec: AgentSpec) {
-      const role = (spec.profile.metadata as { role?: unknown } | undefined)?.role
-      if (role === driverRole && !spec.executor) {
+      if ((spec as { driverRuntime?: unknown }).driverRuntime === driverRuntime && !spec.executor) {
         return { succeeded: true as const, value: driverExecutorFactory as ExecutorFactory<Out> }
       }
       return base.resolve<Out>(spec)
@@ -224,23 +281,76 @@ export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
-/** Mint a unique nested-tree key under the parent's journal root. Uses the parent's
- *  `journalRoot` + a per-journal monotonic ordinal so two sibling driver trees never
- *  collide their keys (each driver child mints exactly one nested tree). */
-function nestedTreeKey(seam: NestedScopeSeam, journal: SpawnJournal): string {
-  return `${seam.journalRoot}/d${nextNestOrdinal(journal)}`
+/** Derive the nested-tree key from the parent's durable journal root and this driver child's stable
+ * node id. Sibling node ids are unique within the parent tree, and replay derives the same key. */
+function nestedTreeKey(seam: NestedScopeSeam): string {
+  return `${seam.journalRoot}/${seam.nodeId}`
 }
 
-/** Per-journal monotonic nest counter — keyed on the journal instance so a single run's
- *  nested-tree keys are unique without a shared module global. */
-const nestCounters = new WeakMap<SpawnJournal, { n: number }>()
-function nextNestOrdinal(journal: SpawnJournal): number {
-  let c = nestCounters.get(journal)
-  if (!c) {
-    c = { n: 0 }
-    nestCounters.set(journal, c)
+async function closeNestedScope(
+  scope: Scope<unknown>,
+  controller: AbortController,
+  reason: string,
+): Promise<void> {
+  if (!controller.signal.aborted) controller.abort(reason)
+  for (;;) {
+    const settled = await scope.next()
+    if (settled === null) break
   }
-  return c.n++
+  const view = scope.view
+  if (view.inFlight > 0 || view.waiting > 0) {
+    throw new ValidationError(
+      `driverExecutor: nested cleanup left ${view.inFlight} running and ${view.waiting} waiting nodes`,
+    )
+  }
+}
+
+async function driverActAbortable<T>(act: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw driverAbortError(signal)
+  return await new Promise<T>((resolve, reject) => {
+    let settled = false
+    const cleanup = () => signal.removeEventListener('abort', onAbort)
+    const onAbort = () => {
+      queueMicrotask(() => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(driverAbortError(signal))
+      })
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    let work: Promise<T>
+    try {
+      work = Promise.resolve(act())
+    } catch (error) {
+      cleanup()
+      reject(error)
+      return
+    }
+    work.then(
+      (value) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(value)
+      },
+      (error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      },
+    )
+  })
+}
+
+function driverAbortError(signal: AbortSignal): Error {
+  const reason = signal.reason
+  const error = new Error(
+    typeof reason === 'string' && reason.length > 0 ? reason : 'driver aborted',
+  )
+  error.name = 'AbortError'
+  return error
 }
 
 /** The nested tree's full event list — the one evidence the spend, verdict, AND driver-inference
@@ -267,6 +377,7 @@ function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
     total.iterations += ev.spent.iterations
     total.tokens.input += ev.spent.tokens.input
     total.tokens.output += ev.spent.tokens.output
+    if (ev.spent.tokensKnown === false) total.tokensKnown = false
     total.usd += ev.spent.usd
     if (ev.spent.usdKnown === false) total.usdKnown = false
     total.ms += ev.spent.ms
@@ -284,6 +395,7 @@ function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
     total.iterations += ev.spend.iterations
     total.tokens.input += ev.spend.tokens.input
     total.tokens.output += ev.spend.tokens.output
+    if (ev.spend.tokensKnown === false) total.tokensKnown = false
     total.usd += ev.spend.usd
     if (ev.spend.usdKnown === false) total.usdKnown = false
     total.ms += ev.spend.ms
@@ -291,8 +403,34 @@ function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
   return total
 }
 
+function zeroSpend(): Spend {
+  return { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+}
+
+function addSpend(a: Spend, b: Spend): Spend {
+  return {
+    iterations: a.iterations + b.iterations,
+    tokens: {
+      input: a.tokens.input + b.tokens.input,
+      output: a.tokens.output + b.tokens.output,
+    },
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
+    usd: a.usd + b.usd,
+    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
+    ms: a.ms + b.ms,
+  }
+}
+
 function isNonZeroSpend(s: Spend): boolean {
-  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0 || s.ms > 0
+  return (
+    s.iterations > 0 ||
+    s.tokens.input > 0 ||
+    s.tokens.output > 0 ||
+    s.tokensKnown === false ||
+    s.usd > 0 ||
+    s.usdKnown === false ||
+    s.ms > 0
+  )
 }
 
 /** A spend, or `undefined` when it is all-zero — so `metered()` returns undefined for a driver
@@ -303,12 +441,23 @@ function nonZeroOrUndef(s: Spend): Spend | undefined {
 
 /** Sum the nested tree's metered events, tolerating a missing tree (a crash before `beginTree`
  *  landed) — never throw here, or it would mask the original `act` error on the crash path. */
-async function safeSumMetered(
+async function safeRollup(
   journal: SpawnJournal,
   nestedRoot: string,
-): Promise<Spend | undefined> {
+): Promise<
+  { readonly metered: Spend | undefined; readonly accounting: ExecutorAccounting } | undefined
+> {
   try {
-    return nonZeroOrUndef(sumMetered(await loadTreeEvents(journal, nestedRoot)))
+    const events = await loadTreeEvents(journal, nestedRoot)
+    const childWork = sumSpend(events.filter(isSettled))
+    const metered = nonZeroOrUndef(sumMetered(events))
+    return {
+      metered,
+      accounting: {
+        reported: childWork,
+        reservation: addSpend(childWork, metered ?? zeroSpend()),
+      },
+    }
   } catch {
     return undefined
   }

@@ -12,8 +12,8 @@
  *     queued settles/findings so the driver sees it first; ties resolve FIFO by publish order.
  *
  * Observability is first-class (A++): every event is stamped with a monotonic `seq` and wall-clock
- * `at`, the full ordered `history()` is retained as an audit/replay trail, and `stats()` exposes
- * published/pulled counts by kind. Subscribers receive the stamped record, not a bare event.
+ * `at`, the full ordered `history()` is retained as current-process audit evidence, and `stats()`
+ * exposes published/pulled counts by kind. Subscribers receive the stamped record, not a bare event.
  *
  * The interface is transport-agnostic on purpose. Same box → this in-process queue. Cross box →
  * the SAME publish/pull/subscribe surface backed by a durable mailbox on the parent's box (children
@@ -55,8 +55,9 @@ export interface BusStats {
 }
 
 export interface EventBus<E extends BusEvent> {
-  /** Stamp + queue the event, then deliver the stamped record to every subscriber in order.
-   *  Returns the stamped record. */
+  /** Stamp the event, await every subscriber in order, then make it pull-visible. A subscriber
+   *  failure leaves the event invisible and retrying the SAME event object reuses the exact stamp.
+   *  This lets an awaited product observer commit its record before a supervisor can consume it. */
   publish(event: E, opts?: PublishOptions): Promise<BusRecord<E>>
   /** Remove and return the highest-priority QUEUED event whose type is in `kinds` (any if omitted),
    *  ties broken FIFO by `seq`; `undefined` when nothing matches. */
@@ -66,7 +67,7 @@ export interface EventBus<E extends BusEvent> {
   subscribe(handler: (record: BusRecord<E>) => void | Promise<void>): () => void
   /** Count of queued, not-yet-pulled events (filtered by `kinds` when given). */
   pending(kinds?: ReadonlyArray<E['type']>): number
-  /** The full ordered log of every event ever published (the audit/replay trail). */
+  /** The full ordered log of every event published in this process (audit evidence, not replay). */
   history(): ReadonlyArray<BusRecord<E>>
   /** Throughput counters for observability dashboards. */
   stats(): BusStats
@@ -78,7 +79,12 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
   const log: BusRecord<E>[] = []
   const subscribers: Array<(record: BusRecord<E>) => void | Promise<void>> = []
   const byKind: Record<string, number> = {}
+  // A failed publication is staged, not published. Coordination retains and retries the same event
+  // object, so the exact BusRecord survives a lost acknowledgement and downstream idempotency keys
+  // do not change between attempts.
+  const staged = new WeakMap<object, BusRecord<E>>()
   let seq = 0
+  let published = 0
   let pulled = 0
 
   const matches = (r: BusRecord<E>, kinds?: ReadonlyArray<E['type']>) =>
@@ -102,14 +108,19 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
 
   return {
     async publish(event, opts) {
-      const record: BusRecord<E> = { seq: seq++, at: now(), priority: opts?.priority ?? 0, event }
+      const record =
+        staged.get(event) ??
+        ({ seq: seq++, at: now(), priority: opts?.priority ?? 0, event } satisfies BusRecord<E>)
+      staged.set(event, record)
+      // Sequential, not Promise.all: transaction observers must see causal order. Nothing enters
+      // the pull queue or successful history until all observers acknowledge the record.
+      for (const handler of subscribers) await handler(record)
+      staged.delete(event)
       // Record-only events (the down-leg) skip the pull queue but still hit the log + subscribers.
       if (opts?.queue !== false) queue.push(record)
       log.push(record)
+      published += 1
       byKind[event.type] = (byKind[event.type] ?? 0) + 1
-      // Sequential, not Promise.all: a subscriber that steers off this event must observe a
-      // consistent order, and a throwing subscriber must not silently drop siblings' delivery.
-      for (const handler of subscribers) await handler(record)
       return record
     },
     pull(kinds) {
@@ -132,7 +143,7 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       return log
     },
     stats() {
-      return { published: seq, pulled, byKind: { ...byKind } }
+      return { published, pulled, byKind: { ...byKind } }
     },
   }
 }

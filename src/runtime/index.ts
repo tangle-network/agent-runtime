@@ -46,17 +46,24 @@ export {
   pendingWaits,
   replaySpawnTree,
 } from '../durable/spawn-journal'
-// The typed coordination-bus event (up: settled/question/finding; down: steer/answer) — surfaced
-// here so a host folding the bus onto its own timeline (the supervise-topology observability) can
+// The typed coordination-bus event (up: settled/question/finding; authorized instruction receipt;
+// down: steer/answer delivery outcome) — surfaced here so a host folding the bus onto its own timeline can
 // type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides
 // alongside it: the worker-seam type `supervise`/`workerFromBackend` traffic in, so a host authoring
 // its own seam types it from the loop layer rather than the `/mcp` subpath.
 export type {
   AnalystFindingEvent,
   AnalystRegistry,
+  AuthorizeDownMessage,
+  AuthorizedDownMessage,
+  ContinuationInstruction,
   CoordinationEvent,
+  DownMessageAuthorizationInput,
+  DownMessageDeliveryAttempt,
+  DownMessageDeliveryOutcome,
   DownMessageEvent,
   MakeWorkerAgent,
+  WorkerSpawnContext,
 } from './../mcp/tools/coordination'
 export { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from './../mcp/tools/coordination'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
@@ -506,6 +513,7 @@ export {
 } from './supervise/authoring'
 export {
   type BudgetPool,
+  type BudgetPoolRestore,
   type BudgetReadout,
   createBudgetPool,
   type ReservationTicket,
@@ -515,18 +523,21 @@ export {
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-gate'
 // The CHEAP / offline driver: an in-process router-tools loop that drives the coordination
-// verbs over the Scope (no box, no creds). The CAPABLE driver is a sandbox agent with the
-// coordination verbs mounted as an MCP — this is the low-cost + offline-testable variant.
+// verbs over the Scope (no box, no creds). The CAPABLE driver is an external harness with the
+// coordination verbs mounted as an MCP: `supervise()` wires a local bridge automatically, while a
+// remote sandbox requires an explicit reachable `driveHarness`.
 export {
   type DriverAgentOptions,
   driverAgent,
   finalizeBestDelivered,
 } from './supervise/coordination-driver'
-// The durable coordination side-log a file-backed `RunContext` carries: the questions and analyst
-// findings the spawn journal does not record, replayed into a resumed driver so a restarted
-// coordinator keeps the coordination context its workers produced.
+// The durable coordination side-log a file-backed `RunContext` carries: questions, findings, answer
+// decisions, and authorized continuation receipts the spawn journal does not own. Receipts persist
+// as evidence and are never auto-delivered to a replacement worker.
 export {
+  type CoordinationDeliveryEvidence,
   type CoordinationLog,
+  type CoordinationOwnerId,
   FileCoordinationLog,
   type PriorCoordination,
 } from './supervise/coordination-log'
@@ -592,7 +603,7 @@ export {
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
 // The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
-export { assertModelAllowed } from './supervise/model-policy'
+export { assertModelAllowed, assertProfileModelsAllowed } from './supervise/model-policy'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
@@ -683,18 +694,25 @@ export {
 // sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam
 // from a backend config + an optional completion oracle (settled⟺delivered).
 export {
+  type AuthorizedSpawn,
+  DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY,
   type SuperviseOptions,
   supervise,
   workerFromBackend,
 } from './supervise/supervise'
 export { createSupervisor } from './supervise/supervisor'
 // Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
-// `createExecutor({backend})` resolves a worker — `null` → the in-process router tool-loop,
+// `createExecutor({backend})` resolves a worker — omitted/`cli-base` → the in-process router tool-loop,
 // a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
 export {
   type DriveHarness,
+  type ObserveSupervisorNodeEvent,
+  type ResolveSupervisorTools,
   type SupervisorAgentDeps,
+  type SupervisorNodeContext,
+  type SupervisorNodeContextSeed,
   type SupervisorProfile,
+  type SupervisorToolDescriptor,
   supervisorAgent,
 } from './supervise/supervisor-agent'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
@@ -713,22 +731,33 @@ export {
 export { analyzeTrace, type TrajectoryAnalysis } from './supervise/trajectory-recorder'
 export type {
   Agent,
+  AgentExecutionRef,
   AgentSpec,
   Budget,
+  ExecutionBindingReceipt,
   Executor,
+  ExecutorAccounting,
   ExecutorContext,
+  ExecutorExecutionBinding,
   ExecutorFactory,
+  ExecutorMaterialization,
+  ExecutorNodeContext,
   ExecutorRegistry,
   ExecutorResult,
   Handle,
+  MaterializedExecutionIdentity,
+  MaterializedModelIdentity,
+  NodeExecutionIdentity,
   NodeId,
   NodeSnapshot,
   NodeStatus,
+  ProfileMaterializationReceipt,
   Restart,
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,
   RootHandle,
+  RootMaterialization,
   RootSignal,
   Runtime,
   Scope,
@@ -743,6 +772,7 @@ export type {
   Supervisor,
   SupervisorOpts,
   TreeView,
+  UnknownMaterializationReason,
   UsageEvent,
   WaitOpts,
   WidenGate,

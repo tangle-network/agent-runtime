@@ -30,6 +30,11 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
+import {
+  type AgentProfile,
+  agentProfileSchema,
+  mergeAgentProfiles,
+} from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import type { LocalHarness } from '../../mcp/local-harness'
@@ -65,9 +70,11 @@ import type {
 } from '../types'
 import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
+import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import { PI_RUNTIME, type PiSeam, piExecutor } from './pi-executor'
 import type { ExecutorProgress } from './progress'
 import { createSteerableSandboxSession, type SandboxSteeringOptions } from './sandbox-session'
+import { detachedSnapshot } from './snapshot'
 import type { TraceSource } from './trace-source'
 import type {
   AgentSpec,
@@ -139,7 +146,9 @@ export interface CliSeam {
 /**
  * cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
  * (claude / codex / opencode) on its own git worktree — the leaf `createWorktreeCliExecutor`
- * named as data. `harness` + `repoRoot` + `taskPrompt` are required; the authored
+ * named as data. `harness` + `repoRoot` are required; the task comes from `Executor.execute`.
+ * `taskPrompt` remains an optional direct-call fallback for callers that execute with `undefined`.
+ * The authored
  * `profile.prompt.systemPrompt` + `profile.model.default` reach the harness via the §1.5
  * `harnessInvocation` mapper. Everything else mirrors `WorktreeCliExecutorOptions`.
  */
@@ -147,7 +156,7 @@ export interface CliWorktreeSeam {
   repoRoot: string
   /** Local CLI harness transport. Omit when `bridge` is set. */
   harness?: LocalHarness
-  taskPrompt: string
+  taskPrompt?: string
   runId?: string
   baseRef?: string
   harnessTimeoutMs?: number
@@ -174,7 +183,8 @@ export interface CliWorktreeBridgeSeam {
   bridgeBearer: string
   /** Bridge model/harness id. Defaults to the profile's model hint when omitted. */
   model?: string
-  agentProfile?: Record<string, unknown>
+  /** Canonical profile overlay merged over the spawned profile. */
+  agentProfile?: AgentProfile
   timeoutMs?: number
   /** Stable cli-bridge session id. Defaults to `bridge-worktree-${runId}`. */
   sessionId?: string
@@ -189,19 +199,20 @@ export interface CliWorktreeBridgeSeam {
  * forwarded verbatim per request — how an arm disables native tools or injects
  * a provider search MCP.
  *
- * The executor opens a RESUMABLE cli-bridge session — structurally identical to the
- * sandbox executor's persistent box, just local. `sessionId` is the stable
- * caller-owned id cli-bridge maps to the harness's internal conversation id; a
- * follow-up steer/resume on the SAME id continues the SAME harness session (opencode
- * `-s`, claude `--resume`, …). Omit it and the executor mints a stable one per spawn.
+ * The executor opens a resumable cli-bridge session. `sessionId` identifies the
+ * harness conversation across turns; each turn also receives its own durable run id.
+ * A dropped HTTP reader reattaches to that exact run and explicit cancel is the only
+ * operation allowed to stop it. Omit `sessionId` and the executor mints one per spawn.
  */
 export interface BridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
-  model: string
+  /** Fallback bridge wire id. A spawned profile may select its own harness and model. */
+  model?: string
   /** Optional working directory forwarded to cli-bridge and persisted with the session. */
   cwd?: string
-  agentProfile?: Record<string, unknown>
+  /** Canonical profile overlay merged over the spawned profile. */
+  agentProfile?: AgentProfile
   timeoutMs?: number
   /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
    *  to a freshly minted per-spawn id so each worker is its own resumable session. */
@@ -265,7 +276,7 @@ function zeroSpend(): Spend {
  */
 export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterSeam>(ctx, routerSeamKey, 'router/inline')
-  const model = seam.model ?? spec.profile.model?.default
+  const model = spec.profile.model?.default ?? seam.model
   if (!model) {
     throw new ValidationError(
       'routerInlineExecutor: no model — set RouterSeam.model or AgentProfile.model.default',
@@ -283,39 +294,65 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
   let artifact: ExecutorResult<unknown> | undefined
+  const executionId = ctx.node?.nodeId ?? `router-request-${randomUUID()}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
 
-  return {
-    runtime: 'router' as Runtime,
-    async execute(task, signal): Promise<ExecutorResult<unknown>> {
-      const messages = taskToMessages(task, spec)
-      const started = Date.now()
-      const linked = linkSignals(signal, controller.signal)
-      const r = await routerChatWithUsage(
-        { routerBaseUrl: seam.routerBaseUrl, routerKey: seam.routerKey, model },
-        messages,
-        linked ? { signal: linked } : {},
-      )
-      const spent: Spend = {
-        iterations: 1,
-        tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : zeroTokenUsage(),
-        usd: r.costUsd ?? 0,
-        ms: Date.now() - started,
-      }
-      const out = { content: r.content } as unknown
-      artifact = { outRef: contentRef('router', { model, content: r.content }), out, spent }
-      return artifact
+  return attestRuntimeOwnedExecutor(
+    {
+      runtime: 'router' as Runtime,
+      async execute(task, signal): Promise<ExecutorResult<unknown>> {
+        const messages = taskToMessages(task, spec)
+        const started = Date.now()
+        const linked = linkSignals(signal, controller.signal)
+        const r = await routerChatWithUsage(
+          { routerBaseUrl: seam.routerBaseUrl, routerKey: seam.routerKey, model },
+          messages,
+          linked ? { signal: linked } : {},
+        )
+        const spent: Spend = {
+          iterations: 1,
+          tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : zeroTokenUsage(),
+          usd: r.costUsd ?? 0,
+          ...(r.usage ? {} : { tokensKnown: false }),
+          ...(r.costUsd === undefined ? { usdKnown: false } : {}),
+          ms: Date.now() - started,
+        }
+        const out = { content: r.content } as unknown
+        artifact = { outRef: contentRef('router', { model, content: r.content }), out, spent }
+        return artifact
+      },
+      teardown(_grace): Promise<{ destroyed: boolean }> {
+        controller.abort()
+        return Promise.resolve({ destroyed: true })
+      },
+      resultArtifact() {
+        if (!artifact) {
+          throw new ValidationError('routerInlineExecutor: resultArtifact() read before execute()')
+        }
+        return { ...artifact, spent: artifact.spent }
+      },
     },
-    teardown(_grace): Promise<{ destroyed: boolean }> {
-      controller.abort()
-      return Promise.resolve({ destroyed: true })
+    {
+      effectiveProfile: spec.profile,
+      backend: 'router',
+      model: { status: 'known', id: model },
+      execution: {
+        kind: 'request',
+        id: executionId,
+      },
+      materializer: 'router-prompt-model',
+      plan: { kind: 'openai-chat-completion', model },
     },
-    resultArtifact() {
-      if (!artifact) {
-        throw new ValidationError('routerInlineExecutor: resultArtifact() read before execute()')
-      }
-      return { ...artifact, spent: artifact.spent }
+    {
+      attemptId,
+      binding: {
+        endpoint: seam.routerBaseUrl,
+        executionId,
+        model,
+      },
+      descriptor: { kind: 'router-request', transport: 'http', backend: 'router' },
     },
-  }
+  )
 }
 
 export type { ToolSpec }
@@ -374,7 +411,7 @@ interface RouterToolsResponse {
  */
 export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterToolsSeam>(ctx, routerToolsSeamKey, 'router-tools')
-  const model = seam.model ?? spec.profile.model?.default
+  const model = spec.profile.model?.default ?? seam.model
   if (!model) {
     throw new ValidationError(
       'routerToolsInlineExecutor: no model — set RouterToolsSeam.model or AgentProfile.model.default',
@@ -398,174 +435,212 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
   const inbox = createInbox()
 
   let artifact: ExecutorResult<unknown> | undefined
+  const executionId = ctx.node?.nodeId ?? `router-tools-run-${randomUUID()}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
 
-  return {
-    runtime: 'router' as Runtime,
-    deliver: (m) => inbox.deliver(m),
-    async execute(task, signal): Promise<ExecutorResult<unknown>> {
-      const started = Date.now()
-      const messages: Array<Record<string, unknown>> = [
-        ...(taskToMessages(task, spec) as Array<Record<string, unknown>>),
-      ]
-      const tokens = zeroTokenUsage()
-      let turns = 0
-      let lastText = ''
-      // Fold any queued down-messages into the conversation as one operator turn (the boundary flush).
-      const flush = () => {
-        const pending = inbox.drain()
-        if (pending.length) messages.push({ role: 'user', content: inbox.fold(pending) })
-        return pending.length > 0
-      }
-
-      // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
-      // re-register listeners on these long-lived signals every turn.
-      const external = mergeAbortSignals(signal, controller.signal)
-
-      for (let t = 0; t < maxTurns; t += 1) {
-        // QUEUED messages flush at the step boundary, before this turn's inference.
-        flush()
-        // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
-        // per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
-        // removed after the turn (`cleanup`) so nothing accumulates across turns.
-        const interruptSig = inbox.freshInterrupt()
-        const turnController = new AbortController()
-        const abortTurn = () => turnController.abort()
-        if (external.aborted) turnController.abort()
-        else external.addEventListener('abort', abortTurn)
-        interruptSig.addEventListener('abort', abortTurn, { once: true })
-        const cleanup = () => external.removeEventListener('abort', abortTurn)
-        let res: Response
-        try {
-          res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              authorization: `Bearer ${seam.routerKey}`,
-            },
-            body: JSON.stringify({
-              model,
-              messages,
-              tools: seam.tools,
-              tool_choice: 'auto',
-              temperature: 0.2,
-            }),
-            signal: turnController.signal,
-          })
-        } catch (e) {
-          cleanup()
-          // Re-plan ONLY when a forceful inbox message aborted this turn (a real AbortError, with the
-          // interrupt — not the external teardown/budget signal). The re-planned turn still consumes a
-          // loop slot (so interrupt spam is bounded by maxTurns, not a hang) but does not bill a turn.
-          // Any other error — incl. a network fault coincident with an interrupt — is fatal: rethrow.
-          const interruptAbort =
-            e instanceof DOMException &&
-            e.name === 'AbortError' &&
-            interruptSig.aborted &&
-            !signal.aborted &&
-            !controller.signal.aborted
-          if (interruptAbort) continue
-          throw e
+  return attestRuntimeOwnedExecutor(
+    {
+      runtime: 'router' as Runtime,
+      deliver: (m) => inbox.deliver(m),
+      async execute(task, signal): Promise<ExecutorResult<unknown>> {
+        const started = Date.now()
+        const messages: Array<Record<string, unknown>> = [
+          ...(taskToMessages(task, spec) as Array<Record<string, unknown>>),
+        ]
+        const tokens = zeroTokenUsage()
+        let tokensKnown = true
+        let turns = 0
+        let lastText = ''
+        // Fold any queued down-messages into the conversation as one operator turn (the boundary flush).
+        const flush = () => {
+          const pending = inbox.drain()
+          if (pending.length) messages.push({ role: 'user', content: inbox.fold(pending) })
+          return pending.length > 0
         }
-        cleanup()
-        // The inference completed — count the turn now (an interrupted, re-planned turn doesn't bill).
-        turns += 1
-        if (!res.ok) {
+
+        // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
+        // re-register listeners on these long-lived signals every turn.
+        const external = mergeAbortSignals(signal, controller.signal)
+
+        for (let t = 0; t < maxTurns; t += 1) {
+          // QUEUED messages flush at the step boundary, before this turn's inference.
+          flush()
+          // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
+          // per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
+          // removed after the turn (`cleanup`) so nothing accumulates across turns.
+          const interruptSig = inbox.freshInterrupt()
+          const turnController = new AbortController()
+          const abortTurn = () => turnController.abort()
+          if (external.aborted) turnController.abort()
+          else external.addEventListener('abort', abortTurn)
+          interruptSig.addEventListener('abort', abortTurn, { once: true })
+          const cleanup = () => external.removeEventListener('abort', abortTurn)
+          let res: Response
+          try {
+            res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${seam.routerKey}`,
+              },
+              body: JSON.stringify({
+                model,
+                messages,
+                tools: seam.tools,
+                tool_choice: 'auto',
+                temperature: 0.2,
+              }),
+              signal: turnController.signal,
+            })
+          } catch (e) {
+            cleanup()
+            // Re-plan ONLY when a forceful inbox message aborted this turn (a real AbortError, with the
+            // interrupt — not the external teardown/budget signal). The re-planned turn still consumes a
+            // loop slot (so interrupt spam is bounded by maxTurns, not a hang) but does not bill a turn.
+            // Any other error — incl. a network fault coincident with an interrupt — is fatal: rethrow.
+            const interruptAbort =
+              e instanceof DOMException &&
+              e.name === 'AbortError' &&
+              interruptSig.aborted &&
+              !signal.aborted &&
+              !controller.signal.aborted
+            if (interruptAbort) continue
+            throw e
+          }
+          cleanup()
+          // The inference completed — count the turn now (an interrupted, re-planned turn doesn't bill).
+          turns += 1
+          if (!res.ok) {
+            throw new ValidationError(
+              `routerToolsInlineExecutor: router ${res.status}: ${(await res.text()).slice(0, 200)}`,
+            )
+          }
+          const data = (await res.json()) as RouterToolsResponse
+          const u = data.usage
+          if (u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number') {
+            tokens.input += u.prompt_tokens
+            tokens.output += u.completion_tokens
+          } else {
+            tokensKnown = false
+          }
+          const msg = data.choices?.[0]?.message
+          if (msg?.content) lastText = msg.content
+          const toolCalls = msg?.tool_calls ?? []
+          if (toolCalls.length === 0) {
+            // Before settling, flush once more — a worker may not finish while a steer/answer it never
+            // read is still pending. If anything flushed, keep going; otherwise it is truly done.
+            if (flush()) continue
+            break
+          }
+
+          // Record the assistant turn verbatim, then run each call on the host and
+          // fold the result back as a `tool` message for the next turn.
+          messages.push({
+            role: 'assistant',
+            content: msg?.content ?? '',
+            tool_calls: toolCalls.map((tc, i) => ({
+              id: tc.id ?? `call_${i}`,
+              type: 'function',
+              function: {
+                name: tc.function?.name ?? '',
+                arguments: tc.function?.arguments ?? '{}',
+              },
+            })),
+          })
+          for (let i = 0; i < toolCalls.length; i += 1) {
+            const tc = toolCalls[i]
+            const id = tc?.id ?? `call_${i}`
+            let args: Record<string, unknown> = {}
+            try {
+              args = JSON.parse(tc?.function?.arguments ?? '{}') as Record<string, unknown>
+            } catch {
+              // Malformed args are a real outcome, not an infra fault — feed the error
+              // back so the model can correct, rather than aborting the whole loop.
+              messages.push({
+                role: 'tool',
+                tool_call_id: id,
+                content: 'error: tool arguments were not valid JSON',
+              })
+              continue
+            }
+            const toolName = tc?.function?.name ?? ''
+            let result: string
+            let status: 'ok' | 'error' = 'ok'
+            const toolStartedAt = Date.now()
+            try {
+              result = await seam.executeToolCall(toolName, args, task)
+            } catch (e) {
+              status = 'error'
+              result = `error: ${e instanceof Error ? e.message : String(e)}`
+            }
+            const toolEndedAt = Date.now()
+            messages.push({ role: 'tool', tool_call_id: id, content: result })
+            // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
+            // call or hammering errors is caught mid-run, not only at settle. This is an observability
+            // side-channel: a throwing monitor must never crash the production inference loop.
+            try {
+              seam.onToolStep?.({
+                toolName,
+                args,
+                status,
+                startedAt: toolStartedAt,
+                endedAt: toolEndedAt,
+                durationMs: toolEndedAt - toolStartedAt,
+              })
+            } catch {
+              // ignore — monitoring must not break the worker
+            }
+          }
+        }
+
+        const priced = isModelPriced(model)
+        const usd = priced ? estimateCost(tokens.input, tokens.output, model) : 0
+        const spent: Spend = {
+          iterations: turns,
+          tokens,
+          ...(tokensKnown ? {} : { tokensKnown: false }),
+          usd,
+          ...(!priced || !tokensKnown ? { usdKnown: false } : {}),
+          ms: Date.now() - started,
+        }
+        const out = { content: lastText } as unknown
+        artifact = { outRef: contentRef('router-tools', { model, content: lastText }), out, spent }
+        return artifact
+      },
+      teardown(_grace): Promise<{ destroyed: boolean }> {
+        controller.abort()
+        return Promise.resolve({ destroyed: true })
+      },
+      resultArtifact() {
+        if (!artifact) {
           throw new ValidationError(
-            `routerToolsInlineExecutor: router ${res.status}: ${(await res.text()).slice(0, 200)}`,
+            'routerToolsInlineExecutor: resultArtifact() read before execute()',
           )
         }
-        const data = (await res.json()) as RouterToolsResponse
-        const u = data.usage
-        if (u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number') {
-          tokens.input += u.prompt_tokens
-          tokens.output += u.completion_tokens
-        }
-        const msg = data.choices?.[0]?.message
-        if (msg?.content) lastText = msg.content
-        const toolCalls = msg?.tool_calls ?? []
-        if (toolCalls.length === 0) {
-          // Before settling, flush once more — a worker may not finish while a steer/answer it never
-          // read is still pending. If anything flushed, keep going; otherwise it is truly done.
-          if (flush()) continue
-          break
-        }
-
-        // Record the assistant turn verbatim, then run each call on the host and
-        // fold the result back as a `tool` message for the next turn.
-        messages.push({
-          role: 'assistant',
-          content: msg?.content ?? '',
-          tool_calls: toolCalls.map((tc, i) => ({
-            id: tc.id ?? `call_${i}`,
-            type: 'function',
-            function: { name: tc.function?.name ?? '', arguments: tc.function?.arguments ?? '{}' },
-          })),
-        })
-        for (let i = 0; i < toolCalls.length; i += 1) {
-          const tc = toolCalls[i]
-          const id = tc?.id ?? `call_${i}`
-          let args: Record<string, unknown> = {}
-          try {
-            args = JSON.parse(tc?.function?.arguments ?? '{}') as Record<string, unknown>
-          } catch {
-            // Malformed args are a real outcome, not an infra fault — feed the error
-            // back so the model can correct, rather than aborting the whole loop.
-            messages.push({
-              role: 'tool',
-              tool_call_id: id,
-              content: 'error: tool arguments were not valid JSON',
-            })
-            continue
-          }
-          const toolName = tc?.function?.name ?? ''
-          let result: string
-          let status: 'ok' | 'error' = 'ok'
-          const toolStartedAt = Date.now()
-          try {
-            result = await seam.executeToolCall(toolName, args, task)
-          } catch (e) {
-            status = 'error'
-            result = `error: ${e instanceof Error ? e.message : String(e)}`
-          }
-          const toolEndedAt = Date.now()
-          messages.push({ role: 'tool', tool_call_id: id, content: result })
-          // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
-          // call or hammering errors is caught mid-run, not only at settle. This is an observability
-          // side-channel: a throwing monitor must never crash the production inference loop.
-          try {
-            seam.onToolStep?.({
-              toolName,
-              args,
-              status,
-              startedAt: toolStartedAt,
-              endedAt: toolEndedAt,
-              durationMs: toolEndedAt - toolStartedAt,
-            })
-          } catch {
-            // ignore — monitoring must not break the worker
-          }
-        }
-      }
-
-      const usd = isModelPriced(model) ? estimateCost(tokens.input, tokens.output, model) : 0
-      const spent: Spend = { iterations: turns, tokens, usd, ms: Date.now() - started }
-      const out = { content: lastText } as unknown
-      artifact = { outRef: contentRef('router-tools', { model, content: lastText }), out, spent }
-      return artifact
+        return { ...artifact, spent: artifact.spent }
+      },
     },
-    teardown(_grace): Promise<{ destroyed: boolean }> {
-      controller.abort()
-      return Promise.resolve({ destroyed: true })
+    {
+      effectiveProfile: spec.profile,
+      backend: 'router-tools',
+      model: { status: 'known', id: model },
+      execution: {
+        kind: 'run',
+        id: executionId,
+      },
+      materializer: 'router-tools-prompt-model',
+      plan: { kind: 'openai-tool-loop', model, maxTurns, tools: seam.tools },
     },
-    resultArtifact() {
-      if (!artifact) {
-        throw new ValidationError(
-          'routerToolsInlineExecutor: resultArtifact() read before execute()',
-        )
-      }
-      return { ...artifact, spent: artifact.spent }
+    {
+      attemptId,
+      binding: {
+        endpoint: seam.routerBaseUrl,
+        executionId,
+        model,
+      },
+      descriptor: { kind: 'router-tool-loop', transport: 'http', backend: 'router-tools' },
     },
-  }
+  )
 }
 
 // ── sandbox executor (harness is a BackendType) ────────────────────────────────
@@ -604,6 +679,35 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
   let artifact: ExecutorResult<unknown> | undefined
+  const executionId = ctx.node?.nodeId ?? `sandbox-run-${randomUUID()}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
+  const sandboxMaterialization = {
+    effectiveProfile: spec.profile,
+    backend: harness,
+    model: spec.profile.model?.default
+      ? ({ status: 'known', id: spec.profile.model.default } as const)
+      : ({ status: 'unknown', reason: 'sandbox harness selected its default model' } as const),
+    execution: {
+      kind: 'run',
+      id: executionId,
+    },
+    materializer: 'sandbox-agent-profile',
+    plan: {
+      kind: 'sandbox-agent-rounds',
+      harness,
+      maxIterations,
+      steering: seam.steering !== undefined,
+    },
+  }
+  const sandboxBinding = {
+    attemptId,
+    binding: {
+      executionId,
+      harness,
+      model: spec.profile.model?.default ?? null,
+    },
+    descriptor: { kind: 'sandbox-run', transport: 'sandbox', backend: harness },
+  }
 
   // STEERABLE mode (opt-in): the worker becomes a multi-turn session on one box, with a real
   // inbox, so a driver's steer has a turn boundary to be folded into. This is the path that
@@ -621,29 +725,33 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       ...(seam.loopCtx ? { loopCtx: seam.loopCtx } : {}),
       contentRef,
     })
-    return {
-      runtime: 'sandbox' as Runtime,
-      deliver: (m) => inbox.deliver(m),
-      progress: (): ExecutorProgress => session.progress(),
-      traceSource: (): TraceSource => session.traceSource(),
-      execute(task, signal): AsyncIterable<UsageEvent> {
-        return session.stream(task, signal)
+    return attestRuntimeOwnedExecutor(
+      {
+        runtime: 'sandbox' as Runtime,
+        deliver: (m) => inbox.deliver(m),
+        progress: (): ExecutorProgress => session.progress(),
+        traceSource: (): TraceSource => session.traceSource(),
+        execute(task, signal): AsyncIterable<UsageEvent> {
+          return session.stream(task, signal)
+        },
+        async teardown(_grace): Promise<{ destroyed: boolean }> {
+          controller.abort()
+          await session.teardown()
+          return { destroyed: true }
+        },
+        resultArtifact() {
+          const a = session.artifact()
+          if (!a) {
+            throw new ValidationError(
+              'sandboxExecutor(steering): resultArtifact() read before stream drained',
+            )
+          }
+          return a
+        },
       },
-      async teardown(_grace): Promise<{ destroyed: boolean }> {
-        controller.abort()
-        await session.teardown()
-        return { destroyed: true }
-      },
-      resultArtifact() {
-        const a = session.artifact()
-        if (!a) {
-          throw new ValidationError(
-            'sandboxExecutor(steering): resultArtifact() read before stream drained',
-          )
-        }
-        return a
-      },
-    }
+      sandboxMaterialization,
+      sandboxBinding,
+    )
   }
 
   // The leaf runs an opaque, self-parallelizing coding harness; the loop just
@@ -655,38 +763,42 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   }
   const driver = singleShotDriver<SandboxLeafOut>(maxIterations)
 
-  return {
-    runtime: 'sandbox' as Runtime,
-    execute(task, signal): AsyncIterable<UsageEvent> {
-      return streamSandboxLeaf({
-        task,
-        signal,
-        harness,
-        spec,
-        seam,
-        output,
-        driver,
-        maxIterations,
-        controller,
-        loopCtx: seam.loopCtx,
-        onArtifact: (a) => {
-          artifact = a
-        },
-      })
+  return attestRuntimeOwnedExecutor(
+    {
+      runtime: 'sandbox' as Runtime,
+      execute(task, signal): AsyncIterable<UsageEvent> {
+        return streamSandboxLeaf({
+          task,
+          signal,
+          harness,
+          spec,
+          seam,
+          output,
+          driver,
+          maxIterations,
+          controller,
+          loopCtx: seam.loopCtx,
+          onArtifact: (a) => {
+            artifact = a
+          },
+        })
+      },
+      teardown(_grace): Promise<{ destroyed: boolean }> {
+        // The composed runAgentRounds owns its box teardown (finally{allSettled(destroy)});
+        // aborting the loop's signal cascades into that barrier.
+        controller.abort()
+        return Promise.resolve({ destroyed: true })
+      },
+      resultArtifact() {
+        if (!artifact) {
+          throw new ValidationError('sandboxExecutor: resultArtifact() read before stream drained')
+        }
+        return artifact
+      },
     },
-    teardown(_grace): Promise<{ destroyed: boolean }> {
-      // The composed runAgentRounds owns its box teardown (finally{allSettled(destroy)});
-      // aborting the loop's signal cascades into that barrier.
-      controller.abort()
-      return Promise.resolve({ destroyed: true })
-    },
-    resultArtifact() {
-      if (!artifact) {
-        throw new ValidationError('sandboxExecutor: resultArtifact() read before stream drained')
-      }
-      return artifact
-    },
-  }
+    sandboxMaterialization,
+    sandboxBinding,
+  )
 }
 
 interface SandboxLeafOut {
@@ -772,9 +884,8 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
 
 /**
  * Spawns a subprocess (`bin` + `args`). It cannot account tokens, so it is
- * `budgetExempt: true`: its spend is NOT metered against the conserved pool and
- * its iterations are EXCLUDED from the equal-k arms by construction (the
- * resolver/equal-k path checks `budgetExempt`). teardown is SIGTERM → SIGKILL
+ * `budgetExempt: true`: it remains usable as a direct executor, while budgeted supervision
+ * refuses it before process execution because the CLI exposes no usage receipt. teardown is SIGTERM → SIGKILL
  * with a grace window. Streaming: yields one `iteration` event on clean exit.
  */
 export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
@@ -790,36 +901,64 @@ export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
 
   let proc: ReturnType<typeof spawn> | undefined
   let artifact: ExecutorResult<unknown> | undefined
+  const executionId = ctx.node?.nodeId ?? `cli-process-${randomUUID()}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
 
-  return {
-    runtime: 'cli' as Runtime,
-    budgetExempt: true,
-    execute(task, signal): AsyncIterable<UsageEvent> {
-      return streamCliLeaf({
-        task,
-        signal,
-        seam,
-        controller,
-        onProc: (p) => {
-          proc = p
-        },
-        onArtifact: (a) => {
-          artifact = a
-        },
-      })
+  return attestRuntimeOwnedExecutor(
+    {
+      runtime: 'cli' as Runtime,
+      budgetExempt: true,
+      execute(task, signal): AsyncIterable<UsageEvent> {
+        return streamCliLeaf({
+          task,
+          signal,
+          seam,
+          controller,
+          onProc: (p) => {
+            proc = p
+          },
+          onArtifact: (a) => {
+            artifact = a
+          },
+        })
+      },
+      async teardown(grace): Promise<{ destroyed: boolean }> {
+        controller.abort()
+        if (!proc || proc.exitCode !== null || proc.killed) return { destroyed: true }
+        return killWithGrace(proc, grace)
+      },
+      resultArtifact() {
+        if (!artifact) {
+          throw new ValidationError('cliExecutor: resultArtifact() read before stream drained')
+        }
+        return artifact
+      },
     },
-    async teardown(grace): Promise<{ destroyed: boolean }> {
-      controller.abort()
-      if (!proc || proc.exitCode !== null || proc.killed) return { destroyed: true }
-      return killWithGrace(proc, grace)
+    {
+      effectiveProfile: _spec.profile,
+      backend: 'cli',
+      model: { status: 'unknown', reason: 'raw subprocess has no model identity contract' },
+      execution: { kind: 'process-attempt', id: executionId },
+      materializer: 'raw-cli-stdin',
+      plan: {
+        kind: 'raw-cli-process',
+        bin: seam.bin,
+        args: seam.args ?? [],
+        cwd: seam.cwd ?? null,
+        envOverrides: seam.env ?? {},
+        ambientEnvironment: 'inherited',
+      },
     },
-    resultArtifact() {
-      if (!artifact) {
-        throw new ValidationError('cliExecutor: resultArtifact() read before stream drained')
-      }
-      return artifact
+    {
+      attemptId,
+      binding: {
+        executionId,
+        bin: seam.bin,
+        cwd: seam.cwd ?? null,
+      },
+      descriptor: { kind: 'cli-process', transport: 'process', backend: 'cli' },
     },
-  }
+  )
 }
 
 interface StreamCliArgs {
@@ -924,26 +1063,29 @@ function killWithGrace(
  *  - STEERABLE: the down-leg `inbox` is drained at each turn boundary; a queued
  *    steer becomes the next turn's prompt on the same session, and the worker can't
  *    settle while a steer it never read is pending (the sandbox/router contract).
- *  - ABORT: the caller signal + teardown fold into the per-turn fetch signal; a
- *    forceful (`interrupt`) steer aborts the in-flight turn so the worker re-plans.
+ *  - ABORT: reader abort only detaches HTTP. Interrupt/teardown then call the
+ *    bridge's explicit cancel operation and wait for the owned run to terminate.
  *
  * Reports REAL usage when the bridge surfaces it, never a fabricated cost.
  */
-/** Resolve the bridge wire model for this spawn: a per-create `backend` override
- *  (harness + model) wins over the seam default, encoded as `${harness}/${model}`.
- *  Absent an override the seam `model` is used verbatim. */
-function bridgeCellModel(seamModel: string, ctx: ExecutorContext): string {
+/** Resolve the bridge wire model for this spawn. Per-create matrix settings win, then the
+ * canonical profile's harness/model preferences, then the bridge's configured fallback. */
+function bridgeCellModel(
+  seamModel: string | undefined,
+  ctx: ExecutorContext,
+  profile: AgentProfile,
+): string | undefined {
   const create = ctx.seams.createOptions as
     | { backend?: { type?: string; model?: { model?: string } } }
     | undefined
   const backend = create?.backend
-  const harness = backend?.type
-  const model = backend?.model?.model
+  const profileHarness = profile.harness === 'cli-base' ? undefined : profile.harness
+  const harness = backend?.type ?? profileHarness
+  const model = backend?.model?.model ?? profile.model?.default
   if (!harness && !model) return seamModel
-  const h = harness ?? ''
-  const m = model ?? seamModel
-  if (!h) return m
-  return m.startsWith(`${h}/`) ? m : `${h}/${m}`
+  if (!harness) return model
+  if (model) return model.startsWith(`${harness}/`) ? model : `${harness}/${model}`
+  return seamModel?.startsWith(`${harness}/`) ? seamModel : undefined
 }
 
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
@@ -954,16 +1096,20 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // the wire id is `${harness}/${model}` (an already-`${harness}/`-prefixed model
   // passes through). This is how ONE bridge `SandboxClient` drives every
   // harness×model cell of a matrix — the seam `model` is the fixed default.
-  const seam = { ...base, model: bridgeCellModel(base.model, ctx) }
+  const effectiveProfile = agentProfileSchema.parse(
+    mergeAgentProfiles(spec.profile, base.agentProfile) ?? spec.profile,
+  )
+  const seam = { ...base, model: bridgeCellModel(base.model, ctx, effectiveProfile) }
   if (!seam.bridgeUrl || !seam.bridgeBearer || !seam.model) {
     throw new ValidationError(
-      'bridgeExecutor: BridgeSeam.bridgeUrl + bridgeBearer + model required',
+      'bridgeExecutor: bridgeUrl + bridgeBearer and a profile or bridge model are required',
     )
   }
   const maxTurns = seam.maxTurns ?? 200
   // A stable per-spawn session id (caller can pin one) — cli-bridge keys harness
   // resume off this exactly as a box id keys a sandbox session.
   const sessionId = seam.sessionId ?? `bridge-${spec.profile.name ?? 'worker'}-${randomUUID()}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(sessionId)
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -975,48 +1121,95 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // The down-leg receive end: the driver's steer/answer/resume land here via `Scope.send`.
   const inbox = createInbox()
   let artifact: ExecutorResult<unknown> | undefined
+  // One spawn owns one resumable session and, at most, one live durable run per
+  // turn. Keep the server-owned run identities until the bridge proves each job
+  // terminal; closing a response body is deliberately not terminal evidence.
+  const activeRuns = new Map<string, ActiveBridgeRun>()
 
-  return {
-    runtime: 'cli' as Runtime,
-    deliver: (m) => inbox.deliver(m),
-    execute(task, signal): AsyncIterable<UsageEvent> {
-      return streamBridgeSession({
-        task,
-        signal,
-        spec,
-        seam,
-        sessionId,
+  return attestRuntimeOwnedExecutor(
+    {
+      runtime: 'cli' as Runtime,
+      deliver: (m) => inbox.deliver(m),
+      execute(task, signal): AsyncIterable<UsageEvent> {
+        return streamBridgeSession({
+          task,
+          signal,
+          profile: effectiveProfile,
+          seam,
+          sessionId,
+          maxTurns,
+          inbox,
+          controller,
+          activeRuns,
+          onArtifact: (a) => {
+            artifact = a
+          },
+        })
+      },
+      async teardown(grace): Promise<{ destroyed: boolean }> {
+        controller.abort()
+        const remaining = [...activeRuns.values()].filter((run) => !run.terminal)
+        if (remaining.length === 0) return { destroyed: true }
+        const terminal = await Promise.all(
+          remaining.map((run) => cancelBridgeRunToTerminal(seam, run, grace)),
+        )
+        return { destroyed: terminal.every(Boolean) }
+      },
+      resultArtifact() {
+        if (!artifact) {
+          throw new ValidationError('bridgeExecutor: resultArtifact() read before stream drained')
+        }
+        return { ...artifact, spent: artifact.spent }
+      },
+    },
+    {
+      effectiveProfile,
+      backend: 'bridge',
+      model: { status: 'known', id: seam.model },
+      execution: { kind: 'session', id: sessionId },
+      materializer: 'cli-bridge-agent-profile',
+      plan: {
+        kind: 'cli-bridge-session',
+        bridgeUrl: seam.bridgeUrl,
+        cwd: seam.cwd ?? null,
         maxTurns,
-        inbox,
-        controller,
-        onArtifact: (a) => {
-          artifact = a
-        },
-      })
+        timeoutMs: seam.timeoutMs ?? null,
+        streaming: true,
+      },
     },
-    teardown(_grace): Promise<{ destroyed: boolean }> {
-      controller.abort()
-      return Promise.resolve({ destroyed: true })
+    {
+      attemptId,
+      binding: {
+        bridgeUrl: seam.bridgeUrl,
+        cwd: seam.cwd ?? null,
+        effectiveProfile,
+        model: seam.model,
+        sessionId,
+      },
+      descriptor: { kind: 'bridge-session', transport: 'http', backend: 'bridge' },
     },
-    resultArtifact() {
-      if (!artifact) {
-        throw new ValidationError('bridgeExecutor: resultArtifact() read before stream drained')
-      }
-      return { ...artifact, spent: artifact.spent }
-    },
-  }
+  )
 }
 
 interface StreamBridgeArgs {
   task: unknown
   signal: AbortSignal
-  spec: AgentSpec
+  profile: AgentProfile
   seam: BridgeSeam
   sessionId: string
   maxTurns: number
   inbox: Inbox
   controller: AbortController
+  activeRuns: Map<string, ActiveBridgeRun>
   onArtifact: (a: ExecutorResult<unknown>) => void
+}
+
+interface ActiveBridgeRun {
+  readonly id: string
+  requestDigest?: string
+  lastEventId: number
+  terminal: boolean
+  cancelInFlight?: Promise<boolean>
 }
 
 /**
@@ -1031,7 +1224,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   const started = Date.now()
   const external = mergeAbortSignals(args.signal, args.controller.signal)
   const tokens = zeroTokenUsage()
+  let tokensKnown = true
   let usd = 0
+  let usdKnown = true
   let turns = 0
   let lastText = ''
   const toolCalls: string[] = []
@@ -1039,8 +1234,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
-  const system = args.spec.profile.prompt?.systemPrompt
-
   for (let t = 0; t < args.maxTurns; t += 1) {
     // Drain queued down-messages; on turns > 0 they ARE the prompt (resume content).
     const pending = inbox.drain()
@@ -1050,13 +1243,10 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     }
     if (nextPrompt === undefined) break
 
-    // Each turn sends ONLY the new prompt — cli-bridge's session resume replays the
-    // harness's own history server-side (opencode `-s`), so re-sending it would
-    // double the conversation. Turn 0 may include the system preamble.
+    // Each turn sends ONLY the new task/steer. The full canonical profile carries the standing
+    // prompt, and cli-bridge materializes it once; duplicating it as a system message changes the
+    // instructions and makes profile-vs-message precedence backend-dependent.
     const messages: Array<{ role: string; content: string }> = []
-    if (t === 0 && typeof system === 'string' && system.length > 0) {
-      messages.push({ role: 'system', content: system })
-    }
     messages.push({ role: 'user', content: nextPrompt })
     nextPrompt = undefined
 
@@ -1067,74 +1257,103 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     if (external.aborted) turnController.abort()
     else external.addEventListener('abort', abortTurn)
     interruptSig.addEventListener('abort', abortTurn, { once: true })
-    const timer = seam.timeoutMs ? setTimeout(abortTurn, seam.timeoutMs) : undefined
+    let timedOut = false
+    const timer = seam.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true
+          abortTurn()
+        }, seam.timeoutMs)
+      : undefined
     const cleanup = () => {
       external.removeEventListener('abort', abortTurn)
       if (timer) clearTimeout(timer)
     }
 
-    let res: BridgeResponse
-    try {
-      res = await bridgeStreamPost(seam.bridgeUrl, {
-        bearer: seam.bridgeBearer,
-        sessionId: args.sessionId,
-        body: {
-          model: seam.model,
-          stream: true,
-          session_id: args.sessionId,
-          ...(seam.cwd ? { cwd: seam.cwd } : {}),
-          ...(seam.agentProfile ? { agent_profile: seam.agentProfile } : {}),
-          messages,
-        },
-        signal: turnController.signal,
-      })
-    } catch (e) {
-      cleanup()
-      // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn —
-      // the steer is already queued, so loop back and fold it. Anything else is fatal.
-      const interruptAbort =
-        e instanceof DOMException &&
-        e.name === 'AbortError' &&
-        interruptSig.aborted &&
-        !args.signal.aborted &&
-        !args.controller.signal.aborted
-      if (interruptAbort) continue
-      throw e
+    const activeRun: ActiveBridgeRun = {
+      id: `bridge-run-${randomUUID()}`,
+      lastEventId: 0,
+      terminal: false,
     }
-    if (!res.ok) {
-      cleanup()
-      throw new ValidationError(
-        `bridgeExecutor: bridge ${res.status}: ${(await res.text()).slice(0, 300)}`,
-      )
-    }
-    if (!res.body) {
-      cleanup()
-      throw new ValidationError('bridgeExecutor: bridge response had no body to stream')
+    args.activeRuns.set(activeRun.id, activeRun)
+    const requestBody = {
+      model: seam.model,
+      stream: true,
+      run_id: activeRun.id,
+      session_id: args.sessionId,
+      ...(seam.cwd ? { cwd: seam.cwd } : {}),
+      agent_profile: args.profile,
+      messages,
     }
 
     let turnText = ''
+    let turnTokensKnown = false
+    let turnUsdKnown = false
+    let interrupted = false
     try {
-      for await (const chunk of parseSseChatStream(res.body)) {
+      for await (const chunk of streamDurableBridgeRun({
+        seam,
+        sessionId: args.sessionId,
+        body: requestBody,
+        signal: turnController.signal,
+        run: activeRun,
+      })) {
         if (chunk.content) {
           turnText += chunk.content
         }
         if (chunk.toolCall) toolCalls.push(chunk.toolCall)
         if (chunk.usage) {
+          turnTokensKnown = true
           tokens.input += chunk.usage.input
           tokens.output += chunk.usage.output
           yield { kind: 'tokens', input: chunk.usage.input, output: chunk.usage.output }
         }
-        if (typeof chunk.cost === 'number' && chunk.cost > 0) {
-          usd += chunk.cost
-          yield { kind: 'cost', usd: chunk.cost }
+        if (typeof chunk.cost === 'number') {
+          turnUsdKnown = true
+          if (chunk.cost > 0) {
+            usd += chunk.cost
+            yield { kind: 'cost', usd: chunk.cost }
+          }
         }
+      }
+    } catch (error) {
+      // A forceful steer first detaches this HTTP reader, then explicitly cancels
+      // the durable run and waits for terminal proof. Starting the resume turn
+      // before that acknowledgement would race two harness processes against one
+      // resumable session.
+      const interruptAbort =
+        interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted
+      if (interruptAbort) {
+        const terminal = await cancelBridgeRunToTerminal(seam, activeRun, 'infinity', external)
+        if (!terminal) {
+          throw new ValidationError(
+            `bridgeExecutor: interrupted run ${activeRun.id} did not reach terminal state`,
+          )
+        }
+        interrupted = true
+      } else {
+        // A per-turn timeout is owned here, not by the HTTP socket. Request
+        // explicit cancellation before surfacing it; external scope teardown
+        // performs the same operation under its own grace budget.
+        if (timedOut && !activeRun.terminal) {
+          await requestBridgeRunCancellation(seam, activeRun, 0)
+        }
+        throw error
       }
     } finally {
       cleanup()
     }
+    // Some transports can finish a buffered body normally after their signal fires. The forceful
+    // steer still wins and must become a new turn rather than letting this response settle.
+    if (interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted) {
+      interrupted = true
+    }
     turns += 1
+    if (!turnTokensKnown) tokensKnown = false
+    if (!turnUsdKnown) usdKnown = false
     yield { kind: 'iteration' }
-    if (turnText) lastText = turnText
+    if (!interrupted && turnText) lastText = turnText
+
+    if (interrupted) continue
 
     // Before settling, drain once more — the worker can't finish while a steer it
     // never read is pending (the sandbox/router settle contract). A pending steer
@@ -1145,7 +1364,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   const spent: Spend = {
     iterations: turns,
     tokens,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
     ms: Date.now() - started,
   }
   const out = { content: lastText, toolCalls } as unknown
@@ -1156,11 +1377,118 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   })
 }
 
+const BRIDGE_MAX_RECONNECTS = 3
+const BRIDGE_CANCEL_LONG_POLL_MS = 30_000
+const BRIDGE_BRUTAL_KILL_WAIT_MS = 150
+
+interface StreamDurableBridgeRunArgs {
+  seam: BridgeSeam
+  sessionId: string
+  body: unknown
+  signal: AbortSignal
+  run: ActiveBridgeRun
+}
+
+/**
+ * Drain one server-owned bridge run. A transport loss replays from the last
+ * contiguous event id under the SAME run id and request bytes. No unnumbered,
+ * duplicate, or skipped event is accepted: an exact replay contract that
+ * cannot prove continuity fails instead of returning a plausible partial answer.
+ */
+async function* streamDurableBridgeRun(
+  args: StreamDurableBridgeRunArgs,
+): AsyncIterable<BridgeStreamChunk> {
+  let reconnects = 0
+  let pendingUpstreamError: ValidationError | undefined
+
+  for (;;) {
+    let res: BridgeResponse
+    try {
+      res = await bridgeStreamPost(args.seam.bridgeUrl, {
+        bearer: args.seam.bridgeBearer,
+        sessionId: args.sessionId,
+        runId: args.run.id,
+        afterEventId: args.run.lastEventId,
+        body: args.body,
+        signal: args.signal,
+      })
+    } catch (error) {
+      if (args.signal.aborted) throw error
+      if (reconnects >= BRIDGE_MAX_RECONNECTS) {
+        throw new ValidationError(
+          `bridgeExecutor: run ${args.run.id} disconnected before terminal acknowledgement after ${reconnects + 1} attempts: ${errorMessage(error)}`,
+        )
+      }
+      reconnects += 1
+      continue
+    }
+
+    if (!res.ok) {
+      throw new ValidationError(
+        `bridgeExecutor: bridge ${res.status}: ${(await res.text()).slice(0, 300)}`,
+      )
+    }
+    if (!res.body) {
+      throw new ValidationError('bridgeExecutor: bridge response had no body to stream')
+    }
+    assertBridgeResponseIdentity(res, args.run)
+
+    let sawDone = false
+    try {
+      for await (const event of parseSseChatStream(res.body)) {
+        if (event.kind === 'done') {
+          sawDone = true
+          break
+        }
+        const expected = args.run.lastEventId + 1
+        if (event.id !== expected) {
+          throw new ValidationError(
+            `bridgeExecutor: run ${args.run.id} replay gap: expected event ${expected}, received ${event.id}`,
+          )
+        }
+        args.run.lastEventId = event.id
+        if (event.error) pendingUpstreamError = event.error
+        if (event.chunk) yield event.chunk
+      }
+    } catch (error) {
+      if (args.signal.aborted) throw error
+      if (error instanceof ValidationError) throw error
+      if (reconnects >= BRIDGE_MAX_RECONNECTS) {
+        throw new ValidationError(
+          `bridgeExecutor: run ${args.run.id} stream disconnected before terminal acknowledgement after ${reconnects + 1} attempts: ${errorMessage(error)}`,
+        )
+      }
+      reconnects += 1
+      continue
+    }
+
+    if (sawDone) {
+      args.run.terminal = true
+      if (pendingUpstreamError) throw pendingUpstreamError
+      return
+    }
+    // Preserve the provider's actual diagnostic even when a non-conforming
+    // bridge drops the final [DONE]. The run remains nonterminal in our local
+    // state, so teardown still has to cancel and obtain real terminal proof.
+    if (pendingUpstreamError) throw pendingUpstreamError
+    if (args.signal.aborted) {
+      throw new DOMException('bridgeExecutor: turn aborted', 'AbortError')
+    }
+    if (reconnects >= BRIDGE_MAX_RECONNECTS) {
+      throw new ValidationError(
+        `bridgeExecutor: run ${args.run.id} ended without terminal acknowledgement after ${reconnects + 1} attempts`,
+      )
+    }
+    reconnects += 1
+  }
+}
+
 /** The subset of `Response` `streamBridgeSession` consumes: status gate, an error
  *  body reader, and a web `ReadableStream` the SSE parser drains. */
 interface BridgeResponse {
   ok: boolean
   status: number
+  headers: Readonly<Record<string, string | string[] | undefined>>
   text: () => Promise<string>
   body: ReadableStream<Uint8Array> | null
 }
@@ -1168,6 +1496,8 @@ interface BridgeResponse {
 interface BridgeStreamPostArgs {
   bearer: string
   sessionId: string
+  runId: string
+  afterEventId: number
   body: unknown
   signal: AbortSignal
 }
@@ -1201,6 +1531,8 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
           'content-type': 'application/json',
           authorization: `Bearer ${args.bearer}`,
           'x-session-id': args.sessionId,
+          'x-run-id': args.runId,
+          ...(args.afterEventId > 0 ? { 'last-event-id': String(args.afterEventId) } : {}),
           'content-length': Buffer.byteLength(payload),
         },
         // No header/body idle timeout: a slow bridge is a live bridge; the abort
@@ -1208,12 +1540,15 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
         timeout: 0,
       },
       (res) => {
+        response = res
+        res.once('close', () => args.signal.removeEventListener('abort', onAbort))
         const status = res.statusCode ?? 0
         const ok = status >= 200 && status < 300
         const body = Readable.toWeb(res) as ReadableStream<Uint8Array>
         resolve({
           ok,
           status,
+          headers: res.headers,
           body,
           text: async () => {
             const chunks: Buffer[] = []
@@ -1223,8 +1558,12 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
         })
       },
     )
+    let response: Parameters<typeof Readable.toWeb>[0] | undefined
     const onAbort = (): void => {
       req.destroy(new DOMException('bridgeExecutor: turn aborted', 'AbortError'))
+      if (response && 'destroy' in response && typeof response.destroy === 'function') {
+        response.destroy(new DOMException('bridgeExecutor: turn aborted', 'AbortError'))
+      }
     }
     if (args.signal.aborted) onAbort()
     else args.signal.addEventListener('abort', onAbort, { once: true })
@@ -1232,10 +1571,185 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
       args.signal.removeEventListener('abort', onAbort)
       reject(e)
     })
-    req.on('close', () => args.signal.removeEventListener('abort', onAbort))
+    req.on('close', () => {
+      if (!response) args.signal.removeEventListener('abort', onAbort)
+    })
     req.write(payload)
     req.end()
   })
+}
+
+interface BridgeBufferedResponse {
+  status: number
+  headers: Readonly<Record<string, string | string[] | undefined>>
+  text: string
+}
+
+function bridgeHeader(
+  headers: Readonly<Record<string, string | string[] | undefined>>,
+  name: string,
+): string | undefined {
+  const raw = headers[name.toLowerCase()]
+  if (Array.isArray(raw)) return raw.length === 1 ? raw[0] : undefined
+  return raw
+}
+
+function assertBridgeResponseIdentity(response: BridgeResponse, run: ActiveBridgeRun): void {
+  assertBridgeIdentityHeaders(response.headers, run)
+}
+
+function assertBridgeIdentityHeaders(
+  headers: Readonly<Record<string, string | string[] | undefined>>,
+  run: ActiveBridgeRun,
+): void {
+  const responseRunId = bridgeHeader(headers, 'x-run-id')
+  if (responseRunId !== run.id) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge run identity mismatch: expected ${run.id}, received ${responseRunId ?? 'missing'}`,
+    )
+  }
+  const digest = bridgeHeader(headers, 'x-run-request-digest')
+  if (!digest || !/^sha256:[a-f0-9]{64}$/u.test(digest)) {
+    throw new ValidationError('bridgeExecutor: bridge response omitted a valid request digest')
+  }
+  if (run.requestDigest !== undefined && run.requestDigest !== digest) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge request digest changed for run ${run.id}: expected ${run.requestDigest}, received ${digest}`,
+    )
+  }
+  run.requestDigest = digest
+}
+
+/** Explicitly cancel one server-owned run and long-poll for its terminal snapshot. */
+function bridgeCancelPost(
+  seam: BridgeSeam,
+  run: ActiveBridgeRun,
+  waitMs: number,
+): Promise<BridgeBufferedResponse> {
+  const target = new URL(
+    `${seam.bridgeUrl.replace(/\/$/, '')}/v1/runs/${encodeURIComponent(run.id)}/cancel`,
+  )
+  target.searchParams.set('wait_ms', String(waitMs))
+  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise<BridgeBufferedResponse>((resolve, reject) => {
+    const req = requestFn(
+      target,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${seam.bridgeBearer}`,
+          'x-run-id': run.id,
+          'content-length': '0',
+        },
+        timeout: 0,
+      },
+      (res) => {
+        void (async () => {
+          const chunks: Buffer[] = []
+          for await (const chunk of res) chunks.push(Buffer.from(chunk))
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            text: Buffer.concat(chunks).toString('utf8'),
+          })
+        })().catch(reject)
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+async function requestBridgeRunCancellation(
+  seam: BridgeSeam,
+  run: ActiveBridgeRun,
+  waitMs: number,
+): Promise<boolean> {
+  if (run.terminal) return true
+  if (run.cancelInFlight) return run.cancelInFlight
+  const work = (async (): Promise<boolean> => {
+    const response = await bridgeCancelPost(seam, run, waitMs)
+    if (response.status === 404) {
+      throw new ValidationError(
+        `bridgeExecutor: bridge no longer knows run ${run.id}; terminal state is unproven`,
+      )
+    }
+    if (response.status !== 200 && response.status !== 202) {
+      throw new ValidationError(
+        `bridgeExecutor: cancel ${run.id} returned ${response.status}: ${response.text.slice(0, 300)}`,
+      )
+    }
+    assertBridgeIdentityHeaders(response.headers, run)
+    let parsed: {
+      terminal?: unknown
+      run?: { id?: unknown; requestDigest?: unknown; terminal?: unknown }
+    }
+    try {
+      parsed = JSON.parse(response.text) as typeof parsed
+    } catch {
+      throw new ValidationError(`bridgeExecutor: cancel ${run.id} returned invalid JSON`)
+    }
+    if (
+      parsed.run?.id !== run.id ||
+      parsed.run.requestDigest !== run.requestDigest ||
+      typeof parsed.terminal !== 'boolean' ||
+      typeof parsed.run.terminal !== 'boolean' ||
+      parsed.terminal !== parsed.run.terminal
+    ) {
+      throw new ValidationError(
+        `bridgeExecutor: cancel ${run.id} returned an inconsistent terminal snapshot`,
+      )
+    }
+    if (response.status === 200 && parsed.terminal === true) {
+      run.terminal = true
+      return true
+    }
+    if (response.status === 202 && parsed.terminal === false) return false
+    throw new ValidationError(
+      `bridgeExecutor: cancel ${run.id} status ${response.status} disagreed with terminal=${String(parsed.terminal)}`,
+    )
+  })()
+  run.cancelInFlight = work
+  try {
+    return await work
+  } finally {
+    if (run.cancelInFlight === work) run.cancelInFlight = undefined
+  }
+}
+
+async function cancelBridgeRunToTerminal(
+  seam: BridgeSeam,
+  run: ActiveBridgeRun,
+  grace: number | 'brutalKill' | 'infinity',
+  stopSignal?: AbortSignal,
+): Promise<boolean> {
+  if (run.terminal) return true
+  const deadline =
+    grace === 'infinity'
+      ? undefined
+      : Date.now() + (grace === 'brutalKill' ? BRIDGE_BRUTAL_KILL_WAIT_MS : Math.max(0, grace))
+  let first = true
+  for (;;) {
+    const remaining = deadline === undefined ? BRIDGE_CANCEL_LONG_POLL_MS : deadline - Date.now()
+    if (!first && remaining <= 0) return false
+    if (!first && stopSignal?.aborted) return false
+    const waitMs = Math.max(
+      0,
+      Math.min(
+        stopSignal ? 1_000 : BRIDGE_CANCEL_LONG_POLL_MS,
+        deadline === undefined ? remaining : Math.max(0, remaining),
+      ),
+    )
+    const terminal = await requestBridgeRunCancellation(seam, run, waitMs)
+    if (terminal) return true
+    first = false
+    if (deadline !== undefined && Date.now() >= deadline) return false
+    await new Promise<void>((resolve) => setTimeout(resolve, 10))
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 interface BridgeStreamChunk {
@@ -1245,15 +1759,19 @@ interface BridgeStreamChunk {
   cost?: number
 }
 
+type BridgeSseEvent =
+  | { kind: 'event'; id: number; chunk?: BridgeStreamChunk; error?: ValidationError }
+  | { kind: 'done' }
+
 /**
  * Parse cli-bridge's OpenAI-compatible SSE stream into normalized chunks. Each
- * `data:` line is an OpenAI chat-completion chunk (`choices[].delta`); `[DONE]`
- * and SSE comments (`:` keepalives) terminate/skip. Mirrors how `streamSandboxLeaf`
- * folds a box's event stream — same `UsageEvent` currency, different wire shape.
+ * `data:` line is an OpenAI chat-completion chunk (`choices[].delta`). Every
+ * run-owned frame, including an id-only comment, is returned so the caller can
+ * prove a contiguous replay sequence. Transport keepalives have no id and are ignored.
  */
 async function* parseSseChatStream(
   body: ReadableStream<Uint8Array>,
-): AsyncIterable<BridgeStreamChunk> {
+): AsyncIterable<BridgeSseEvent> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
@@ -1263,16 +1781,16 @@ async function* parseSseChatStream(
       if (done) break
       buf += decoder.decode(value, { stream: true })
       // SSE frames are separated by a blank line; split on it and keep the tail.
-      let sep = buf.indexOf('\n\n')
-      while (sep !== -1) {
-        const frame = buf.slice(0, sep)
-        buf = buf.slice(sep + 2)
-        const chunk = parseSseFrame(frame)
-        if (chunk === 'done') return
-        if (chunk) yield chunk
-        sep = buf.indexOf('\n\n')
+      let separator = /\r?\n\r?\n/u.exec(buf)
+      while (separator) {
+        const frame = buf.slice(0, separator.index)
+        buf = buf.slice(separator.index + separator[0].length)
+        const event = parseSseFrame(frame)
+        if (event) yield event
+        separator = /\r?\n\r?\n/u.exec(buf)
       }
     }
+    buf += decoder.decode()
     // Upstream failures routinely arrive UNTERMINATED: a final `data:` frame
     // with no trailing blank line, or a bare JSON error body with no SSE
     // framing at all (kimi's access_terminated_error). Dropping the tail here
@@ -1280,7 +1798,7 @@ async function* parseSseChatStream(
     // fails the run, but the diagnostic dies with the buffer. Parse the tail so
     // the upstream error message rides the thrown event instead.
     const tail = parseSseStreamTail(buf)
-    if (tail !== undefined && tail !== 'done') yield tail
+    if (tail !== undefined) yield tail
   } finally {
     reader.releaseLock()
   }
@@ -1290,7 +1808,7 @@ async function* parseSseChatStream(
  *  blank line, or a bare (non-SSE) JSON body — the shape bridge upstreams use
  *  for terminal failures. Throws `ValidationError` on an error payload; returns
  *  `undefined` for keepalive noise or non-JSON leftovers. */
-function parseSseStreamTail(buf: string): BridgeStreamChunk | 'done' | undefined {
+function parseSseStreamTail(buf: string): BridgeSseEvent | undefined {
   const tail = buf.trim()
   if (!tail) return undefined
   const framed = parseSseFrame(tail)
@@ -1309,18 +1827,32 @@ function parseSseStreamTail(buf: string): BridgeStreamChunk | 'done' | undefined
   return undefined
 }
 
-/** Parse one SSE frame (possibly multi-line `data:`/comment) into a chunk, `'done'`,
- *  or undefined (comment/keepalive/empty). */
-function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
+/** Parse one SSE frame into a numbered run event, terminal marker, or unnumbered keepalive. */
+function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   const dataLines: string[] = []
+  let id: number | undefined
   for (const rawLine of frame.split('\n')) {
     const line = rawLine.replace(/\r$/, '')
-    if (!line || line.startsWith(':')) continue // comment / keepalive
+    if (!line || line.startsWith(':')) continue
+    if (line.startsWith('id:')) {
+      const rawId = line.slice('id:'.length).trim()
+      if (!/^[1-9][0-9]*$/u.test(rawId)) {
+        throw new ValidationError(`bridgeExecutor: invalid SSE event id ${JSON.stringify(rawId)}`)
+      }
+      const parsedId = Number(rawId)
+      if (!Number.isSafeInteger(parsedId)) {
+        throw new ValidationError(`bridgeExecutor: SSE event id exceeds safe integer range`)
+      }
+      id = parsedId
+      continue
+    }
     if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart())
   }
-  if (dataLines.length === 0) return undefined
+  if (dataLines.length === 0) {
+    return id === undefined ? undefined : { kind: 'event', id }
+  }
   const data = dataLines.join('\n')
-  if (data === '[DONE]') return 'done'
+  if (data === '[DONE]') return { kind: 'done' }
   let parsed: {
     choices?: Array<{
       delta?: {
@@ -1335,14 +1867,21 @@ function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
   try {
     parsed = JSON.parse(data)
   } catch {
-    return undefined
+    throw new ValidationError('bridgeExecutor: bridge emitted a non-JSON SSE data frame')
+  }
+  if (id === undefined) {
+    throw new ValidationError('bridgeExecutor: bridge emitted an unnumbered run event')
   }
   if (parsed.error) {
     // `type` is the upstream's error class (e.g. kimi's access_terminated_error)
     // — carry it when the payload has no message, never collapse to 'unknown'.
-    throw new ValidationError(
-      `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
-    )
+    return {
+      kind: 'event',
+      id,
+      error: new ValidationError(
+        `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
+      ),
+    }
   }
   const out: BridgeStreamChunk = {}
   const choice = parsed.choices?.[0]
@@ -1355,7 +1894,11 @@ function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
     out.usage = { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0 }
   }
   if (typeof u?.cost === 'number') out.cost = u.cost
-  return Object.keys(out).length > 0 ? out : undefined
+  return {
+    kind: 'event',
+    id,
+    ...(Object.keys(out).length > 0 ? { chunk: out } : {}),
+  }
 }
 
 function bridgeWorktreeExecutor(
@@ -1375,6 +1918,11 @@ function bridgeWorktreeExecutor(
 
   const runId = seam.runId ?? randomUUID()
   const sessionId = bridge.sessionId ?? `bridge-worktree-${runId}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(runId)
+  const effectiveProfile = agentProfileSchema.parse(
+    mergeAgentProfiles(spec.profile, bridge.agentProfile) ?? spec.profile,
+  )
+  const model = bridgeCellModel(bridge.model, ctx, effectiveProfile)
   const controller = new AbortController()
   const pending: unknown[] = []
   let inner: Executor<unknown> | undefined
@@ -1402,129 +1950,158 @@ function bridgeWorktreeExecutor(
     pending.push(msg)
   }
 
-  return {
-    runtime: 'cli' as Runtime,
-    budgetExempt: seam.budgetExempt ?? false,
-    deliver,
-    execute(_task, signal): AsyncIterable<UsageEvent> {
-      return (async function* bridgeWorktreeStream() {
-        const started = Date.now()
-        const linked = mergeAbortSignals(signal, controller.signal)
-        let bridgeArtifact: ExecutorResult<unknown> | undefined
+  return attestRuntimeOwnedExecutor(
+    {
+      runtime: 'cli' as Runtime,
+      budgetExempt: seam.budgetExempt ?? false,
+      deliver,
+      execute(task, signal): AsyncIterable<UsageEvent> {
+        return (async function* bridgeWorktreeStream() {
+          const started = Date.now()
+          const linked = mergeAbortSignals(signal, controller.signal)
+          let bridgeArtifact: ExecutorResult<unknown> | undefined
 
+          try {
+            worktree = await createWorktree({
+              repoRoot: seam.repoRoot,
+              runId,
+              ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
+              ...(seam.runGit ? { runGit: seam.runGit } : {}),
+            })
+            removed = false
+
+            const bridgeSeam: BridgeSeam = {
+              bridgeUrl: bridge.bridgeUrl,
+              bridgeBearer: bridge.bridgeBearer,
+              cwd: worktree.path,
+              sessionId,
+              ...(bridge.model ? { model: bridge.model } : {}),
+              ...(bridge.agentProfile ? { agentProfile: bridge.agentProfile } : {}),
+              ...(bridge.timeoutMs !== undefined ? { timeoutMs: bridge.timeoutMs } : {}),
+              ...(bridge.maxTurns !== undefined ? { maxTurns: bridge.maxTurns } : {}),
+            }
+            const bridgeCtx: ExecutorContext = {
+              ...ctx,
+              signal: linked,
+              seams: { ...ctx.seams, [bridgeSeamKey]: bridgeSeam },
+            }
+            inner = bridgeExecutor(spec, bridgeCtx)
+            for (const msg of pending.splice(0)) inner.deliver?.(msg)
+
+            const run = inner.execute(task, linked)
+            if (isAsyncIterable<UsageEvent>(run)) {
+              for await (const event of run) yield event
+              bridgeArtifact = inner.resultArtifact()
+            } else {
+              bridgeArtifact = await run
+            }
+
+            const diff = await captureWorktreeDiff({
+              worktree,
+              ...(seam.runGit ? { runGit: seam.runGit } : {}),
+            })
+            const checks = await runWorktreeChecks({
+              worktreePath: worktree.path,
+              ...(seam.testCmd !== undefined ? { testCmd: seam.testCmd } : {}),
+              ...(seam.typecheckCmd !== undefined ? { typecheckCmd: seam.typecheckCmd } : {}),
+              timeoutMs:
+                seam.checkTimeoutMs ?? seam.harnessTimeoutMs ?? bridge.timeoutMs ?? 5 * 60 * 1000,
+              cap: seam.checkOutputCap ?? 16_000,
+              ...(seam.runCommand ? { runCommand: seam.runCommand } : {}),
+              signal: linked,
+            })
+
+            const result: WorktreeHarnessResult = {
+              branch: worktree.branch,
+              patch: diff.patch,
+              stats: diff.stats,
+              harness: {
+                name: 'bridge',
+                exitCode: null,
+                timedOut: false,
+                killedBySignal: null,
+                durationMs: bridgeArtifact.spent.ms || Date.now() - started,
+                stdout: bridgeOutputText(bridgeArtifact.out),
+                stderr: '',
+              },
+              ...(checks ? { checks } : {}),
+            }
+            const spent: Spend = {
+              ...bridgeArtifact.spent,
+              ms: bridgeArtifact.spent.ms || Date.now() - started,
+            }
+            artifact = {
+              outRef: contentRef('bridge-worktree', { sessionId, result }),
+              out: result,
+              spent,
+            }
+          } catch (err) {
+            controller.abort()
+            await inner?.teardown('brutalKill').catch(() => undefined)
+            await cleanupWorktree()
+            throw err
+          }
+        })()
+      },
+      async teardown(grace): Promise<{ destroyed: boolean }> {
+        controller.abort()
+        let destroyed = true
         try {
-          worktree = await createWorktree({
-            repoRoot: seam.repoRoot,
-            runId,
-            ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
-            ...(seam.runGit ? { runGit: seam.runGit } : {}),
-          })
-          removed = false
-
-          const bridgeSeam: BridgeSeam = {
-            bridgeUrl: bridge.bridgeUrl,
-            bridgeBearer: bridge.bridgeBearer,
-            model: resolveBridgeWorktreeModel(spec, bridge),
-            cwd: worktree.path,
-            sessionId,
-            ...(bridge.agentProfile
-              ? { agentProfile: bridge.agentProfile }
-              : { agentProfile: spec.profile as unknown as Record<string, unknown> }),
-            ...(bridge.timeoutMs !== undefined ? { timeoutMs: bridge.timeoutMs } : {}),
-            ...(bridge.maxTurns !== undefined ? { maxTurns: bridge.maxTurns } : {}),
+          if (inner) {
+            destroyed = (await inner.teardown(grace)).destroyed
           }
-          const bridgeCtx: ExecutorContext = {
-            ...ctx,
-            signal: linked,
-            seams: { ...ctx.seams, [bridgeSeamKey]: bridgeSeam },
-          }
-          inner = bridgeExecutor(spec, bridgeCtx)
-          for (const msg of pending.splice(0)) inner.deliver?.(msg)
-
-          const run = inner.execute(seam.taskPrompt, linked)
-          if (isAsyncIterable<UsageEvent>(run)) {
-            for await (const event of run) yield event
-            bridgeArtifact = inner.resultArtifact()
-          } else {
-            bridgeArtifact = await run
-          }
-
-          const diff = await captureWorktreeDiff({
-            worktree,
-            ...(seam.runGit ? { runGit: seam.runGit } : {}),
-          })
-          const checks = await runWorktreeChecks({
-            worktreePath: worktree.path,
-            ...(seam.testCmd !== undefined ? { testCmd: seam.testCmd } : {}),
-            ...(seam.typecheckCmd !== undefined ? { typecheckCmd: seam.typecheckCmd } : {}),
-            timeoutMs:
-              seam.checkTimeoutMs ?? seam.harnessTimeoutMs ?? bridge.timeoutMs ?? 5 * 60 * 1000,
-            cap: seam.checkOutputCap ?? 16_000,
-            ...(seam.runCommand ? { runCommand: seam.runCommand } : {}),
-            signal: linked,
-          })
-
-          const result: WorktreeHarnessResult = {
-            branch: worktree.branch,
-            patch: diff.patch,
-            stats: diff.stats,
-            harness: {
-              name: 'bridge',
-              exitCode: null,
-              timedOut: false,
-              killedBySignal: null,
-              durationMs: bridgeArtifact.spent.ms || Date.now() - started,
-              stdout: bridgeOutputText(bridgeArtifact.out),
-              stderr: '',
-            },
-            ...(checks ? { checks } : {}),
-          }
-          const spent: Spend = {
-            ...bridgeArtifact.spent,
-            ms: bridgeArtifact.spent.ms || Date.now() - started,
-          }
-          artifact = {
-            outRef: contentRef('bridge-worktree', { sessionId, result }),
-            out: result,
-            spent,
-          }
-        } catch (err) {
-          controller.abort()
-          await inner?.teardown('brutalKill').catch(() => undefined)
+        } finally {
           await cleanupWorktree()
-          throw err
         }
-      })()
-    },
-    async teardown(grace): Promise<{ destroyed: boolean }> {
-      controller.abort()
-      let destroyed = true
-      try {
-        if (inner) {
-          destroyed = (await inner.teardown(grace)).destroyed
+        return { destroyed }
+      },
+      resultArtifact() {
+        if (!artifact) {
+          throw new ValidationError(
+            'cliWorktreeExecutor: bridge resultArtifact() read before stream drained',
+          )
         }
-      } finally {
-        await cleanupWorktree()
-      }
-      return { destroyed }
+        return artifact
+      },
     },
-    resultArtifact() {
-      if (!artifact) {
-        throw new ValidationError(
-          'cliWorktreeExecutor: bridge resultArtifact() read before stream drained',
-        )
-      }
-      return artifact
+    {
+      effectiveProfile,
+      backend: 'bridge-worktree',
+      model: model
+        ? { status: 'known', id: model }
+        : { status: 'unknown', reason: 'bridge worktree profile did not select a model' },
+      execution: { kind: 'worktree-session', id: `${runId}:${sessionId}` },
+      materializer: 'bridge-worktree-agent-profile',
+      plan: {
+        kind: 'bridge-worktree-session',
+        runId,
+        sessionId,
+        baseRef: seam.baseRef ?? 'HEAD',
+        bridgeUrl: bridge.bridgeUrl,
+        model: model ?? null,
+        testCmd: seam.testCmd ?? null,
+        typecheckCmd: seam.typecheckCmd ?? null,
+        checkTimeoutMs:
+          seam.checkTimeoutMs ?? seam.harnessTimeoutMs ?? bridge.timeoutMs ?? 5 * 60 * 1000,
+        checkOutputCap: seam.checkOutputCap ?? 16_000,
+      },
     },
-  }
-}
-
-function resolveBridgeWorktreeModel(spec: AgentSpec, bridge: CliWorktreeBridgeSeam): string {
-  if (bridge.model) return bridge.model
-  const model = spec.profile.model?.default
-  if (typeof model === 'string' && model.length > 0) return model
-  throw new ValidationError(
-    'cliWorktreeExecutor: bridge.model or AgentProfile.model.default required',
+    {
+      attemptId,
+      binding: {
+        bridgeUrl: bridge.bridgeUrl,
+        effectiveProfile,
+        model: model ?? null,
+        repoRoot: seam.repoRoot,
+        runId,
+        sessionId,
+      },
+      descriptor: {
+        kind: 'bridge-worktree-session',
+        transport: 'http',
+        backend: 'bridge-worktree',
+      },
+    },
   )
 }
 
@@ -1558,8 +2135,8 @@ function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
  */
 export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<CliWorktreeSeam>(ctx, cliWorktreeSeamKey, 'cli-worktree')
-  if (!seam.repoRoot || !seam.taskPrompt) {
-    throw new ValidationError('cliWorktreeExecutor: CliWorktreeSeam.repoRoot + taskPrompt required')
+  if (!seam.repoRoot) {
+    throw new ValidationError('cliWorktreeExecutor: CliWorktreeSeam.repoRoot required')
   }
   if (seam.bridge) return bridgeWorktreeExecutor(spec, ctx, seam)
   if (!seam.harness) {
@@ -1571,7 +2148,7 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     repoRoot: seam.repoRoot,
     profile: spec.profile,
     harness: seam.harness,
-    taskPrompt: seam.taskPrompt,
+    ...(seam.taskPrompt !== undefined ? { taskPrompt: seam.taskPrompt } : {}),
     ...(seam.runId ? { runId: seam.runId } : {}),
     ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
     ...(seam.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: seam.harnessTimeoutMs } : {}),
@@ -1584,6 +2161,7 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     ...(seam.runGit ? { runGit: seam.runGit } : {}),
     ...(seam.runCommand ? { runCommand: seam.runCommand } : {}),
     ...(seam.budgetExempt !== undefined ? { budgetExempt: seam.budgetExempt } : {}),
+    ...(ctx.node?.attemptId !== undefined ? { executionAttemptId: ctx.node.attemptId } : {}),
   }) as Executor<unknown>
 }
 
@@ -1604,6 +2182,139 @@ export type ExecutorConfig =
   | ({ backend: 'pi' } & PiSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
 
+/** Capture one public executor configuration at its call boundary. All data that selects policy,
+ * model, process, limits, profile overlays, or backend behavior is detached and deeply frozen.
+ * Explicit service/function fields remain live by reference because they are executable ports,
+ * not portable configuration. */
+export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
+  switch (config.backend) {
+    case 'router-tools': {
+      const { executeToolCall, onToolStep, ...decisionData } = config
+      const snapshot = detachedSnapshot(decisionData, 'createExecutor router-tools config')
+      return Object.freeze({
+        ...snapshot,
+        executeToolCall,
+        ...(onToolStep === undefined ? {} : { onToolStep }),
+      })
+    }
+    case 'cli-worktree': {
+      const { runGit, runCommand, ...decisionData } = config
+      const snapshot = detachedSnapshot(decisionData, 'createExecutor cli-worktree config')
+      return Object.freeze({
+        ...snapshot,
+        ...(runGit === undefined ? {} : { runGit }),
+        ...(runCommand === undefined ? {} : { runCommand }),
+      })
+    }
+    case 'provider': {
+      const { provider, registry, taskToTurn, ...decisionData } = config
+      const snapshot = detachedSnapshot(decisionData, 'createExecutor provider config')
+      // A registry is a live service. Resolve its mutable name mapping exactly once at intake and
+      // retain the resulting provider instance, never the registry lookup for later execution.
+      const resolvedProvider = resolveAgentEnvironmentProvider(provider, registry)
+      return Object.freeze({
+        ...snapshot,
+        provider: resolvedProvider,
+        ...(taskToTurn === undefined ? {} : { taskToTurn }),
+      })
+    }
+    case 'sandbox': {
+      const { sandboxClient, loopCtx, ...decisionData } = config
+      if (loopCtx === undefined) {
+        const snapshot = detachedSnapshot(decisionData, 'createExecutor sandbox config')
+        return Object.freeze({ ...snapshot, sandboxClient })
+      }
+      const { hooks, traceEmitter, onSandboxEvent, runHandle, ...loopDecisionData } = loopCtx
+      const snapshot = detachedSnapshot(
+        { ...decisionData, loopCtx: loopDecisionData },
+        'createExecutor sandbox config',
+      )
+      const loopSnapshot = snapshot.loopCtx
+      return Object.freeze({
+        ...snapshot,
+        sandboxClient,
+        loopCtx: Object.freeze({
+          ...loopSnapshot,
+          ...(hooks === undefined ? {} : { hooks }),
+          ...(traceEmitter === undefined ? {} : { traceEmitter }),
+          ...(onSandboxEvent === undefined ? {} : { onSandboxEvent }),
+          ...(runHandle === undefined ? {} : { runHandle }),
+        }),
+      })
+    }
+    case 'router':
+    case 'bridge':
+    case 'cli':
+    case 'pi':
+      return detachedSnapshot(config, `createExecutor ${config.backend} config`)
+  }
+}
+
+/** A backend config reused for multiple workers/managers cannot pin execution identity or carry a
+ * profile overlay applied after Scope hashed the authored profile. Direct single-execution
+ * `createExecutor` calls may still use those fields. */
+export function captureReusableExecutorConfig(
+  config: ExecutorConfig,
+  context: string,
+): ExecutorConfig {
+  const captured = snapshotExecutorConfig(config)
+  const profileOverlay =
+    captured.backend === 'bridge'
+      ? captured.agentProfile
+      : captured.backend === 'cli-worktree'
+        ? captured.bridge?.agentProfile
+        : undefined
+  if (profileOverlay !== undefined) {
+    throw new ValidationError(
+      `${context}: backend agentProfile overlays are not allowed because they change the effective profile after spawn identity is fixed`,
+    )
+  }
+  const fixedIdentity =
+    captured.backend === 'bridge' && captured.sessionId !== undefined
+      ? 'sessionId'
+      : captured.backend === 'cli-worktree' && captured.runId !== undefined
+        ? 'runId'
+        : captured.backend === 'cli-worktree' && captured.bridge?.sessionId !== undefined
+          ? 'bridge.sessionId'
+          : undefined
+  if (fixedIdentity !== undefined) {
+    throw new ValidationError(
+      `${context}: fixed ${fixedIdentity} is not allowed on a reusable backend; let each execution derive an isolated id`,
+    )
+  }
+  return captured
+}
+
+/** Bind one already-captured reusable backend to the durable identity of the execution that will
+ * use it. Stateful bridge backends need an explicit external id: a random default isolates two
+ * siblings but cannot reconnect a replacement process to the same harness session. Non-stateful
+ * backends carry no external execution id and are returned unchanged. */
+export function bindReusableExecutorExecutionId(
+  captured: ExecutorConfig,
+  executionId: string,
+): ExecutorConfig {
+  if (typeof executionId !== 'string' || executionId.length === 0) {
+    throw new ValidationError(
+      'bindReusableExecutorExecutionId: executionId must be a non-empty string',
+    )
+  }
+  switch (captured.backend) {
+    case 'bridge':
+      return Object.freeze({ ...captured, sessionId: executionId })
+    case 'cli-worktree':
+      // The bridged worktree derives `bridge-worktree-${runId}` when no inner session id is set,
+      // so this one durable value binds both the worktree and its resumed harness conversation.
+      return Object.freeze({ ...captured, runId: executionId })
+    case 'router':
+    case 'router-tools':
+    case 'cli':
+    case 'provider':
+    case 'pi':
+    case 'sandbox':
+      return captured
+  }
+}
+
 /**
  * The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
  * injects the matching seam, and delegates to that backend's built-in implementation.
@@ -1613,10 +2324,12 @@ export type ExecutorConfig =
  * `UsageEvent` reporting channel.
  */
 export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown> {
+  const captured = snapshotExecutorConfig(config)
   return (spec, ctx) => {
-    const { backend, ...seam } = config as ExecutorConfig & Record<string, unknown>
+    const { backend, ...seamData } = captured as ExecutorConfig & Record<string, unknown>
+    const seam = Object.freeze(seamData)
     const seamed: ExecutorContext = { ...ctx, seams: { ...ctx.seams, [backend]: seam } }
-    switch (config.backend) {
+    switch (captured.backend) {
       case 'router':
         return routerInlineExecutor(spec, seamed)
       case 'router-tools':
@@ -1640,7 +2353,7 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
       case 'sandbox': {
         // The sandbox executor requires a concrete harness; a spec-level harness
         // wins, else the config names it (fail-loud inside if both are absent).
-        const harness = spec.harness ?? config.harness ?? null
+        const harness = spec.harness ?? captured.harness ?? null
         return sandboxExecutor({ ...spec, harness }, seamed)
       }
     }
@@ -1656,8 +2369,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
  * without touching the registry at all. NOT a closed switch; registration + BYO
  * ARE the extension points.
  *
- * `resolve` precedence (frozen in `ExecutorRegistry`): a BYO `spec.executor` →
- * `harness === null` → the `'router'` factory; else a registered factory for the
+ * `resolve` precedence (frozen in `ExecutorRegistry`): a BYO `spec.executorFactory` →
+ * `spec.executor` → `harness === null` → the `'router'` factory; else a registered factory for the
  * harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
  */
 export function createExecutorRegistry(): ExecutorRegistry {
@@ -1681,6 +2394,10 @@ export function createExecutorRegistry(): ExecutorRegistry {
     resolve<Out>(
       spec: AgentSpec,
     ): { succeeded: true; value: ExecutorFactory<Out> } | { succeeded: false; error: string } {
+      // BYO factory: constructed only after Scope admission with the real signal/context.
+      if (spec.executorFactory) {
+        return { succeeded: true, value: spec.executorFactory as ExecutorFactory<Out> }
+      }
       // BYO: a caller-supplied executor wins, wrapped in a trivial per-spawn factory.
       if (spec.executor) {
         const byo = spec.executor
@@ -1731,11 +2448,13 @@ function taskToPrompt(task: unknown): string {
   return JSON.stringify(task)
 }
 
-/** Router messages from the opaque task + the profile's system prompt, when set. */
+/** Router messages from the opaque task + every portable profile prompt instruction. */
 function taskToMessages(task: unknown, spec: AgentSpec): Array<{ role: string; content: string }> {
   const messages: Array<{ role: string; content: string }> = []
-  const system = spec.profile.prompt?.systemPrompt
-  if (typeof system === 'string' && system.length > 0) {
+  const system = [spec.profile.prompt?.systemPrompt, ...(spec.profile.prompt?.instructions ?? [])]
+    .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
+    .join('\n')
+  if (system.length > 0) {
     messages.push({ role: 'system', content: system })
   }
   messages.push({ role: 'user', content: taskToPrompt(task) })

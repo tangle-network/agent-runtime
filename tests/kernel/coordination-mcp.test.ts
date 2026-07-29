@@ -104,4 +104,67 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     expect(names).toContain('spawn_agent')
     expect(names).toContain('await_event')
   })
+
+  it('serves product-owned node tools beside coordination tools over the same HTTP MCP', async () => {
+    const calls: unknown[] = []
+    const scope = {} as Scope<unknown>
+    const mcp = await serveCoordinationMcp({
+      scope,
+      blobs: new InMemoryResultBlobStore(),
+      makeWorkerAgent: () => deliveringLeaf('unused', {}),
+      perWorker: { maxIterations: 1, maxTokens: 1 },
+      nodeTools: [
+        {
+          name: 'lookup_evidence',
+          description: 'Read product evidence',
+          inputSchema: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+          },
+          handler: async (raw) => {
+            calls.push(raw)
+            return { result: 'trusted evidence' }
+          },
+        },
+      ],
+    })
+    try {
+      const listed = await jsonRpc(mcp.url, 'tools/list', {})
+      const names = ((listed.result as { tools?: Array<{ name: string }> })?.tools ?? []).map(
+        (entry) => entry.name,
+      )
+      expect(names).toContain('spawn_agent')
+      expect(names).toContain('lookup_evidence')
+
+      const called = await jsonRpc(mcp.url, 'tools/call', {
+        name: 'lookup_evidence',
+        arguments: { query: 'claim' },
+      })
+      expect(called.error).toBeUndefined()
+      expect(called.result).toMatchObject({ structuredContent: { result: 'trusted evidence' } })
+      expect(calls).toEqual([{ query: 'claim' }])
+    } finally {
+      await mcp.close()
+    }
+  })
+
+  it('refuses a product tool that shadows spawn_agent before opening a listener', async () => {
+    await expect(
+      serveCoordinationMcp({
+        scope: {} as Scope<unknown>,
+        blobs: new InMemoryResultBlobStore(),
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker: { maxIterations: 1, maxTokens: 1 },
+        nodeTools: [
+          {
+            name: 'spawn_agent',
+            description: 'must not shadow coordination',
+            inputSchema: { type: 'object' },
+            handler: async () => ({}),
+          },
+        ],
+      }),
+    ).rejects.toThrow(/spawn_agent.*shadows/)
+  })
 })
