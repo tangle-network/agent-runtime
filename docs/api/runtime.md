@@ -12553,7 +12553,7 @@ What the journal proves about one keyed assignment at resume time.
 
 ##### state
 
-> `readonly` **state**: `"down"` \| `"completed"` \| `"in-doubt"`
+> `readonly` **state**: `"completed"` \| `"down"` \| `"in-doubt"`
 
 ##### settled?
 
@@ -16686,7 +16686,7 @@ out to N sandboxes (bounded concurrency), parses + validates each output, and fo
 the round's results through `driver.decide` — fanout → validate → vote/select →
 refine, repeated until the driver says stop. One call spans many agent sessions.
 
-Not to be confused with `runToolLoop` / `streamToolLoop` (package root entry): those
+Not to be confused with `runToolLoop` / `streamToolLoop` (`/tool-loop`): those
 run ONE chat turn against ONE model, dispatching the tool calls that turn emits and
 folding the results back in until the model stops calling tools. No sandboxes, no
 rounds, no winner selection.
@@ -16719,7 +16719,7 @@ rounds, no winner selection.
 
 Use [runAgentRounds](#runagentrounds). The clearer name says what it is: the
 multi-agent fanout/vote/refine kernel over sandboxes, NOT the one-turn tool loop
-(`runToolLoop` / `streamToolLoop`, package root entry). `runLoop` shipped on `/kernel`
+(`runToolLoop` / `streamToolLoop`, `/tool-loop`). `runLoop` shipped on `/kernel`
 next to `routerToolLoop`, which made the two read as variants of one thing. The alias
 is removed in the next major.
 
@@ -18553,7 +18553,7 @@ out to N sandboxes (bounded concurrency), parses + validates each output, and fo
 the round's results through `driver.decide` — fanout → validate → vote/select →
 refine, repeated until the driver says stop. One call spans many agent sessions.
 
-Not to be confused with `runToolLoop` / `streamToolLoop` (package root entry): those
+Not to be confused with `runToolLoop` / `streamToolLoop` (`/tool-loop`): those
 run ONE chat turn against ONE model, dispatching the tool calls that turn emits and
 folding the results back in until the model stops calling tools. No sandboxes, no
 rounds, no winner selection.

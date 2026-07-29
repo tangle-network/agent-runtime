@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 
-import { findStaticPackageImports } from './lib/static-imports.mjs'
+import {
+  findLiteralModuleSpecifiers,
+  findStaticModuleSpecifiers,
+  findStaticPackageImports,
+} from './lib/static-imports.mjs'
 
 const specifier = 'proper-lockfile'
 const cases = [
@@ -39,4 +43,20 @@ assert.deepEqual(
   'returns only statically imported blocked packages',
 )
 
-process.stdout.write(`Static import parser: ${cases.length + 1} synthetic cases passed.\n`)
+assert.deepEqual(
+  findStaticModuleSpecifiers(
+    `import './chunk.js'; export * from 'edge-safe-package'; await import('lazy-package')`,
+  ),
+  ['./chunk.js', 'edge-safe-package'],
+  'returns every static module specifier and excludes dynamic imports',
+)
+
+assert.deepEqual(
+  findLiteralModuleSpecifiers(
+    `import './chunk.js'; await import('lazy-package'); import(variableName)`,
+  ),
+  ['./chunk.js', 'lazy-package'],
+  'returns literal dynamic imports but excludes computed imports',
+)
+
+process.stdout.write(`Static import parser: ${cases.length + 3} synthetic cases passed.\n`)

@@ -270,20 +270,6 @@ export {
   runtimeStreamServerSentEvent,
   type ServerSentEventOptions,
 } from './sse'
-export {
-  type RunToolLoopOptions,
-  runToolLoop,
-  type StreamToolLoopOptions,
-  type StreamToolLoopYield,
-  streamToolLoop,
-  type ToolCallOutcome,
-  type ToolLoopAssistantToolCall,
-  type ToolLoopCall,
-  type ToolLoopEvent,
-  type ToolLoopMessage,
-  type ToolLoopResult,
-  type ToolLoopStopReason,
-} from './tool-loop'
 // ── Core types ───────────────────────────────────────────────────────
 export type {
   AgentAdapter,

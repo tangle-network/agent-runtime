@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.109.0",
+  "version": "0.109.1",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -33,6 +33,11 @@
       "types": "./dist/durable.d.ts",
       "import": "./dist/durable.js",
       "default": "./dist/durable.js"
+    },
+    "./tool-loop": {
+      "types": "./dist/tool-loop.d.ts",
+      "import": "./dist/tool-loop.js",
+      "default": "./dist/tool-loop.js"
     },
     "./intelligence": {
       "types": "./dist/intelligence.d.ts",
@@ -118,10 +123,11 @@
     "check:skills": "node scripts/check-skills.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
     "verify:static-imports": "node scripts/verify-static-imports.mjs",
+    "verify:edge-tool-loop": "node scripts/verify-edge-tool-loop.mjs",
     "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
     "verify:bench:published": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
     "verify:cohort": "node scripts/verify-packed-cohort.mjs",
-    "verify:package": "pnpm run verify:static-imports && pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs",
+    "verify:package": "pnpm run verify:static-imports && pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs && pnpm run verify:edge-tool-loop",
     "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect.mjs",
     "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
@@ -137,6 +143,7 @@
     "@tangle-network/sandbox": "catalog:",
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
+    "miniflare": "4.20260722.0",
     "playwright": "^1.62.0",
     "publint": "catalog:",
     "tsdown": "catalog:",
@@ -144,7 +151,8 @@
     "typedoc": "0.28.20",
     "typedoc-plugin-markdown": "4.12.0",
     "typescript": "catalog:",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "4.114.0"
   },
   "engines": {
     "node": ">=22.13.0"

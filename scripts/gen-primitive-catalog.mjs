@@ -65,6 +65,7 @@ const ownSurfaceLabels = {
   './agent': 'Vertical agent — manifest + surface proposal source',
   './conversation': 'Multi-turn conversations',
   './durable': 'Product chat turns — edge-safe streaming, persistence, and stable execution IDs',
+  './tool-loop': 'Bounded tool calls for browser and edge runtimes',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
   './kernel': 'Execution kernel — recursive atom, supervision, executors, round-synchronous loop',
   './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',
