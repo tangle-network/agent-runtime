@@ -58,6 +58,7 @@ export {
   prepareAgentCandidateExecution,
 } from './prepare'
 export {
+  agentCandidateProfileAsAgentProfile,
   applyExactAgentProfileDiff,
   assertCandidateProfileBinding,
   parseExactAgentProfile,
