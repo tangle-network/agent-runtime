@@ -31,7 +31,7 @@ interface WorkerScript {
   readonly score: number
 }
 
-function workerExecutor(s: WorkerScript): Executor<unknown> {
+function workerExecutor(s: WorkerScript, onTeardown?: () => void): Executor<unknown> {
   const events: UsageEvent[] = []
   for (let i = 0; i < s.iterations; i += 1) events.push({ kind: 'iteration' })
   events.push({ kind: 'tokens', input: s.tokens.input, output: s.tokens.output })
@@ -42,7 +42,10 @@ function workerExecutor(s: WorkerScript): Executor<unknown> {
         for (const ev of events) yield ev
       })()
     },
-    teardown: () => Promise.resolve({ destroyed: true }),
+    teardown: () => {
+      onTeardown?.()
+      return Promise.resolve({ destroyed: true })
+    },
     resultArtifact(): ExecutorResult<unknown> {
       return {
         outRef: `w:${JSON.stringify(s.out)}`,
@@ -54,11 +57,15 @@ function workerExecutor(s: WorkerScript): Executor<unknown> {
   }
 }
 
-function workerLeaf(name: string, s: WorkerScript): Agent<unknown, unknown> {
+function workerLeaf(
+  name: string,
+  s: WorkerScript,
+  onTeardown?: () => void,
+): Agent<unknown, unknown> {
   const spec: AgentSpec = {
     profile: { name } as AgentProfile,
     harness: null,
-    executor: workerExecutor(s),
+    executor: workerExecutor(s, onTeardown),
   }
   return { name, act: async () => s.out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
@@ -101,7 +108,7 @@ const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 function driverOpts(
   name: string,
   brain: ToolLoopChat,
-  makeWorkerAgent: (p: unknown) => Agent<unknown, unknown>,
+  makeWorkerAgent: (p: AgentProfile) => Agent<unknown, unknown>,
 ): DriverAgentOptions {
   return {
     name,
@@ -130,14 +137,17 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       score: 0.9,
     })
     // The makeWorkerAgent the spawn_agent tool dispatches: this test only spawns the worker leaf.
-    const makeAgent = (_p: unknown): Agent<unknown, unknown> => worker
+    const makeAgent = (_p: AgentProfile): Agent<unknown, unknown> => worker
 
     // Scripted driver LLM: turn 0 spawns a worker, turn 1 awaits it, turn 2 stops (no calls).
     const chat = scriptedBrain(
       [
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+            {
+              name: 'spawn_agent',
+              arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+            },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -180,25 +190,45 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
 
-    const worker = workerLeaf('w', {
-      out: { answer: 42 },
-      tokens: { input: 10, output: 5 },
-      iterations: 1,
-      score: 0.9,
+    let markWorkerFinished: (() => void) | undefined
+    const workerFinished = new Promise<void>((resolve) => {
+      markWorkerFinished = resolve
     })
-    const makeAgent = (_p: unknown): Agent<unknown, unknown> => worker
+
+    const worker = workerLeaf(
+      'w',
+      {
+        out: { answer: 42 },
+        tokens: { input: 10, output: 5 },
+        iterations: 1,
+        score: 0.9,
+      },
+      () => markWorkerFinished?.(),
+    )
+    const makeAgent = (_p: AgentProfile): Agent<unknown, unknown> => worker
 
     // Scripted driver LLM: spawns a worker then STOPS — it never calls await_event, the exact
     // pull-discipline failure a live LLM brain exhibits. The worker still delivers; losing it
     // to an empty ledger was the bug.
-    const chat = scriptedBrain([
+    const scripted = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+          {
+            name: 'spawn_agent',
+            arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+          },
         ],
       },
       { content: 'spawned; stopping without awaiting' },
     ])
+    let turn = 0
+    const chat: ToolLoopChat = async (messages, options) => {
+      // Model inference naturally leaves time between tool rounds. Make that ordering explicit so
+      // this test proves the documented case—already-settled work—not a race with journal commit.
+      if (turn === 1) await workerFinished
+      turn += 1
+      return scripted(messages, options)
+    }
 
     const root = driverAgent(driverOpts('root', chat, makeAgent))
     const result = await createSupervisor<unknown, unknown>().run(root, 'solve it', {
@@ -228,7 +258,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     // Alternate good/failing on each spawn_agent dispatch — the brain fans out three workers,
     // two of which crash (down), and stops without awaiting any of them.
     let spawn = 0
-    const makeAgent = (_p: unknown): Agent<unknown, unknown> =>
+    const makeAgent = (_p: AgentProfile): Agent<unknown, unknown> =>
       spawn++ === 0 ? good : hangingWorkerLeaf(`bad-${spawn}`)
 
     const chat = scriptedBrain([
@@ -279,7 +309,10 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     const midTurns: ScriptedTurn[] = [
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
+          {
+            name: 'spawn_agent',
+            arguments: { profile: { metadata: { kind: 'worker' } }, task: 'sub' },
+          },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -288,9 +321,8 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
 
     // The recursive resolver: a 'driver' profile → a driverChild wrapping ANOTHER
     // driverAgent (over the same recursive makeAgent); a 'worker' profile → leaf.
-    const makeAgent = (raw: unknown): Agent<unknown, unknown> => {
-      const p = raw as { kind?: string }
-      if (p?.kind === 'driver') {
+    const makeAgent = (profile: AgentProfile): Agent<unknown, unknown> => {
+      if (profile.metadata?.kind === 'driver') {
         const childBrain = scriptedBrain(midTurns, midSeen)
         return driverChild('mid', driverAgent(driverOpts('mid', childBrain, makeAgent)), journal)
       }
@@ -302,7 +334,10 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       [
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
+            {
+              name: 'spawn_agent',
+              arguments: { profile: { metadata: { kind: 'driver' } }, task: 'delegate' },
+            },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -424,7 +459,7 @@ function collectTreeKeys(journal: InMemorySpawnJournal): string[] {
 // `list_questions` is always present (no analysts needed), has no side effects, and reserves no
 // budget — the ideal benign tool for driving the loop a fixed number of turns.
 const benignTurn: ScriptedTurn = { toolCalls: [{ name: 'list_questions', arguments: {} }] }
-const dummyWorker = (_p: unknown): Agent<unknown, unknown> =>
+const dummyWorker = (_p: AgentProfile): Agent<unknown, unknown> =>
   workerLeaf('w', { out: {}, tokens: { input: 0, output: 0 }, iterations: 0, score: 0 })
 
 function bounds0Opts(name: string, brain: ToolLoopChat): DriverAgentOptions {
@@ -645,7 +680,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
 })
 
 describe('driverAgent — the analyst up-leg (analysts + analyzeOnSettle pass-through)', () => {
-  const noWorker = (_p: unknown): Agent<unknown, unknown> =>
+  const noWorker = (_p: AgentProfile): Agent<unknown, unknown> =>
     ({
       name: 'w',
       act: async () => '',

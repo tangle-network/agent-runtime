@@ -34,10 +34,12 @@ async function main(): Promise<void> {
   const result = await supervise(
     {
       name: 'supervisor',
-      harness: null,
-      systemPrompt:
-        'You are a supervisor. Spawn one worker session to produce the required line, await it with ' +
-        'await_event, and stop once a worker delivered (valid). Do not answer yourself.',
+      harness: 'cli-base',
+      prompt: {
+        systemPrompt:
+          'You are a supervisor. Spawn one worker session to produce the required line, await it ' +
+          'with await_event, and stop once a worker delivered (valid). Do not answer yourself.',
+      },
     },
     demoGoal,
     {

@@ -144,6 +144,27 @@ async function beginScope(over: Partial<Parameters<typeof createScope>[0]> = {})
 // ── 1. Conserved budget pool ─────────────────────────────────────────────────────
 
 describe('conserved budget pool', () => {
+  it.each([
+    { maxIterations: -1, maxTokens: 100 },
+    { maxIterations: 1.5, maxTokens: 100 },
+    { maxIterations: 1, maxTokens: -1 },
+    { maxIterations: 1, maxTokens: Number.MAX_SAFE_INTEGER + 1 },
+    { maxIterations: 1, maxTokens: 100, maxUsd: Number.POSITIVE_INFINITY },
+    { maxIterations: 1, maxTokens: 100, deadlineMs: -1 },
+  ] as Budget[])('rejects a malformed root budget before it can create capacity', (invalid) => {
+    expect(() => createBudgetPool(invalid, () => 0)).toThrow(/non-negative/)
+  })
+
+  it('rejects a negative reservation without changing the root balance', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 100 }, () => 0)
+    expect(() => pool.reserve({ maxIterations: -10, maxTokens: -100 })).toThrow(/non-negative/)
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 100,
+      tokensKnown: true,
+      reservedTokens: 0,
+    })
+  })
+
   it('reserve fails closed when the pool cannot cover the child', () => {
     const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000 }, () => 0)
     const a = pool.reserve({ maxIterations: 2, maxTokens: 600, label: '' } as Budget)
@@ -170,6 +191,25 @@ describe('conserved budget pool', () => {
     })
     expect(pool.readout().tokensLeft).toBe(700)
     expect(pool.readout().reservedTokens).toBe(0)
+  })
+
+  it('records actual overspend and refuses later work instead of clamping telemetry', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 20 }, () => 0)
+    const first = pool.reserve({ maxIterations: 1, maxTokens: 10 })
+    if (!first.ok) throw new Error('reserve should have succeeded')
+
+    pool.reconcile(first.ticket, {
+      iterations: 1,
+      tokens: { input: 20, output: 0 },
+      usd: 0,
+      ms: 0,
+    })
+
+    expect(pool.readout().tokensLeft).toBe(0)
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 1 })).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
   })
 
   it('fails loud on a double reconcile (no silent double refund)', () => {
@@ -218,6 +258,50 @@ describe('conserved budget pool', () => {
     expect(pool.readout().usdLeft).toBe(0)
   })
 
+  it('preserves unknown dollar telemetry under an uncapped root without blocking admission', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 1, maxTokens: 500 })
+    if (!r.ok) throw new Error('reserve should have succeeded')
+
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        tokens: { input: 40, output: 60 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      }),
+    ).not.toThrow()
+    expect(pool.readout()).toMatchObject({ usdCapped: false, usdKnown: false, tokensLeft: 900 })
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 100 }).ok).toBe(true)
+  })
+
+  it('marks restored in-doubt dollar telemetry unknown even without a dollar limit', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0, {
+      uncertainReservations: [{ maxIterations: 1, maxTokens: 500 }],
+    })
+
+    expect(pool.readout()).toMatchObject({
+      tokensKnown: false,
+      usdCapped: false,
+      usdKnown: false,
+      tokensLeft: 500,
+    })
+  })
+
+  it('refuses malformed committed spend during restore instead of restoring it as zero', () => {
+    expect(() =>
+      createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0, {
+        committed: {
+          iterations: 1,
+          tokens: { input: -1, output: 0 },
+          usd: 0,
+          ms: 0,
+        },
+      }),
+    ).toThrow(/budget restore committed\.tokens\.input/)
+  })
+
   it('never interprets explicitly unknown dollar cost as $0 under a dollar limit', () => {
     const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, () => 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 500, maxUsd: 1 } as Budget)
@@ -231,6 +315,43 @@ describe('conserved budget pool', () => {
         ms: 0,
       }),
     ).toThrow(/unknown dollar cost/)
+    expect(pool.readout().usdLeft).toBe(0)
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+  })
+
+  it('never interprets explicitly unknown token usage as zero', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 1, maxTokens: 500 })
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        tokens: { input: 0, output: 0 },
+        tokensKnown: false,
+        usd: 0,
+        ms: 0,
+      }),
+    ).toThrow(/unknown token usage/)
+    expect(pool.readout()).toMatchObject({ tokensLeft: 0, tokensKnown: false })
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 1 })).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+  })
+
+  it('exhausts live dollar capacity after observing unknown manager cost', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    expect(() =>
+      pool.observe({
+        iterations: 1,
+        tokens: { input: 40, output: 60 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      }),
+    ).toThrow(/unknown dollar cost/)
+    expect(pool.readout()).toMatchObject({ tokensLeft: 900, usdLeft: 0, usdCapped: true })
   })
 
   it('spendFromUsageEvents folds tokens + usd on separate channels', () => {

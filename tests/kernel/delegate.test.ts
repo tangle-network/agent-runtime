@@ -62,14 +62,14 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
 
     expect(superviseSpy).toHaveBeenCalledTimes(1)
     const [profile, task, opts] = superviseSpy.mock.calls[0] as [
-      { name?: string; harness?: unknown; systemPrompt?: string },
+      { name?: string; harness?: unknown; prompt?: { systemPrompt?: string } },
       unknown,
       { backend?: unknown; router?: unknown; budget?: unknown },
     ]
     // A router-brained AUTHORING supervisor: its standing instruction IS the authoring skill, so it
     // writes its own worker profile from the intent — no worker profile is baked into delegate.
-    expect(profile.harness ?? null).toBeNull()
-    expect(profile.systemPrompt).toBe(supervisorInstructions())
+    expect(profile.harness).toBe('cli-base')
+    expect(profile.prompt?.systemPrompt).toBe(supervisorInstructions())
     // The intent is handed through verbatim as the task.
     expect(task).toBe('fix the failing auth test')
     // The injected substrate (where workers run + the brain) is forwarded.
@@ -127,11 +127,11 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
     })
 
     const [profile, , opts] = superviseSpy.mock.calls[0] as [
-      { model?: string },
+      { model?: { default?: string } },
       unknown,
       Record<string, unknown>,
     ]
-    expect(profile.model).toBe('glm-5.2')
+    expect(profile.model?.default).toBe('glm-5.2')
     expect(opts.deliverable).toBe(deliverable)
     expect(opts.budget).toBe(budget)
     expect(opts.allowedModels).toEqual(['glm-5.2', 'deepseek-v4-flash'])
@@ -144,9 +144,11 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
       router,
       supervisor: { name: 'my-supervisor', systemPrompt: 'custom stance' },
     })
-    const [profile] = superviseSpy.mock.calls[0] as [{ name?: string; systemPrompt?: string }]
+    const [profile] = superviseSpy.mock.calls[0] as [
+      { name?: string; prompt?: { systemPrompt?: string } },
+    ]
     expect(profile.name).toBe('my-supervisor')
-    expect(profile.systemPrompt).toBe('custom stance')
+    expect(profile.prompt?.systemPrompt).toBe('custom stance')
   })
 
   it('fails loud on an empty intent', async () => {

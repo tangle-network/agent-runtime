@@ -32,18 +32,20 @@ async function main(): Promise<void> {
   const result = await supervise(
     {
       name: 'supervisor',
-      harness: null, // router brain (the supervisor reasons spawn/await/stop over the router's tool-calling)
+      harness: 'cli-base', // in-process router brain (the supervisor calls spawn/await/stop)
       // This demo overrides the shipped `defaultSupervisorPrompt` on purpose: the default tells a
       // supervisor to do SMALL work itself, but this supervisor has no work tools and the completion
       // oracle only credits a DELIVERED child — so we force the delegation path the example teaches.
       // Real supervisors with work tools want the default (do-small-work-yourself / spawn-when-large).
-      systemPrompt:
-        'You are a supervisor. Produce the deliverable by delegating:\n' +
-        '1. Call spawn_agent with a worker profile and the task.\n' +
-        '2. Then call await_event and WAIT for that worker to settle — never call stop while a ' +
-        'worker is still running, or its result is lost.\n' +
-        '3. Once a worker has delivered, call stop.\n' +
-        "Do not answer the task yourself — only a spawned worker's output counts as delivered.",
+      prompt: {
+        systemPrompt:
+          'You are a supervisor. Produce the deliverable by delegating:\n' +
+          '1. Call spawn_agent with a worker profile and the task.\n' +
+          '2. Then call await_event and WAIT for that worker to settle — never call stop while a ' +
+          'worker is still running, or its result is lost.\n' +
+          '3. Once a worker has delivered, call stop.\n' +
+          "Do not answer the task yourself — only a spawned worker's output counts as delivered.",
+      },
     },
     'Produce the exact line: READY',
     {

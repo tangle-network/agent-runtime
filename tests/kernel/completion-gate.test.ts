@@ -127,7 +127,7 @@ let blobs = new InMemoryResultBlobStore()
 function driverOpts(
   name: string,
   brain: ToolLoopChat,
-  makeWorkerAgent: (p: unknown) => Agent<unknown, unknown>,
+  makeWorkerAgent: (p: AgentProfile) => Agent<unknown, unknown>,
 ): DriverAgentOptions {
   return { name, brain, blobs, makeWorkerAgent, perWorker, systemPrompt: 'drive', maxTurns: 8 }
 }
@@ -149,7 +149,14 @@ function gatedWorkerLeaf(
 }
 
 const spawnAwaitStop: ScriptedTurn[] = [
-  { toolCalls: [{ name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } }] },
+  {
+    toolCalls: [
+      {
+        name: 'spawn_agent',
+        arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+      },
+    ],
+  },
   { toolCalls: [{ name: 'await_event', arguments: {} }] },
   { content: 'stop' },
 ]
@@ -207,14 +214,19 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { out: { pick: 'not-me' }, score: 0.99 },
       { check: () => false },
     )
-    const makeAgent = (raw: unknown) =>
-      (raw as { which?: string })?.which === 'b' ? ran : delivered
+    const makeAgent = (profile: AgentProfile) => (profile.metadata?.which === 'b' ? ran : delivered)
     // spawn BOTH, await BOTH, stop.
     const turns: ScriptedTurn[] = [
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { which: 'a' }, task: 'a' } },
-          { name: 'spawn_agent', arguments: { profile: { which: 'b' }, task: 'b' } },
+          {
+            name: 'spawn_agent',
+            arguments: { profile: { metadata: { which: 'a' } }, task: 'a' },
+          },
+          {
+            name: 'spawn_agent',
+            arguments: { profile: { metadata: { which: 'b' } }, task: 'b' },
+          },
         ],
       },
       {
@@ -244,9 +256,8 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
     const journal = new InMemorySpawnJournal()
 
     // The mid driver spawns ONE worker whose deliverable check FAILS.
-    const makeAgent = (raw: unknown): Agent<unknown, unknown> => {
-      const p = raw as { kind?: string }
-      if (p?.kind === 'driver') {
+    const makeAgent = (profile: AgentProfile): Agent<unknown, unknown> => {
+      if (profile.metadata?.kind === 'driver') {
         return driverChild(
           'mid',
           driverAgent(driverOpts('mid', scriptedBrain(spawnAwaitStop), makeAgent)),
@@ -262,7 +273,10 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
     const rootTurns: ScriptedTurn[] = [
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
+          {
+            name: 'spawn_agent',
+            arguments: { profile: { metadata: { kind: 'driver' } }, task: 'delegate' },
+          },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },

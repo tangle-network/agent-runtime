@@ -130,7 +130,7 @@ export async function optimizeDriverPrompt(opts: {
       model: supervisorRouter.model,
       signal: ctx.signal,
       execute: () =>
-        superviseSurface({ name: 'driver', systemPrompt }, scenario.task, {
+        superviseSurface({ name: 'driver', prompt: { systemPrompt } }, scenario.task, {
           surface,
           worker,
           // A small conserved pool: enough for the driver's turns plus several worker spawns so the

@@ -136,7 +136,34 @@ describe('semantic spawn keys', () => {
     })
     expect(result.kind).toBe('winner')
     expect(seen.reason).toBe('duplicate-key')
-    expect(seen.runsAtRefusal).toBe(1)
+    // The first execution waits for its identity append, so the duplicate can be refused before
+    // either worker body starts. The admitted original still runs exactly once afterward.
+    expect(seen.runsAtRefusal).toBe(0)
+    expect(runs.n).toBe(1)
+  })
+
+  it('refuses a completed key when the requested profile or task changes', async () => {
+    const runs = { n: 0 }
+    const seen: Record<string, unknown> = {}
+    await runRoot(async (_task, scope) => {
+      const first = scope.spawn(countingLeaf('original', 'A', runs), 'task A', {
+        budget: childBudget,
+        label: 'assignment',
+        key: 'same-key',
+      })
+      expect(first.ok).toBe(true)
+      await scope.next()
+      const freeBefore = scope.budget.tokensLeft
+      const changed = scope.spawn(countingLeaf('changed', 'B', runs), 'task B', {
+        budget: childBudget,
+        label: 'assignment',
+        key: 'same-key',
+      })
+      seen.reason = changed.ok ? 'accepted' : changed.reason
+      seen.freeUnchanged = scope.budget.tokensLeft === freeBefore
+      return 'done'
+    })
+    expect(seen).toEqual({ reason: 'key-conflict', freeUnchanged: true })
     expect(runs.n).toBe(1)
   })
 

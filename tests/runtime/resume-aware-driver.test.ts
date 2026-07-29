@@ -135,12 +135,13 @@ describe('resume-aware built-in driver — a killed coordinator resumes without 
     expect(resumed.kind).toBe('winner')
     expect(resumed.settledNodes).toEqual(['w1', 'w2', 'w3', 'w4', 'w5'])
 
-    // ── The real bar: same output, same worker spend as never having crashed ──────────────
+    // The output matches control. Spend does not pretend the two killed executions were free:
+    // their missing receipts are charged at both declared ceilings and marked unknown.
     expect(resumed.out).toBe(controlReport.out)
-    expect(resumed.spentBreakdown?.childWork).toEqual(controlReport.spentBreakdown?.childWork)
-    // Stated absolutely, not just relatively: five workers' worth of paid work, once each.
-    expect(resumed.spentBreakdown?.childWork.iterations).toBe(5)
-    expect(resumed.spentBreakdown?.childWork.tokens).toEqual({ input: 50, output: 50 })
+    expect(resumed.spentBreakdown?.childWork.iterations).toBe(15)
+    expect(resumed.spentBreakdown?.childWork.tokens).toEqual({ input: 20_050, output: 50 })
+    expect(resumed.spentBreakdown?.childWork.tokensKnown).toBe(false)
+    expect(resumed.spentBreakdown?.childWork.usdKnown).toBe(false)
     expect(resumed.spentBreakdown?.childWork.usd).toBeCloseTo(0.05, 10)
 
     // The ONLY channel that differs is the coordinator's own inference: a restarted coordinator

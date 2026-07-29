@@ -18,7 +18,13 @@ import {
 } from '../../src/durable/spawn-journal'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import type { Agent, Scope, Settled, SpawnEvent } from '../../src/runtime/supervise/types'
+import type {
+  Agent,
+  Scope,
+  Settled,
+  SpawnEvent,
+  SpawnJournal,
+} from '../../src/runtime/supervise/types'
 import {
   createWaitProbes,
   isWaitOutcome,
@@ -227,7 +233,7 @@ describe('wait-states', () => {
         expect(scope.view.nodes).toHaveLength(0)
         return 'refused'
       },
-      { probes: { known: () => true }, deadlineMs: Date.now() + 1_000 },
+      { probes: { known: () => true }, deadlineMs: 1_000 },
     )
   })
 
@@ -270,4 +276,101 @@ describe('wait-states', () => {
     const cursors = events.filter((e) => e.kind === 'woken').map((e) => e.seq)
     expect(new Set(cursors).size).toBe(cursors.length)
   })
+
+  it('commits a fresh wait before its timer can wake', async () => {
+    const base = new InMemorySpawnJournal()
+    const appendStarted = deferred()
+    const releaseWaiting = deferred()
+    const appendAttempts: SpawnEvent['kind'][] = []
+    const journal: SpawnJournal = {
+      loadTree: (root) => base.loadTree(root),
+      beginTree: (root, at) => base.beginTree(root, at),
+      async appendEvent(root, event): Promise<void> {
+        appendAttempts.push(event.kind)
+        if (event.kind === 'waiting') {
+          appendStarted.resolve()
+          await releaseWaiting.promise
+        }
+        await base.appendEvent(root, event)
+      },
+    }
+    const root: Agent<unknown, string> = {
+      name: 'commit-wait-first',
+      async act(_task, scope): Promise<string> {
+        const armed = scope.wait({ kind: 'timer', untilMs: Date.now() }, { label: 'now' })
+        expect(armed.ok).toBe(true)
+        expect((await scope.next())?.kind).toBe('done')
+        return 'woke'
+      },
+    }
+
+    const running = createSupervisor<unknown, string>().run(root, 'task', {
+      budget: { maxIterations: 1, maxTokens: 1 },
+      runId: 'commit-wait-first',
+      journal,
+      blobs: new InMemoryResultBlobStore(),
+      executors: createExecutorRegistry(),
+    })
+    await appendStarted.promise
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const attemptsBeforeCommit = [...appendAttempts]
+    releaseWaiting.resolve()
+    const result = await running
+
+    expect(attemptsBeforeCommit.filter((kind) => kind === 'waiting' || kind === 'woken')).toEqual([
+      'waiting',
+    ])
+    expect(result.kind).toBe('winner')
+    expect(appendAttempts.filter((kind) => kind === 'waiting' || kind === 'woken')).toEqual([
+      'waiting',
+      'woken',
+    ])
+  })
+
+  it('does not journal a wake when the wait arm itself was never committed', async () => {
+    const base = new InMemorySpawnJournal()
+    const appendAttempts: SpawnEvent['kind'][] = []
+    const journal: SpawnJournal = {
+      loadTree: (root) => base.loadTree(root),
+      beginTree: (root, at) => base.beginTree(root, at),
+      async appendEvent(root, event): Promise<void> {
+        appendAttempts.push(event.kind)
+        if (event.kind === 'waiting') throw new Error('journal unavailable')
+        await base.appendEvent(root, event)
+      },
+    }
+
+    const result = await createSupervisor<unknown, string>().run(
+      {
+        name: 'failed-wait-arm',
+        async act(_task, scope): Promise<string> {
+          const armed = scope.wait({ kind: 'timer', untilMs: Date.now() }, { label: 'now' })
+          expect(armed.ok).toBe(true)
+          const settled = await scope.next()
+          expect(settled?.kind).toBe('down')
+          return settled?.kind === 'down' ? settled.reason : 'unexpected'
+        },
+      },
+      'task',
+      {
+        budget: { maxIterations: 1, maxTokens: 1 },
+        runId: 'failed-wait-arm',
+        journal,
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+      },
+    )
+
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toContain('journal unavailable')
+    expect(appendAttempts).not.toContain('woken')
+  })
 })
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}

@@ -357,13 +357,12 @@ A **leaf** is an `act` that returns without touching `scope`. A **driver** is an
 that spawns children and reacts to them. Same type — the role is behavior, not a class
 (the full prose is §1).
 
-The `Scope` it runs inside is **5 verbs** (`types.ts`) — a budget-conserving reactive
-nursery:
+The `Scope` it runs inside is the budget-conserving reactive control surface (`types.ts`):
 
 ```
   scope ─────────────────────────────────────────────────────────────────────────────────────
    │
-   ├─ spawn(agent, task, {budget,label}) → {ok,handle} | {ok:false, 'budget-exhausted'|'depth-exceeded'}
+   ├─ spawn(agent, task, {budget,label,key?}) → {ok,handle,prior?} | {ok:false, SpawnRejection}
    │     reserves budget ATOMICALLY from a conserved pool, fail-closed   ⟸ THE equal-compute invariant
    │
    ├─ next() → Promise<Settled | null>            the WAKE cursor: resolves as each child settles, in seq order
@@ -372,20 +371,22 @@ nursery:
    ├─ send(nodeId, msg) → bool                     STEER a running child (next-instruction / interrupt)
    │     in-process = direct call · across a sandbox = the SAME verb as an MCP tool
    │
-   ├─ view  → TreeView                             the live tree (in-memory, O(live)) — what the topology viewer renders
-   └─ budget → {tokensLeft, usdLeft, deadlineMs, reservedTokens}
+   ├─ wait(spec)                                    durable timer or named-predicate wait
+   ├─ progress(nodeId) / traceSource(nodeId)        explicit live observation
+   ├─ meter(spend) / recordMaterialization(receipt) runtime accounting and wire-profile evidence
+   ├─ view / workerCapacity                         live tree and shared execution slots
+   └─ budget → {tokensLeft,tokensKnown,usdLeft,usdKnown,iterationsLeft,deadlineMs,reservedTokens}
 ```
 
 Two facts make this the whole game:
-- `spawn` **reserves** from a shared pool and refunds the unspent remainder on settle, so
-  `Σk(treatment) ≡ Σk(blind)` by construction — no arm can buy more compute
-  (`supervise/budget.ts`).
-- `next()` is the *only* way to observe a child, so a driver reacts to **settlements**,
-  never reaches inside a child.
+- `spawn` **reserves** from one root total and refunds the unspent remainder on settle.
+  A nested driver partitions only its reserved allocation, then reconciles the whole subtree once, so `Σk(treatment) ≡ Σk(blind)` by construction — no arm can buy more compute (`supervise/budget.ts`).
+- `next()` is the only path that consumes a child's terminal result.
+  Live observation is explicit and read-only through `progress` and `traceSource`; neither can manufacture a settlement.
 
-The ask/answer edges of the question/command hierarchy are **built** — `ask_parent` up
-and `answer_question` down (`src/mcp/tools/coordination.ts:159-160`), priority-queued on
-the event bus; salience filtering and the cross-box durable mailbox are not. See **§13.6**.
+The ask/answer edges of the question/command hierarchy are **built** — `ask_parent` up and `answer_question` down (`src/mcp/tools/coordination.ts`), priority-queued on the event bus.
+Every steer/answer authorization receipt is committed before delivery and retained as restart evidence, but Runtime never auto-delivers that old instruction to a replacement worker.
+Salience filtering and the cross-box durable mailbox are not built; see **§13.6**.
 
 ### 13.2 The tree — drivers of drivers, one recursive atom
 
@@ -418,12 +419,9 @@ the event bus; salience filtering and the cross-box durable mailbox are not. See
            → equal-compute holds at EVERY depth (`supervise/budget.ts`)
 ```
 
-- **REAL** — one recursive `Agent` node, not two types: `Agent.act(task, scope)` in
-  `src/runtime/supervise/types.ts:49`. The roles are the *same* atom; a node is a
-  "driver" only because its tools spawn children. A child whose `act` calls
-  `scope.spawn` is a driver too, with its **own sub-scope** (depth+1, bounded by
-  `maxDepth` + the *same* pool) — recursion isn't a feature, it's the absence of a
-  base case (`supervise/supervisor.ts`, `supervise/scope.ts`).
+- **REAL** — one recursive `Agent` node, not two types: `Agent.act(task, scope)` in `src/runtime/supervise/types.ts:49`.
+  The roles are the *same* atom; a node is a "driver" only because its tools spawn children.
+  A child whose `act` calls `scope.spawn` is a driver too, with its **own sub-scope** (depth+1, bounded by `maxDepth` + a partition of the same root total) — recursion isn't a feature, it's the absence of a base case (`supervise/supervisor.ts`, `supervise/scope.ts`).
 - **REAL** — the **leaf** at the bottom is where a real coding harness runs, opaque and
   self-parallelizing internally; the `runAgentRounds` kernel (`src/runtime/run-loop.ts`) is
   composed as one leaf execution backend. Everything above it is the same `act`/`Scope`
@@ -437,12 +435,17 @@ the event bus; salience filtering and the cross-box durable mailbox are not. See
   and `canonical-api.md` §1.5): a supervisor's intelligence is *writing full
   AgentProfiles for its children*. The coordination toolbox `spawn_agent` carries the
   child profile (`src/mcp/tools/coordination.ts`).
-- The in-process driver brain is `driverAgent`
-  (`supervise/coordination-driver.ts`) running the owned tool-loop executor
-  `routerToolsInlineExecutor` (`supervise/runtime.ts`). A driver/supervisor's brain is
-  driven from its `AgentProfile` (tools = the coordination verbs); inferring the brain
-  entirely from the profile so a driver is *just* a profile with zero special cases is
-  not yet wired end-to-end.
+- The in-process driver brain is `driverAgent` (`supervise/coordination-driver.ts`) running the owned tool-loop executor `routerToolsInlineExecutor` (`supervise/runtime.ts`).
+  A driver/supervisor's brain is driven from its `AgentProfile`: prompt + model for the deliberately narrow in-process router arm, or the complete materialized profile for an external-harness arm.
+- **REAL** — `supervise(profile, task, { backend })` validates and freezes every authored child profile before budget reservation, applies shared security plus optional product authorization, and preserves the authorized profile through execution (`supervise/supervise.ts`).
+  A child marked `metadata.role: 'driver'` recursively becomes another supervisor over the same budget; every other child resolves to a leaf.
+- **REAL** — a local external-harness supervisor runs automatically through a `bridge` `driverBackend ?? backend` with the live coordination MCP injected under one reserved alias.
+  Its own tools, resources, MCP servers, hooks, subagents, permissions, modes, prompt, and model remain profile data sent to that backend (`supervise/supervise.ts`, `supervise/runtime.ts`).
+  A pre-execution `materialized` journal event binds the authored-profile, effective-profile, and platform-attachment digests to the node that ran.
+- **LIMIT** — a remote sandbox cannot reach the loopback coordination server automatically.
+  It needs an explicit `driveHarness` that provides a reachable relay or tunnel.
+- **LIMIT** — the in-process router arm has no environment in which to materialize profile resources, hooks, subagents, permissions, or modes.
+  It executes prompt + model and uses explicit `extraTools`; choose an external backend when the other profile axes must run.
 
 ### 13.3 The within-run self-improvement loop (§1's agent-driver, drawn)
 
@@ -556,14 +559,15 @@ not agent-to-agent messaging.
 
 **Built** (`src/mcp/tools/coordination.ts`, `src/runtime/supervise/event-bus.ts`,
 `src/runtime/supervise/inbox.ts`):
-- `ask_parent` up + `answer_question` down (`src/mcp/tools/coordination.ts:159-160`) —
+- `ask_parent` up + `answer_question` down (`src/mcp/tools/coordination.ts`) —
   a blocking question rides the ONE typed pipe, **priority-queued** ahead of queued
   settles/findings (the event bus); the answer routes down to the child's inbox.
-- `steer_worker` — the down-leg for any live worker (instruction / correction /
+- `steer_agent` — the down-leg for any live worker (instruction / correction /
   continuation); queued messages flush at step boundaries AND before the worker may
-  settle; a forceful `steer_worker({interrupt:true})` aborts the in-flight turn (the
+  settle; a forceful `steer_agent({interrupt:true})` aborts the in-flight turn (the
   inbox).
-- `notify` up — every settle/decision is teed upward on the lifecycle hook stream.
+- `agent.spawn` / `agent.child` lifecycle events — every spawn and consumed settlement is
+  sent to the runtime hook stream.
 
 **Not built:** the **salience tag** on decisions (so the top doesn't drown), the
 cross-box durable mailbox (§13.9), budget-pause-while-awaiting.
@@ -648,17 +652,23 @@ within-run column splits into in-flight and across-round).
   with the three timescales as internal composition — so "are we improving skills in the
   loop?" has one place to look — is not yet wired.
 
-### 13.9 Durability — by design, not yet end-to-end
+### 13.9 Durability — exact at each implemented boundary
 
 ```
-  same box   : in-process queue   ── REAL (tested)
-  cross box  : durable mailbox on the parent's box ── designed (the interface is ready)
+  same process : in-process event queue                                  ── REAL (tested)
+  same host    : file journal + blobs + coordination log across restart  ── REAL (tested)
+  cross box    : durable mailbox on the parent's box                     ── designed
 ```
 
 - **REAL** — the event bus is transport-agnostic *on purpose*: same box → the in-process
   queue; cross box → the SAME publish/pull/subscribe surface backed by a durable mailbox on
   the parent's box (`supervise/event-bus.ts`). The data structure is already shaped for
   durability.
+- **REAL** — `supervise(..., { runDir, runId })` restores committed settlements, exact profile/task/candidate identity, measured spend, pending waits, and the original absolute deadline from the file-backed stores.
+  The coordination log restores prior questions, findings, and authorized instruction receipts; the in-process router receives all three in its resume brief, while an external manager receives prior questions and the other evidence remains in the durable log.
+  An active child that lacks a terminal record is charged at its full declared reservation and its token/dollar telemetry remains explicitly unknown; a retry can use only safely remaining capacity.
+  Authorized instruction receipts are evidence and are never auto-delivered to a new worker.
+- **LIMIT** — built-in executors do not reattach work that was active when their process died.
 - **designed, not built** — the cross-box (distributed-sandbox) durable binding: in-process
   is real and tested, the cross-box transport is the thin unbuilt part, so the up-flow can
   survive across distributed boxes and restarts.

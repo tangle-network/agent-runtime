@@ -1106,13 +1106,70 @@ the loop produces 20 minutes later).
 
 AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions.
 
+***
+
+### CanonicalAgentProfileMaterializationAxis
+
+> **CanonicalAgentProfileMaterializationAxis** = [`KnownAgentProfileMaterializationAxis`](#knownagentprofilematerializationaxis)
+
+Canonical AgentProfile axes used when checking one complete profile.
+
 ## Variables
 
 ### AGENT\_PROFILE\_MATERIALIZATION\_AXES
 
-> `const` **AGENT\_PROFILE\_MATERIALIZATION\_AXES**: readonly \[`"identity"`, `"name"`, `"model"`, `"prompt"`, `"systemPrompt"`, `"instructions"`, `"resources"`, `"files"`, `"resourceInstructions"`, `"skills"`, `"resourceTools"`, `"resourceAgents"`, `"commands"`, `"tools"`, `"permissions"`, `"mcp"`, `"mcpConnections"`, `"connections"`, `"subagents"`, `"hooks"`, `"modes"`, `"confidential"`, `"metadata"`, `"extensions"`\]
+> `const` **AGENT\_PROFILE\_MATERIALIZATION\_AXES**: readonly \[`"identity"`, `"name"`, `"description"`, `"version"`, `"tags"`, `"model"`, `"modelDefault"`, `"modelSmall"`, `"modelProvider"`, `"modelReasoningEffort"`, `"modelMetadata"`, `"harness"`, `"prompt"`, `"systemPrompt"`, `"instructions"`, `"resources"`, `"files"`, `"resourceInstructions"`, `"skills"`, `"resourceTools"`, `"resourceAgents"`, `"commands"`, `"resourceFailOnError"`, `"tools"`, `"permissions"`, `"mcp"`, `"mcpConnections"`, `"connections"`, `"subagents"`, `"hooks"`, `"modes"`, `"confidential"`, `"metadata"`, `"extensions"`\]
 
 Known AgentProfile axes a run path may or may not carry into execution.
+
+***
+
+### fullProfileMaterialization
+
+> `const` **fullProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for a run path that executes every canonical AgentProfile axis.
+
+***
+
+### promptModelProfileMaterialization
+
+> `const` **promptModelProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for an intentionally limited prompt-and-model execution path.
+Identity, harness, and metadata are control fields consumed for naming, placement,
+authorization, and durable attribution; they are carried without adding worker behavior.
+Every behavioral axis other than prompt and model remains unsupported.
+
+***
+
+### worktreeCliProfileMaterialization
+
+> `const` **worktreeCliProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for a local coding CLI in an isolated git worktree.
+The shared workspace materializer carries native tools, permissions, MCP, hooks, subagents,
+modes, and file-backed resources when the selected CLI supports their exact values. Runtime
+placement concerns (hub connections and confidential execution), provider-native extensions,
+unused model hints, and `resources.failOnError` are deliberately absent so they fail before a
+worktree or executor is created rather than being mistaken for an effective candidate change.
+
+***
+
+### controlProfileMaterialization
+
+> `const` **controlProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for a raw process path that carries only control/identity fields.
+
+***
+
+### promptControlProfileMaterialization
+
+> `const` **promptControlProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for an injected inference function whose surrounding driver still
+applies the profile prompt, name, placement, and metadata, but not model selection.
 
 ***
 
@@ -1272,6 +1329,28 @@ Define the profile axes a concrete run path actually carries into execution.
 #### Returns
 
 [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+***
+
+### profileMaterializationAxes()
+
+> **profileMaterializationAxes**(`profile`): readonly (`"metadata"` \| `"resources"` \| `"name"` \| `"tools"` \| `"model"` \| `"mcp"` \| `"connections"` \| `"subagents"` \| `"hooks"` \| `"modes"` \| `"extensions"` \| `"description"` \| `"version"` \| `"tags"` \| `"prompt"` \| `"harness"` \| `"permissions"` \| `"confidential"` \| `"systemPrompt"` \| `"instructions"` \| `"skills"` \| `"identity"` \| `"modelDefault"` \| `"modelSmall"` \| `"modelProvider"` \| `"modelReasoningEffort"` \| `"modelMetadata"` \| `"files"` \| `"resourceInstructions"` \| `"resourceTools"` \| `"resourceAgents"` \| `"commands"` \| `"resourceFailOnError"` \| `"mcpConnections"`)[]
+
+Return the exact canonical axes a complete profile actually requests. Compound prompt, model,
+identity, and resource objects are split so a path cannot claim an entire object while silently
+dropping one of its fields.
+Empty strings, arrays, and nested records do not claim support; explicit
+scalar values such as `false` and `0` remain meaningful requests.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile`
+
+#### Returns
+
+readonly (`"metadata"` \| `"resources"` \| `"name"` \| `"tools"` \| `"model"` \| `"mcp"` \| `"connections"` \| `"subagents"` \| `"hooks"` \| `"modes"` \| `"extensions"` \| `"description"` \| `"version"` \| `"tags"` \| `"prompt"` \| `"harness"` \| `"permissions"` \| `"confidential"` \| `"systemPrompt"` \| `"instructions"` \| `"skills"` \| `"identity"` \| `"modelDefault"` \| `"modelSmall"` \| `"modelProvider"` \| `"modelReasoningEffort"` \| `"modelMetadata"` \| `"files"` \| `"resourceInstructions"` \| `"resourceTools"` \| `"resourceAgents"` \| `"commands"` \| `"resourceFailOnError"` \| `"mcpConnections"`)[]
 
 ***
 

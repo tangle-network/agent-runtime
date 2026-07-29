@@ -1264,7 +1264,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 213 exports.
 | `readMemoryItemsFile` | function | Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line). |
 | `readTraceContextFromEnv` | function | Read trace context from the process environment. |
 | `removeWorktree` | function | Remove a git worktree and delete its branch. Already-removed paths are harmless; every other |
-| `renderTrace` | function | Render a worker's trace (tool calls + results) into the text an analyst lens reads. Generic over |
+| `renderTrace` | function | Render a worker's trace (tool calls + results) into the text an analyst lens reads. Conversation |
 | `resolveMemoryFromEnv` | function | Resolve the bin's memory from `AGENT_MEMORY_FILE` (durable store) and/or |
 | `runCheck` | function | Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval |
 | `runDetachedTurn` | function | Dispatch one detached turn and advance it to a terminal state with |

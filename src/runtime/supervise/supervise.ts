@@ -443,6 +443,9 @@ function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
 export interface SuperviseOptions {
   /** The conserved compute pool for the whole run. */
   readonly budget: Budget
+  /** Caller-owned cancellation for the complete recursive run. Aborting it cascades through the
+   * root scope and every live child, including acquisition and backend execution. */
+  readonly signal?: AbortSignal
   /** Trusted candidate and pursuit attribution for the root. The runtime derives profile/task
    * digests itself from the exact detached values it executes. */
   readonly execution?: AgentExecutionRef
@@ -667,6 +670,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     onProgressStop,
     finalizer,
     now,
+    signal,
     ...decisionData
   } = opts
   const capturedData = detachedSnapshot(decisionData, 'supervise options')
@@ -750,6 +754,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(onProgressStop === undefined ? {} : { onProgressStop }),
     ...(finalizer === undefined ? {} : { finalizer }),
     ...(now === undefined ? {} : { now }),
+    ...(signal === undefined ? {} : { signal }),
   })
 }
 
@@ -1235,6 +1240,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(options.probes ? { probes: options.probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),
       ...(options.now ? { now: options.now } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
     })
   }
 

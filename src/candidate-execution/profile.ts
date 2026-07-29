@@ -230,6 +230,7 @@ export function assertCandidateProfileExecutionSupport(profile: AgentCandidatePr
   }
 }
 
+/** Convert the candidate profile contract into the portable interface profile it represents. */
 export function agentCandidateProfileAsAgentProfile(
   candidate: AgentCandidateProfile,
 ): AgentProfile {

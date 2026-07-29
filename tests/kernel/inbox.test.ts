@@ -1,6 +1,6 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type AgentSpec, createExecutor, createInbox } from '../../src/runtime'
+import { type AgentSpec, createBudgetPool, createExecutor, createInbox } from '../../src/runtime'
 
 describe('worker inbox (down-leg receive end)', () => {
   it('parses the down-message shapes; ignores malformed', () => {
@@ -142,5 +142,71 @@ describe('router-tools executor drains the inbox', () => {
       bodies[0]?.messages.some((m) => m.content?.includes('wrong file, edit src/core.ts')),
     ).toBe(true)
     expect(result.spent.iterations).toBe(1)
+  })
+
+  it('marks dollar cost unknown for an unpriced model even when token usage is complete', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => noToolReply()),
+    )
+    const factory = createExecutor({
+      backend: 'router-tools',
+      model: 'unpriced-test-model',
+      routerBaseUrl: 'http://router.test',
+      routerKey: 'k',
+      tools: [],
+      executeToolCall: async () => '',
+    })
+    const exec = factory(
+      { profile: { name: 'w' }, harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+
+    const result = await exec.execute('do the task', new AbortController().signal)
+
+    expect(result.spent).toMatchObject({
+      tokens: { input: 1, output: 1 },
+      usd: 0,
+      usdKnown: false,
+    })
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 10, maxUsd: 1 }, () => 0)
+    const reservation = pool.reserve({ maxIterations: 1, maxTokens: 2, maxUsd: 1 })
+    if (!reservation.ok) throw new Error('reservation should fit')
+    expect(() => pool.reconcile(reservation.ticket, result.spent)).toThrow(/unknown dollar cost/)
+    expect(pool.readout()).toMatchObject({ usdLeft: 0, usdKnown: false })
+  })
+
+  it('marks dollar cost unknown for a priced model when token usage is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ choices: [{ message: { content: 'done' } }] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    )
+    const factory = createExecutor({
+      backend: 'router-tools',
+      model: 'gpt-4o',
+      routerBaseUrl: 'http://router.test',
+      routerKey: 'k',
+      tools: [],
+      executeToolCall: async () => '',
+    })
+    const exec = factory(
+      { profile: { name: 'w' }, harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+
+    const result = await exec.execute('do the task', new AbortController().signal)
+
+    expect(result.spent).toMatchObject({
+      tokens: { input: 0, output: 0 },
+      tokensKnown: false,
+      usd: 0,
+      usdKnown: false,
+    })
   })
 })

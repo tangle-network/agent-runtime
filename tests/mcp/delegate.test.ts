@@ -109,8 +109,8 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
   it('applies a per-call model override', async () => {
     const handler = createDelegateHandler({ router, backend, model: 'deepseek-v4-flash' })
     await handler({ intent: 'do x', model: 'glm-5.2' })
-    const [profile] = superviseSpy.mock.calls[0] as [{ model?: string }]
-    expect(profile.model).toBe('glm-5.2')
+    const [profile] = superviseSpy.mock.calls[0] as [{ model?: { default?: string } }]
+    expect(profile.model?.default).toBe('glm-5.2')
   })
 
   it('createMcpServer registers `delegate` only when delegateSupervisor is wired', () => {

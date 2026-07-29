@@ -254,6 +254,12 @@ Re-exports [prepareAgentCandidateExecution](index.md#prepareagentcandidateexecut
 
 ***
 
+### agentCandidateProfileAsAgentProfile
+
+Re-exports [agentCandidateProfileAsAgentProfile](index.md#agentcandidateprofileasagentprofile)
+
+***
+
 ### applyExactAgentProfileDiff
 
 Re-exports [applyExactAgentProfileDiff](index.md#applyexactagentprofilediff)

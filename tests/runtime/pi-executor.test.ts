@@ -29,6 +29,7 @@ const FAKE_PI = `#!/usr/bin/env node
 const fs = require('node:fs')
 const log = process.env.PI_COMMAND_LOG
 const emit = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
+fs.appendFileSync(log, JSON.stringify({ type: 'argv', args: process.argv.slice(2) }) + '\\n')
 let buf = ''
 let turn = 0
 process.stdin.on('data', (c) => {
@@ -50,7 +51,21 @@ process.stdin.on('data', (c) => {
     emit({ type: 'turn_start' })
     emit({ type: 'tool_execution_start', toolCallId: 't' + myTurn, toolName: 'edit', args: { path: target } })
     emit({ type: 'tool_execution_end', toolCallId: 't' + myTurn, toolName: 'edit', result: 'ok', isError: false, args: { path: target } })
-    emit({ type: 'turn_end', message: { role: 'assistant', content: 'edited ' + target, usage: { input: 30, output: 12, cost: 0.002 } }, toolResults: [] })
+    const message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'edited ' + target }],
+      usage: {
+        input: 30,
+        output: 12,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 42,
+        cost: { input: 0.001, output: 0.001, cacheRead: 0, cacheWrite: 0, total: 0.002 }
+      },
+      timestamp: Date.now()
+    }
+    emit({ type: 'message_end', message })
+    emit({ type: 'turn_end', message, toolResults: [] })
     emit({ type: 'agent_end', messages: [] })
   }
 })
@@ -98,7 +113,38 @@ async function readCommands(): Promise<Array<Record<string, unknown>>> {
 }
 
 describe('piExecutor — pi wrapped, not forked', () => {
-  it('runs a turn, reports REAL usage off pi events, and exposes live progress + tool spans', async () => {
+  it('uses AgentProfile.model.default instead of the backend fallback', async () => {
+    await writeFile(commandLog, '')
+    const ctx = piCtx()
+    const withFallback: ExecutorContext = {
+      ...ctx,
+      seams: {
+        ...ctx.seams,
+        [piSeamKey]: {
+          ...(ctx.seams[piSeamKey] as Record<string, unknown>),
+          model: 'fallback/ignored-model',
+        },
+      },
+    }
+    const ex = piExecutor(
+      {
+        profile: {
+          name: 'profile-model',
+          model: { default: 'profile/selected-model' },
+        },
+        harness: null,
+      },
+      withFallback,
+    )
+
+    await drain(ex.execute('make the change', withFallback.signal) as AsyncIterable<UsageEvent>)
+    const argv = (await readCommands()).find((command) => command.type === 'argv')?.args
+
+    expect(argv).toEqual(['--mode', 'rpc', '--provider', 'profile', '--model', 'selected-model'])
+    await ex.teardown('brutalKill')
+  })
+
+  it('counts duplicated message_end + turn_end telemetry once from authoritative turn_end', async () => {
     await writeFile(commandLog, '')
     const ctx = piCtx()
     const ex = piExecutor(spec, ctx)
@@ -109,8 +155,10 @@ describe('piExecutor — pi wrapped, not forked', () => {
     )
 
     // REAL usage only — the numbers the fake pi reported, not a fabricated estimate.
-    expect(events).toContainEqual({ kind: 'tokens', input: 30, output: 12 })
-    expect(events).toContainEqual({ kind: 'cost', usd: 0.002 })
+    expect(events.filter((event) => event.kind === 'tokens')).toEqual([
+      { kind: 'tokens', input: 30, output: 12 },
+    ])
+    expect(events.filter((event) => event.kind === 'cost')).toEqual([{ kind: 'cost', usd: 0.002 }])
     expect(events.filter((e) => e.kind === 'iteration')).toHaveLength(1)
 
     const progress = ex.progress?.()
@@ -123,6 +171,9 @@ describe('piExecutor — pi wrapped, not forked', () => {
     const artifact = ex.resultArtifact()
     expect(String((artifact.out as { content: string }).content)).toContain('edited wrong.ts')
     expect(artifact.spent.tokens).toEqual({ input: 30, output: 12 })
+    expect(artifact.spent.usd).toBe(0.002)
+    expect(artifact.spent).not.toHaveProperty('tokensKnown')
+    expect(artifact.spent).not.toHaveProperty('usdKnown')
     await ex.teardown('brutalKill')
   })
 

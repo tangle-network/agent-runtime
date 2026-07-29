@@ -20,9 +20,11 @@
  * Three unrelated caps bound "how much runs at once" in this stack, at three different layers.
  * They are NOT aware of each other, and the smallest one silently wins:
  *
- *   1. `CoordinationToolsOptions.maxLiveWorkers` (`src/mcp/tools/coordination.ts`) — supervisor
- *      level. How many workers may be spawned-but-not-settled at once; `spawn_agent` fails closed
- *      with `error: 'max-live-workers'` past it. Unset by default ⇒ NO cap at this layer.
+ *   1. `SuperviseOptions.maxLiveWorkers` (`src/runtime/supervise/supervise.ts`) — supervised-tree
+ *      level. One shared Scope counter bounds every spawned manager and leaf in the recursive tree;
+ *      `spawn_agent` fails closed with `error: 'max-live-workers'` past it. Unset ⇒ NO tree cap.
+ *      `CoordinationToolsOptions.maxLiveWorkers` remains the local form for a toolbox mounted on a
+ *      caller-owned Scope that has no tree limit.
  *   2. `SandboxLineage`'s `maxConcurrency` / `DEFAULT_FORK_CONCURRENCY = 4`
  *      (`src/runtime/sandbox-lineage.ts`) — kernel level. How many BOXES one `runAgentRounds` fork wave
  *      provisions at once. It bounds a single leaf's fanout, not the supervisor's worker count.

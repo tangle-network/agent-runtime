@@ -89,6 +89,65 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(result.kind).toBe('winner')
   })
 
+  it('cascades the caller abort signal through the root and every live child', async () => {
+    const controller = new AbortController()
+    let started!: () => void
+    const childStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let teardownCalled = false
+    const blockedLeaf = (): Agent<unknown, unknown> => {
+      const executor: Executor<unknown> = {
+        runtime: 'blocked-test-worker',
+        execute(_task, signal): Promise<ExecutorResult<unknown>> {
+          started()
+          return new Promise((_, reject) => {
+            const abort = (): void => reject(new DOMException('aborted', 'AbortError'))
+            if (signal.aborted) abort()
+            else signal.addEventListener('abort', abort, { once: true })
+          })
+        },
+        teardown: () => {
+          teardownCalled = true
+          return Promise.resolve({ destroyed: true })
+        },
+        resultArtifact: () => {
+          throw new Error('an aborted worker has no terminal artifact')
+        },
+      }
+      const spec: AgentSpec = {
+        profile: { name: 'blocked-worker' } as AgentProfile,
+        harness: null,
+        executor,
+      }
+      return {
+        name: 'blocked-worker',
+        act: async () => undefined,
+        executorSpec: spec,
+      } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    }
+    const running = supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+      budget,
+      signal: controller.signal,
+      makeWorkerAgent: blockedLeaf,
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      ]),
+    })
+
+    await childStarted
+    controller.abort()
+    const result = await running
+
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
+    expect(teardownCalled).toBe(true)
+  })
+
   it('runDir makes the run durable and resumable; unset stays in-memory', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'supervise-rundir-'))
     try {

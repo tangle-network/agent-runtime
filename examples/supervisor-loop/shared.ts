@@ -57,7 +57,10 @@ export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solve
         {
           name: 'spawn_agent',
           arguments: {
-            profile: { name: `${labelPrefix}-${i}`, systemPrompt: `Emit ${expectedAnswer}.` },
+            profile: {
+              name: `${labelPrefix}-${i}`,
+              prompt: { systemPrompt: `Emit ${expectedAnswer}.` },
+            },
             task: `Emit the exact line ${expectedAnswer} and nothing else.`,
             label: `${labelPrefix}-${i}`,
           },
