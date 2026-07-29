@@ -1,9 +1,7 @@
-import { randomUUID } from 'node:crypto'
-import { linkSync } from 'node:fs'
-import { mkdir, open, unlink } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Sha256Digest } from '@tangle-network/agent-interface'
-
+import { writeDurableRecordIfAbsent } from '../durable/atomic-record'
 import {
   type AgentCandidateExecutionAttemptRecord,
   type AgentCandidateExecutionAttemptRef,
@@ -33,7 +31,6 @@ import {
   sealTerminalDigest,
   terminalRecord,
 } from './claim-terminal'
-import { canonicalCandidateBytes } from './digest'
 
 const {
   assertExpiredLease,
@@ -93,7 +90,7 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
     if (retryFailure) return rejectedRetry(claim, retryFailure)
 
     const lease = newLease(claim)
-    const acquired = await writeRecordIfAbsent(this.directory, claimPath, {
+    const acquired = await writeCandidateRecordIfAbsent(this.directory, claimPath, {
       ...claim,
       phase: 'claimed',
       leaseDigest: leaseDigest(lease),
@@ -127,7 +124,7 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
       throw new Error('candidate execution terminal was staged before candidate-may-run phase')
     }
     assertUnexpiredLease(stored.claim.leaseExpiresAtMs, this.now())
-    const marked = await writeRecordIfAbsent(
+    const marked = await writeCandidateRecordIfAbsent(
       this.directory,
       this.transitionPath(stored.claim, 1),
       {
@@ -162,7 +159,7 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
     assertTerminalAllowedInPhase(state.phase, terminal)
     assertUnexpiredLease(stored.claim.leaseExpiresAtMs, this.now())
     const transition = state.phase === 'claimed' ? 1 : 2
-    const staged = await writeRecordIfAbsent(
+    const staged = await writeCandidateRecordIfAbsent(
       this.directory,
       this.transitionPath(stored.claim, transition),
       {
@@ -199,7 +196,7 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
       return rejectedFinish(existing, terminalDigest)
     }
     assertUnexpiredLease(stored.claim.leaseExpiresAtMs, this.now())
-    const finished = await writeRecordIfAbsent(
+    const finished = await writeCandidateRecordIfAbsent(
       this.directory,
       terminalPath,
       {
@@ -231,7 +228,7 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
     let staged = record.staged
     if (!staged) {
       const transition = record.phase === 'claimed' ? 1 : 2
-      const didStage = await writeRecordIfAbsent(
+      const didStage = await writeCandidateRecordIfAbsent(
         this.directory,
         this.transitionPath(record.claim, transition),
         {
@@ -254,7 +251,7 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
     }
 
     const terminalPath = this.terminalPath(attempt)
-    const didFinish = await writeRecordIfAbsent(this.directory, terminalPath, {
+    const didFinish = await writeCandidateRecordIfAbsent(this.directory, terminalPath, {
       terminal: staged,
     })
     if (didFinish) return Object.freeze({ finished: true, terminal: staged })
@@ -346,7 +343,7 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
   }
 }
 
-async function writeRecordIfAbsent(
+async function writeCandidateRecordIfAbsent(
   directory: string,
   destination: string,
   record: object,
@@ -355,51 +352,8 @@ async function writeRecordIfAbsent(
     authorizePublish?: () => true
   } = {},
 ): Promise<boolean> {
-  const temporaryPath = join(directory, `.candidate-execution-${process.pid}-${randomUUID()}.tmp`)
-  const handle = await open(temporaryPath, 'wx', 0o600)
-  try {
-    await handle.writeFile(
-      Buffer.concat([Buffer.from(canonicalCandidateBytes(record)), Buffer.from('\n')]),
-    )
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-
-  let written = false
-  try {
-    if (options.authorizePublish && options.authorizePublish() !== true) {
-      throw new Error('candidate execution record publication was not authorized')
-    }
-    // Authorization and the atomic filesystem call are one synchronous critical
-    // section so the event loop cannot advance an injected lease clock between them.
-    linkSync(temporaryPath, destination)
-    written = true
-    await syncDirectory(directory)
-  } catch (error) {
-    if (!isNodeError(error, 'EEXIST')) throw error
-  } finally {
-    await unlink(temporaryPath).catch((error: unknown) => {
-      if (!isNodeError(error, 'ENOENT')) throw error
-    })
-  }
-  return written
-}
-
-async function syncDirectory(directory: string): Promise<void> {
-  const handle = await open(directory, 'r')
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-function isNodeError(error: unknown, code: string): boolean {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'code' in error &&
-    (error as { code?: unknown }).code === code
-  )
+  return writeDurableRecordIfAbsent(directory, destination, record, {
+    temporaryPrefix: 'candidate-execution',
+    ...(options.authorizePublish ? { authorizePublish: options.authorizePublish } : {}),
+  })
 }

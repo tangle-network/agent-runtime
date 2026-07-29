@@ -68,7 +68,7 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-3)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
 
 ***
 
@@ -138,7 +138,7 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 
 ###### Implementation of
 
-[`ResultBlobStore`](#resultblobstore).[`get`](#get-3)
+[`ResultBlobStore`](#resultblobstore).[`get`](#get-4)
 
 ***
 
@@ -466,6 +466,126 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ***
 
+### LocalPrivateWorkspaceSourceChangedError
+
+The source did not remain identical across two complete capture passes.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new LocalPrivateWorkspaceSourceChangedError**(`message?`, `options?`): [`LocalPrivateWorkspaceSourceChangedError`](#localprivateworkspacesourcechangederror)
+
+###### Parameters
+
+###### message?
+
+`string` = `'local private workspace source changed during capture'`
+
+###### options?
+
+`ErrorOptions`
+
+###### Returns
+
+[`LocalPrivateWorkspaceSourceChangedError`](#localprivateworkspacesourcechangederror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### code
+
+> `readonly` **code**: `"source_changed"`
+
+***
+
+### LocalPrivateWorkspaceIdempotencyConflictError
+
+The same idempotency key was reused for a different frozen request.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new LocalPrivateWorkspaceIdempotencyConflictError**(`leaseId`): [`LocalPrivateWorkspaceIdempotencyConflictError`](#localprivateworkspaceidempotencyconflicterror)
+
+###### Parameters
+
+###### leaseId
+
+`string`
+
+###### Returns
+
+[`LocalPrivateWorkspaceIdempotencyConflictError`](#localprivateworkspaceidempotencyconflicterror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### code
+
+> `readonly` **code**: `"idempotency_conflict"`
+
+***
+
+### LocalPrivateWorkspaceCleanupError
+
+Workspace removal failed and durable state records a retryable cleanup failure.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new LocalPrivateWorkspaceCleanupError**(`record`, `cause`): [`LocalPrivateWorkspaceCleanupError`](#localprivateworkspacecleanuperror)
+
+###### Parameters
+
+###### record
+
+`AgentWorkspaceLeaseRecord`
+
+###### cause
+
+`unknown`
+
+###### Returns
+
+[`LocalPrivateWorkspaceCleanupError`](#localprivateworkspacecleanuperror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### code
+
+> `readonly` **code**: `"cleanup_failed"`
+
+##### record
+
+> `readonly` **record**: `AgentWorkspaceLeaseRecord`
+
+***
+
 ### SandboxRunAbortError
 
 **`Experimental`**
@@ -662,6 +782,30 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 [`CoordinationLog`](#coordinationlog).[`load`](#load)
 
 ## Interfaces
+
+### FilesystemSnapshotLimits
+
+Resource bounds applied while hashing a filesystem tree.
+
+#### Properties
+
+##### maxFiles
+
+> `readonly` **maxFiles**: `number`
+
+##### maxFileBytes
+
+> `readonly` **maxFileBytes**: `number`
+
+##### maxTotalFileBytes
+
+> `readonly` **maxTotalFileBytes**: `number`
+
+##### maxPathBytes
+
+> `readonly` **maxPathBytes**: `number`
+
+***
 
 ### AnalystFindingEvent
 
@@ -4826,6 +4970,342 @@ impl lives in `trajectory.ts`. Pure over the reports — no I/O.
 
 Max fractional spread (spread/median) per channel for arms to count as equal-k. Default in
  the impl (e.g. 0.05). A tighter tolerance = a stricter equal-compute claim.
+
+***
+
+### LocalPrivateWorkspaceSourcePolicyInput
+
+Explicit decisions for tool state and credential-prone source-root entries.
+
+#### Properties
+
+##### rootEntries?
+
+> `readonly` `optional` **rootEntries?**: `Readonly`\<`Record`\<`string`, [`LocalPrivateWorkspaceRootEntryDisposition`](#localprivateworkspacerootentrydisposition)\>\>
+
+***
+
+### LocalPrivateWorkspaceSourcePolicyMaterial
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"agent-runtime/local-private-workspace-source-policy"`
+
+##### schemaVersion
+
+> `readonly` **schemaVersion**: `1`
+
+##### defaultRootEntryDisposition
+
+> `readonly` **defaultRootEntryDisposition**: `"include"`
+
+##### rootEntryDecisions
+
+> `readonly` **rootEntryDecisions**: readonly `object`[]
+
+##### trackedExclusions
+
+> `readonly` **trackedExclusions**: `"reject"`
+
+##### worktreeHardlinks
+
+> `readonly` **worktreeHardlinks**: `"dealias"`
+
+##### preparedWorkspaceSensitiveRootEntries
+
+> `readonly` **preparedWorkspaceSensitiveRootEntries**: `"include"`
+
+##### gitMetadata
+
+> `readonly` **gitMetadata**: `object`
+
+###### included
+
+> `readonly` **included**: readonly `string`[]
+
+###### sanitized
+
+> `readonly` **sanitized**: readonly `string`[]
+
+###### omitted
+
+> `readonly` **omitted**: readonly `string`[]
+
+###### rejected
+
+> `readonly` **rejected**: readonly `string`[]
+
+***
+
+### PrepareLocalPrivateWorkspaceInput
+
+#### Properties
+
+##### sourceRoot
+
+> `readonly` **sourceRoot**: `string`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### ownerId
+
+> `readonly` **ownerId**: `string`
+
+##### ownerToken
+
+> `readonly` **ownerToken**: `string`
+
+Caller-retained capability; only its digest is persisted.
+
+##### expiresAtMs
+
+> `readonly` **expiresAtMs**: `number`
+
+##### sourcePolicy?
+
+> `readonly` `optional` **sourcePolicy?**: [`LocalPrivateWorkspaceSourcePolicyInput`](#localprivateworkspacesourcepolicyinput)
+
+***
+
+### DestroyLocalPrivateWorkspaceResult
+
+#### Properties
+
+##### destroyed
+
+> `readonly` **destroyed**: `boolean`
+
+##### record
+
+> `readonly` **record**: `AgentWorkspaceLeaseRecord`
+
+***
+
+### ReapExpiredLocalPrivateWorkspacesResult
+
+#### Properties
+
+##### destroyed
+
+> `readonly` **destroyed**: readonly `AgentWorkspaceLeaseRecord`[]
+
+##### failed
+
+> `readonly` **failed**: readonly `object`[]
+
+##### skipped
+
+> `readonly` **skipped**: readonly `string`[]
+
+##### orphanDirectoriesRemoved
+
+> `readonly` **orphanDirectoriesRemoved**: readonly `string`[]
+
+***
+
+### CreateLocalPrivateWorkspaceManagerOptions
+
+#### Properties
+
+##### root
+
+> `readonly` **root**: `string`
+
+Private manager-owned root. It must be disjoint from every captured source.
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+##### limits?
+
+> `readonly` `optional` **limits?**: `Partial`\<[`FilesystemSnapshotLimits`](#filesystemsnapshotlimits)\>
+
+##### maxLeaseDurationMs?
+
+> `readonly` `optional` **maxLeaseDurationMs?**: `number`
+
+##### cleanupClaimDurationMs?
+
+> `readonly` `optional` **cleanupClaimDurationMs?**: `number`
+
+##### orphanGraceMs?
+
+> `readonly` `optional` **orphanGraceMs?**: `number`
+
+##### removeWorkspace?
+
+> `readonly` `optional` **removeWorkspace?**: (`root`) => `Promise`\<`void`\>
+
+Test seam; production defaults to recursive `rm`.
+
+###### Parameters
+
+###### root
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### afterSourceCapturePass?
+
+> `readonly` `optional` **afterSourceCapturePass?**: (`pass`) => `void` \| `Promise`\<`void`\>
+
+Test seam for deterministic mutation between the two real capture passes.
+
+###### Parameters
+
+###### pass
+
+`1` \| `2`
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+***
+
+### LocalPrivateWorkspaceManager
+
+#### Methods
+
+##### prepare()
+
+> **prepare**(`input`): `Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+###### Parameters
+
+###### input
+
+[`PrepareLocalPrivateWorkspaceInput`](#preparelocalprivateworkspaceinput)
+
+###### Returns
+
+`Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+##### get()
+
+> **get**(`leaseId`): `Promise`\<`AgentWorkspaceLeaseRecord` \| `undefined`\>
+
+###### Parameters
+
+###### leaseId
+
+`string`
+
+###### Returns
+
+`Promise`\<`AgentWorkspaceLeaseRecord` \| `undefined`\>
+
+##### getLocalSourceSnapshotPolicy()
+
+> **getLocalSourceSnapshotPolicy**(`authorization`): `Promise`\<[`LocalPrivateWorkspaceSourcePolicyMaterial`](#localprivateworkspacesourcepolicymaterial) \| `undefined`\>
+
+###### Parameters
+
+###### authorization
+
+`AgentWorkspaceLeaseAuthorization`
+
+###### Returns
+
+`Promise`\<[`LocalPrivateWorkspaceSourcePolicyMaterial`](#localprivateworkspacesourcepolicymaterial) \| `undefined`\>
+
+##### list()
+
+> **list**(): `Promise`\<readonly `AgentWorkspaceLeaseRecord`[]\>
+
+###### Returns
+
+`Promise`\<readonly `AgentWorkspaceLeaseRecord`[]\>
+
+##### renew()
+
+> **renew**(`input`): `Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+###### Parameters
+
+###### input
+
+`AgentWorkspaceLeaseRenewalRequest`
+
+###### Returns
+
+`Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+##### sealWorkspace()
+
+> **sealWorkspace**(`input`): `Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+###### Parameters
+
+###### input
+
+`AgentWorkspaceSealRequest`
+
+###### Returns
+
+`Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+##### bindExecutionReceipt()
+
+> **bindExecutionReceipt**(`input`): `Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+###### Parameters
+
+###### input
+
+`AgentWorkspaceExecutionBindingRequest`
+
+###### Returns
+
+`Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+##### requireExecutionBound()
+
+> **requireExecutionBound**(`authorization`): `Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+###### Parameters
+
+###### authorization
+
+`AgentWorkspaceLeaseAuthorization`
+
+###### Returns
+
+`Promise`\<`AgentWorkspaceLeaseRecord`\>
+
+##### destroy()
+
+> **destroy**(`authorization`): `Promise`\<[`DestroyLocalPrivateWorkspaceResult`](#destroylocalprivateworkspaceresult)\>
+
+###### Parameters
+
+###### authorization
+
+`AgentWorkspaceLeaseAuthorization`
+
+###### Returns
+
+`Promise`\<[`DestroyLocalPrivateWorkspaceResult`](#destroylocalprivateworkspaceresult)\>
+
+##### reapExpired()
+
+> **reapExpired**(): `Promise`\<[`ReapExpiredLocalPrivateWorkspacesResult`](#reapexpiredlocalprivateworkspacesresult)\>
+
+###### Returns
+
+`Promise`\<[`ReapExpiredLocalPrivateWorkspacesResult`](#reapexpiredlocalprivateworkspacesresult)\>
 
 ***
 
@@ -15745,6 +16225,48 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 ***
 
+### LocalPrivateWorkspaceRootEntryDisposition
+
+> **LocalPrivateWorkspaceRootEntryDisposition** = `"include"` \| `"exclude"`
+
+***
+
+### LocalPrivateWorkspacePhase
+
+> **LocalPrivateWorkspacePhase** = `AgentWorkspaceLeasePhase`
+
+***
+
+### LocalPrivateWorkspaceRecord
+
+> **LocalPrivateWorkspaceRecord** = `AgentWorkspaceLeaseRecord`
+
+***
+
+### LocalPrivateWorkspaceAuthorization
+
+> **LocalPrivateWorkspaceAuthorization** = `AgentWorkspaceLeaseAuthorization`
+
+***
+
+### SealLocalPrivateWorkspaceInput
+
+> **SealLocalPrivateWorkspaceInput** = `AgentWorkspaceSealRequest`
+
+***
+
+### BindLocalPrivateWorkspaceExecutionInput
+
+> **BindLocalPrivateWorkspaceExecutionInput** = `AgentWorkspaceExecutionBindingRequest`
+
+***
+
+### RenewLocalPrivateWorkspaceInput
+
+> **RenewLocalPrivateWorkspaceInput** = `AgentWorkspaceLeaseRenewalRequest`
+
+***
+
 ### Environment
 
 > **Environment** = [`AgenticSurface`](#agenticsurface)
@@ -18276,6 +18798,42 @@ readonly [`EqualKArm`](#equalkarm)[]
 #### Returns
 
 [`EqualKVerdict`](#equalkverdict)
+
+***
+
+### createLocalPrivateWorkspaceManager()
+
+> **createLocalPrivateWorkspaceManager**(`options`): [`LocalPrivateWorkspaceManager`](#localprivateworkspacemanager)
+
+Local copy-only workspace provider with a durable linear state journal.
+Profile files are applied by the caller after `prepare`; `sealWorkspace`
+recomputes their exact filesystem result before execution can be bound.
+
+This prevents accidental workspace sharing between local workers. It is not
+an operating-system security boundary: processes with host filesystem access
+can still read or mutate another allocation.
+
+#### Parameters
+
+##### options
+
+[`CreateLocalPrivateWorkspaceManagerOptions`](#createlocalprivateworkspacemanageroptions)
+
+#### Returns
+
+[`LocalPrivateWorkspaceManager`](#localprivateworkspacemanager)
+
+***
+
+### createLocalPrivateWorkspaceOwnerToken()
+
+> **createLocalPrivateWorkspaceOwnerToken**(): `string`
+
+Mint a caller-retained 256-bit capability for one or more authorized lease calls.
+
+#### Returns
+
+`string`
 
 ***
 

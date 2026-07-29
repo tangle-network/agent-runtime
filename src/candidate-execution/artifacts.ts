@@ -1,7 +1,3 @@
-import { constants as fsConstants } from 'node:fs'
-import { lstat, open, readdir, realpath } from 'node:fs/promises'
-import { relative, resolve, sep } from 'node:path'
-
 import type {
   AgentCandidateArtifactRef,
   AgentCandidateCapturedArtifact,
@@ -9,7 +5,7 @@ import type {
   AgentCandidateWorkspaceManifestMaterial,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
-
+import { captureFilesystemTree } from '../filesystem-snapshot'
 import { canonicalCandidateBytes, sha256Bytes } from './digest'
 import type { AgentCandidateArtifactPort } from './types'
 
@@ -171,100 +167,26 @@ async function scanWorkspace(
   manifest: AgentCandidateWorkspaceManifestMaterial
   files: Array<{ path: string; mode: number; bytes: Uint8Array }>
 }> {
-  const absoluteRoot = resolve(root)
-  const rootStats = await lstat(absoluteRoot)
-  if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
-    throw new Error('workspace root must be a real directory')
-  }
-  if ((await realpath(absoluteRoot)) !== absoluteRoot) {
-    throw new Error('workspace root has a symlinked path component')
-  }
-  const capturedFiles: Array<{ path: string; mode: number; bytes: Uint8Array }> = []
-  let totalBytes = 0
-
-  async function visit(directory: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true })
-    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    for (const entry of entries) {
-      if (directory === absoluteRoot && ignoredProtectedRootEntries.has(entry.name)) {
-        continue
-      }
-      const absolute = resolve(directory, entry.name)
-      const relPath = relative(absoluteRoot, absolute).split(sep).join('/')
-      if (!relPath || relPath.startsWith('../') || relPath.includes('/../')) {
-        throw new Error(`workspace entry escapes root: ${relPath}`)
-      }
-      const stats = await lstat(absolute)
-      if (stats.isSymbolicLink()) {
-        throw new Error(`workspace contains a symlink: ${relPath}`)
-      }
-      if (stats.isDirectory()) {
-        await visit(absolute)
-        continue
-      }
-      if (!stats.isFile()) {
-        throw new Error(`workspace contains a non-regular entry: ${relPath}`)
-      }
-      if (limits && capturedFiles.length >= limits.maxFiles) {
-        throw new Error('workspace exceeds maxFiles')
-      }
-      const descriptor = await open(
-        absolute,
-        fsConstants.O_RDONLY |
-          (typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0),
-      )
-      try {
-        const openedStats = await descriptor.stat()
-        if (!openedStats.isFile()) {
-          throw new Error(`workspace contains a non-regular entry: ${relPath}`)
-        }
-        if (openedStats.nlink !== 1) {
-          throw new Error(`workspace contains a hard-linked file: ${relPath}`)
-        }
-        const mode = openedStats.mode & 0o777
-        if (limits && openedStats.size > limits.maxFileBytes) {
-          throw new Error(`workspace file exceeds maxFileBytes: ${relPath}`)
-        }
-        const remainingBytes = limits ? limits.maxTotalFileBytes - totalBytes : undefined
-        if (remainingBytes !== undefined && openedStats.size > remainingBytes) {
-          throw new Error('workspace exceeds maxTotalFileBytes')
-        }
-        const bytes = await readBoundedFile(
-          descriptor,
-          limits ? Math.min(limits.maxFileBytes, remainingBytes ?? limits.maxFileBytes) : undefined,
-          relPath,
-        )
-        totalBytes += bytes.byteLength
-        capturedFiles.push({ path: relPath, mode, bytes: Uint8Array.from(bytes) })
-      } finally {
-        await descriptor.close()
-      }
-    }
-  }
-
-  await visit(absoluteRoot)
+  const observed = await captureFilesystemTree(root, {
+    label: 'workspace',
+    excludedRootEntries: ignoredProtectedRootEntries,
+    includeDirectories: false,
+    symlinks: 'reject',
+    hardlinks: 'reject',
+    limits: limits
+      ? { ...limits, maxPathBytes: Number.MAX_SAFE_INTEGER }
+      : {
+          maxFiles: Number.MAX_SAFE_INTEGER,
+          maxFileBytes: Number.MAX_SAFE_INTEGER,
+          maxTotalFileBytes: Number.MAX_SAFE_INTEGER,
+          maxPathBytes: Number.MAX_SAFE_INTEGER,
+        },
+  })
+  const capturedFiles = observed.entries
+    .filter((entry) => entry.kind === 'file')
+    .map((entry) => ({ path: entry.path, mode: entry.mode, bytes: entry.bytes }))
   return {
     manifest: candidateWorkspaceManifest(capturedFiles),
     files: capturedFiles,
   }
-}
-
-async function readBoundedFile(
-  descriptor: Awaited<ReturnType<typeof open>>,
-  maxBytes: number | undefined,
-  path: string,
-): Promise<Buffer> {
-  if (maxBytes === undefined) return await descriptor.readFile()
-  const chunks: Buffer[] = []
-  let total = 0
-  while (true) {
-    const remaining = maxBytes - total
-    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, remaining + 1))
-    const { bytesRead } = await descriptor.read(chunk, 0, chunk.byteLength, null)
-    if (bytesRead === 0) break
-    total += bytesRead
-    if (total > maxBytes) throw new Error(`workspace file exceeds its capture limit: ${path}`)
-    chunks.push(chunk.subarray(0, bytesRead))
-  }
-  return Buffer.concat(chunks, total)
 }
