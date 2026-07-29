@@ -19,7 +19,7 @@ import { fanout, selectValidWinner } from '../personify/combinators'
 import type { CombinatorShape, WinnerStrategy } from '../personify/wave-types'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { type PatchDeliverableOptions, patchDelivered } from './patch-deliverable'
-import type { AgentSpec } from './types'
+import type { AgentSpec, ExecutorFactory } from './types'
 import {
   createWorktreeCliExecutor,
   type WorktreeCliExecutorOptions,
@@ -35,6 +35,13 @@ export interface AuthoredHarness {
   profile: AgentProfile
   /** Which local harness CLI drives this leaf. */
   harness: 'claude' | 'codex' | 'opencode'
+  /** Require measured usage from this leaf. Budgeted supervision refuses the default unmetered
+   *  local-CLI mode; set false only when the selected runner actually returns token usage. */
+  budgetExempt?: WorktreeCliExecutorOptions['budgetExempt']
+  /** Run Codex through its measured, isolated JSONL path. This implies `budgetExempt: false`. */
+  codexReproducible?: WorktreeCliExecutorOptions['codexReproducible']
+  /** Host paths denied to a reproducible Codex leaf. */
+  codexReadDeniedPaths?: WorktreeCliExecutorOptions['codexReadDeniedPaths']
   /** Per-harness model/runId/baseRef overrides flow through the profile + these. */
   runId?: string
   baseRef?: string
@@ -88,26 +95,39 @@ export function worktreeFanout<Task>(
     })
 
   const itemSpec = (item: AuthoredHarness): AgentSpec => {
-    const executor = gateOnDeliverable(
-      createWorktreeCliExecutor({
-        repoRoot: options.repoRoot,
-        profile: item.profile,
-        harness: item.harness,
-        taskPrompt: options.taskPrompt,
-        ...(item.runId ? { runId: item.runId } : {}),
-        ...(item.baseRef ? { baseRef: item.baseRef } : {}),
-        ...(options.testCmd !== undefined ? { testCmd: options.testCmd } : {}),
-        ...(options.typecheckCmd !== undefined ? { typecheckCmd: options.typecheckCmd } : {}),
-        ...(options.harnessTimeoutMs !== undefined
-          ? { harnessTimeoutMs: options.harnessTimeoutMs }
-          : {}),
-        ...(options.runGit ? { runGit: options.runGit } : {}),
-        ...(options.runHarness ? { runHarness: options.runHarness } : {}),
-        ...(options.runCommand ? { runCommand: options.runCommand } : {}),
-      }),
-      deliverable,
-    )
-    return { profile: item.profile, harness: null, executor: executor as AgentSpec['executor'] }
+    const executorFactory: ExecutorFactory<WorktreePatchArtifact> = (_spec, ctx) => {
+      if (!ctx.node) {
+        throw new Error('worktreeFanout: supervised node context required')
+      }
+      return gateOnDeliverable(
+        createWorktreeCliExecutor({
+          repoRoot: options.repoRoot,
+          profile: item.profile,
+          harness: item.harness,
+          taskPrompt: options.taskPrompt,
+          executionAttemptId: ctx.node.attemptId,
+          ...(item.budgetExempt !== undefined ? { budgetExempt: item.budgetExempt } : {}),
+          ...(item.codexReproducible !== undefined
+            ? { codexReproducible: item.codexReproducible }
+            : {}),
+          ...(item.codexReadDeniedPaths !== undefined
+            ? { codexReadDeniedPaths: item.codexReadDeniedPaths }
+            : {}),
+          ...(item.runId ? { runId: item.runId } : {}),
+          ...(item.baseRef ? { baseRef: item.baseRef } : {}),
+          ...(options.testCmd !== undefined ? { testCmd: options.testCmd } : {}),
+          ...(options.typecheckCmd !== undefined ? { typecheckCmd: options.typecheckCmd } : {}),
+          ...(options.harnessTimeoutMs !== undefined
+            ? { harnessTimeoutMs: options.harnessTimeoutMs }
+            : {}),
+          ...(options.runGit ? { runGit: options.runGit } : {}),
+          ...(options.runHarness ? { runHarness: options.runHarness } : {}),
+          ...(options.runCommand ? { runCommand: options.runCommand } : {}),
+        }),
+        deliverable,
+      )
+    }
+    return { profile: item.profile, harness: null, executorFactory }
   }
 
   const selectWinner = selectValidWinner<WorktreePatchArtifact>({

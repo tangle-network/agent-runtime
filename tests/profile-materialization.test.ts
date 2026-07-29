@@ -1,14 +1,185 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   assertProfileMaterialization,
+  controlProfileMaterialization,
   defineProfileMaterializationContract,
+  fullProfileMaterialization,
+  profileMaterializationAxes,
+  promptModelProfileMaterialization,
   promptOnlyProfileMaterialization,
   promptResourceProfileMaterialization,
   sandboxActProfileMaterialization,
   validateProfileMaterialization,
+  worktreeCliProfileMaterialization,
 } from '../src/agent'
 
 describe('profile materialization contracts', () => {
+  it('maps a complete profile to every exact nonempty canonical axis it requests', () => {
+    const profile: AgentProfile = {
+      name: 'researcher',
+      description: 'Tests competing mechanisms',
+      version: '1',
+      tags: ['science'],
+      prompt: { systemPrompt: 'Run discriminating experiments.' },
+      model: { default: 'provider/model', reasoningEffort: 'high' },
+      harness: 'codex',
+      permissions: { shell: 'ask' },
+      tools: { web: true },
+      mcp: { papers: { transport: 'http', url: 'https://papers.example.test/mcp' } },
+      connections: [{ connectionId: 'literature', capabilities: ['search'] }],
+      subagents: { critic: { prompt: 'Find confounds.' } },
+      resources: {
+        skills: [{ kind: 'inline', name: 'hypothesis', content: 'Test mechanisms.' }],
+      },
+      hooks: { afterTool: [{ command: './capture-result' }] },
+      modes: { adversarial: { prompt: 'Try to falsify the claim.' } },
+      confidential: { sealed: true },
+      metadata: { role: 'driver' },
+      extensions: { codex: { sandbox: 'workspace-write' } },
+    }
+
+    expect(profileMaterializationAxes(profile)).toEqual([
+      'name',
+      'description',
+      'version',
+      'tags',
+      'systemPrompt',
+      'modelDefault',
+      'modelReasoningEffort',
+      'harness',
+      'permissions',
+      'tools',
+      'mcp',
+      'connections',
+      'subagents',
+      'skills',
+      'hooks',
+      'modes',
+      'confidential',
+      'metadata',
+      'extensions',
+    ])
+  })
+
+  it('omits empty structure while retaining explicit false and zero requests', () => {
+    expect(
+      profileMaterializationAxes({
+        name: '   ',
+        tags: [],
+        prompt: { systemPrompt: '', instructions: [' '] },
+        model: { metadata: {} },
+        permissions: {},
+        tools: { web: false },
+        mcp: {},
+        connections: [],
+        subagents: {},
+        resources: { files: [], failOnError: false },
+        hooks: { afterTool: [] },
+        modes: {},
+        confidential: { sealed: false },
+        metadata: { retries: 0 },
+        extensions: { codex: undefined },
+      }),
+    ).toEqual(['tools', 'resourceFailOnError', 'confidential', 'metadata'])
+  })
+
+  it('treats cyclic opaque metadata as a nonempty request without recursing forever', () => {
+    const metadata: Record<string, unknown> = {}
+    metadata.self = metadata
+
+    expect(profileMaterializationAxes({ metadata })).toEqual(['metadata'])
+  })
+
+  it('handles deeply nested empty opaque metadata without exhausting the call stack', () => {
+    const metadata: Record<string, unknown> = {}
+    let cursor = metadata
+    for (let index = 0; index < 25_000; index += 1) {
+      const next: Record<string, unknown> = {}
+      cursor.next = next
+      cursor = next
+    }
+
+    expect(profileMaterializationAxes({ metadata })).toEqual([])
+  })
+
+  it('separates prompt-and-model execution from full-profile execution', () => {
+    const requested = profileMaterializationAxes({
+      name: 'router-worker',
+      prompt: { systemPrompt: 'Solve it.' },
+      model: { default: 'provider/model' },
+      tools: { shell: true },
+      harness: 'codex',
+      metadata: { authorizationId: 'auth-1' },
+    })
+
+    expect(
+      validateProfileMaterialization({
+        contract: promptModelProfileMaterialization,
+        changedAxes: requested,
+      }).map((issue) => issue.axis),
+    ).toEqual(['tools'])
+    expect(
+      validateProfileMaterialization({
+        contract: fullProfileMaterialization,
+        changedAxes: requested,
+      }),
+    ).toEqual([])
+  })
+
+  it('does not let a limited path claim model or prompt fields it cannot apply', () => {
+    const requested = profileMaterializationAxes({
+      name: 'pi-worker',
+      prompt: { systemPrompt: 'Solve it.', instructions: ['Show evidence.'] },
+      model: {
+        default: 'provider/model',
+        small: 'provider/small',
+        reasoningEffort: 'high',
+      },
+      harness: 'pi',
+      metadata: { run: 'one' },
+    })
+
+    expect(
+      validateProfileMaterialization({
+        contract: promptModelProfileMaterialization,
+        changedAxes: requested,
+      }).map((issue) => issue.axis),
+    ).toEqual(['modelSmall', 'modelReasoningEffort'])
+    expect(
+      validateProfileMaterialization({
+        contract: controlProfileMaterialization,
+        changedAxes: requested,
+      }).map((issue) => issue.axis),
+    ).toEqual([
+      'systemPrompt',
+      'instructions',
+      'modelDefault',
+      'modelSmall',
+      'modelReasoningEffort',
+    ])
+  })
+
+  it('describes the local worktree CLI without claiming placement or ignored profile fields', () => {
+    expect(
+      validateProfileMaterialization({
+        contract: worktreeCliProfileMaterialization,
+        changedAxes: [
+          'name',
+          'systemPrompt',
+          'modelDefault',
+          'modelSmall',
+          'tools',
+          'permissions',
+          'connections',
+          'confidential',
+          'extensions',
+          'resourceFailOnError',
+        ],
+      }).map((issue) => issue.axis),
+    ).toEqual(['modelSmall', 'connections', 'confidential', 'extensions', 'resourceFailOnError'])
+  })
+
   it('lets a broad prompt contract carry prompt sub-axes', () => {
     expect(
       validateProfileMaterialization({
@@ -60,6 +231,7 @@ describe('profile materialization contracts', () => {
         changedAxes: [
           'name',
           'model',
+          'harness',
           'systemPrompt',
           'files',
           'skills',

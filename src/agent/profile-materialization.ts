@@ -1,10 +1,20 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 
 /** Known AgentProfile axes a run path may or may not carry into execution. */
 export const AGENT_PROFILE_MATERIALIZATION_AXES = [
   'identity',
   'name',
+  'description',
+  'version',
+  'tags',
   'model',
+  'modelDefault',
+  'modelSmall',
+  'modelProvider',
+  'modelReasoningEffort',
+  'modelMetadata',
+  'harness',
   'prompt',
   'systemPrompt',
   'instructions',
@@ -15,6 +25,7 @@ export const AGENT_PROFILE_MATERIALIZATION_AXES = [
   'resourceTools',
   'resourceAgents',
   'commands',
+  'resourceFailOnError',
   'tools',
   'permissions',
   'mcp',
@@ -35,6 +46,15 @@ export type KnownAgentProfileMaterializationAxis =
 export type AgentProfileMaterializationAxis =
   | KnownAgentProfileMaterializationAxis
   | `custom:${string}`
+
+type AgentProfileIdentityProperty = 'name' | 'description' | 'version' | 'tags'
+type AgentProfilePropertyMaterializationAxis = Exclude<
+  keyof AgentProfile,
+  AgentProfileIdentityProperty
+>
+
+/** Canonical AgentProfile axes used when checking one complete profile. */
+export type CanonicalAgentProfileMaterializationAxis = KnownAgentProfileMaterializationAxis
 
 /** Declares which AgentProfile axes a concrete run path really carries. */
 export interface ProfileMaterializationContract {
@@ -76,6 +96,14 @@ const AXIS_PARENTS: Partial<
   Record<KnownAgentProfileMaterializationAxis, KnownAgentProfileMaterializationAxis>
 > = {
   name: 'identity',
+  description: 'identity',
+  version: 'identity',
+  tags: 'identity',
+  modelDefault: 'model',
+  modelSmall: 'model',
+  modelProvider: 'model',
+  modelReasoningEffort: 'model',
+  modelMetadata: 'model',
   systemPrompt: 'prompt',
   instructions: 'prompt',
   files: 'resources',
@@ -84,28 +112,108 @@ const AXIS_PARENTS: Partial<
   resourceTools: 'resources',
   resourceAgents: 'resources',
   commands: 'resources',
+  resourceFailOnError: 'resources',
   mcpConnections: 'mcp',
 }
+
+const canonicalAgentProfilePropertyAxes = [
+  'prompt',
+  'model',
+  'harness',
+  'permissions',
+  'tools',
+  'mcp',
+  'connections',
+  'subagents',
+  'resources',
+  'hooks',
+  'modes',
+  'confidential',
+  'metadata',
+  'extensions',
+] as const satisfies readonly AgentProfilePropertyMaterializationAxis[]
+
+type MissingAgentProfilePropertyMaterializationAxis = Exclude<
+  AgentProfilePropertyMaterializationAxis,
+  (typeof canonicalAgentProfilePropertyAxes)[number]
+>
+const agentProfilePropertyAxesAreExhaustive: MissingAgentProfilePropertyMaterializationAxis extends never
+  ? true
+  : never = true
+void agentProfilePropertyAxesAreExhaustive
+
+const fullProfileMaterializationAxes = [
+  'identity',
+  ...canonicalAgentProfilePropertyAxes,
+] as const satisfies readonly CanonicalAgentProfileMaterializationAxis[]
+
+/** Materialization contract for a run path that executes every canonical AgentProfile axis. */
+export const fullProfileMaterialization = defineProfileMaterializationContract({
+  name: 'full-profile-execution',
+  axes: fullProfileMaterializationAxes,
+})
+
+/**
+ * Materialization contract for an intentionally limited prompt-and-model execution path.
+ * Identity, harness, and metadata are control fields consumed for naming, placement,
+ * authorization, and durable attribution; they are carried without adding worker behavior.
+ * Every behavioral axis other than prompt and model remains unsupported.
+ */
+export const promptModelProfileMaterialization = defineProfileMaterializationContract({
+  name: 'prompt-model-execution',
+  axes: ['name', 'systemPrompt', 'instructions', 'modelDefault', 'harness', 'metadata'],
+})
+
+/**
+ * Materialization contract for a local coding CLI in an isolated git worktree.
+ * The shared workspace materializer carries native tools, permissions, MCP, hooks, subagents,
+ * modes, and file-backed resources when the selected CLI supports their exact values. Runtime
+ * placement concerns (hub connections and confidential execution), provider-native extensions,
+ * unused model hints, and `resources.failOnError` are deliberately absent so they fail before a
+ * worktree or executor is created rather than being mistaken for an effective candidate change.
+ */
+export const worktreeCliProfileMaterialization = defineProfileMaterializationContract({
+  name: 'worktree-cli-execution',
+  axes: [
+    'name',
+    'systemPrompt',
+    'instructions',
+    'modelDefault',
+    'modelReasoningEffort',
+    'harness',
+    'permissions',
+    'tools',
+    'mcp',
+    'subagents',
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+    'hooks',
+    'modes',
+    'metadata',
+  ],
+})
+
+/** Materialization contract for a raw process path that carries only control/identity fields. */
+export const controlProfileMaterialization = defineProfileMaterializationContract({
+  name: 'control-only-execution',
+  axes: ['name', 'harness', 'metadata'],
+})
+
+/** Materialization contract for an injected inference function whose surrounding driver still
+ * applies the profile prompt, name, placement, and metadata, but not model selection. */
+export const promptControlProfileMaterialization = defineProfileMaterializationContract({
+  name: 'prompt-control-execution',
+  axes: ['name', 'systemPrompt', 'instructions', 'harness', 'metadata'],
+})
 
 /** Materialization contract for `createSandboxAct`, which forwards the full AgentProfile. */
 export const sandboxActProfileMaterialization = defineProfileMaterializationContract({
   name: 'createSandboxAct',
-  axes: [
-    'identity',
-    'model',
-    'prompt',
-    'resources',
-    'tools',
-    'permissions',
-    'mcp',
-    'connections',
-    'subagents',
-    'hooks',
-    'modes',
-    'confidential',
-    'metadata',
-    'extensions',
-  ],
+  axes: fullProfileMaterialization.axes,
 })
 
 /** Materialization contract for a run path that only injects prompt text. */
@@ -132,6 +240,57 @@ export function defineProfileMaterializationContract(
     name,
     axes: normalizeAxes(options.axes, `${name}.axes`),
   }
+}
+
+/**
+ * Return the exact canonical axes a complete profile actually requests. Compound prompt, model,
+ * identity, and resource objects are split so a path cannot claim an entire object while silently
+ * dropping one of its fields.
+ * Empty strings, arrays, and nested records do not claim support; explicit
+ * scalar values such as `false` and `0` remain meaningful requests.
+ */
+export function profileMaterializationAxes(
+  profile: AgentProfile,
+): readonly CanonicalAgentProfileMaterializationAxis[] {
+  const axes: CanonicalAgentProfileMaterializationAxis[] = []
+  addIfRequested(axes, 'name', profile.name)
+  addIfRequested(axes, 'description', profile.description)
+  addIfRequested(axes, 'version', profile.version)
+  addIfRequested(axes, 'tags', profile.tags)
+  addIfRequested(axes, 'systemPrompt', profile.prompt?.systemPrompt)
+  addIfRequested(axes, 'instructions', profile.prompt?.instructions)
+  addIfRequested(axes, 'modelDefault', profile.model?.default)
+  addIfRequested(axes, 'modelSmall', profile.model?.small)
+  addIfRequested(axes, 'modelProvider', profile.model?.provider)
+  addIfRequested(axes, 'modelReasoningEffort', profile.model?.reasoningEffort)
+  addIfRequested(axes, 'modelMetadata', profile.model?.metadata)
+  addIfRequested(axes, 'harness', profile.harness)
+  addIfRequested(axes, 'permissions', profile.permissions)
+  addIfRequested(axes, 'tools', profile.tools)
+  addIfRequested(axes, 'mcp', profile.mcp)
+  addIfRequested(axes, 'connections', profile.connections)
+  addIfRequested(axes, 'subagents', profile.subagents)
+  addIfRequested(axes, 'files', profile.resources?.files)
+  addIfRequested(axes, 'resourceTools', profile.resources?.tools)
+  addIfRequested(axes, 'skills', profile.resources?.skills)
+  addIfRequested(axes, 'resourceAgents', profile.resources?.agents)
+  addIfRequested(axes, 'commands', profile.resources?.commands)
+  addIfRequested(axes, 'resourceInstructions', profile.resources?.instructions)
+  addIfRequested(axes, 'resourceFailOnError', profile.resources?.failOnError)
+  addIfRequested(axes, 'hooks', profile.hooks)
+  addIfRequested(axes, 'modes', profile.modes)
+  addIfRequested(axes, 'confidential', profile.confidential)
+  addIfRequested(axes, 'metadata', profile.metadata)
+  addIfRequested(axes, 'extensions', profile.extensions)
+  return axes
+}
+
+function addIfRequested(
+  axes: CanonicalAgentProfileMaterializationAxis[],
+  axis: CanonicalAgentProfileMaterializationAxis,
+  value: unknown,
+): void {
+  if (hasNonEmptyMaterializationValue(value)) axes.push(axis)
 }
 
 /** Return every changed profile axis that the selected run path would drop. */
@@ -222,6 +381,31 @@ function isAxisSupported(
   while (parent) {
     if (supported.has(parent)) return true
     parent = AXIS_PARENTS[parent]
+  }
+  return false
+}
+
+function hasNonEmptyMaterializationValue(root: unknown): boolean {
+  const pending: unknown[] = [root]
+  const seen = new Set<object>()
+  while (pending.length > 0) {
+    const value = pending.pop()
+    if (value === undefined || value === null) continue
+    if (typeof value === 'string') {
+      if (value.trim().length > 0) return true
+      continue
+    }
+    if (typeof value === 'object') {
+      // Profiles are normally serializable trees. Treat a repeated reference as nonempty so a
+      // cyclic opaque metadata value cannot recurse forever or make an unsupported axis disappear.
+      if (seen.has(value)) return true
+      seen.add(value)
+      for (const child of Array.isArray(value) ? value : Object.values(value)) {
+        pending.push(child)
+      }
+      continue
+    }
+    return true
   }
   return false
 }

@@ -31,6 +31,11 @@ import {
   type WorkspacePlanReceipt,
 } from '@tangle-network/agent-profile-materialize'
 import {
+  assertProfileMaterialization,
+  profileMaterializationAxes,
+  worktreeCliProfileMaterialization,
+} from '../agent/profile-materialization'
+import {
   type CodexExecutionPolicy,
   type CodexTokenUsage,
   harnessInvocation,
@@ -152,8 +157,8 @@ export interface RunWorktreeHarnessOptions {
   repoRoot: string
   /**
    * Supervisor-authored prompt/model plus structural resources materialized into the worktree.
-   * `model.default` selects the one-shot model; `small`, `provider`, and `metadata` remain hints.
-   * Resource failures are always fatal here, regardless of `resources.failOnError`.
+   * `model.default` selects the one-shot model. Routing-only model hints and
+   * `resources.failOnError` are rejected because this path cannot honor them.
    */
   profile: AgentProfile
   /** Local harness for this run. This explicit choice overrides `profile.harness`. */
@@ -426,12 +431,15 @@ function materializationOnlyProfile(profile: AgentProfile): AgentProfile {
 }
 
 function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHarness): void {
-  // `profile.harness` is only a preference and the explicit run option wins. Model small/provider/
-  // metadata fields are routing or descriptive hints; this fixed one-shot path only selects the
-  // concrete `model.default`. `resources.failOnError` never weakens this path's fail-closed policy.
-  const unsupportedAxes = [hasEntries(profile.extensions) ? 'extensions' : null].filter(
-    (axis): axis is string => axis !== null,
-  )
+  assertProfileMaterialization({
+    contract: worktreeCliProfileMaterialization,
+    changedAxes: profileMaterializationAxes(profile),
+    context: 'runWorktreeHarness',
+  })
+  // `profile.harness` is only a preference and the explicit run option wins. The contract above
+  // rejects routing-only model hints and `resources.failOnError`; this harness-specific check
+  // handles values supported by only a subset of the three local CLIs.
+  const unsupportedAxes: string[] = []
   if (profile.model?.reasoningEffort !== undefined && harness !== 'codex') {
     unsupportedAxes.push('model.reasoningEffort')
   }
@@ -440,10 +448,6 @@ function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHar
       `runWorktreeHarness: profile requests unsupported worktree behavior: ${unsupportedAxes.join(', ')}`,
     )
   }
-}
-
-function hasEntries(value: object | undefined): boolean {
-  return value !== undefined && Object.keys(value).length > 0
 }
 
 function assertSafeMaterializedPaths(plan: WorkspacePlan): void {

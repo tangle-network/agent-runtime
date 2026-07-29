@@ -658,9 +658,9 @@ describe('promotionGate non-inferiority', () => {
     const rows = Array.from({ length: 12 }, (_, i) => ({
       id: `t${i}`,
       incScore: 0.6 + (i % 3) * 0.05,
-      candScore: 0.59 + (i % 3) * 0.05,
-      incUsd: 0.028,
-      candUsd: 0.013,
+      candScore: 0.59 + (i % 3) * 0.05 + (i % 2) * 0.004,
+      incUsd: 0.027 + (i % 3) * 0.001,
+      candUsd: 0.012 + (i % 2) * 0.002,
     }))
     const v = promotionGate({
       report: costReport(rows),
@@ -696,7 +696,7 @@ describe('promotionGate non-inferiority', () => {
     const rows = Array.from({ length: 12 }, (_, i) => ({
       id: `t${i}`,
       incScore: 0.6,
-      candScore: 0.61,
+      candScore: 0.608 + (i % 3) * 0.002,
       incUsd: 0.02,
       candUsd: i % 2 === 0 ? 0.021 : 0.019,
     }))
@@ -714,7 +714,7 @@ describe('promotionGate non-inferiority', () => {
     const rows = Array.from({ length: 12 }, (_, i) => ({
       id: `t${i}`,
       incScore: 0.6,
-      candScore: 0.6,
+      candScore: 0.598 + (i % 3) * 0.002,
       incUsd: 0.03,
       candUsd: 0.012 + (i % 2) * 0.002,
     }))

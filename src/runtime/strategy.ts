@@ -477,7 +477,7 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
         // An EMPTY messages array means "fresh" too — an authored body passing
         // `messages: []` must not silently blank the worker's system/task prompt.
         const messages: StrategyMessage[] = t.messages?.length
-          ? t.messages
+          ? [...t.messages]
           : [
               { role: 'system', content: t.persona?.systemPrompt ?? t.task.systemPrompt },
               { role: 'user', content: `${t.task.userPrompt}\n\n${taskNudge}` },

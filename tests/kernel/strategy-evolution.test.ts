@@ -20,18 +20,20 @@ import { runStrategyEvolution, selectChampion } from '../../src/runtime/strategy
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────────
 
-/** Deterministic surface: score = shots taken on the handle, capped at 2 of 2 — one
- *  worker pass per shot is observable via tools() calls. Depth (2 shots, one handle)
- *  scores 1.0; breadth (fresh handle per shot) scores 0.5. */
+/** Deterministic non-degenerate surface: one worker pass per shot is observable via tools() calls.
+ *  Tasks alternate between two- and three-pass targets, so depth beats breadth on every task while
+ *  the paired lift still has real variation for the statistical promotion decision. */
 function shotCountingSurface(): AgenticSurface {
   const shotsByHandle = new Map<string, number>()
+  const targetByHandle = new Map<string, number>()
   let seq = 0
   return {
     name: 'shot-counter',
-    async open() {
+    async open(task) {
       seq += 1
       const id = `h-${seq}`
       shotsByHandle.set(id, 0)
+      targetByHandle.set(id, targetForTask(task.id))
       return { id, surface: 'shot-counter' }
     },
     async tools(_t, handle) {
@@ -42,10 +44,20 @@ function shotCountingSurface(): AgenticSurface {
       return 'ok'
     },
     async score(_t, handle) {
-      return { passes: Math.min(shotsByHandle.get(handle.id) ?? 0, 2), total: 2, errored: 0 }
+      const total = targetByHandle.get(handle.id) ?? 2
+      return {
+        passes: Math.min(shotsByHandle.get(handle.id) ?? 0, total),
+        total,
+        errored: 0,
+      }
     },
     async close() {},
   }
+}
+
+function targetForTask(taskId: string): 2 | 3 {
+  const suffix = Number(/(\d+)$/u.exec(taskId)?.[1])
+  return Number.isFinite(suffix) && suffix % 4 >= 2 ? 3 : 2
 }
 
 const twoShotDepthModule = `import { defineStrategy } from '@tangle-network/agent-runtime/kernel'
@@ -294,11 +306,12 @@ describe('runStrategyEvolution', () => {
 
 import { discriminatingMeans, pickChampion } from '../../src/runtime/strategy-evolution'
 
-/** Difficulty by task id: 'easy-*' tasks score 1.0 for ANY strategy; others score by
- *  shots-on-handle capped at 2 (depth 1.0, breadth 0.5) — the middle band. */
+/** Difficulty by task id: 'easy-*' tasks score 1.0 for ANY strategy; band tasks alternate
+ *  two- and three-pass targets so depth beats breadth with non-degenerate paired evidence. */
 function difficultySurface(): AgenticSurface {
   const shotsByHandle = new Map<string, number>()
   const taskByHandle = new Map<string, string>()
+  const targetByHandle = new Map<string, number>()
   let seq = 0
   return {
     name: 'difficulty',
@@ -307,6 +320,7 @@ function difficultySurface(): AgenticSurface {
       const id = `h-${seq}`
       shotsByHandle.set(id, 0)
       taskByHandle.set(id, task.id)
+      targetByHandle.set(id, targetForTask(task.id))
       return { id, surface: 'difficulty' }
     },
     async tools(_t, handle) {
@@ -319,7 +333,12 @@ function difficultySurface(): AgenticSurface {
     async score(_t, handle) {
       if (taskByHandle.get(handle.id)?.startsWith('easy-'))
         return { passes: 2, total: 2, errored: 0 }
-      return { passes: Math.min(shotsByHandle.get(handle.id) ?? 0, 2), total: 2, errored: 0 }
+      const total = targetByHandle.get(handle.id) ?? 2
+      return {
+        passes: Math.min(shotsByHandle.get(handle.id) ?? 0, total),
+        total,
+        errored: 0,
+      }
     },
     async close() {},
   }

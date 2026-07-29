@@ -34,6 +34,7 @@ export { createSurfaceImprovementProposer } from './improvement-adapter'
 export type {
   AgentProfileMaterializationAxis,
   AssertProfileMaterializationOptions,
+  CanonicalAgentProfileMaterializationAxis,
   DefineProfileMaterializationContractOptions,
   KnownAgentProfileMaterializationAxis,
   ProfileMaterializationContract,
@@ -43,12 +44,18 @@ export type {
 export {
   AGENT_PROFILE_MATERIALIZATION_AXES,
   assertProfileMaterialization,
+  controlProfileMaterialization,
   defineProfileMaterializationContract,
+  fullProfileMaterialization,
+  profileMaterializationAxes,
+  promptControlProfileMaterialization,
+  promptModelProfileMaterialization,
   promptOnlyProfileMaterialization,
   promptResourceProfileMaterialization,
   renderProfileMaterializationIssues,
   sandboxActProfileMaterialization,
   validateProfileMaterialization,
+  worktreeCliProfileMaterialization,
 } from './profile-materialization'
 export type { CreateSandboxActOptions, SandboxActComposeOverrides } from './sandbox-act'
 export { createSandboxAct } from './sandbox-act'

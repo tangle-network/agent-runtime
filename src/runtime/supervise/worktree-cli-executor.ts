@@ -49,10 +49,9 @@ export interface WorktreeCliExecutorOptions {
   repoRoot: string
   /**
    * The supervisor-authored prompt/model plus materializable structural resources.
-   * `model.default` selects the one-shot model; `small`, `provider`, and `metadata` remain hints.
-   * Resource failures are fatal regardless of `resources.failOnError`.
-   * Tools, permissions, connections, confidential execution, modes, and extensions fail closed.
-   * Harness-specific nested controls that the pinned materializer cannot preserve also fail closed.
+   * `model.default` selects the one-shot model. Routing-only model hints, placement concerns,
+   * provider extensions, and `resources.failOnError` fail before execution because this path
+   * cannot honor them. Harness-specific values the materializer cannot preserve also fail closed.
    */
   profile: AgentProfile
   /** Local CLI for this leaf. This explicit choice overrides `profile.harness`. */

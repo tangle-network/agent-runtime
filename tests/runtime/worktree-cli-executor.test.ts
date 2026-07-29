@@ -295,7 +295,7 @@ describe('createWorktreeCliExecutor', () => {
         runGit: makeFakeGit(state),
         runHarness: vi.fn(),
       }),
-    ).toThrow(/profile cannot be materialized.*connections/)
+    ).toThrow(/profile materialization would drop axis changes.*connections/s)
     expect(state.worktreesCreated).toEqual([])
     expect(state.worktreesRemoved).toEqual([])
   })
