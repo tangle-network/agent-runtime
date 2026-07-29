@@ -623,6 +623,13 @@ export {
   piExecutor,
   piSeamKey,
 } from './supervise/pi-executor'
+export {
+  type CreatePreparedExecutorFactoryOptions,
+  createPreparedExecutorFactory,
+  type PrepareRuntimeExecutor,
+  type RuntimeExecutorPreparationRequest,
+  type RuntimePreparedExecutorResult,
+} from './supervise/prepared-executor'
 // The LIVE read-model of a RUNNING worker — last activity, idle time, derived stall, turns,
 // tokens so far, recent tool/file activity, unread steers. What `observe_agent` now returns
 // mid-flight, and the evidence a supervisor steers FROM.
@@ -675,7 +682,12 @@ export {
   type SteerableSandboxArgs,
   type SteerableSandboxSession,
 } from './supervise/sandbox-session'
-export { createScope, type ScopeArgs, settledToIteration } from './supervise/scope'
+export {
+  createScope,
+  prepareScopeOwnerExecutor,
+  type ScopeArgs,
+  settledToIteration,
+} from './supervise/scope'
 // PROGRESS-BASED STOP RULES: end a long-horizon run because it stopped learning, not because it ran
 // out. Enforcement lives here; the thresholds are the caller's policy. Composes with (and can never
 // override) the conserved-pool / deadline / abort ceilings.
@@ -753,6 +765,7 @@ export type {
   AgentSpec,
   Budget,
   ExecutionBindingReceipt,
+  ExecutionPreparationEvidence,
   Executor,
   ExecutorAccounting,
   ExecutorContext,

@@ -260,7 +260,7 @@ Options for running a provider as a supervise-mode executor.
 
 ##### runtime?
 
-> `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-4)
+> `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-5)
 
 **`Experimental`**
 
@@ -402,7 +402,7 @@ Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
 
 ### providerAsExecutor()
 
-> **providerAsExecutor**(`provider`, `options?`): [`ExecutorFactory`](../runtime.md#executorfactory)\<`unknown`\>
+> **providerAsExecutor**(`provider`, `options?`): [`ExecutorFactory`](../runtime.md#executorfactory-1)\<`unknown`\>
 
 **`Experimental`**
 
@@ -420,7 +420,7 @@ Adapt an environment provider into an `ExecutorFactory` for `createExecutor`.
 
 #### Returns
 
-[`ExecutorFactory`](../runtime.md#executorfactory)\<`unknown`\>
+[`ExecutorFactory`](../runtime.md#executorfactory-1)\<`unknown`\>
 
 ## References
 

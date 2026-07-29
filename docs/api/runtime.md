@@ -763,11 +763,11 @@ One flattened node with the journal tree that owns its records.
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](#runtime-4)
+> `readonly` **runtime**: [`Runtime`](#runtime-5)
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`runtime`](#runtime-5)
+[`NodeSnapshot`](#nodesnapshot).[`runtime`](#runtime-6)
 
 ##### budget
 
@@ -776,6 +776,16 @@ One flattened node with the journal tree that owns its records.
 ###### Inherited from
 
 [`NodeSnapshot`](#nodesnapshot).[`budget`](#budget-17)
+
+##### ownedTreeRoot?
+
+> `readonly` `optional` **ownedTreeRoot?**: `string`
+
+Exact nested journal tree owned by this node, when Runtime attested recursive ownership.
+
+###### Inherited from
+
+[`NodeSnapshot`](#nodesnapshot).[`ownedTreeRoot`](#ownedtreeroot-1)
 
 ##### assignmentId?
 
@@ -804,6 +814,16 @@ Kernel-owned execution evidence. `unknown` is distinct from a known zero/empty p
 ###### Inherited from
 
 [`NodeSnapshot`](#nodesnapshot).[`materialization`](#materialization-2)
+
+##### executionPreparations?
+
+> `readonly` `optional` **executionPreparations?**: readonly [`ExecutionPreparationEvidence`](#executionpreparationevidence)[]
+
+Immutable private-preparation receipts, one per concrete execution attempt, oldest first.
+
+###### Inherited from
+
+[`NodeSnapshot`](#nodesnapshot).[`executionPreparations`](#executionpreparations-2)
 
 ##### executionBindings?
 
@@ -878,7 +898,7 @@ in-doubt and conservatively retains its reservation. Root nodes and armed waits 
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](#runtime-4)
+> `readonly` **runtime**: [`Runtime`](#runtime-5)
 
 ***
 
@@ -10617,7 +10637,8 @@ and the worker's agent loop drains them at two points (Drew's two delivery modes
     in-flight turn immediately, then re-plan with the message folded in — breaking the worker out
     of a wrong path mid-task instead of waiting for it to finish the step.
 
-`deliver` never throws — a malformed message is ignored, per the `Executor.deliver` contract.
+`deliver` never throws — a malformed message is ignored and returns `false`, so no caller can
+report delivery for bytes this inbox discarded.
 
 #### Properties
 
@@ -10657,9 +10678,10 @@ Present for an `answer` — the question id it resolves.
 
 ##### deliver()
 
-> **deliver**(`msg`): `void`
+> **deliver**(`msg`): `boolean`
 
-The `Executor.deliver` implementation — accept a raw down-message from `Scope.send`.
+The `Executor.deliver` implementation. Returns false when the raw message is malformed and
+therefore was not queued; callers must not acknowledge a message this inbox discarded.
 
 ###### Parameters
 
@@ -10669,7 +10691,7 @@ The `Executor.deliver` implementation — accept a raw down-message from `Scope.
 
 ###### Returns
 
-`void`
+`boolean`
 
 ##### drain()
 
@@ -10812,6 +10834,150 @@ Wall-clock ceiling for one `prompt` (the wait for `agent_end`). Omit = no timeou
 > `optional` **activityWindow?**: `number`
 
 Newest-last activity window `progress()` reports. Default 12.
+
+***
+
+### RuntimeExecutorPreparationRequest
+
+Immutable request Runtime gives a private preparation provider after spawn admission.
+
+#### Properties
+
+##### role
+
+> `readonly` **role**: `"worker"` \| `"supervisor"`
+
+##### requestDigest
+
+> `readonly` **requestDigest**: `` `sha256:${string}` ``
+
+##### authoredProfile
+
+> `readonly` **authoredProfile**: `AgentProfile`
+
+Product-authorized profile used for durable execution identity.
+
+##### executionProfile
+
+> `readonly` **executionProfile**: `AgentProfile`
+
+Trusted requested profile after platform attachments; the provider returns the exact effective profile.
+
+##### task
+
+> `readonly` **task**: `unknown`
+
+##### node
+
+> `readonly` **node**: [`ExecutorNodeContext`](#executornodecontext)
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+***
+
+### RuntimePreparedExecutorResult
+
+Public proof plus the private workspace release closure returned by a preparation provider.
+Runtime constructs the configured executor itself, after it validates this proof, so a
+preparation provider cannot silently replace the backend selected by the caller.
+
+#### Properties
+
+##### receipt
+
+> `readonly` **receipt**: `AgentExecutionPreparationReceipt`
+
+##### effectiveProfile
+
+> `readonly` **effectiveProfile**: `AgentProfile`
+
+##### executionPlanDigest
+
+> `readonly` **executionPlanDigest**: `` `sha256:${string}` ``
+
+##### profileActivation
+
+> `readonly` **profileActivation**: `Pick`\<`AgentProfileActivationEvidence`, `"digest"`\>
+
+##### workspaceLease
+
+> `readonly` **workspaceLease**: `AgentWorkspaceLeaseRecordBase` & `AgentWorkspaceExecutionBoundEvidence` & `object` & `object`
+
+##### release
+
+> `readonly` **release**: () => `Promise`\<`void`\>
+
+Release/destroy the private workspace after executor teardown is confirmed.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### CreatePreparedExecutorFactoryOptions
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Properties
+
+##### runtime
+
+> `readonly` **runtime**: [`Runtime`](#runtime-5)
+
+##### executorFactory
+
+> `readonly` **executorFactory**: [`ExecutorFactory`](#executorfactory-1)\<`Out`\>
+
+Exact configured backend factory. Runtime calls it only after preparation validates.
+
+##### prepare
+
+> `readonly` **prepare**: [`PrepareRuntimeExecutor`](#prepareruntimeexecutor)
+
+##### role?
+
+> `readonly` `optional` **role?**: `"worker"` \| `"supervisor"`
+
+##### authoredProfile?
+
+> `readonly` `optional` **authoredProfile?**: `AgentProfile`
+
+Stable product-authorized profile when `spec.profile` includes trusted runtime attachments.
+
+##### acceptsMessages?
+
+> `readonly` `optional` **acceptsMessages?**: `boolean`
+
+Declare a pre-preparation inbox only when every prepared inner executor supports delivery.
+
+##### backend?
+
+> `readonly` `optional` **backend?**: `string`
+
+Optional expected receipt identities; omit only when the provider legitimately selects them.
+
+##### harness?
+
+> `readonly` `optional` **harness?**: `HarnessType`
+
+##### harnessVersion?
+
+> `readonly` `optional` **harnessVersion?**: `string`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
 
 ***
 
@@ -11435,7 +11601,7 @@ Generic environment provider executor config. External packages implement
 
 ##### runtime?
 
-> `optional` **runtime?**: [`Runtime`](#runtime-4)
+> `optional` **runtime?**: [`Runtime`](#runtime-5)
 
 **`Experimental`**
 
@@ -12279,6 +12445,14 @@ digests itself from the exact detached values it executes.
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
 
 WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`.
+
+##### prepareExecution?
+
+> `readonly` `optional` **prepareExecution?**: [`PrepareRuntimeExecutor`](#prepareruntimeexecutor)
+
+Private pre-compute preparation shared by every Runtime-owned manager and worker backend.
+Runtime validates its public receipt before constructing the configured executor, records the
+exact attempt, and retains private workspace ownership until executor destruction is proven.
 
 ##### deliverable?
 
@@ -13590,6 +13764,35 @@ binding is hashed and discarded; only the safe structural descriptor is journale
 
 ***
 
+### ExecutionPreparationEvidence
+
+The shared pre-compute receipt plus the exact public workspace lease it is bound to.
+Secret values, owner tokens, and private provider capabilities never enter this object.
+
+#### Properties
+
+##### attemptId
+
+> `readonly` **attemptId**: `string`
+
+Kernel-minted execution attempt this private preparation belongs to.
+
+##### role
+
+> `readonly` **role**: `"worker"` \| `"supervisor"`
+
+Whether this attempt runs the coordinating scientist or one of its workers.
+
+##### receipt
+
+> `readonly` **receipt**: `AgentExecutionPreparationReceipt`
+
+##### workspaceLease
+
+> `readonly` **workspaceLease**: `AgentWorkspaceLeaseRecordBase` & `AgentWorkspaceExecutionBoundEvidence` & `object` & `object`
+
+***
+
 ### ExecutorNodeContext
 
 Kernel-owned context for the concrete supervised node a factory is constructing.
@@ -13733,6 +13936,12 @@ Durable identity of the authorized profile/task/candidate represented by this ha
 > `readonly` `optional` **materialization?**: [`ProfileMaterializationReceipt`](#profilematerializationreceipt)
 
 Stable execution plan once Runtime has committed it.
+
+##### executionPreparations?
+
+> `readonly` `optional` **executionPreparations?**: readonly [`ExecutionPreparationEvidence`](#executionpreparationevidence)[]
+
+Immutable private-preparation receipts, one per concrete execution attempt, oldest first.
 
 ##### executionBindings?
 
@@ -13890,11 +14099,17 @@ The rehydrated settlement; absent exactly when `state` is `'in-doubt'`.
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](#runtime-4)
+> `readonly` **runtime**: [`Runtime`](#runtime-5)
 
 ##### budget
 
 > `readonly` **budget**: [`Budget`](index.md#budget-4)
+
+##### ownedTreeRoot?
+
+> `readonly` `optional` **ownedTreeRoot?**: `string`
+
+Exact nested journal tree owned by this node, when Runtime attested recursive ownership.
 
 ##### assignmentId?
 
@@ -13911,6 +14126,12 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 > `readonly` `optional` **materialization?**: [`ProfileMaterializationReceipt`](#profilematerializationreceipt)
 
 Kernel-owned execution evidence. `unknown` is distinct from a known zero/empty plan.
+
+##### executionPreparations?
+
+> `readonly` `optional` **executionPreparations?**: readonly [`ExecutionPreparationEvidence`](#executionpreparationevidence)[]
+
+Immutable private-preparation receipts, one per concrete execution attempt, oldest first.
 
 ##### executionBindings?
 
@@ -14191,9 +14412,11 @@ Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle em
 
 ### RootHandle
 
-Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `deliver`
- sends a raw steer/answer to a manager inbox, `signal` controls the run, and `view()`
- materializes the tree.
+Live root handle — a chat/pi-viz client uses it to inspect and control one root run.
+
+#### Extended by
+
+- [`SteerableRootHandle`](#steerableroothandle)
 
 #### Type Parameters
 
@@ -14220,12 +14443,12 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 [`TreeView`](#treeview)
 
-##### deliver()
+##### deliver()?
 
-> **deliver**(`msg`): `boolean`
+> `optional` **deliver**(`msg`): `boolean`
 
-Deliver a raw down-message to the live root manager. Returns `false` when that manager has no
-inbox. Before binding and after completion this fails loud like the other handle methods.
+Optional for structural compatibility with existing view/signal/abort wrappers. Handles
+minted by `createRootHandle` implement the required form in `SteerableRootHandle`.
 
 ###### Parameters
 
@@ -14264,6 +14487,107 @@ inbox. Before binding and after completion this fails loud like the other handle
 ###### Returns
 
 `void`
+
+***
+
+### SteerableRootHandle
+
+A Runtime-minted root handle that can deliver raw steering or answers to a live manager inbox.
+Delivery returns `false` when the manager has no receive path; detached calls fail loud.
+
+#### Extends
+
+- [`RootHandle`](#roothandle-1)\<`Out`\>
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Properties
+
+##### \_\_out?
+
+> `readonly` `optional` **\_\_out?**: `Out`
+
+Phantom: binds the handle to the supervised run's output type. Type-only — never
+ present at runtime; lets `attach(h: RootHandle<Out>)` stay output-typed.
+
+###### Inherited from
+
+[`RootHandle`](#roothandle-1).[`__out`](#__out-1)
+
+#### Methods
+
+##### view()
+
+> **view**(): [`TreeView`](#treeview)
+
+###### Returns
+
+[`TreeView`](#treeview)
+
+###### Inherited from
+
+[`RootHandle`](#roothandle-1).[`view`](#view-3)
+
+##### signal()
+
+> **signal**(`msg`): `void`
+
+###### Parameters
+
+###### msg
+
+[`RootSignal`](#rootsignal)
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`RootHandle`](#roothandle-1).[`signal`](#signal-16)
+
+##### abort()
+
+> **abort**(`reason?`): `void`
+
+###### Parameters
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`RootHandle`](#roothandle-1).[`abort`](#abort-1)
+
+##### deliver()
+
+> **deliver**(`msg`): `boolean`
+
+Optional for structural compatibility with existing view/signal/abort wrappers. Handles
+minted by `createRootHandle` implement the required form in `SteerableRootHandle`.
+
+###### Parameters
+
+###### msg
+
+`unknown`
+
+###### Returns
+
+`boolean`
+
+###### Overrides
+
+[`RootHandle`](#roothandle-1).[`deliver`](#deliver-3)
 
 ***
 
@@ -17304,7 +17628,7 @@ One provider-neutral conversation record carried between strategy shots.
 
 ### AgentTurnBackend
 
-> **AgentTurnBackend** = \{ `kind`: `"box"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`PromptOptions`, `"signal"`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
+> **AgentTurnBackend** = \{ `kind`: `"box"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`PromptOptions`, `"signal"`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
 
 **`Experimental`**
 
@@ -17347,7 +17671,7 @@ Model label stamped on cost-only `llm_call` events. Default `'agent'`.
 
 ##### Type Literal
 
-\{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \}
+\{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>; `agentRunName?`: `string`; \}
 
 ###### kind
 
@@ -17360,7 +17684,7 @@ runtime gives it.
 
 ###### factory
 
-> **factory**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
+> **factory**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
 
 ###### agentRunName?
 
@@ -17466,6 +17790,22 @@ the same `receiptId` has an unknown outcome after a crash and is never replayed.
 Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end);
  `not-admitted` = the conserved pool or the depth ceiling refused a spawn; `stopped` = the
  caller's `shouldStop` returned true; `aborted` = the scope's signal fired.
+
+***
+
+### PrepareRuntimeExecutor
+
+> **PrepareRuntimeExecutor** = (`request`) => `Promise`\<[`RuntimePreparedExecutorResult`](#runtimepreparedexecutorresult)\>
+
+#### Parameters
+
+##### request
+
+[`RuntimeExecutorPreparationRequest`](#runtimeexecutorpreparationrequest)
+
+#### Returns
+
+`Promise`\<[`RuntimePreparedExecutorResult`](#runtimepreparedexecutorresult)\>
 
 ***
 
@@ -17651,7 +17991,7 @@ Why exact materialization evidence is unavailable for a node.
 
 ### ProfileMaterializationReceipt
 
-> **ProfileMaterializationReceipt** = \{ `status`: `"known"`; `authoredProfileDigest`: `Sha256Digest`; `effectiveProfileDigest`: `Sha256Digest`; `materializationPlanDigest`: `Sha256Digest`; `platformAttachmentsDigest?`: `Sha256Digest`; `runtime`: [`Runtime`](#runtime-4); `backend`: `string`; `model`: [`MaterializedModelIdentity`](#materializedmodelidentity); `execution`: [`MaterializedExecutionIdentity`](#materializedexecutionidentity); `materializer`: `string`; \} \| \{ `status`: `"unknown"`; `authoredProfileDigest?`: `Sha256Digest`; `runtime`: [`Runtime`](#runtime-4); `reason`: [`UnknownMaterializationReason`](#unknownmaterializationreason); \}
+> **ProfileMaterializationReceipt** = \{ `status`: `"known"`; `authoredProfileDigest`: `Sha256Digest`; `effectiveProfileDigest`: `Sha256Digest`; `materializationPlanDigest`: `Sha256Digest`; `platformAttachmentsDigest?`: `Sha256Digest`; `runtime`: [`Runtime`](#runtime-5); `backend`: `string`; `model`: [`MaterializedModelIdentity`](#materializedmodelidentity); `execution`: [`MaterializedExecutionIdentity`](#materializedexecutionidentity); `materializer`: `string`; \} \| \{ `status`: `"unknown"`; `authoredProfileDigest?`: `Sha256Digest`; `runtime`: [`Runtime`](#runtime-5); `reason`: [`UnknownMaterializationReason`](#unknownmaterializationreason); \}
 
 What the kernel can prove about one node's actual execution plan.
 
@@ -17667,7 +18007,7 @@ One attempt's immutable link from a stable materialization plan to its actual tr
 
 ### RootMaterialization
 
-> **RootMaterialization** = \{ `runtime`: [`Runtime`](#runtime-4); `declaration`: [`ExecutorMaterialization`](#executormaterialization); `binding`: `Omit`\<[`ExecutorExecutionBinding`](#executorexecutionbinding), `"attemptId"`\>; \} \| \{ `runtime`: [`Runtime`](#runtime-4); `declaration`: `"deferred"`; `authoredProfile`: `AgentProfile`; \}
+> **RootMaterialization** = \{ `runtime`: [`Runtime`](#runtime-5); `declaration`: [`ExecutorMaterialization`](#executormaterialization); `binding`: `Omit`\<[`ExecutorExecutionBinding`](#executorexecutionbinding), `"attemptId"`\>; \} \| \{ `runtime`: [`Runtime`](#runtime-5); `declaration`: `"deferred"`; `authoredProfile`: `AgentProfile`; \}
 
 Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown.
 
@@ -17675,17 +18015,17 @@ Trusted root composition evidence. Generic `Agent.act` roots omit this and remai
 
 ##### Type Literal
 
-\{ `runtime`: [`Runtime`](#runtime-4); `declaration`: [`ExecutorMaterialization`](#executormaterialization); `binding`: `Omit`\<[`ExecutorExecutionBinding`](#executorexecutionbinding), `"attemptId"`\>; \}
+\{ `runtime`: [`Runtime`](#runtime-5); `declaration`: [`ExecutorMaterialization`](#executormaterialization); `binding`: `Omit`\<[`ExecutorExecutionBinding`](#executorexecutionbinding), `"attemptId"`\>; \}
 
 ***
 
 ##### Type Literal
 
-\{ `runtime`: [`Runtime`](#runtime-4); `declaration`: `"deferred"`; `authoredProfile`: `AgentProfile`; \}
+\{ `runtime`: [`Runtime`](#runtime-5); `declaration`: `"deferred"`; `authoredProfile`: `AgentProfile`; \}
 
 ###### runtime
 
-> `readonly` **runtime**: [`Runtime`](#runtime-4)
+> `readonly` **runtime**: [`Runtime`](#runtime-5)
 
 The runtime-owned external adapter will publish the exact declaration after its dynamic
 platform attachment (for example a coordination URL) exists and before paid work starts.
@@ -17795,7 +18135,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-4); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-4); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-4); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-4); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-4); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-4); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-5); `ownedTreeRoot?`: [`NodeId`](#nodeid-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-4); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-4); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"prepared"`; `id`: [`NodeId`](#nodeid-4); `evidence`: [`ExecutionPreparationEvidence`](#executionpreparationevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-4); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-4); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-4); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-4); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -17804,7 +18144,7 @@ Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-4); `parent?`: [`NodeId`](#nodeid-4); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-5); `ownedTreeRoot?`: [`NodeId`](#nodeid-4); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -17841,7 +18181,15 @@ Manager-scoped assignment identity used to join unkeyed and keyed work alike.
 
 ###### runtime
 
-> **runtime**: [`Runtime`](#runtime-4)
+> **runtime**: [`Runtime`](#runtime-5)
+
+###### ownedTreeRoot?
+
+> `optional` **ownedTreeRoot?**: [`NodeId`](#nodeid-4)
+
+Exact nested journal tree this node owns. Runtime writes this only after privately
+attesting the executor as a recursive scope owner. Its absence means no tree is followed,
+including records written before this field existed and caller leaves named `driver`.
 
 ###### identity?
 
@@ -17905,6 +18253,34 @@ Trusted runtime transformation from the authorized profile to actual wire bytes.
 ###### receipt
 
 > **receipt**: [`ProfileMaterializationReceipt`](#profilematerializationreceipt)
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"prepared"`; `id`: [`NodeId`](#nodeid-4); `evidence`: [`ExecutionPreparationEvidence`](#executionpreparationevidence); `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"prepared"`
+
+Shared Interface receipt for the private prepared execution.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-4)
+
+###### evidence
+
+> **evidence**: [`ExecutionPreparationEvidence`](#executionpreparationevidence)
 
 ###### seq
 
@@ -18516,7 +18892,7 @@ an empty collection is a no-winner, not a winner wrapping `[]`.
 
 ### PI\_RUNTIME
 
-> `const` **PI\_RUNTIME**: [`Runtime`](#runtime-4) = `'pi'`
+> `const` **PI\_RUNTIME**: [`Runtime`](#runtime-5) = `'pi'`
 
 The runtime name `piExecutor` registers under.
 
@@ -18532,7 +18908,7 @@ Seam key the registry threads a `PiSeam` through (`ExecutorContext.seams['pi']`)
 
 ### piExecutor
 
-> `const` **piExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
+> `const` **piExecutor**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
 
 Build the `Executor` for one pi worker. Registered as runtime `'pi'`.
 
@@ -18550,7 +18926,7 @@ How long a worker may produce no metered activity before a `progress()` read cal
 
 ### cliWorktreeExecutor
 
-> `const` **cliWorktreeExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
+> `const` **cliWorktreeExecutor**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
 
 The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored
 `AgentProfile` driving claude / codex / opencode on its own worktree. `budgetExempt` like
@@ -18609,8 +18985,11 @@ Stable content address shared by result and trace artifacts.
 Load every journal tree owned by one recursive supervision run and flatten its nodes/events.
 
 Nested driver tree keys are a Runtime implementation detail; callers should use this reader
-instead of deriving or scanning keys themselves. The reader follows raw `spawned` records whose
-runtime is `driver`, preserving each tree's independent cursor namespace on flattened events.
+instead of deriving or scanning keys themselves. The reader follows only the explicit
+`ownedTreeRoot` written after Runtime privately attested a recursive executor; the open runtime
+string `driver` is never treated as ownership. Legacy records without `ownedTreeRoot` are
+intentionally treated as leaves rather than guessing or scanning convention-derived keys.
+This preserves each tree's independent cursor namespace on flattened events.
 A driver whose subtree was never begun is reported in `missingTrees`; any spawned non-root node
 without a terminal record is reported in `inDoubt`, matching resume's conservative lost-work
 interpretation.
@@ -19165,7 +19544,7 @@ run once on the prompt, emit the terminal result event, tear down.
 
 ##### factory
 
-[`ExecutorFactory`](#executorfactory)\<`unknown`\>
+[`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
 
 #### Returns
 
@@ -22179,6 +22558,32 @@ whether the patch is DELIVERED (the `valid` conjunction).
 
 ***
 
+### createPreparedExecutorFactory()
+
+> **createPreparedExecutorFactory**\<`Out`\>(`options`): [`ExecutorFactory`](#executorfactory-1)\<`Out`\>
+
+Turn an asynchronous private preparation provider into Runtime's synchronous ExecutorFactory.
+Scope constructs this inert wrapper only after budget admission, then invokes its private
+preparation operation, commits the resulting public evidence, and only then calls `execute`.
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Parameters
+
+##### options
+
+[`CreatePreparedExecutorFactoryOptions`](#createpreparedexecutorfactoryoptions)\<`Out`\>
+
+#### Returns
+
+[`ExecutorFactory`](#executorfactory-1)\<`Out`\>
+
+***
+
 ### createActivityLog()
 
 > **createActivityLog**(`limit?`): [`ActivityLog`](#activitylog)
@@ -22283,7 +22688,7 @@ existing consumer writes to disk or resumes unless it asks for this.
 
 ### createExecutor()
 
-> **createExecutor**(`config`): [`ExecutorFactory`](#executorfactory)\<`unknown`\>
+> **createExecutor**(`config`): [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
 
 The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
 injects the matching seam, and delegates to that backend's built-in implementation.
@@ -22300,7 +22705,7 @@ per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 
 #### Returns
 
-[`ExecutorFactory`](#executorfactory)\<`unknown`\>
+[`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
 
 ***
 
@@ -22546,7 +22951,7 @@ Stop only when EVERY rule stops — for a conservative gate that needs corrobora
 
 ### workerFromBackend()
 
-> **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](#makeworkeragent)
+> **workerFromBackend**(`backend`, `deliverable?`, `prepareExecution?`): [`MakeWorkerAgent`](#makeworkeragent)
 
 Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
@@ -22561,6 +22966,10 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 ##### deliverable?
 
 [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+##### prepareExecution?
+
+[`PrepareRuntimeExecutor`](#prepareruntimeexecutor)
 
 #### Returns
 

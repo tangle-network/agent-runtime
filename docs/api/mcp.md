@@ -3915,6 +3915,12 @@ Exact profile/task/candidate identity authorized for this node.
 
 Stable effective execution plan, or an explicit unknown receipt.
 
+##### executionPreparations?
+
+> `readonly` `optional` **executionPreparations?**: readonly [`ExecutionPreparationEvidence`](runtime.md#executionpreparationevidence)[]
+
+Private-preparation receipts for each concrete execution attempt, oldest first.
+
 ##### executionBindings?
 
 > `readonly` `optional` **executionBindings?**: readonly [`ExecutionBindingReceipt`](runtime.md#executionbindingreceipt)[]

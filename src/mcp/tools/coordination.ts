@@ -19,6 +19,7 @@ import type {
   AgentExecutionRef,
   Budget,
   ExecutionBindingReceipt,
+  ExecutionPreparationEvidence,
   NodeExecutionIdentity,
   ProfileMaterializationReceipt,
   ResultBlobStore,
@@ -46,6 +47,8 @@ export interface SettledWorker {
   readonly identity?: NodeExecutionIdentity
   /** Stable effective execution plan, or an explicit unknown receipt. */
   readonly materialization?: ProfileMaterializationReceipt
+  /** Private-preparation receipts for each concrete execution attempt, oldest first. */
+  readonly executionPreparations?: ReadonlyArray<ExecutionPreparationEvidence>
   /** Backend bindings for each attempt, in durable oldest-first order. */
   readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
   /** Conserved spend. Missing means unavailable; unknown accounting remains explicitly unknown. */
@@ -382,6 +385,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     const assignmentId = settled.handle.assignmentId ?? node?.assignmentId
     const identity = settled.handle.identity ?? node?.identity
     const materialization = settled.handle.materialization ?? node?.materialization
+    const executionPreparations =
+      settled.handle.executionPreparations ?? node?.executionPreparations
     const executionBindings = settled.handle.executionBindings ?? node?.executionBindings
     const settledAt = settled.settledAt ?? node?.settledAt
     const trace =
@@ -396,6 +401,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       ...(assignmentId === undefined ? {} : { assignmentId }),
       ...(identity === undefined ? {} : { identity }),
       ...(materialization === undefined ? {} : { materialization }),
+      ...(executionPreparations === undefined ? {} : { executionPreparations }),
       ...(executionBindings === undefined ? {} : { executionBindings }),
       ...(settledAt === undefined ? {} : { settledAt }),
       trace,
@@ -872,6 +878,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     ...(node.assignmentId === undefined ? {} : { assignmentId: node.assignmentId }),
     ...(node.identity === undefined ? {} : { identity: node.identity }),
     ...(node.materialization === undefined ? {} : { materialization: node.materialization }),
+    ...(node.executionPreparations === undefined
+      ? {}
+      : { executionPreparations: node.executionPreparations }),
     ...(node.executionBindings === undefined ? {} : { executionBindings: node.executionBindings }),
     spent: node.spent,
     ...(node.settledAt === undefined ? {} : { settledAt: node.settledAt }),
@@ -1142,6 +1151,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 ...(res.handle.materialization === undefined
                   ? {}
                   : { materialization: res.handle.materialization }),
+                ...(res.handle.executionPreparations === undefined
+                  ? {}
+                  : { executionPreparations: res.handle.executionPreparations }),
                 ...(res.handle.executionBindings === undefined
                   ? {}
                   : { executionBindings: res.handle.executionBindings }),

@@ -5,6 +5,7 @@ import type {
   AgentCandidateProfilePlanEvidence,
   AgentCandidateResourceRef,
   AgentProfile,
+  AgentProfileConfigValue,
   AgentProfileDiff,
   AgentProfileMcpServer,
   AgentProfileResourceRef,
@@ -244,8 +245,8 @@ export function agentCandidateProfileAsAgentProfile(
         name,
         {
           ...server,
-          ...(server.args ? { args: server.args.map(publicValue) } : {}),
-          ...(server.env ? { env: mapPublicValues(server.env) } : {}),
+          ...(server.args ? { args: server.args.map((value) => ({ ...value })) } : {}),
+          ...(server.env ? { env: cloneRecord(server.env) } : {}),
         },
       ]),
     )
@@ -259,7 +260,7 @@ export function agentCandidateProfileAsAgentProfile(
         hooks.map(({ executable, args, env, ...hook }) => ({
           ...hook,
           command: [executable, ...(args ?? []).map(publicValue)].map(shellQuote).join(' '),
-          ...(env ? { env: mapPublicValues(env) } : {}),
+          ...(env ? { env: cloneRecord(env) } : {}),
         })),
       ]),
     )
@@ -335,8 +336,14 @@ function freezeMcpServers(servers: Record<string, AgentProfileMcpServer>): Recor
         {
           ...(server.transport ? { transport: server.transport } : {}),
           ...(server.command ? { command: server.command } : {}),
-          ...(server.args ? { args: server.args.map(candidatePublicValue) } : {}),
-          ...(server.env ? { env: mapCandidatePublicValues(server.env) } : {}),
+          ...(server.args
+            ? {
+                args: server.args.map((value, index) =>
+                  candidatePublicValue(value, `mcp.${name}.args[${index}]`),
+                ),
+              }
+            : {}),
+          ...(server.env ? { env: mapCandidatePublicValues(server.env, `mcp.${name}.env`) } : {}),
           ...(server.cwd ? { cwd: server.cwd } : {}),
           ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
         },
@@ -416,26 +423,30 @@ function publicResource(resource: AgentCandidateResourceRef): unknown {
   }
 }
 
-function candidatePublicValue(value: string): { kind: 'public'; value: string } {
-  return { kind: 'public', value }
+function candidatePublicValue(
+  value: AgentProfileConfigValue,
+  path: string,
+): AgentCandidateConfigValue {
+  if (value.kind !== 'public') {
+    unsupportedProfileField(`${path}.kind=${value.kind}`)
+  }
+  return { kind: 'public', value: value.value }
 }
 
 function mapCandidatePublicValues(
-  values: Record<string, string>,
-): Record<string, { kind: 'public'; value: string }> {
+  values: Record<string, AgentProfileConfigValue>,
+  path: string,
+): Record<string, AgentCandidateConfigValue> {
   return Object.fromEntries(
-    Object.entries(values).map(([name, value]) => [name, candidatePublicValue(value)]),
+    Object.entries(values).map(([name, value]) => [
+      name,
+      candidatePublicValue(value, `${path}.${name}`),
+    ]),
   )
 }
 
 function publicValue(value: AgentCandidateConfigValue): string {
   return value.value
-}
-
-function mapPublicValues(
-  values: Record<string, AgentCandidateConfigValue>,
-): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, publicValue(value)]))
 }
 
 function cloneRecord<T>(values: Record<string, T>): Record<string, T> {

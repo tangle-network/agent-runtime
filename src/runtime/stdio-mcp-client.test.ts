@@ -1,7 +1,11 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  defineAgentProfileSecretRef,
+  defineAgentProfilePublicConfig as publicConfig,
+} from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import { mcpServeVerifier } from '../improvement/mcp-serve-verifier'
 import { localSandboxClient } from './local-sandbox-client'
@@ -136,7 +140,7 @@ describe('materializeLocalMcp', () => {
           greeter: {
             transport: 'stdio',
             command: 'node',
-            args: ['-e', HELLO_SERVER],
+            args: [publicConfig('-e'), publicConfig(HELLO_SERVER)],
             enabled: true,
           },
           // The disabled variant forbids launch fields by type — enabled:false is the whole entry.
@@ -175,8 +179,8 @@ describe('materializeLocalMcp', () => {
         untrusted: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', SECRET_SERVER],
-          env: { MARKER_PATH: marker },
+          args: [publicConfig('-e'), publicConfig(SECRET_SERVER)],
+          env: { MARKER_PATH: publicConfig(marker) },
         },
       },
     }).catch((error) => error)
@@ -201,9 +205,11 @@ describe('materializeLocalMcp', () => {
         greeter: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', SECRET_SERVER],
-          env: { MARKER_PATH: marker },
-          metadata: { secretEnv: { TEST_TOKEN: 'GREETER_TOKEN' } },
+          args: [publicConfig('-e'), publicConfig(SECRET_SERVER)],
+          env: {
+            MARKER_PATH: publicConfig(marker),
+            TEST_TOKEN: defineAgentProfileSecretRef('GREETER_TOKEN'),
+          },
         },
       },
     }
@@ -240,7 +246,7 @@ describe('materializeLocalMcp', () => {
         trusted: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', HELLO_SERVER],
+          args: [publicConfig('-e'), publicConfig(HELLO_SERVER)],
         },
       },
     }
@@ -254,8 +260,8 @@ describe('materializeLocalMcp', () => {
         untrusted: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', SECRET_SERVER],
-          env: { MARKER_PATH: marker },
+          args: [publicConfig('-e'), publicConfig(SECRET_SERVER)],
+          env: { MARKER_PATH: publicConfig(marker) },
         },
       },
     }
@@ -285,8 +291,11 @@ describe('materializeLocalMcp', () => {
         failing: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', 'process.stderr.write(process.env.TEST_TOKEN); process.exit(3)'],
-          metadata: { secretEnv: { TEST_TOKEN: 'FAILING_TOKEN' } },
+          args: [
+            publicConfig('-e'),
+            publicConfig('process.stderr.write(process.env.TEST_TOKEN); process.exit(3)'),
+          ],
+          env: { TEST_TOKEN: defineAgentProfileSecretRef('FAILING_TOKEN') },
         },
       },
     }
@@ -308,8 +317,8 @@ describe('materializeLocalMcp', () => {
           leaking: {
             transport: 'stdio',
             command: 'node',
-            args: ['-e', SECRET_RESULT_SERVER],
-            metadata: { secretEnv: { TEST_TOKEN: 'LEAKING_TOKEN' } },
+            args: [publicConfig('-e'), publicConfig(SECRET_RESULT_SERVER)],
+            env: { TEST_TOKEN: defineAgentProfileSecretRef('LEAKING_TOKEN') },
           },
         },
       },
@@ -344,8 +353,8 @@ describe('materializeLocalMcp', () => {
           leaking: {
             transport: 'stdio',
             command: 'node',
-            args: ['-e', server],
-            metadata: { secretEnv: { TEST_TOKEN: 'LEAKING_TOKEN' } },
+            args: [publicConfig('-e'), publicConfig(server)],
+            env: { TEST_TOKEN: defineAgentProfileSecretRef('LEAKING_TOKEN') },
           },
         },
       },
@@ -382,8 +391,8 @@ describe('materializeLocalMcp', () => {
           leaking: {
             transport: 'stdio',
             command: 'node',
-            args: ['-e', server],
-            metadata: { secretEnv: { TEST_TOKEN: 'LEAKING_TOKEN' } },
+            args: [publicConfig('-e'), publicConfig(server)],
+            env: { TEST_TOKEN: defineAgentProfileSecretRef('LEAKING_TOKEN') },
           },
         },
       },

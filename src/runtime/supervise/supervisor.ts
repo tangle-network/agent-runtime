@@ -553,6 +553,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
               ownerMaterialization: {
                 runtime: opts.rootMaterialization.runtime,
                 authoredProfile: opts.rootMaterialization.authoredProfile,
+                ...(opts.rootIdentity === undefined ? {} : { identity: opts.rootIdentity }),
                 attemptId: rootAttemptId,
                 requiredKnown: true,
                 ...(priorRootMaterialization === undefined

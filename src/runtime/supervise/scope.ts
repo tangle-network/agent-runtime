@@ -53,6 +53,7 @@ import {
   unknownExecutionBindingReceipt,
   unknownMaterializationReceipt,
 } from './materialization'
+import { runtimeOwnedExecutorPreparation } from './prepared-executor'
 import {
   DEFAULT_STALL_AFTER_MS,
   type ExecutorProgress,
@@ -69,6 +70,7 @@ import type {
   Budget,
   DefaultVerdict,
   ExecutionBindingReceipt,
+  ExecutionPreparationEvidence,
   Executor,
   ExecutorContext,
   ExecutorExecutionBinding,
@@ -151,6 +153,7 @@ export interface ScopeArgs {
   readonly ownerMaterialization?: {
     readonly runtime: NodeSnapshot['runtime']
     readonly authoredProfile?: unknown
+    readonly identity?: NodeExecutionIdentity
     readonly attemptId: string
     readonly prior?: ProfileMaterializationReceipt
     readonly journalRoot?: NodeId
@@ -238,6 +241,8 @@ interface LiveChild {
   readonly readTraceSource?: () => TraceSource | undefined
   /** Kernel-owned declaration of the exact execution plan, durable before `execute` starts. */
   materialization?: ProfileMaterializationReceipt
+  /** Shared full-profile/workspace evidence, one immutable record per concrete attempt. */
+  executionPreparations: ExecutionPreparationEvidence[]
   /** One immutable record per concrete execution attempt. */
   executionBindings: ExecutionBindingReceipt[]
   /** Wall-clock of the spawn, and of the last metered usage event this child produced. Both are
@@ -627,6 +632,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         get materialization(): ProfileMaterializationReceipt | undefined {
           return children.get(id)?.materialization
         },
+        get executionPreparations(): ReadonlyArray<ExecutionPreparationEvidence> | undefined {
+          const preparations = children.get(id)?.executionPreparations
+          return preparations && preparations.length > 0
+            ? Object.freeze([...preparations])
+            : undefined
+        },
         get executionBindings(): ReadonlyArray<ExecutionBindingReceipt> | undefined {
           const bindings = children.get(id)?.executionBindings
           return bindings && bindings.length > 0 ? Object.freeze([...bindings]) : undefined
@@ -651,6 +662,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         delivered: false,
         executorDone: false,
         cleanupConfirmed: false,
+        executionPreparations: [],
         executionBindings: [],
         startedAt,
         lastActivityAt: startedAt,
@@ -685,6 +697,31 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       })
       const materializationCommitted = spawnCommitted.then(async () => {
         const profileDigest = identity?.profileDigest ?? authoredProfileDigest(spec.profile)
+        const prepareExecutor = runtimeOwnedExecutorPreparation(executor)
+        if (prepareExecutor !== undefined) {
+          if (prepareExecutor.role !== 'worker') {
+            throw new ValidationError(
+              'scope.spawn: a child prepared executor must declare the worker role',
+            )
+          }
+          if (identity?.profileDigest === undefined || identity.taskDigest === undefined) {
+            throw new ValidationError(
+              'scope.spawn: a prepared execution requires canonical profile and task identity',
+            )
+          }
+          const requestDigest = canonicalCandidateDigest({
+            kind: 'supervised-executor-preparation-request',
+            rootId: args.root,
+            parentId: args.parentId,
+            nodeId: id,
+            attemptId,
+            role: prepareExecutor.role,
+            identity,
+          })
+          const preparation = await prepareExecutor.prepare(task, requestDigest)
+          await appendNodePreparation(args, id, ordinal, preparation, now)
+          live.executionPreparations.push(preparation)
+        }
         let receipt: ProfileMaterializationReceipt
         let binding: ExecutionBindingReceipt
         const declaration = runtimeOwnedExecutorMaterialization(executor)
@@ -938,6 +975,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       delivered: false,
       executorDone: false,
       cleanupConfirmed: true,
+      executionPreparations: [],
       executionBindings: [],
       startedAt: armedAt,
       lastActivityAt: now(),
@@ -1183,6 +1221,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       runtime: args.ownerMaterialization.runtime,
       attemptId: args.ownerMaterialization.attemptId,
       ...(authoredProfile === undefined ? {} : { authoredProfile }),
+      ...(args.ownerMaterialization.identity === undefined
+        ? {}
+        : {
+            identity: detachedSnapshot(
+              args.ownerMaterialization.identity,
+              'scope owner execution identity',
+            ),
+          }),
       ...(authoredProfile === undefined
         ? {}
         : { authoredProfileDigest: authoredProfileDigest(authoredProfile) }),
@@ -1195,6 +1241,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         : { onReceipt: args.ownerMaterialization.onReceipt }),
       now,
       receipt: args.ownerMaterialization.prior,
+      preparationPublishedThisProcess: false,
       bindingPublished: false,
       publishedThisProcess: false,
     })
@@ -1209,6 +1256,7 @@ interface OwnerMaterializationState {
   readonly runtime: NodeSnapshot['runtime']
   readonly attemptId: string
   readonly authoredProfile?: unknown
+  readonly identity?: NodeExecutionIdentity
   readonly authoredProfileDigest?: Sha256Digest
   readonly prior?: ProfileMaterializationReceipt
   readonly requiredKnown: boolean
@@ -1218,11 +1266,82 @@ interface OwnerMaterializationState {
   ) => void
   readonly now: () => number
   receipt?: ProfileMaterializationReceipt
+  preparation?: ExecutionPreparationEvidence
+  preparationPublishedThisProcess: boolean
   bindingPublished: boolean
   publishedThisProcess: boolean
 }
 
 const ownerMaterializationStates = new WeakMap<Scope<unknown>, OwnerMaterializationState>()
+
+/**
+ * Prepare a runtime-owned root executor and commit its public proof before execution.
+ * @internal
+ */
+export async function prepareScopeOwnerExecutor(
+  scope: Scope<unknown>,
+  executor: Executor<unknown>,
+  task: unknown,
+): Promise<void> {
+  const preparation = runtimeOwnedExecutorPreparation(executor)
+  if (preparation === undefined) return
+  if (preparation.role !== 'supervisor') {
+    throw new ValidationError('scope owner prepared executor must declare the supervisor role')
+  }
+  const state = ownerMaterializationState(scope)
+  if (state.identity === undefined) {
+    throw new ValidationError('scope owner prepared executor requires canonical execution identity')
+  }
+  const requestDigest = canonicalCandidateDigest({
+    kind: 'supervised-executor-preparation-request',
+    rootId: state.root,
+    parentId: state.nodeId,
+    nodeId: state.nodeId,
+    attemptId: state.attemptId,
+    role: preparation.role,
+    identity: state.identity,
+  })
+  const evidence = await preparation.prepare(task, requestDigest)
+  await recordScopeOwnerPreparation(scope, evidence)
+}
+
+/** @internal Commit a validated private preparation for this root-manager attempt before compute. */
+async function recordScopeOwnerPreparation(
+  scope: Scope<unknown>,
+  evidenceInput: ExecutionPreparationEvidence,
+): Promise<void> {
+  const state = ownerMaterializationState(scope)
+  if (state.preparationPublishedThisProcess) {
+    throw new ValidationError('scope owner execution preparation was already recorded')
+  }
+  const evidence = detachedSnapshot(evidenceInput, 'scope owner execution preparation')
+  if (evidence.attemptId !== state.attemptId) {
+    throw new ValidationError(
+      'scope owner execution preparation does not use the kernel-minted attempt id',
+    )
+  }
+  if (evidence.role !== 'supervisor') {
+    throw new ValidationError('scope owner execution preparation must declare supervisor role')
+  }
+  const stableProfileDigest = state.identity?.profileDigest ?? state.authoredProfileDigest
+  if (
+    stableProfileDigest === undefined ||
+    evidence.receipt.authoredProfileDigest !== stableProfileDigest
+  ) {
+    throw new ValidationError(
+      'scope owner execution preparation conflicts with its admitted authored profile',
+    )
+  }
+  await state.journal.appendEvent(state.root, {
+    kind: 'prepared',
+    id: state.nodeId,
+    evidence,
+    seq: 0,
+    at: new Date(state.now()).toISOString(),
+  })
+  state.preparation = evidence
+  state.preparationPublishedThisProcess = true
+}
 
 /**
  * @internal Publish exact root-manager materialization from a runtime-owned adapter after dynamic
@@ -1254,9 +1373,14 @@ export async function recordScopeOwnerMaterialization(
         'scope owner execution binding does not use the kernel-minted attempt id',
       )
     }
-    if (canonicalCandidateDigest(declaration.effectiveProfile) !== state.authoredProfileDigest) {
+    const declaredProfileDigest = canonicalCandidateDigest(declaration.effectiveProfile)
+    const expectedProfileDigest =
+      state.preparation !== undefined && declaration.platformAttachments === undefined
+        ? state.preparation.receipt.effectiveProfileDigest
+        : state.authoredProfileDigest
+    if (declaredProfileDigest !== expectedProfileDigest) {
       throw new ValidationError(
-        'scope owner stable effective profile conflicts with its admitted authored profile',
+        'scope owner materialized profile conflicts with its validated execution preparation',
       )
     }
     receipt = knownMaterializationReceipt({
@@ -1431,6 +1555,22 @@ async function appendNodeMaterialization(
     binding,
     seq,
     at,
+  })
+}
+
+async function appendNodePreparation(
+  args: Pick<ScopeArgs, 'journal' | 'root'>,
+  id: NodeId,
+  seq: number,
+  evidence: ExecutionPreparationEvidence,
+  now: () => number,
+): Promise<void> {
+  await args.journal.appendEvent(args.root, {
+    kind: 'prepared',
+    id,
+    evidence,
+    seq,
+    at: new Date(now()).toISOString(),
   })
 }
 
@@ -1896,6 +2036,9 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     ...(c.assignmentId === undefined ? {} : { assignmentId: c.assignmentId }),
     ...(c.identity ? { identity: c.identity } : {}),
     ...(c.materialization ? { materialization: c.materialization } : {}),
+    ...(c.executionPreparations.length > 0
+      ? { executionPreparations: Object.freeze([...c.executionPreparations]) }
+      : {}),
     ...(c.executionBindings.length > 0
       ? { executionBindings: Object.freeze([...c.executionBindings]) }
       : {}),
@@ -1920,6 +2063,9 @@ function frozenHandle<C>(child: LiveChild): Handle<C> {
     ...(child.assignmentId === undefined ? {} : { assignmentId: child.assignmentId }),
     ...(child.identity ? { identity: child.identity } : {}),
     ...(child.materialization ? { materialization: child.materialization } : {}),
+    ...(child.executionPreparations.length > 0
+      ? { executionPreparations: Object.freeze([...child.executionPreparations]) }
+      : {}),
     ...(child.executionBindings.length > 0
       ? { executionBindings: Object.freeze([...child.executionBindings]) }
       : {}),

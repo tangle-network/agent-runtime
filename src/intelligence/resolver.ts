@@ -26,7 +26,10 @@
  * @experimental
  */
 
-import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
+import {
+  type AgentProfileMcpServer,
+  defineAgentProfilePublicConfig,
+} from '@tangle-network/agent-interface'
 import type { ToolSpec } from '../runtime/router-client'
 import {
   type CapabilityAuth,
@@ -399,8 +402,19 @@ function mcpServerFromBinding(
     return {
       transport: 'stdio',
       command: binding.command,
-      ...(binding.args ? { args: binding.args } : {}),
-      ...(binding.env ? { env: binding.env } : {}),
+      ...(binding.args
+        ? { args: binding.args.map((value) => defineAgentProfilePublicConfig(value)) }
+        : {}),
+      ...(binding.env
+        ? {
+            env: Object.fromEntries(
+              Object.entries(binding.env).map(([name, value]) => [
+                name,
+                defineAgentProfilePublicConfig(value),
+              ]),
+            ),
+          }
+        : {}),
       ...(binding.cwd ? { cwd: binding.cwd } : {}),
       enabled: true,
       metadata,
@@ -409,7 +423,16 @@ function mcpServerFromBinding(
   return {
     transport: binding.transport,
     url: binding.url,
-    ...(binding.headers ? { headers: binding.headers } : {}),
+    ...(binding.headers
+      ? {
+          headers: Object.fromEntries(
+            Object.entries(binding.headers).map(([name, value]) => [
+              name,
+              defineAgentProfilePublicConfig(value),
+            ]),
+          ),
+        }
+      : {}),
     enabled: true,
     metadata,
   }

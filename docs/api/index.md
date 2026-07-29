@@ -1927,7 +1927,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### reasoningEffort
 
-`ReasoningEffort` \| `undefined`
+`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -2233,7 +2233,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### reasoningEffort
 
-`ReasoningEffort` \| `undefined`
+`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -4481,7 +4481,7 @@ One-based shot number within this candidate.
 
 ##### reasoningEffort
 
-> `readonly` **reasoningEffort**: `ReasoningEffort` \| `null`
+> `readonly` **reasoningEffort**: `"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `null`
 
 ##### promptSha256
 
@@ -7981,7 +7981,7 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-4)
+> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-5)
 
 Stable runtime tag for traces + the equal-k exemption check.
 
@@ -8025,8 +8025,8 @@ the terminal artifact is read from `resultArtifact()` after the stream drains.
 Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
 verb). A streaming executor drains pending messages between turns and folds them into the next
 step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
-this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the
-executor's to ignore.
+this; `Scope.send` then returns `false` for it. Never throws — an inbox that rejects a malformed
+message returns `false`, and that refusal propagates to the caller.
 
 ###### Parameters
 
@@ -8181,7 +8181,7 @@ Trusted candidate/campaign attribution supplied by the caller. Profile/task dige
 
 ##### executorFactory?
 
-> `readonly` `optional` **executorFactory?**: [`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
+> `readonly` `optional` **executorFactory?**: [`ExecutorFactory`](runtime.md#executorfactory-1)\<`unknown`\>
 
 Per-spawn factory carrying caller configuration. Constructed only after admission, with the
  real child signal and nested-scope context.
@@ -8219,11 +8219,11 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 ###### runtime
 
-[`Runtime`](runtime.md#runtime-4)
+[`Runtime`](runtime.md#runtime-5)
 
 ###### factory
 
-[`ExecutorFactory`](runtime.md#executorfactory)\<`Out`\>
+[`ExecutorFactory`](runtime.md#executorfactory-1)\<`Out`\>
 
 ###### Returns
 
@@ -8231,7 +8231,7 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 ##### resolve()
 
-> **resolve**\<`Out`\>(`spec`): \{ `succeeded`: `true`; `value`: [`ExecutorFactory`](runtime.md#executorfactory)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
+> **resolve**\<`Out`\>(`spec`): \{ `succeeded`: `true`; `value`: [`ExecutorFactory`](runtime.md#executorfactory-1)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
 
 Resolve a spec to a factory. Precedence: a BYO `spec.executorFactory` → `spec.executor` →
 `harness === null` → the `'router'` factory; else a registered
@@ -8252,7 +8252,7 @@ inspects `succeeded` before `value` (no silent fallback).
 
 ###### Returns
 
-\{ `succeeded`: `true`; `value`: [`ExecutorFactory`](runtime.md#executorfactory)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
+\{ `succeeded`: `true`; `value`: [`ExecutorFactory`](runtime.md#executorfactory-1)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
 
 ***
 

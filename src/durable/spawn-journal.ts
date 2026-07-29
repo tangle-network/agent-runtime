@@ -20,6 +20,11 @@
  * @experimental
  */
 
+import {
+  agentExecutionPreparationReceiptSchema,
+  agentWorkspaceLeaseRecordSchema,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import { workerTraceAnalysisStore } from '../runtime/supervise/trace-evidence'
 import { nestedDriverTreeRoot } from '../runtime/supervise/tree-key'
@@ -185,6 +190,7 @@ export class InMemorySpawnJournal implements SpawnJournal {
   async loadTree(root: NodeId): Promise<SpawnEvent[] | undefined> {
     const tree = this.trees.get(root)
     if (!tree) return undefined
+    assertEventSequence(root, tree.events)
     return tree.events.map((ev) => ({ ...ev }))
   }
 
@@ -331,6 +337,7 @@ export async function loadSpawnForest(journal: SpawnJournal, root: NodeId): Prom
   if (rootEvents === undefined) {
     throw new Error(`loadSpawnForest: no journaled tree for root '${root}'`)
   }
+  assertEventSequence(root, rootEvents)
 
   const trees: SpawnForestTree[] = []
   const nodes: SpawnForestNode[] = []
@@ -404,6 +411,7 @@ export async function loadSpawnForest(journal: SpawnJournal, root: NodeId): Prom
         })
         continue
       }
+      assertEventSequence(nestedRoot, nestedEvents)
       queue.push({
         root: nestedRoot,
         events: nestedEvents,
@@ -432,16 +440,118 @@ type SpawnJournalRecord =
  * ordinal legitimately equals a later `settled` cursor seq and is not a collision.
  */
 function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): void {
+  const nodeEvents = events.filter((event) => event.id === ev.id)
+  const priorTerminal = nodeEvents.find(isTerminalEvent)
+  if (ev.kind === 'prepared') {
+    if (
+      events.some(
+        (event) =>
+          event.kind === 'prepared' &&
+          event.id === ev.id &&
+          event.evidence.attemptId === ev.evidence.attemptId,
+      )
+    ) {
+      throw new Error(
+        `spawn journal corrupted: duplicate execution preparation for node '${ev.id}' attempt '${ev.evidence.attemptId}' in tree '${root}'`,
+      )
+    }
+    const spawn = nodeEvents.find(
+      (event): event is Extract<SpawnEvent, { kind: 'spawned' }> => event.kind === 'spawned',
+    )
+    if (spawn === undefined || spawn.kind !== 'spawned') {
+      throw new Error(
+        `spawn journal corrupted: execution preparation for node '${ev.id}' precedes its spawn in tree '${root}'`,
+      )
+    }
+    const invalidPrior = nodeEvents.find(
+      (event) =>
+        isTerminalEvent(event) ||
+        (event.kind === 'execution-bound' && event.binding.attemptId === ev.evidence.attemptId),
+    )
+    if (invalidPrior !== undefined) {
+      throw new Error(
+        `spawn journal corrupted: execution preparation for node '${ev.id}' follows ${eventPhase(invalidPrior)} in tree '${root}'`,
+      )
+    }
+    const receipt = agentExecutionPreparationReceiptSchema.parse(ev.evidence.receipt)
+    const lease = agentWorkspaceLeaseRecordSchema.parse(ev.evidence.workspaceLease)
+    if (typeof ev.evidence.attemptId !== 'string' || ev.evidence.attemptId.length === 0) {
+      throw new Error(
+        `spawn journal corrupted: prepared node '${ev.id}' has no execution attempt identity`,
+      )
+    }
+    if (ev.evidence.role !== 'supervisor' && ev.evidence.role !== 'worker') {
+      throw new Error(
+        `spawn journal corrupted: prepared node '${ev.id}' has an invalid execution role`,
+      )
+    }
+    if (spawn.identity === undefined) {
+      throw new Error(
+        `spawn journal corrupted: prepared node '${ev.id}' has no canonical execution identity`,
+      )
+    }
+    if (spawn.identity.profileDigest === undefined) {
+      throw new Error(
+        `spawn journal corrupted: prepared node '${ev.id}' has no authored profile identity`,
+      )
+    }
+    if (receipt.authoredProfileDigest !== spawn.identity.profileDigest) {
+      throw new Error(
+        `spawn journal corrupted: prepared node '${ev.id}' authored profile does not match its spawn identity`,
+      )
+    }
+    const expectedRequestDigest = canonicalCandidateDigest({
+      kind: 'supervised-executor-preparation-request',
+      rootId: root,
+      parentId: spawn.parent ?? ev.id,
+      nodeId: ev.id,
+      attemptId: ev.evidence.attemptId,
+      role: ev.evidence.role,
+      identity: spawn.identity,
+    })
+    if (receipt.requestDigest !== expectedRequestDigest) {
+      throw new Error(
+        `spawn journal corrupted: prepared node '${ev.id}' request does not bind its execution attempt`,
+      )
+    }
+    if (lease.phase !== 'execution-bound') {
+      throw new Error(
+        `spawn journal corrupted: prepared node '${ev.id}' does not carry an execution-bound workspace`,
+      )
+    }
+    if (lease.executionPreparationDigest !== receipt.digest) {
+      throw new Error(
+        `spawn journal corrupted: prepared node '${ev.id}' workspace is bound to a different receipt`,
+      )
+    }
+    const priorMaterialization = nodeEvents.find(
+      (event): event is Extract<SpawnEvent, { kind: 'materialized' }> =>
+        event.kind === 'materialized',
+    )
+    if (priorMaterialization !== undefined) {
+      assertMaterializationMatchesPreparation(root, priorMaterialization, ev)
+    }
+  }
   if (ev.kind === 'materialized') {
     if (events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
       throw new Error(
         `spawn journal corrupted: duplicate materialization receipt for node '${ev.id}' in tree '${root}'`,
       )
     }
-    if (!events.some((event) => event.kind === 'spawned' && event.id === ev.id)) {
+    if (!nodeEvents.some((event) => event.kind === 'spawned')) {
       throw new Error(
         `spawn journal corrupted: materialization for node '${ev.id}' precedes its spawn in tree '${root}'`,
       )
+    }
+    if (priorTerminal !== undefined) {
+      throw new Error(
+        `spawn journal corrupted: materialization for node '${ev.id}' follows ${eventPhase(priorTerminal)} in tree '${root}'`,
+      )
+    }
+    for (const preparation of nodeEvents.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'prepared' }> => event.kind === 'prepared',
+    )) {
+      assertMaterializationMatchesPreparation(root, ev, preparation)
     }
   }
   if (ev.kind === 'execution-bound') {
@@ -457,10 +567,39 @@ function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): vo
         `spawn journal corrupted: duplicate execution binding for node '${ev.id}' attempt '${ev.binding.attemptId}' in tree '${root}'`,
       )
     }
-    if (!events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
+    const materialization = nodeEvents.find(
+      (event): event is Extract<SpawnEvent, { kind: 'materialized' }> =>
+        event.kind === 'materialized',
+    )
+    if (materialization === undefined) {
       throw new Error(
         `spawn journal corrupted: execution binding for node '${ev.id}' precedes materialization in tree '${root}'`,
       )
+    }
+    if (priorTerminal !== undefined) {
+      throw new Error(
+        `spawn journal corrupted: execution binding for node '${ev.id}' follows ${eventPhase(priorTerminal)} in tree '${root}'`,
+      )
+    }
+    const expectedMaterializationDigest = canonicalCandidateDigest(materialization.receipt)
+    if (ev.binding.materializationReceiptDigest !== expectedMaterializationDigest) {
+      throw new Error(
+        `spawn journal corrupted: execution binding for node '${ev.id}' names a different materialization receipt`,
+      )
+    }
+    const preparations = nodeEvents.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'prepared' }> => event.kind === 'prepared',
+    )
+    if (preparations.length > 0) {
+      const preparation = preparations.find(
+        (event) => event.evidence.attemptId === ev.binding.attemptId,
+      )
+      if (preparation === undefined) {
+        throw new Error(
+          `spawn journal corrupted: execution binding for node '${ev.id}' attempt '${ev.binding.attemptId}' has no matching prior preparation in tree '${root}'`,
+        )
+      }
+      assertMaterializationMatchesPreparation(root, materialization, preparation)
     }
   }
   // `spawned` (ordinal namespace), `waiting` (the wait-ordinal namespace — it CREATES a node, it
@@ -475,6 +614,48 @@ function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): vo
   }
 }
 
+function assertEventSequence(root: NodeId, events: readonly SpawnEvent[]): void {
+  const accepted: SpawnEvent[] = []
+  for (const event of events) {
+    assertSeqUnique(root, accepted, event)
+    accepted.push(event)
+  }
+}
+
+function isTerminalEvent(
+  event: SpawnEvent,
+): event is Extract<SpawnEvent, { kind: 'settled' | 'cancelled' | 'woken' }> {
+  return event.kind === 'settled' || event.kind === 'cancelled' || event.kind === 'woken'
+}
+
+function eventPhase(event: SpawnEvent): string {
+  if (isTerminalEvent(event)) return 'a terminal event'
+  return event.kind
+}
+
+function assertMaterializationMatchesPreparation(
+  root: NodeId,
+  materialization: Extract<SpawnEvent, { kind: 'materialized' }>,
+  preparation: Extract<SpawnEvent, { kind: 'prepared' }>,
+): void {
+  const preparedReceipt = agentExecutionPreparationReceiptSchema.parse(preparation.evidence.receipt)
+  const materializedReceipt = materialization.receipt
+  if (materializedReceipt.authoredProfileDigest !== preparedReceipt.authoredProfileDigest) {
+    throw new Error(
+      `spawn journal corrupted: materialization for node '${materialization.id}' does not match its prepared authored profile in tree '${root}'`,
+    )
+  }
+  if (
+    materializedReceipt.status === 'known' &&
+    materializedReceipt.platformAttachmentsDigest === undefined &&
+    materializedReceipt.effectiveProfileDigest !== preparedReceipt.effectiveProfileDigest
+  ) {
+    throw new Error(
+      `spawn journal corrupted: materialization for node '${materialization.id}' does not match its prepared effective profile in tree '${root}'`,
+    )
+  }
+}
+
 /** Node-CREATION and informational records — outside the cursor namespace whose uniqueness replay
  *  ordering rests on. The single predicate both the guard's sides read, so a new event kind is
  *  classified once. */
@@ -483,6 +664,7 @@ function outsideCursorNamespace(ev: SpawnEvent): boolean {
     ev.kind === 'spawned' ||
     ev.kind === 'waiting' ||
     ev.kind === 'metered' ||
+    ev.kind === 'prepared' ||
     ev.kind === 'materialized' ||
     ev.kind === 'execution-bound'
   )
@@ -510,11 +692,16 @@ export async function replaySpawnTree(
   if (events === undefined) {
     throw new Error(`replaySpawnTree: no journaled tree for root '${root}'`)
   }
+  assertEventSequence(root, events)
   const ordered = [...events].sort((a, b) => a.seq - b.seq)
   const labels = new Map<NodeId, string>()
   const assignmentIds = new Map<NodeId, string>()
   const identities = new Map<NodeId, NodeExecutionIdentity>()
   const materializations = new Map<NodeId, NodeSnapshot['materialization']>()
+  const preparations = new Map<
+    NodeId,
+    NonNullable<NodeSnapshot['executionPreparations']>[number][]
+  >()
   const executionBindings = new Map<
     NodeId,
     NonNullable<NodeSnapshot['executionBindings']>[number][]
@@ -528,6 +715,11 @@ export async function replaySpawnTree(
       identities.set(ev.id, copyFrozenIdentity(ev.identity))
     }
     if (ev.kind === 'materialized') materializations.set(ev.id, ev.receipt)
+    if (ev.kind === 'prepared') {
+      const records = preparations.get(ev.id) ?? []
+      records.push(ev.evidence)
+      preparations.set(ev.id, records)
+    }
     if (ev.kind === 'execution-bound') {
       const bindings = executionBindings.get(ev.id) ?? []
       bindings.push(ev.binding)
@@ -539,6 +731,7 @@ export async function replaySpawnTree(
       assignmentId: assignmentIds.get(id),
       identity: identities.get(id),
       materialization: materializations.get(id),
+      executionPreparations: preparations.get(id),
       executionBindings: executionBindings.get(id),
     })
   const settlementTime = (at: string): { readonly settledAt?: number } => {
@@ -551,6 +744,7 @@ export async function replaySpawnTree(
     if (ev.kind === 'waiting') continue // arms a wait node; `woken` is its settlement
     if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
     if (ev.kind === 'materialized') continue // wire receipt, not a settlement
+    if (ev.kind === 'prepared') continue // pre-compute receipt, not a settlement
     if (ev.kind === 'execution-bound') continue // attempt transport, not a settlement
     if (ev.kind === 'woken') {
       // A wait that was cancelled carries no outcome blob — it replays as a `down`, exactly as a
@@ -653,6 +847,7 @@ function replayHandle(
     readonly assignmentId?: string
     readonly identity?: NodeExecutionIdentity
     readonly materialization?: NodeSnapshot['materialization']
+    readonly executionPreparations?: NodeSnapshot['executionPreparations']
     readonly executionBindings?: ReadonlyArray<
       NonNullable<NodeSnapshot['executionBindings']>[number]
     >
@@ -667,6 +862,9 @@ function replayHandle(
     ...(evidence.materialization === undefined
       ? {}
       : { materialization: evidence.materialization }),
+    ...(evidence.executionPreparations === undefined
+      ? {}
+      : { executionPreparations: Object.freeze([...evidence.executionPreparations]) }),
     ...(evidence.executionBindings === undefined
       ? {}
       : { executionBindings: Object.freeze([...evidence.executionBindings]) }),
@@ -715,6 +913,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
         ev.kind !== 'spawned' &&
         ev.kind !== 'waiting' &&
         ev.kind !== 'metered' &&
+        ev.kind !== 'prepared' &&
         ev.kind !== 'materialized' &&
         ev.kind !== 'execution-bound',
     )
@@ -774,6 +973,12 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   }
   // Materialization is node evidence, not a settlement. Fold it after node creation and before
   // freezing the view; exactly one receipt per node is enforced by the journal corruption guard.
+  for (const ev of events) {
+    if (ev.kind !== 'prepared') continue
+    const node = requireNode(nodes, ev.id)
+    node.executionPreparations ??= []
+    node.executionPreparations.push(ev.evidence)
+  }
   for (const ev of events) {
     if (ev.kind !== 'materialized') continue
     const node = requireNode(nodes, ev.id)
@@ -835,6 +1040,7 @@ interface MutableSnapshot {
   assignmentId?: string
   identity?: NodeSnapshot['identity']
   materialization?: NodeSnapshot['materialization']
+  executionPreparations?: NonNullable<NodeSnapshot['executionPreparations']>[number][]
   executionBindings?: NonNullable<NodeSnapshot['executionBindings']>[number][]
   spent: Spend
   outRef?: string
@@ -878,6 +1084,10 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     assignmentId: node.assignmentId,
     identity: node.identity,
     materialization: node.materialization,
+    executionPreparations:
+      node.executionPreparations === undefined
+        ? undefined
+        : Object.freeze([...node.executionPreparations]),
     executionBindings:
       node.executionBindings === undefined ? undefined : Object.freeze([...node.executionBindings]),
     spent: node.spent,

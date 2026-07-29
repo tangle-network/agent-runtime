@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import type { AgentEnvironmentProvider } from '../../src/runtime/environment-provider'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import {
   type SuperviseOptions,
@@ -406,6 +407,38 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     })
 
     expect(executor?.runtime).toBe('router')
+  })
+
+  it('uses a provider backend runtime override for prepared workers', () => {
+    const provider = {
+      name: 'provider-default-runtime',
+      capabilities: async () => ({}),
+      create: async () => {
+        throw new Error('provider must not start during executor construction')
+      },
+    } as AgentEnvironmentProvider
+    const make = workerFromBackend(
+      { backend: 'provider', provider, runtime: 'custom-provider-runtime' },
+      undefined,
+      async () => {
+        throw new Error('preparation must not start during executor construction')
+      },
+    )
+    const worker = make({ name: 'prepared-provider-worker' }) as Agent<unknown, unknown> & {
+      executorSpec: AgentSpec
+    }
+    const executor = worker.executorSpec.executorFactory?.(worker.executorSpec, {
+      signal: new AbortController().signal,
+      node: {
+        rootId: 'provider-root',
+        parentId: 'provider-root',
+        nodeId: 'provider-child',
+        attemptId: 'provider-attempt',
+      },
+      seams: {},
+    })
+
+    expect(executor?.runtime).toBe('custom-provider-runtime')
   })
 
   it('workerFromBackend rejects post-identity profile overlays and shared execution ids', () => {

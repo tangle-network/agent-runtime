@@ -74,6 +74,7 @@ export async function trajectoryReport(
         ev.kind !== 'spawned' &&
         ev.kind !== 'waiting' &&
         ev.kind !== 'metered' &&
+        ev.kind !== 'prepared' &&
         ev.kind !== 'materialized' &&
         ev.kind !== 'execution-bound',
     )

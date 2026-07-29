@@ -32,6 +32,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import {
   type AgentProfile,
+  type AgentProfileConfigValue,
   type AgentProfileSecurityPolicy,
   validateAgentProfileSecurity,
 } from '@tangle-network/agent-interface'
@@ -341,6 +342,38 @@ export async function materializeLocalMcp(
   const connections: StdioMcpConnection[] = []
   const routes = new Map<string, { conn: StdioMcpConnection; tool: string }>()
   const tools: AgenticTool[] = []
+  const resolvedSecrets = new Map<string, Promise<string>>()
+
+  const resolveSecret = (key: string, label: string): Promise<string> => {
+    const existing = resolvedSecrets.get(key)
+    if (existing) return existing
+    const pending = (async () => {
+      if (!opts.keys) {
+        throw new ValidationError(
+          `${label} names secret reference '${key}' but no KeyProvider was supplied`,
+        )
+      }
+      const value = await opts.keys.get(key)
+      if (value === undefined || value.trim().length === 0) {
+        throw new ValidationError(`${label}: the KeyProvider holds no value for '${key}'`)
+      }
+      return value
+    })()
+    resolvedSecrets.set(key, pending)
+    return pending
+  }
+
+  const resolveProtectedValue = async (
+    value: AgentProfileConfigValue,
+    label: string,
+  ): Promise<{ readonly value: string; readonly protected: boolean }> => {
+    if (value.kind === 'public') return { value: value.value, protected: false }
+    const raw = await resolveSecret(value.key, label)
+    return {
+      value: value.format === 'bearer' ? `Bearer ${raw}` : raw,
+      protected: true,
+    }
+  }
 
   const close = async (): Promise<void> => {
     await Promise.all(connections.map((c) => c.close()))
@@ -363,19 +396,43 @@ export async function materializeLocalMcp(
       // Provision declared secrets NOW, into the spawn env only. The resolved
       // values live in this local and the child env — nowhere else.
       const secretRefs = secretEnvOfMcpServer(server)
-      const provisioned = secretRefs
+      const legacyProvisioned = secretRefs
         ? await resolveSecretEnv(
             secretRefs,
             opts.keys,
             `materializeLocalMcp: profile.mcp['${key}']`,
           )
         : undefined
+      const args: string[] = []
+      for (const [index, value] of (server.args ?? []).entries()) {
+        if (value.kind !== 'public') {
+          throw new ValidationError(
+            `materializeLocalMcp: profile.mcp['${key}'].args[${index}] is secret; use a private prepared executor so process arguments cannot escape its private launch plan`,
+          )
+        }
+        args.push(value.value)
+      }
+      const publicEnv: Record<string, string> = {}
+      const protectedEnv: Record<string, string> = { ...(legacyProvisioned ?? {}) }
+      for (const [name, value] of Object.entries(server.env ?? {})) {
+        if (Object.hasOwn(protectedEnv, name)) {
+          throw new ValidationError(
+            `materializeLocalMcp: profile.mcp['${key}'].env['${name}'] conflicts with metadata.secretEnv`,
+          )
+        }
+        const resolved = await resolveProtectedValue(
+          value,
+          `materializeLocalMcp: profile.mcp['${key}'].env['${name}']`,
+        )
+        if (resolved.protected) protectedEnv[name] = resolved.value
+        else publicEnv[name] = resolved.value
+      }
       const conn = await connectStdioMcp({
         command: server.command,
-        ...(server.args ? { args: server.args } : {}),
+        ...(args.length > 0 ? { args } : {}),
         ...(server.cwd ? { cwd: server.cwd } : {}),
-        ...(server.env ? { env: server.env } : {}),
-        ...(provisioned ? { protectedEnv: provisioned } : {}),
+        ...(Object.keys(publicEnv).length > 0 ? { env: publicEnv } : {}),
+        ...(Object.keys(protectedEnv).length > 0 ? { protectedEnv } : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       })
       connections.push(conn)

@@ -26,7 +26,12 @@
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
-import type { AgentProfile, Sha256Digest } from '@tangle-network/agent-interface'
+import type {
+  AgentExecutionPreparationReceipt,
+  AgentProfile,
+  AgentWorkspaceExecutionBoundLeaseRecord,
+  Sha256Digest,
+} from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
@@ -351,6 +356,17 @@ export type ExecutionBindingReceipt =
       readonly reason: UnknownMaterializationReason
     }
 
+/** The shared pre-compute receipt plus the exact public workspace lease it is bound to.
+ * Secret values, owner tokens, and private provider capabilities never enter this object. */
+export interface ExecutionPreparationEvidence {
+  /** Kernel-minted execution attempt this private preparation belongs to. */
+  readonly attemptId: string
+  /** Whether this attempt runs the coordinating scientist or one of its workers. */
+  readonly role: 'supervisor' | 'worker'
+  readonly receipt: AgentExecutionPreparationReceipt
+  readonly workspaceLease: AgentWorkspaceExecutionBoundLeaseRecord
+}
+
 /** Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. */
 export type RootMaterialization =
   | {
@@ -528,6 +544,8 @@ export interface Handle<Out> {
   readonly identity?: NodeExecutionIdentity
   /** Stable execution plan once Runtime has committed it. */
   readonly materialization?: ProfileMaterializationReceipt
+  /** Immutable private-preparation receipts, one per concrete execution attempt, oldest first. */
+  readonly executionPreparations?: ReadonlyArray<ExecutionPreparationEvidence>
   /** Immutable per-attempt backend bindings committed so far, oldest first. */
   readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
   abort(reason?: string): void
@@ -761,6 +779,8 @@ export interface NodeSnapshot {
   readonly identity?: NodeExecutionIdentity
   /** Kernel-owned execution evidence. `unknown` is distinct from a known zero/empty plan. */
   readonly materialization?: ProfileMaterializationReceipt
+  /** Immutable private-preparation receipts, one per concrete execution attempt, oldest first. */
+  readonly executionPreparations?: ReadonlyArray<ExecutionPreparationEvidence>
   /** Immutable attempt bindings, oldest first. A retried/resumed node may have more than one. */
   readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
   /** Epoch ms of the terminal journal record; absent while live or when legacy evidence lacks it. */
@@ -825,6 +845,14 @@ export type SpawnEvent =
       kind: 'materialized'
       id: NodeId
       receipt: ProfileMaterializationReceipt
+      seq: number
+      at: string
+    }
+  | {
+      /** Shared Interface receipt for the private prepared execution. */
+      kind: 'prepared'
+      id: NodeId
+      evidence: ExecutionPreparationEvidence
       seq: number
       at: string
     }

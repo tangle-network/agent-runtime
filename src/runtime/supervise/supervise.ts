@@ -54,6 +54,7 @@ import {
   runtimeOwnedScopeOwnerRuntime,
 } from './materialization'
 import { assertModelAllowed, assertProfileModelsAllowed } from './model-policy'
+import { createPreparedExecutorFactory, type PrepareRuntimeExecutor } from './prepared-executor'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import {
   bindReusableExecutorExecutionId,
@@ -64,6 +65,7 @@ import {
 } from './runtime'
 import {
   deriveNodeExecutionIdentity,
+  prepareScopeOwnerExecutor,
   recordScopeOwnerMaterialization,
   scopeOwnerExecutorNodeContext,
 } from './scope'
@@ -100,6 +102,7 @@ import type { WaitProbeRegistry } from './wait'
 export function workerFromBackend(
   backend: ExecutorConfig,
   deliverable?: DeliverableSpec<unknown>,
+  prepareExecution?: PrepareRuntimeExecutor,
 ): MakeWorkerAgent {
   const capturedBackend = captureReusableExecutorConfig(backend, 'workerFromBackend')
   const unscopedNamespace = randomUUID()
@@ -121,16 +124,26 @@ export function workerFromBackend(
       externalExecutionId('supervised-worker', { assignmentId }),
     )
     const baseFactory = createExecutor(boundBackend)
+    const checkedFactory = deliverable
+      ? (spec: AgentSpec, ctx: ExecutorContext) =>
+          gateOnDeliverable(baseFactory(spec, ctx), deliverable)
+      : baseFactory
+    const executionFactory = prepareExecution
+      ? createPreparedExecutorFactory({
+          runtime: executorConfigRuntime(boundBackend),
+          executorFactory: checkedFactory,
+          prepare: prepareExecution,
+          role: 'worker',
+          acceptsMessages: executorConfigAcceptsMessages(boundBackend),
+          backend: boundBackend.backend,
+        })
+      : checkedFactory
     // Carry the configured factory into Scope. It is built only AFTER reservation with the real
     // child signal/context, so a rejected or already-completed keyed spawn creates no executor.
-    const executorFactory = (spec: AgentSpec, ctx: ExecutorContext) => {
-      const built = baseFactory(spec, ctx)
-      return deliverable ? gateOnDeliverable(built, deliverable) : built
-    }
     const spec: AgentSpec = {
       profile,
       harness: null,
-      executorFactory,
+      executorFactory: executionFactory,
       ...(spawnContext?.execution ? { execution: spawnContext.execution } : {}),
     }
     return { name, act: async () => '', executorSpec: spec } as Agent<unknown, unknown> & {
@@ -158,6 +171,41 @@ function backendProfileMaterialization(backend: ExecutorConfig): ProfileMaterial
       return promptModelProfileMaterialization
     case 'cli':
       return controlProfileMaterialization
+  }
+}
+
+function executorConfigRuntime(config: ExecutorConfig): string {
+  switch (config.backend) {
+    case 'router':
+    case 'router-tools':
+      return 'router'
+    case 'bridge':
+    case 'cli':
+    case 'cli-worktree':
+      return 'cli'
+    case 'sandbox':
+      return 'sandbox'
+    case 'pi':
+      return 'pi'
+    case 'provider':
+      return (
+        config.runtime ??
+        (typeof config.provider === 'string' ? config.provider : config.provider.name)
+      )
+  }
+}
+
+function executorConfigAcceptsMessages(config: ExecutorConfig): boolean {
+  switch (config.backend) {
+    case 'bridge':
+    case 'pi':
+      return true
+    case 'cli-worktree':
+      return config.bridge !== undefined
+    case 'sandbox':
+      return config.steering !== undefined
+    default:
+      return false
   }
 }
 
@@ -219,6 +267,7 @@ function backendProfileOverlays(backend: ExecutorConfig | undefined): AgentProfi
 function driveHarnessFromBackend(
   backend: ExecutorConfig,
   executionId: string,
+  prepareExecution?: PrepareRuntimeExecutor,
   now: () => number = Date.now,
 ): DriveHarness {
   const capturedBackend = captureReusableExecutorConfig(backend, 'driveHarnessFromBackend')
@@ -266,11 +315,23 @@ function driveHarnessFromBackend(
           ? ((effectiveProfile.harness ?? boundBackend.harness ?? null) as BackendType | null)
           : null,
     }
-    const executor = baseFactory(spec, {
+    const context: ExecutorContext = {
       signal: scope.signal,
       node: scopeOwnerExecutorNodeContext(scope),
       seams: {},
-    })
+    }
+    const executionFactory = prepareExecution
+      ? createPreparedExecutorFactory({
+          runtime: executorConfigRuntime(boundBackend),
+          executorFactory: baseFactory,
+          prepare: prepareExecution,
+          role: 'supervisor',
+          authoredProfile: profile,
+          acceptsMessages: executorConfigAcceptsMessages(boundBackend),
+          backend: boundBackend.backend,
+        })
+      : baseFactory
+    const executor = executionFactory(spec, context)
     activeExecutor = executor
     let completed = false
     let started = false
@@ -293,6 +354,7 @@ function driveHarnessFromBackend(
       })
       const budget = scope.budget
       if (
+        budget.iterationsLeft <= 0 ||
         budget.tokensLeft <= 0 ||
         (budget.usdCapped && budget.usdLeft <= 0) ||
         (budget.deadlineMs > 0 && now() >= budget.deadlineMs)
@@ -306,6 +368,7 @@ function driveHarnessFromBackend(
     try {
       // Construction transfers cleanup ownership immediately. Even a rejected receipt or an
       // unmetered runtime reaches the single bounded teardown path below.
+      await prepareScopeOwnerExecutor(scope, executor, task)
       const declaration = runtimeOwnedExecutorMaterialization(executor)
       const executionBinding = runtimeOwnedExecutorExecutionBinding(executor)
       if (declaration === undefined || executionBinding === undefined) {
@@ -357,6 +420,7 @@ function driveHarnessFromBackend(
       if (isAsyncIterable<UsageEvent>(run)) {
         for await (const event of run) {
           if (event.kind === 'iteration') {
+            pendingUsage.push(event)
             await meterPending()
           } else {
             pendingUsage.push(event)
@@ -466,6 +530,10 @@ export interface SuperviseOptions {
   readonly execution?: AgentExecutionRef
   /** WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`. */
   readonly backend?: ExecutorConfig
+  /** Private pre-compute preparation shared by every Runtime-owned manager and worker backend.
+   * Runtime validates its public receipt before constructing the configured executor, records the
+   * exact attempt, and retains private workspace ownership until executor destruction is proven. */
+  readonly prepareExecution?: PrepareRuntimeExecutor
   /** The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
    *  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
    *  failure mode of a static orchestrator. */
@@ -713,6 +781,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     watchWorkers,
     analysts,
     makeWorkerAgent,
+    prepareExecution,
     blobs,
     journal,
     probes,
@@ -792,6 +861,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(capturedWatchWorkers === undefined ? {} : { watchWorkers: capturedWatchWorkers }),
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
     ...(makeWorkerAgent === undefined ? {} : { makeWorkerAgent }),
+    ...(prepareExecution === undefined ? {} : { prepareExecution }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
     ...(probes === undefined ? {} : { probes }),
@@ -1096,6 +1166,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
             runNamespace,
             ownerId: context.ownerId,
           }),
+          options.prepareExecution,
           options.now ?? Date.now,
         )
       : undefined
@@ -1134,7 +1205,11 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
         'supervise: provide opts.backend (where workers run) or opts.makeWorkerAgent',
       )
     }
-    const makeLeaf = workerFromBackend(options.backend, options.deliverable)
+    const makeLeaf = workerFromBackend(
+      options.backend,
+      options.deliverable,
+      options.prepareExecution,
+    )
     const securityPolicy = options.profileSecurity ?? DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY
 
     const makeRecursiveWorkerFor = (
@@ -1224,7 +1299,11 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
           const makeSelectedLeaf =
             leafDeliverable === options.deliverable
               ? makeLeaf
-              : workerFromBackend(options.backend as ExecutorConfig, leafDeliverable)
+              : workerFromBackend(
+                  options.backend as ExecutorConfig,
+                  leafDeliverable,
+                  options.prepareExecution,
+                )
           return makeSelectedLeaf(
             authorized,
             Object.freeze({
