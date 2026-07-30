@@ -144,6 +144,14 @@ Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox cl
 
 **`Experimental`**
 
+##### requireSession?
+
+> `optional` **requireSession?**: `boolean`
+
+**`Experimental`**
+
+Require declared live continuation plus concrete session controls.
+
 ##### mapCreateOptions?
 
 > `optional` **mapCreateOptions?**: (`options`) => `Partial`\<`CreateAgentEnvironmentInput`\>

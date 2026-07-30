@@ -11426,6 +11426,13 @@ Generic environment provider executor config. External packages implement
 
 > `optional` **registry?**: [`AgentEnvironmentProviderRegistry`](runtime/environment-provider.md#agentenvironmentproviderregistry)
 
+##### steering?
+
+> `optional` **steering?**: [`SandboxSteeringOptions`](#sandboxsteeringoptions)
+
+Compose the provider through the existing steerable sandbox session.
+The provider still owns environment creation and session semantics.
+
 ***
 
 ### RouterToolsSeam
