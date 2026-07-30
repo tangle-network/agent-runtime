@@ -231,6 +231,16 @@ describe('conserved budget pool', () => {
         ms: 0,
       }),
     ).toThrow(/unknown dollar cost/)
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 900,
+      reservedTokens: 0,
+      usdLeft: 0,
+    })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 10 } as Budget)).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
   })
 
   it('spendFromUsageEvents folds tokens + usd on separate channels', () => {
@@ -242,11 +252,130 @@ describe('conserved budget pool', () => {
     ])
     expect(spend).toEqual({ iterations: 1, tokens: { input: 12, output: 8 }, usd: 0.01, ms: 0 })
   })
+
+  it('preserves explicitly unknown dollar cost in sync and async usage folds', async () => {
+    const events: UsageEvent[] = [
+      { kind: 'tokens', input: 12, output: 3 },
+      { kind: 'cost', usd: 0, usdKnown: false },
+      { kind: 'iteration' },
+    ]
+    const expected: Spend = {
+      iterations: 1,
+      tokens: { input: 12, output: 3 },
+      usd: 0,
+      usdKnown: false,
+      ms: 0,
+    }
+
+    expect(spendFromUsageEvents(events)).toEqual(expected)
+
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100 }, () => 0)
+    const stream = (async function* (): AsyncIterable<UsageEvent> {
+      yield* events
+    })()
+    await expect(pool.spendFrom(stream)).resolves.toEqual(expected)
+  })
+
+  it('keeps a dollar limit unusable after a concurrent known reservation refunds', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100, maxUsd: 1 }, () => 0)
+    const unknown = pool.reserve({ maxIterations: 1, maxTokens: 50, maxUsd: 0.5 } as Budget)
+    const known = pool.reserve({ maxIterations: 1, maxTokens: 50, maxUsd: 0.5 } as Budget)
+    if (!unknown.ok || !known.ok) throw new Error('both reservations should have succeeded')
+
+    expect(() =>
+      pool.reconcile(unknown.ticket, {
+        iterations: 1,
+        tokens: { input: 5, output: 5 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      }),
+    ).toThrow(/unknown dollar cost/)
+    pool.reconcile(known.ticket, {
+      iterations: 1,
+      tokens: { input: 5, output: 5 },
+      usd: 0.1,
+      ms: 0,
+    })
+
+    expect(pool.readout()).toMatchObject({ usdLeft: 0, reservedTokens: 0 })
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 1 } as Budget)).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+  })
 })
 
 // ── 2. equal-k by construction ──────────────────────────────────────────────────
 
 describe('equal-k by construction', () => {
+  it('preserves unknown dollar cost when Scope folds a streaming executor', async () => {
+    const { scope } = await beginScope()
+    const spawned = scope.spawn(
+      leafAgent('unknown-cost', {
+        out: 'complete',
+        events: [
+          { kind: 'tokens', input: 12, output: 3 },
+          { kind: 'cost', usd: 0, usdKnown: false },
+          { kind: 'iteration' },
+        ],
+      }),
+      'task',
+      { label: 'unknown-cost', budget: { maxIterations: 1, maxTokens: 100 } },
+    )
+    expect(spawned.ok).toBe(true)
+
+    const settled = await scope.next()
+    expect(settled?.kind).toBe('done')
+    expect(settled?.spent).toMatchObject({
+      iterations: 1,
+      tokens: { input: 12, output: 3 },
+      usd: 0,
+      usdKnown: false,
+    })
+  })
+
+  it('closes a dollar-limited reservation after unknown cost and refuses further spend', async () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100, maxUsd: 1 }, () => 0)
+    const { scope } = await beginScope({ pool })
+    const spawned = scope.spawn(
+      leafAgent('unknown-priced-child', {
+        out: 'complete',
+        events: [
+          { kind: 'tokens', input: 12, output: 3 },
+          { kind: 'cost', usd: 0, usdKnown: false },
+          { kind: 'iteration' },
+        ],
+      }),
+      'task',
+      {
+        label: 'unknown-priced-child',
+        budget: { maxIterations: 1, maxTokens: 100, maxUsd: 0.5 },
+      },
+    )
+    expect(spawned.ok).toBe(true)
+
+    const settled = await scope.next()
+    expect(settled).toMatchObject({
+      kind: 'down',
+      reason: expect.stringMatching(/unknown dollar cost/),
+    })
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 85,
+      reservedTokens: 0,
+      usdLeft: 0,
+    })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+
+    expect(
+      scope.spawn(leafAgent('after-unknown-cost', { out: 'should-not-run', events: [] }), 'task', {
+        label: 'after-unknown-cost',
+        budget: { maxIterations: 1, maxTokens: 1 },
+      }),
+    ).toEqual({ ok: false, reason: 'budget-exhausted' })
+  })
+
   it('two arms at equal per-child budget spend equal total iterations', async () => {
     // Each arm spawns 3 children at a fixed 1-iteration budget; both arms draw from a
     // pool sized for exactly 6, so the realized Σiterations is equal by the conserved

@@ -1032,6 +1032,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   const external = mergeAbortSignals(args.signal, args.controller.signal)
   const tokens = zeroTokenUsage()
   let usd = 0
+  let usdKnown = true
   let turns = 0
   let lastText = ''
   const toolCalls: string[] = []
@@ -1113,6 +1114,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     }
 
     let turnText = ''
+    let turnUsdKnown = false
     try {
       for await (const chunk of parseSseChatStream(res.body)) {
         if (chunk.content) {
@@ -1124,13 +1126,20 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
           tokens.output += chunk.usage.output
           yield { kind: 'tokens', input: chunk.usage.input, output: chunk.usage.output }
         }
-        if (typeof chunk.cost === 'number' && chunk.cost > 0) {
-          usd += chunk.cost
-          yield { kind: 'cost', usd: chunk.cost }
+        if (typeof chunk.cost === 'number' && chunk.cost >= 0) {
+          turnUsdKnown = true
+          if (chunk.cost > 0) {
+            usd += chunk.cost
+            yield { kind: 'cost', usd: chunk.cost }
+          }
         }
       }
     } finally {
       cleanup()
+    }
+    if (!turnUsdKnown) {
+      usdKnown = false
+      yield { kind: 'cost', usd: 0, usdKnown: false }
     }
     turns += 1
     yield { kind: 'iteration' }
@@ -1146,6 +1155,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     iterations: turns,
     tokens,
     usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
     ms: Date.now() - started,
   }
   const out = { content: lastText, toolCalls } as unknown

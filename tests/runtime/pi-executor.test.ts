@@ -31,6 +31,7 @@ const log = process.env.PI_COMMAND_LOG
 const emit = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
 let buf = ''
 let turn = 0
+let pendingAbortMessage
 process.stdin.on('data', (c) => {
   buf += c.toString('utf8')
   for (;;) {
@@ -42,15 +43,59 @@ process.stdin.on('data', (c) => {
     let cmd
     try { cmd = JSON.parse(line) } catch { continue }
     fs.appendFileSync(log, JSON.stringify(cmd) + '\\n')
-    if (cmd.type === 'abort') { process.exit(0) }
+    if (cmd.type === 'abort') {
+      if (!pendingAbortMessage) process.exit(0)
+      const message = pendingAbortMessage
+      pendingAbortMessage = undefined
+      setTimeout(() => {
+        emit({ type: 'message_end', message })
+        emit({ type: 'turn_end', message, toolResults: [] })
+        emit({ type: 'agent_end', messages: [message] })
+      }, 100)
+      continue
+    }
     if (cmd.type !== 'prompt') continue
     const target = String(cmd.message).includes('right.ts') ? 'right.ts' : 'wrong.ts'
     const myTurn = turn++
     emit({ type: 'agent_start' })
     emit({ type: 'turn_start' })
+    if (String(cmd.message).includes('delayed abort receipt')) {
+      pendingAbortMessage = {
+        role: 'assistant',
+        content: 'cancelled after billed work',
+        stopReason: 'aborted',
+        usage: {
+          input: 40,
+          output: 10,
+          cacheRead: 60,
+          cacheWrite: 5,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+        }
+      }
+      continue
+    }
     emit({ type: 'tool_execution_start', toolCallId: 't' + myTurn, toolName: 'edit', args: { path: target } })
     emit({ type: 'tool_execution_end', toolCallId: 't' + myTurn, toolName: 'edit', result: 'ok', isError: false, args: { path: target } })
-    emit({ type: 'turn_end', message: { role: 'assistant', content: 'edited ' + target, usage: { input: 30, output: 12, cost: 0.002 } }, toolResults: [] })
+    const subscription = String(cmd.message).includes('subscription')
+    const message = {
+      role: 'assistant',
+      content: 'edited ' + target,
+      usage: {
+        input: 30,
+        output: 12,
+        cacheRead: 100,
+        cacheWrite: 8,
+        cost: {
+          input: subscription ? 0 : 0.001,
+          output: subscription ? 0 : 0.001,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: subscription ? 0 : 0.002
+        }
+      }
+    }
+    emit({ type: 'message_end', message })
+    emit({ type: 'turn_end', message, toolResults: [] })
     emit({ type: 'agent_end', messages: [] })
   }
 })
@@ -97,6 +142,17 @@ async function readCommands(): Promise<Array<Record<string, unknown>>> {
     .map((l) => JSON.parse(l) as Record<string, unknown>)
 }
 
+async function waitForCommand(
+  predicate: (command: Record<string, unknown>) => boolean,
+): Promise<void> {
+  const deadline = Date.now() + 1_000
+  while (Date.now() < deadline) {
+    if ((await readCommands()).some(predicate)) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error('timed out waiting for fake Pi command')
+}
+
 describe('piExecutor — pi wrapped, not forked', () => {
   it('runs a turn, reports REAL usage off pi events, and exposes live progress + tool spans', async () => {
     await writeFile(commandLog, '')
@@ -109,7 +165,8 @@ describe('piExecutor — pi wrapped, not forked', () => {
     )
 
     // REAL usage only — the numbers the fake pi reported, not a fabricated estimate.
-    expect(events).toContainEqual({ kind: 'tokens', input: 30, output: 12 })
+    expect(events).toContainEqual({ kind: 'tokens', input: 138, output: 12 })
+    expect(events.filter((event) => event.kind === 'tokens')).toHaveLength(1)
     expect(events).toContainEqual({ kind: 'cost', usd: 0.002 })
     expect(events.filter((e) => e.kind === 'iteration')).toHaveLength(1)
 
@@ -122,7 +179,65 @@ describe('piExecutor — pi wrapped, not forked', () => {
 
     const artifact = ex.resultArtifact()
     expect(String((artifact.out as { content: string }).content)).toContain('edited wrong.ts')
-    expect(artifact.spent.tokens).toEqual({ input: 30, output: 12 })
+    expect(artifact.spent.tokens).toEqual({ input: 138, output: 12 })
+    await ex.teardown('brutalKill')
+  })
+
+  it('keeps zero-valued subscription pricing explicitly unknown', async () => {
+    await writeFile(commandLog, '')
+    const ctx = piCtx()
+    const ex = piExecutor(spec, ctx)
+
+    const events = await drain(
+      ex.execute('make the subscription change', ctx.signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(events).toContainEqual({ kind: 'tokens', input: 138, output: 12 })
+    expect(events).toContainEqual({ kind: 'cost', usd: 0, usdKnown: false })
+    expect(ex.resultArtifact().spent).toMatchObject({
+      tokens: { input: 138, output: 12 },
+      usd: 0,
+      usdKnown: false,
+    })
+    await ex.teardown('brutalKill')
+  })
+
+  it('drains Pi’s delayed terminal usage receipt after cancellation', async () => {
+    await writeFile(commandLog, '')
+    const ctx = piCtx()
+    ctx.seams = {
+      [piSeamKey]: {
+        bin: fakePi,
+        env: { PI_COMMAND_LOG: commandLog },
+        // The fake waits 100 ms after abort before sending the final receipt. Cancellation must
+        // replace this expired turn timeout with the bounded abort-drain window.
+        turnTimeoutMs: 50,
+      },
+    }
+    const ex = piExecutor(spec, ctx)
+    const controller = new AbortController()
+    const pending = drain(
+      ex.execute(
+        'wait for a delayed abort receipt',
+        controller.signal,
+      ) as AsyncIterable<UsageEvent>,
+    )
+    await waitForCommand(
+      (command) =>
+        command.type === 'prompt' && String(command.message).includes('delayed abort receipt'),
+    )
+
+    controller.abort()
+    const events = await pending
+
+    expect(events).toContainEqual({ kind: 'tokens', input: 105, output: 10 })
+    expect(events).toContainEqual({ kind: 'cost', usd: 0, usdKnown: false })
+    expect(events.filter((event) => event.kind === 'iteration')).toHaveLength(1)
+    expect(ex.resultArtifact().spent).toMatchObject({
+      iterations: 1,
+      tokens: { input: 105, output: 10 },
+      usdKnown: false,
+    })
     await ex.teardown('brutalKill')
   })
 

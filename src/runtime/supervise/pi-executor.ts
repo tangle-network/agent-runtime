@@ -25,8 +25,10 @@
  * is not installed simply fails loud at spawn instead of at import.
  *
  * Usage accounting: pi reports token usage on its assistant messages when the provider supplies
- * it. Nothing is fabricated — a turn whose usage pi does not report contributes an `iteration`
- * event and zero tokens, exactly like the other honest executors.
+ * it. One `turn_end` is one model-call receipt; the preceding `message_end` repeats the same
+ * assistant message and is never counted twice. Pi's fresh input, cache reads, and cache writes
+ * are folded into the OpenAI-compatible input total. Unpriced subscription usage stays explicitly
+ * unknown rather than becoming observed $0.
  *
  * @experimental
  */
@@ -175,6 +177,10 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   const started = Date.now()
   const tokens = { input: 0, output: 0 }
   let usd = 0
+  let usdKnown = true
+  if (args.signal.aborted || args.controller.signal.aborted) {
+    throw new DOMException('piExecutor: execution aborted before start', 'AbortError')
+  }
 
   const proc = spawnPi(seam)
   state.proc = proc
@@ -183,6 +189,7 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   const events: PiEvent[] = []
   let idle = false
   let failure: Error | undefined
+  let abortDeadline: number | undefined
   let wake: (() => void) | undefined
   const notify = () => {
     const w = wake
@@ -212,15 +219,14 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   })
 
   const abortAll = () => {
+    if (abortDeadline !== undefined) return
     sendCommand(proc, { type: 'abort' })
-    idle = true
+    abortDeadline = Date.now() + PI_ABORT_RECEIPT_MS
+    state.note = 'aborting'
     notify()
   }
-  if (args.signal.aborted || args.controller.signal.aborted) abortAll()
-  else {
-    args.signal.addEventListener('abort', abortAll, { once: true })
-    args.controller.signal.addEventListener('abort', abortAll, { once: true })
-  }
+  args.signal.addEventListener('abort', abortAll, { once: true })
+  args.controller.signal.addEventListener('abort', abortAll, { once: true })
 
   const system = args.spec.profile.prompt?.systemPrompt
   const opening = system ? `${system}\n\n${taskText(args.task)}` : taskText(args.task)
@@ -234,23 +240,34 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     for (;;) {
       // Forward anything the driver delivered — pi's own queue is the single source of truth
       // for ordering, so this is a route, not a second queue.
-      if (!idle) forwardPending(proc, inbox, activity)
+      if (!idle && abortDeadline === undefined) forwardPending(proc, inbox, activity)
 
       // Drain what pi has emitted so far, projecting usage + activity.
       while (events.length > 0) {
         const ev = events.shift() as PiEvent
         for (const usage of projectPiEvent(ev, args, tokens)) {
-          if (usage.kind === 'cost') usd += usage.usd
+          if (usage.kind === 'cost') {
+            usd += usage.usd
+            if (usage.usdKnown === false) usdKnown = false
+          }
           yield usage
         }
       }
 
       if (failure) throw failure
-      if (deadline !== undefined && Date.now() > deadline) {
+      // Once cancellation starts, Pi's terminal receipt gets its own bounded drain window.
+      // The original turn deadline must not cut that window short.
+      if (abortDeadline === undefined && deadline !== undefined && Date.now() > deadline) {
         throw new ValidationError('piExecutor: turn exceeded turnTimeoutMs')
+      }
+      if (abortDeadline !== undefined && Date.now() > abortDeadline) {
+        throw new ValidationError(
+          `piExecutor: abort did not settle within ${PI_ABORT_RECEIPT_MS}ms`,
+        )
       }
 
       if (idle) {
+        if (abortDeadline !== undefined) break
         // pi went idle. A steer delivered in the gap re-prompts it: a worker must not settle
         // while an unread instruction is pending (the same contract every steerable runtime
         // in this package honors).
@@ -282,7 +299,13 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     await killPi(proc, 2_000).catch(() => ({ destroyed: false }))
   }
 
-  const spent: Spend = { iterations: state.turns, tokens, usd, ms: Date.now() - started }
+  const spent: Spend = {
+    iterations: state.turns,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: Date.now() - started,
+  }
   state.artifact = {
     outRef: `pi:${hash(state.lastText)}`,
     out: { content: state.lastText, turns: state.turns },
@@ -339,41 +362,62 @@ function projectPiEvent(
     })
     return out
   }
-  if (ev.type === 'turn_end' || ev.type === 'message_end') {
+  if (ev.type === 'message_end') {
+    const text = readText(ev.message)
+    if (text) args.state.lastText = text
+    return out
+  }
+  if (ev.type === 'turn_end') {
     const usage = readUsage(ev.message)
     if (usage && (usage.input || usage.output)) {
       tokens.input += usage.input
       tokens.output += usage.output
       out.push({ kind: 'tokens', input: usage.input, output: usage.output })
     }
-    if (usage?.usd) out.push({ kind: 'cost', usd: usage.usd })
+    out.push(
+      usage?.usd !== undefined
+        ? { kind: 'cost', usd: usage.usd }
+        : { kind: 'cost', usd: 0, usdKnown: false },
+    )
     const text = readText(ev.message)
     if (text) args.state.lastText = text
-    if (ev.type === 'turn_end') {
-      args.state.turns += 1
-      args.activity.push({ at, kind: 'turn', label: `turn ${args.state.turns}` })
-      out.push({ kind: 'iteration' })
-    }
+    args.state.turns += 1
+    args.activity.push({ at, kind: 'turn', label: `turn ${args.state.turns}` })
+    out.push({ kind: 'iteration' })
   }
   return out
 }
 
-/** pi's assistant message carries provider usage when the provider reported it. Absent, nothing
- *  is fabricated — the turn still counts as an iteration with zero tokens. */
-function readUsage(message: unknown): { input: number; output: number; usd: number } | undefined {
+/** Read one `turn_end` assistant receipt. Pi reports cache traffic outside fresh input, while
+ * OpenAI-compatible input totals include it. A positive provider price is observable; absent or
+ * zero subscription pricing is unknown rather than observed free compute. */
+function readUsage(message: unknown): { input: number; output: number; usd?: number } | undefined {
   if (!message || typeof message !== 'object') return undefined
   const usage = (message as { usage?: unknown }).usage
   if (!usage || typeof usage !== 'object') return undefined
   const u = usage as Record<string, unknown>
-  const input = num(u.input) ?? num(u.inputTokens) ?? num(u.prompt_tokens) ?? 0
+  const promptTokens = num(u.prompt_tokens)
+  const input =
+    promptTokens ??
+    (num(u.input) ?? num(u.inputTokens) ?? 0) +
+      (num(u.cacheRead) ?? num(u.cache_read_input_tokens) ?? num(u.cacheReadInputTokens) ?? 0) +
+      (num(u.cacheWrite) ??
+        num(u.cache_creation_input_tokens) ??
+        num(u.cacheCreationInputTokens) ??
+        0)
   const output = num(u.output) ?? num(u.outputTokens) ?? num(u.completion_tokens) ?? 0
   const costRaw = u.cost
-  const usd =
+  const reportedUsd =
     num(costRaw) ??
     (costRaw && typeof costRaw === 'object'
-      ? (num((costRaw as Record<string, unknown>).totalCost) ?? 0)
-      : 0)
-  return { input, output, usd }
+      ? (num((costRaw as Record<string, unknown>).total) ??
+        num((costRaw as Record<string, unknown>).totalCost))
+      : undefined)
+  return {
+    input,
+    output,
+    ...(reportedUsd !== undefined && reportedUsd > 0 ? { usd: reportedUsd } : {}),
+  }
 }
 
 function readText(message: unknown): string | undefined {
@@ -392,7 +436,7 @@ function readText(message: unknown): string | undefined {
 }
 
 function num(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined
 }
 
 function describeArgs(argsValue: unknown): string | undefined {
@@ -473,6 +517,8 @@ function readJsonLines(proc: ChildProcess, onValue: (value: unknown) => void): (
  *  Without it the SIGTERM races the command down the pipe and pi never sees the abort at all —
  *  which defeats the reason to wrap pi rather than kill it (a clean abort finalizes its session). */
 const PI_ABORT_GRACE_MS = 500
+/** Maximum wait for Pi's aborted `turn_end` receipt and `agent_end` before forced teardown. */
+const PI_ABORT_RECEIPT_MS = 2_000
 
 async function killPi(
   proc: ChildProcess,
