@@ -75,6 +75,13 @@ export interface RunAnalystLoopOpts {
   baselineRunId?: string | null
   /** Strategy for forwarding prior findings into `ctx.priorFindings`. */
   priorFindingsStrategy?: 'per-kind' | 'wildcard' | 'none'
+  /**
+   * Pass findings produced earlier in this registry run to each later analyst
+   * through `ctx.upstreamFindings`.
+   * Registration order becomes dependency order when enabled.
+   * Disabled by default so independent analyst suites keep their current behavior.
+   */
+  chainFindings?: boolean
   /** Knowledge-side bridge — usually `agent-knowledge`'s `proposeFromFindings`. */
   knowledgeProposalSource?: KnowledgeProposalSource
   /** Agent-surface bridge — usually a prompt, skill, or tool diff producer. */
@@ -135,6 +142,7 @@ export interface AnalystRegistryLike {
     inputs: AnalystRunInputs,
     opts?: {
       priorFindings?: ReadonlyArray<AnalystFinding> | Record<string, ReadonlyArray<AnalystFinding>>
+      chainFindings?: boolean
       [k: string]: unknown
     },
   ): Promise<AnalystRunResult>
@@ -164,6 +172,7 @@ export interface AnalystRegistryStreamingLike extends AnalystRegistryLike {
     inputs: AnalystRunInputs,
     opts?: {
       priorFindings?: ReadonlyArray<AnalystFinding> | Record<string, ReadonlyArray<AnalystFinding>>
+      chainFindings?: boolean
       [k: string]: unknown
     },
   ): AsyncIterable<AnalystRunEvent>
