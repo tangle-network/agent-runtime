@@ -32,6 +32,7 @@ function git(repoRoot: string, args: string[]): string {
 function initializeRepository(files: Record<string, string>): string {
   const repoRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-profile-worktree-'))
   git(repoRoot, ['init', '-q', '--initial-branch=main'])
+  git(repoRoot, ['config', 'core.hooksPath', '/dev/null'])
   git(repoRoot, ['config', 'user.email', 'runtime-test@example.invalid'])
   git(repoRoot, ['config', 'user.name', 'Runtime Test'])
   for (const [path, content] of Object.entries(files)) {
@@ -475,32 +476,82 @@ describe('runWorktreeHarness profile materialization', () => {
     }
   })
 
-  it('fails before worker launch and removes the real worktree for unsupported resources', async () => {
+  it('resolves and mounts a pinned Traces skill without changing the source profile or patch', async () => {
     const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
-    const runId = 'unsupported-profile'
-    const runHarness = vi.fn()
-    try {
-      await expect(
-        runWorktreeHarness({
-          repoRoot,
-          profile: {
-            resources: {
-              failOnError: false,
-              files: [
-                {
-                  path: '.agent-profile/remote.txt',
-                  resource: { kind: 'github', repository: 'owner/repo', path: 'remote.txt' },
-                },
-              ],
-            },
+    const runId = 'traces-skill'
+    const skillPath = '.codex/skills/inspect-agent-traces/SKILL.md'
+    const skillContent = [
+      '---',
+      'name: inspect-agent-traces',
+      'description: Inspect an agent workflow with the Traces CLI.',
+      '---',
+      '',
+      '# Inspect Agent Traces',
+      '',
+      'Run `traces analyze` and cite the exact sessions behind each finding.',
+    ].join('\n')
+    const profile: AgentProfile = {
+      resources: {
+        failOnError: true,
+        skills: [
+          {
+            kind: 'github',
+            repository: 'tangle-network/traces',
+            path: 'skills/inspect-agent-traces/SKILL.md',
+            ref: '0123456789abcdef0123456789abcdef01234567',
+            name: 'inspect-agent-traces',
           },
-          harness: 'codex',
-          taskPrompt: 'task',
-          runId,
-          runHarness,
+        ],
+      },
+    }
+    const fetchResource = vi.fn(
+      async () =>
+        new Response(skillContent, {
+          status: 200,
+          headers: { 'content-length': String(Buffer.byteLength(skillContent)) },
         }),
-      ).rejects.toThrow(/profile cannot be materialized.*files/u)
-      expect(runHarness).not.toHaveBeenCalled()
+    ) as unknown as typeof fetch
+    try {
+      const run = await runWorktreeHarness({
+        repoRoot,
+        profile,
+        harness: 'codex',
+        taskPrompt: 'task',
+        runId,
+        resourceResolution: { fetch: fetchResource },
+        runHarness: async (options) => {
+          expect(readFileSync(join(options.cwd, skillPath), 'utf8')).toContain(
+            'Run `traces analyze`',
+          )
+          writeFileSync(join(options.cwd, 'src/value.ts'), 'export const value = 2\n')
+          writeFileSync(join(options.cwd, skillPath), 'worker changed mounted skill\n')
+          return successfulHarnessResult()
+        },
+      })
+
+      try {
+        expect(fetchResource).toHaveBeenCalledWith(
+          'https://raw.githubusercontent.com/tangle-network/traces/0123456789abcdef0123456789abcdef01234567/skills/inspect-agent-traces/SKILL.md',
+          expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        )
+        expect(profile.resources?.skills?.[0]).toEqual({
+          kind: 'github',
+          repository: 'tangle-network/traces',
+          path: 'skills/inspect-agent-traces/SKILL.md',
+          ref: '0123456789abcdef0123456789abcdef01234567',
+          name: 'inspect-agent-traces',
+        })
+        expect(run.result.profileMaterialization).toMatchObject({
+          workspacePlanDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+          writtenPaths: [skillPath],
+          unsupported: [],
+        })
+        expect(run.result.patch).toContain('+export const value = 2')
+        expect(run.result.patch).not.toContain(skillPath)
+        expect(run.result.patch).not.toContain('worker changed mounted skill')
+      } finally {
+        await run.cleanup()
+      }
       expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
       expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
     } finally {
@@ -508,9 +559,9 @@ describe('runWorktreeHarness profile materialization', () => {
     }
   })
 
-  it('rejects unresolved resource instructions and removes the real worktree', async () => {
+  it('fails before worker launch and removes the real worktree when resource resolution fails', async () => {
     const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
-    const runId = 'unresolved-resource-instructions'
+    const runId = 'failed-resource-resolution'
     const runHarness = vi.fn()
     try {
       await expect(
@@ -529,8 +580,74 @@ describe('runWorktreeHarness profile materialization', () => {
           taskPrompt: 'task',
           runId,
           runHarness,
+          resourceResolution: {
+            fetch: (async () =>
+              new Response('missing', {
+                status: 404,
+                statusText: 'Not Found',
+              })) as unknown as typeof fetch,
+          },
         }),
-      ).rejects.toThrow(/resources\.instructions.*pre-resolution/u)
+      ).rejects.toThrow(
+        /Failed to fetch GitHub profile resource owner\/repo\/INSTRUCTIONS\.md@main: 404 Not Found/u,
+      )
+      expect(runHarness).not.toHaveBeenCalled()
+      expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
+      expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('cancels resource resolution before worker launch and removes the real worktree', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runId = 'cancelled-resource-resolution'
+    const controller = new AbortController()
+    const runHarness = vi.fn()
+    let markFetchStarted!: () => void
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve
+    })
+    const fetchResource = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          markFetchStarted()
+          const signal = init?.signal
+          if (!signal) {
+            reject(new Error('resource fetch did not receive an abort signal'))
+            return
+          }
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        }),
+    ) as unknown as typeof fetch
+
+    try {
+      const running = runWorktreeHarness({
+        repoRoot,
+        profile: {
+          resources: {
+            skills: [
+              {
+                kind: 'github',
+                repository: 'tangle-network/traces',
+                path: 'skills/inspect-agent-traces/SKILL.md',
+                ref: '0123456789abcdef0123456789abcdef01234567',
+              },
+            ],
+          },
+        },
+        harness: 'codex',
+        taskPrompt: 'task',
+        runId,
+        runHarness,
+        signal: controller.signal,
+        resourceResolution: { fetch: fetchResource },
+      })
+
+      await fetchStarted
+      controller.abort(new Error('cancel remote skill resolution'))
+
+      await expect(running).rejects.toThrow(/cancel remote skill resolution/u)
       expect(runHarness).not.toHaveBeenCalled()
       expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
       expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')

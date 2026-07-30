@@ -44,6 +44,32 @@ It is separate from `runToolLoop` and `streamToolLoop` in `/tool-loop`, which ru
 
 An `AgentProfile` contains the agent's system prompt, skills, tools, MCP servers, subagents, hooks, permissions, memory, retrieval configuration, and model settings.
 Skills remain separate resources that the runtime can invoke; do not concatenate them into the system prompt.
+Package-owned skills can remain in their source repository.
+Reference the skill by an immutable commit and Runtime resolves it before a worktree worker starts:
+
+```ts
+import { defineGitHubResource, type AgentProfile } from '@tangle-network/agent-interface'
+
+const tracesSkillsRef = process.env.TRACES_SKILLS_REF
+if (!tracesSkillsRef) throw new Error('TRACES_SKILLS_REF must be an immutable commit')
+
+const profile: AgentProfile = {
+  name: 'trace-reviewer',
+  resources: {
+    failOnError: true,
+    skills: [
+      defineGitHubResource('skills/inspect-agent-traces/SKILL.md', {
+        repository: 'tangle-network/traces',
+        ref: tracesSkillsRef,
+        name: 'inspect-agent-traces',
+      }),
+    ],
+  },
+}
+```
+
+The shared materializer normalizes the fetched markdown and mounts it in the selected agent's native skill directory.
+The original profile remains unchanged, and the exact mounted bytes are covered by the materialization receipt.
 
 **You change an agent's behavior by changing its PROFILE: never by writing orchestration code around it.** The behaviors we keep hand-rolling are profile properties:
 - **Self-verification** is a profile lever, three ways, all configuration and zero glue code: (1) *steered*: the prompt says "run the tests, read failures, fix, repeat"; (2) *process-defined*: its instructions make verify-after-every-change its standing process; or (3) a **post-finish hook** that auto-runs the check and feeds failures back. The harness runs that loop. **You do not write a per-round judge, a `while(!done)`, or a bash hill-climb.**
