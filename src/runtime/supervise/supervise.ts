@@ -62,9 +62,9 @@ export interface SuperviseOptions {
   readonly budget: Budget
   /** WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`. */
   readonly backend?: ExecutorConfig
-  /** The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
-   *  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
-   *  failure mode of a static orchestrator. */
+  /** The independent completion check for backend-derived workers and direct supervisor
+   *  submissions. Strongly recommended: without it the supervisor cannot submit its own work and
+   *  backend-derived workers fall back to their own validity signal. */
   readonly deliverable?: DeliverableSpec<unknown>
   /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`. */
   readonly makeWorkerAgent?: MakeWorkerAgent
@@ -235,6 +235,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       blobs,
       makeWorkerAgent: workerFactory,
       perWorker,
+      ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
       ...(log ? { onEvent: (ev) => log.append(runId, ev, new Date(now()).toISOString()) } : {}),
       ...(priorCoordination &&
       (priorCoordination.questions.length > 0 || priorCoordination.findings.length > 0)

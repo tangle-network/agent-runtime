@@ -4073,6 +4073,14 @@ Epoch ms the ledger recorded this settlement — the resolution a progress-based
 
 > `readonly` **perWorker**: [`Budget`](index.md#budget-4)
 
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
+
+The same independent completion check used for workers. When present, the driver receives a
+`submit_result` tool and may finish work itself instead of being forced to delegate it. The
+first passing submission is retained; a false or throwing check fails closed.
+
 ##### analysts?
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
@@ -4214,6 +4222,16 @@ choice, steerable counterpart to the one-shot own-sandbox delegation MCP.
 ###### Returns
 
 `string` \| `undefined`
+
+##### submittedResult()
+
+> **submittedResult**(): \{ `result`: `unknown`; \} \| `undefined`
+
+The first result whose injected independent check passed, if the driver submitted one.
+
+###### Returns
+
+\{ `result`: `unknown`; \} \| `undefined`
 
 ##### settled()
 
