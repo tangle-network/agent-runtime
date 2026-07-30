@@ -24,9 +24,10 @@
  * are read structurally off JSON lines, so a pi that adds commands stays compatible and a pi that
  * is not installed simply fails loud at spawn instead of at import.
  *
- * Usage accounting: pi reports token usage on its assistant messages when the provider supplies
- * it. Nothing is fabricated — a turn whose usage pi does not report contributes an `iteration`
- * event and zero tokens, exactly like the other honest executors.
+ * Usage accounting: pi repeats the same assistant receipt in `message_end` and `turn_end`.
+ * Only `turn_end` is counted, once per model call. Pi reports cache traffic separately from fresh
+ * input, so all three input classes are folded into Runtime's two-field token total. Subscription
+ * usage whose dollar price is absent or zero stays explicitly unknown on the terminal artifact.
  *
  * @experimental
  */
@@ -76,6 +77,11 @@ interface PiEvent {
   result?: unknown
   isError?: boolean
   message?: unknown
+}
+
+interface PendingPiTool {
+  args: unknown
+  startedAt: number
 }
 
 /** Build the `Executor` for one pi worker. Registered as runtime `'pi'`. */
@@ -181,6 +187,8 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   state.note = 'connected'
 
   const events: PiEvent[] = []
+  const pendingTools = new Map<string, PendingPiTool>()
+  let usdKnown = true
   let idle = false
   let failure: Error | undefined
   let wake: (() => void) | undefined
@@ -239,7 +247,9 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
       // Drain what pi has emitted so far, projecting usage + activity.
       while (events.length > 0) {
         const ev = events.shift() as PiEvent
-        for (const usage of projectPiEvent(ev, args, tokens)) {
+        const projected = projectPiEvent(ev, args, tokens, pendingTools)
+        if (projected.usdKnown === false) usdKnown = false
+        for (const usage of projected.events) {
           if (usage.kind === 'cost') usd += usage.usd
           yield usage
         }
@@ -282,7 +292,13 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     await killPi(proc, 2_000).catch(() => ({ destroyed: false }))
   }
 
-  const spent: Spend = { iterations: state.turns, tokens, usd, ms: Date.now() - started }
+  const spent: Spend = {
+    iterations: state.turns,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: Date.now() - started,
+  }
   state.artifact = {
     outRef: `pi:${hash(state.lastText)}`,
     out: { content: state.lastText, turns: state.turns },
@@ -321,59 +337,96 @@ function projectPiEvent(
   ev: PiEvent,
   args: StreamPiArgs,
   tokens: { input: number; output: number },
-): UsageEvent[] {
+  pendingTools: Map<string, PendingPiTool>,
+): { events: UsageEvent[]; usdKnown?: false } {
   const out: UsageEvent[] = []
   const at = Date.now()
   if (ev.type === 'tool_execution_start' && typeof ev.toolName === 'string') {
     args.activity.push({ at, kind: 'tool', label: ev.toolName, detail: describeArgs(ev.args) })
-    return out
+    if (typeof ev.toolCallId === 'string') {
+      pendingTools.set(ev.toolCallId, { args: ev.args ?? {}, startedAt: at })
+    }
+    return { events: out }
   }
   if (ev.type === 'tool_execution_end' && typeof ev.toolName === 'string') {
     const status = ev.isError === true ? 'error' : 'ok'
+    const callId = typeof ev.toolCallId === 'string' ? ev.toolCallId : undefined
+    const started = callId ? pendingTools.get(callId) : undefined
+    if (callId) pendingTools.delete(callId)
+    const error = status === 'error' ? describeToolError(ev.result) : undefined
     args.activity.push({ at, kind: 'tool', label: ev.toolName, status })
     args.record({
       toolName: ev.toolName,
-      args: ev.args ?? {},
+      args: started?.args ?? {},
+      ...(started ? {} : { argsCaptured: false }),
       status,
-      ...(typeof ev.toolCallId === 'string' ? { callId: ev.toolCallId } : {}),
+      ...(ev.result !== undefined ? { result: ev.result } : {}),
+      ...(error !== undefined ? { error } : {}),
+      ...(callId ? { callId } : {}),
+      ...(started ? { startedAt: started.startedAt } : {}),
+      endedAt: at,
     })
-    return out
+    return { events: out }
   }
-  if (ev.type === 'turn_end' || ev.type === 'message_end') {
+  if (ev.type === 'message_end') {
+    const text = readText(ev.message)
+    if (text) args.state.lastText = text
+    return { events: out }
+  }
+  if (ev.type === 'turn_end') {
     const usage = readUsage(ev.message)
     if (usage && (usage.input || usage.output)) {
       tokens.input += usage.input
       tokens.output += usage.output
       out.push({ kind: 'tokens', input: usage.input, output: usage.output })
     }
-    if (usage?.usd) out.push({ kind: 'cost', usd: usage.usd })
+    if (usage?.usd !== undefined) out.push({ kind: 'cost', usd: usage.usd })
     const text = readText(ev.message)
     if (text) args.state.lastText = text
-    if (ev.type === 'turn_end') {
-      args.state.turns += 1
-      args.activity.push({ at, kind: 'turn', label: `turn ${args.state.turns}` })
-      out.push({ kind: 'iteration' })
+    args.state.turns += 1
+    args.activity.push({ at, kind: 'turn', label: `turn ${args.state.turns}` })
+    out.push({ kind: 'iteration' })
+    return {
+      events: out,
+      ...(!usage || usage.usdKnown === false ? { usdKnown: false } : {}),
     }
   }
-  return out
+  return { events: out }
 }
 
-/** pi's assistant message carries provider usage when the provider reported it. Absent, nothing
- *  is fabricated — the turn still counts as an iteration with zero tokens. */
-function readUsage(message: unknown): { input: number; output: number; usd: number } | undefined {
+/** Pi's fresh input excludes cache reads and writes. Runtime's input channel includes all model
+ * input, so combine them once at the assistant receipt. A missing or zero price is unknown because
+ * subscription-backed providers report zero even when compute was not free. */
+function readUsage(
+  message: unknown,
+): { input: number; output: number; usd?: number; usdKnown: boolean } | undefined {
   if (!message || typeof message !== 'object') return undefined
   const usage = (message as { usage?: unknown }).usage
   if (!usage || typeof usage !== 'object') return undefined
   const u = usage as Record<string, unknown>
-  const input = num(u.input) ?? num(u.inputTokens) ?? num(u.prompt_tokens) ?? 0
+  const promptTokens = num(u.prompt_tokens)
+  const input =
+    promptTokens ??
+    (num(u.input) ?? num(u.inputTokens) ?? 0) +
+      (num(u.cacheRead) ?? num(u.cache_read_input_tokens) ?? num(u.cacheReadInputTokens) ?? 0) +
+      (num(u.cacheWrite) ??
+        num(u.cache_creation_input_tokens) ??
+        num(u.cacheCreationInputTokens) ??
+        0)
   const output = num(u.output) ?? num(u.outputTokens) ?? num(u.completion_tokens) ?? 0
   const costRaw = u.cost
-  const usd =
+  const reportedUsd =
     num(costRaw) ??
     (costRaw && typeof costRaw === 'object'
-      ? (num((costRaw as Record<string, unknown>).totalCost) ?? 0)
-      : 0)
-  return { input, output, usd }
+      ? (num((costRaw as Record<string, unknown>).total) ??
+        num((costRaw as Record<string, unknown>).totalCost))
+      : undefined)
+  return {
+    input,
+    output,
+    ...(reportedUsd !== undefined && reportedUsd > 0 ? { usd: reportedUsd } : {}),
+    usdKnown: reportedUsd !== undefined && reportedUsd > 0,
+  }
 }
 
 function readText(message: unknown): string | undefined {
@@ -392,7 +445,7 @@ function readText(message: unknown): string | undefined {
 }
 
 function num(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined
 }
 
 function describeArgs(argsValue: unknown): string | undefined {
@@ -401,6 +454,29 @@ function describeArgs(argsValue: unknown): string | undefined {
   for (const key of ['filePath', 'file_path', 'path', 'file', 'command', 'cmd', 'pattern']) {
     const v = a[key]
     if (typeof v === 'string' && v.length > 0) return v.length > 120 ? `${v.slice(0, 117)}...` : v
+  }
+  return undefined
+}
+
+function describeToolError(result: unknown): string | undefined {
+  if (typeof result === 'string' && result.length > 0) return result
+  if (result && typeof result === 'object') {
+    const value = result as Record<string, unknown>
+    const direct = value.error ?? value.message
+    if (typeof direct === 'string' && direct.length > 0) return direct
+    if (Array.isArray(value.content)) {
+      const text = value.content
+        .map((block) =>
+          block &&
+          typeof block === 'object' &&
+          typeof (block as { text?: unknown }).text === 'string'
+            ? (block as { text: string }).text
+            : '',
+        )
+        .filter(Boolean)
+        .join('\n')
+      if (text.length > 0) return text
+    }
   }
   return undefined
 }

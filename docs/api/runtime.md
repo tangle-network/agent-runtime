@@ -12146,6 +12146,12 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 
 > `readonly` **args**: `unknown`
 
+##### argsCaptured?
+
+> `readonly` `optional` **argsCaptured?**: `boolean`
+
+False when the call was observed but its original arguments were unavailable.
+
 ##### status?
 
 > `readonly` `optional` **status?**: `"error"` \| `"ok"`
@@ -12153,6 +12159,10 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 ##### result?
 
 > `readonly` `optional` **result?**: `unknown`
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
 
 ##### callId?
 
