@@ -77,8 +77,13 @@ function stubRegistry(
 
 async function captureSameRunUpstreamFindings(
   chainFindings?: boolean,
-): Promise<ReadonlyArray<AnalystFinding> | undefined> {
+  streaming = false,
+): Promise<{
+  seen: ReadonlyArray<AnalystFinding> | undefined
+  emittedEvents: number
+}> {
   let seen: ReadonlyArray<AnalystFinding> | undefined
+  let emittedEvents = 0
   const registry = new AnalystRegistry()
   registry.register({
     id: 'first',
@@ -108,10 +113,17 @@ async function captureSameRunUpstreamFindings(
     inputs: { custom: { first: true, second: true } },
     findingsStore: null,
     chainFindings,
+    ...(streaming
+      ? {
+          onEvent: () => {
+            emittedEvents++
+          },
+        }
+      : {}),
     log: () => {},
   })
 
-  return seen
+  return { seen, emittedEvents }
 }
 
 describe('runAnalystLoop', () => {
@@ -213,13 +225,36 @@ describe('runAnalystLoop', () => {
   })
 
   it('passes earlier same-run findings to later analysts when chaining is enabled', async () => {
-    const seen = await captureSameRunUpstreamFindings(true)
+    const { seen } = await captureSameRunUpstreamFindings(true)
 
     expect(seen?.map((finding) => finding.finding_id)).toEqual(['first-finding'])
   })
 
+  it('passes earlier same-run findings through the streaming registry path', async () => {
+    const { seen, emittedEvents } = await captureSameRunUpstreamFindings(true, true)
+
+    expect(emittedEvents).toBeGreaterThan(0)
+    expect(seen?.map((finding) => finding.finding_id)).toEqual(['first-finding'])
+  })
+
+  it('forwards an explicit false chain setting', async () => {
+    const registry = stubRegistry({ findings: [] }, [])
+
+    await runAnalystLoop({
+      runId: 'run-cur',
+      registry,
+      inputs: {},
+      findingsStore: null,
+      chainFindings: false,
+      log: () => {},
+    })
+
+    const opts = registry.lastOpts as { chainFindings?: boolean }
+    expect(opts.chainFindings).toBe(false)
+  })
+
   it('keeps same-run findings isolated by default', async () => {
-    expect(await captureSameRunUpstreamFindings()).toBeUndefined()
+    expect((await captureSameRunUpstreamFindings()).seen).toBeUndefined()
   })
 
   it('baselineRunId:null skips diff entirely', async () => {

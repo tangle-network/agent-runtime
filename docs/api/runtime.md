@@ -3028,7 +3028,7 @@ bridge; it only runs the projected inputs and firewalls the merged findings.
 
 > `readonly` `optional` **opts?**: `object`
 
-Optional `run` opts (e.g. `priorFindings`) forwarded verbatim to the registry.
+Optional `run` opts (e.g. `priorFindings`, `chainFindings`) forwarded verbatim to the registry.
 
 ###### Index Signature
 
