@@ -70,9 +70,13 @@ export interface PiSeam {
   activityWindow?: number
 }
 
-/** Structural read of pi's `AgentEvent` union — only the fields this adapter consumes. */
+/** Structural read of Pi's stdout records: agent events plus correlated RPC responses. */
 interface PiEvent {
+  id?: string
   type?: string
+  command?: string
+  success?: boolean
+  error?: string
   toolCallId?: string
   toolName?: string
   args?: unknown
@@ -199,11 +203,15 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
 
   const events: PiEvent[] = []
   const pendingTools = new Map<string, PendingPiTool>()
+  const awaitingPromptResponses = new Set<string>()
   let settled = false
+  let acceptedPromptSinceSettlement = false
+  let promptSequence = 0
   let lastAssistant: PiAssistantOutcome | undefined
   let failure: Error | undefined
   let abortDeadline: number | undefined
   let exited = false
+  let exitCode: number | null | undefined
   let wake: (() => void) | undefined
   const notify = () => {
     const w = wake
@@ -213,19 +221,13 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
 
   const stdoutLines = readJsonLines(proc, (value) => {
     const ev = value as PiEvent
-    if (ev.type === 'agent_start') settled = false
-    if (ev.type === 'agent_settled') settled = true
     events.push(ev)
     notify()
   })
 
   proc.once('exit', (code) => {
     exited = true
-    if (!settled && abortDeadline === undefined) {
-      failure = new ValidationError(
-        `piExecutor: pi exited before agent_settled (code ${code ?? 'unknown'})`,
-      )
-    }
+    exitCode = code
     notify()
   })
   proc.once('error', (e) => {
@@ -246,21 +248,52 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   const system = args.spec.profile.prompt?.systemPrompt
   const opening = system ? `${system}\n\n${taskText(args.task)}` : taskText(args.task)
   const deadline = seam.turnTimeoutMs ? Date.now() + seam.turnTimeoutMs : undefined
+  const sendPrompt = (message: string, streamingBehavior?: 'steer' | 'followUp'): void => {
+    const id = `agent-runtime-prompt-${++promptSequence}`
+    awaitingPromptResponses.add(id)
+    sendCommand(proc, {
+      id,
+      type: 'prompt',
+      message,
+      ...(streamingBehavior ? { streamingBehavior } : {}),
+    })
+  }
 
   try {
     // Close the check→listener race without ever dispatching a cancelled task.
     if (args.signal.aborted || args.controller.signal.aborted) throw abortError()
-    sendCommand(proc, { type: 'prompt', message: opening })
+    sendPrompt(opening)
     state.note = 'turn 0'
 
     for (;;) {
       // Forward anything the driver delivered — pi's own queue is the single source of truth
       // for ordering, so this is a route, not a second queue.
-      if (!settled && abortDeadline === undefined) forwardPending(proc, inbox, activity)
+      if (!settled && abortDeadline === undefined) forwardPending(inbox, activity, sendPrompt)
 
       // Drain what pi has emitted so far, projecting usage + activity.
       while (events.length > 0) {
         const ev = events.shift() as PiEvent
+        if (
+          ev.type === 'response' &&
+          ev.command === 'prompt' &&
+          typeof ev.id === 'string' &&
+          awaitingPromptResponses.delete(ev.id)
+        ) {
+          if (ev.success === true) {
+            // A settlement that preceded this acceptance belongs to an older prompt. Require a
+            // later `agent_settled` before ending the session.
+            acceptedPromptSinceSettlement = true
+          } else {
+            failure = new ValidationError(
+              `piExecutor: Pi rejected prompt: ${ev.error ?? 'unknown RPC error'}`,
+            )
+          }
+        }
+        if (ev.type === 'agent_start') settled = false
+        if (ev.type === 'agent_settled') {
+          settled = true
+          acceptedPromptSinceSettlement = false
+        }
         const projected = projectPiEvent(ev, args, tokens, pendingTools)
         if (projected.assistant) lastAssistant = projected.assistant
         for (const usage of projected.events) {
@@ -274,6 +307,15 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
 
       if (failure) throw failure
       if (abortDeadline !== undefined && (settled || exited)) throw abortError()
+      if (
+        abortDeadline === undefined &&
+        exited &&
+        (!settled || awaitingPromptResponses.size > 0 || acceptedPromptSinceSettlement)
+      ) {
+        throw new ValidationError(
+          `piExecutor: pi exited before agent_settled (code ${exitCode ?? 'unknown'})`,
+        )
+      }
       // Once cancellation starts, Pi's terminal receipt gets its own bounded drain window.
       if (abortDeadline === undefined && deadline !== undefined && Date.now() > deadline) {
         throw new ValidationError('piExecutor: turn exceeded turnTimeoutMs')
@@ -284,14 +326,14 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
         throw error
       }
 
-      if (settled) {
+      if (settled && awaitingPromptResponses.size === 0 && !acceptedPromptSinceSettlement) {
         // A steer delivered in the settle gap starts a new Pi prompt. Pi has declared the prior
         // session activity fully quiet, so no retry/compaction can race this transition.
         const pending = inbox.drain()
         if (pending.length === 0) break
         settled = false
         lastAssistant = undefined
-        sendCommand(proc, { type: 'prompt', message: inbox.fold(pending) })
+        sendPrompt(inbox.fold(pending))
         state.note = `turn ${state.turns}`
         continue
       }
@@ -343,14 +385,14 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
 }
 
 /** Route messages through pi's state-safe prompt command; pi owns the queue and idle transition. */
-function forwardPending(proc: ChildProcess, inbox: Inbox, activity: ActivityLog): void {
+function forwardPending(
+  inbox: Inbox,
+  activity: ActivityLog,
+  sendPrompt: (message: string, streamingBehavior?: 'steer' | 'followUp') => void,
+): void {
   const pending = inbox.drain()
   for (const m of pending) {
-    sendCommand(proc, {
-      type: 'prompt',
-      message: renderOne(m),
-      streamingBehavior: m.interrupt ? 'steer' : 'followUp',
-    })
+    sendPrompt(renderOne(m), m.interrupt ? 'steer' : 'followUp')
     activity.push({
       at: Date.now(),
       kind: 'note',

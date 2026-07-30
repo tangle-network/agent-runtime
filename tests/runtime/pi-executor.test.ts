@@ -104,6 +104,7 @@ process.stdin.on('data', (c) => {
     fs.appendFileSync(log, JSON.stringify(cmd) + '\\n')
 
     if (cmd.type === 'abort') {
+      emit({ id: cmd.id, type: 'response', command: 'abort', success: true })
       if (exitOnAbort) process.exit(0)
       if (!pendingAbort || abortScheduled) continue
       abortScheduled = true
@@ -119,6 +120,17 @@ process.stdin.on('data', (c) => {
     if (cmd.type !== 'prompt') continue
 
     const prompt = String(cmd.message)
+    if (prompt.includes('reject at preflight')) {
+      emit({
+        id: cmd.id,
+        type: 'response',
+        command: 'prompt',
+        success: false,
+        error: 'No model selected',
+      })
+      continue
+    }
+    emit({ id: cmd.id, type: 'response', command: 'prompt', success: true })
     const target = prompt.includes('right.ts') ? 'right.ts' : 'wrong.ts'
     const myTurn = turn++
     const user = begin(prompt)
@@ -541,6 +553,23 @@ describe('piExecutor — pi wrapped, not forked', () => {
 
     expect(captured.error?.name).toBe('AbortError')
     expect(captured.events).toEqual([])
+    expect(() => ex.resultArtifact()).toThrow(/before stream drained/)
+  })
+
+  it('fails explicitly instead of hanging when Pi rejects a prompt at preflight', async () => {
+    await writeFile(commandLog, '')
+    const ctx = piCtx()
+    const ex = piExecutor(spec, ctx)
+
+    const captured = await captureFailure(
+      ex.execute('reject at preflight', ctx.signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(captured.events).toEqual([])
+    expect(captured.error).toMatchObject({
+      name: 'ValidationError',
+      message: 'piExecutor: Pi rejected prompt: No model selected',
+    })
     expect(() => ex.resultArtifact()).toThrow(/before stream drained/)
   })
 
