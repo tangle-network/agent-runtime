@@ -15,6 +15,7 @@ import type {
   Settled,
   Agent as SuperviseAgent,
 } from '../../runtime'
+import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
@@ -104,6 +105,12 @@ export interface CoordinationToolsOptions {
   readonly blobs: ResultBlobStore
   readonly makeWorkerAgent: MakeWorkerAgent
   readonly perWorker: Budget
+  /**
+   * The same independent completion check used for workers. When present, the driver receives a
+   * `submit_result` tool and may finish work itself instead of being forced to delegate it. The
+   * first passing submission is retained; a false or throwing check fails closed.
+   */
+  readonly deliverable?: DeliverableSpec<unknown>
   readonly analysts?: AnalystRegistry
   readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
   readonly questionPolicy?: QuestionPolicy
@@ -181,6 +188,8 @@ export interface CoordinationTools {
   readonly tools: McpToolDescriptor[]
   isStopped(): boolean
   stopReason(): string | undefined
+  /** The first result whose injected independent check passed, if the driver submitted one. */
+  submittedResult(): { readonly result: unknown } | undefined
   settled(): ReadonlyArray<SettledWorker>
   questions(): ReadonlyArray<QuestionRecord>
   /** The full ordered log of every bus event — UP (settled / question / finding) and DOWN
@@ -216,6 +225,7 @@ export const coordinationVerbNames = [
   'list_questions',
   'answer_question',
   'ask_parent',
+  'submit_result',
   'stop',
   'list_analysts',
   'run_analyst',
@@ -225,8 +235,10 @@ const idArg = { type: 'string', description: 'The workerId returned by spawn_age
 
 /** Build the driver's MCP tools over a live scope. */
 export function createCoordinationTools(opts: CoordinationToolsOptions): CoordinationTools {
+  const deliverable = opts.deliverable
   let stopped = false
   let reason: string | undefined
+  let submitted: { readonly result: unknown } | undefined
   let questionSeq = 0
   const ledger: SettledWorker[] = []
   const questions: QuestionRecord[] = [...(opts.priorQuestions ?? [])]
@@ -984,6 +996,66 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         return { question: q }
       },
     },
+    ...(deliverable
+      ? [
+          {
+            name: 'submit_result',
+            description: [
+              'Submit the complete result to the injected independent check.',
+              'The first passing result is retained; stop work when accepted.',
+              ...(deliverable.describe ? [`Expected result: ${deliverable.describe}`] : []),
+            ].join(' '),
+            inputSchema: {
+              type: 'object',
+              properties: {
+                result: {
+                  description: 'The complete result in the form requested by the task.',
+                },
+              },
+              required: ['result'],
+              additionalProperties: false,
+            },
+            handler: async (raw: unknown) => {
+              if (submitted) {
+                return {
+                  accepted: true,
+                  retained: 'earlier-passing-result',
+                  stop: true,
+                }
+              }
+              const a = obj(raw)
+              if (!Object.hasOwn(a, 'result')) {
+                throw new Error('submit_result: "result" is required')
+              }
+
+              // Copy once at intake so the value checked below is the exact value retained after
+              // acceptance, even when this handler is called directly rather than through JSON-RPC.
+              const result = structuredClone(a.result)
+              let accepted = false
+              try {
+                accepted = (await deliverable.check(result)) === true
+              } catch {
+                accepted = false
+              }
+              if (!accepted) return { accepted: false, stop: false }
+              // Two remote callers may submit concurrently. Whichever passing check completes
+              // first owns the retained result; a later completion must never overwrite it.
+              if (submitted) {
+                return {
+                  accepted: true,
+                  retained: 'earlier-passing-result',
+                  stop: true,
+                }
+              }
+
+              submitted = Object.freeze({ result })
+              stopped = true
+              reason = 'result-accepted'
+              return { accepted: true, retained: 'this-result', stop: true }
+            },
+          } satisfies McpToolDescriptor,
+        ]
+      : []),
     {
       name: 'stop',
       description: 'Declare the run complete.',
@@ -1046,6 +1118,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     stats: () => bus.stats(),
     isStopped: () => stopped,
     stopReason: () => reason,
+    submittedResult: () => submitted,
     settled: () => ledger,
     questions: () => questions,
     drainResolved,

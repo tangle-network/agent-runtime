@@ -59,6 +59,29 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(result.kind).toBe('winner')
   })
 
+  it('threads the independent check to direct supervisor submissions', async () => {
+    const brain = scriptedBrain([
+      { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
+      { content: 'must not need another turn' },
+    ])
+    const result = await supervise(
+      { name: 'root', harness: null, systemPrompt: 'solve or delegate' },
+      'solve it directly',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        brain,
+        deliverable: {
+          describe: 'an object whose answer is 42',
+          check: (value) => (value as { answer?: unknown }).answer === 42,
+        },
+      },
+    )
+
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+  })
+
   it('runDir makes the run durable and resumable; unset stays in-memory', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'supervise-rundir-'))
     try {
