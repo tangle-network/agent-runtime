@@ -234,8 +234,8 @@ export interface RunPersonifiedOptions<Task, D> {
   readonly blobs?: ResultBlobStore
   /** Runtime recursion-depth ceiling, paired with the conserved pool. */
   readonly maxDepth?: number
-  /** OTP intensity breaker bounds, forwarded to the supervisor verbatim. */
-  readonly maxRestarts?: number
+  /** Failure-intensity breaker bounds, forwarded to the supervisor verbatim. */
+  readonly maxFailures?: number
   readonly withinMs?: number
   /** A live root handle to attach (view/signal/abort) before the run starts. */
   readonly handle?: RootHandle<Outcome<D>>

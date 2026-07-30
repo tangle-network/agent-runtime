@@ -1692,6 +1692,12 @@ export function createExecutorRegistry(): ExecutorRegistry {
         if (!f) return { succeeded: false, error: 'executor registry: no "router" factory' }
         return { succeeded: true, value: f as ExecutorFactory<Out> }
       }
+      if (spec.harness === undefined) {
+        return {
+          succeeded: false,
+          error: 'executor registry: no executor or harness was supplied',
+        }
+      }
       // sandbox: any BackendType maps to the sandbox-composing-runAgentRounds executor.
       const runtimeTag: Runtime = 'sandbox'
       const f = factories.get(runtimeTag)

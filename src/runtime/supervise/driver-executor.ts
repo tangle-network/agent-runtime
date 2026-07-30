@@ -19,7 +19,7 @@
  *    (the scope mounts it over `args.pool`), so `Σk` is conserved ACROSS depth by
  *    construction — a deep tree cannot overspend the root ceiling (reserve-on-spawn fails
  *    closed at any depth).
- *  - Journal: the nested scope writes to its OWN tree key (`${journalRoot}/${nodeId}`) so
+ *  - Journal: the nested scope writes to its OWN tree key (the spawned agent node id) so
  *    its cursor `seq`s never collide with the parent's in the per-tree uniqueness guard,
  *    while every nested tree shares the one `SpawnJournal` — the whole recursion is one
  *    journal, queryable tree by tree.
@@ -38,6 +38,7 @@
  * @experimental
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { type NestedScopeSeam, nestedScopeSeamKey } from './scope'
 import type {
@@ -57,9 +58,6 @@ import type {
 /** The runtime tag the registry maps a driver child to. */
 export const driverRuntime = 'driver' as const
 
-/** The metadata marker on a driver child's spec the recursive registry routes on. */
-const driverRole = 'driver'
-
 /** A driver child's spec carries the `Agent` to run inside the nested scope. */
 interface DriverSpec extends AgentSpec {
   readonly driver: Agent<unknown, unknown>
@@ -69,20 +67,23 @@ interface DriverSpec extends AgentSpec {
 }
 
 /**
- * Mark + carry a driver `Agent` so the recursive registry resolves it to the
- * driver-executor. The returned agent is SPAWNED (never run directly): its
- * `executorSpec` is marked `role: 'driver'` and carries the driver agent + the shared
- * journal so the executor can run its `act` inside a nested scope. `act` fails loud if
- * called directly — a driver child runs THROUGH its nested-scope executor, never as a root.
+ * Carry a driver `Agent` structurally so the recursive registry resolves it to the
+ * driver-executor. No role string or profile metadata controls execution: the exact authored
+ * profile is retained and the presence of the typed `driver` field is the runtime capability.
  */
 export function driverChild<Out>(
-  name: string,
+  profileOrName: AgentProfile | string,
   driver: Agent<unknown, Out>,
   journal: SpawnJournal,
 ): Agent<unknown, Out> {
+  const profile: AgentProfile =
+    typeof profileOrName === 'string' ? { name: profileOrName } : profileOrName
+  if (typeof profile.name !== 'string' || profile.name.trim().length === 0) {
+    throw new ValidationError('driverChild: profile.name is required')
+  }
+  const name = profile.name
   const spec: DriverSpec = {
-    profile: { name, metadata: { role: driverRole } } as AgentSpec['profile'],
-    harness: null,
+    profile,
     driver: driver as Agent<unknown, unknown>,
     journal,
   }
@@ -97,14 +98,13 @@ export function driverChild<Out>(
   } as Agent<unknown, Out> & { executorSpec: AgentSpec }
 }
 
-/** True when a spec is a driver child (carries the role marker + a driver Agent). */
+/** True when a spec structurally carries a driver Agent. */
 export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
-  const role = (spec.profile.metadata as { role?: unknown } | undefined)?.role
-  if (role !== driverRole) return false
   const driver = (spec as { driver?: unknown }).driver
+  if (driver === undefined) return false
   if (!isAgent(driver)) {
     throw new ValidationError(
-      'driverExecutor: a driver-role spec must carry a `driver` Agent to run inside its nested scope',
+      'driverExecutor: a driver spec must carry a `driver` Agent to run inside its nested scope',
     )
   }
   return true
@@ -125,9 +125,7 @@ export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
  */
 export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
   if (!isDriverSpec(spec)) {
-    throw new ValidationError(
-      'driverExecutorFactory: spec is not a driver child (no role:"driver" marker)',
-    )
+    throw new ValidationError('driverExecutorFactory: spec does not carry a driver Agent')
   }
   const driver = spec.driver
   const journal = spec.journal
@@ -142,10 +140,9 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
   return {
     runtime: driverRuntime,
     async execute(task, signal): Promise<ExecutorResult<unknown>> {
-      // The nested tree key namespaces this driver's children inside the ONE shared
-      // journal, so its cursor seqs never collide with the parent's per-tree guard.
-      const nestedRoot = nestedTreeKey(seam, journal)
-      await journal.beginTree(nestedRoot, new Date(0).toISOString())
+      // The spawned node is the nested coordinator's exact, restart-stable identity.
+      const nestedRoot = seam.childNodeId
+      await journal.beginTree(nestedRoot, new Date(seam.now()).toISOString())
 
       const nestedScope: Scope<unknown> = seam.mount(nestedRoot, signal)
 
@@ -167,7 +164,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
         // driver child's verdict this way composes delivery UP the recursion — a sub-driver is
         // `valid` only when it itself selected a delivered child — so a node never settles
         // "done = delivered" on a sub-tree that delivered nothing (Foreman's 0/18 lesson).
-        const verdict = deriveDeliveryVerdict(settled)
+        const verdict = driver.resultVerdict?.() ?? deriveDeliveryVerdict(settled)
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
           out,
@@ -203,18 +200,19 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
 }
 
 /**
- * Register the driver-executor so a child marked `role: 'driver'` resolves to it. The base
- * registry resolves by harness alone (it does not read `role`), so a recursive run needs a
- * registry that routes the driver tag here FIRST. Returns a registry decorator: a
- * driver-role spec → the driver-executor; everything else → the base registry's resolution
+ * Register the driver-executor so a child structurally carrying a `driver` resolves to it.
+ * Returns a registry decorator: a driver spec → the driver-executor; everything else → the base
+ * registry's resolution
  * (leaf built-ins + BYO).
  */
 export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
   return {
     register: base.register.bind(base),
     resolve<Out>(spec: AgentSpec) {
-      const role = (spec.profile.metadata as { role?: unknown } | undefined)?.role
-      if (role === driverRole && !spec.executor) {
+      if ((spec as { driver?: unknown }).driver !== undefined && !spec.executor) {
+        if (!isDriverSpec(spec)) {
+          return { succeeded: false as const, error: 'driver spec carries an invalid driver Agent' }
+        }
         return { succeeded: true as const, value: driverExecutorFactory as ExecutorFactory<Out> }
       }
       return base.resolve<Out>(spec)
@@ -223,25 +221,6 @@ export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
-
-/** Mint a unique nested-tree key under the parent's journal root. Uses the parent's
- *  `journalRoot` + a per-journal monotonic ordinal so two sibling driver trees never
- *  collide their keys (each driver child mints exactly one nested tree). */
-function nestedTreeKey(seam: NestedScopeSeam, journal: SpawnJournal): string {
-  return `${seam.journalRoot}/d${nextNestOrdinal(journal)}`
-}
-
-/** Per-journal monotonic nest counter — keyed on the journal instance so a single run's
- *  nested-tree keys are unique without a shared module global. */
-const nestCounters = new WeakMap<SpawnJournal, { n: number }>()
-function nextNestOrdinal(journal: SpawnJournal): number {
-  let c = nestCounters.get(journal)
-  if (!c) {
-    c = { n: 0 }
-    nestCounters.set(journal, c)
-  }
-  return c.n++
-}
 
 /** The nested tree's full event list — the one evidence the spend, verdict, AND driver-inference
  *  roll-ups read off the same journal the supervisor sums. */

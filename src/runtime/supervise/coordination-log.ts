@@ -1,14 +1,7 @@
 /**
- * Durable side-log for the coordination bus: questions and analyst findings, the two UP-leg
- * message kinds the spawn journal does NOT record (it owns spawns/settlements/waits/spend). A
- * durable run (`supervise({ runDir })`) appends them as they publish and replays them on resume,
- * so a restarted coordinator still sees the questions its workers raised and the findings its
- * analysts produced — instead of losing both with the process.
- *
- * Answer down-events are logged too, ONLY to fold status on load: a question answered before the
- * crash reloads as `answered`, not as a re-blocking `open`. Settled events are skipped (the spawn
- * journal is their ledger); steer events are skipped (a delivered steer to a dead worker has no
- * meaning to a new process).
+ * Durable side-log for every coordination bus event. Each row names the exact coordinator node
+ * that emitted it, so one file is a full-tree audit without replaying a child's questions into its
+ * parent. The spawn journal remains the execution ledger; this log is the coordination transcript.
  *
  * JSONL, one fsynced record per event, keyed by `runId` — several runs may share one log file
  * exactly as they share one spawn-journal file.
@@ -30,35 +23,55 @@ export interface PriorCoordination {
   readonly findings: ReadonlyArray<AnalystFindingEvent>
 }
 
-/** The durable coordination side-log seam. `append` records one bus event (kinds it does not
- *  persist are ignored); `load` replays a run's prior records folded into `PriorCoordination`. */
-export interface CoordinationLog {
-  append(runId: string, event: CoordinationEvent, at: string): Promise<void>
-  load(runId: string): Promise<PriorCoordination>
+/** Exact coordinator attribution for one bus event. */
+export interface CoordinationSource {
+  readonly nodeId: string
+  readonly profileName: string | null
 }
 
-type CoordinationLogRecord = {
+/** Versioned full-tree row returned for audit. */
+export interface CoordinationLogRecord {
+  readonly version: 2
   readonly runId: string
+  readonly source: CoordinationSource
   readonly at: string
   readonly event: CoordinationEvent
 }
 
-/** Should this bus event be persisted? Questions and findings ARE the prior context a resumed
- *  driver needs; answers fold their status; everything else has a better ledger or none. */
-function persisted(event: CoordinationEvent): boolean {
-  return event.type === 'question' || event.type === 'finding' || event.type === 'answer'
+/** The durable coordination side-log seam. */
+export interface CoordinationLog {
+  append(
+    runId: string,
+    source: CoordinationSource,
+    event: CoordinationEvent,
+    at: string,
+  ): Promise<void>
+  /** Replay only the root coordinator's prior context. */
+  load(runId: string): Promise<PriorCoordination>
+  /** Read every coordinator's versioned rows for audit. */
+  records(runId: string): Promise<ReadonlyArray<CoordinationLogRecord>>
+}
+
+type LegacyCoordinationLogRecord = {
+  readonly runId: string
+  readonly at: string
+  readonly event: CoordinationEvent
 }
 
 /** FS-backed `CoordinationLog`: append-only JSONL, fsynced per record. */
 export class FileCoordinationLog implements CoordinationLog {
   constructor(private readonly path: string) {}
 
-  async append(runId: string, event: CoordinationEvent, at: string): Promise<void> {
-    if (!persisted(event)) return
+  async append(
+    runId: string,
+    source: CoordinationSource,
+    event: CoordinationEvent,
+    at: string,
+  ): Promise<void> {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     await fs.mkdir(path.dirname(this.path), { recursive: true })
-    const record: CoordinationLogRecord = { runId, at, event }
+    const record: CoordinationLogRecord = { version: 2, runId, source, at, event }
     const fh = await fs.open(this.path, 'a')
     try {
       await fh.write(`${JSON.stringify(record)}\n`)
@@ -69,29 +82,16 @@ export class FileCoordinationLog implements CoordinationLog {
   }
 
   async load(runId: string): Promise<PriorCoordination> {
-    const fs = await import('node:fs/promises')
-    let text: string
-    try {
-      text = await fs.readFile(this.path, 'utf8')
-    } catch (err) {
-      if (isNoEntError(err)) return { questions: [], findings: [] }
-      throw err
-    }
+    const records = (await this.records(runId)).filter((record) => record.source.nodeId === runId)
     const byId = new Map<string, QuestionRecord>()
     const findings: AnalystFindingEvent[] = []
-    for (const line of text.split('\n')) {
-      if (line.length === 0) continue
-      const record = JSON.parse(line) as CoordinationLogRecord
-      if (record.runId !== runId) continue
+    for (const record of records) {
       const ev = record.event
       if (ev.type === 'question') {
         byId.set(ev.question.id, ev.question)
       } else if (ev.type === 'finding') {
         findings.push(ev.finding)
       } else if (ev.type === 'answer') {
-        // Fold the answer into the question it decided, so an answered blocking question does
-        // not reload as open and re-block the resumed run's stop. `by` is not on the wire —
-        // the honest attribution is the prior run itself.
         const prior = byId.get(ev.questionId)
         if (prior) {
           byId.set(ev.questionId, {
@@ -103,6 +103,35 @@ export class FileCoordinationLog implements CoordinationLog {
       }
     }
     return { questions: [...byId.values()], findings }
+  }
+
+  async records(runId: string): Promise<ReadonlyArray<CoordinationLogRecord>> {
+    const fs = await import('node:fs/promises')
+    let text: string
+    try {
+      text = await fs.readFile(this.path, 'utf8')
+    } catch (err) {
+      if (isNoEntError(err)) return []
+      throw err
+    }
+    const records: CoordinationLogRecord[] = []
+    for (const line of text.split('\n')) {
+      if (line.length === 0) continue
+      const decoded = JSON.parse(line) as CoordinationLogRecord | LegacyCoordinationLogRecord
+      const record: CoordinationLogRecord =
+        'version' in decoded && decoded.version === 2
+          ? decoded
+          : {
+              version: 2,
+              runId: decoded.runId,
+              source: { nodeId: decoded.runId, profileName: null },
+              at: decoded.at,
+              event: decoded.event,
+            }
+      if (record.runId !== runId) continue
+      records.push(record)
+    }
+    return records
   }
 }
 

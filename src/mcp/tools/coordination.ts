@@ -105,6 +105,7 @@ export interface CoordinationToolsOptions {
   readonly blobs: ResultBlobStore
   readonly makeWorkerAgent: MakeWorkerAgent
   readonly perWorker: Budget
+  readonly workerShutdown?: number | 'brutalKill' | 'infinity'
   /**
    * The same independent completion check used for workers. When present, the driver receives a
    * `submit_result` tool and may finish work itself instead of being forced to delegate it. The
@@ -153,7 +154,8 @@ export interface CoordinationToolsOptions {
    * `stalled`. A derived read at observation time, never a background watchdog — nothing is
    * killed or retried. Omit = the runtime default.
    */
-  readonly stallAfterMs?: number
+  /** Explicit null disables stalled classification; undefined retains the legacy default. */
+  readonly stallAfterMs?: number | null
   /**
    * Questions carried over from a prior process of the SAME run (a durable coordination log a
    * resuming caller replays). Seeded into the question ledger verbatim — `list_questions` shows
@@ -161,6 +163,8 @@ export interface CoordinationToolsOptions {
    * Omit/empty = fresh ledger (every run that is not a resume).
    */
   readonly priorQuestions?: ReadonlyArray<QuestionRecord>
+  /** Findings carried over from a prior process, seeded into the existing pull queue. */
+  readonly priorFindings?: ReadonlyArray<AnalystFindingEvent>
 }
 
 /** Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). */
@@ -276,6 +280,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // the bare event, so every kind — question, settled, finding — reaches it immediately, and the
   // driver pulls queued findings / questions via `await_event`.
   const bus = createEventBus<CoordinationEvent>()
+  for (const finding of opts.priorFindings ?? []) {
+    // No subscribers exist yet, so this seeds queue/history without re-persisting the finding.
+    void bus.publish({ type: 'finding', finding })
+  }
   if (opts.onEvent) {
     const cb = opts.onEvent
     bus.subscribe((rec) => cb(rec.event))
@@ -544,7 +552,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     try {
       return scope.progress(
         id,
-        opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {},
+        opts.stallAfterMs === null
+          ? { stallAfterMs: Number.POSITIVE_INFINITY }
+          : opts.stallAfterMs !== undefined
+            ? { stallAfterMs: opts.stallAfterMs }
+            : {},
       )
     } catch {
       return undefined
@@ -645,18 +657,17 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       description:
         'Start a worker the driver will drive. `profile` is the worker or another driver; ' +
         '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +
-        'Pass an optional `budget` (per-field) to give a hard sub-task more than the default — it ' +
-        'merges over the per-worker default; the conserved pool is still the hard fence. When a ' +
+        'An optional per-field `budget` merges over the run-supplied per-agent budget; the ' +
+        'conserved pool remains the hard fence. When a ' +
         'max-live-workers cap is set it also fails closed (`error: "max-live-workers"`) while that ' +
-        'many workers are still in flight — settle or steer one before spawning another. ' +
+        'many workers are still in flight. ' +
         'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
         'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
         'nothing is spent), a key whose prior attempt failed or was lost with a dead process ' +
         'spawns fresh and says so (`resumed: "retried" | "lost"`), and a key still running is ' +
         'refused (`error: "duplicate-key"`). ' +
-        'Returns `freeSlots`: how many MORE workers you can start right now (`null` = uncapped). ' +
-        'While `freeSlots > 0` there is idle capacity — call this again to fill it rather than ' +
-        'waiting; parallel workers finish the run sooner than one at a time.',
+        'Returns `freeSlots`: how many more workers could be started under the current cap ' +
+        '(`null` = uncapped).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -710,7 +721,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget)
         const res = opts.scope.spawn(agent, a.task, {
           budget,
-          label: typeof a.label === 'string' ? a.label : 'worker',
+          label: typeof a.label === 'string' ? a.label : agent.name,
+          ...(opts.workerShutdown !== undefined ? { shutdown: opts.workerShutdown } : {}),
           ...(key !== undefined ? { key } : {}),
         })
         // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
@@ -770,8 +782,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'stalled, how many turns it has taken, the last tools/files it touched ' +
         '(`recentActivity`), whether a steer can even reach it (`steerable`), and how many ' +
         'steers it has not yet read (`pendingMessages`). Returns the settled output artifact ' +
-        'once it exists. Use this BEFORE steer_agent: a steer is only worth sending when the ' +
-        'progress says the worker is on the wrong path or has stopped making any.',
+        'once it exists.',
       inputSchema: { type: 'object', properties: { workerId: idArg }, required: ['workerId'] },
       handler: async (raw) => {
         const id = str(obj(raw).workerId, 'workerId')
@@ -808,7 +819,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'Send a message DOWN to a still-LIVE worker (parent→child): a new instruction, a course ' +
         'correction, or a continuation. The worker drains it at its next step boundary — and before ' +
         'it may settle, so it cannot finish while a message it never read is pending. A worker that ' +
-        'already settled is gone (returns delivered:false) — spawn a fresh one instead.',
+        'already settled returns delivered:false.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -853,10 +864,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'worker; omit `kinds` to also receive questions and findings. Returns { idle: true } when ' +
         'nothing is queued and no workers are live. If a worker is still running when the wait ' +
         'elapses, returns { pending: true, live: [...] } (the workers still in flight) instead of ' +
-        'blocking indefinitely — call await_event again to keep waiting; the settlement is not lost. ' +
+        'blocking indefinitely; the settlement remains available to a later call. ' +
         'Every reply carries `freeSlots`: how many more workers you can start right now (`null` = ' +
-        'uncapped). A settled worker frees its slot, so `freeSlots > 0` means capacity is sitting ' +
-        'idle — spawn into it before waiting again.',
+        'uncapped).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -965,7 +975,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     },
     {
       name: 'ask_parent',
-      description: 'Raise a question to the parent driver/Pi/user when this driver cannot decide.',
+      description: 'Send a question to the parent coordinator.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1002,7 +1012,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             name: 'submit_result',
             description: [
               'Submit the complete result to the injected independent check.',
-              'The first passing result is retained; stop work when accepted.',
+              'The first passing result is retained.',
               ...(deliverable.describe ? [`Expected result: ${deliverable.describe}`] : []),
             ].join(' '),
             inputSchema: {

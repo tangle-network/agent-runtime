@@ -36,6 +36,21 @@ export interface DeliverableSpec<Out = unknown> {
   describe?: string
 }
 
+/** Assess one concrete output with the caller's completion check. Throwing checks fail closed. */
+export async function checkDeliverable<Out>(
+  out: Out,
+  deliverable: DeliverableSpec<Out>,
+  baseScore?: number,
+): Promise<DefaultVerdict> {
+  let delivered: boolean
+  try {
+    delivered = (await deliverable.check(out)) === true
+  } catch {
+    delivered = false
+  }
+  return { valid: delivered, score: baseScore ?? (delivered ? 1 : 0) }
+}
+
 /**
  * Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the
  * inner verdict. Handles both `execute` shapes (one-shot `Promise<ExecutorResult>` and
@@ -47,16 +62,6 @@ export function gateOnDeliverable<Out>(
   deliverable: DeliverableSpec<Out>,
 ): Executor<Out> {
   let gated: DefaultVerdict | undefined
-
-  const check = async (out: Out, baseScore?: number): Promise<DefaultVerdict> => {
-    let delivered: boolean
-    try {
-      delivered = (await deliverable.check(out)) === true
-    } catch {
-      delivered = false // fail-closed: a throwing check is NOT a delivery
-    }
-    return { valid: delivered, score: baseScore ?? (delivered ? 1 : 0) }
-  }
 
   return {
     runtime: inner.runtime,
@@ -81,13 +86,13 @@ export function gateOnDeliverable<Out>(
         return (async function* () {
           for await (const ev of r) yield ev
           const art = inner.resultArtifact()
-          gated = await check(art.out, art.verdict?.score)
+          gated = await checkDeliverable(art.out, deliverable, art.verdict?.score)
         })()
       }
       // One-shot: gate the resolved result's verdict in place.
       return (async () => {
         const res = await r
-        gated = await check(res.out, res.verdict?.score)
+        gated = await checkDeliverable(res.out, deliverable, res.verdict?.score)
         return { ...res, verdict: gated } satisfies ExecutorResult<Out>
       })()
     },

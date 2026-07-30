@@ -670,7 +670,6 @@ describe('settledToIteration adapter', () => {
       handle: { id: 'run:s0', label: 'x', status: 'failed', abort() {} },
       reason: 'boom',
       infra: false,
-      restartCount: 0,
       seq: 0,
     }
     expect(() => settledToIteration(down)).toThrow(/cannot adapt a 'down'/)
@@ -759,7 +758,6 @@ describe('WidenGate default', () => {
       handle: { id: 'run:s1', label: 'b', status: 'failed', abort() {} },
       reason: 'x',
       infra: false,
-      restartCount: 0,
       seq: 1,
     }
     // Even a near-perfect verdict does not widen under the flat default.
@@ -778,7 +776,7 @@ function supervisorOpts(over: Partial<SupervisorOpts> = {}): SupervisorOpts {
     blobs: over.blobs ?? new InMemoryResultBlobStore(),
     executors: over.executors ?? createExecutorRegistry(),
     maxDepth: over.maxDepth,
-    maxRestarts: over.maxRestarts,
+    maxFailures: over.maxFailures,
     withinMs: over.withinMs,
     now: over.now ?? (() => 0),
     signal: over.signal,

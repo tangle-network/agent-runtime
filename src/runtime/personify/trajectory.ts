@@ -80,7 +80,11 @@ export async function trajectoryReport(
       label: ev.label,
       // A wait-state has no executor, so it has no runtime in the executor sense — it is tagged
       // `'wait'` so a reader can separate zero-cost waiting from paid work in the trajectory.
-      runtime: ev.kind === 'waiting' ? 'wait' : ev.runtime,
+      ...(ev.kind === 'waiting'
+        ? { runtime: 'wait' }
+        : ev.runtime !== undefined
+          ? { runtime: ev.runtime }
+          : {}),
       status: ev.kind === 'waiting' ? 'waiting' : 'pending',
       ownSpend: zeroSpend(),
       children: [],
@@ -190,7 +194,7 @@ interface MutableNode {
   id: NodeId
   parent?: NodeId
   label: string
-  runtime: string
+  runtime?: string
   status: TrajectoryNode['status']
   ownSpend: Spend
   children: NodeId[]
@@ -250,7 +254,7 @@ function freezeNode(node: MutableNode, rolledUpSpend: Spend): TrajectoryNode {
     parent: node.parent,
     children: [...node.children],
     label: node.label,
-    runtime: node.runtime,
+    ...(node.runtime !== undefined ? { runtime: node.runtime } : {}),
     status: node.status,
     ownSpend: node.ownSpend,
     rolledUpSpend,

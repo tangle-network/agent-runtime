@@ -183,9 +183,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       await opts.journal.appendEvent(opts.runId, {
         kind: 'spawned',
         id: opts.runId,
-        label: 'root',
+        label: root.name,
         budget: opts.budget,
-        runtime: 'inline',
         seq: 0,
         at: new Date(now()).toISOString(),
       })
@@ -269,6 +268,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // only, where the act() error precedence does not apply.
       pool.assertNoOpenTickets()
       const out = actOutcome.out
+      const verdict = root.resultVerdict?.()
+      if (verdict?.valid === false) return noWinner('invalid-result')
       // Completion-oracle at the root: a `winner` MUST carry a real `Out`. A driver that ran to
       // completion but selected nothing (its keep-best finalize found no DELIVERED child) returns
       // `undefined` — that is a no-winner, never a winner wrapping `undefined`. The supervisor's
@@ -287,6 +288,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           kind: 'winner',
           out,
           outRef,
+          ...(verdict !== undefined ? { verdict } : {}),
           tree,
           spentTotal: addSpend(childWork, driverInference),
           ...(isNonEmptySpend(driverInference)
@@ -305,11 +307,13 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
 
     // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
     // summed off the SAME journal the winner path reads — the caller always learns the cost.
-    async function noWinner(): Promise<SupervisedResult<Out>> {
+    async function noWinner(
+      reason?: Extract<SupervisedResult<Out>, { kind: 'no-winner' }>['reason'],
+    ): Promise<SupervisedResult<Out>> {
       const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
       return {
         kind: 'no-winner',
-        reason: classifyNoWinner(controller, pool, opts, breaker),
+        reason: reason ?? classifyNoWinner(controller, pool, opts, breaker),
         tree,
         downCount: breaker.downCount(),
         spentTotal: addSpend(childWork, driverInference),
@@ -403,14 +407,12 @@ function pushRootSignal(cascadeAbort: (reason?: string) => void): (msg: RootSign
   }
 }
 
-// ── OTP intensity breaker ───────────────────────────────────────────────────────
+// ── Failure-intensity breaker ───────────────────────────────────────────────────
 
 /**
- * Counts `down` settlements inside a sliding window. More than `maxRestarts` of them
- * within `withinMs` trips the supervisor (aborting the cascade) rather than letting a
- * driver re-spawn a doomed child forever. With either bound unset the breaker is inert
- * (it still counts `down`s for `downCount`). The breaker NEVER restarts a child — it is a
- * circuit breaker over the driver's own re-spawn decisions (m3).
+ * Counts `down` settlements inside a sliding window. More than `maxFailures` of them
+ * within `withinMs` trips the supervisor (aborting the cascade). With either bound unset
+ * the breaker is inert (it still counts `down`s for `downCount`).
  */
 interface IntensityBreaker {
   recordDown(at: number): void
@@ -419,7 +421,7 @@ interface IntensityBreaker {
 }
 
 function createIntensityBreaker(opts: SupervisorOpts, trip: () => void): IntensityBreaker {
-  const max = opts.maxRestarts
+  const max = opts.maxFailures
   const within = opts.withinMs
   const armed = max !== undefined && within !== undefined
   const recent: number[] = []

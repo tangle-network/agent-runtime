@@ -53,6 +53,7 @@ import type {
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,
+  Runtime,
   Scope,
   Settled,
   SpawnJournal,
@@ -145,7 +146,7 @@ export interface ScopeArgs {
 interface LiveChild {
   readonly id: NodeId
   status: NodeStatus
-  runtime: NodeSnapshot['runtime']
+  runtime: Runtime
   readonly budget: Budget
   readonly label: string
   /** The semantic spawn key, when this child was spawned with one — the settle path folds the
@@ -197,7 +198,6 @@ type PreSeqSettled =
       kind: 'down'
       reason: string
       infra: boolean
-      restartCount: number
       /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
        *  too, so the journal matches the pool (which already debited it via `observe`). */
       metered?: Spend
@@ -221,21 +221,24 @@ export const nestedScopeSeamKey = 'nested-scope'
  * nested child resolves to leaf-or-driver through the same open registry).
  */
 export interface NestedScopeSeam {
+  /** The exact spawned agent node that owns the nested scope. */
+  readonly childNodeId: NodeId
+  /** The run's injected clock, shared with the nested journal. */
+  readonly now: () => number
   /** This scope's recursion depth — a nested scope runs at `depth + 1`. */
   readonly depth: number
   /** The runtime recursion-depth ceiling, paired with the conserved pool (R3). */
   readonly maxDepth?: number
-  /** The journal tree key the parent scope writes to (used to namespace nested trees). */
-  readonly journalRoot: NodeId
   /** Mount a nested scope rooted at `nestedRoot`, parented at this driver child's node id. */
   mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown>
 }
 
 function makeNestedScopeSeam(args: ScopeArgs, childNodeId: NodeId): NestedScopeSeam {
   return {
+    childNodeId,
+    now: args.now ?? Date.now,
     depth: args.depth,
     ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
-    journalRoot: args.root,
     mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown> {
       return createScope<unknown>({
         parentId: childNodeId,
@@ -674,7 +677,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         live.executorDone = true
         live.lastActivityAt = now()
         if (resolution.kind === 'cancelled') {
-          return { kind: 'down', reason: resolution.reason, infra: false, restartCount: 0 }
+          return { kind: 'down', reason: resolution.reason, infra: false }
         }
         const outRef = contentAddress(resolution.outcome)
         await args.blobs.put(outRef, resolution.outcome)
@@ -682,7 +685,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       })
       .catch((err): PreSeqSettled => {
         live.executorDone = true
-        return { kind: 'down', reason: errMessage(err), infra: true, restartCount: 0 }
+        return { kind: 'down', reason: errMessage(err), infra: true }
       })
       .then((s) => {
         live.resolved = s
@@ -871,7 +874,6 @@ async function finalizeSettlement<Out>(
       handle,
       reason: settlement.reason,
       infra: settlement.infra,
-      restartCount: settlement.restartCount,
       seq,
     }
   }
@@ -959,7 +961,6 @@ async function finalizeWait<Out>(
       handle,
       reason: settlement.reason,
       infra: settlement.infra,
-      restartCount: settlement.restartCount,
       seq,
     }
   }
@@ -1239,7 +1240,7 @@ async function teardownSafe<C>(
 }
 
 function downRecord(reason: string, infra: boolean, metered?: Spend): PreSeqSettled {
-  return { kind: 'down', reason, infra, restartCount: 0, ...(metered ? { metered } : {}) }
+  return { kind: 'down', reason, infra, ...(metered ? { metered } : {}) }
 }
 
 function zeroSpend(): Spend {
@@ -1254,12 +1255,12 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
   )
 }
 
-/** An `AgentSpec` is identified structurally — it carries a `profile` and a `harness`
- *  field (`null` or a `BackendType`) and optionally an `executor`. */
+/** An `AgentSpec` is identified structurally by its profile. Harness is optional because an
+ *  explicit executor factory or structural recursive executor may resolve the spec instead. */
 function isAgentSpec(value: unknown): value is AgentSpec {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
-  return 'profile' in v && 'harness' in v
+  return typeof v.profile === 'object' && v.profile !== null
 }
 
 function isAbortError(err: unknown): boolean {

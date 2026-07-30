@@ -1,249 +1,285 @@
 /**
- * `supervisorAgent` — build a supervisor `Agent` FROM its profile. The brain is resolved from
- * `profile.harness` exactly as `createExecutor({ backend })` resolves a worker: backend-as-data,
- * no hand-built brain. The supervisor stops being special — it's one profile, materialized by the
- * same resolution rule as every other agent.
+ * Build a supervisor from the same portable profile and executor contract used by every worker.
  *
- *  - `harness` null/undefined → the in-process router tool-loop: `driverAgent` over the
- *    canonical `ToolLoopChat`, built by `routerBrain` from the profile's model + the router seam.
- *  - `harness` a coding CLI (`claude-code`/`opencode`/`codex`/…) → a SANDBOXED harness drives the
- *    coordination verbs: `serveCoordinationMcp` exposes spawn/await/steer/stop over the live scope,
- *    and the caller's `driveHarness` runs the harness with that MCP mounted. The harness IS the brain.
- *
- * Both arms spawn children through the SAME `makeWorkerAgent` seam and apply the SAME independent
- * deliverable check to direct submissions. Raw driver prose is never eligible.
+ * The runtime adds one capability to the profile for the duration of the run: the live
+ * coordination MCP server. Everything that determines the driver's behavior remains in the
+ * caller-authored `AgentProfile`; everything that determines where it runs comes from the caller's
+ * backend resolver before this agent is built.
  */
+import {
+  type AgentProfile,
+  type AgentProfileMcpServer,
+  mergeAgentProfiles,
+} from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   CoordinationEvent,
   MakeWorkerAgent,
+  QuestionPolicy,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
-import { type RouterConfig, routerBrain } from '../router-client'
-import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
-import type { DeliverableSpec } from './completion-gate'
-import { driverAgent } from './coordination-driver'
-import type { PriorCoordination } from './coordination-log'
-import { serveCoordinationMcp } from './coordination-mcp'
-import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
-import type { StopRule } from './stop-rules'
-import type { Agent, Budget, ResultBlobStore, Scope } from './types'
+import { spendFromUsageEvents } from './budget'
+import { checkDeliverable, type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import type { CoordinationSource, PriorCoordination } from './coordination-log'
+import type { CoordinationSession, CoordinationSessionOptions } from './coordination-mcp'
+import { runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
+import type {
+  Agent,
+  AgentSpec,
+  Budget,
+  Executor,
+  ExecutorFactory,
+  ExecutorResult,
+  ResultBlobStore,
+  Scope,
+  Spend,
+  UsageEvent,
+} from './types'
 
-/** The standing strategy a router-brained supervisor runs with when its profile names no
- *  `systemPrompt`. The brain's competence IS this prompt: without it the brain has the coordination
- *  verbs but no policy for WHEN to use them, and either over-spawns or stalls. A profile may override
- *  it for a specific topology. */
-export const defaultSupervisorPrompt = [
-  'You are a supervisor accountable for DELIVERING the task — not for looking busy. You succeed only',
-  'when the deliverable is actually produced and verified, never on a worker reporting "done".',
-  '',
-  'Spawning a worker spends the shared, conserved budget — so delegate with intent, not by reflex:',
-  '- Do small, sequential work YOURSELF when you have work tools; spawn a worker when a sub-task is',
-  '  large, independent (parallelizable), or needs a clean context the current one has filled.',
-  '- Prefer the FEWEST workers that deliver. Over-spawning burns the budget and rarely helps.',
-  '',
-  'Manage the context lifecycle on long work: give each spawned worker a BOUNDED brief — the specific',
-  'sub-task plus only the interfaces/state it needs — never your whole history. When one chapter is',
-  'done, distill what the next chapter needs and spawn fresh, rather than steering one worker until',
-  'its context fills and degrades.',
-  '',
-  'Wait on real signals (await a settle, answer a blocking question), integrate the result, and stop',
-  'as soon as the deliverable is met.',
-].join('\n')
+const coordinationMcpName = 'coordination'
 
-/** The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
- *  `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction. */
-export interface SupervisorProfile {
-  readonly name?: string
-  /** null/undefined → router brain (in-process tool-loop); a coding-CLI harness → sandboxed brain. */
-  readonly harness?: string | null
-  /** The router model when the brain is router-driven (falls back to the deps router config). */
-  readonly model?: string
-  /** The standing instructions ("you delegate, you do not solve"). */
-  readonly systemPrompt?: string
+export interface OpenedCoordination {
+  readonly handle: CoordinationSession
+  readonly profileEntry: AgentProfileMcpServer
 }
 
-/** How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
- *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
- *  `task` in its backend (sandbox / cli-bridge) with `coordinationMcpUrl` mounted as an MCP server,
- *  so the harness calls spawn_agent / await_event / stop as native tools over the live scope. */
-export type DriveHarness = (args: {
-  readonly profile: SupervisorProfile
-  readonly task: unknown
-  readonly scope: Scope<unknown>
-  readonly coordinationMcpUrl: string
-}) => Promise<void>
+/** Caller-owned transport adapter for one live coordination surface. */
+export type OpenCoordination = (options: CoordinationSessionOptions) => Promise<OpenedCoordination>
 
 export interface SupervisorAgentDeps {
   readonly blobs: ResultBlobStore
-  /** Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms). */
+  /** Resolve a spawned profile to the same recursive coordination-capable agent. */
   readonly makeWorkerAgent: MakeWorkerAgent
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
+  /** Executor chosen by the caller's one resolver for this exact profile and tree position. */
+  readonly executorFactory: ExecutorFactory<unknown>
+  /** Opens the coordination surface and supplies the exact provider-visible profile entry. */
+  readonly openCoordination: OpenCoordination
+  readonly executorShutdown: number | 'brutalKill' | 'infinity'
+  readonly workerShutdown: number | 'brutalKill' | 'infinity'
   /** Independent completion check for direct driver work (`submit_result`). */
-  readonly deliverable?: DeliverableSpec<unknown>
-  /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
-   *  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
-   *  boxes/sandboxes, not total work). Omit/`<= 0` = no cap. */
-  readonly maxLiveWorkers?: number
-  /** Router substrate for a router-brained supervisor (`harness` null). The profile's model wins. */
-  readonly router?: RouterConfig
-  /** Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile. */
-  readonly brain?: ToolLoopChat
-  /** Required for a sandboxed-harness supervisor (`harness` set): runs the harness as the driver. */
-  readonly driveHarness?: DriveHarness
-  /** WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple work ITSELF and
-   *  only delegate when it needs parallelism. Pair with `executeExtraTool`. */
-  readonly extraTools?: ReadonlyArray<{
-    readonly name: string
-    readonly description?: string
-    readonly parameters: Record<string, unknown>
-  }>
-  /** Runs an `extraTools` call; null/undefined falls through to the coordination dispatch. */
-  readonly executeExtraTool?: (
-    name: string,
-    args: Record<string, unknown>,
-  ) => Promise<string | null | undefined>
-  /** Analyst lenses available to the driver (both arms). Required for `analyzeOnSettle`. */
-  readonly analysts?: AnalystRegistry
-  /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
-   *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
-  readonly analyzeOnSettle?: ReadonlyArray<string>
-  /** Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
-   *  learns a worker is looping mid-run instead of at settle. Omit = no online watching. */
-  readonly watchWorkers?: WorkerWatchOptions
-  /** Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default. */
-  readonly stallAfterMs?: number
-  /** PROGRESS-derived stop rule (router arm). Ends a run that has stopped learning BEFORE it
-   *  exhausts a ceiling; it can never keep a run alive past one. Build it with `plateau` /
-   *  `noProgressFor` / `allWorkersStalled` from `supervise/stop-rules` — the thresholds are the
-   *  caller's judgment. Omit = ceilings only. */
-  readonly stopRule?: StopRule
-  /** One-shot notification of WHY a `stopRule` ended the run. */
-  readonly onProgressStop?: (reason: string) => void
-  readonly maxTurns?: number
-  /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
-   *  distills its coordination transcript to a compact progress note once it exceeds the threshold,
-   *  instead of re-billing the whole thing every turn. See `DriverAgentOptions.compaction`. */
-  readonly compaction?: ToolLoopCompactionOptions
-  /** Pass-through subscriber for every coordination bus event (both arms) — the seam a durable
-   *  caller hooks its coordination log onto. */
-  readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
-  /** Questions + findings replayed from a prior process of this run (a durable coordination log).
-   *  Router arm: seeds the question ledger + the resume brief. Sandbox arm: seeds the ledger. */
+  readonly deliverable: DeliverableSpec<unknown>
+  readonly maxLiveWorkers: number | null
+  readonly awaitTimeoutMs: number
+  readonly questionPolicy: QuestionPolicy
+  readonly analysts: AnalystRegistry | null
+  readonly analyzeOnSettle: ReadonlyArray<string>
+  readonly watchWorkers: WorkerWatchOptions | null
+  readonly stallAfterMs: number | null
+  readonly onEvent:
+    | ((source: CoordinationSource, event: CoordinationEvent) => void | Promise<void>)
+    | null
   readonly priorCoordination?: PriorCoordination
-  /** How the settled ledger becomes the run's output (both arms). Default `bestDelivered` — the
-   *  exact keep-best every existing caller had. Always runs under the delivered-only invariant. */
-  readonly finalizer?: SupervisorFinalizer
+  readonly finalizer: SupervisorFinalizer
 }
 
-/** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. */
+/** Build a supervisor from one complete `AgentProfile` and one explicit executor configuration. */
 export function supervisorAgent(
-  profile: SupervisorProfile,
+  profile: AgentProfile,
   deps: SupervisorAgentDeps,
 ): Agent<unknown, unknown> {
-  const name = profile.name ?? 'supervisor'
-  const systemPrompt = profile.systemPrompt ?? defaultSupervisorPrompt
-  const harness = profile.harness ?? null
-
-  if (harness !== null && deps.compaction) {
+  const name = requiredProfileName(profile)
+  if (Object.hasOwn(profile.mcp ?? {}, coordinationMcpName)) {
     throw new ValidationError(
-      'supervisorAgent: compaction is only supported for router-brained supervisors (profile.harness null)',
+      `supervisorAgent: profile.mcp.${coordinationMcpName} is reserved for the live coordination server`,
     )
   }
+  let lastVerdict: { valid: boolean; score: number } | undefined
 
-  if (harness === null) {
-    // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller
-    // passes a profile, not a hand-built brain (a test may still inject `deps.brain`).
-    const brain = deps.brain ?? routerBrainFromProfile(profile, deps)
-    return driverAgent({
-      name,
-      brain,
-      blobs: deps.blobs,
-      makeWorkerAgent: deps.makeWorkerAgent,
-      perWorker: deps.perWorker,
-      systemPrompt,
-      ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
-      ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
-      ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
-      ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
-      ...(deps.analysts ? { analysts: deps.analysts } : {}),
-      ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
-      ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
-      ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
-      ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
-      ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
-      ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
-      ...(deps.compaction ? { compaction: deps.compaction } : {}),
-      ...(deps.onEvent ? { onEvent: deps.onEvent } : {}),
-      ...(deps.priorCoordination ? { priorCoordination: deps.priorCoordination } : {}),
-      ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
-    })
-  }
-
-  // SANDBOX arm: a sandboxed harness drives the coordination verbs over the live scope.
-  const driveHarness = deps.driveHarness
-  if (!driveHarness) {
-    throw new ValidationError(
-      `supervisorAgent: profile.harness="${harness}" needs deps.driveHarness (how to run the harness with the coordination MCP mounted)`,
-    )
-  }
   return {
     name,
+    resultVerdict: () => lastVerdict,
     async act(task, scope) {
-      const mcp = await serveCoordinationMcp({
-        scope,
-        blobs: deps.blobs,
-        makeWorkerAgent: deps.makeWorkerAgent,
-        perWorker: deps.perWorker,
-        ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
-        ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
-        ...(deps.analysts ? { analysts: deps.analysts } : {}),
-        ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
-        ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
-        ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
-        ...(deps.onEvent ? { onEvent: deps.onEvent } : {}),
-        ...(deps.priorCoordination?.questions.length
-          ? { priorQuestions: deps.priorCoordination.questions }
-          : {}),
-      })
+      lastVerdict = undefined
+      let mcp: CoordinationSession | undefined
+      let executor: Executor<unknown> | undefined
+      let executorArtifact: ExecutorResult<unknown> | undefined
+      let result: unknown
+      let runCompleted = false
+      let runFailure: unknown
+
       try {
-        try {
-          await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })
-        } catch (error) {
-          // Once the injected check has accepted a result, a later backend shutdown/timeout cannot
-          // erase that completed work. Without an accepted submission, preserve the backend error.
-          if (!mcp.submittedResult()) throw error
-        }
-        // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
-        // awaited must still reach the finalize ledger.
-        await mcp.drainResolved()
-        // Direct work is eligible only through `submit_result`, after the injected independent
-        // check passes. Raw harness prose remains ineligible.
-        const submitted = mcp.submittedResult()
-        if (submitted) return submitted.result
-        return await runFinalizer(deps.finalizer ?? bestDelivered, {
-          settled: mcp.settled(),
+        const opened = await deps.openCoordination({
+          scope,
           blobs: deps.blobs,
-          tree: runTree(scope),
-          budget: scope.budget,
+          makeWorkerAgent: deps.makeWorkerAgent,
+          perWorker: deps.perWorker,
+          workerShutdown: deps.workerShutdown,
+          deliverable: deps.deliverable,
+          maxLiveWorkers: deps.maxLiveWorkers,
+          awaitTimeoutMs: deps.awaitTimeoutMs,
+          questionPolicy: deps.questionPolicy,
+          stallAfterMs: deps.stallAfterMs,
+          analysts: deps.analysts,
+          analyzeOnSettle: deps.analyzeOnSettle,
+          watchWorkers: deps.watchWorkers,
+          onEvent: deps.onEvent
+            ? (event) => deps.onEvent?.({ nodeId: scope.view.root, profileName: name }, event)
+            : null,
+          priorQuestions: deps.priorCoordination?.questions ?? [],
+          priorFindings: deps.priorCoordination?.findings ?? [],
         })
-      } finally {
-        await mcp.close()
+
+        mcp = opened.handle
+        const executableProfile = mergeAgentProfiles(profile, {
+          mcp: {
+            [coordinationMcpName]: opened.profileEntry,
+          },
+        })
+        if (!executableProfile) {
+          throw new ValidationError('supervisorAgent: failed to materialize the driver profile')
+        }
+
+        const spec: AgentSpec = { profile: executableProfile }
+        executor = gateOnDeliverable(
+          deps.executorFactory(spec, {
+            signal: scope.signal,
+            seams: {},
+          }),
+          deps.deliverable,
+        )
+        try {
+          executorArtifact = await executeAgent(executor, task, scope, name)
+        } catch (error) {
+          // A checked direct result is already complete; a later provider failure cannot erase it.
+          if (!(error instanceof AgentBackendError) || !mcp.submittedResult()) throw error
+        }
+        await mcp.drainResolved()
+        const submitted = mcp.submittedResult()
+        const checkedArtifact =
+          executorArtifact?.verdict?.valid === true ? executorArtifact : undefined
+        const settled = mcp.settled()
+        const finalized =
+          submitted || checkedArtifact
+            ? undefined
+            : await runFinalizer(deps.finalizer, {
+                settled,
+                blobs: deps.blobs,
+                tree: runTree(scope),
+                budget: scope.budget,
+              })
+        result = submitted ? submitted.result : checkedArtifact ? checkedArtifact.out : finalized
+        if (submitted) lastVerdict = { valid: true, score: 1 }
+        else if (checkedArtifact) lastVerdict = checkedArtifact.verdict
+        else
+          lastVerdict =
+            finalized === undefined
+              ? { valid: false, score: 0 }
+              : await checkDeliverable(finalized, deps.deliverable)
+        runCompleted = true
+      } catch (error) {
+        runFailure = error
       }
+
+      let cleanupFailure: unknown
+      if (executor) {
+        try {
+          await executor.teardown(deps.executorShutdown)
+        } catch (error) {
+          cleanupFailure = error
+        }
+      }
+      if (mcp) {
+        try {
+          await mcp.close()
+        } catch (error) {
+          cleanupFailure ??= error
+        }
+      }
+      if (runFailure !== undefined) throw runFailure
+      if (cleanupFailure !== undefined && (!runCompleted || result === undefined)) {
+        throw cleanupFailure
+      }
+      return result
     },
   }
 }
 
-function routerBrainFromProfile(
-  profile: SupervisorProfile,
-  deps: SupervisorAgentDeps,
-): ToolLoopChat {
-  if (!deps.router) {
-    throw new ValidationError(
-      'supervisorAgent: a router-brained supervisor (harness null) needs deps.router (or deps.brain)',
-    )
+async function executeAgent(
+  executor: Executor<unknown>,
+  task: unknown,
+  scope: Scope<unknown>,
+  name: string,
+): Promise<ExecutorResult<unknown>> {
+  const execution = executor.execute(task, scope.signal)
+  if (!isAsyncIterable(execution)) {
+    let artifact: ExecutorResult<unknown>
+    try {
+      artifact = await execution
+    } catch (error) {
+      throw new AgentBackendError(executor.runtime, error)
+    }
+    const spend = artifact.spent
+    if (hasSpend(spend)) {
+      await scope.meter(spend, {
+        kind: 'agent-inference',
+        agent: name,
+        runtime: executor.runtime,
+      })
+    }
+    return artifact
   }
-  return routerBrain({ ...deps.router, model: profile.model ?? deps.router.model })
+
+  try {
+    for await (const event of execution) {
+      try {
+        const spend = spendFromUsageEvents([event])
+        if (hasSpend(spend)) {
+          await scope.meter(spend, {
+            kind: 'agent-inference',
+            agent: name,
+            runtime: executor.runtime,
+          })
+        }
+      } catch (error) {
+        throw new AgentAccountingError(error)
+      }
+    }
+    return executor.resultArtifact()
+  } catch (error) {
+    if (error instanceof AgentAccountingError) throw error.cause
+    throw new AgentBackendError(executor.runtime, error)
+  }
+}
+
+function hasSpend(spend: Spend): boolean {
+  return (
+    spend.iterations !== 0 ||
+    spend.tokens.input !== 0 ||
+    spend.tokens.output !== 0 ||
+    spend.usd !== 0 ||
+    spend.ms !== 0 ||
+    spend.usdKnown === false
+  )
+}
+
+class AgentBackendError extends Error {
+  constructor(runtime: string, cause: unknown) {
+    super(`agent backend "${runtime}" failed`, { cause })
+    this.name = 'AgentBackendError'
+  }
+}
+
+class AgentAccountingError extends Error {
+  constructor(readonly cause: unknown) {
+    super('agent inference accounting failed', { cause })
+    this.name = 'AgentAccountingError'
+  }
+}
+
+function requiredProfileName(profile: AgentProfile): string {
+  if (typeof profile.name !== 'string' || profile.name.trim().length === 0) {
+    throw new ValidationError('supervisorAgent: profile.name is required')
+  }
+  return profile.name
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
+  )
 }

@@ -520,7 +520,8 @@ export interface TrajectoryNode {
   readonly parent?: NodeId
   readonly children: ReadonlyArray<NodeId>
   readonly label: string
-  readonly runtime: string
+  /** Absent for the synthetic root, which has no executor of its own. */
+  readonly runtime?: string
   /** Terminal status the journal recorded for this node. `'waiting'` is a wait-state node that was
    *  armed and never woken — the journal's record of a run that died mid-wait. */
   readonly status: 'done' | 'failed' | 'cancelled' | 'pending' | 'waiting'

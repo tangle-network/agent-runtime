@@ -527,15 +527,21 @@ export {
 // coordinator keeps the coordination context its workers produced.
 export {
   type CoordinationLog,
+  type CoordinationLogRecord,
+  type CoordinationSource,
   FileCoordinationLog,
   type PriorCoordination,
 } from './supervise/coordination-log'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
-export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
-// The one generic delegation verb: hand it an INTENT, it routes to `supervise()` with a default
-// authoring supervisor (no hardcoded worker profile) and returns the `SupervisedResult` unchanged —
-// so `spentTotal` (what the delegation cost) rides straight back.
+export {
+  type CoordinationMcpHandle,
+  type CoordinationMcpOptions,
+  type CoordinationSession,
+  type CoordinationSessionOptions,
+  serveCoordinationMcp,
+} from './supervise/coordination-mcp'
+// The one generic delegation verb remains a separate compatibility surface.
 export {
   type DelegateOptions,
   defaultDelegateBudget,
@@ -679,22 +685,18 @@ export {
   type StopRule,
   sampleFromSettled,
 } from './supervise/stop-rules'
-// The one-call "just invoke the supervisor": `supervise(profile, task, { backend, budget })` with
-// sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam
-// from a backend config + an optional completion oracle (settled⟺delivered).
+// Run one complete profile and every authored descendant as the same recursive atom.
 export {
+  type AgentExecutionContext,
+  type ResolveExecutor,
   type SuperviseOptions,
   supervise,
-  workerFromBackend,
 } from './supervise/supervise'
 export { createSupervisor } from './supervise/supervisor'
-// Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
-// `createExecutor({backend})` resolves a worker — `null` → the in-process router tool-loop,
-// a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
 export {
-  type DriveHarness,
+  type OpenCoordination,
+  type OpenedCoordination,
   type SupervisorAgentDeps,
-  type SupervisorProfile,
   supervisorAgent,
 } from './supervise/supervisor-agent'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
@@ -724,7 +726,6 @@ export type {
   NodeId,
   NodeSnapshot,
   NodeStatus,
-  Restart,
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,

@@ -149,7 +149,7 @@ export async function runPersonified<Task, D>(
     blobs: options.blobs ?? new InMemoryResultBlobStore(),
     executors,
     ...(options.maxDepth !== undefined ? { maxDepth: options.maxDepth } : {}),
-    ...(options.maxRestarts !== undefined ? { maxRestarts: options.maxRestarts } : {}),
+    ...(options.maxFailures !== undefined ? { maxFailures: options.maxFailures } : {}),
     ...(options.withinMs !== undefined ? { withinMs: options.withinMs } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.signal ? { signal: options.signal } : {}),

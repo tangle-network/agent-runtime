@@ -26,7 +26,6 @@ import {
   type CoordinationEvent,
   type CoordinationTools,
   createCoordinationTools,
-  DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   type MakeWorkerAgent,
   type QuestionPolicy,
   type QuestionRecord,
@@ -36,10 +35,8 @@ import {
 import type { DeliverableSpec } from './completion-gate'
 import type { Budget, ResultBlobStore, Scope } from './types'
 
-export interface CoordinationMcpHandle {
-  /** The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`. */
-  readonly url: string
-  readonly port: number
+/** Transport-neutral live coordination session used by the recursive runtime. */
+export interface CoordinationSession {
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
   settled(): ReadonlyArray<SettledWorker>
   /** The first driver-authored result whose injected independent check passed. */
@@ -47,6 +44,15 @@ export interface CoordinationMcpHandle {
   /** Post-loop drain of already-settled, unpulled children into the ledger — call before reading
    *  `settled()` for a finalize, so a delivered child the harness never awaited is not lost. */
   drainResolved: CoordinationTools['drainResolved']
+  close(): Promise<void>
+}
+
+export interface CoordinationMcpHandle extends CoordinationSession {
+  /** The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`. */
+  readonly url: string
+  readonly port: number
+  /** The same live coordination surface served over HTTP, for in-process adapters. */
+  readonly coordination: CoordinationTools
   isStopped(): boolean
   /** The full ordered bus-event log — observability audit + replay trail. */
   history: CoordinationTools['history']
@@ -54,56 +60,73 @@ export interface CoordinationMcpHandle {
   stats: CoordinationTools['stats']
   /** Raise a `finding` on the bus from an online detector watching a worker's live pipe. */
   raiseFinding: CoordinationTools['raiseFinding']
-  close(): Promise<void>
 }
 
-/** Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
- *  opencode locally, same host); pass `host` to bind elsewhere when the harness is remote. */
-export async function serveCoordinationMcp(opts: {
+export interface CoordinationSessionOptions {
   scope: Scope<unknown>
   blobs: ResultBlobStore
   makeWorkerAgent: MakeWorkerAgent
   perWorker: Budget
-  /** Independent completion check exposed to the driver as `submit_result`. */
+  workerShutdown: number | 'brutalKill' | 'infinity'
+  deliverable: DeliverableSpec<unknown>
+  maxLiveWorkers: number | null
+  awaitTimeoutMs: number
+  analysts: AnalystRegistry | null
+  analyzeOnSettle: ReadonlyArray<string>
+  watchWorkers: WorkerWatchOptions | null
+  stallAfterMs: number | null
+  onEvent: ((event: CoordinationEvent) => void | Promise<void>) | null
+  questionPolicy: QuestionPolicy
+  priorQuestions: ReadonlyArray<QuestionRecord>
+  priorFindings: ReadonlyArray<import('../../mcp/tools/coordination').AnalystFindingEvent>
+}
+
+/** Legacy-compatible local HTTP adapter options. */
+export interface CoordinationMcpOptions {
+  scope: Scope<unknown>
+  blobs: ResultBlobStore
+  makeWorkerAgent: MakeWorkerAgent
+  perWorker: Budget
+  workerShutdown?: number | 'brutalKill' | 'infinity'
   deliverable?: DeliverableSpec<unknown>
-  /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
-   *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
-  maxLiveWorkers?: number
-  /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
-   *  `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
-   *  {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0` = prior unbounded block (in-process only). */
+  maxLiveWorkers?: number | null
   awaitTimeoutMs?: number
+  analysts?: AnalystRegistry | null
+  analyzeOnSettle?: ReadonlyArray<string>
+  watchWorkers?: WorkerWatchOptions | null
+  stallAfterMs?: number | null
+  onEvent?: ((event: CoordinationEvent) => void | Promise<void>) | null
+  questionPolicy?: QuestionPolicy
+  priorQuestions?: ReadonlyArray<QuestionRecord>
+  priorFindings?: ReadonlyArray<import('../../mcp/tools/coordination').AnalystFindingEvent>
   port?: number
   host?: string
-  /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
-  analysts?: AnalystRegistry
-  /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
-  analyzeOnSettle?: ReadonlyArray<string>
-  /** Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events). */
-  watchWorkers?: WorkerWatchOptions
-  /** Idle time after which `observe_agent` reports a worker as stalled. */
-  stallAfterMs?: number
-  /** Pass-through subscriber for every bus event (settled / question / finding). */
-  onEvent?: (event: CoordinationEvent) => void | Promise<void>
-  questionPolicy?: QuestionPolicy
-  /** Questions replayed from a prior process of this run — seeds the question ledger. */
-  priorQuestions?: ReadonlyArray<QuestionRecord>
-}): Promise<CoordinationMcpHandle> {
+}
+
+/** Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
+ *  opencode locally, same host); pass `host` to bind elsewhere when the harness is remote. */
+export async function serveCoordinationMcp(
+  opts: CoordinationMcpOptions,
+): Promise<CoordinationMcpHandle> {
   const coord = createCoordinationTools({
     scope: opts.scope,
     blobs: opts.blobs,
     makeWorkerAgent: opts.makeWorkerAgent,
     perWorker: opts.perWorker,
+    ...(opts.workerShutdown !== undefined ? { workerShutdown: opts.workerShutdown } : {}),
     ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-    ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
-    awaitTimeoutMs: opts.awaitTimeoutMs ?? DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
+    ...(opts.maxLiveWorkers !== null && opts.maxLiveWorkers !== undefined
+      ? { maxLiveWorkers: opts.maxLiveWorkers }
+      : {}),
+    ...(opts.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: opts.awaitTimeoutMs } : {}),
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
     ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
     ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
     ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
-    ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
+    ...(opts.questionPolicy !== undefined ? { questionPolicy: opts.questionPolicy } : {}),
     ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
+    ...(opts.priorFindings?.length ? { priorFindings: opts.priorFindings } : {}),
   })
   const mcp = createMcpServer({ extraTools: coord.tools, serverName: 'coordination' })
   const host = opts.host ?? '127.0.0.1'
@@ -155,6 +178,7 @@ export async function serveCoordinationMcp(opts: {
   return {
     url: `http://${host}:${port}/mcp`,
     port,
+    coordination: coord,
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
     drainResolved: () => coord.drainResolved(),

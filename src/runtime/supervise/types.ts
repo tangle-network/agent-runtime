@@ -69,6 +69,9 @@ export interface WaitOpts {
 export interface Agent<Task, Out> {
   readonly name: string
   act(task: Task, scope: Scope<Out>): Promise<Out>
+  /** Optional checked-delivery receipt for recursive execution. A coordination-capable agent sets
+   *  this only after its independent completion check or delivered-only finalizer accepted output. */
+  resultVerdict?(): DefaultVerdict | undefined
 }
 
 // ── The open leaf runtime ─────────────────────────────────────────────────────
@@ -193,12 +196,14 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
  *  - `executor` present        → BYO: use it verbatim (a user's own `Executor`).
  *  - `harness === null`        → router/inline: a direct Router call, no box.
  *  - `harness` is a `BackendType` → sandbox: compose `runAgentRounds` against `profile` on that backend.
- * Fail loud on an unresolvable spec (no executor and an unknown harness).
+ *  - `harness` absent          → no execution choice; fail loud unless an explicit executor/config
+ *                                resolves the spec.
+ * Fail loud on an unresolvable spec (no executor and no/unknown harness).
  */
 export interface AgentSpec {
   readonly profile: AgentProfile
   /** `null` selects router/inline; a `BackendType` selects the sandboxed harness. */
-  readonly harness: BackendType | null
+  readonly harness?: BackendType | null
   /** Bring-your-own executor: when set, overrides harness-based resolution entirely. */
   readonly executor?: Executor<unknown>
 }
@@ -263,9 +268,6 @@ export interface Spend {
 
 // ── Node lifecycle ────────────────────────────────────────────────────────────
 
-/** OTP child-spec restart class. */
-export type Restart = 'temporary' | 'transient' | 'permanent'
-
 /** `'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box
  *  during sandbox acquire BEFORE it is `running`, so abort must be defined over it.
  *  `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
@@ -286,7 +288,6 @@ export type NodeId = string
 export interface SpawnOpts {
   readonly budget: Budget
   readonly label: string
-  readonly restart?: Restart
   /** Teardown grace handed to the executor when this node is reaped. */
   readonly shutdown?: number | 'brutalKill' | 'infinity'
   /**
@@ -357,7 +358,6 @@ export type Settled<Out> =
       reason: string
       /** True = infrastructure failure (excluded from merge `n` / equal-k), not a bad result. */
       infra: boolean
-      restartCount: number
       seq: number
     }
 
@@ -529,7 +529,8 @@ export interface NodeSnapshot {
   readonly parent?: NodeId
   readonly label: string
   readonly status: NodeStatus
-  readonly runtime: Runtime
+  /** Present for executed or waiting nodes. The synthetic root has no executor runtime. */
+  readonly runtime?: Runtime
   readonly budget: Budget
   /** Conserved spend so far for this node. */
   readonly spent: Spend
@@ -563,7 +564,8 @@ export type SpawnEvent =
        *  run matches to resolve the same assignment to its committed result. */
       key?: string
       budget: Budget
-      runtime: Runtime
+      /** Absent only for the synthetic root, which was not spawned through an executor. */
+      runtime?: Runtime
       seq: number
       at: string
     }
@@ -669,11 +671,8 @@ export interface SupervisorOpts {
   readonly probes?: WaitProbeRegistry
   /** Runtime recursion-depth ceiling (paired with the conserved pool per R3). */
   readonly maxDepth?: number
-  /**
-   * OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
-   * trips the supervisor to `no-winner` rather than restarting forever.
-   */
-  readonly maxRestarts?: number
+  /** More than `maxFailures` child failures within `withinMs` trips the supervisor. */
+  readonly maxFailures?: number
   readonly withinMs?: number
   /**
    * Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
@@ -709,7 +708,7 @@ export type SupervisedResult<Out> =
     }
   | {
       kind: 'no-winner'
-      reason: 'all-children-down' | 'budget-exhausted' | 'aborted'
+      reason: 'all-children-down' | 'budget-exhausted' | 'aborted' | 'invalid-result'
       tree: TreeView
       downCount: number
       /** The conserved spend incurred before the run failed — real cost is paid even when no

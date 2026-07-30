@@ -336,7 +336,6 @@ export async function replaySpawnTree(
           handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'cancelled'),
           reason: 'wait cancelled',
           infra: false,
-          restartCount: 0,
           seq: ev.seq,
         })
         continue
@@ -363,7 +362,6 @@ export async function replaySpawnTree(
         handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'cancelled'),
         reason: ev.reason,
         infra: false,
-        restartCount: 0,
         seq: ev.seq,
       })
       continue
@@ -374,7 +372,6 @@ export async function replaySpawnTree(
         handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'failed'),
         reason: ev.verdict?.notes ?? 'child down',
         infra: ev.infra === true,
-        restartCount: 0,
         seq: ev.seq,
       })
       continue
@@ -458,7 +455,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       parent: ev.parent,
       label: ev.label,
       status: 'pending',
-      runtime: ev.runtime,
+      ...(ev.runtime !== undefined ? { runtime: ev.runtime } : {}),
       budget: ev.budget,
       spent: zeroSpend(),
     })
@@ -521,7 +518,7 @@ interface MutableSnapshot {
   parent?: NodeId
   label: string
   status: NodeStatus
-  runtime: Runtime
+  runtime?: Runtime
   budget: NodeSnapshot['budget']
   spent: Spend
   outRef?: string
@@ -556,7 +553,7 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     parent: node.parent,
     label: node.label,
     status: node.status,
-    runtime: node.runtime,
+    ...(node.runtime !== undefined ? { runtime: node.runtime } : {}),
     budget: node.budget,
     spent: node.spent,
     outRef: node.outRef,
