@@ -10263,7 +10263,7 @@ Extra args appended after `--mode rpc`. `--provider` / `--model` are added from 
 
 > `optional` **turnTimeoutMs?**: `number`
 
-Wall-clock ceiling for one `prompt` (the wait for `agent_end`). Omit = no timeout.
+Wall-clock ceiling for one `prompt` (the wait for `agent_settled`). Omit = no timeout.
 
 ##### activityWindow?
 
@@ -10407,6 +10407,12 @@ Metered iterations so far (the executor's own count when it reports one).
 
 > `readonly` **usd**: `number`
 
+##### usdKnown?
+
+> `readonly` `optional` **usdKnown?**: `boolean`
+
+False when observed dollar spend is only a known subtotal, not a complete total.
+
 ##### pendingMessages
 
 > `readonly` **pendingMessages**: `number`
@@ -10518,6 +10524,10 @@ The scope-side facts about a child, independent of whether its executor cooperat
 ##### usd
 
 > `readonly` **usd**: `number`
+
+##### usdKnown?
+
+> `readonly` `optional` **usdKnown?**: `boolean`
 
 ***
 
@@ -16086,11 +16096,43 @@ How to run a sandboxed harness as the DRIVER, with the coordination verbs mounte
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
 `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \}
+
+###### kind
+
+> **kind**: `"cost"`
+
+###### usdKnown?
+
+> `optional` **usdKnown?**: `false`
+
+Known dollar subtotal. When false, `usd` must not be treated as total cost.
+
+###### usd
+
+> **usd**: `number`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"iteration"`; \}
 
 ***
 

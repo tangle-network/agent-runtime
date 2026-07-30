@@ -170,7 +170,12 @@ export interface ExecutorResult<Out> {
  */
 export type UsageEvent =
   | { kind: 'tokens'; input: number; output: number }
-  | { kind: 'cost'; usd: number }
+  | {
+      kind: 'cost'
+      /** Known dollar subtotal. When false, `usd` must not be treated as total cost. */
+      usdKnown?: false
+      usd: number
+    }
   | { kind: 'iteration' }
 
 /** The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name.

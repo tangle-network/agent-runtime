@@ -5,7 +5,7 @@
  * quantities (tokens, usd, iterations) plus an absolute deadline. Children reserve
  * atomically at spawn and reconcile at settle:
  *
- *   total ≡ free + reserved + committed          (invariant, always)
+ *   total ≡ free + reserved + committed          (for every known quantity)
  *
  * `reserve` moves a child's whole ceiling from `free` → `reserved` and fails closed
  * when `free` can't cover it (never read-then-spawn overcommit, so `Σk(treatment) ≡
@@ -15,7 +15,9 @@
  *
  * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
  * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
- * unknown reconcile) so a child can never refund twice.
+ * unknown reconcile) so a child can never refund twice. If dollar cost is unknowable under a
+ * dollar limit, reconciliation closes the known token/iteration work, marks the dollar channel
+ * unusable, and refuses later reservations; inventing a numeric dollar total would be worse.
  *
  * @experimental
  */
@@ -93,34 +95,50 @@ export interface BudgetPool {
 export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   const tokens = zeroTokenUsage()
   let usd = 0
+  let usdKnown = true
   let iterations = 0
   for (const ev of events) {
     if (ev.kind === 'tokens') {
       addTokenUsage(tokens, { input: ev.input, output: ev.output })
     } else if (ev.kind === 'cost') {
       usd += ev.usd
+      if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
     }
   }
-  return { iterations, tokens, usd, ms: 0 }
+  return {
+    iterations,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: 0,
+  }
 }
 
 async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend> {
   if (Array.isArray(events)) return spendFromUsageEvents(events)
   const tokens = zeroTokenUsage()
   let usd = 0
+  let usdKnown = true
   let iterations = 0
   for await (const ev of events) {
     if (ev.kind === 'tokens') {
       addTokenUsage(tokens, { input: ev.input, output: ev.output })
     } else if (ev.kind === 'cost') {
       usd += ev.usd
+      if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
     }
   }
-  return { iterations, tokens, usd, ms: 0 }
+  return {
+    iterations,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: 0,
+  }
 }
 
 function totalTokens(usage: LoopTokenUsage): number {
@@ -143,6 +161,7 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   let freeUsd = root.maxUsd ?? 0
   let reservedUsd = 0
   let committedUsd = 0
+  let usdTainted = false
 
   let freeIterations = root.maxIterations
   let reservedIterations = 0
@@ -159,6 +178,7 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     const wantTokens = b.maxTokens
     const wantUsd = b.maxUsd ?? 0
     const wantIterations = b.maxIterations
+    if (usdCapped && usdTainted) return { ok: false, reason: 'budget-exhausted' }
     // Fail-closed admission: every requested channel must fit the free balance. A
     // usd request against an uncapped root is unsatisfiable (the root declared no $).
     if (wantTokens > freeTokens) return { ok: false, reason: 'budget-exhausted' }
@@ -188,14 +208,8 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     if (!open.has(ticket.id)) {
       throw new Error(`budget pool: reconcile of unknown or already-settled ticket ${ticket.id}`)
     }
-    open.delete(ticket.id)
-
     const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
-    if (usdCapped && spent.usdKnown === false) {
-      throw new Error(
-        `budget pool: ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`,
-      )
-    }
+    const unknownUnderCap = usdCapped && spent.usdKnown === false
 
     // Clamp actual spend to the reservation: a child must never commit more than it
     // reserved (that would overdraw the conserved pool). Over-spend is a fail-loud bug.
@@ -218,6 +232,10 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
       throw new Error(`budget pool: ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`)
     }
 
+    // Ordinary validation errors leave the ticket open. Unknown dollars are different: the known
+    // channels still settle, then the dollar channel is permanently tainted and admission closes.
+    open.delete(ticket.id)
+
     // Release the whole reservation, then commit actual spend; the difference is the
     // refund that flows back to `free`.
     reservedTokens -= rTokens
@@ -228,14 +246,23 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     committedIterations += spent.iterations
     freeIterations += rIterations - spent.iterations
 
-    if (usdCapped && rUsd > 0) {
+    if (usdCapped) {
       reservedUsd -= rUsd
       committedUsd += spent.usd
-      freeUsd += rUsd - spent.usd
+      if (unknownUnderCap) {
+        usdTainted = true
+        freeUsd = 0
+      } else {
+        freeUsd += rUsd - spent.usd
+      }
     } else {
-      // Uncapped (or a zero-ceiling child under a capped root): record the observed spend
-      // without touching the reservation channel — usd is accounted, not conserved here.
+      // With no root dollar limit, record observed spend without a reservation channel.
       committedUsd += spent.usd
+    }
+    if (unknownUnderCap) {
+      throw new Error(
+        `budget pool: ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`,
+      )
     }
   }
 
@@ -261,7 +288,7 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   function readout(): BudgetReadout {
     return {
       tokensLeft: freeTokens,
-      usdLeft: usdCapped ? freeUsd : 0,
+      usdLeft: usdCapped ? (usdTainted ? 0 : freeUsd) : 0,
       usdCapped,
       deadlineMs: absoluteDeadlineMs,
       reservedTokens,
