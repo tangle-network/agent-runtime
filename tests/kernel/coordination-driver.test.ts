@@ -590,6 +590,42 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     expect(childSpawns).toEqual([])
   })
 
+  it('returns the first directly submitted result that passes the independent check', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const seen: SeenMessages = []
+    const chat = scriptedBrain(
+      [
+        { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 0 } } }] },
+        { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
+        { content: 'must not need another turn' },
+      ],
+      seen,
+    )
+    const root = driverAgent({
+      ...driverOpts('root', chat, dummyWorker),
+      deliverable: {
+        describe: 'an object whose answer is 42',
+        check: (result) => (result as { answer?: unknown }).answer === 42,
+      },
+    })
+    const result = await createSupervisor<unknown, unknown>().run(root, 'solve it directly', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'direct-submit',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
+
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+    expect(seen).toHaveLength(2)
+    const tree = (await journal.loadTree('direct-submit')) as SpawnEvent[]
+    expect(tree.filter((e) => e.kind === 'spawned' && e.id !== 'direct-submit')).toEqual([])
+  })
+
   it('the work tool is tried FIRST; a null return falls through to the coordination dispatch', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
@@ -640,6 +676,15 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
       executeExtraTool: async () => 'nope',
     }
     // The collision guard fires eagerly — NOT buried in a swallowed act() throw.
+    expect(() => driverAgent(opts)).toThrow(/collides with a coordination verb/)
+  })
+
+  it('reserves submit_result even when no independent check is configured', () => {
+    const opts: DriverAgentOptions = {
+      ...driverOpts('root', scriptedBrain([{ content: 'x' }], []), dummyWorker),
+      extraTools: [{ ...echoTool, name: 'submit_result' }],
+      executeExtraTool: async () => 'nope',
+    }
     expect(() => driverAgent(opts)).toThrow(/collides with a coordination verb/)
   })
 })

@@ -10,9 +10,8 @@
  *    coordination verbs: `serveCoordinationMcp` exposes spawn/await/steer/stop over the live scope,
  *    and the caller's `driveHarness` runs the harness with that MCP mounted. The harness IS the brain.
  *
- * Both arms spawn children through the SAME `makeWorkerAgent` seam and finalize through the SAME
- * seam (`runFinalizer` over DELIVERED children only — default keep-best, never the driver's own
- * prose).
+ * Both arms spawn children through the SAME `makeWorkerAgent` seam and apply the SAME independent
+ * deliverable check to direct submissions. Raw driver prose is never eligible.
  */
 import { ValidationError } from '../../errors'
 import type {
@@ -23,6 +22,7 @@ import type {
 } from '../../mcp/tools/coordination'
 import { type RouterConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
+import type { DeliverableSpec } from './completion-gate'
 import { driverAgent } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import { serveCoordinationMcp } from './coordination-mcp'
@@ -81,6 +81,8 @@ export interface SupervisorAgentDeps {
   readonly makeWorkerAgent: MakeWorkerAgent
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
+  /** Independent completion check for direct driver work (`submit_result`). */
+  readonly deliverable?: DeliverableSpec<unknown>
   /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
    *  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
    *  boxes/sandboxes, not total work). Omit/`<= 0` = no cap. */
@@ -162,6 +164,7 @@ export function supervisorAgent(
       makeWorkerAgent: deps.makeWorkerAgent,
       perWorker: deps.perWorker,
       systemPrompt,
+      ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
       ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
       ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
       ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
@@ -194,6 +197,7 @@ export function supervisorAgent(
         blobs: deps.blobs,
         makeWorkerAgent: deps.makeWorkerAgent,
         perWorker: deps.perWorker,
+        ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
         ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
@@ -205,12 +209,20 @@ export function supervisorAgent(
           : {}),
       })
       try {
-        await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })
+        try {
+          await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })
+        } catch (error) {
+          // Once the injected check has accepted a result, a later backend shutdown/timeout cannot
+          // erase that completed work. Without an accepted submission, preserve the backend error.
+          if (!mcp.submittedResult()) throw error
+        }
         // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
         // awaited must still reach the finalize ledger.
         await mcp.drainResolved()
-        // The deliverable comes from the finalizer seam over DELIVERED children only — never the
-        // harness's own output (Foreman 0/18). Default keep-best.
+        // Direct work is eligible only through `submit_result`, after the injected independent
+        // check passes. Raw harness prose remains ineligible.
+        const submitted = mcp.submittedResult()
+        if (submitted) return submitted.result
         return await runFinalizer(deps.finalizer ?? bestDelivered, {
           settled: mcp.settled(),
           blobs: deps.blobs,

@@ -9205,6 +9205,13 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 Per-child budget reserved from the conserved pool on each spawn.
 
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+Independent completion check for work the driver performs itself. When present, the driver
+ receives `submit_result`; the first passing submission ends the loop and becomes the output.
+
 ##### maxLiveWorkers?
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
@@ -9460,6 +9467,18 @@ The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`.
 ##### port
 
 > `readonly` **port**: `number`
+
+##### submittedResult
+
+> **submittedResult**: () => \{ `result`: `unknown`; \} \| `undefined`
+
+The first driver-authored result whose injected independent check passed.
+
+The first result whose injected independent check passed, if the driver submitted one.
+
+###### Returns
+
+\{ `result`: `unknown`; \} \| `undefined`
 
 ##### drainResolved
 
@@ -11717,9 +11736,9 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
-The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
- without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
- failure mode of a static orchestrator.
+The independent completion check for backend-derived workers and direct supervisor
+ submissions. Strongly recommended: without it the supervisor cannot submit its own work and
+ backend-derived workers fall back to their own validity signal.
 
 ##### makeWorkerAgent?
 
@@ -11994,6 +12013,12 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 > `readonly` **perWorker**: [`Budget`](index.md#budget-4)
 
 Per-child budget reserved from the conserved pool on each spawn.
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+Independent completion check for direct driver work (`submit_result`).
 
 ##### maxLiveWorkers?
 
@@ -20020,6 +20045,12 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 ###### perWorker
 
 [`Budget`](index.md#budget-4)
+
+###### deliverable?
+
+[`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+Independent completion check exposed to the driver as `submit_result`.
 
 ###### maxLiveWorkers?
 

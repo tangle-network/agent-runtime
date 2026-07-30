@@ -44,6 +44,7 @@ import {
   type ToolLoopCompaction,
   type ToolLoopCompactionOptions,
 } from '../tool-loop'
+import type { DeliverableSpec } from './completion-gate'
 import type { PriorCoordination } from './coordination-log'
 import {
   bestDelivered,
@@ -81,6 +82,9 @@ export interface DriverAgentOptions {
   readonly makeWorkerAgent: MakeWorkerAgent
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
+  /** Independent completion check for work the driver performs itself. When present, the driver
+   *  receives `submit_result`; the first passing submission ends the loop and becomes the output. */
+  readonly deliverable?: DeliverableSpec<unknown>
   /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   readonly maxLiveWorkers?: number
@@ -307,6 +311,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         blobs: opts.blobs,
         makeWorkerAgent: opts.makeWorkerAgent,
         perWorker: opts.perWorker,
+        ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
         ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
         ...(opts.analysts ? { analysts: opts.analysts } : {}),
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
@@ -484,9 +489,11 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // never be lost to the driver's pull discipline (e.g. a brain that spawned and stopped
       // without awaiting). Non-blocking: live children are the supervisor's to tear down.
       await coord.drainResolved()
-      // The driver's deliverable comes from the finalizer seam over DELIVERED children only
-      // (the completion-oracle), never its own prose — a driver cannot self-declare done
-      // (Foreman 0/18). Default keep-best; nothing delivered → undefined.
+      // Direct work is eligible only through `submit_result`, after the same injected independent
+      // check workers face. Raw driver prose remains ineligible. The first passing submission wins;
+      // otherwise finalize over delivered children as before.
+      const submitted = coord.submittedResult()
+      if (submitted) return submitted.result
       return runFinalizer(opts.finalizer ?? bestDelivered, {
         settled: coord.settled(),
         blobs: opts.blobs,
