@@ -3812,77 +3812,6 @@ Stop a `serve` call. Subsequent requests are rejected.
 
 ***
 
-### Check
-
-One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is
- upgradeable to the full agentic factory; `lookFor` is the lens question the actor applies.
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-##### description
-
-> `readonly` **description**: `string`
-
-##### area
-
-> `readonly` **area**: `string`
-
-Coarse classification stamped on every finding this kind emits (the renderer groups by it).
-
-##### version
-
-> `readonly` **version**: `string`
-
-##### lookFor
-
-> `readonly` **lookFor**: `string`
-
-The lens — what this analyst looks for in the trace.
-
-***
-
-### CheckRunnerOptions
-
-#### Properties
-
-##### routerBaseUrl
-
-> **routerBaseUrl**: `string`
-
-##### routerKey
-
-> **routerKey**: `string`
-
-##### model
-
-> **model**: `string`
-
-##### chat?
-
-> `optional` **chat?**: (`system`, `user`) => `Promise`\<`string`\>
-
-Test/override seam — replace the LLM call. Default: a router chat completion.
-
-###### Parameters
-
-###### system
-
-`string`
-
-###### user
-
-`string`
-
-###### Returns
-
-`Promise`\<`string`\>
-
-***
-
 ### SettledWorker
 
 A worker the driver has drained via `await_event`.
@@ -3989,7 +3918,7 @@ Epoch ms the ledger recorded this settlement — the resolution a progress-based
 
 ###### Inherited from
 
-[`Question`](#question).[`id`](#id-6)
+[`Question`](#question).[`id`](#id-5)
 
 ##### from
 
@@ -5889,14 +5818,6 @@ Env var overriding the served display name (default 'agent-memory').
 
 ***
 
-### defaultChecks
-
-> `const` **defaultChecks**: `Record`\<`string`, [`Check`](#check)\>
-
-The built-in lens directory. Domain-blind (about any agent trace); compose at test time.
-
-***
-
 ### DELEGATE\_FEEDBACK\_TOOL\_NAME
 
 > `const` **DELEGATE\_FEEDBACK\_TOOL\_NAME**: `"delegate_feedback"` = `'delegate_feedback'`
@@ -7290,107 +7211,6 @@ Build the generic stdio JSON-RPC tool server.
 #### Returns
 
 [`StdioToolServer`](#stdiotoolserver)
-
-***
-
-### liftFindings()
-
-> **liftFindings**(`kind`, `rows`, `producedAt`): `AnalystFinding`[]
-
-Lift validated raw rows into `AnalystFinding`s (agent-eval `makeFinding` stamps `finding_id`/
- `produced_at`), then enforce the trace-derived firewall (selector ≠ judge). Pure — no LLM.
-
-#### Parameters
-
-##### kind
-
-[`Check`](#check)
-
-##### rows
-
-`unknown`[]
-
-##### producedAt
-
-`string`
-
-#### Returns
-
-`AnalystFinding`[]
-
-***
-
-### renderTrace()
-
-> **renderTrace**(`trace`): `string`
-
-Render a worker's trace (tool calls + results) into the text an analyst lens reads. Generic over
- the trace shape: a `{ messages }` conversation, a bare message array, else stringified.
-
-#### Parameters
-
-##### trace
-
-`unknown`
-
-#### Returns
-
-`string`
-
-***
-
-### runCheck()
-
-> **runCheck**(`kind`, `trace`, `opts`, `producedAt`): `Promise`\<`AnalystFinding`[]\>
-
-Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval
- finding schema; the model's JSON array is parsed (`parseRawFinding`), lifted, and firewalled.
-
-#### Parameters
-
-##### kind
-
-[`Check`](#check)
-
-##### trace
-
-`unknown`
-
-##### opts
-
-[`CheckRunnerOptions`](#checkrunneroptions)
-
-##### producedAt
-
-`string`
-
-#### Returns
-
-`Promise`\<`AnalystFinding`[]\>
-
-***
-
-### makeCheckRunner()
-
-> **makeCheckRunner**(`kinds`, `opts`): (`kindId`, `trace`, `producedAt`) => `Promise`\<`AnalystFinding`[] \| \{ `error`: `string`; \}\>
-
-Build a `run_analyst` runner over a kind directory.
-Returns findings, or a typed error for an unknown kind. `producedAt` is
-passed in because replay-safe paths must not read `Date.now`.
-
-#### Parameters
-
-##### kinds
-
-`Record`\<`string`, [`Check`](#check)\>
-
-##### opts
-
-[`CheckRunnerOptions`](#checkrunneroptions)
-
-#### Returns
-
-(`kindId`, `trace`, `producedAt`) => `Promise`\<`AnalystFinding`[] \| \{ `error`: `string`; \}\>
 
 ***
 
