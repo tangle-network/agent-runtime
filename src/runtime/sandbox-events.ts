@@ -159,7 +159,12 @@ function buildLlmCall(
   agentRunName: string,
 ): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined {
   const tokensIn = pickFiniteNumber(data, ['tokensIn', 'inputTokens', 'prompt_tokens'])
-  const tokensOut = pickFiniteNumber(data, ['tokensOut', 'outputTokens', 'completion_tokens'])
+  const outputTokens = pickFiniteNumber(data, ['tokensOut', 'outputTokens', 'completion_tokens'])
+  const reasoningTokens = pickFiniteNumber(data, ['reasoningTokens'])
+  const tokensOut =
+    outputTokens !== undefined || reasoningTokens !== undefined
+      ? (outputTokens ?? 0) + (reasoningTokens ?? 0)
+      : undefined
   const costUsd = pickFiniteNumber(data, ['costUsd', 'totalCostUsd', 'cost_usd', 'cost'])
   if (tokensIn === undefined && tokensOut === undefined && costUsd === undefined) {
     return undefined
