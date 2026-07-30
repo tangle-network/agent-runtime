@@ -85,6 +85,7 @@ export function driverChild<Out>(
   }
   return {
     name,
+    profileDigest: name,
     executorSpec: spec,
     ...(driver.deliver
       ? { deliver: (message: unknown) => driver.deliver?.(message) ?? false }

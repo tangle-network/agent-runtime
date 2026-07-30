@@ -184,6 +184,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         kind: 'spawned',
         id: opts.runId,
         label: root.name,
+        ...(root.profileDigest ? { profileDigest: root.profileDigest } : {}),
         budget: opts.budget,
         seq: 0,
         at: new Date(now()).toISOString(),

@@ -150,6 +150,7 @@ const result = await createSupervisor<unknown, string>().run(root, 'task', {
   budget: { maxIterations: 50, maxTokens: 100_000 },
   runId,
   ...ctx,
+  resume: phase === '2',
   now: () => (phase === '1' ? 1_000 : 2_000),
 })
 

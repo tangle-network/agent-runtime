@@ -21,10 +21,8 @@ function question(id: string, from: string): QuestionRecord {
   return {
     id,
     from,
-    level: 'driver',
     question: `question ${id}`,
     reason: 'test',
-    urgency: 'continue-without',
     status: 'open',
     openedAt: 1,
   }
@@ -56,7 +54,12 @@ describe('full-tree coordination log', () => {
         source: child,
         event: {
           type: 'steer',
-          down: { toWorker: 'run:s0:s0', instruction: 'change course', delivered: true },
+          down: {
+            messageId: 'steer-1',
+            toWorker: 'run:s0:s0',
+            instruction: 'change course',
+            deliveryMode: 'queued',
+          },
         },
       },
       {
@@ -64,14 +67,19 @@ describe('full-tree coordination log', () => {
         event: {
           type: 'answer',
           questionId: 'root:q0',
-          down: { toWorker: runId, instruction: 'answer', delivered: true },
+          answer: { text: 'answer', by: 'prior-run' },
         },
       },
     ]
 
     for (let index = 0; index < events.length; index += 1) {
       const row = events[index]!
-      await log.append(runId, row.source, row.event, `2026-01-01T00:00:0${index}.000Z`)
+      await log.append(runId, row.source, {
+        seq: index,
+        at: index,
+        priority: 0,
+        event: row.event,
+      })
     }
 
     const records = await log.records(runId)
@@ -79,23 +87,23 @@ describe('full-tree coordination log', () => {
       records.map((record) => ({
         version: record.version,
         source: record.source,
-        type: record.event.type,
+        type: record.record.event.type,
       })),
     ).toEqual(
       events.map((row) => ({
-        version: 2,
+        version: 3,
         source: row.source,
         type: row.event.type,
       })),
     )
 
-    const resumed = await log.load(runId)
+    const resumed = await log.load(runId, runId)
     expect(resumed.findings).toEqual([])
     expect(resumed.questions).toEqual([
       expect.objectContaining({
         id: 'root:q0',
         status: 'answered',
-        decision: { kind: 'answer', answer: 'answer', by: 'prior-run' },
+        answer: { text: 'answer', by: 'prior-run' },
       }),
     ])
   })
@@ -118,11 +126,15 @@ describe('full-tree coordination log', () => {
     const records = await new FileCoordinationLog(path).records('legacy-run')
     expect(records).toEqual([
       {
-        version: 2,
+        version: 3,
         runId: 'legacy-run',
         source: { nodeId: 'legacy-run', profileName: null },
-        at: '2025-01-01T00:00:00.000Z',
-        event,
+        record: {
+          seq: 0,
+          at: Date.parse('2025-01-01T00:00:00.000Z'),
+          priority: 0,
+          event,
+        },
       },
     ])
   })

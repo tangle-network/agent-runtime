@@ -108,6 +108,7 @@ export function supervisorAgent(
 
   return {
     name,
+    profileDigest: name,
     resultVerdict: () => lastVerdict,
     deliver,
     canDeliver: () =>

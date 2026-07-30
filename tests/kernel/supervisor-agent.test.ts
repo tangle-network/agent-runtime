@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   type CoordinationSessionOptions,
@@ -295,11 +295,16 @@ describe('strict recursive supervise surface', () => {
     expect(rootEvents?.[0]).toMatchObject({
       kind: 'spawned',
       id: 'recursive',
+      profileDigest: calls[0]?.profile ? canonicalAgentProfileDigest(calls[0].profile) : undefined,
     })
     expect(rootEvents?.[0]).not.toHaveProperty('runtime')
     expect(
       rootEvents?.find((event) => event.kind === 'spawned' && event.parent === 'recursive'),
-    ).toMatchObject({ id: 'recursive:s0', label: 'level-1' })
+    ).toMatchObject({
+      id: 'recursive:s0',
+      label: 'level-1',
+      profileDigest: calls[1]?.profile ? canonicalAgentProfileDigest(calls[1].profile) : undefined,
+    })
   })
 
   it('retains the first explicit submission instead of fabricating or selecting a result', async () => {

@@ -454,6 +454,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       id: ev.id,
       parent: ev.parent,
       label: ev.label,
+      ...(ev.profileDigest !== undefined ? { profileDigest: ev.profileDigest } : {}),
       status: 'pending',
       ...(ev.runtime !== undefined ? { runtime: ev.runtime } : {}),
       budget: ev.budget,
@@ -517,6 +518,7 @@ interface MutableSnapshot {
   id: NodeId
   parent?: NodeId
   label: string
+  profileDigest?: string
   status: NodeStatus
   runtime?: Runtime
   budget: NodeSnapshot['budget']
@@ -552,6 +554,7 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     id: node.id,
     parent: node.parent,
     label: node.label,
+    ...(node.profileDigest !== undefined ? { profileDigest: node.profileDigest } : {}),
     status: node.status,
     ...(node.runtime !== undefined ? { runtime: node.runtime } : {}),
     budget: node.budget,

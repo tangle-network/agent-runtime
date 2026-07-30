@@ -25,6 +25,7 @@
  * @experimental
  */
 
+import { canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
@@ -145,6 +146,7 @@ export interface ScopeArgs {
  */
 interface LiveChild {
   readonly id: NodeId
+  readonly profileDigest?: string
   status: NodeStatus
   runtime: Runtime
   readonly budget: Budget
@@ -337,7 +339,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // Resolve the semantic key FIRST — a committed key spends nothing (no reservation, no
     // executor, no journal record: the prior settlement is already the durable record), and a
     // still-live duplicate is refused before any resource is touched.
-    let prior: SpawnPrior<C> | undefined
     if (opts.key !== undefined) {
       const existing = keyed.get(opts.key)
       if (existing?.state === 'live') return { ok: false, reason: 'duplicate-key' }
@@ -349,9 +350,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         }
       }
       if (existing?.state === 'down') {
-        prior = { state: 'retried', priorId: existing.id, reason: existing.reason }
+        return { ok: false, reason: 'prior-down' }
       } else if (existing?.state === 'in-doubt') {
-        prior = { state: 'lost', priorId: existing.id }
+        return { ok: false, reason: 'prior-in-doubt' }
       }
     }
 
@@ -369,6 +370,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         `scope.spawn: agent "${agent.name}" exposes no \`executorSpec\` (AgentSpec) to resolve a Executor`,
       )
     }
+    const profileDigest = canonicalAgentProfileDigest(spec.profile)
     const resolved = args.executors.resolve<C>(spec)
     if (!resolved.succeeded) throw new ValidationError(`scope.spawn: ${resolved.error}`)
 
@@ -420,6 +422,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
 
       const live: LiveChild = {
         id,
+        profileDigest,
         status: 'acquiring',
         runtime: executor.runtime,
         budget: opts.budget,
@@ -444,6 +447,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         id,
         parent: args.parentId,
         label: opts.label,
+        profileDigest,
         ...(opts.key !== undefined ? { key: opts.key } : {}),
         budget: opts.budget,
         runtime: executor.runtime,
@@ -464,6 +468,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           payload: {
             childId: id,
             label: opts.label,
+            profileDigest,
             runtime: executor.runtime,
             budget: opts.budget,
             depth: args.depth,
@@ -495,7 +500,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         })
       ;(live as { settled: Promise<PreSeqSettled> }).settled = settled
 
-      return { ok: true, handle, ...(prior ? { prior } : {}) }
+      return { ok: true, handle }
     } catch (err) {
       args.pool.reconcile(reservation.ticket, zeroSpend())
       throw err
@@ -1136,6 +1141,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     id: c.id,
     parent: root,
     label: c.label,
+    ...(c.profileDigest !== undefined ? { profileDigest: c.profileDigest } : {}),
     status: c.status,
     runtime: c.runtime,
     budget: c.budget,

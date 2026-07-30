@@ -68,6 +68,8 @@ export interface WaitOpts {
  */
 export interface Agent<Task, Out> {
   readonly name: string
+  /** Canonical identity of the exact authored AgentProfile, when this agent came from one. */
+  readonly profileDigest?: string
   act(task: Task, scope: Scope<Out>): Promise<Out>
   /** Optional checked-delivery receipt for recursive execution. A coordination-capable agent sets
    *  this only after its independent completion check or delivered-only finalizer accepted output. */
@@ -306,33 +308,29 @@ export interface SpawnOpts {
    * Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
    * idempotent per key: once a child spawned under a key settles `done` — in this process or in a
    * journaled prior one — spawning the same key returns that committed result (`prior.state:
-   * 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-   * or was journaled as started-but-never-settled spawns FRESH but says so explicitly
-   * (`prior.state: 'retried' | 'lost'`), and a key that is currently LIVE is refused
-   * (`'duplicate-key'`) — the same assignment can never run twice concurrently. Unkeyed spawns
-   * (the default) are position-identified and always run.
+   * 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`,
+   * remains live, or was journaled as started-but-never-settled is refused. An agent that chooses
+   * to retry must author a new key. Unkeyed spawns are position-identified and always run.
    */
   readonly key?: string
 }
 
-/** Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, or a `key`
- *  that is still LIVE in this scope (the same assignment may not run twice concurrently). */
-export type SpawnRejection = 'budget-exhausted' | 'depth-exceeded' | 'duplicate-key'
+/** Fail-closed spawn rejections. Failed or uncertain keyed work is never retried by the runtime. */
+export type SpawnRejection =
+  | 'budget-exhausted'
+  | 'depth-exceeded'
+  | 'duplicate-key'
+  | 'prior-down'
+  | 'prior-in-doubt'
 
 /**
- * What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
- * every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
- * references the prior settled node and `settled` is the committed result. `'retried'` /
- * `'lost'` DID spawn fresh: the prior attempt settled `down` (retried) or was journaled as
- * started but never settled — the process died with it in flight and the built-in executors
- * cannot re-attach to a dead process's work, so the result is explicitly in doubt (lost), never
- * silently duplicated. An executor that CAN re-attach to a still-running external execution (a
- * live sandbox box) extends this union with an adoption state; none of the built-ins can today.
+ * What a keyed spawn resolved to when the key already completed. Failed, live, and uncertain
+ * prior work is rejected instead of becoming a runtime-authored retry.
  */
-export type SpawnPrior<Out = unknown> =
-  | { readonly state: 'completed'; readonly settled: Settled<Out> & { kind: 'done' } }
-  | { readonly state: 'retried'; readonly priorId: NodeId; readonly reason: string }
-  | { readonly state: 'lost'; readonly priorId: NodeId }
+export type SpawnPrior<Out = unknown> = {
+  readonly state: 'completed'
+  readonly settled: Settled<Out> & { kind: 'done' }
+}
 
 /**
  * A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into
@@ -540,6 +538,8 @@ export interface NodeSnapshot {
   readonly id: NodeId
   readonly parent?: NodeId
   readonly label: string
+  /** Canonical authored AgentProfile identity; absent only for non-profile and wait nodes. */
+  readonly profileDigest?: string
   readonly status: NodeStatus
   /** Present for executed or waiting nodes. The synthetic root has no executor runtime. */
   readonly runtime?: Runtime
@@ -572,6 +572,8 @@ export type SpawnEvent =
       id: NodeId
       parent?: NodeId
       label: string
+      /** Canonical authored AgentProfile identity; absent only for a non-profile synthetic root. */
+      profileDigest?: string
       /** The semantic spawn key (`SpawnOpts.key`), when the spawn carried one — what a resumed
        *  run matches to resolve the same assignment to its committed result. */
       key?: string

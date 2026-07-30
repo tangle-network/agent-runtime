@@ -1,10 +1,9 @@
 /**
- * Semantic spawn keys (`Scope.spawn(agent, task, { key })`) — the four states a keyed assignment
- * can be in, in-process. The cross-process ones (a key committed by a DEAD coordinator) are proven
- * over a real process kill in `resume-aware-driver.test.ts`; this pins the state machine itself.
+ * Semantic spawn keys (`Scope.spawn(agent, task, { key })`).
  *
- * Unkeyed spawns are position-identified and always run — a key is opt-in identity, so nothing
- * about the default path changes.
+ * Completed keys resolve to their committed result. Live, failed, and uncertain keys are refused:
+ * the runtime never decides to retry work. An agent may explicitly author another assignment with
+ * a new key. Unkeyed spawns are position-identified and always run.
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -162,7 +161,7 @@ describe('semantic spawn keys', () => {
     })
   })
 
-  it('a key whose prior attempt settled DOWN spawns fresh and reports the retry explicitly', async () => {
+  it('refuses to turn a failed key into a runtime-authored retry', async () => {
     const runs = { n: 0 }
     const failing: Agent<unknown, string> & { executorSpec: AgentSpec } = (() => {
       const executor: Executor<string> = {
@@ -199,12 +198,84 @@ describe('semantic spawn keys', () => {
         label: 'f2',
         key: 'flaky',
       })
-      if (!retry.ok) throw new Error(`expected a fresh spawn, got ${retry.reason}`)
-      // A failed key is retryable — but the retry is DECLARED, never a silent duplicate.
-      expect(retry.prior?.state).toBe('retried')
-      expect(retry.prior?.state === 'retried' ? retry.prior.reason : '').toContain('exploded')
-      await scope.next()
+      expect(retry).toEqual({ ok: false, reason: 'prior-down' })
+      expect(runs.n).toBe(1)
       return 'done'
     })
+  })
+
+  it('on resume refuses uncertain work until the agent authors a new assignment key', async () => {
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    const runId = 'uncertain-key'
+    const budget = { maxIterations: 50, maxTokens: 100_000 }
+    const at = new Date(0).toISOString()
+    await journal.beginTree(runId, at)
+    await journal.appendEvent(runId, {
+      kind: 'spawned',
+      id: runId,
+      label: 'root',
+      budget,
+      seq: 0,
+      at,
+    })
+    await journal.appendEvent(runId, {
+      kind: 'spawned',
+      id: `${runId}:s0`,
+      parent: runId,
+      label: 'uncertain',
+      key: 'attempt-1',
+      budget: childBudget,
+      runtime: 'router',
+      seq: 0,
+      at,
+    })
+
+    const runs = { n: 0 }
+    const seen: { refusal?: unknown; runsAfterRefusal?: number; newAssignment?: boolean } = {}
+    const result = await createSupervisor<unknown, string>().run(
+      {
+        name: 'root',
+        async act(task, scope) {
+          const sameAssignment = scope.spawn(countingLeaf('same', 'SAME', runs), task, {
+            budget: childBudget,
+            label: 'same',
+            key: 'attempt-1',
+          })
+          seen.refusal = sameAssignment
+          seen.runsAfterRefusal = runs.n
+
+          const newAssignment = scope.spawn(countingLeaf('new', 'NEW', runs), task, {
+            budget: childBudget,
+            label: 'new',
+            key: 'attempt-2',
+          })
+          seen.newAssignment = newAssignment.ok
+          await scope.next()
+          return 'done'
+        },
+      },
+      'task',
+      {
+        budget,
+        runId,
+        journal,
+        blobs,
+        executors: createExecutorRegistry(),
+        maxDepth: 4,
+        resume: true,
+        now: () => 1,
+      },
+    )
+
+    expect(result.kind).toBe('winner')
+    expect(seen.refusal).toEqual({ ok: false, reason: 'prior-in-doubt' })
+    expect(seen.runsAfterRefusal).toBe(0)
+    expect(seen.newAssignment).toBe(true)
+    expect(runs.n).toBe(1)
+    const spawnedKeys = (await journal.loadTree(runId))
+      ?.filter((event) => event.kind === 'spawned' && event.key !== undefined)
+      .map((event) => event.key)
+    expect(spawnedKeys).toEqual(['attempt-1', 'attempt-2'])
   })
 })
