@@ -5,14 +5,25 @@ import { type AgentSpec, createExecutor, createInbox } from '../../src/runtime'
 describe('worker inbox (down-leg receive end)', () => {
   it('parses the down-message shapes; ignores malformed', () => {
     const inbox = createInbox()
-    inbox.deliver({ steer: 'do X' })
-    inbox.deliver({ answer: 'use v2', questionId: 'q1' })
+    inbox.deliver({ messageId: 'm1', deliveryMode: 'queued', steer: 'do X' })
+    inbox.deliver({
+      messageId: 'm2',
+      deliveryMode: 'queued',
+      answer: 'use v2',
+      questionId: 'q1',
+    })
     inbox.deliver({ junk: true }) // ignored, never throws
     inbox.deliver(null)
     const drained = inbox.drain()
     expect(drained).toEqual([
-      { kind: 'steer', text: 'do X', interrupt: false },
-      { kind: 'answer', text: 'use v2', interrupt: false, questionId: 'q1' },
+      { messageId: 'm1', kind: 'steer', text: 'do X', deliveryMode: 'queued' },
+      {
+        messageId: 'm2',
+        kind: 'answer',
+        text: 'use v2',
+        deliveryMode: 'queued',
+        questionId: 'q1',
+      },
     ])
     // drain is destructive
     expect(inbox.pending()).toBe(0)
@@ -20,28 +31,56 @@ describe('worker inbox (down-leg receive end)', () => {
 
   it('folds queued messages into one operator turn', () => {
     const inbox = createInbox()
-    inbox.deliver({ steer: 'switch to recursion' })
-    inbox.deliver({ answer: 'v2', questionId: 'q7' })
+    inbox.deliver({
+      messageId: 'm1',
+      deliveryMode: 'queued',
+      steer: 'switch to recursion',
+    })
+    inbox.deliver({
+      messageId: 'm2',
+      deliveryMode: 'queued',
+      answer: 'v2',
+      questionId: 'q7',
+    })
     const folded = inbox.fold(inbox.drain())
-    expect(folded).toContain('[SUPERVISOR]')
-    expect(folded).toContain('New instruction from your supervisor: switch to recursion')
-    expect(folded).toContain('Answer to your question (q7): v2')
+    expect(JSON.parse(folded)).toEqual({
+      type: 'agent-runtime.down-messages',
+      messages: [
+        {
+          messageId: 'm1',
+          kind: 'steer',
+          text: 'switch to recursion',
+          deliveryMode: 'queued',
+        },
+        {
+          messageId: 'm2',
+          kind: 'answer',
+          text: 'v2',
+          deliveryMode: 'queued',
+          questionId: 'q7',
+        },
+      ],
+    })
   })
 
   it('a forceful message aborts the live turn signal; a queued one does not', () => {
     const inbox = createInbox()
     const sig = inbox.freshInterrupt()
     expect(sig.aborted).toBe(false)
-    inbox.deliver({ steer: 'note for later' }) // queued — no interrupt
+    inbox.deliver({ messageId: 'm1', deliveryMode: 'queued', steer: 'note for later' })
     expect(sig.aborted).toBe(false)
-    inbox.deliver({ steer: 'STOP, wrong path', interrupt: true }) // forceful
+    inbox.deliver({
+      messageId: 'm2',
+      deliveryMode: 'interrupt',
+      steer: 'STOP, wrong path',
+    })
     expect(sig.aborted).toBe(true)
   })
 
   it('each freshInterrupt is independent — a stale signal is not re-aborted', () => {
     const inbox = createInbox()
     const first = inbox.freshInterrupt()
-    inbox.deliver({ steer: 'x', interrupt: true })
+    inbox.deliver({ messageId: 'm1', deliveryMode: 'interrupt', steer: 'x' })
     expect(first.aborted).toBe(true)
     // A new turn opens a fresh signal; the prior forceful message does not abort it.
     const second = inbox.freshInterrupt()
@@ -71,7 +110,13 @@ describe('router-tools executor drains the inbox', () => {
         bodies.push(JSON.parse(init?.body ?? '{}'))
         calls += 1
         // The driver steers the worker WHILE it is mid-turn, just as it first tries to finish.
-        if (calls === 1) deliver({ steer: 'also handle the wide-char edge case' })
+        if (calls === 1) {
+          deliver({
+            messageId: 'm1',
+            deliveryMode: 'queued',
+            steer: 'also handle the wide-char edge case',
+          })
+        }
         return noToolReply()
       }),
     )
@@ -83,6 +128,7 @@ describe('router-tools executor drains the inbox', () => {
       routerKey: 'k',
       tools: [],
       executeToolCall: async () => '',
+      maxTurns: 3,
     })
     const spec: AgentSpec = {
       profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,
@@ -110,7 +156,11 @@ describe('router-tools executor drains the inbox', () => {
         calls += 1
         if (calls === 1) {
           // The driver forcefully interrupts mid-inference — the turn signal aborts and fetch rejects.
-          deliver({ steer: 'STOP — wrong file, edit src/core.ts', interrupt: true })
+          deliver({
+            messageId: 'm1',
+            deliveryMode: 'interrupt',
+            steer: 'STOP — wrong file, edit src/core.ts',
+          })
           throw new DOMException('aborted', 'AbortError')
         }
         bodies.push(JSON.parse(init?.body ?? '{}'))
@@ -125,6 +175,7 @@ describe('router-tools executor drains the inbox', () => {
       routerKey: 'k',
       tools: [],
       executeToolCall: async () => '',
+      maxTurns: 3,
     })
     const spec: AgentSpec = {
       profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,

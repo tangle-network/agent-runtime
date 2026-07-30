@@ -9,25 +9,26 @@
 import {
   type AgentProfile,
   type AgentProfileMcpServer,
+  canonicalAgentProfileDigest,
   mergeAgentProfiles,
+  snapshotAgentProfile,
 } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   CoordinationEvent,
   MakeWorkerAgent,
-  QuestionPolicy,
-  WorkerWatchOptions,
+  ParentQuestionPort,
 } from '../../mcp/tools/coordination'
 import { spendFromUsageEvents } from './budget'
-import { checkDeliverable, type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import type { CoordinationSource, PriorCoordination } from './coordination-log'
 import type { CoordinationSession, CoordinationSessionOptions } from './coordination-mcp'
-import { runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
+import type { BusRecord } from './event-bus'
+import type { ExecutorProgress } from './progress'
+import type { TraceSource } from './trace-source'
 import type {
   Agent,
   AgentSpec,
-  Budget,
   Executor,
   ExecutorFactory,
   ExecutorResult,
@@ -51,28 +52,22 @@ export interface SupervisorAgentDeps {
   readonly blobs: ResultBlobStore
   /** Resolve a spawned profile to the same recursive coordination-capable agent. */
   readonly makeWorkerAgent: MakeWorkerAgent
-  /** Per-child budget reserved from the conserved pool on each spawn. */
-  readonly perWorker: Budget
   /** Executor chosen by the caller's one resolver for this exact profile and tree position. */
   readonly executorFactory: ExecutorFactory<unknown>
   /** Opens the coordination surface and supplies the exact provider-visible profile entry. */
   readonly openCoordination: OpenCoordination
   readonly executorShutdown: number | 'brutalKill' | 'infinity'
   readonly workerShutdown: number | 'brutalKill' | 'infinity'
-  /** Independent completion check for direct driver work (`submit_result`). */
-  readonly deliverable: DeliverableSpec<unknown>
   readonly maxLiveWorkers: number | null
   readonly awaitTimeoutMs: number
-  readonly questionPolicy: QuestionPolicy
+  readonly parentQuestionPort: ParentQuestionPort | null
   readonly analysts: AnalystRegistry | null
-  readonly analyzeOnSettle: ReadonlyArray<string>
-  readonly watchWorkers: WorkerWatchOptions | null
   readonly stallAfterMs: number | null
   readonly onEvent:
-    | ((source: CoordinationSource, event: CoordinationEvent) => void | Promise<void>)
+    | ((source: CoordinationSource, record: BusRecord<CoordinationEvent>) => void | Promise<void>)
     | null
-  readonly priorCoordination?: PriorCoordination
-  readonly finalizer: SupervisorFinalizer
+  readonly loadPriorCoordination: (nodeId: string) => Promise<PriorCoordination>
+  readonly now: () => number
 }
 
 /** Build a supervisor from one complete `AgentProfile` and one explicit executor configuration. */
@@ -80,17 +75,47 @@ export function supervisorAgent(
   profile: AgentProfile,
   deps: SupervisorAgentDeps,
 ): Agent<unknown, unknown> {
-  const name = requiredProfileName(profile)
-  if (Object.hasOwn(profile.mcp ?? {}, coordinationMcpName)) {
+  const profileSnapshot = snapshotAgentProfile(profile)
+  const name = canonicalAgentProfileDigest(profileSnapshot)
+  if (Object.hasOwn(profileSnapshot.mcp ?? {}, coordinationMcpName)) {
     throw new ValidationError(
       `supervisorAgent: profile.mcp.${coordinationMcpName} is reserved for the live coordination server`,
     )
   }
   let lastVerdict: { valid: boolean; score: number } | undefined
+  let activeExecutor: Executor<unknown> | undefined
+  let acceptingMessages = true
+  const pendingMessages: unknown[] = []
+
+  const deliver = (message: unknown): boolean => {
+    if (!acceptingMessages) return false
+    if (!activeExecutor) {
+      pendingMessages.push(message)
+      return true
+    }
+    if (!activeExecutor.deliver || activeExecutor.canDeliver?.() === false) return false
+    return activeExecutor.deliver(message) !== false
+  }
+
+  const progress = (): ExecutorProgress | undefined => {
+    const current = activeExecutor?.progress?.()
+    if (pendingMessages.length === 0) return current
+    return {
+      ...(current ?? {}),
+      pendingMessages: (current?.pendingMessages ?? 0) + pendingMessages.length,
+    }
+  }
 
   return {
     name,
     resultVerdict: () => lastVerdict,
+    deliver,
+    canDeliver: () =>
+      acceptingMessages &&
+      (!activeExecutor ||
+        (activeExecutor.deliver !== undefined && activeExecutor.canDeliver?.() !== false)),
+    progress,
+    traceSource: (): TraceSource | undefined => activeExecutor?.traceSource?.(),
     async act(task, scope) {
       lastVerdict = undefined
       let mcp: CoordinationSession | undefined
@@ -101,45 +126,56 @@ export function supervisorAgent(
       let runFailure: unknown
 
       try {
+        const priorCoordination = await deps.loadPriorCoordination(scope.view.root)
         const opened = await deps.openCoordination({
           scope,
           blobs: deps.blobs,
           makeWorkerAgent: deps.makeWorkerAgent,
-          perWorker: deps.perWorker,
           workerShutdown: deps.workerShutdown,
-          deliverable: deps.deliverable,
           maxLiveWorkers: deps.maxLiveWorkers,
           awaitTimeoutMs: deps.awaitTimeoutMs,
-          questionPolicy: deps.questionPolicy,
+          parentQuestionPort: deps.parentQuestionPort,
           stallAfterMs: deps.stallAfterMs,
           analysts: deps.analysts,
-          analyzeOnSettle: deps.analyzeOnSettle,
-          watchWorkers: deps.watchWorkers,
           onEvent: deps.onEvent
             ? (event) => deps.onEvent?.({ nodeId: scope.view.root, profileName: name }, event)
             : null,
-          priorQuestions: deps.priorCoordination?.questions ?? [],
-          priorFindings: deps.priorCoordination?.findings ?? [],
+          priorRecords: priorCoordination.records,
+          now: deps.now,
         })
 
         mcp = opened.handle
-        const executableProfile = mergeAgentProfiles(profile, {
+        const mergedProfile = mergeAgentProfiles(profileSnapshot, {
           mcp: {
             [coordinationMcpName]: opened.profileEntry,
           },
         })
-        if (!executableProfile) {
+        if (!mergedProfile) {
           throw new ValidationError('supervisorAgent: failed to materialize the driver profile')
         }
+        const executableProfile = snapshotAgentProfile(mergedProfile)
 
         const spec: AgentSpec = { profile: executableProfile }
-        executor = gateOnDeliverable(
-          deps.executorFactory(spec, {
-            signal: scope.signal,
-            seams: {},
-          }),
-          deps.deliverable,
-        )
+        executor = deps.executorFactory(spec, {
+          nodeId: scope.view.root,
+          signal: scope.signal,
+          seams: {},
+        })
+        activeExecutor = executor
+        while (pendingMessages.length > 0) {
+          if (!executor.deliver || executor.canDeliver?.() === false) {
+            throw new ValidationError(
+              'supervisorAgent: backend cannot receive a message accepted before backend creation',
+            )
+          }
+          const message = pendingMessages[0]
+          if (executor.deliver(message) === false) {
+            throw new ValidationError(
+              'supervisorAgent: backend refused a message accepted before backend creation',
+            )
+          }
+          pendingMessages.shift()
+        }
         try {
           executorArtifact = await executeAgent(executor, task, scope, name)
         } catch (error) {
@@ -148,31 +184,15 @@ export function supervisorAgent(
         }
         await mcp.drainResolved()
         const submitted = mcp.submittedResult()
-        const checkedArtifact =
-          executorArtifact?.verdict?.valid === true ? executorArtifact : undefined
-        const settled = mcp.settled()
-        const finalized =
-          submitted || checkedArtifact
-            ? undefined
-            : await runFinalizer(deps.finalizer, {
-                settled,
-                blobs: deps.blobs,
-                tree: runTree(scope),
-                budget: scope.budget,
-              })
-        result = submitted ? submitted.result : checkedArtifact ? checkedArtifact.out : finalized
-        if (submitted) lastVerdict = { valid: true, score: 1 }
-        else if (checkedArtifact) lastVerdict = checkedArtifact.verdict
-        else
-          lastVerdict =
-            finalized === undefined
-              ? { valid: false, score: 0 }
-              : await checkDeliverable(finalized, deps.deliverable)
+        result = submitted ? submitted.result : executorArtifact?.out
+        lastVerdict = submitted ? undefined : executorArtifact?.verdict
         runCompleted = true
       } catch (error) {
         runFailure = error
       }
 
+      acceptingMessages = false
+      pendingMessages.length = 0
       let cleanupFailure: unknown
       if (executor) {
         try {
@@ -188,6 +208,7 @@ export function supervisorAgent(
           cleanupFailure ??= error
         }
       }
+      activeExecutor = undefined
       if (runFailure !== undefined) throw runFailure
       if (cleanupFailure !== undefined && (!runCompleted || result === undefined)) {
         throw cleanupFailure
@@ -267,13 +288,6 @@ class AgentAccountingError extends Error {
     super('agent inference accounting failed', { cause })
     this.name = 'AgentAccountingError'
   }
-}
-
-function requiredProfileName(profile: AgentProfile): string {
-  if (typeof profile.name !== 'string' || profile.name.trim().length === 0) {
-    throw new ValidationError('supervisorAgent: profile.name is required')
-  }
-  return profile.name
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {

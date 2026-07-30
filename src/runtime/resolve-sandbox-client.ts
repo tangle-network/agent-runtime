@@ -42,6 +42,8 @@ export interface ResolveSandboxClientOptions {
     model: string
     /** Per-turn deadline (ms). */
     timeoutMs?: number
+    /** Explicit upper bound on bridge resume turns. */
+    maxTurns: number
   }
   /** `router` backend: router chat-completion transport. All three fields required. */
   router?: {
@@ -81,6 +83,7 @@ export function resolveSandboxClient(opts: ResolveSandboxClientOptions): Sandbox
           bridgeBearer: bridge.bearer,
           model: bridge.model,
           timeoutMs: bridge.timeoutMs,
+          maxTurns: bridge.maxTurns,
         }),
       )
     }

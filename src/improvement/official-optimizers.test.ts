@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeProposalFinding } from '@tangle-network/agent-eval'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
-import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  canonicalCandidateDigest,
+  defineAgentProfilePublicConfig,
+} from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { improve } from './improve'
 import {
@@ -593,7 +597,9 @@ describe('official optimizer methods', () => {
         remote: {
           transport: 'http' as const,
           url: 'https://mcp.example.test',
-          headers: { 'x-workspace-proof': 'opaque-7f91d8e4-customer-value' },
+          headers: {
+            'x-workspace-proof': defineAgentProfilePublicConfig('opaque-7f91d8e4-customer-value'),
+          },
         },
       },
       '$.remote.headers',

@@ -1,49 +1,25 @@
 /**
  *
- * `delegate` MCP tool — the ONE generic delegation verb, the agent-facing front door to
- * `delegate()` / `supervise()`. The agent hands it an INTENT (what it wants done); a default
- * authoring supervisor decomposes the intent and AUTHORS the worker profile it needs — there is no
- * hardcoded coder/researcher profile, so one verb covers code, research, and anything else.
+ * `delegate` MCP tool — the agent-facing front door to `delegate()` / `supervise()`.
  *
  * `delegate` is SYNCHRONOUS: it awaits the full supervised run and returns the delivered output
  * TOGETHER WITH `spentTotal` — the conserved cost of the whole delegation (`iterations` / `tokens` /
  * `usd` / `ms`), so the caller always learns what the delegation actually spent.
  *
- * The supervisor's substrate (its brain `router`, the worker `backend`, the completion `deliverable`)
- * is INJECTED at server construction — never an agent-supplied arg. The agent supplies only the
- * intent (+ an optional per-call `model` / `runId`).
+ * The complete supervisor profile, execution backends, budgets, and completion check are injected at
+ * server construction. The call supplies only the intent and its run identity.
  *
  * @experimental
  */
 
-import type { RouterConfig } from '../../runtime/router-client'
-import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type DelegateOptions, delegate } from '../../runtime/supervise/delegate'
-import type { ExecutorConfig } from '../../runtime/supervise/runtime'
+import type { SuperviseOptions } from '../../runtime/supervise/supervise'
 import type { Spend, SupervisedResult } from '../../runtime/supervise/types'
 
 /** MCP tool name for the `delegate` generic-delegation tool. @experimental */
 export const DELEGATE_TOOL_NAME = 'delegate'
 
-/** Human-readable description of the `delegate` MCP tool, injected into the tool manifest. @experimental */
-export const DELEGATE_DESCRIPTION = [
-  'Delegate an INTENT to a supervisor that AUTHORS and drives whatever worker the intent needs.',
-  '',
-  'Use when: you want a task done but do not want to specify HOW. State the outcome — "fix the',
-  'failing auth test", "research competitor pricing with citations", "refactor the parser for',
-  'clarity" — and the supervisor decomposes it, writes a tailored worker profile per sub-task, runs',
-  'the workers over a conserved compute budget, and settles only when a deployable check passes.',
-  '',
-  'There is no fixed worker type: this ONE verb replaces separate code / research delegation. The',
-  'supervisor picks the worker shape from your intent.',
-  '',
-  'Returns synchronously with the delivered result AND the real cost of the whole delegation',
-  '(spentTotal: iterations, input/output tokens, usd, ms) — so you always know what it spent. A run',
-  'that produced no delivered worker returns status "no-winner" with the reason; it never fabricates',
-  'a success.',
-].join('\n')
-
-/** JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runId`). @experimental */
+/** JSON Schema for `delegate` tool arguments. @experimental */
 export const DELEGATE_INPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -51,24 +27,19 @@ export const DELEGATE_INPUT_SCHEMA = {
       type: 'string',
       description: 'What you want accomplished, as an outcome. The supervisor authors the worker.',
     },
-    model: {
-      type: 'string',
-      description: 'Optional per-call override for the supervisor brain model.',
-    },
     runId: {
       type: 'string',
-      description: 'Optional trace-correlation id for this delegation.',
+      description: 'Stable trace and replay identity for this delegation.',
     },
   },
-  required: ['intent'],
+  required: ['intent', 'runId'],
   additionalProperties: false,
 } as const
 
 /** Parsed `delegate` tool arguments. */
 export interface DelegateArgs {
   intent: string
-  model?: string
-  runId?: string
+  runId: string
 }
 
 /** Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input. @experimental */
@@ -81,16 +52,10 @@ export function validateDelegateArgs(raw: unknown): DelegateArgs {
   if (typeof intent !== 'string' || intent.trim().length === 0) {
     throw new TypeError('delegate: `intent` must be a non-empty string')
   }
-  const args: DelegateArgs = { intent: intent.trim() }
-  if (value.model !== undefined) {
-    if (typeof value.model !== 'string') throw new TypeError('delegate: `model` must be a string')
-    args.model = value.model
+  if (typeof value.runId !== 'string' || value.runId.trim().length === 0) {
+    throw new TypeError('delegate: `runId` must be a non-empty string')
   }
-  if (value.runId !== undefined) {
-    if (typeof value.runId !== 'string') throw new TypeError('delegate: `runId` must be a string')
-    args.runId = value.runId
-  }
-  return args
+  return { intent: intent.trim(), runId: value.runId }
 }
 
 /** The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or
@@ -100,17 +65,10 @@ export type DelegateResult =
   | { status: 'no-winner'; reason: string; spentTotal: Spend }
 
 /** @experimental */
-export interface DelegateHandlerOptions {
-  /** The supervisor brain's router substrate (REQUIRED — the default supervisor is router-brained). */
-  router: RouterConfig
-  /** WHERE the authored workers run. Required for `supervise()` to spawn anything. */
-  backend: ExecutorConfig
-  /** The completion oracle the authored workers settle against (settled ⟺ delivered). */
-  deliverable?: DeliverableSpec
-  /** Default supervisor brain model when a call omits `model`. */
-  model?: string
-  /** Restrict the run to this subset of models. */
-  allowedModels?: readonly string[]
+export interface DelegateHandlerOptions extends Omit<SuperviseOptions, 'runId'> {
+  /** Model-visible tool description, supplied by the product/profile that knows its intended use. */
+  description: string
+  profile: DelegateOptions['profile']
 }
 
 /** Project a `SupervisedResult` onto the tool's flat `DelegateResult`. Both variants carry the real
@@ -138,14 +96,8 @@ export function createDelegateHandler(
 ): (raw: unknown) => Promise<DelegateResult> {
   return async (raw) => {
     const args = validateDelegateArgs(raw)
-    const opts: DelegateOptions = {
-      backend: options.backend,
-      router: options.router,
-      model: args.model ?? options.model,
-      ...(options.deliverable ? { deliverable: options.deliverable } : {}),
-      ...(options.allowedModels ? { allowedModels: options.allowedModels } : {}),
-      ...(args.runId ? { runId: args.runId } : {}),
-    }
+    const { description: _description, ...configured } = options
+    const opts: DelegateOptions = { ...configured, runId: args.runId }
     const result = await delegate(args.intent, opts)
     return toDelegateResult(result)
   }

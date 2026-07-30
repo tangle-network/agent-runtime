@@ -58,7 +58,6 @@ export type {
   DownMessageEvent,
   MakeWorkerAgent,
 } from './../mcp/tools/coordination'
-export { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from './../mcp/tools/coordination'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
 export {
   type AnytimeReport,
@@ -491,19 +490,6 @@ export {
   type VisibleCheck,
   visibleCheckScore,
 } from './structural-rollout'
-// The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
-// SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
-export {
-  type AuthoredProfile,
-  asAuthoredProfile,
-  assessAuthoredProfile,
-  authoredWorker,
-  defaultProfileRichnessThresholds,
-  type ProfileRichness,
-  type ProfileRichnessThresholds,
-  profileRichnessFinding,
-  supervisorInstructions,
-} from './supervise/authoring'
 export {
   type BudgetPool,
   type BudgetReadout,
@@ -514,14 +500,6 @@ export {
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-gate'
-// The CHEAP / offline driver: an in-process router-tools loop that drives the coordination
-// verbs over the Scope (no box, no creds). The CAPABLE driver is a sandbox agent with the
-// coordination verbs mounted as an MCP — this is the low-cost + offline-testable variant.
-export {
-  type DriverAgentOptions,
-  driverAgent,
-  finalizeBestDelivered,
-} from './supervise/coordination-driver'
 // The durable coordination side-log a file-backed `RunContext` carries: the questions and analyst
 // findings the spawn journal does not record, replayed into a resumed driver so a restarted
 // coordinator keeps the coordination context its workers produced.
@@ -530,6 +508,7 @@ export {
   type CoordinationLogRecord,
   type CoordinationSource,
   FileCoordinationLog,
+  InMemoryCoordinationLog,
   type PriorCoordination,
 } from './supervise/coordination-log'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
@@ -541,12 +520,8 @@ export {
   type CoordinationSessionOptions,
   serveCoordinationMcp,
 } from './supervise/coordination-mcp'
-// The one generic delegation verb remains a separate compatibility surface.
-export {
-  type DelegateOptions,
-  defaultDelegateBudget,
-  delegate,
-} from './supervise/delegate'
+// Delegate one intent through an explicitly authored supervisor profile and execution policy.
+export { type DelegateOptions, delegate } from './supervise/delegate'
 // The ONLINE analyst: watch a TraceSource and raise a `finding` the moment a worker loops/error-storms.
 export {
   defaultToolDetectors,
@@ -574,6 +549,7 @@ export {
   type BusEvent,
   type BusRecord,
   type BusStats,
+  type CreateEventBusOptions,
   createEventBus,
   type EventBus,
   type PublishOptions,
@@ -598,7 +574,7 @@ export {
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
 // The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
-export { assertModelAllowed } from './supervise/model-policy'
+export { assertModelAllowed, assertProfileModelsAllowed } from './supervise/model-policy'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
@@ -624,17 +600,12 @@ export {
   type ScopeProgressInput,
   type WorkerProgress,
 } from './supervise/progress'
-// The one-call store bundle for a supervised run: a journal + blob store + executor registry,
-// shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
-// (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
-// plus `resume: true`, so re-running the same `runId` against the same `dir` picks up the
-// children that already settled instead of re-running them. `{ withDriver: true }` wraps the
-// registry for the recursive agents-drive-agents path.
+// The one-call store bundle for a supervised run. Execution policy, including whether to resume,
+// remains explicit on `SuperviseOptions`.
 export {
   createFileRunContext,
   createInMemoryRunContext,
   type InMemoryRunContext,
-  type InMemoryRunContextOptions,
   type RunContext,
 } from './supervise/run-context'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
@@ -783,17 +754,6 @@ export {
   type WorktreeFanoutOptions,
   worktreeFanout,
 } from './supervise/worktree-fanout'
-// `supervise()` specialized for a graded `AgenticSurface` task: workers each `runAgentic` over the surface
-// (refine by default), settle on the surface's own check, and feed the driver a self-improvement lens (the
-// failing tests, by default) so the next spawn targets them. One capability over `supervise` + `runAgentic`.
-export {
-  failuresAnalyst,
-  type SuperviseSurfaceOptions,
-  type SuperviseSurfaceResult,
-  type SurfaceWorkerConfig,
-  type SurfaceWorkerOut,
-  superviseSurface,
-} from './supervise-surface'
 export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
 // The driver-brain seam type a consumer scripts (a mock) or passes (`routerBrain`) into
 // `DriverAgentOptions.brain` — the canonical one-inference-turn tool-loop chat. `ToolLoopCompaction`

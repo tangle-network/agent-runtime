@@ -5,6 +5,7 @@ import type {
   AgentCandidateProfilePlanEvidence,
   AgentCandidateResourceRef,
   AgentProfile,
+  AgentProfileConfigValue,
   AgentProfileDiff,
   AgentProfileMcpServer,
   AgentProfileResourceRef,
@@ -413,12 +414,13 @@ function publicResource(resource: AgentCandidateResourceRef): unknown {
   }
 }
 
-function candidatePublicValue(value: string): { kind: 'public'; value: string } {
-  return { kind: 'public', value }
+function candidatePublicValue(value: AgentProfileConfigValue): { kind: 'public'; value: string } {
+  if (value.kind !== 'public') unsupportedProfileField('mcp secret-ref config')
+  return { kind: 'public', value: value.value }
 }
 
 function mapCandidatePublicValues(
-  values: Record<string, string>,
+  values: Record<string, AgentProfileConfigValue>,
 ): Record<string, { kind: 'public'; value: string }> {
   return Object.fromEntries(
     Object.entries(values).map(([name, value]) => [name, candidatePublicValue(value)]),

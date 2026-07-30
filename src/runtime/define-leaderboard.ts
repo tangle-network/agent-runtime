@@ -431,9 +431,15 @@ export function defineLeaderboard<TCase, TArtifact = string>(
       },
       'cli-bridge': () => {
         const bearer = process.env.BRIDGE_BEARER ?? process.env.CLI_BRIDGE_BEARER
+        const maxTurns = Number(process.env.CLI_BRIDGE_MAX_TURNS)
         if (!bearer) {
           throw new Error(
             `defineLeaderboard(${spec.name}): backend 'cli-bridge' needs BRIDGE_BEARER or CLI_BRIDGE_BEARER set`,
+          )
+        }
+        if (!Number.isInteger(maxTurns) || maxTurns <= 0) {
+          throw new Error(
+            `defineLeaderboard(${spec.name}): backend 'cli-bridge' needs a positive integer CLI_BRIDGE_MAX_TURNS`,
           )
         }
         return resolveSandboxClient({
@@ -443,6 +449,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
             bearer,
             model: bareModel(models[0] ?? ''),
             timeoutMs: 900_000,
+            maxTurns,
           },
         })
       },

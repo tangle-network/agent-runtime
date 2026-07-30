@@ -23,7 +23,6 @@ export {
   type KnowledgeReadinessCheckInput,
   type KnowledgeReadinessCheckResult,
   knowledgeReadinessDeliverable,
-  RESEARCH_SUPERVISOR_SYSTEM_PROMPT,
   runSupervisedKnowledgeUpdate,
   type SupervisedKnowledgeUpdateInput,
   type SupervisedKnowledgeUpdateOptions,

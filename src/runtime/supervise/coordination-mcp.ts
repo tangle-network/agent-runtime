@@ -27,13 +27,11 @@ import {
   type CoordinationTools,
   createCoordinationTools,
   type MakeWorkerAgent,
-  type QuestionPolicy,
-  type QuestionRecord,
+  type ParentQuestionPort,
   type SettledWorker,
-  type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
-import type { DeliverableSpec } from './completion-gate'
-import type { Budget, ResultBlobStore, Scope } from './types'
+import type { BusRecord } from './event-bus'
+import type { ResultBlobStore, Scope } from './types'
 
 /** Transport-neutral live coordination session used by the recursive runtime. */
 export interface CoordinationSession {
@@ -53,7 +51,6 @@ export interface CoordinationMcpHandle extends CoordinationSession {
   readonly port: number
   /** The same live coordination surface served over HTTP, for in-process adapters. */
   readonly coordination: CoordinationTools
-  isStopped(): boolean
   /** The full ordered bus-event log — observability audit + replay trail. */
   history: CoordinationTools['history']
   /** Bus throughput counters for live dashboards. */
@@ -66,41 +63,21 @@ export interface CoordinationSessionOptions {
   scope: Scope<unknown>
   blobs: ResultBlobStore
   makeWorkerAgent: MakeWorkerAgent
-  perWorker: Budget
   workerShutdown: number | 'brutalKill' | 'infinity'
-  deliverable: DeliverableSpec<unknown>
   maxLiveWorkers: number | null
   awaitTimeoutMs: number
   analysts: AnalystRegistry | null
-  analyzeOnSettle: ReadonlyArray<string>
-  watchWorkers: WorkerWatchOptions | null
   stallAfterMs: number | null
-  onEvent: ((event: CoordinationEvent) => void | Promise<void>) | null
-  questionPolicy: QuestionPolicy
-  priorQuestions: ReadonlyArray<QuestionRecord>
-  priorFindings: ReadonlyArray<import('../../mcp/tools/coordination').AnalystFindingEvent>
+  onEvent: ((record: BusRecord<CoordinationEvent>) => void | Promise<void>) | null
+  parentQuestionPort: ParentQuestionPort | null
+  priorRecords: ReadonlyArray<BusRecord<CoordinationEvent>>
+  now: () => number
 }
 
-/** Legacy-compatible local HTTP adapter options. */
-export interface CoordinationMcpOptions {
-  scope: Scope<unknown>
-  blobs: ResultBlobStore
-  makeWorkerAgent: MakeWorkerAgent
-  perWorker: Budget
-  workerShutdown?: number | 'brutalKill' | 'infinity'
-  deliverable?: DeliverableSpec<unknown>
-  maxLiveWorkers?: number | null
-  awaitTimeoutMs?: number
-  analysts?: AnalystRegistry | null
-  analyzeOnSettle?: ReadonlyArray<string>
-  watchWorkers?: WorkerWatchOptions | null
-  stallAfterMs?: number | null
-  onEvent?: ((event: CoordinationEvent) => void | Promise<void>) | null
-  questionPolicy?: QuestionPolicy
-  priorQuestions?: ReadonlyArray<QuestionRecord>
-  priorFindings?: ReadonlyArray<import('../../mcp/tools/coordination').AnalystFindingEvent>
-  port?: number
-  host?: string
+/** Local HTTP transport adapter. Every behavior choice is caller-supplied. */
+export interface CoordinationMcpOptions extends CoordinationSessionOptions {
+  port: number
+  host: string
 }
 
 /** Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
@@ -112,24 +89,18 @@ export async function serveCoordinationMcp(
     scope: opts.scope,
     blobs: opts.blobs,
     makeWorkerAgent: opts.makeWorkerAgent,
-    perWorker: opts.perWorker,
-    ...(opts.workerShutdown !== undefined ? { workerShutdown: opts.workerShutdown } : {}),
-    ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-    ...(opts.maxLiveWorkers !== null && opts.maxLiveWorkers !== undefined
-      ? { maxLiveWorkers: opts.maxLiveWorkers }
-      : {}),
-    ...(opts.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: opts.awaitTimeoutMs } : {}),
-    ...(opts.analysts ? { analysts: opts.analysts } : {}),
-    ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
-    ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
-    ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-    ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
-    ...(opts.questionPolicy !== undefined ? { questionPolicy: opts.questionPolicy } : {}),
-    ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
-    ...(opts.priorFindings?.length ? { priorFindings: opts.priorFindings } : {}),
+    workerShutdown: opts.workerShutdown,
+    maxLiveWorkers: opts.maxLiveWorkers,
+    awaitTimeoutMs: opts.awaitTimeoutMs,
+    analysts: opts.analysts,
+    stallAfterMs: opts.stallAfterMs,
+    onEvent: opts.onEvent,
+    parentQuestionPort: opts.parentQuestionPort,
+    priorRecords: opts.priorRecords,
+    now: opts.now,
   })
   const mcp = createMcpServer({ extraTools: coord.tools, serverName: 'coordination' })
-  const host = opts.host ?? '127.0.0.1'
+  const host = opts.host
 
   const server: Server = createServer((req, res) => {
     if (req.method !== 'POST') {
@@ -169,9 +140,9 @@ export async function serveCoordinationMcp(
 
   const port = await new Promise<number>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(opts.port ?? 0, host, () => {
+    server.listen(opts.port, host, () => {
       const addr = server.address()
-      resolve(typeof addr === 'object' && addr ? addr.port : (opts.port ?? 0))
+      resolve(typeof addr === 'object' && addr ? addr.port : opts.port)
     })
   })
 
@@ -182,7 +153,6 @@ export async function serveCoordinationMcp(
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
     drainResolved: () => coord.drainResolved(),
-    isStopped: () => coord.isStopped(),
     history: () => coord.history(),
     stats: () => coord.stats(),
     raiseFinding: (finding) => coord.raiseFinding(finding),

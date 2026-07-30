@@ -1,10 +1,8 @@
 /**
- * Durable side-log for every coordination bus event. Each row names the exact coordinator node
- * that emitted it, so one file is a full-tree audit without replaying a child's questions into its
- * parent. The spawn journal remains the execution ledger; this log is the coordination transcript.
+ * Coordination transcript for every node in a recursive run.
  *
- * JSONL, one fsynced record per event, keyed by `runId` — several runs may share one log file
- * exactly as they share one spawn-journal file.
+ * The execution journal records work. This log records the exact stamped bus records that agents
+ * exchanged. A resumed node loads only its own transcript.
  *
  * @experimental
  */
@@ -14,23 +12,37 @@ import type {
   CoordinationEvent,
   QuestionRecord,
 } from '../../mcp/tools/coordination'
+import type { BusRecord } from './event-bus'
 
-/** What a prior process's coordination log replays into a resumed driver. */
 export interface PriorCoordination {
-  /** Every question the prior process raised, with answer-status folded in, raise order. */
+  readonly records: ReadonlyArray<BusRecord<CoordinationEvent>>
   readonly questions: ReadonlyArray<QuestionRecord>
-  /** Every analyst finding the prior process published, publish order. */
   readonly findings: ReadonlyArray<AnalystFindingEvent>
 }
 
-/** Exact coordinator attribution for one bus event. */
 export interface CoordinationSource {
   readonly nodeId: string
   readonly profileName: string | null
 }
 
-/** Versioned full-tree row returned for audit. */
 export interface CoordinationLogRecord {
+  readonly version: 3
+  readonly runId: string
+  readonly source: CoordinationSource
+  readonly record: BusRecord<CoordinationEvent>
+}
+
+export interface CoordinationLog {
+  append(
+    runId: string,
+    source: CoordinationSource,
+    record: BusRecord<CoordinationEvent>,
+  ): Promise<void>
+  load(runId: string, nodeId: string): Promise<PriorCoordination>
+  records(runId: string): Promise<ReadonlyArray<CoordinationLogRecord>>
+}
+
+type LegacyV2Record = {
   readonly version: 2
   readonly runId: string
   readonly source: CoordinationSource
@@ -38,71 +50,58 @@ export interface CoordinationLogRecord {
   readonly event: CoordinationEvent
 }
 
-/** The durable coordination side-log seam. */
-export interface CoordinationLog {
-  append(
-    runId: string,
-    source: CoordinationSource,
-    event: CoordinationEvent,
-    at: string,
-  ): Promise<void>
-  /** Replay only the root coordinator's prior context. */
-  load(runId: string): Promise<PriorCoordination>
-  /** Read every coordinator's versioned rows for audit. */
-  records(runId: string): Promise<ReadonlyArray<CoordinationLogRecord>>
-}
-
-type LegacyCoordinationLogRecord = {
+type LegacyV1Record = {
   readonly runId: string
   readonly at: string
   readonly event: CoordinationEvent
 }
 
-/** FS-backed `CoordinationLog`: append-only JSONL, fsynced per record. */
+/** Process-local transcript with the same behavior as the durable implementation. */
+export class InMemoryCoordinationLog implements CoordinationLog {
+  readonly #records: CoordinationLogRecord[] = []
+
+  append(
+    runId: string,
+    source: CoordinationSource,
+    record: BusRecord<CoordinationEvent>,
+  ): Promise<void> {
+    this.#records.push(snapshotRecord({ version: 3, runId, source, record }))
+    return Promise.resolve()
+  }
+
+  async load(runId: string, nodeId: string): Promise<PriorCoordination> {
+    return foldPrior((await this.records(runId)).filter((row) => row.source.nodeId === nodeId))
+  }
+
+  records(runId: string): Promise<ReadonlyArray<CoordinationLogRecord>> {
+    return Promise.resolve(this.#records.filter((row) => row.runId === runId))
+  }
+}
+
+/** File-backed transcript: append-only JSONL, fsynced per bus record. */
 export class FileCoordinationLog implements CoordinationLog {
   constructor(private readonly path: string) {}
 
   async append(
     runId: string,
     source: CoordinationSource,
-    event: CoordinationEvent,
-    at: string,
+    record: BusRecord<CoordinationEvent>,
   ): Promise<void> {
+    const row = snapshotRecord({ version: 3 as const, runId, source, record })
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     await fs.mkdir(path.dirname(this.path), { recursive: true })
-    const record: CoordinationLogRecord = { version: 2, runId, source, at, event }
     const fh = await fs.open(this.path, 'a')
     try {
-      await fh.write(`${JSON.stringify(record)}\n`)
+      await fh.write(`${JSON.stringify(row)}\n`)
       await fh.sync()
     } finally {
       await fh.close()
     }
   }
 
-  async load(runId: string): Promise<PriorCoordination> {
-    const records = (await this.records(runId)).filter((record) => record.source.nodeId === runId)
-    const byId = new Map<string, QuestionRecord>()
-    const findings: AnalystFindingEvent[] = []
-    for (const record of records) {
-      const ev = record.event
-      if (ev.type === 'question') {
-        byId.set(ev.question.id, ev.question)
-      } else if (ev.type === 'finding') {
-        findings.push(ev.finding)
-      } else if (ev.type === 'answer') {
-        const prior = byId.get(ev.questionId)
-        if (prior) {
-          byId.set(ev.questionId, {
-            ...prior,
-            status: 'answered',
-            decision: { kind: 'answer', answer: ev.down.instruction, by: 'prior-run' },
-          })
-        }
-      }
-    }
-    return { questions: [...byId.values()], findings }
+  async load(runId: string, nodeId: string): Promise<PriorCoordination> {
+    return foldPrior((await this.records(runId)).filter((row) => row.source.nodeId === nodeId))
   }
 
   async records(runId: string): Promise<ReadonlyArray<CoordinationLogRecord>> {
@@ -114,25 +113,102 @@ export class FileCoordinationLog implements CoordinationLog {
       if (isNoEntError(err)) return []
       throw err
     }
-    const records: CoordinationLogRecord[] = []
+
+    const rows: CoordinationLogRecord[] = []
+    const legacySeqBySource = new Map<string, number>()
     for (const line of text.split('\n')) {
       if (line.length === 0) continue
-      const decoded = JSON.parse(line) as CoordinationLogRecord | LegacyCoordinationLogRecord
-      const record: CoordinationLogRecord =
-        'version' in decoded && decoded.version === 2
+      const decoded = JSON.parse(line) as CoordinationLogRecord | LegacyV2Record | LegacyV1Record
+      const row =
+        'version' in decoded && decoded.version === 3
           ? decoded
-          : {
-              version: 2,
-              runId: decoded.runId,
-              source: { nodeId: decoded.runId, profileName: null },
-              at: decoded.at,
-              event: decoded.event,
-            }
-      if (record.runId !== runId) continue
-      records.push(record)
+          : normalizeLegacy(decoded, legacySeqBySource)
+      if (row.runId === runId) rows.push(row)
     }
-    return records
+    return rows
   }
+}
+
+function foldPrior(records: ReadonlyArray<CoordinationLogRecord>): PriorCoordination {
+  const byId = new Map<string, QuestionRecord>()
+  const findings: AnalystFindingEvent[] = []
+  for (const row of records) {
+    const event = row.record.event
+    if (event.type === 'question') {
+      byId.set(event.question.id, event.question)
+    } else if (event.type === 'finding') {
+      findings.push(event.finding)
+    } else if (event.type === 'answer') {
+      const prior = byId.get(event.questionId)
+      if (prior) {
+        byId.set(event.questionId, {
+          ...prior,
+          status: 'answered',
+          answer: event.answer,
+        })
+      }
+    }
+  }
+  return snapshotRecord({
+    records: records.map((row) => row.record),
+    questions: [...byId.values()],
+    findings,
+  })
+}
+
+function normalizeLegacy(
+  decoded: LegacyV2Record | LegacyV1Record,
+  nextSeqBySource: Map<string, number>,
+): CoordinationLogRecord {
+  const source =
+    'version' in decoded ? decoded.source : { nodeId: decoded.runId, profileName: null }
+  const seq = nextSeqBySource.get(source.nodeId) ?? 0
+  nextSeqBySource.set(source.nodeId, seq + 1)
+  const rawEvent = decoded.event as unknown as Record<string, unknown>
+  const event =
+    rawEvent.type === 'answer' && Object.hasOwn(rawEvent, 'down')
+      ? legacyAnswerEvent(rawEvent)
+      : decoded.event
+  const parsedAt = Date.parse(decoded.at)
+  if (!Number.isFinite(parsedAt)) {
+    throw new Error(`coordination log: invalid legacy timestamp ${JSON.stringify(decoded.at)}`)
+  }
+  return {
+    version: 3,
+    runId: decoded.runId,
+    source,
+    record: {
+      seq,
+      at: parsedAt,
+      priority: 0,
+      event,
+    },
+  }
+}
+
+function legacyAnswerEvent(raw: Record<string, unknown>): CoordinationEvent {
+  const down = raw.down && typeof raw.down === 'object' ? (raw.down as Record<string, unknown>) : {}
+  return {
+    type: 'answer',
+    questionId: String(raw.questionId ?? ''),
+    answer: {
+      text: typeof down.instruction === 'string' ? down.instruction : '',
+      by: typeof raw.by === 'string' ? raw.by : null,
+    },
+  }
+}
+
+function snapshotRecord<T>(value: T): T {
+  return deepFreezeRecord(structuredClone(value))
+}
+
+function deepFreezeRecord<T>(value: T, seen = new Set<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value as object)) return value
+  seen.add(value as object)
+  for (const child of Object.values(value as Record<string, unknown>)) {
+    deepFreezeRecord(child, seen)
+  }
+  return Object.freeze(value)
 }
 
 function isNoEntError(err: unknown): boolean {

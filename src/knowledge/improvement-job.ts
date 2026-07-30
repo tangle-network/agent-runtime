@@ -3,6 +3,7 @@ import {
   type AgentCandidateBundle,
   type AgentCandidateCapturedArtifact,
   type AgentCandidateKnowledge,
+  type AgentProfile,
   agentCandidateKnowledgeSchema,
 } from '@tangle-network/agent-interface'
 import {
@@ -26,10 +27,8 @@ import {
 import { persistCandidateOutputArtifact } from '../candidate-execution/output-artifacts'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
 import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive'
-import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { SuperviseOptions } from '../runtime/supervise/supervise'
-import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
-import type { Budget, SupervisedResult } from '../runtime/supervise/types'
+import type { SupervisedResult } from '../runtime/supervise/types'
 import {
   createSupervisedKnowledgeUpdater,
   type KnowledgeReadinessCheck,
@@ -39,22 +38,11 @@ import {
 
 export interface RunKnowledgeImprovementJobOptions
   extends Omit<KnowledgeImprovementOptions, 'updateKnowledge'> {
-  budget: Budget
+  leaderProfile: AgentProfile
   readinessCheck?: KnowledgeReadinessCheck
-  backend?: ExecutorConfig
-  makeWorkerAgent?: SuperviseOptions['makeWorkerAgent']
-  harness?: string
-  supervisorModel?: string
-  supervisorSystemPrompt?: string
-  superviseOptions?: Partial<
-    Omit<
-      SuperviseOptions,
-      'budget' | 'backend' | 'deliverable' | 'makeWorkerAgent' | 'allowedModels'
-    >
-  >
-  allowedModels?: readonly string[]
+  superviseOptions: Omit<SuperviseOptions, 'deliverable'>
   runSupervised?: (
-    profile: SupervisorProfile,
+    profile: AgentProfile,
     task: unknown,
     opts: SuperviseOptions,
   ) => Promise<SupervisedResult<unknown>>
@@ -142,17 +130,11 @@ export async function runKnowledgeImprovementJob(
   options: RunKnowledgeImprovementJobOptions,
 ): Promise<KnowledgeImprovementJobResult> {
   const {
-    allowedModels,
-    backend,
-    budget,
     candidateArtifacts,
-    harness,
-    makeWorkerAgent,
+    leaderProfile,
     onMeasurement,
     readinessCheck,
     runSupervised,
-    supervisorModel,
-    supervisorSystemPrompt,
     superviseOptions,
     ...knowledgeOptions
   } = options
@@ -170,14 +152,8 @@ export async function runKnowledgeImprovementJob(
     readinessSpecs: options.readinessSpecs,
     readinessTaskId: options.readinessTaskId,
     readinessOptions: options.readiness,
-    budget,
-    backend,
-    makeWorkerAgent,
-    harness,
-    supervisorModel,
-    supervisorSystemPrompt,
+    leaderProfile,
     superviseOptions,
-    allowedModels,
     runSupervised,
   } satisfies SupervisedKnowledgeUpdateOptions)
 

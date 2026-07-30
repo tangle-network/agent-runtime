@@ -40,7 +40,7 @@ describe('resolveSandboxClient', () => {
   it("backend 'bridge' wires createExecutor with the bridge seam and default url", () => {
     const client = resolveSandboxClient({
       backend: 'bridge',
-      bridge: { bearer: 'sk-b', model: 'opencode/kimi', timeoutMs: 90_000 },
+      bridge: { bearer: 'sk-b', model: 'opencode/kimi', timeoutMs: 90_000, maxTurns: 4 },
     })
     expect(configOf(client)).toEqual({
       backend: 'bridge',
@@ -48,6 +48,7 @@ describe('resolveSandboxClient', () => {
       bridgeBearer: 'sk-b',
       model: 'opencode/kimi',
       timeoutMs: 90_000,
+      maxTurns: 4,
     })
     expect(inlineSandboxClient).toHaveBeenCalledOnce()
   })
@@ -55,14 +56,22 @@ describe('resolveSandboxClient', () => {
   it("backend 'bridge' honors an explicit bridge.url", () => {
     const client = resolveSandboxClient({
       backend: 'bridge',
-      bridge: { url: 'http://bridge.local:9000', bearer: 'sk-b', model: 'claude-code/sonnet' },
+      bridge: {
+        url: 'http://bridge.local:9000',
+        bearer: 'sk-b',
+        model: 'claude-code/sonnet',
+        maxTurns: 4,
+      },
     })
     expect((configOf(client) as { bridgeUrl: string }).bridgeUrl).toBe('http://bridge.local:9000')
   })
 
   it("backend 'bridge' fails loud without bearer or model", () => {
     expect(() =>
-      resolveSandboxClient({ backend: 'bridge', bridge: { bearer: '', model: 'x' } }),
+      resolveSandboxClient({
+        backend: 'bridge',
+        bridge: { bearer: '', model: 'x', maxTurns: 4 },
+      }),
     ).toThrow(/bridge\.bearer and bridge\.model/)
     expect(() => resolveSandboxClient({ backend: 'bridge' })).toThrow(
       /bridge\.bearer and bridge\.model/,

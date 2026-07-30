@@ -30,6 +30,7 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import type { LocalHarness } from '../../mcp/local-harness'
@@ -172,13 +173,12 @@ export interface CliWorktreeSeam {
 export interface CliWorktreeBridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
-  /** Bridge model/harness id. Defaults to the profile's model hint when omitted. */
+  /** Explicit bridge model/harness override. The effective profile supplies it when omitted. */
   model?: string
-  agentProfile?: Record<string, unknown>
   timeoutMs?: number
   /** Stable cli-bridge session id. Defaults to `bridge-worktree-${runId}`. */
   sessionId?: string
-  maxTurns?: number
+  maxTurns: number
 }
 
 /**
@@ -198,17 +198,16 @@ export interface CliWorktreeBridgeSeam {
 export interface BridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
-  model: string
+  /** Explicit bridge model/harness override. The effective profile supplies it when omitted. */
+  model?: string
   /** Optional working directory forwarded to cli-bridge and persisted with the session. */
   cwd?: string
-  agentProfile?: Record<string, unknown>
   timeoutMs?: number
   /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
    *  to a freshly minted per-spawn id so each worker is its own resumable session. */
   sessionId?: string
-  /** Per-resume-turn inference cap before the worker settles on its last output.
-   *  Mirrors `routerToolsInlineExecutor.maxTurns`; default 200 (runaway backstop). */
-  maxTurns?: number
+  /** Per-resume-turn inference cap before the worker settles on its last output. */
+  maxTurns: number
 }
 
 /** Generic environment provider executor config. External packages implement
@@ -351,9 +350,7 @@ export interface RouterToolsSeam {
     endedAt?: number
     durationMs?: number
   }) => void
-  /** Max inference turns. Default 200 (runaway backstop — set far above any
-   *  legitimate workflow). For tighter per-workflow limits use a cost budget
-   *  or wall-clock deadline at the call site. */
+  /** Explicit upper bound on inference turns. */
   maxTurns?: number
 }
 const routerToolsSeamKey = 'router-tools'
@@ -385,7 +382,12 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
       'routerToolsInlineExecutor: RouterToolsSeam.routerBaseUrl + routerKey required',
     )
   }
-  const maxTurns = seam.maxTurns ?? 200
+  if (typeof seam.maxTurns !== 'number' || !Number.isInteger(seam.maxTurns) || seam.maxTurns <= 0) {
+    throw new ValidationError(
+      'routerToolsInlineExecutor: RouterToolsSeam.maxTurns must be a positive integer',
+    )
+  }
+  const maxTurns = seam.maxTurns
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -946,6 +948,14 @@ function bridgeCellModel(seamModel: string, ctx: ExecutorContext): string {
   return m.startsWith(`${h}/`) ? m : `${h}/${m}`
 }
 
+function bridgeModelFromProfile(profile: AgentProfile): string | undefined {
+  const model = profile.model?.default
+  if (!model) return undefined
+  const harness = profile.harness
+  if (!harness || model.startsWith(`${harness}/`)) return model
+  return `${harness}/${model}`
+}
+
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
   // A per-create `backend` override (threaded by `inlineSandboxClient` as
@@ -954,16 +964,24 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // the wire id is `${harness}/${model}` (an already-`${harness}/`-prefixed model
   // passes through). This is how ONE bridge `SandboxClient` drives every
   // harness×model cell of a matrix — the seam `model` is the fixed default.
-  const seam = { ...base, model: bridgeCellModel(base.model, ctx) }
+  const authoredModel = bridgeModelFromProfile(spec.profile)
+  const selectedModel = base.model ?? authoredModel
+  if (!selectedModel) {
+    throw new ValidationError('bridgeExecutor: provide BridgeSeam.model or profile.model.default')
+  }
+  const seam = { ...base, model: bridgeCellModel(selectedModel, ctx) }
   if (!seam.bridgeUrl || !seam.bridgeBearer || !seam.model) {
     throw new ValidationError(
       'bridgeExecutor: BridgeSeam.bridgeUrl + bridgeBearer + model required',
     )
   }
-  const maxTurns = seam.maxTurns ?? 200
+  if (!Number.isInteger(seam.maxTurns) || seam.maxTurns <= 0) {
+    throw new ValidationError('bridgeExecutor: BridgeSeam.maxTurns must be a positive integer')
+  }
+  const maxTurns = seam.maxTurns
   // A stable per-spawn session id (caller can pin one) — cli-bridge keys harness
   // resume off this exactly as a box id keys a sandbox session.
-  const sessionId = seam.sessionId ?? `bridge-${spec.profile.name ?? 'worker'}-${randomUUID()}`
+  const sessionId = seam.sessionId ?? ctx.nodeId
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -987,6 +1005,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         seam,
         sessionId,
         maxTurns,
+        nodeId: ctx.nodeId,
         inbox,
         controller,
         onArtifact: (a) => {
@@ -1014,6 +1033,7 @@ interface StreamBridgeArgs {
   seam: BridgeSeam
   sessionId: string
   maxTurns: number
+  nodeId: string
   inbox: Inbox
   controller: AbortController
   onArtifact: (a: ExecutorResult<unknown>) => void
@@ -1082,8 +1102,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
           model: seam.model,
           stream: true,
           session_id: args.sessionId,
+          run_id: `${args.nodeId}:turn:${t}`,
           ...(seam.cwd ? { cwd: seam.cwd } : {}),
-          ...(seam.agentProfile ? { agent_profile: seam.agentProfile } : {}),
+          agent_profile: args.spec.profile,
           messages,
         },
         signal: turnController.signal,
@@ -1427,11 +1448,8 @@ function bridgeWorktreeExecutor(
             model: resolveBridgeWorktreeModel(spec, bridge),
             cwd: worktree.path,
             sessionId,
-            ...(bridge.agentProfile
-              ? { agentProfile: bridge.agentProfile }
-              : { agentProfile: spec.profile as unknown as Record<string, unknown> }),
             ...(bridge.timeoutMs !== undefined ? { timeoutMs: bridge.timeoutMs } : {}),
-            ...(bridge.maxTurns !== undefined ? { maxTurns: bridge.maxTurns } : {}),
+            maxTurns: bridge.maxTurns,
           }
           const bridgeCtx: ExecutorContext = {
             ...ctx,

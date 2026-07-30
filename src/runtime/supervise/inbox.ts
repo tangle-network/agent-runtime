@@ -17,17 +17,17 @@
  */
 
 export interface InboxMessage {
+  readonly messageId: string
   readonly kind: 'steer' | 'answer'
   readonly text: string
-  /** Forceful messages abort the in-flight turn; queued ones wait for the boundary flush. */
-  readonly interrupt: boolean
+  readonly deliveryMode: 'queued' | 'interrupt'
   /** Present for an `answer` — the question id it resolves. */
   readonly questionId?: string
 }
 
 export interface Inbox {
   /** The `Executor.deliver` implementation — accept a raw down-message from `Scope.send`. */
-  deliver(msg: unknown): void
+  deliver(msg: unknown): boolean
   /** Remove and return all pending messages (the flush). */
   drain(): InboxMessage[]
   pending(): number
@@ -41,13 +41,16 @@ export interface Inbox {
 function parseDown(msg: unknown): InboxMessage | undefined {
   if (!msg || typeof msg !== 'object') return undefined
   const m = msg as Record<string, unknown>
-  const interrupt = m.interrupt === true
-  if (typeof m.steer === 'string') return { kind: 'steer', text: m.steer, interrupt }
+  if (typeof m.messageId !== 'string' || m.messageId.length === 0) return undefined
+  if (m.deliveryMode !== 'queued' && m.deliveryMode !== 'interrupt') return undefined
+  const deliveryMode: InboxMessage['deliveryMode'] = m.deliveryMode
+  const base = { messageId: m.messageId, deliveryMode }
+  if (typeof m.steer === 'string') return { ...base, kind: 'steer', text: m.steer }
   if (typeof m.answer === 'string')
     return {
+      ...base,
       kind: 'answer',
       text: m.answer,
-      interrupt,
       ...(typeof m.questionId === 'string' ? { questionId: m.questionId } : {}),
     }
   return undefined
@@ -56,14 +59,18 @@ function parseDown(msg: unknown): InboxMessage | undefined {
 /** Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle. */
 export function createInbox(): Inbox {
   const pending: InboxMessage[] = []
+  const accepted = new Set<string>()
   let live: AbortController | null = null
   return {
     deliver(msg) {
       const m = parseDown(msg)
-      if (!m) return
+      if (!m) return false
+      if (accepted.has(m.messageId)) return true
+      accepted.add(m.messageId)
       pending.push(m)
       // A forceful message aborts the turn currently in flight (if any).
-      if (m.interrupt && live && !live.signal.aborted) live.abort()
+      if (m.deliveryMode === 'interrupt' && live && !live.signal.aborted) live.abort()
+      return true
     },
     drain() {
       return pending.splice(0, pending.length)
@@ -74,12 +81,10 @@ export function createInbox(): Inbox {
       return live.signal
     },
     fold(messages) {
-      const lines = messages.map((m) => {
-        if (m.kind === 'answer')
-          return `- Answer to your question${m.questionId ? ` (${m.questionId})` : ''}: ${m.text}`
-        return `- New instruction from your supervisor: ${m.text}`
+      return JSON.stringify({
+        type: 'agent-runtime.down-messages',
+        messages,
       })
-      return `[SUPERVISOR] Out-of-band message(s) — address these before continuing:\n${lines.join('\n')}`
     },
   }
 }

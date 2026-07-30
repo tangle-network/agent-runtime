@@ -11,13 +11,26 @@ import type { UsageEvent } from './types'
  *  test are byte-level wire artifacts, so the test speaks real HTTP. */
 async function startBridgeStub(
   body: string,
-  opts: { status?: number; contentType?: string } = {},
+  opts: {
+    status?: number
+    contentType?: string
+    onRequest?: (body: Record<string, unknown>) => void
+  } = {},
 ): Promise<{ url: string; server: Server }> {
-  const server = createServer((_req, res) => {
-    res.writeHead(opts.status ?? 200, {
-      'content-type': opts.contentType ?? 'text/event-stream',
+  const server = createServer((req, res) => {
+    let requestBody = ''
+    req.on('data', (chunk) => {
+      requestBody += String(chunk)
     })
-    res.end(body)
+    req.on('end', () => {
+      if (opts.onRequest) {
+        opts.onRequest(JSON.parse(requestBody) as Record<string, unknown>)
+      }
+      res.writeHead(opts.status ?? 200, {
+        'content-type': opts.contentType ?? 'text/event-stream',
+      })
+      res.end(body)
+    })
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const { port } = server.address() as AddressInfo
@@ -29,8 +42,16 @@ function makeExecutor(bridgeUrl: string) {
   return bridgeExecutor(
     { profile, harness: null },
     {
+      nodeId: 'bridge-executor-test',
       signal: new AbortController().signal,
-      seams: { bridge: { bridgeUrl, bridgeBearer: 'test-bearer', model: 'kimi-k2' } },
+      seams: {
+        bridge: {
+          bridgeUrl,
+          bridgeBearer: 'test-bearer',
+          model: 'kimi-k2',
+          maxTurns: 1,
+        },
+      },
     },
   )
 }
@@ -126,5 +147,53 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const artifact = executor.resultArtifact()
     expect(artifact.out).toMatchObject({ content: 'first second third' })
     expect(normalized).toEqual({ ...artifact.spent, ms: 0 })
+  })
+
+  it('sends the exact effective profile and deterministic node identity', async () => {
+    let requestBody: Record<string, unknown> | undefined
+    const stub = await startBridgeStub(
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'done' } }] })}\n\ndata: [DONE]\n\n`,
+      {
+        onRequest: (body) => {
+          requestBody = body
+        },
+      },
+    )
+    server = stub.server
+    const profile: AgentProfile = {
+      harness: 'claude-code',
+      model: { default: 'sonnet' },
+      mcp: {
+        coordination: {
+          transport: 'http',
+          url: 'http://127.0.0.1:4444/mcp',
+        },
+      },
+    }
+    const executor = bridgeExecutor(
+      { profile },
+      {
+        nodeId: 'tree:s3',
+        signal: new AbortController().signal,
+        seams: {
+          bridge: {
+            bridgeUrl: stub.url,
+            bridgeBearer: 'test-bearer',
+            maxTurns: 1,
+          },
+        },
+      },
+    )
+
+    await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(requestBody).toMatchObject({
+      model: 'claude-code/sonnet',
+      session_id: 'tree:s3',
+      run_id: 'tree:s3:turn:0',
+      agent_profile: profile,
+    })
   })
 })

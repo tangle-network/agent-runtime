@@ -32,6 +32,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import {
   type AgentProfile,
+  type AgentProfileConfigValue,
   type AgentProfileSecurityPolicy,
   validateAgentProfileSecurity,
 } from '@tangle-network/agent-interface'
@@ -370,12 +371,34 @@ export async function materializeLocalMcp(
             `materializeLocalMcp: profile.mcp['${key}']`,
           )
         : undefined
+      const args = server.args
+        ? await Promise.all(
+            server.args.map((value, index) =>
+              resolveProfileConfigValue(
+                value,
+                opts.keys,
+                `materializeLocalMcp: profile.mcp['${key}'].args[${index}]`,
+              ),
+            ),
+          )
+        : undefined
+      const publicEnv: Record<string, string> = {}
+      const protectedEnv: Record<string, string> = { ...(provisioned ?? {}) }
+      for (const [name, value] of Object.entries(server.env ?? {})) {
+        const resolved = await resolveProfileConfigValue(
+          value,
+          opts.keys,
+          `materializeLocalMcp: profile.mcp['${key}'].env['${name}']`,
+        )
+        if (value.kind === 'public') publicEnv[name] = resolved
+        else protectedEnv[name] = resolved
+      }
       const conn = await connectStdioMcp({
         command: server.command,
-        ...(server.args ? { args: server.args } : {}),
+        ...(args ? { args } : {}),
         ...(server.cwd ? { cwd: server.cwd } : {}),
-        ...(server.env ? { env: server.env } : {}),
-        ...(provisioned ? { protectedEnv: provisioned } : {}),
+        ...(Object.keys(publicEnv).length > 0 ? { env: publicEnv } : {}),
+        ...(Object.keys(protectedEnv).length > 0 ? { protectedEnv } : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       })
       connections.push(conn)
@@ -416,4 +439,17 @@ export async function materializeLocalMcp(
     },
     close,
   }
+}
+
+async function resolveProfileConfigValue(
+  value: AgentProfileConfigValue,
+  keys: KeyProvider | undefined,
+  label: string,
+): Promise<string> {
+  if (value.kind === 'public') return value.value
+  const resolved = await keys?.get(value.key)
+  if (resolved === undefined || resolved.trim().length === 0) {
+    throw new ValidationError(`${label}: no value is available for secret reference '${value.key}'`)
+  }
+  return value.format === 'bearer' ? `Bearer ${resolved}` : resolved
 }

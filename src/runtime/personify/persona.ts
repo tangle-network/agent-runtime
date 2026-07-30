@@ -246,5 +246,5 @@ function mergeSeams(
   ctx: ExecutorContext,
   seams: Readonly<Record<string, unknown>>,
 ): ExecutorContext {
-  return { signal: ctx.signal, seams: { ...seams, ...ctx.seams } }
+  return { nodeId: ctx.nodeId, signal: ctx.signal, seams: { ...seams, ...ctx.seams } }
 }

@@ -14,7 +14,7 @@
  *               absolute `timeoutAtMs` passes (CI status, file existence, an HTTP probe, an
  *               inbox message).
  *
- * ── How this differs from `await_event`'s 15s poll fence (`DEFAULT_AWAIT_EVENT_TIMEOUT_MS`) ──
+ * ── How this differs from `await_event`'s caller-supplied poll fence ──
  *
  * They look similar and are not the same mechanism. `await_event` is an IN-RUN RENDEZVOUS: the
  * driver blocks on the coordination bus for the next event from a live worker, and the 15s fence

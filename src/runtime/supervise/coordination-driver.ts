@@ -34,8 +34,8 @@ import {
   coordinationVerbNames,
   createCoordinationTools,
   type MakeWorkerAgent,
+  type ParentQuestionPort,
   type SettledWorker,
-  type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
 import {
@@ -61,7 +61,6 @@ import {
 } from './stop-rules'
 import type {
   Agent,
-  Budget,
   NodeSnapshot,
   ResultBlobStore,
   ResumedWork,
@@ -80,28 +79,21 @@ export interface DriverAgentOptions {
   readonly blobs: ResultBlobStore
   /** Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam). */
   readonly makeWorkerAgent: MakeWorkerAgent
-  /** Per-child budget reserved from the conserved pool on each spawn. */
-  readonly perWorker: Budget
   /** Independent completion check for work the driver performs itself. When present, the driver
    *  receives `submit_result`; the first passing submission ends the loop and becomes the output. */
-  readonly deliverable?: DeliverableSpec<unknown>
+  readonly deliverable: DeliverableSpec<unknown> | null
   /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
-  readonly maxLiveWorkers?: number
+  readonly maxLiveWorkers: number | null
   /** The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
    *  Unset → no analyst feed (status quo: the driver gets settled outputs, no findings). */
-  readonly analysts?: AnalystRegistry
-  /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
-   *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
-   *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
-  readonly analyzeOnSettle?: ReadonlyArray<string>
-  /** Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
-   *  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
-   *  Omit = no online watching. */
-  readonly watchWorkers?: WorkerWatchOptions
+  readonly analysts: AnalystRegistry | null
   /** Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
    *  killed). Omit = the runtime default. */
-  readonly stallAfterMs?: number
+  readonly stallAfterMs: number | null
+  readonly awaitTimeoutMs: number
+  readonly workerShutdown: number | 'brutalKill' | 'infinity'
+  readonly parentQuestionPort: ParentQuestionPort | null
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -127,7 +119,7 @@ export interface DriverAgentOptions {
   readonly maxTurns?: number
   /** Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
    *  deterministic in tests. Defaults to `Date.now`. */
-  readonly now?: () => number
+  readonly now: () => number
   /**
    * PROGRESS-derived stop (mechanic D). Today a run ends on a ceiling — iterations, tokens,
    * dollars, deadline, turn cap — which answers "may it continue?" and never "is it still getting
@@ -157,11 +149,11 @@ export interface DriverAgentOptions {
   readonly compaction?: ToolLoopCompactionOptions
   /** Pass-through subscriber for every coordination bus event (settled / question / finding /
    *  steer / answer) — what a durable caller hooks its coordination log onto. Omit = no observer. */
-  readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
+  readonly onEvent: ((event: CoordinationEvent) => void | Promise<void>) | null
   /** Questions + findings a durable coordination log replayed from a prior process of this run.
    *  Questions seed the ledger (`list_questions`, blocking-stop policy); both feed the resume
    *  brief. Omit = fresh (every run that is not a resume). */
-  readonly priorCoordination?: PriorCoordination
+  readonly priorCoordination: PriorCoordination | null
   /** How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
    *  highest-scoring DELIVERED child (the exact keep-best every existing caller had). Runs under
    *  the delivered-only invariant (`runFinalizer`): whatever the finalizer, an undelivered or
@@ -205,20 +197,6 @@ function formatRosterNode(node: NodeSnapshot, settled?: SettledWorker): string {
  *  and no healthy run approaches this. */
 const runawayTripwireTurns = 2000
 
-/** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight to
- *  await. A long-horizon driver bounded by the conserved pool stops here instead of spinning (the
- *  in-loop budget guard the turn cap alone never provided). Checks BOTH conserved channels: tokens
- *  (can't afford a worker) and usd (a usd-capped pool whose ceiling the driver's own metered
- *  inference has drained — `meter` debits usd, so without this a huge-token/small-usd pool would
- *  overspend usd up to the turn tripwire). */
-function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
-  const b = scope.budget
-  if (b.reservedTokens > 0) return false // a child is in flight — await it, don't finalize early
-  const tokenStarved = b.tokensLeft < perWorker.maxTokens
-  const usdStarved = b.usdCapped && b.usdLeft <= 0
-  return tokenStarved || usdStarved
-}
-
 /** The absolute wall-clock deadline (when the root set one) has passed. */
 function deadlinePassed(scope: Scope<unknown>, now: () => number): boolean {
   const b = scope.budget
@@ -239,7 +217,7 @@ function progressStop(
   coord: { settled(): ReadonlyArray<SettledWorker> },
   scope: Scope<unknown>,
   now: () => number,
-  stallAfterMs: number | undefined,
+  stallAfterMs: number | null,
 ): StopDecision {
   // Fold every settlement the coordination ledger has recorded. `record` is idempotent by worker
   // id, so pushing the whole roster each turn costs O(settled) and never double-counts. The
@@ -253,7 +231,9 @@ function progressStop(
       delivered: w.status === 'done' && w.valid === true,
     })
   }
-  return tracker.evaluate(rule, scope, stallAfterMs !== undefined ? { stallAfterMs } : undefined)
+  return tracker.evaluate(rule, scope, {
+    stallAfterMs: stallAfterMs === null ? Number.POSITIVE_INFINITY : stallAfterMs,
+  })
 }
 
 /**
@@ -269,13 +249,6 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   if ((opts.extraTools?.length ?? 0) > 0 && typeof opts.executeExtraTool !== 'function') {
     throw new ValidationError(
       'driverAgent: extraTools requires executeExtraTool (how to run a work-tool call)',
-    )
-  }
-  // Fail loud on a half-wired analyst seam (matches the extraTools pattern): analyze-on-settle with no
-  // lens registry is a silent no-op the house rules forbid — the driver would get no findings, no error.
-  if ((opts.analyzeOnSettle?.length ?? 0) > 0 && !opts.analysts) {
-    throw new ValidationError(
-      'driverAgent: analyzeOnSettle requires analysts (the lens registry the kinds resolve against)',
     )
   }
   // A work tool that shadows a coordination verb would leave the driver unable to coordinate.
@@ -301,7 +274,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   // deadline, the driver's own stop, and abort — all checked in-loop below. The tripwire is a
   // pure anti-runaway guard, NOT the intended limit.
   const maxTurns = opts.maxTurns === 0 ? runawayTripwireTurns : (opts.maxTurns ?? 16)
-  const now = opts.now ?? Date.now
+  const now = opts.now
 
   return {
     name: opts.name,
@@ -310,17 +283,15 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         scope,
         blobs: opts.blobs,
         makeWorkerAgent: opts.makeWorkerAgent,
-        perWorker: opts.perWorker,
-        ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-        ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
-        ...(opts.analysts ? { analysts: opts.analysts } : {}),
-        ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
-        ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
-        ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-        ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
-        ...(opts.priorCoordination?.questions.length
-          ? { priorQuestions: opts.priorCoordination.questions }
-          : {}),
+        workerShutdown: opts.workerShutdown,
+        maxLiveWorkers: opts.maxLiveWorkers,
+        awaitTimeoutMs: opts.awaitTimeoutMs,
+        analysts: opts.analysts,
+        stallAfterMs: opts.stallAfterMs,
+        onEvent: opts.onEvent ? (record) => opts.onEvent?.(record.event) : null,
+        parentQuestionPort: opts.parentQuestionPort,
+        priorRecords: opts.priorCoordination?.records ?? [],
+        now,
       })
       // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
       // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
@@ -446,7 +417,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           // findings, and the spend the run already paid — so it continues from the unresolved
           // work instead of re-planning (and re-paying) from scratch.
           ...(scope.resume
-            ? [{ role: 'user', content: resumeBrief(scope.resume, opts.priorCoordination) }]
+            ? [
+                {
+                  role: 'user',
+                  content: resumeBrief(scope.resume, opts.priorCoordination ?? undefined),
+                },
+              ]
             : []),
         ],
         maxTurns,
@@ -457,12 +433,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           stopBefore: () => {
             // HARD CEILINGS FIRST, and independently — a progress rule may never keep a run alive
             // past one, so they are not folded into the same expression.
-            if (
-              coord.isStopped() ||
-              scope.signal.aborted ||
-              poolStarved(scope, opts.perWorker) ||
-              deadlinePassed(scope, now)
-            ) {
+            if (scope.signal.aborted || deadlinePassed(scope, now)) {
               return true
             }
             if (!opts.stopRule || !tracker) return false
@@ -561,16 +532,12 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
       ...resume.waits.map((w) => `- ${w.label} (${w.spec.kind})`),
     )
   }
-  const openQuestions = (prior?.questions ?? []).filter(
-    (q) => q.status === 'open' || q.status === 'escalated',
-  )
+  const openQuestions = (prior?.questions ?? []).filter((q) => q.status === 'open')
   if (openQuestions.length > 0) {
     lines.push(
       '',
       'Questions carried over, still undecided (answer_question decides them; list_questions shows all):',
-      ...openQuestions.map(
-        (q) => `- [${q.id}] from=${q.from}, urgency=${q.urgency}: ${q.question}`,
-      ),
+      ...openQuestions.map((q) => `- [${q.id}] from=${q.from}: ${q.question}`),
     )
   }
   if ((prior?.findings.length ?? 0) > 0) {

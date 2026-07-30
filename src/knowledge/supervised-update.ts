@@ -1,24 +1,8 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { RagKnowledgeUpdateResult } from '@tangle-network/agent-knowledge'
-import { researcherProfile } from '../profiles/researcher'
 import type { DeliverableSpec } from '../runtime/supervise/completion-gate'
-import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
-import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
-import type { Budget, SupervisedResult } from '../runtime/supervise/types'
-
-/** Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. */
-export const RESEARCH_SUPERVISOR_SYSTEM_PROMPT = [
-  'You are a research supervisor. You do not answer the research question yourself.',
-  'You create and manage researcher workers that improve one shared knowledge base until it is ready.',
-  '',
-  'Each round:',
-  '1. Read the goal and the gaps the readiness check still reports.',
-  '2. Decompose the open work into independent sub-topics.',
-  '3. Spawn one researcher per sub-topic; split by sub-topic, never duplicate work.',
-  '4. Wait for researchers to settle, steer or re-spawn thin sub-topics, then stop when the check passes.',
-  '',
-  'Conserve the shared budget. Prefer a small number of well-scoped researchers over a large fanout that re-covers the same ground.',
-].join('\n')
+import type { SupervisedResult } from '../runtime/supervise/types'
 
 export interface KnowledgeReadinessCheckInput {
   root: string
@@ -64,21 +48,11 @@ export interface SupervisedKnowledgeUpdateOptions {
   readinessOptions?: unknown
   findings?: readonly unknown[]
   metadata?: Record<string, unknown>
-  budget: Budget
-  backend?: ExecutorConfig
-  makeWorkerAgent?: SuperviseOptions['makeWorkerAgent']
-  harness?: string
-  supervisorModel?: string
-  supervisorSystemPrompt?: string
-  superviseOptions?: Partial<
-    Omit<
-      SuperviseOptions,
-      'budget' | 'backend' | 'deliverable' | 'makeWorkerAgent' | 'allowedModels'
-    >
-  >
-  allowedModels?: readonly string[]
+  leaderProfile: AgentProfile
+  /** Complete runtime policy. */
+  superviseOptions: SuperviseOptions
   runSupervised?: (
-    profile: SupervisorProfile,
+    profile: AgentProfile,
     task: unknown,
     opts: SuperviseOptions,
   ) => Promise<SupervisedResult<unknown>>
@@ -128,28 +102,9 @@ export function createSupervisedKnowledgeUpdater(
 export async function runSupervisedKnowledgeUpdate(
   options: SupervisedKnowledgeUpdateOptions,
 ): Promise<SupervisedKnowledgeUpdateResult> {
-  const { profile: workerProfile } = researcherProfile({ harness: options.harness })
-  const baseInstructions = options.supervisorSystemPrompt ?? RESEARCH_SUPERVISOR_SYSTEM_PROMPT
-  const workerContract = workerProfile.prompt?.systemPrompt
-  const systemPrompt = workerContract
-    ? `${baseInstructions}\n\nEach researcher worker you spawn follows this contract:\n${workerContract}`
-    : baseInstructions
-
-  const profile: SupervisorProfile = {
-    name: 'knowledge-research-supervisor',
-    model: options.supervisorModel,
-    systemPrompt,
-  }
   const run = options.runSupervised ?? supervise
   const task = formatSupervisedKnowledgeTask(options)
-  const supervised = await run(profile, task, {
-    ...options.superviseOptions,
-    budget: options.budget,
-    backend: options.backend,
-    deliverable: knowledgeReadinessDeliverable(options),
-    makeWorkerAgent: options.makeWorkerAgent,
-    allowedModels: options.allowedModels,
-  })
+  const supervised = await run(options.leaderProfile, task, options.superviseOptions)
   return {
     applied: supervised.kind === 'winner',
     summary:

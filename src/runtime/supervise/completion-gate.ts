@@ -67,6 +67,7 @@ export function gateOnDeliverable<Out>(
     runtime: inner.runtime,
     ...(inner.budgetExempt !== undefined ? { budgetExempt: inner.budgetExempt } : {}),
     ...(inner.deliver ? { deliver: (m: unknown) => inner.deliver?.(m) } : {}),
+    ...(inner.canDeliver ? { canDeliver: () => inner.canDeliver?.() ?? false } : {}),
     // Forward the OPTIONAL live-observation surfaces so a gated worker stays supervisable
     // mid-flight. The scope captures `progress`/`traceSource` at spawn and only if the executor
     // exposes them; a gate that drops them makes `observe_agent` read `recentActivity:[]` and

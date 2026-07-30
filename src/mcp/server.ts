@@ -29,7 +29,6 @@ import { DelegationTaskQueue } from './task-queue'
 import { createStdioToolServer } from './tool-server'
 import {
   createDelegateHandler,
-  DELEGATE_DESCRIPTION,
   DELEGATE_INPUT_SCHEMA,
   DELEGATE_TOOL_NAME,
   type DelegateHandlerOptions,
@@ -139,7 +138,7 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
   if (options.delegateSupervisor) {
     tools.set(DELEGATE_TOOL_NAME, {
       name: DELEGATE_TOOL_NAME,
-      description: DELEGATE_DESCRIPTION,
+      description: options.delegateSupervisor.description,
       inputSchema: DELEGATE_INPUT_SCHEMA as unknown as Record<string, unknown>,
       handler: createDelegateHandler(options.delegateSupervisor),
     })

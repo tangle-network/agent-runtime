@@ -75,13 +75,22 @@ export function runTree(scope: Pick<Scope<unknown>, 'view' | 'resume'>): TreeVie
   return { ...live, nodes: [...carried, ...live.nodes] }
 }
 
-/** The single argmax both the default finalizer and `finalizeBestDelivered` share: highest
- *  score wins, missing scores count 0, ties keep the earliest ledger entry. */
+/** The single argmax both built-in finalizers share. Ranking requires measured scores; an unknown
+ * score is not silently converted into a zero. */
 export function pickBestDelivered<T extends { readonly score?: number }>(
   delivered: ReadonlyArray<T>,
 ): T | undefined {
   let best: T | undefined
-  for (const w of delivered) if (best === undefined || (w.score ?? 0) > (best.score ?? 0)) best = w
+  for (const candidate of delivered) {
+    if (best === undefined) {
+      best = candidate
+      continue
+    }
+    if (candidate.score === undefined || best.score === undefined) {
+      throw new ValidationError('finalizer: cannot rank delivered outputs with an unknown score')
+    }
+    if (candidate.score > best.score) best = candidate
+  }
   return best
 }
 
@@ -100,7 +109,12 @@ export const bestDelivered: SupervisorFinalizer = (ctx) => pickBestDelivered(ctx
 export const collectDelivered: SupervisorFinalizer = (ctx) => {
   const seen = new Set<string>()
   const distinct = [...ctx.delivered]
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .sort((a, b) => {
+      if (a.score === undefined || b.score === undefined) {
+        throw new ValidationError('finalizer: cannot rank delivered outputs with an unknown score')
+      }
+      return b.score - a.score
+    })
     .filter((w) => {
       if (w.outRef === undefined || seen.has(w.outRef)) return false
       seen.add(w.outRef)

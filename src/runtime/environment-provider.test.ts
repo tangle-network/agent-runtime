@@ -524,7 +524,11 @@ describe('environment provider adapters', () => {
     }
     const factory = providerAsExecutor(provider)
     const spec: AgentSpec = { profile: { name: 'worker' } as AgentProfile, harness: null }
-    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const ctx: ExecutorContext = {
+      nodeId: 'environment-provider-test',
+      signal: new AbortController().signal,
+      seams: {},
+    }
     const executor = factory(spec, ctx)
 
     const usage = await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
@@ -557,7 +561,11 @@ describe('environment provider adapters', () => {
     }
     const factory = createExecutor({ backend: 'provider', provider })
     const spec: AgentSpec = { profile: { name: 'worker' } as AgentProfile, harness: null }
-    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const ctx: ExecutorContext = {
+      nodeId: 'environment-provider-test',
+      signal: new AbortController().signal,
+      seams: {},
+    }
     const executor = factory(spec, ctx)
 
     await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
@@ -590,7 +598,11 @@ describe('environment provider adapters', () => {
       },
     })
     const spec: AgentSpec = { profile: { name: 'worker' } as AgentProfile, harness: null }
-    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const ctx: ExecutorContext = {
+      nodeId: 'environment-provider-test',
+      signal: new AbortController().signal,
+      seams: {},
+    }
     const executor = factory(spec, ctx)
 
     await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)

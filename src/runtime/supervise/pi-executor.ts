@@ -36,7 +36,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { ValidationError } from '../../errors'
 import { abortError, throwIfAborted } from '../util'
-import { createInbox, type Inbox, type InboxMessage } from './inbox'
+import { createInbox, type Inbox } from './inbox'
 import { type ActivityLog, createActivityLog, type ExecutorProgress } from './progress'
 import { createPushTraceSource, type ToolStepInput, type TraceSource } from './trace-source'
 import type {
@@ -392,21 +392,14 @@ function forwardPending(
 ): void {
   const pending = inbox.drain()
   for (const m of pending) {
-    sendPrompt(renderOne(m), m.interrupt ? 'steer' : 'followUp')
+    sendPrompt(inbox.fold([m]), m.deliveryMode === 'interrupt' ? 'steer' : 'followUp')
     activity.push({
       at: Date.now(),
       kind: 'note',
-      label: m.interrupt ? 'steer' : 'follow-up',
+      label: m.deliveryMode === 'interrupt' ? 'steer' : 'follow-up',
       detail: m.text.length > 80 ? `${m.text.slice(0, 77)}...` : m.text,
     })
   }
-}
-
-function renderOne(m: InboxMessage): string {
-  if (m.kind === 'answer') {
-    return `Answer to your question${m.questionId ? ` (${m.questionId})` : ''}: ${m.text}`
-  }
-  return `New instruction from your supervisor: ${m.text}`
 }
 
 /** Project one pi event onto usage events, updating turn count / activity / trace as a side

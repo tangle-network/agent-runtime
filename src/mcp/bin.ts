@@ -39,32 +39,14 @@
  * @experimental
  */
 
-import type { SandboxClient } from '../runtime'
 import { delegateEnabled, resolveDelegateSupervisor } from './delegate-supervisor-provisioning'
 import { FileDelegationStore } from './delegation-store'
 import { createMcpServer } from './server'
 import { DelegationTaskQueue } from './task-queue'
 import { readTraceContextFromEnv, type TraceContext } from './trace-propagation'
 
-const DEFAULT_SANDBOX_BASE_URL = 'https://sandbox.tangle.tools'
-
 async function main(): Promise<void> {
   const wantDelegate = delegateEnabled(process.env)
-
-  // The generic `delegate` verb needs the sandbox client: its authored workers run as sub-sandboxes
-  // (the `sandbox` backend). When `delegate` is not opted in, the server runs the queue-only subset
-  // (feedback + status + history) with no sandbox.
-  let sandboxClient: SandboxClient | undefined
-  if (wantDelegate) {
-    const apiKey = process.env.TANGLE_API_KEY
-    if (!apiKey && !process.env.AGENT_RUNTIME_MCP_ALLOW_NO_KEY) {
-      process.stderr.write(
-        'agent-runtime-mcp: TANGLE_API_KEY is required to serve `delegate`. Set AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 to run without it for diagnostics, or unset MCP_ENABLE_DELEGATE to run the queue-only subset.\n',
-      )
-      process.exit(2)
-    }
-    sandboxClient = await loadSandboxClient(apiKey)
-  }
 
   // The supervisor's loop topology spans export to the OTLP / Tangle Intelligence sink when
   // OTEL_EXPORTER_OTLP_ENDPOINT is set (+ TRACE_ID / PARENT_SPAN_ID for correlation). The same
@@ -81,8 +63,7 @@ async function main(): Promise<void> {
   // runs the brain on the router and spawns authored workers as sub-sandboxes through the SAME
   // client, so it needs the loaded `sandboxClient`. Gated on the client resolving (no key → no
   // delegate, fail-closed).
-  const delegateSupervisor =
-    wantDelegate && sandboxClient ? resolveDelegateSupervisor(sandboxClient) : undefined
+  const delegateSupervisor = wantDelegate ? resolveDelegateSupervisor(undefined) : undefined
   if (wantDelegate && delegateSupervisor) {
     process.stderr.write('agent-runtime-mcp: delegate enabled — generic authoring supervisor\n')
   }
@@ -149,43 +130,6 @@ function parseRetention(raw: string | undefined): number | undefined {
     process.exit(2)
   }
   return n
-}
-
-async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxClient> {
-  // Diagnostic mode: AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 enables tools/list + the
-  // queue-bound tools (status / history / feedback) without sandbox creds.
-  // `delegate` requires a real client; the stub fails loud at create() so the
-  // agent observes the cause instead of silent success.
-  if (!apiKey) {
-    return {
-      async create() {
-        throw new Error(
-          'agent-runtime-mcp: TANGLE_API_KEY is unset; `delegate` is disabled in diagnostic mode. Set TANGLE_API_KEY or unset MCP_ENABLE_DELEGATE to remove the unsupported tool from the tool list.',
-        )
-      },
-    } satisfies SandboxClient
-  }
-  // Dynamic import keeps the bin importable in environments that haven't
-  // installed `@tangle-network/sandbox` yet (the runtime package lists it
-  // as a peer dep, not a hard dep).
-  const mod = await import('@tangle-network/sandbox').catch((err) => {
-    process.stderr.write(
-      `agent-runtime-mcp: failed to load @tangle-network/sandbox (${err.message}); install the peer dependency\n`,
-    )
-    process.exit(2)
-  })
-  const SandboxCtor = (mod as { Sandbox?: new (config: unknown) => SandboxClient }).Sandbox
-  if (!SandboxCtor) {
-    process.stderr.write(
-      'agent-runtime-mcp: @tangle-network/sandbox does not export Sandbox; cannot construct client\n',
-    )
-    process.exit(2)
-  }
-  // @tangle-network/sandbox ≥0.6 makes baseUrl required; default it so the MCP server
-  // starts without forcing every caller to set SANDBOX_BASE_URL. Treat empty/whitespace as
-  // unset (|| not ??) so `SANDBOX_BASE_URL=` still resolves to the default.
-  const baseUrl = process.env.SANDBOX_BASE_URL?.trim() || DEFAULT_SANDBOX_BASE_URL
-  return new SandboxCtor({ apiKey, baseUrl })
 }
 
 main().catch((err) => {

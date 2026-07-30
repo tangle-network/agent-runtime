@@ -259,6 +259,15 @@ export function iterationsToTraceStore<Task, Output>(
   }
 
   return {
+    async hasTrace(trace_id): Promise<boolean> {
+      return byId.has(trace_id)
+    },
+
+    async hasSpans(input): Promise<string[]> {
+      const spans = new Set((byId.get(input.trace_id)?.spans ?? []).map((span) => span.span_id))
+      return input.span_ids.filter((spanId) => spans.has(spanId))
+    },
+
     async getOverview(filters?: TraceAnalystFilters): Promise<DatasetOverview> {
       const set = traces.filter((t) => matchesFilters(t, filters))
       const services = new Set<string>()
@@ -346,6 +355,8 @@ export function iterationsToTraceStore<Task, Output>(
         trace_id: opts.trace_id,
         spans,
         missing_span_ids: opts.span_ids.filter((id) => !foundIds.has(id)),
+        omitted_span_ids: [],
+        has_more: false,
         truncated_attribute_count: truncated,
       }
     },
@@ -363,7 +374,6 @@ export function iterationsToTraceStore<Task, Output>(
       return {
         trace_id: opts.trace_id,
         hits,
-        total_matches: hits.length,
         has_more: hits.length >= max,
       }
     },
@@ -379,7 +389,6 @@ export function iterationsToTraceStore<Task, Output>(
         trace_id: opts.trace_id,
         span_id: opts.span_id,
         hits,
-        total_matches: hits.length,
         has_more: false,
       }
     },

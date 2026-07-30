@@ -165,7 +165,9 @@ interface LiveChild {
   /** True once `next()` has yielded this child's settlement. */
   delivered: boolean
   /** The executor's out-of-band inbox, captured at spawn — backs `scope.send`. */
-  readonly deliver?: (msg: unknown) => void
+  readonly deliver?: (msg: unknown) => void | boolean
+  /** Dynamic inbox availability, captured from the executor when present. */
+  readonly canDeliver?: () => boolean
   /** The executor's optional live progress read, captured at spawn — backs `scope.progress`. */
   readonly readProgress?: () => ExecutorProgress | undefined
   /** The executor's optional live tool trace, captured at spawn — backs `scope.traceSource`. */
@@ -399,6 +401,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // The mounted nested scope re-seeds the SAME bag for ITS children, so the recursion
       // composes — a driver child of a driver child mounts one level deeper still.
       const ctx: ExecutorContext = {
+        nodeId: id,
         signal: childAbort.signal,
         seams: { ...args.seams, [nestedScopeSeamKey]: makeNestedScopeSeam(args, id) },
       }
@@ -429,6 +432,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         startedAt: now(),
         lastActivityAt: now(),
         ...(executor.deliver ? { deliver: executor.deliver.bind(executor) } : {}),
+        ...(executor.canDeliver ? { canDeliver: executor.canDeliver.bind(executor) } : {}),
         ...(executor.progress ? { readProgress: executor.progress.bind(executor) } : {}),
         ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
       }
@@ -549,8 +553,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     const child = children.get(nodeId)
     // Deliver only to a child that is still LIVE (not yet yielded by the cursor) and whose executor
     // accepts an inbox. A settled/unknown child, or a leaf with no `deliver`, cannot be steered.
-    if (!child || child.delivered || !child.deliver) return false
-    child.deliver(msg)
+    if (!child || child.delivered || !child.deliver || child.canDeliver?.() === false) return false
+    if (child.deliver(msg) === false) return false
     // A delivered steer IS activity: it resets the idle clock so a worker that was about to read
     // as stalled is not immediately re-steered before it can act on the message it just got.
     child.lastActivityAt = now()

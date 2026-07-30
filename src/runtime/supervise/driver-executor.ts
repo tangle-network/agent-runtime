@@ -38,13 +38,12 @@
  * @experimental
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { type NestedScopeSeam, nestedScopeSeamKey } from './scope'
 import type {
   Agent,
   AgentSpec,
-  DefaultVerdict,
   ExecutorContext,
   ExecutorFactory,
   ExecutorRegistry,
@@ -78,10 +77,7 @@ export function driverChild<Out>(
 ): Agent<unknown, Out> {
   const profile: AgentProfile =
     typeof profileOrName === 'string' ? { name: profileOrName } : profileOrName
-  if (typeof profile.name !== 'string' || profile.name.trim().length === 0) {
-    throw new ValidationError('driverChild: profile.name is required')
-  }
-  const name = profile.name
+  const name = canonicalAgentProfileDigest(profile)
   const spec: DriverSpec = {
     profile,
     driver: driver as Agent<unknown, unknown>,
@@ -90,6 +86,12 @@ export function driverChild<Out>(
   return {
     name,
     executorSpec: spec,
+    ...(driver.deliver
+      ? { deliver: (message: unknown) => driver.deliver?.(message) ?? false }
+      : {}),
+    ...(driver.canDeliver ? { canDeliver: () => driver.canDeliver?.() ?? false } : {}),
+    ...(driver.progress ? { progress: () => driver.progress?.() } : {}),
+    ...(driver.traceSource ? { traceSource: () => driver.traceSource?.() } : {}),
     act(): Promise<Out> {
       throw new ValidationError(
         `driverChild: "${name}" was run directly; a driver child runs through its nested-scope executor`,
@@ -139,6 +141,12 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
 
   return {
     runtime: driverRuntime,
+    ...(driver.deliver
+      ? { deliver: (message: unknown) => driver.deliver?.(message) ?? false }
+      : {}),
+    ...(driver.canDeliver ? { canDeliver: () => driver.canDeliver?.() ?? false } : {}),
+    ...(driver.progress ? { progress: () => driver.progress?.() } : {}),
+    ...(driver.traceSource ? { traceSource: () => driver.traceSource?.() } : {}),
     async execute(task, signal): Promise<ExecutorResult<unknown>> {
       // The spawned node is the nested coordinator's exact, restart-stable identity.
       const nestedRoot = seam.childNodeId
@@ -159,12 +167,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
         const events = await loadTreeEvents(journal, nestedRoot)
         const settled = events.filter(isSettled)
         meteredSpend = nonZeroOrUndef(sumMetered(events))
-        // Completion-oracle propagation: a driver "delivered" iff at least one of its DIRECT
-        // children settled `valid` (the child its keep-best finalize returns). Deriving the
-        // driver child's verdict this way composes delivery UP the recursion — a sub-driver is
-        // `valid` only when it itself selected a delivered child — so a node never settles
-        // "done = delivered" on a sub-tree that delivered nothing (Foreman's 0/18 lesson).
-        const verdict = driver.resultVerdict?.() ?? deriveDeliveryVerdict(settled)
+        const verdict = driver.resultVerdict?.()
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
           out,
@@ -290,39 +293,6 @@ async function safeSumMetered(
     return nonZeroOrUndef(sumMetered(await loadTreeEvents(journal, nestedRoot)))
   } catch {
     return undefined
-  }
-}
-
-/** Derive the driver child's delivery verdict from its DIRECT children's settlements:
- *  `valid` iff any direct child settled `done` AND `valid` (the keep-best finalize's pick);
- *  `score` = the best delivered score. Returns `undefined` when no child settled at all (the
- *  driver itself produced nothing to bubble a verdict from). Fail-closed: a child whose verdict
- *  carried no `valid` counts as not-delivered. */
-function deriveDeliveryVerdict(
-  settled: ReadonlyArray<{ status: 'done' | 'down'; verdict?: DefaultVerdict }>,
-): DefaultVerdict | undefined {
-  let sawChild = false
-  let anyValid = false
-  let bestValidScore: number | undefined
-  let bestDoneScore: number | undefined
-  for (const ev of settled) {
-    sawChild = true
-    if (ev.status !== 'done') continue
-    const score = ev.verdict?.score
-    if (score !== undefined && (bestDoneScore === undefined || score > bestDoneScore)) {
-      bestDoneScore = score
-    }
-    if (ev.verdict?.valid === true) {
-      anyValid = true
-      if (score !== undefined && (bestValidScore === undefined || score > bestValidScore)) {
-        bestValidScore = score
-      }
-    }
-  }
-  if (!sawChild) return undefined
-  return {
-    valid: anyValid,
-    score: anyValid ? (bestValidScore ?? 1) : (bestDoneScore ?? 0),
   }
 }
 

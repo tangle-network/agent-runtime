@@ -40,11 +40,19 @@ export interface BusRecord<E extends BusEvent> {
 export interface PublishOptions {
   /** Higher = pulled ahead of lower-priority queued events (default 0). A blocking question sets
    *  this so it bumps to the front of the driver's inbox. */
-  readonly priority?: number
+  readonly priority: number
   /** Whether the event enters the pull queue (default true). Set `false` for record-only events —
    *  the parent→child down-leg (steer / answer / resume): they belong in `history()` and reach
    *  `subscribe` observers, but the parent must never `pull` its own outbound message back. */
-  readonly queue?: boolean
+  readonly queue: boolean
+}
+
+export interface CreateEventBusOptions<E extends BusEvent> {
+  readonly now: () => number
+  /** Exact stamped records from the same node in an earlier process. */
+  readonly priorRecords: ReadonlyArray<BusRecord<E>>
+  /** Prior records that should re-enter the pull lane, named by their original sequence. */
+  readonly queuedPriorSeqs: ReadonlyArray<number>
 }
 
 export interface BusStats {
@@ -57,7 +65,7 @@ export interface BusStats {
 export interface EventBus<E extends BusEvent> {
   /** Stamp + queue the event, then deliver the stamped record to every subscriber in order.
    *  Returns the stamped record. */
-  publish(event: E, opts?: PublishOptions): Promise<BusRecord<E>>
+  publish(event: E, opts: PublishOptions): Promise<BusRecord<E>>
   /** Remove and return the highest-priority QUEUED event whose type is in `kinds` (any if omitted),
    *  ties broken FIFO by `seq`; `undefined` when nothing matches. */
   pull(kinds?: ReadonlyArray<E['type']>): E | undefined
@@ -73,12 +81,18 @@ export interface EventBus<E extends BusEvent> {
 }
 
 /** Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane. */
-export function createEventBus<E extends BusEvent>(now: () => number = Date.now): EventBus<E> {
-  const queue: BusRecord<E>[] = []
-  const log: BusRecord<E>[] = []
+export function createEventBus<E extends BusEvent>(options: CreateEventBusOptions<E>): EventBus<E> {
+  const now = options.now
+  const log = snapshotRecords(options.priorRecords)
+  assertPriorRecords(log, options.queuedPriorSeqs)
+  const queued = new Set(options.queuedPriorSeqs)
+  const queue: BusRecord<E>[] = log.filter((record) => queued.has(record.seq))
   const subscribers: Array<(record: BusRecord<E>) => void | Promise<void>> = []
   const byKind: Record<string, number> = {}
-  let seq = 0
+  for (const record of log) {
+    byKind[record.event.type] = (byKind[record.event.type] ?? 0) + 1
+  }
+  let seq = log.reduce((next, record) => Math.max(next, record.seq + 1), 0)
   let pulled = 0
 
   const matches = (r: BusRecord<E>, kinds?: ReadonlyArray<E['type']>) =>
@@ -102,9 +116,14 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
 
   return {
     async publish(event, opts) {
-      const record: BusRecord<E> = { seq: seq++, at: now(), priority: opts?.priority ?? 0, event }
+      const record: BusRecord<E> = {
+        seq: seq++,
+        at: now(),
+        priority: opts.priority,
+        event,
+      }
       // Record-only events (the down-leg) skip the pull queue but still hit the log + subscribers.
-      if (opts?.queue !== false) queue.push(record)
+      if (opts.queue) queue.push(record)
       log.push(record)
       byKind[event.type] = (byKind[event.type] ?? 0) + 1
       // Sequential, not Promise.all: a subscriber that steers off this event must observe a
@@ -132,7 +151,36 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       return log
     },
     stats() {
-      return { published: seq, pulled, byKind: { ...byKind } }
+      return { published: log.length, pulled, byKind: { ...byKind } }
     },
+  }
+}
+
+function snapshotRecords<E extends BusEvent>(records: ReadonlyArray<BusRecord<E>>): BusRecord<E>[] {
+  return [...structuredClone(records)]
+}
+
+function assertPriorRecords<E extends BusEvent>(
+  records: ReadonlyArray<BusRecord<E>>,
+  queuedPriorSeqs: ReadonlyArray<number>,
+): void {
+  let previous = -1
+  const available = new Set<number>()
+  for (const record of records) {
+    if (!Number.isInteger(record.seq) || record.seq < 0 || record.seq <= previous) {
+      throw new Error('event bus: prior record sequences must be unique and strictly increasing')
+    }
+    previous = record.seq
+    available.add(record.seq)
+  }
+  const queued = new Set<number>()
+  for (const seq of queuedPriorSeqs) {
+    if (!available.has(seq)) {
+      throw new Error(`event bus: queued prior sequence ${seq} is absent from prior records`)
+    }
+    if (queued.has(seq)) {
+      throw new Error(`event bus: queued prior sequence ${seq} is duplicated`)
+    }
+    queued.add(seq)
   }
 }

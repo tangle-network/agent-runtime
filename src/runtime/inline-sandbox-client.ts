@@ -71,7 +71,11 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
             else callerSignal.addEventListener('abort', onAbort, { once: true })
           }
           const spec: AgentSpec = { profile: { name: id }, harness: null }
-          const exec = factory(spec, { signal: controller.signal, seams: { createOptions } })
+          const exec = factory(spec, {
+            nodeId: id,
+            signal: controller.signal,
+            seams: { createOptions },
+          })
           try {
             const artifact = await settle(exec, message, controller.signal)
             const out = artifact.out as { content?: string } | undefined

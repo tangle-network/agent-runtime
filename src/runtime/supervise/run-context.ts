@@ -30,43 +30,26 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../../durable/spawn-journal'
-import { type CoordinationLog, FileCoordinationLog } from './coordination-log'
-import { withDriverExecutor } from './driver-executor'
+import {
+  type CoordinationLog,
+  FileCoordinationLog,
+  InMemoryCoordinationLog,
+} from './coordination-log'
 import { createExecutorRegistry } from './runtime'
 import type { ExecutorRegistry, ResultBlobStore, SpawnJournal } from './types'
 
-/** Options for a supervised run context. */
-export interface InMemoryRunContextOptions {
-  /**
-   * Wrap the executor registry with `withDriverExecutor` so a spawned child marked
-   * `role: 'driver'` resolves to the recursive driver-executor (agents driving agents
-   * over a nested `Scope` on the same conserved pool). Leave `false` for a flat tree of
-   * leaf workers. Default `false`.
-   */
-  readonly withDriver?: boolean
-}
-
 /**
- * The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`.
- * The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
+ * The stores a supervised run needs.
+ *
+ * This object contains no execution policy. In particular, storage choice does not decide whether
+ * a run resumes, and recursive executor composition belongs to `supervise`.
  */
 export interface InMemoryRunContext {
   readonly journal: SpawnJournal
   readonly blobs: ResultBlobStore
   readonly executors: ExecutorRegistry
-  /**
-   * Present (and `true`) only on a DURABLE context (`createFileRunContext`), so spreading the
-   * context into `SupervisorOpts` also opts the run into resume-first. An in-memory context
-   * leaves it undefined: there is never a prior tree to resume, and the default stays fresh-run.
-   */
-  readonly resume?: boolean
-  /**
-   * Present only on a DURABLE context: the coordination side-log (questions + analyst findings —
-   * the bus messages the spawn journal does not record). `supervise({ runDir })` appends to it as
-   * they publish and replays it on resume, so a restarted coordinator keeps them. In-memory
-   * contexts have none: nothing outlives the process to replay into.
-   */
-  readonly coordinationLog?: CoordinationLog
+  /** Coordination transcript. In-memory and durable contexts expose the same required contract. */
+  readonly coordinationLog: CoordinationLog
 }
 
 /** The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the
@@ -77,12 +60,12 @@ export type RunContext = InMemoryRunContext
  * Build a fresh in-memory run context. Every call returns NEW stores (no shared global
  * state between runs), so two runs never cross-contaminate their journals/blobs.
  */
-export function createInMemoryRunContext(opts: InMemoryRunContextOptions = {}): InMemoryRunContext {
-  const base = createExecutorRegistry()
+export function createInMemoryRunContext(): InMemoryRunContext {
   return {
     journal: new InMemorySpawnJournal(),
     blobs: new InMemoryResultBlobStore(),
-    executors: opts.withDriver ? withDriverExecutor(base) : base,
+    executors: createExecutorRegistry(),
+    coordinationLog: new InMemoryCoordinationLog(),
   }
 }
 
@@ -100,16 +83,11 @@ export function createInMemoryRunContext(opts: InMemoryRunContextOptions = {}): 
  * Opt-in by construction — `createInMemoryRunContext()` is unchanged and stays the default, so no
  * existing consumer writes to disk or resumes unless it asks for this.
  */
-export function createFileRunContext(
-  dir: string,
-  opts: InMemoryRunContextOptions = {},
-): RunContext {
-  const base = createExecutorRegistry()
+export function createFileRunContext(dir: string): RunContext {
   return {
     journal: new FileSpawnJournal(`${dir}/spawn-journal.jsonl`),
     blobs: new FileResultBlobStore(`${dir}/blobs`),
-    executors: opts.withDriver ? withDriverExecutor(base) : base,
-    resume: true,
+    executors: createExecutorRegistry(),
     coordinationLog: new FileCoordinationLog(`${dir}/coordination-log.jsonl`),
   }
 }

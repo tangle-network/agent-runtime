@@ -4,7 +4,6 @@ import {
   type CoordinationSessionOptions,
   serveCoordinationMcp,
 } from '../../src/runtime/supervise/coordination-mcp'
-import { bestDelivered } from '../../src/runtime/supervise/finalizer'
 import { createInMemoryRunContext } from '../../src/runtime/supervise/run-context'
 import {
   type AgentExecutionContext,
@@ -34,7 +33,11 @@ const oneTurn = (): Spend => ({
 })
 
 async function openLocalCoordination(options: CoordinationSessionOptions) {
-  const handle = await serveCoordinationMcp(options)
+  const handle = await serveCoordinationMcp({
+    ...options,
+    host: '127.0.0.1',
+    port: 0,
+  })
   return {
     handle,
     profileEntry: { transport: 'http' as const, url: handle.url },
@@ -50,24 +53,17 @@ function options(
     budget: { maxIterations: 50, maxTokens: 50_000, maxUsd: 10 },
     resolveExecutor,
     openCoordination: openLocalCoordination,
-    deliverable: {
-      describe: 'an object whose answer is 42',
-      check: (out) => (out as { answer?: unknown })?.answer === 42,
-    },
-    finalizer: bestDelivered,
-    perWorker: { maxIterations: 10, maxTokens: 10_000, maxUsd: 2 },
     maxLiveWorkers: null,
     maxDepth: 2,
     runId: 'strict-supervise',
+    resume: false,
     executorShutdown: 'infinity',
     workerShutdown: 'infinity',
     failureWindow: null,
-    questionPolicy: 'auto',
+    parentQuestionPort: null,
     awaitTimeoutMs: 2_000,
     stallAfterMs: null,
     analysts: null,
-    analyzeOnSettle: [],
-    watchWorkers: null,
     probes: null,
     hooks: null,
     signal: null,
@@ -157,6 +153,7 @@ function deepFreeze<T>(value: T): T {
 
 describe('strict recursive supervise surface', () => {
   it('preserves the authored profile and adds only the live coordination entry', async () => {
+    const authoredSeen: AgentProfile[] = []
     const seen: AgentProfile[] = []
     const profile = deepFreeze<AgentProfile>({
       name: 'research-leader',
@@ -177,22 +174,25 @@ describe('strict recursive supervise surface', () => {
       profile,
       { pursuit: 'test' },
       options(
-        () =>
-          scriptedFactory(
+        (authored) => {
+          authoredSeen.push(authored)
+          return scriptedFactory(
             () => ({
               out: { answer: 42 },
             }),
             seen,
-          ),
+          )
+        },
         { allowedModels: ['provider/model', 'provider/small'] },
       ),
     )
 
     expect(result.kind).toBe('winner')
-    if (result.kind === 'winner') {
-      expect(result.verdict).toEqual({ valid: true, score: 1 })
-    }
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
     expect(profile).toEqual(before)
+    expect(authoredSeen).toHaveLength(1)
+    expect(authoredSeen[0]).toEqual(before)
+    expect(Object.isFrozen(authoredSeen[0])).toBe(true)
     expect(seen).toHaveLength(1)
     expect(seen[0]).toEqual({
       ...before,
@@ -212,34 +212,54 @@ describe('strict recursive supervise surface', () => {
     const resolver: ResolveExecutor = (profile, context) => {
       calls.push({ profile, context })
       return scriptedFactory(async (executableProfile) => {
-        if (profile.name === 'grandchild') {
+        const level = Number(profile.metadata?.level)
+        if (level === 2) {
           depthRefusal = await callTool(executableProfile, 'spawn_agent', {
-            profile: { name: 'too-deep' },
+            profile: { metadata: { level: 3 } },
             task: 'must be refused',
+            label: 'level-3',
+            budget: {
+              maxIterations: 1,
+              maxTokens: 1_000,
+              maxUsd: null,
+              deadlineMs: null,
+            },
           })
           return { out: { answer: 42, depthRefusal } }
         }
-        const childName = profile.name === 'root' ? 'child' : 'grandchild'
-        await callTool(executableProfile, 'spawn_agent', {
-          profile: { name: childName },
-          task: `run ${childName}`,
+        const childLevel = level + 1
+        const spawned = await callTool(executableProfile, 'spawn_agent', {
+          profile: { metadata: { level: childLevel } },
+          task: `run level ${childLevel}`,
+          label: `level-${childLevel}`,
+          budget: {
+            maxIterations: 10,
+            maxTokens: 10_000,
+            maxUsd: 2,
+            deadlineMs: null,
+          },
         })
         await callTool(executableProfile, 'await_event', { kinds: ['settled'] })
-        return { out: { raw: profile.name } }
+        const child = await callTool(executableProfile, 'observe_agent', {
+          workerId: spawned.workerId,
+        })
+        return { out: child.output }
       })
     }
 
     const context = createInMemoryRunContext()
     const result = await supervise(
-      { name: 'root' },
+      { metadata: { level: 0 } },
       'solve',
       options(resolver, { context, runId: 'recursive' }),
     )
 
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') {
-      expect(result.out).toMatchObject({ answer: 42 })
-      expect(result.verdict).toEqual({ valid: true, score: 1 })
+      expect(result.out).toEqual({
+        answer: 42,
+        depthRefusal: { error: 'depth-exceeded', live: 0, freeSlots: null },
+      })
       expect(result.spentTotal).toEqual({
         iterations: 3,
         tokens: { input: 6, output: 9 },
@@ -250,18 +270,23 @@ describe('strict recursive supervise surface', () => {
     expect(depthRefusal).toMatchObject({ error: 'depth-exceeded' })
     expect(
       calls.map(({ profile, context: callContext }) => ({
-        name: profile.name,
+        level: profile.metadata?.level,
         depth: callContext.depth,
-        path: callContext.path,
-        frozen: Object.isFrozen(callContext) && Object.isFrozen(callContext.path),
+        nodeId: callContext.nodeId,
+        frozen: Object.isFrozen(profile) && Object.isFrozen(callContext),
       })),
     ).toEqual([
-      { name: 'root', depth: 0, path: ['root'], frozen: true },
-      { name: 'child', depth: 1, path: ['root', 'child'], frozen: true },
+      { level: 0, depth: 0, nodeId: 'recursive', frozen: true },
       {
-        name: 'grandchild',
+        level: 1,
+        depth: 1,
+        nodeId: 'recursive:s0',
+        frozen: true,
+      },
+      {
+        level: 2,
         depth: 2,
-        path: ['root', 'child', 'grandchild'],
+        nodeId: 'recursive:s0:s0',
         frozen: true,
       },
     ])
@@ -270,25 +295,27 @@ describe('strict recursive supervise surface', () => {
     expect(rootEvents?.[0]).toMatchObject({
       kind: 'spawned',
       id: 'recursive',
-      label: 'root',
     })
     expect(rootEvents?.[0]).not.toHaveProperty('runtime')
     expect(
       rootEvents?.find((event) => event.kind === 'spawned' && event.parent === 'recursive'),
-    ).toMatchObject({ id: 'recursive:s0', label: 'child' })
+    ).toMatchObject({ id: 'recursive:s0', label: 'level-1' })
   })
 
-  it('checks the custom finalizer output itself and rejects an invalid returned artifact', async () => {
-    const factory = scriptedFactory(() => ({ out: { answer: 7 }, spent: zeroSpend() }))
+  it('retains the first explicit submission instead of fabricating or selecting a result', async () => {
+    const factory = scriptedFactory(async (profile) => {
+      await callTool(profile, 'submit_result', { result: { answer: 'first' } })
+      await callTool(profile, 'submit_result', { result: { answer: 'later' } })
+      return { out: { answer: 'terminal' }, spent: zeroSpend() }
+    })
     const result = await supervise(
-      { name: 'root' },
+      {},
       'solve',
-      options(() => factory, {
-        finalizer: () => ({ answer: 9 }),
-      }),
+      options(() => factory),
     )
 
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'invalid-result' })
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'first' } })
+    if (result.kind === 'winner') expect(result).not.toHaveProperty('verdict')
   })
 
   it('fails before execution when a required policy field is omitted', () => {

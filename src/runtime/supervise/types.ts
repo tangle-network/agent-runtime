@@ -72,6 +72,14 @@ export interface Agent<Task, Out> {
   /** Optional checked-delivery receipt for recursive execution. A coordination-capable agent sets
    *  this only after its independent completion check or delivered-only finalizer accepted output. */
   resultVerdict?(): DefaultVerdict | undefined
+  /** Optional live inbox forwarded when this agent is executed as a recursive child. */
+  deliver?(msg: unknown): boolean
+  /** Dynamic inbox availability. A child may accept messages before its backend exists. */
+  canDeliver?(): boolean
+  /** Optional live progress forwarded from the active backend. */
+  progress?(): ExecutorProgress | undefined
+  /** Optional live trace forwarded from the active backend. */
+  traceSource?(): TraceSource | undefined
 }
 
 // ── The open leaf runtime ─────────────────────────────────────────────────────
@@ -115,7 +123,9 @@ export interface Executor<Out> {
    * this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the
    * executor's to ignore.
    */
-  deliver?(msg: unknown): void
+  deliver?(msg: unknown): void | boolean
+  /** Dynamic inbox availability for executors whose live target is created asynchronously. */
+  canDeliver?(): boolean
   /**
    * Optional LIVE progress: what this worker is doing RIGHT NOW, read synchronously and
    * cheaply while `execute` is still streaming. The scope already derives activity timing,
@@ -219,6 +229,8 @@ export type ExecutorFactory<Out> = (spec: AgentSpec, ctx: ExecutorContext) => Ex
  *  (sandbox client for the sandbox executor, router config for router/inline) without
  *  the factory reaching into module globals. */
 export interface ExecutorContext {
+  /** Exact node being constructed. Distinct even for siblings with identical profile names. */
+  readonly nodeId: NodeId
   readonly signal: AbortSignal
   /** Opaque seams the registry threads through; a built-in narrows what it needs. */
   readonly seams: Readonly<Record<string, unknown>>
