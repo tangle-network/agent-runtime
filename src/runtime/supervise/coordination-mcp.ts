@@ -33,6 +33,7 @@ import {
   type SettledWorker,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import type { DeliverableSpec } from './completion-gate'
 import type { Budget, ResultBlobStore, Scope } from './types'
 
 export interface CoordinationMcpHandle {
@@ -41,6 +42,8 @@ export interface CoordinationMcpHandle {
   readonly port: number
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
   settled(): ReadonlyArray<SettledWorker>
+  /** The first driver-authored result whose injected independent check passed. */
+  submittedResult: CoordinationTools['submittedResult']
   /** Post-loop drain of already-settled, unpulled children into the ledger — call before reading
    *  `settled()` for a finalize, so a delivered child the harness never awaited is not lost. */
   drainResolved: CoordinationTools['drainResolved']
@@ -61,6 +64,8 @@ export async function serveCoordinationMcp(opts: {
   blobs: ResultBlobStore
   makeWorkerAgent: MakeWorkerAgent
   perWorker: Budget
+  /** Independent completion check exposed to the driver as `submit_result`. */
+  deliverable?: DeliverableSpec<unknown>
   /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   maxLiveWorkers?: number
@@ -89,6 +94,7 @@ export async function serveCoordinationMcp(opts: {
     blobs: opts.blobs,
     makeWorkerAgent: opts.makeWorkerAgent,
     perWorker: opts.perWorker,
+    ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
     ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
     awaitTimeoutMs: opts.awaitTimeoutMs ?? DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
@@ -150,6 +156,7 @@ export async function serveCoordinationMcp(opts: {
     url: `http://${host}:${port}/mcp`,
     port,
     settled: () => coord.settled(),
+    submittedResult: () => coord.submittedResult(),
     drainResolved: () => coord.drainResolved(),
     isStopped: () => coord.isStopped(),
     history: () => coord.history(),

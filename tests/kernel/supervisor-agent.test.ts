@@ -109,6 +109,35 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     expect(result.kind).toBe('winner')
   })
 
+  it('SANDBOX arm retains a checked direct result even when the backend exits with an error afterward', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'submit_result',
+        arguments: { result: { answer: 42 } },
+      })
+      throw new Error('backend exited after submission')
+    }
+    const root = supervisorAgent(
+      { name: 'sup', harness: 'pi', systemPrompt: 'solve or delegate' },
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        driveHarness,
+        deliverable: {
+          describe: 'an object whose answer is 42',
+          check: (result) => (result as { answer?: unknown }).answer === 42,
+        },
+      },
+    )
+
+    const result = await runSupervisor(root, blobs, journal)
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+  })
+
   it('fails loud when a sandboxed-harness supervisor has no driveHarness substrate', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>

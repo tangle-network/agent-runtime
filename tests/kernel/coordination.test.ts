@@ -65,6 +65,65 @@ const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
 }
 
 describe('coordination tools', () => {
+  it('exposes direct submission only with an injected check and retains the first passing result', async () => {
+    const { scope } = mockScope()
+    const withoutCheck = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    expect(withoutCheck.tools.map((t) => t.name)).not.toContain('submit_result')
+
+    const checked: unknown[] = []
+    const withCheck = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      deliverable: {
+        describe: 'an object whose answer is 42',
+        check(result) {
+          checked.push(result)
+          const answer = (result as { answer?: unknown }).answer
+          if (answer === 'throw') throw new Error('check broke')
+          return answer === 42
+        },
+      },
+    })
+    const submit = tool(withCheck, 'submit_result')
+
+    expect(await submit.handler({ result: { answer: 0 } })).toEqual({
+      accepted: false,
+      stop: false,
+    })
+    expect(await submit.handler({ result: { answer: 'throw' } })).toEqual({
+      accepted: false,
+      stop: false,
+    })
+    expect(withCheck.isStopped()).toBe(false)
+    expect(withCheck.submittedResult()).toBeUndefined()
+
+    const passing = { answer: 42 }
+    expect(await submit.handler({ result: passing })).toEqual({
+      accepted: true,
+      retained: 'this-result',
+      stop: true,
+    })
+    passing.answer = 0
+    expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
+    expect(withCheck.isStopped()).toBe(true)
+    expect(withCheck.stopReason()).toBe('result-accepted')
+
+    expect(await submit.handler({ result: { answer: 43 } })).toEqual({
+      accepted: true,
+      retained: 'earlier-passing-result',
+      stop: true,
+    })
+    expect(checked).toHaveLength(3)
+    expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
+  })
+
   it('spawn_agent returns workerId and fails closed when admission fails', async () => {
     const { scope, setAdmit } = mockScope()
     const tb = createCoordinationTools({
