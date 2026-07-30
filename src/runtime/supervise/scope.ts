@@ -720,6 +720,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         turns: child.spent.iterations,
         tokens: child.spent.tokens,
         usd: child.spent.usd,
+        ...(child.spent.usdKnown === false ? { usdKnown: false } : {}),
       },
       fromExecutor,
       opts.now ?? now(),
@@ -1171,6 +1172,7 @@ async function foldStream(
 ): Promise<Spend> {
   const tokens = { input: 0, output: 0 }
   let usd = 0
+  let usdKnown = true
   let iterations = 0
   for await (const ev of stream) {
     if (ev.kind === 'tokens') {
@@ -1178,12 +1180,25 @@ async function foldStream(
       tokens.output += ev.output
     } else if (ev.kind === 'cost') {
       usd += ev.usd
+      if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
     }
-    onProgress?.({ iterations, tokens: { ...tokens }, usd, ms: 0 })
+    onProgress?.({
+      iterations,
+      tokens: { ...tokens },
+      usd,
+      ...(usdKnown ? {} : { usdKnown: false }),
+      ms: 0,
+    })
   }
-  return { iterations, tokens, usd, ms: 0 }
+  return {
+    iterations,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: 0,
+  }
 }
 
 /** Clamp a child's reported spend to its reservation so the pool's fail-loud over-spend

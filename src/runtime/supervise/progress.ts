@@ -72,6 +72,8 @@ export interface WorkerProgress {
   readonly turns: number
   readonly tokens: { readonly input: number; readonly output: number }
   readonly usd: number
+  /** False when observed dollar spend is only a known subtotal, not a complete total. */
+  readonly usdKnown?: boolean
   /** Steers delivered but not yet read by the worker. */
   readonly pendingMessages: number
   /** Newest-last window of tool/turn activity; empty when the executor exposes none. */
@@ -113,6 +115,7 @@ export interface ScopeProgressInput {
   readonly turns: number
   readonly tokens: { readonly input: number; readonly output: number }
   readonly usd: number
+  readonly usdKnown?: boolean
 }
 
 /** Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the
@@ -146,6 +149,7 @@ export function readWorkerProgress(
     turns: executor?.turns ?? scope.turns,
     tokens: scope.tokens,
     usd: scope.usd,
+    ...(scope.usdKnown === false ? { usdKnown: false } : {}),
     pendingMessages: executor?.pendingMessages ?? 0,
     recentActivity: executor?.recentActivity ?? [],
     ...(note ? { note } : {}),
