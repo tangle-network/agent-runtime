@@ -846,6 +846,19 @@ export {
   VERIFY_TAIL_CHARS,
   type WorkerEvidenceInput,
 } from './supervise/worker-evidence'
+// The same tracing, carried ACROSS the process boundary: a spawned worker inherits the run's trace
+// id and the spawning node's span id through the `TRACE_ID` / `PARENT_SPAN_ID` env convention this
+// package already reads (`readTraceContextFromEnv`), so a worker on a remote sandbox emits spans
+// that join the parent's trace and one viewer assembles the whole cross-machine tree. Off unless a
+// run records spans; a caller's own seam env always wins. `worker-trace.ts` documents the
+// precedence rule and names which backends carry it and which cannot.
+export {
+  readWorkerTraceContext,
+  type WorkerTraceResolver,
+  type WorkerTraceSeamCarrier,
+  workerTraceEnv,
+  workerTraceSeamKey,
+} from './supervise/worker-trace'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)
 // driving a local harness CLI on its own git worktree, surfaced as the open `Executor` port.
 export {

@@ -33,6 +33,7 @@ import type { LoopTokenUsage } from '../types'
 import type { ExecutorProgress, WorkerProgress } from './progress'
 import type { TraceSource } from './trace-source'
 import type { PendingWait, WaitOutcome, WaitProbeRegistry, WaitRejection, WaitSpec } from './wait'
+import type { WorkerTraceResolver } from './worker-trace'
 
 // `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
 // import the budget surface from one place. `usd` is a SEPARATE channel (see `UsageEvent`).
@@ -719,6 +720,15 @@ export interface SupervisorOpts {
   /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
    *  same `agent.spawn`/`agent.child` stream `runAgentRounds` feeds — one observable recursive tree. */
   readonly hooks?: RuntimeHooks
+  /**
+   * Trace context to hand DOWN to each spawned worker, so a worker in another process or on another
+   * machine emits spans that join THIS run's trace instead of opening its own root. Supply
+   * `SupervisorSpanRecorder.workerTrace`; the `Scope` seeds the resolved context onto every child's
+   * `ExecutorContext` and the backends with an environment channel stamp it as
+   * `TRACE_ID` / `PARENT_SPAN_ID` (see `worker-trace.ts` for the precedence rule and for which
+   * backends propagate). Omit and no worker environment is touched at all.
+   */
+  readonly workerTrace?: WorkerTraceResolver
 }
 
 /**

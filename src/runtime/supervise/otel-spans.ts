@@ -34,6 +34,7 @@ import type { OtelExportConfig, OtelExporter, OtelSpan } from '../../otel-export
 import { createOtelExporter, generateSpanId, toOtelAttributes } from '../../otel-export'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { Budget, Spend, SupervisedResult } from './types'
+import type { TraceContext, WorkerTraceResolver } from './worker-trace'
 
 /** OTEL status codes (`UNSET` / `OK` / `ERROR`) — the numeric wire values `OtelSpan.status` carries. */
 const STATUS_UNSET = 0
@@ -97,6 +98,15 @@ export interface SupervisorSpanRecorder {
   readonly traceId: string
   /** The run's root span id — pass it to a child process to join this trace. */
   readonly rootSpanId: string
+  /**
+   * The trace context a worker spawned BY node `spawningNodeId` should inherit, so its own spans
+   * join THIS trace under the span of the node that spawned it. Thread it to a run as
+   * `SupervisorOpts.workerTrace` (`supervise()` does this whenever it builds a recorder) and the
+   * `Scope` seeds it onto every child's `ExecutorContext`; a backend with an environment channel
+   * stamps it with `workerTraceEnv`. An unknown node — one whose span was never opened — resolves
+   * to the run's root span rather than to nothing, so a worker is never filed outside its own run.
+   */
+  readonly workerTrace: WorkerTraceResolver
   /**
    * Close the root span (and any node that never settled, marked as such), export, and flush. Safe
    * to call twice; never throws — a telemetry failure is not a run failure.
@@ -327,6 +337,9 @@ export function createSupervisorSpanRecorder(
     hooks,
     traceId,
     rootSpanId,
+    workerTrace(spawningNodeId: string): TraceContext {
+      return { traceId, parentSpanId: spanIdOf.get(spawningNodeId) ?? rootSpanId }
+    },
     async finish(outcome?: SupervisorSpanOutcome): Promise<void> {
       if (finished) return
       finished = true
