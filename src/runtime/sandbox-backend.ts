@@ -8,7 +8,7 @@
  * @experimental
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions } from '@tangle-network/sandbox'
 
 type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
@@ -37,10 +37,42 @@ export function sandboxProfileAsProfile(profile: SandboxAgentProfile): AgentProf
 }
 
 /**
+ * Harnesses the sandbox accepts as a `backend.type`. `gemini` is a
+ * `HarnessType` with no sandbox backend, so it is absent here and a profile
+ * declaring it cannot run through this path.
+ *
+ * The double `satisfies` pins both directions: an entry the sandbox drops stops
+ * compiling, and an entry that is not a harness stops compiling.
+ */
+const harnessBackends = [
+  'claude-code',
+  'nanoclaw',
+  'codex',
+  'opencode',
+  'kimi-code',
+  'pi',
+  'hermes',
+  'openclaw',
+  'amp',
+  'factory-droids',
+  'acp',
+  'cli-base',
+] as const satisfies readonly HarnessType[] satisfies readonly BackendType[]
+
+function harnessAsBackendType(harness: HarnessType): BackendType | undefined {
+  return (harnessBackends as readonly string[]).includes(harness)
+    ? (harness as BackendType)
+    : undefined
+}
+
+/**
  * Resolve the backend `type`: an explicit override wins, then the profile's
- * `metadata.backendType` hint, else the SDK's profile-driven default
- * (`'opencode'` on the platform side). A profile with no hint falls through to
- * the default rather than asserting provenance the profile never declared.
+ * `metadata.backendType` hint, then the profile's declared `harness`, else the
+ * SDK's profile-driven default (`'opencode'` on the platform side).
+ *
+ * A declared `harness` the sandbox cannot run throws rather than falling
+ * through: silently running a `gemini` profile on opencode returns a result
+ * that means something other than it appears to, which is worse than no result.
  */
 function resolveBackendType(
   profile: AgentProfile,
@@ -49,6 +81,18 @@ function resolveBackendType(
   if (override?.type) return override.type
   const explicit = profile.metadata?.backendType
   if (typeof explicit === 'string') return explicit as BackendType
+  const declared = profile.harness
+  if (declared !== undefined) {
+    const backend = harnessAsBackendType(declared)
+    if (backend === undefined) {
+      throw new Error(
+        `buildBackendOptions: profile declares harness "${declared}", which the sandbox has no backend for. ` +
+          `Runnable harnesses: ${harnessBackends.join(', ')}. ` +
+          'Set metadata.backendType to run it on a different backend deliberately.',
+      )
+    }
+    return backend
+  }
   return 'opencode' as BackendType
 }
 

@@ -176,11 +176,11 @@ describe('profile materialization contracts', () => {
     )
   })
 
-  it('declares createSandboxAct as every canonical leaf except harness', () => {
-    // Asserted as "the whole canonical set minus harness" rather than a hand-listed subset, so
-    // dropping a leaf from the contract fails here instead of passing an under-specified list.
-    const expected = CANONICAL_AXES.filter((axis) => axis !== 'harness')
-    expect(sandboxActProfileMaterialization.axes).toEqual(expected)
+  it('declares createSandboxAct as every canonical leaf', () => {
+    // Asserted as the whole canonical set rather than a hand-listed subset, so dropping a leaf
+    // from the contract fails here instead of passing an under-specified list.
+    const expected = [...CANONICAL_AXES]
+    expect([...sandboxActProfileMaterialization.axes].sort()).toEqual([...expected].sort())
     expect(
       validateProfileMaterialization({
         contract: sandboxActProfileMaterialization,
@@ -189,7 +189,7 @@ describe('profile materialization contracts', () => {
     ).toEqual([])
   })
 
-  it('refuses to claim harness, which the backend resolver never reads', () => {
+  it('claims harness, which the backend resolver now reads', () => {
     const issues = validateProfileMaterialization({
       contract: sandboxActProfileMaterialization,
       changedAxes: changedAgentProfileAxes({
@@ -198,15 +198,15 @@ describe('profile materialization contracts', () => {
       }),
     })
 
-    expect(issues.map((issue) => issue.axis)).toEqual(['harness'])
+    expect(issues).toEqual([])
   })
 
-  it('pins the resolver behavior that omission rests on', () => {
-    // The contract omits `harness` because buildBackendOptions resolves the runner from
-    // sandboxOverrides, then profile.metadata.backendType, and never profile.harness. If that
-    // ever grows a profile.harness fallback, the omission becomes wrong — catch it here.
+  it('pins the resolver behavior the harness claim rests on', () => {
+    // The contract claims `harness` only because buildBackendOptions resolves the runner from
+    // it. The order is sandboxOverrides, then metadata.backendType, then profile.harness — the
+    // metadata hint still wins so existing callers are unaffected.
     expect(buildBackendOptions({ name: 'a', harness: 'codex' }, undefined).backend?.type).toBe(
-      'opencode',
+      'codex',
     )
     expect(
       buildBackendOptions(
@@ -214,6 +214,15 @@ describe('profile materialization contracts', () => {
         undefined,
       ).backend?.type,
     ).toBe('amp')
+    expect(buildBackendOptions({ name: 'a' }, undefined).backend?.type).toBe('opencode')
+  })
+
+  it('refuses a declared harness the sandbox cannot run', () => {
+    // Falling through to opencode would run a gemini profile on a different harness and
+    // report success, so the mismatch has to surface as a failure.
+    expect(() => buildBackendOptions({ name: 'a', harness: 'gemini' }, undefined)).toThrow(
+      /no backend for/,
+    )
   })
 
   it('deduplicates axes while preserving first-seen order', () => {
