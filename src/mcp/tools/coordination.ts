@@ -1009,7 +1009,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'Inspect a worker WHILE IT RUNS, not only after it finishes: status, spend so far, and ' +
         '`progress` — how long since it last did anything (`idleMs`), whether that counts as ' +
         'stalled, how many turns it has taken, the last tools/files it touched ' +
-        '(`recentActivity`), whether a steer can even reach it (`steerable`), and how many ' +
+        '(`recentActivity`), what its executor CHANGED about the profile you gave it ' +
+        '(`derived` — an MCP config it materialized, an extension it had to add), whether a ' +
+        'steer can even reach it (`steerable`), and how many ' +
         'steers it has not yet read (`pendingMessages`). Returns the settled output artifact ' +
         'once it exists. Use this BEFORE steer_agent: a steer is only worth sending when the ' +
         'progress says the worker is on the wrong path or has stopped making any.',

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.114.0
+
+Two changes found by running a real recursive pursuit rather than by reading code: the supervisor's brain could not stream, and the `pi` backend silently discarded almost every profile dimension it was handed.
+
+### The router-brained supervisor can stream
+
+- `RouterConfig.stream` opts a supervisor turn into SSE. `streamRouterChatWithTools` accumulates `delta.content`, `delta.reasoning_content`, and index-keyed `delta.tool_calls`, then returns the same `RouterChatToolsResult` the buffered call does. The buffered path is unchanged and remains the default.
+- Why it matters: every supervisor turn was one buffered POST that had to complete in full before a byte came back, which is what an origin idle-timeout kills. Six live runs died that way.
+- Usage accounting is preserved across both transports through one shared metering helper. A stream that ends with no usage chunk sets `usageUnknown`, so a broken `include_usage` contract is distinguishable from a brain that never reports usage — never a silent free turn.
+- `stream: true` together with the buffered `complete` seam throws rather than quietly taking the buffered path.
+
+### A driver turn is always metered
+
+- **BREAKING (behavior):** the `if (res.usage || res.costUsd !== undefined)` guard is gone, so every driver turn reaches `scope.meter`. A turn that reported nothing is metered as an UNKNOWN turn (`tokensKnown: false`, following the existing `usdKnown` precedent) instead of being skipped as free. Under a root budget declaring `maxUsd`, an unknown-cost turn now fails the run loudly rather than accruing zero — a scripted or mock brain that reports no usage under a dollar cap will newly surface `driver-failed`.
+- `BudgetReadout.tokensKnown` and `Scope.budget.tokensKnown` are optional additions: present and `false` once a settled turn reported no tokens, meaning `tokensLeft` is a ceiling rather than a measurement.
+- Known limitations, documented in place at `coordination-driver.ts` and `types.ts`: a turn that THROWS is still unmetered, the compaction distiller's catch swallows one turn's cost, and `UsageEvent` has no tokens-unknown variant so a streaming executor cannot yet report one.
+
+### The `pi` backend materializes MCP
+
+- A profile's `mcp` servers now reach pi. pi ships no MCP of its own: support comes from the `pi-mcp-adapter` extension, so the executor writes a canonical `{mcpServers}` config and passes it with `--mcp-config`, and injects the adapter into the resolved extension load list when a profile declares MCP without naming it. The injection is reported on `progress().derived`, which survives a failed run.
+- Fail closed: a profile declaring MCP when the adapter is not installed throws before pi is spawned, naming the adapter and where it was sought. Previously the run started tool-less and scored zero for the wrong reason — observed live, where a root spent 545,095 tokens over 54 turns hunting for a `spawn_agent` verb it had never been given.
+- One config file per worker execution, written to the OS temp directory and removed on both the settle and error paths. Deriving it from the seam's `cwd` would have made two concurrent workers collide on one file, and would have left scratch state inside the workspace the worker operates on.
+- A profile with no MCP is unchanged: no file, no flag, no injected extension.
+
 ## 0.113.1
 
 ### A router-brained supervisor can raise its completion ceiling

@@ -719,6 +719,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         lastActivityAt: child.lastActivityAt,
         turns: child.spent.iterations,
         tokens: child.spent.tokens,
+        ...(child.spent.tokensKnown === false ? { tokensKnown: false } : {}),
         usd: child.spent.usd,
         ...(child.spent.usdKnown === false ? { usdKnown: false } : {}),
       },
@@ -1221,6 +1222,7 @@ function clampSpend(spend: Spend, budget: Budget): Spend {
           }
         : spend.tokens,
     usd: budget.maxUsd === undefined ? spend.usd : Math.min(spend.usd, budget.maxUsd),
+    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
     ms: spend.ms,
   }

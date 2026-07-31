@@ -147,6 +147,44 @@ describe('scope.progress — a running worker is observable without any executor
   it('returns undefined for an unknown worker instead of throwing at the driver', () => {
     expect(scopeOf().progress('nope')).toBeUndefined()
   })
+
+  // A sub-driver child settles with a rolled-up `Spend` (`sumSpend` in driver-executor) that carries
+  // `tokensKnown: false` whenever any turn under it went unmeasured. The scope must forward that to
+  // the progress read the way it already forwards `usdKnown`: the parent driver reads this over
+  // `observe_agent`, and an unmarked subtotal reads as the measured total.
+  it('forwards a child spend marked tokens-unknown, not only the dollar marker', async () => {
+    const scope = scopeOf()
+    const ex: Executor<unknown> = {
+      runtime: 'router',
+      execute: async (): Promise<ExecutorResult<unknown>> => ({
+        outRef: 'w:sub',
+        out: { done: true },
+        spent: {
+          iterations: 1,
+          tokens: { input: 40, output: 9 },
+          tokensKnown: false,
+          usd: 0,
+          usdKnown: false,
+          ms: 0,
+        },
+      }),
+      teardown: () => Promise.resolve({ destroyed: true }),
+    }
+    const agent = {
+      name: 'sub',
+      act: async () => 0,
+      executorSpec: { profile: { name: 'sub' } as AgentProfile, harness: null, executor: ex },
+    } as Agent<unknown, unknown>
+    const res = scope.spawn(agent, 'go', { budget })
+    if (!res.ok) throw new Error('spawn failed')
+    expect((await scope.next())?.kind).toBe('done')
+
+    const p = scope.progress(res.handle.id)
+    expect(p?.tokensKnown).toBe(false)
+    expect(p?.usdKnown).toBe(false)
+    // The known subtotal is still reported — marked, never zeroed.
+    expect(p?.tokens).toEqual({ input: 40, output: 9 })
+  })
 })
 
 // Both halves of the blind-supervisor fix, end-to-end through the deliverable gate:
@@ -286,6 +324,41 @@ describe('readWorkerProgress — the fold of scope facts and executor enrichment
     const p = readWorkerProgress({ ...base, status: 'done' }, undefined, 10_000_000, 1)
     expect(p.live).toBe(false)
     expect(p.stalled).toBe(false)
+  })
+
+  // `observe_agent` hands this object to the driver brain verbatim, so a marker the fold drops is
+  // a marker the brain never sees: it reads the subtotal as the measurement and concludes a busy
+  // worker was cheap. Both channels carry their marker, or neither is trustworthy.
+  it('carries BOTH unknown-spend markers through, not just the dollar one', () => {
+    const p = readWorkerProgress({ ...base, tokensKnown: false, usdKnown: false }, undefined, 200)
+    expect(p.tokensKnown).toBe(false)
+    expect(p.usdKnown).toBe(false)
+    // The subtotal is still reported — a missing measurement is marked, never zeroed out.
+    expect(p.tokens).toEqual({ input: 10, output: 5 })
+  })
+
+  it('omits both markers when spend is fully measured, so absent means known', () => {
+    const p = readWorkerProgress(base, undefined, 200)
+    expect('tokensKnown' in p).toBe(false)
+    expect('usdKnown' in p).toBe(false)
+  })
+
+  // What an executor CHANGED about the caller's profile is only knowable from the executor, and
+  // only useful if it survives a run that fails. `recentActivity` is a bounded ring that evicts it
+  // and the settled artifact does not exist yet, so this is the channel that has to carry it.
+  it('carries the executor`s derived-change record through, unevicted', () => {
+    const p = readWorkerProgress(
+      base,
+      { derived: ['mcp: mounted coordination via --mcp-config /tmp/x/mcp.json'] },
+      200,
+    )
+    expect(p.derived).toEqual(['mcp: mounted coordination via --mcp-config /tmp/x/mcp.json'])
+  })
+
+  it('omits `derived` entirely when the executor changed nothing, so absent is not a claim', () => {
+    expect('derived' in readWorkerProgress(base, { turns: 3 }, 200)).toBe(false)
+    expect('derived' in readWorkerProgress(base, { derived: [] }, 200)).toBe(false)
+    expect('derived' in readWorkerProgress(base, undefined, 200)).toBe(false)
   })
 })
 

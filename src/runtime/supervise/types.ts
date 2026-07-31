@@ -167,6 +167,16 @@ export interface ExecutorResult<Out> {
  * Normalized usage event — the single channel every executor reports through, so the
  * conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
  * `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+ *
+ * KNOWN LIMITATION (pre-existing): the `cost` variant can say its dollars are a subtotal
+ * (`usdKnown: false`), and the `tokens` variant has NO twin — there is no way to report "this turn
+ * happened and its token count is unknown". `Spend.tokensKnown` exists downstream, but nothing
+ * upstream of `foldStream` (`scope.ts`) can ever set it, so a STREAMING executor whose provider
+ * omitted usage reports the turn as costing zero tokens rather than as unmeasured. Only the
+ * non-streaming path, which returns a whole `Spend`, can carry the marker today. Closing it means
+ * widening this union (a `tokensKnown: false` field on `tokens`, or an `unknown` variant) and
+ * threading it through `foldStream` — a change to the metering contract every executor implements,
+ * which is why it is not folded into a streaming-transport fix. Filed separately.
  */
 export type UsageEvent =
   | { kind: 'tokens'; input: number; output: number }
@@ -254,6 +264,12 @@ export interface Budget {
 export interface Spend {
   iterations: number
   tokens: LoopTokenUsage
+  /** Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
+   *  an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
+   *  not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
+   *  turn whose provider reported no usage is recorded with this flag rather than omitted, because
+   *  omitting it makes the turn look free. */
+  tokensKnown?: boolean
   /** Dollar accounting is known unless explicitly false. A false value must not be treated as $0
    *  when enforcing a dollar-denominated comparison or limit. */
   usdKnown?: boolean
@@ -486,6 +502,9 @@ export interface Scope<Out> {
     usdCapped: boolean
     deadlineMs: number
     reservedTokens: number
+    /** Present and `false` once a turn settled without reporting its tokens: `tokensLeft` is then
+     *  a ceiling, not a measurement. Absent means every settled turn reported. */
+    tokensKnown?: boolean
   }>
 }
 

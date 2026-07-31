@@ -30,13 +30,41 @@
  * usage whose dollar price is absent or zero stays explicitly unknown through the live usage
  * stream and terminal artifact.
  *
+ * ## What of the `AgentProfile` this executor honors, and what it does not
+ *
+ * This adapter is NOT a profile materializer. It reads a deliberately small part of
+ * `spec.profile`, and a caller who needs the rest must lower it before handing the profile over.
+ * Stated exhaustively so a silent drop is never a surprise:
+ *
+ * | Field | Status |
+ * | --- | --- |
+ * | `profile.name` | honored — trace `runId` label only, no behavioral effect |
+ * | `profile.prompt.systemPrompt` | honored — prepended to the task text (pi RPC takes no separate system-prompt channel) |
+ * | `profile.mcp` | honored — written to this execution's own file and passed as `--mcp-config` for `pi-mcp-adapter`; see `pi-mcp.ts` |
+ * | `profile.extensions.pi.load` | honored — lowered to `--no-extensions` + `--extension <abs>` |
+ * | `profile.prompt.instructions` | DROPPED — fold into `systemPrompt` before calling |
+ * | `profile.model` | DROPPED — the seam's `model` is the only model channel; a profile that disagrees with the seam is silently overridden by the seam |
+ * | `profile.model.reasoningEffort` | DROPPED — no `--thinking` flag is emitted, so pi's configured `defaultThinkingLevel` applies |
+ * | `profile.tools` | DROPPED — no `--no-tools` / allow-deny mapping; pi runs its full builtin tool set |
+ * | `profile.permissions` | DROPPED |
+ * | `profile.resources` (context / skills / commands / subagents / instructions) | DROPPED — nothing is written into the run cwd |
+ * | `profile.hooks` | DROPPED |
+ * | `profile.subagents`, `profile.connections`, `profile.modes`, `profile.confidential` | DROPPED |
+ * | `profile.resources.failOnError` | not consulted — the MCP path above is unconditionally fail-closed, which is the stricter reading |
+ * | every other `profile.extensions.<ns>` | DROPPED — only the `pi` namespace is read |
+ *
+ * Closing those gaps belongs in `@tangle-network/agent-profile-materialize`, whose plan this
+ * executor would then apply, rather than in a second mapping grown here.
+ *
  * @experimental
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { abortError, throwIfAborted } from '../util'
 import { createInbox, type Inbox, type InboxMessage } from './inbox'
+import { PI_MCP_ADAPTER, type PiMcpReceipt, preparePiMcp } from './pi-mcp'
 import { type ActivityLog, createActivityLog, type ExecutorProgress } from './progress'
 import { createPushTraceSource, type ToolStepInput, type TraceSource } from './trace-source'
 import type {
@@ -101,9 +129,13 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readPiSeam(ctx)
   const inbox = createInbox()
   const activity = createActivityLog(seam.activityWindow ?? 12)
-  const trace = createPushTraceSource({
-    runId: `pi-${spec.profile.name ?? 'worker'}-${Date.now()}`,
-  })
+  // One id per worker EXECUTION, not per factory: it labels the trace and names this worker's
+  // private MCP config directory, and two workers built from one seam must not share either.
+  const runId = `pi-${spec.profile.name ?? 'worker'}-${Date.now()}`
+  const trace = createPushTraceSource({ runId })
+  // What this executor changed about what the caller declared. Unlike `recentActivity` this is
+  // never evicted, so a run that fails after the change still reports it.
+  const derived: string[] = []
 
   const controller = new AbortController()
   const cascade = () => controller.abort()
@@ -128,6 +160,7 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       turns: state.turns,
       pendingMessages: inbox.pending(),
       recentActivity: activity.read(),
+      ...(derived.length > 0 ? { derived: [...derived] } : {}),
       note: state.note,
     }),
     traceSource: (): TraceSource => trace.source,
@@ -138,8 +171,10 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         controller,
         seam,
         spec,
+        runId,
         inbox,
         activity,
+        derived,
         record: (step: ToolStepInput) => {
           trace.record(step)
         },
@@ -164,14 +199,27 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   }
 }
 
+/** What one pi run reports about the terminal assistant turn, plus any derived MCP mount. */
+export interface PiExecutorOutput {
+  content: string
+  turns: number
+  /** Present only when `profile.mcp` declared at least one usable server. Records what pi was
+   *  actually given — including an extension this executor added that the profile did not list. */
+  mcp?: PiMcpReceipt
+}
+
 interface StreamPiArgs {
   task: unknown
   signal: AbortSignal
   controller: AbortController
   seam: PiSeam
-  spec: { profile: { name?: string; prompt?: { systemPrompt?: string } } }
+  spec: { profile: AgentProfile }
+  /** This execution's id — labels the trace and names the private MCP config directory. */
+  runId: string
   inbox: Inbox
   activity: ActivityLog
+  /** Append-only record of what this executor changed about the caller's declaration. */
+  derived: string[]
   record: (step: ToolStepInput) => void
   state: {
     turns: number
@@ -197,7 +245,45 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   throwIfAborted(args.signal)
   throwIfAborted(args.controller.signal)
 
-  const proc = spawnPi(seam)
+  // Profile-declared MCP servers become this execution's OWN `--mcp-config` file BEFORE pi starts,
+  // because `pi-mcp-adapter` reads that path at load time. The file is private to this worker, so
+  // two workers built from one seam never share it. This THROWS — before any file is written and
+  // before pi is spawned — when the adapter that gives pi MCP at all is missing, rather than
+  // starting a worker whose declared tools silently do not exist.
+  const piMcp = preparePiMcp(args.spec.profile, {
+    ...(seam.cwd !== undefined ? { cwd: seam.cwd } : {}),
+    runId: args.runId,
+  })
+  if (piMcp.receipt) {
+    const injected = piMcp.receipt.adapterInjected ? ` (+${PI_MCP_ADAPTER} added)` : ''
+    activity.push({
+      at: Date.now(),
+      kind: 'note',
+      label: 'mcp',
+      detail: `${piMcp.receipt.servers.join(', ')}${injected}`,
+    })
+    // `recentActivity` is a bounded ring and `resultArtifact()` throws until the stream drains, so
+    // neither can answer "what was pi actually given?" for a run that failed on turn 40. This can.
+    args.derived.push(
+      `mcp: mounted ${piMcp.receipt.servers.join(', ')} via --mcp-config ${piMcp.receipt.configPath}`,
+    )
+    if (piMcp.receipt.adapterInjected) {
+      args.derived.push(
+        `extensions: added ${PI_MCP_ADAPTER} to extensions.pi.load — the profile's own list would ` +
+          'have run under --no-extensions and suppressed it, mounting zero servers',
+      )
+    }
+  }
+
+  let proc: ChildProcess
+  try {
+    proc = spawnPi(seam, piMcp.args)
+  } catch (spawnFailure) {
+    // The config directory was created before the spawn was attempted; a spawn that never happened
+    // still owes its removal.
+    piMcp.mount?.cleanup()
+    throw spawnFailure
+  }
   state.proc = proc
   state.note = 'connected'
 
@@ -356,6 +442,9 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     args.signal.removeEventListener('abort', abortAll)
     args.controller.signal.removeEventListener('abort', abortAll)
     await killPi(proc, 2_000).catch(() => ({ destroyed: false }))
+    // Every exit path — settle, throw, abort, turn timeout — removes this execution's config
+    // directory. Only after pi is reaped, so a still-running pi can never observe it half-removed.
+    piMcp.mount?.cleanup()
   }
 
   if (args.signal.aborted || args.controller.signal.aborted) throw abortError()
@@ -377,9 +466,14 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
     ...(usdKnown ? {} : { usdKnown: false }),
     ms: Date.now() - started,
   }
+  const out: PiExecutorOutput = {
+    content: state.lastText,
+    turns: state.turns,
+    ...(piMcp.receipt ? { mcp: piMcp.receipt } : {}),
+  }
   state.artifact = {
     outRef: `pi:${hash(state.lastText)}`,
-    out: { content: state.lastText, turns: state.turns },
+    out,
     spent,
   }
 }
@@ -574,8 +668,13 @@ function taskText(task: unknown): string {
   }
 }
 
-/** Launch `pi --mode rpc`, plus provider/model flags derived from the seam's `provider/model`. */
-function spawnPi(seam: PiSeam): ChildProcess {
+/**
+ * Launch `pi --mode rpc`, plus provider/model flags derived from the seam's `provider/model` and
+ * the profile-derived extension flags (`--no-extensions` / `--extension`). Seam args go LAST so an
+ * operator's explicit flag wins over a derived one under pi's last-flag-wins parsing; RPC mode has
+ * no positional prompt, so nothing here has to precede an argument.
+ */
+function spawnPi(seam: PiSeam, profileArgs: ReadonlyArray<string> = []): ChildProcess {
   const bin = seam.bin ?? 'pi'
   const argv = ['--mode', 'rpc']
   if (seam.model) {
@@ -586,6 +685,7 @@ function spawnPi(seam: PiSeam): ChildProcess {
       argv.push('--model', seam.model)
     }
   }
+  argv.push(...profileArgs)
   if (seam.args) argv.push(...seam.args)
   return spawn(bin, argv, {
     ...(seam.cwd ? { cwd: seam.cwd } : {}),

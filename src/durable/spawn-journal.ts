@@ -537,6 +537,7 @@ function addJournalSpend(a: Spend, b: Spend): Spend {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
     usd: a.usd + b.usd,
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }

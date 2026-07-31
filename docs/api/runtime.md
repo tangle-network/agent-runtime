@@ -4298,7 +4298,7 @@ readonly `AnalystFinding`[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 ###### Returns
 
@@ -5139,6 +5139,33 @@ model that spent 8,188 of the 8,192 on reasoning and answered with nothing. Rais
 thinking model; the ceiling belongs to the router and model a caller chose, which is why it
 lives here rather than on one call site.
 
+##### stream?
+
+> `optional` **stream?**: `boolean`
+
+Take the tool-calling completion over SSE instead of one buffered POST. Off by default —
+`routerChatWithTools` never streams, and every existing caller keeps the buffered transport
+byte for byte.
+
+Why it exists: a buffered POST holds one connection idle for the WHOLE completion, and a
+supervisor turn is the longest completion in the system. An intermediary gateway with an
+idle-read timeout kills that connection mid-completion (the 524/503 family). A streamed
+response puts bytes on the wire from the first generated token on, so the connection is only
+idle through prefill. It does NOT shorten prefill, so a gateway whose deadline is
+time-to-FIRST-byte is unaffected; only an idle-timeout gateway is.
+
+Mutually exclusive with `complete`: the injected transport returns one parsed JSON body and has
+no stream to read, so setting both throws rather than silently taking the buffered path.
+
+WHICH PATHS CAN OPT IN. This flag is read in exactly one place (the private `chatWithTools` transport switch), so
+every entry point that takes a caller-supplied `RouterConfig` honors it: `routerBrain`,
+`routerToolLoop`, and `supervisorAgent` (which spreads `deps.router` into the brain's config —
+the supervisor turn this exists for). Two production call sites build a `RouterConfig` literal
+from their own options and therefore CANNOT express it today: the bench strategy's
+`routerToolLoop` config in `strategy.ts` and the local sandbox client's `routerBrain` config in
+`local-sandbox-client.ts`. Neither drives a supervisor-length turn; setting `stream` on a
+config handed to either has no path to reach them, and they stay buffered.
+
 ***
 
 ### RouterChatResult
@@ -5233,6 +5260,35 @@ Raw JSON arguments string as emitted by the model.
 ##### costUsd?
 
 > `optional` **costUsd?**: `number`
+
+##### reasoning?
+
+> `optional` **reasoning?**: `string`
+
+Thinking-model reasoning, normalized the way `RouterChatResult.reasoning` is (a separate
+`reasoning_content`/`reasoning` field, or an inline `<think>` block split out of `content`).
+Populated by the STREAMED path only — `routerChatWithTools` discards reasoning today and its
+behavior is preserved unchanged, so a buffered turn still leaves this undefined.
+
+##### finishReason?
+
+> `optional` **finishReason?**: `string`
+
+The provider's `finish_reason` for the turn (`'stop'`, `'tool_calls'`, `'length'`, …).
+Populated by the STREAMED path only. `'length'` is the truncation signal the buffered path
+cannot surface: it says the turn hit `max_tokens`, not that the model chose to stop.
+
+##### usageUnknown?
+
+> `optional` **usageUnknown?**: `true`
+
+The turn happened and its token usage is UNKNOWN — not zero, not free. Set by the STREAMED
+transport when the stream ran to completion without a single usage-bearing chunk, which means
+the `stream_options.include_usage` contract was not honored upstream.
+
+It exists so a bare `usage: undefined` cannot read as a free turn: a metering caller branches
+on this marker and records an UNKNOWN turn (see the coordination driver's `meteredBrain`),
+rather than skipping the turn and letting a conserved budget pool believe it cost nothing.
 
 ***
 
@@ -10334,6 +10390,146 @@ Newest-last activity window `progress()` reports. Default 12.
 
 ***
 
+### PiExecutorOutput
+
+What one pi run reports about the terminal assistant turn, plus any derived MCP mount.
+
+#### Properties
+
+##### content
+
+> **content**: `string`
+
+##### turns
+
+> **turns**: `number`
+
+##### mcp?
+
+> `optional` **mcp?**: [`PiMcpReceipt`](#pimcpreceipt)
+
+Present only when `profile.mcp` declared at least one usable server. Records what pi was
+ actually given — including an extension this executor added that the profile did not list.
+
+***
+
+### PiMcpMount
+
+What the caller must call once pi has exited, and where the config landed.
+
+#### Properties
+
+##### configPath
+
+> **configPath**: `string`
+
+Absolute path of the file passed to `--mcp-config`. Unique to this worker execution.
+
+##### serverNames
+
+> **serverNames**: `string`[]
+
+Server names actually written, post-filter — never the raw `profile.mcp` keys.
+
+#### Methods
+
+##### cleanup()
+
+> **cleanup**(): `void`
+
+Remove the private config directory. Idempotent; safe to call on any exit path.
+
+###### Returns
+
+`void`
+
+***
+
+### PiMcpReceipt
+
+What pi was actually given, as opposed to what the profile declared. This is the observable that
+makes rule 2 above honest: `adapterInjected` is `true` exactly when this module added an extension
+the caller did not ask for, because without it the MCP servers the caller DID ask for could not
+have mounted.
+
+#### Properties
+
+##### servers
+
+> **servers**: `string`[]
+
+Server names written into `configPath`, in declaration order.
+
+##### configPath
+
+> **configPath**: `string`
+
+Absolute path of the mounted config.
+
+##### extensions
+
+> **extensions**: `string`[]
+
+`extensions.pi.load` entries as pi received them, resolved to absolute entry files.
+
+##### adapterInjected
+
+> **adapterInjected**: `boolean`
+
+True when `pi-mcp-adapter` was absent from an explicit `load` array and was added here.
+
+***
+
+### PiMcpPreparation
+
+Everything `piExecutor` needs between "profile in hand" and "pi spawned".
+
+#### Properties
+
+##### args
+
+> **args**: `string`[]
+
+Extra argv for `pi`, in flag order: extension flags first, then `--mcp-config <path>`.
+
+##### mount
+
+> **mount**: [`PiMcpMount`](#pimcpmount) \| `null`
+
+Present only when at least one usable MCP server was declared.
+
+##### receipt
+
+> **receipt**: [`PiMcpReceipt`](#pimcpreceipt) \| `undefined`
+
+Present only when a mount happened — the derived-versus-declared record.
+
+***
+
+### PiMcpMountOptions
+
+Where one worker execution's private config directory is created, and what it is called.
+
+#### Properties
+
+##### cwd?
+
+> `optional` **cwd?**: `string`
+
+The worker's own working directory (`PiSeam.cwd`). Omit when the seam names none: the config
+then lands in the OS temp directory. It is NEVER written into `process.cwd()` — the operator's
+own working directory is not a scratch space for a worker's config.
+
+##### runId
+
+> **runId**: `string`
+
+The executor's per-execution run id, folded into the directory name so a directory that somehow
+survives names the worker that left it. Uniqueness is NOT taken from this — `mkdtemp` provides
+it — because two workers built from one factory in the same millisecond share a run id stem.
+
+***
+
 ### ActivityNote
 
 The most recent activity the executor can name — one tool call, one turn, or a free-form note.
@@ -10388,6 +10584,19 @@ Steers/answers delivered but not yet folded into the worker's conversation.
 > `readonly` `optional` **recentActivity?**: readonly [`ActivityNote`](#activitynote)[]
 
 Newest-last window of what the worker has been doing.
+
+##### derived?
+
+> `readonly` `optional` **derived?**: readonly `string`[]
+
+What the executor CHANGED about what the caller declared, one short line each — an MCP config
+it materialized, an extension it had to add for the caller's own servers to mount at all.
+
+Deliberately NOT part of `recentActivity`: that is a bounded newest-last ring, so a derived
+change made before the first turn is evicted by turn 13 and gone by the time anyone looks. And
+deliberately not only on the settled artifact: a run that fails on turn 40 never produces one,
+yet "what was this worker actually given?" is exactly the question a failure raises. This
+channel is append-only and readable at any moment, including from a run that never finishes.
 
 ##### note?
 
@@ -10464,6 +10673,15 @@ Metered iterations so far (the executor's own count when it reports one).
 
 > `readonly` **output**: `number`
 
+##### tokensKnown?
+
+> `readonly` `optional` **tokensKnown?**: `boolean`
+
+False when observed `tokens` is only a known subtotal, not a complete total — the worker did
+ work whose token count its provider never reported. The twin of `usdKnown`, carried for the
+ same reason: a driver reading this over `observe_agent` would otherwise read the subtotal as
+ the measurement and conclude a busy worker was cheap.
+
 ##### usd
 
 > `readonly` **usd**: `number`
@@ -10485,6 +10703,13 @@ Steers delivered but not yet read by the worker.
 > `readonly` **recentActivity**: readonly [`ActivityNote`](#activitynote)[]
 
 Newest-last window of tool/turn activity; empty when the executor exposes none.
+
+##### derived?
+
+> `readonly` `optional` **derived?**: readonly `string`[]
+
+What the executor changed about the caller's declaration; absent when it changed nothing.
+ Unlike `recentActivity` this is never evicted, so it still answers on a failed run.
 
 ##### note?
 
@@ -10581,6 +10806,10 @@ The scope-side facts about a child, independent of whether its executor cooperat
 ###### output
 
 > `readonly` **output**: `number`
+
+##### tokensKnown?
+
+> `readonly` `optional` **tokensKnown?**: `boolean`
 
 ##### usd
 
@@ -12138,8 +12367,9 @@ than let a caller infer that a field took effect:
    `prompt.instructions` and `resources.instructions`) reach the brain. A full `AgentProfile`'s
    `tools`, `mcp`, `permissions`, `resources.skills`/`files`, `hooks`, `modes`, `subagents`,
    `model.provider`, `model.small` and `model.reasoningEffort` are NOT honored here: the router
-   brain is one `ToolLoopChat` over the coordination verbs, and `routerChatWithTools` (its only
-   transport) has no parameter for any of them.
+   brain is one `ToolLoopChat` over the coordination verbs, and neither of its two tool-calling
+   transports (`routerChatWithTools` buffered, `streamRouterChatWithTools` when
+   `RouterConfig.stream` is set) has a parameter for any of them.
  - HARNESS arm (`harness` set): the WHOLE profile object is handed to `deps.driveHarness`
    untouched, plus the resolved system prompt as a separate argument. Everything the profile
    declares is the harness's to materialize; this module changes none of it.
@@ -12194,9 +12424,11 @@ A `SupervisorProfile` reduced to the scalars the two brain arms consume. `modelI
  stay `undefined` when the profile named none — the caller's fallback (`deps.router.model`,
  the built-in default supervisor prompt) then applies, and this type cannot hide which happened.
 
- There is deliberately no `reasoningEffort` here: the router brain runs on `routerChatWithTools`,
- which has no `reasoning_effort` parameter, so a field carrying it would be a public promise
- nothing keeps. `model.reasoningEffort` still reaches the harness arm inside the profile.
+ There is deliberately no `reasoningEffort` here: the router brain runs on `chatWithTools` (the
+ buffered/streamed switch in the router client), and neither transport has a `reasoning_effort`
+ parameter — only the chat-only `routerChatWithUsage` does — so a field carrying it would be a
+ public promise nothing keeps. `model.reasoningEffort` still reaches the harness arm inside the
+ profile.
 
 #### Properties
 
@@ -13256,7 +13488,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 ###### Returns
 
@@ -16377,7 +16609,7 @@ Provider-neutral conversation records read by structural candidate extraction.
 
 ### BudgetReadout
 
-> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown?`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
@@ -16509,6 +16741,16 @@ The standing instruction assembled from the profile: its system prompt in either
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
 `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+
+KNOWN LIMITATION (pre-existing): the `cost` variant can say its dollars are a subtotal
+(`usdKnown: false`), and the `tokens` variant has NO twin — there is no way to report "this turn
+happened and its token count is unknown". `Spend.tokensKnown` exists downstream, but nothing
+upstream of `foldStream` (`scope.ts`) can ever set it, so a STREAMING executor whose provider
+omitted usage reports the turn as costing zero tokens rather than as unmeasured. Only the
+non-streaming path, which returns a whole `Spend`, can carry the marker today. Closing it means
+widening this union (a `tokensKnown: false` field on `tokens`, or an `unknown` variant) and
+threading it through `foldStream` — a change to the metering contract every executor implements,
+which is why it is not folded into a streaming-transport fix. Filed separately.
 
 #### Union Members
 
@@ -16991,7 +17233,7 @@ Provider-neutral conversation record accepted by a tool-loop brain.
 
 ### ToolLoopChat
 
-> **ToolLoopChat** = (`messages`, `tools`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; \}\>
+> **ToolLoopChat** = (`messages`, `tools`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; `usageUnknown?`: `true`; \}\>
 
 One inference turn over the running conversation + the tool specs → the model's text, any
  tool calls, and token usage. The seam every brain satisfies.
@@ -17008,7 +17250,7 @@ One inference turn over the running conversation + the tool specs → the model'
 
 #### Returns
 
-`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; \}\>
+`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; `usageUnknown?`: `true`; \}\>
 
 ***
 
@@ -17306,6 +17548,30 @@ Seam key the registry threads a `PiSeam` through (`ExecutorContext.seams['pi']`)
 > `const` **piExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
 Build the `Executor` for one pi worker. Registered as runtime `'pi'`.
+
+***
+
+### PI\_MCP\_ADAPTER
+
+> `const` **PI\_MCP\_ADAPTER**: `"pi-mcp-adapter"` = `'pi-mcp-adapter'`
+
+The pi extension that gives pi MCP at all. Everything here is gated on it being loadable.
+
+***
+
+### PI\_MCP\_ADAPTER\_ENV
+
+> `const` **PI\_MCP\_ADAPTER\_ENV**: `"AGENT_RUNTIME_PI_MCP_ADAPTER"` = `'AGENT_RUNTIME_PI_MCP_ADAPTER'`
+
+Overrides adapter detection for installs whose path does not carry the adapter's name.
+
+***
+
+### PI\_MCP\_CONFIG\_FLAG
+
+> `const` **PI\_MCP\_CONFIG\_FLAG**: `"--mcp-config"` = `'--mcp-config'`
+
+The adapter-registered flag that names this run's config file (`pi-mcp-adapter` `index.ts:252`).
 
 ***
 
@@ -18939,6 +19205,66 @@ readonly `object`[]
 
 ***
 
+### streamRouterChatWithTools()
+
+> **streamRouterChatWithTools**(`cfg`, `messages`, `tools`, `opts?`): `Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
+
+The SAME completion as `routerChatWithTools`, taken over SSE (`stream: true`) and reassembled
+into the identical `RouterChatToolsResult`. Opt in with `RouterConfig.stream` — the buffered
+function is untouched and stays the default for every existing caller.
+
+What it buys: a buffered POST holds one connection idle for the whole completion, and that idle
+window is what an intermediary gateway kills (524/503). Streaming puts bytes on the wire from the
+first generated token, so the connection is only idle through prefill.
+
+Usage accounting is preserved exactly: `stream_options.include_usage` asks the provider for a
+terminal usage chunk, and those tokens run through the same `meterTurn` the buffered path uses.
+
+When NO chunk reported usage, `usage`/`costUsd` stay undefined (never a fabricated 0) AND
+`usageUnknown: true` is set. A stream that finishes with no usage chunk means the
+`include_usage` request was not honored upstream, and returning a quiet `undefined` for it is
+indistinguishable from a free turn — the marker is what lets a metering caller record an UNKNOWN
+turn instead. Streaming raises the odds of this (one dropped terminal frame is enough), which is
+why the streamed transport says so explicitly and the buffered one has no equivalent claim to make.
+
+#### Parameters
+
+##### cfg
+
+[`RouterConfig`](#routerconfig)
+
+##### messages
+
+readonly `Record`\<`string`, `unknown`\>[]
+
+##### tools
+
+readonly [`ToolSpec`](#toolspec)[]
+
+##### opts?
+
+###### temperature?
+
+`number`
+
+###### signal?
+
+`AbortSignal`
+
+###### toolChoice?
+
+`"auto"` \| `"none"` \| `"required"`
+
+###### maxTokens?
+
+`number`
+
+#### Returns
+
+`Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
+
+***
+
 ### routerToolLoop()
 
 > **routerToolLoop**(`cfg`, `system`, `user`, `tools`, `execute`, `opts?`): `Promise`\<[`RouterToolLoopResult`](#routertoolloopresult)\>
@@ -19014,6 +19340,9 @@ The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by th
 tool-calling. The driver's spawn/observe/steer/await/stop turns become real router tool-calls.
 The turnkey production brain — tests script a mock `ToolLoopChat`; production passes
 `routerBrain(cfg)`. No message translation: the loop already speaks the router's OpenAI shape.
+
+Transport follows `cfg.stream`: buffered by default, SSE when the caller opts in. A supervisor
+turn is the longest completion in the system, so it is the call site streaming exists for.
 
 #### Parameters
 
@@ -20875,7 +21204,7 @@ readonly [`FinalizerSettled`](#finalizersettled)[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 #### Returns
 
@@ -20938,6 +21267,109 @@ whether the patch is DELIVERED (the `valid` conjunction).
 #### Returns
 
 [`DeliverableSpec`](#deliverablespec)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
+
+***
+
+### piMcpAdapterAvailable()
+
+> **piMcpAdapterAvailable**(): `boolean`
+
+True when pi can actually consume MCP config — i.e. `pi-mcp-adapter` is installed. Ported from
+cli-bridge `pi.ts:189`: an env override first (for vendored installs whose path does not carry the
+adapter's name), then the npm install directory, then a scan of `settings.json` `packages` in
+which a local-path entry is resolved by reading the target's `package.json` `name`. An
+unreadable or absent `settings.json` reports "not detected"; it never throws and never assumes.
+
+#### Returns
+
+`boolean`
+
+***
+
+### buildPiMcpServers()
+
+> **buildPiMcpServers**(`mcp`): `Record`\<`string`, `Record`\<`string`, `unknown`\>\>
+
+Build the canonical `{ mcpServers }` body the adapter reads, from `AgentProfile.mcp`.
+
+This is cli-bridge's `buildCanonicalMcpServers`
+(`/home/drew/code/cli-bridge/src/backends/profile-support.ts:253`) reproduced field for field and
+in the same key order — same drop of `enabled:false`, same stdio-versus-remote decision
+(`isStdioMcpSpec`, `profile-support.ts:177`), same `{command, args, env}` and `{type, url,
+headers}` bodies, same silent drop of an entry with nothing to connect to. For any server both
+input types can express, the emitted JSON is byte-identical.
+
+The two input types are not the same type, so three differences remain and each is a field one
+side cannot express:
+
+1. **`cwd` (emitted here, absent there).** `AgentProfileLocalMcpServer` has `cwd`; cli-bridge's
+   `McpServerSpec` (`src/backends/types.ts:53`) has no such field, so it can never emit one. The
+   adapter honors it (`pi-mcp-adapter` `types.ts:325`, `ServerEntry.cwd`), so dropping it would
+   silently discard a declared setting. It is emitted where cli-bridge emits `timeout`.
+2. **`timeout` (emitted there, absent here).** `AgentProfileMcpServer` has no timeout field, so
+   there is nothing to emit. (The adapter's own knob is `requestTimeoutMs`, not `timeout`.)
+3. **A `url` with no declared transport.** cli-bridge DROPS it — its remote branch requires an
+   explicit `spec.type` — even though its own `McpServerSpec` docstring says "http is implied if
+   `url` is set" (`types.ts:53-56`). `transport` is optional on `AgentProfileRemoteMcpServer`, so
+   dropping such a server here would be exactly the silent-drop bug this module exists to fix.
+   We honor the documented convention and emit `type: 'http'`.
+
+`sse` is ACCEPTED and forwarded verbatim, as cli-bridge forwards it. The adapter connects a URL
+server by probing StreamableHTTP and falling back to `SSEClientTransport` when the probe fails
+(`pi-mcp-adapter` `server-manager.ts:765`), so an SSE-only endpoint does connect. Its
+`ServerEntry` (`types.ts:319`) carries no transport discriminator at all, which means the `type`
+key is inert to the adapter either way — but it is what cli-bridge writes, and a config file that
+round-trips the caller's declared transport is the one that stays readable by both.
+
+#### Parameters
+
+##### mcp
+
+`Record`\<`string`, `AgentProfileMcpServer`\> \| `undefined`
+
+#### Returns
+
+`Record`\<`string`, `Record`\<`string`, `unknown`\>\>
+
+***
+
+### preparePiMcp()
+
+> **preparePiMcp**(`profile`, `options`): [`PiMcpPreparation`](#pimcppreparation)
+
+The one call `piExecutor` makes before spawning pi: decide what pi must be told, fail loud if it
+cannot work, then mount.
+
+Order matters and is the point:
+
+1. Canonicalize `profile.mcp` first, so the adapter gate keys off servers that would ACTUALLY be
+   written — a block of `enabled:false` entries must not trip it.
+2. If any server survives and `pi-mcp-adapter` is not installed, throw. No file has been written
+   and pi has not been spawned.
+3. Lower `extensions.pi.load` (which may itself throw on an unresolvable extension) — still before
+   any file exists.
+4. Only then create this execution's private config directory and emit `--mcp-config`.
+
+A profile with no usable MCP server is a pure no-op: no adapter check, no directory, no flags, no
+throw. `extensions.pi.load` on its own still produces flags, because reproducible ablation arms
+need them whether or not MCP is involved.
+
+The caller MUST call `mount.cleanup()` on every exit path — settle, throw, abort, timeout, and
+spawn failure — so the directory does not outlive the worker that owns it.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile` \| `undefined`
+
+##### options
+
+[`PiMcpMountOptions`](#pimcpmountoptions)
+
+#### Returns
+
+[`PiMcpPreparation`](#pimcppreparation)
 
 ***
 

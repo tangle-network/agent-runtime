@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.113.1` and `@tangle-network/agent-eval@0.139.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.114.0` and `@tangle-network/agent-eval@0.139.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -492,7 +492,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 624 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 636 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -513,6 +513,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 624 exports.
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
 | `bestSoFar` | function | The best-so-far fold — the ONE definition of "how good was the run after k results", shared by |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
+| `buildPiMcpServers` | function | Build the canonical `{ mcpServers }` body the adapter reads, from `AgentProfile.mcp`. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
 | `closingWorkerNote` | function | The worker's closing commentary off a local harness run: the TAIL of its |
@@ -603,10 +604,12 @@ Import from `@tangle-network/agent-runtime/kernel` — 624 exports.
 | `pendingWaits` | function | The waits a journaled tree shows as ARMED but never woken — what a resumed run re-arms with the |
 | `pickBestDelivered` | function | The single argmax both the default finalizer and `finalizeBestDelivered` share: highest |
 | `pickChampion` | function | The champion pick over a means table. 'score' takes the best mean score (ties → |
+| `piMcpAdapterAvailable` | function | True when pi can actually consume MCP config — i.e. `pi-mcp-adapter` is installed. Ported from |
 | `pipeline` | function | `pipeline(stages)` — run the stages in order, feeding each stage's `done` deliverable into the |
 | `plateau` | function | "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than |
 | `plateauLength` | function | How many trailing entries of a best-so-far curve are within `minDelta` of the curve's value |
 | `pollFor` | function | Build a bounded `poll` spec from a duration. |
+| `preparePiMcp` | function | The one call `piExecutor` makes before spawning pi: decide what pi must be told, fail loud if it |
 | `printBenchmarkReport` | function | Pretty-print a report — the "free optimization" verdict, with the cost vector. |
 | `probeSandboxCapabilities` | function | Probe (and memoize per client) what the loop may rely on. A client without a |
 | `profileRichnessFinding` | function | Turn a {@link ProfileRichness} verdict into a bus-routable `AnalystFinding` (area `profile-quality`). |
@@ -662,6 +665,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 624 exports.
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
 | `stopSentinel` | function | A unique, attributable stop sentinel for a node (ralph-loop style). Deterministic from the |
 | `streamAgentTurn` | function | Run ONE agent turn on any backend kind and stream its events. Yields the |
+| `streamRouterChatWithTools` | function | The SAME completion as `routerChatWithTools`, taken over SSE (`stream: true`) and reassembled |
 | `structuralRollout` | function | Build the structuralRollout `Strategy`: k shots → score each by the frozen visible |
 | `sumSandboxUsage` | function | Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an |
 | `supervise` | function | One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use. |
@@ -701,6 +705,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 624 exports.
 | `EVIDENCE_MAX_CHARS` | const | Hard cap on one worker's evidence block so the brain's context cannot blow up. |
 | `mcpSecretEnvMetadataKey` | const | The `AgentProfileMcpServer.metadata` key the declarative secret-env map |
 | `NOTE_MAX_CHARS` | const | Cap on the worker's closing note inside the evidence block. |
+| `PI_MCP_ADAPTER` | const | The pi extension that gives pi MCP at all. Everything here is gated on it being loadable. |
+| `PI_MCP_ADAPTER_ENV` | const | Overrides adapter detection for installs whose path does not carry the adapter's name. |
+| `PI_MCP_CONFIG_FLAG` | const | The adapter-registered flag that names this run's config file (`pi-mcp-adapter` `index.ts:252`). |
 | `PI_RUNTIME` | const | The runtime name `piExecutor` registers under. |
 | `piExecutor` | const | Build the `Executor` for one pi worker. Registered as runtime `'pi'`. |
 | `piSeamKey` | const | Seam key the registry threads a `PiSeam` through (`ExecutorContext.seams['pi']`). |
@@ -822,6 +829,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 624 exports.
 | `Persona` | interface | The "act like X" record. A thin composition over the keystone's `AgentSpec`: it pairs the |
 | `PersonaContext` | interface | The persona context blob — who the loop is acting as. Open by intent: a persona names its |
 | `PersonaExecutors` | interface | How a persona supplies executor resolution. Either a pre-built registry (factories already |
+| `PiExecutorOutput` | interface | What one pi run reports about the terminal assistant turn, plus any derived MCP mount. |
+| `PiMcpMount` | interface | What the caller must call once pi has exited, and where the config landed. |
+| `PiMcpMountOptions` | interface | Where one worker execution's private config directory is created, and what it is called. |
+| `PiMcpPreparation` | interface | Everything `piExecutor` needs between "profile in hand" and "pi spawned". |
+| `PiMcpReceipt` | interface | What pi was actually given, as opposed to what the profile declared. This is the observable that |
 | `PipelineStage` | interface | `pipeline(stages)` — sequential composition: each stage's `Outcome.deliverable` feeds the next |
 | `PiSeam` | interface | How to launch pi in its out-of-process RPC mode, and how long to wait on it. |
 | `PriorCoordination` | interface | What a prior process's coordination log replays into a resumed driver. |
