@@ -1927,7 +1927,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### reasoningEffort
 
-`ReasoningEffort` \| `undefined`
+`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -2233,7 +2233,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### reasoningEffort
 
-`ReasoningEffort` \| `undefined`
+`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -4481,7 +4481,7 @@ One-based shot number within this candidate.
 
 ##### reasoningEffort
 
-> `readonly` **reasoningEffort**: `ReasoningEffort` \| `null`
+> `readonly` **reasoningEffort**: `"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `null`
 
 ##### promptSha256
 

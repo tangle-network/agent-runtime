@@ -4,9 +4,11 @@
  * An adopted server (a `connection` artifact, or a `buildableGenerator` remote
  * emit) usually needs a credential. The credential must never ride the profile
  * or the artifact — both are logged, diffed, and stored as audit records — so
- * the profile carries only a DECLARATIVE reference:
+ * the profile carries only a DECLARATIVE reference, on either channel:
  *
- *   `profile.mcp[key].metadata[mcpSecretEnvMetadataKey]`
+ *   - interface ≥0.40 canonical: `profile.mcp[key].env.ENV_VAR_NAME`
+ *     = `{ kind: 'secret-ref', key: 'PROVIDER_KEY_NAME', format? }`
+ *   - legacy metadata channel: `profile.mcp[key].metadata[mcpSecretEnvMetadataKey]`
  *     = { ENV_VAR_NAME: 'PROVIDER_KEY_NAME', … }
  *
  * and the VALUE is resolved at materialize time (`materializeLocalMcp`'s
@@ -29,7 +31,11 @@
  * need a live service, so neither is constructed here.
  */
 
-import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
+import type {
+  AgentProfileConfigValue,
+  AgentProfileMcpServer,
+  AgentProfileSecretRef,
+} from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 
 /** Resolve named secrets. The ONE seam every secret store adapts to. */
@@ -107,4 +113,88 @@ export async function resolveSecretEnv(
     resolved[envName] = value
   }
   return resolved
+}
+
+/** Apply a secret-ref's declared decoration to its resolved raw value. */
+function formatSecretValue(value: string, format: AgentProfileSecretRef['format']): string {
+  return format === 'bearer' ? `Bearer ${value}` : value
+}
+
+/** The spawn-ready strings for one stdio MCP server: profile config values
+ *  resolved, secrets separated so the client can redact them. */
+export interface ResolvedMcpServerLaunch {
+  args?: string[]
+  /** Public env, safe to appear in diagnostics. */
+  env?: Record<string, string>
+  /** Resolved secret env. Reaches only the child process; redacted everywhere else. */
+  protectedEnv?: Record<string, string>
+}
+
+/**
+ * Resolve a profile MCP server's `args`/`env` config values (interface ≥0.40
+ * `AgentProfileConfigValue`) plus the legacy `metadata.secretEnv` channel into
+ * the plain strings a spawn needs.
+ *
+ * Rules, all fail-closed:
+ * - `args` must be public values. A secret-ref in argv is refused: argv is
+ *   readable by every host process (/proc/PID/cmdline) and outside the
+ *   protected-value redaction channel, so a secret there cannot be contained.
+ * - `env` secret-refs resolve through the KeyProvider (missing provider or key
+ *   throws, naming the KEY NAME only) and land in `protectedEnv`.
+ * - An env var declared secret on BOTH channels (env secret-ref and
+ *   metadata.secretEnv) is ambiguous configuration and throws.
+ * - A public `env` entry shadowed by a legacy metadata secret keeps the
+ *   pre-0.40 spawn precedence: the secret value wins in the child env.
+ */
+export async function resolveMcpServerLaunch(
+  server: AgentProfileMcpServer,
+  keys: KeyProvider | undefined,
+  label: string,
+): Promise<ResolvedMcpServerLaunch> {
+  const args = server.args?.map((value: AgentProfileConfigValue, index: number): string => {
+    if (value.kind !== 'public') {
+      throw new ValidationError(
+        `${label}.args[${index}] is a secret-ref ('${value.key}') — argv is readable by every host process and exempt from redaction; declare the secret in env instead`,
+      )
+    }
+    return value.value
+  })
+
+  const publicEnv: Record<string, string> = {}
+  const envSecretRefs: Record<string, string> = {}
+  const envSecretFormats: Record<string, AgentProfileSecretRef['format']> = {}
+  for (const [envName, value] of Object.entries(server.env ?? {})) {
+    if (value.kind === 'public') {
+      publicEnv[envName] = value.value
+    } else {
+      envSecretRefs[envName] = value.key
+      envSecretFormats[envName] = value.format
+    }
+  }
+
+  const legacySecretEnv = secretEnvOfMcpServer(server)
+  for (const envName of Object.keys(legacySecretEnv ?? {})) {
+    if (envName in envSecretRefs) {
+      throw new ValidationError(
+        `${label}: env ${envName} is declared secret twice — once as an env secret-ref and once in metadata.${mcpSecretEnvMetadataKey}; keep exactly one declaration`,
+      )
+    }
+  }
+
+  const resolvedRefs = await resolveSecretEnv(envSecretRefs, keys, label)
+  const protectedEnv: Record<string, string> = {
+    ...(legacySecretEnv ? await resolveSecretEnv(legacySecretEnv, keys, label) : {}),
+    ...Object.fromEntries(
+      Object.entries(resolvedRefs).map(([envName, raw]) => [
+        envName,
+        formatSecretValue(raw, envSecretFormats[envName]),
+      ]),
+    ),
+  }
+
+  return {
+    ...(args ? { args } : {}),
+    ...(server.env ? { env: publicEnv } : {}),
+    ...(Object.keys(protectedEnv).length > 0 ? { protectedEnv } : {}),
+  }
 }

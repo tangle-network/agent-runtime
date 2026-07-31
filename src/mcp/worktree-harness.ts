@@ -29,6 +29,8 @@ import {
   type ResolveAgentProfileResourcesOptions,
   resolveAgentProfileResources,
   type WorkspacePlan,
+  type WorkspacePlanArgument,
+  type WorkspacePlanConfigValue,
   type WorkspacePlanReceipt,
 } from '@tangle-network/agent-profile-materialize'
 import {
@@ -200,6 +202,27 @@ function materializerHarness(harness: LocalHarness): HarnessId {
   return harness === 'claude' ? 'claude-code' : harness
 }
 
+/** This harness runs public plans only — it has no secret provider, so any
+ *  templated argument or secret-ref env value is refused rather than leaked
+ *  or silently stringified. */
+function publicPlanString(value: WorkspacePlanArgument | WorkspacePlanConfigValue): string {
+  if (typeof value === 'string') return value
+  throw new Error(
+    'runWorktreeHarness: plan value requires a secret provider; this harness applies public plans only',
+  )
+}
+
+function resolvePublicPlanEnv(
+  env: Record<string, WorkspacePlanConfigValue | undefined>,
+): Record<string, string> {
+  const resolved: Record<string, string> = {}
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) continue
+    resolved[name] = publicPlanString(value)
+  }
+  return resolved
+}
+
 /**
  * Run the one worktree-harness operation. A failed run attempts cleanup before propagating; if
  * cleanup also fails, both errors are preserved. The caller cleans up a successful run.
@@ -265,8 +288,8 @@ export async function runWorktreeHarness(
       harness: opts.harness,
       cwd: worktree.path,
       taskPrompt: opts.taskPrompt,
-      invocation: { command, args: [...args, ...applied.flags] },
-      env: { ...process.env, ...applied.env },
+      invocation: { command, args: [...args, ...applied.flags.map(publicPlanString)] },
+      env: { ...process.env, ...resolvePublicPlanEnv(applied.env) },
       ...(opts.codexReproducible ? { codexReproducible: true } : {}),
       ...(opts.codexReadDeniedPaths ? { codexReadDeniedPaths: opts.codexReadDeniedPaths } : {}),
       ...(opts.harnessTimeoutMs !== undefined ? { timeoutMs: opts.harnessTimeoutMs } : {}),
@@ -508,7 +531,7 @@ function profileMaterializationReceipt(
     writtenPaths: [...applied.written],
     unsupported: [...applied.unsupported],
     environmentNames: Object.keys(applied.env).sort(),
-    flags: [...applied.flags],
+    flags: applied.flags.map(publicPlanString),
     resourceInstructions: instructionBytes
       ? {
           delivery: 'invocation-prompt',

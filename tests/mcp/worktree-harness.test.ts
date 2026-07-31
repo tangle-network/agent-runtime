@@ -407,7 +407,7 @@ describe('runWorktreeHarness profile materialization', () => {
             ],
             instructions: resourceInstructionMarker,
           },
-          mcp: { local: { command: 'node', args: ['server.mjs'] } },
+          mcp: { local: { command: 'node', args: [{ kind: 'public', value: 'server.mjs' }] } },
           hooks: { PreToolUse: [{ command: 'node hook.mjs', matcher: 'Bash' }] },
           subagents: { helper: { description: 'Helper', prompt: 'SUBAGENT_MARKER_37bb713b' } },
         },

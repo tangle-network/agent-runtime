@@ -14,6 +14,28 @@ import type { CreateSandboxOptions } from '@tangle-network/sandbox'
 type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
 type BackendOverride = NonNullable<CreateSandboxOptions['backend']>
 
+/** The AgentProfile type as @tangle-network/sandbox declares it — compiled
+ *  against agent-interface 0.36, not this package's 0.40. */
+export type SandboxAgentProfile = NonNullable<BackendOverride['profile']>
+
+/**
+ * Version-skew boundary: sandbox 0.15.2 types profiles against interface 0.36
+ * (MCP `args`/`env`/`headers` as plain strings), while this runtime is on 0.40
+ * (`AgentProfileConfigValue` objects). No published sandbox release is typed
+ * against 0.40 yet, and the profile crosses this boundary as data — the values
+ * are forwarded, not reinterpreted — so the only conversion is the nominal type
+ * hop. This is the ONE sanctioned cast for that skew; remove both adapters when
+ * sandbox releases against interface 0.40.
+ */
+export function profileAsSandboxProfile(profile: AgentProfile): SandboxAgentProfile {
+  return profile as unknown as SandboxAgentProfile
+}
+
+/** Reverse hop of the same skew boundary — see `profileAsSandboxProfile`. */
+export function sandboxProfileAsProfile(profile: SandboxAgentProfile): AgentProfile {
+  return profile as unknown as AgentProfile
+}
+
 /**
  * Resolve the backend `type`: an explicit override wins, then the profile's
  * `metadata.backendType` hint, else the SDK's profile-driven default
@@ -44,7 +66,7 @@ export function buildBackendOptions(
     ...base,
     backend: {
       type: resolveBackendType(profile, overrideBackend),
-      profile,
+      profile: profileAsSandboxProfile(profile),
       ...(overrideBackend?.model ? { model: overrideBackend.model } : {}),
       ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
     },
