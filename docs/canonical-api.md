@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.110.0.**
+> **Version 0.111.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.139.2 <0.140.0`.
 > `sandbox` must satisfy `>=0.15.0 <0.16.0`.
@@ -107,6 +107,9 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Run a supervisor toward a goal with default setup | `supervise(profile, task, { budget, backend? })`: `/kernel` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for lower-level calls before you need a specific counterparty |
 | **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })`: `/kernel` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |
 | Run a profile through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })`: `/kernel` | a hand-rolled `createSupervisor().run` + seam-wiring helper |
+| Address a supervisor run's durable state on disk, or steer a live worker from another process | `supervisorRunsRoot(root)` / `supervisorRunDir(root, id)` / `writeWorkerSteer(...)` / `readWorkerSteerRequests(...)`: `/kernel` — the `<root>/.agent/supervisor/<id>` contract `traces analyze --supervisor-run-dir` reads (`legacySupervisorRunDir` names the pre-rename `.loops` location for readers only) | inventing a run-dir layout, joining `.agent/supervisor` by hand, or writing a steer file whose shape no published reader knows |
+| Give a worker's clone the source workspace's untracked build artifacts | `withUntrackedArtifacts(ws, sourceDir)` wrapping the `Workspace`: `/kernel` | a post-materialize `cp -r`, a hardlink farm, or accepting that a bare `git clone` cannot build |
+| Expose what a settled worker shows the brain (failing verify tail + diff head + note, bounded) | `composeWorkerEvidence(...)` + `settledWorkerOut(...)` + `closingWorkerNote(...)`: `/kernel` | re-rolling truncation caps per consumer, or settling with bare counters the brain cannot act on |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape`: `/kernel` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |
 | Run a worker agent under test conversing with a **simulated-user persona**, K rounds, worker-only metered | `runPersonaConversation({ worker, persona, backendFor, systemPromptOf })`: root `.` (also `/kernel`) | a hand-rolled per-agent `dispatchWithSurface` bridge / eval-dispatch loop |
 | Run **two `AgentProfile`s head-to-head** with a separate resumable session for each actor | `runConversation(...)` from root `.` | a hand-rolled two-agent turn loop |
