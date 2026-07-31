@@ -201,6 +201,13 @@ function publicConfigString(
 /**
  * Build the canonical `{ mcpServers }` body the adapter reads, from `AgentProfile.mcp`.
  *
+ * Every server is written with `directTools: true` (`pi-mcp-adapter` types.ts:351), which
+ * registers its tools as NATIVE pi tools instead of hiding them behind the generic `mcp` tool.
+ * Without it an agent must discover its own verbs before it can use them — connect to the server,
+ * then describe each tool — and a measured run spent 58 turns and 639,632 input tokens doing that
+ * before it could delegate once. A profile that declares an MCP server is asking for its tools,
+ * not for a directory it has to browse.
+ *
  * This is cli-bridge's `buildCanonicalMcpServers`
  * (`/home/drew/code/cli-bridge/src/backends/profile-support.ts:253`) reproduced field for field and
  * in the same key order — same drop of `enabled:false`, same stdio-versus-remote decision
@@ -254,6 +261,7 @@ export function buildPiMcpServers(
         ...(args.length > 0 ? { args } : {}),
         ...(Object.keys(env).length > 0 ? { env } : {}),
         ...(typeof raw.cwd === 'string' && raw.cwd.length > 0 ? { cwd: raw.cwd } : {}),
+        directTools: true,
       }
       continue
     }
@@ -263,6 +271,7 @@ export function buildPiMcpServers(
         type: transport === 'sse' ? 'sse' : 'http',
         url,
         ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        directTools: true,
       }
     }
     // No command and no url — nothing to connect to. Dropped, exactly as cli-bridge drops it.
