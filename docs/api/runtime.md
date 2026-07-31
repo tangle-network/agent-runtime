@@ -20808,6 +20808,30 @@ The run directory every artifact of one supervisor run lives under.
 
 ***
 
+### legacySupervisorRunDir()
+
+> **legacySupervisorRunDir**(`rootDir`, `id`): `string`
+
+Where a pre-rename writer put the same run (`<root>/.loops/supervisor/<id>`). Readers that must
+see historical runs check [supervisorRunDir](#supervisorrundir) first and fall back to this; nothing writes
+here anymore.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### safeWorkerFile()
 
 > **safeWorkerFile**(`label`): `string`
