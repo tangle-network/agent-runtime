@@ -14057,6 +14057,41 @@ readonly `object`[]
 
 ***
 
+### toOtelAttributes()
+
+> **toOtelAttributes**(`record`): [`OtelAttribute`](#otelattribute)[]
+
+Convert a flat record into the OTLP attribute list. Non-finite numbers are DROPPED (an OTLP
+`doubleValue` of `NaN`/`Infinity` is not representable), integers ride as `intValue`. Exported so
+a producer that mints its own `OtelSpan` (the supervisor span recorder) builds attributes exactly
+the way every span in this file does, rather than re-deriving the encoding.
+
+#### Parameters
+
+##### record
+
+`Record`\<`string`, `string` \| `number` \| `boolean`\>
+
+#### Returns
+
+[`OtelAttribute`](#otelattribute)[]
+
+***
+
+### generateSpanId()
+
+> **generateSpanId**(): `string`
+
+Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must know a span's id
+ BEFORE the span closes (a node opened at spawn and parented by its children) uses this one
+ generator instead of a second copy of it.
+
+#### Returns
+
+`string`
+
+***
+
 ### exportEvalRuns()
 
 > **exportEvalRuns**(`events`, `config?`): `Promise`\<[`EvalRunsExportResult`](#evalrunsexportresult)\>

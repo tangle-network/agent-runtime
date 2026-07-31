@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.114.0.**
+> **Version 0.115.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.139.2 <0.140.0`.
 > `sandbox` must satisfy `>=0.15.0 <0.16.0`.
@@ -153,6 +153,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Render a **multi-profile × multi-axis benchmark leaderboard** (ranked board + score matrix + SVG/HTML charts) from an EXISTING fleet of matrix runs | `leaderboard(records)` + `renderLeaderboardMarkdown` / `renderLeaderboardSvg` / `renderLeaderboardHtml`: `/kernel` (feed it `runProfileMatrix().records`, any domain; `defineLeaderboard` calls these for you) | a per-benchmark report/chart renderer; hand-rolled SVG/markdown tables; a curated subset of axes |
 | Attach N observers to a running loop | `composeRuntimeHooks(...)`: root export | a second event-bus or callback-prop zoo (there is ONE stream) |
 | Ship traces to an OTLP collector | `createOtelExporter()` + `buildLoopOtelSpans()`: root export | your own OTLP serializer or pulling the OTEL SDK |
+| See a **supervised tree** in a trace viewer (one span per node, opened at spawn, closed at settle, parented to its parent node; driver turns as LLM child spans) | `supervise(profile, task, { otel: { exporter } })`, or `createSupervisorSpanRecorder({ runId, … }).hooks` on `SupervisorOpts.hooks`: `/kernel` — OPT-IN, and omitting `otel` installs no hook at all | parsing the spawn journal to reconstruct the tree; a second exporter; routing replay/resume through telemetry (the journal stays the only durable record) |
 | Run an ordered analyst pass where later analysts use findings from earlier analysts | `runAnalystLoop({ chainFindings: true })`: `/analyst-loop`; registration order defines the dependency order, while omission keeps analysts independent | manually invoke each analyst and pipe findings between calls |
 | Know **what got mounted into a run** / **why a candidate won** | `result.provenance.mounts` / `result.provenance.selectionReceipts` (`MountManifestEntry`/`SelectionReceipt`/`RunProvenance`); declare mounts via the `recordMount` recorder in `prepareBox`: root export | re-reading box contents to reconstruct what was mounted, or re-deriving which candidate the selector picked |
 | State any benchmark/A-B claim | `pairedLift(...)` (bench) over `pairedBootstrap`/`heldoutSignificance` (substrate) | your own bootstrap loop/PRNG per gate; a point lift without `low/high/pairs` |

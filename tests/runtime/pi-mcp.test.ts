@@ -247,16 +247,24 @@ describe('buildPiMcpServers — the canonical body pi-mcp-adapter reads', () => 
     })
 
     expect(servers).toEqual({
-      coordination: { type: 'http', url: 'http://127.0.0.1:7331/mcp' },
-      local: { command: 'node', args: ['server.mjs'], env: { LOG: 'debug' }, cwd: '/srv/tools' },
+      coordination: { type: 'http', url: 'http://127.0.0.1:7331/mcp', directTools: true },
+      local: {
+        command: 'node',
+        args: ['server.mjs'],
+        env: { LOG: 'debug' },
+        cwd: '/srv/tools',
+        directTools: true,
+      },
     })
   })
 
   it('is byte-identical to cli-bridge buildCanonicalMcpServers on the shared field set', () => {
     // cli-bridge `profile-support.ts:253` emits stdio as `{command, args, env, timeout}` and remote
     // as `{type, url, headers, timeout}`, in that key order. `AgentProfileMcpServer` has no
-    // `timeout`, so for any server BOTH input types can express the bytes must match exactly —
-    // key order included, because this file is read by two different writers.
+    // `timeout`, so for any server BOTH input types can express, the bytes match exactly — key
+    // order included, because this file is read by two different writers — EXCEPT for the trailing
+    // `directTools`, which this writer adds deliberately and cli-bridge does not yet. It is pinned
+    // as the last key of every entry so the divergence is exactly one field, visible in the bytes.
     const bytes = JSON.stringify(
       buildPiMcpServers({
         local: {
@@ -275,6 +283,15 @@ describe('buildPiMcpServers — the canonical body pi-mcp-adapter reads', () => 
     )
 
     expect(bytes).toBe(
+      '{"local":{"command":"node","args":["server.mjs"],"env":{"LOG":"debug"},"directTools":true},' +
+        '"remote":{"type":"http","url":"https://api.example/mcp","directTools":true},' +
+        '"legacy":{"type":"sse","url":"https://api.example/sse","headers":{"X-Tenant":"acme"},' +
+        '"directTools":true}}',
+    )
+
+    // Strip the one deliberate addition and cli-bridge parity is exact again.
+    const withoutDirect = bytes.replaceAll(',"directTools":true', '')
+    expect(withoutDirect).toBe(
       '{"local":{"command":"node","args":["server.mjs"],"env":{"LOG":"debug"}},' +
         '"remote":{"type":"http","url":"https://api.example/mcp"},' +
         '"legacy":{"type":"sse","url":"https://api.example/sse","headers":{"X-Tenant":"acme"}}}',
@@ -286,7 +303,7 @@ describe('buildPiMcpServers — the canonical body pi-mcp-adapter reads', () => 
     // SSEClientTransport when the probe fails (pi-mcp-adapter server-manager.ts:765), so an
     // SSE-only endpoint does connect. Refusing it would reject a server pi can actually run.
     expect(buildPiMcpServers({ feed: { transport: 'sse', url: 'https://x/sse' } })).toEqual({
-      feed: { type: 'sse', url: 'https://x/sse' },
+      feed: { type: 'sse', url: 'https://x/sse', directTools: true },
     })
   })
 
@@ -294,7 +311,7 @@ describe('buildPiMcpServers — the canonical body pi-mcp-adapter reads', () => 
     // `transport` is optional on AgentProfileRemoteMcpServer; a silent drop here is the exact bug
     // this module exists to fix.
     expect(buildPiMcpServers({ remote: { url: 'https://x/mcp' } })).toEqual({
-      remote: { type: 'http', url: 'https://x/mcp' },
+      remote: { type: 'http', url: 'https://x/mcp', directTools: true },
     })
   })
 
@@ -608,7 +625,9 @@ describe('piExecutor — a profile`s MCP servers reach the real pi process', () 
     expect(run.error).toBeUndefined()
     // The bytes are what pi itself read from the path it was told to read at startup.
     expect(JSON.parse(run.mcpConfig ?? '{}')).toEqual({
-      mcpServers: { coordination: { type: 'http', url: 'http://127.0.0.1:1/mcp' } },
+      mcpServers: {
+        coordination: { type: 'http', url: 'http://127.0.0.1:1/mcp', directTools: true },
+      },
     })
     const configPath = configPathOf(run.argv ?? [])
     expect(run.out).toMatchObject({

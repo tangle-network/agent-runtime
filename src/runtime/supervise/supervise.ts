@@ -14,11 +14,13 @@ import type {
   MakeWorkerAgent,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import type { SupervisorFinalizer } from './finalizer'
 import { assertModelAllowed } from './model-policy'
+import { createSupervisorSpanRecorder, type SupervisorSpanOptions } from './otel-spans'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
 import type { StopRule } from './stop-rules'
@@ -255,6 +257,21 @@ export interface SuperviseOptions {
    *  structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. A
    *  `string` names an entry in `registry.finalizers`. */
   readonly finalizer?: SupervisorFinalizer | string
+  /** Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into every nested
+   *  scope). Composed with the `otel` recorder below when both are set. Omit = no observers, which
+   *  is the behavior every existing caller has. */
+  readonly hooks?: RuntimeHooks
+  /**
+   * OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
+   * parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
+   * tree is readable by any trace viewer instead of only by a journal parser. See `otel-spans.ts`.
+   *
+   * Omit and the run emits nothing, allocates no recorder, and installs no hook — telemetry is
+   * never a default. Present with no reachable endpoint (no `exportConfig.endpoint` and no
+   * `OTEL_EXPORTER_OTLP_ENDPOINT`) is also a no-op. The spawn journal is untouched either way:
+   * spans are telemetry, never the replay/resume record.
+   */
+  readonly otel?: Omit<SupervisorSpanOptions, 'runId' | 'now'>
 }
 
 /** A quarter of the token pool per worker → ~4 workers fit before `poolStarved` halts spawning. */
@@ -358,7 +375,12 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(opts.compaction ? { compaction: opts.compaction } : {}),
     })
 
-    return createSupervisor<unknown, unknown>().run(agent, task, {
+    // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
+    // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
+    const spans = opts.otel ? createSupervisorSpanRecorder({ runId, ...opts.otel, now }) : undefined
+    const hooks = spans ? composeRuntimeHooks(opts.hooks, spans.hooks) : opts.hooks
+
+    const run = createSupervisor<unknown, unknown>().run(agent, task, {
       budget: opts.budget,
       runId,
       journal: opts.journal ?? ctx.journal,
@@ -368,7 +390,19 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(probes ? { probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),
       ...(opts.now ? { now: opts.now } : {}),
+      ...(hooks ? { hooks } : {}),
     })
+    if (!spans) return run
+    // The recorder closes the root span on BOTH exits and never rethrows, so tracing can neither
+    // change the result nor swallow the run's own rejection.
+    try {
+      const result = await run
+      await spans.finish({ result })
+      return result
+    } catch (error) {
+      await spans.finish({ error })
+      throw error
+    }
   }
 
   return start()

@@ -319,16 +319,67 @@ function toolCompletionBody(
  * over-spend. Shared by the buffered and streamed transports so both meter identically.
  */
 function meterTurn(
-  raw: { prompt_tokens?: number; completion_tokens?: number } | undefined,
+  raw: RawUsage | undefined,
   model: string,
-): { usage?: { input: number; output: number }; costUsd?: number } {
+): { usage?: { input: number; output: number }; costUsd?: number; cache?: PromptCacheUsage } {
   const usage =
     raw && typeof raw.prompt_tokens === 'number' && typeof raw.completion_tokens === 'number'
       ? { input: raw.prompt_tokens, output: raw.completion_tokens }
       : undefined
   if (!usage) return {}
-  const costUsd = isModelPriced(model) ? estimateCost(usage.input, usage.output, model) : undefined
-  return { usage, ...(costUsd !== undefined ? { costUsd } : {}) }
+  const localEstimate = isModelPriced(model)
+    ? estimateCost(usage.input, usage.output, model)
+    : undefined
+  const cache = readPromptCache(raw?.prompt_cache)
+  // A cached prefix token is billed at a discount the local price table does not know about, so
+  // subtract the provider's OWN reported saving rather than re-deriving a discount here. Without
+  // this a long supervisor run — which re-sends a growing transcript every turn — is reported at
+  // full price for tokens the provider served from cache.
+  const costUsd =
+    localEstimate !== undefined && cache?.readSavingsUsd !== undefined
+      ? Math.max(0, localEstimate - cache.readSavingsUsd)
+      : localEstimate
+  return {
+    usage,
+    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(cache ? { cache } : {}),
+  }
+}
+
+/** What the router reports about prefix caching for one completion. Absent when the provider
+ *  said nothing — an unreported cache is not a miss, and a miss is not a zero saving. */
+export interface PromptCacheUsage {
+  /** Prompt tokens served from a cached prefix. */
+  readonly readTokens: number
+  /** Prompt tokens written INTO the cache by this call. */
+  readonly writeTokens: number
+  /** Dollars the provider says the cache read saved on this call. */
+  readonly readSavingsUsd?: number
+  /** The provider's own word for what happened: `hit`, `miss`, `read`, … Kept verbatim rather
+   *  than normalized, so a new status is visible instead of silently bucketed. */
+  readonly status?: string
+}
+
+interface RawUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  prompt_cache?: unknown
+}
+
+function readPromptCache(raw: unknown): PromptCacheUsage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const o = raw as Record<string, unknown>
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  const readTokens = num(o.read_tokens)
+  const writeTokens = num(o.write_tokens)
+  if (readTokens === undefined && writeTokens === undefined) return undefined
+  const savings = num(o.read_savings_usd)
+  return {
+    readTokens: readTokens ?? 0,
+    writeTokens: writeTokens ?? 0,
+    ...(savings !== undefined ? { readSavingsUsd: savings } : {}),
+    ...(typeof o.status === 'string' ? { status: o.status } : {}),
+  }
 }
 
 // ── Streamed tool-calling transport ──────────────────────────────────────────

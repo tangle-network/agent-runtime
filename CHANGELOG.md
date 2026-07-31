@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.115.0
+
+### A supervisor tree is an OTLP trace
+
+- `supervise({ otel })` records the whole recursion as OTLP spans: one span per node, opened at spawn and closed at settle, parented so arbitrary depth nests correctly, with driver inference as LLM child spans under whichever node metered it. Off unless `otel` is passed — a run that omits it allocates no recorder and is byte-identical to before.
+- Built as a pure `RuntimeHooks` observer over events `scope.ts` already emits, through the existing `otel-export.ts`. No second exporter, no new event, no change to the journal or to `supervise`'s result. `makeNestedScopeSeam` already re-seeds hooks into nested scopes, so one observer sees the whole tree.
+- The trace id derives deterministically from `runId`, so a RESUMED run rejoins its own trace instead of forking a new one; a caller may supply a 32-hex id to join an outer trace.
+- Attributes reuse the vocabulary already in use (`openinference.span.kind`, `agent.name`, `inference.*`, `llm.token_count.*`), with supervisor-specific facts namespaced under `tangle.supervise.*`.
+- **Unknown is never zero**: a spend carrying `tokensKnown: false` or `usdKnown: false` emits NO token or cost attribute and sets the corresponding `tangle.supervise.*_known` flag to false instead.
+- Telemetry cannot fail the work: an exporter that throws, rejects, or is a hostile proxy leaves the run's result unchanged. A node still open at finish is closed as unsettled rather than dropped.
+- `supervise` also gains a general `hooks` passthrough; it could not reach `SupervisorOpts.hooks` at all before.
+
+### pi MCP tools register natively
+
+- Servers written for pi carry `directTools: true`, registering their tools as native pi tools instead of leaving them behind the generic `mcp` tool. Without it an agent must connect to the server and describe each verb before calling one: a measured run spent 58 turns and 639,632 input tokens on that discovery before it could delegate once. The same fix is in cli-bridge's pi materializer, so both writers agree.
+
+### Cached prompt tokens are priced as cached
+
+- The router reports a `prompt_cache` block (`read_tokens`, `write_tokens`, `read_savings_usd`) that this client discarded, so a cached prefix was billed at full local price. `PromptCacheUsage` now carries it and the reported saving is subtracted from the local estimate rather than a discount being re-derived here. A supervisor re-sends a growing transcript every turn, so this is most of a long run's real cost.
+- Absent cache reporting stays absent — an unreported cache is not a miss, and a miss is not a zero saving.
+
 ## 0.114.0
 
 Two changes found by running a real recursive pursuit rather than by reading code: the supervisor's brain could not stream, and the `pi` backend silently discarded almost every profile dimension it was handed.

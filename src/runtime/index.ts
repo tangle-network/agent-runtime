@@ -597,6 +597,19 @@ export {
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
 // The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
 export { assertModelAllowed } from './supervise/model-policy'
+// OPT-IN OTLP tracing for a supervised tree: a pure `RuntimeHooks` observer that turns the
+// lifecycle events `Scope` already emits into one span per node (opened at spawn, closed at settle,
+// parented to its parent node's span) plus an LLM child span per metered driver turn. A span with a
+// `parent_span_id` IS a tree, so the supervisor becomes readable by the same viewer as every other
+// multi-agent shape — with no per-system reader. Telemetry only: the spawn journal remains the sole
+// replay/resume record, and nothing here is ever read back.
+export {
+  createSupervisorSpanRecorder,
+  type SupervisorSpanAttributes,
+  type SupervisorSpanOptions,
+  type SupervisorSpanOutcome,
+  type SupervisorSpanRecorder,
+} from './supervise/otel-spans'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'

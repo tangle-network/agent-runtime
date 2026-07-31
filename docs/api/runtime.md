@@ -10293,6 +10293,131 @@ readonly [`InboxMessage`](#inboxmessage)[]
 
 ***
 
+### SupervisorSpanOptions
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+The supervised run id (`SupervisorOpts.runId`). Roots the trace, identifies the root span, and
+is the parent lookup key for every depth-0 spawn (a root scope's `parentId` IS the run id).
+
+##### exporter?
+
+> `readonly` `optional` **exporter?**: [`OtelExporter`](index.md#otelexporter)
+
+Bring your own exporter. It is FLUSHED but never shut down by `finish()` — a caller that owns
+the exporter owns its lifecycle. Takes precedence over `exportConfig`.
+
+##### exportConfig?
+
+> `readonly` `optional` **exportConfig?**: [`OtelExportConfig`](index.md#otelexportconfig)
+
+Otherwise build one with [createOtelExporter](index.md#createotelexporter). With no `endpoint` here it reads
+`OTEL_EXPORTER_OTLP_ENDPOINT`, and with neither it resolves to `undefined` — which makes
+[createSupervisorSpanRecorder](#createsupervisorspanrecorder) return `undefined` and the run emit nothing.
+
+##### traceId?
+
+> `readonly` `optional` **traceId?**: `string`
+
+Trace id (32 hex chars). Pass the caller's own to JOIN an outer trace. Default: derived
+deterministically from `runId`, so a resumed run lands in the SAME trace as the process that
+started it.
+
+##### parentSpanId?
+
+> `readonly` `optional` **parentSpanId?**: `string`
+
+Parent span id (16 hex chars) to hang the run's root span under — an inherited delegation span.
+
+##### agentName?
+
+> `readonly` `optional` **agentName?**: `string`
+
+`agent.name` on the root span. Default `'supervisor'`.
+
+##### attributes?
+
+> `readonly` `optional` **attributes?**: [`SupervisorSpanAttributes`](#supervisorspanattributes)
+
+Extra attributes stamped on every span this recorder emits (subject, workspace, campaign, …).
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+Injectable clock; used only for the root span's start/end. Default `Date.now`.
+
+###### Returns
+
+`number`
+
+***
+
+### SupervisorSpanOutcome
+
+How the supervised run ended, as `finish()` records it on the root span.
+
+#### Properties
+
+##### result?
+
+> `readonly` `optional` **result?**: [`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>
+
+##### error?
+
+> `readonly` `optional` **error?**: `unknown`
+
+A rejection out of the run itself (the supervisor never resolved).
+
+***
+
+### SupervisorSpanRecorder
+
+#### Properties
+
+##### hooks
+
+> `readonly` **hooks**: [`RuntimeHooks`](index.md#runtimehooks)
+
+Attach to `SupervisorOpts.hooks` (compose with a caller's own via `composeRuntimeHooks`).
+
+##### traceId
+
+> `readonly` **traceId**: `string`
+
+The trace every span of this run belongs to.
+
+##### rootSpanId
+
+> `readonly` **rootSpanId**: `string`
+
+The run's root span id — pass it to a child process to join this trace.
+
+#### Methods
+
+##### finish()
+
+> **finish**(`outcome?`): `Promise`\<`void`\>
+
+Close the root span (and any node that never settled, marked as such), export, and flush. Safe
+to call twice; never throws — a telemetry failure is not a run failure.
+
+###### Parameters
+
+###### outcome?
+
+[`SupervisorSpanOutcome`](#supervisorspanoutcome)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### PatchDeliverableOptions
 
 **`Experimental`**
@@ -12344,6 +12469,27 @@ How the settled-worker ledger becomes the run's output. Default `bestDelivered` 
  disagreement) or a custom `SupervisorFinalizer`. Whatever the finalizer, it operates on
  structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. A
  `string` names an entry in `registry.finalizers`.
+
+##### hooks?
+
+> `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
+
+Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into every nested
+ scope). Composed with the `otel` recorder below when both are set. Omit = no observers, which
+ is the behavior every existing caller has.
+
+##### otel?
+
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](#supervisorspanoptions), `"runId"` \| `"now"`\>
+
+OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
+parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
+tree is readable by any trace viewer instead of only by a journal parser. See `otel-spans.ts`.
+
+Omit and the run emits nothing, allocates no recorder, and installs no hook — telemetry is
+never a default. Present with no reachable endpoint (no `exportConfig.endpoint` and no
+`OTEL_EXPORTER_OTLP_ENDPOINT`) is also a no-op. The spawn journal is untouched either way:
+spans are telemetry, never the replay/resume record.
 
 ***
 
@@ -16636,6 +16782,15 @@ Why a reservation was refused. `budget-exhausted` means the pool ran out of a ch
 Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end);
  `not-admitted` = the conserved pool or the depth ceiling refused a spawn; `stopped` = the
  caller's `shouldStop` returned true; `aborted` = the scope's signal fired.
+
+***
+
+### SupervisorSpanAttributes
+
+> **SupervisorSpanAttributes** = `Record`\<`string`, `string` \| `number` \| `boolean`\>
+
+OTLP span attribute values. Exported because `SupervisorSpanOptions.attributes` is public and
+ a consumer cannot name the type it is asked to supply otherwise.
 
 ***
 
@@ -21248,6 +21403,27 @@ readonly `string`[] \| `undefined`
 
 ***
 
+### createSupervisorSpanRecorder()
+
+> **createSupervisorSpanRecorder**(`opts`): [`SupervisorSpanRecorder`](#supervisorspanrecorder) \| `undefined`
+
+Build the span recorder for one supervised run, or `undefined` when no exporter resolves — the
+off-by-default path. A run that passes no `exporter` and no `exportConfig` never reaches this
+function at all; one that passes an `exportConfig` with no endpoint (and no env endpoint) gets
+`undefined` here, so "configured but unreachable" also costs nothing.
+
+#### Parameters
+
+##### opts
+
+[`SupervisorSpanOptions`](#supervisorspanoptions)
+
+#### Returns
+
+[`SupervisorSpanRecorder`](#supervisorspanrecorder) \| `undefined`
+
+***
+
 ### patchDelivered()
 
 > **patchDelivered**(`options?`): [`DeliverableSpec`](#deliverablespec)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
@@ -21291,6 +21467,13 @@ unreadable or absent `settings.json` reports "not detected"; it never throws and
 > **buildPiMcpServers**(`mcp`): `Record`\<`string`, `Record`\<`string`, `unknown`\>\>
 
 Build the canonical `{ mcpServers }` body the adapter reads, from `AgentProfile.mcp`.
+
+Every server is written with `directTools: true` (`pi-mcp-adapter` types.ts:351), which
+registers its tools as NATIVE pi tools instead of hiding them behind the generic `mcp` tool.
+Without it an agent must discover its own verbs before it can use them — connect to the server,
+then describe each tool — and a measured run spent 58 turns and 639,632 input tokens doing that
+before it could delegate once. A profile that declares an MCP server is asking for its tools,
+not for a directory it has to browse.
 
 This is cli-bridge's `buildCanonicalMcpServers`
 (`/home/drew/code/cli-bridge/src/backends/profile-support.ts:253`) reproduced field for field and
