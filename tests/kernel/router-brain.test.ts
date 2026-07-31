@@ -27,6 +27,24 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
   beforeEach(() => vi.unstubAllGlobals())
   afterEach(() => vi.unstubAllGlobals())
 
+  it('forwards the config max_tokens so a reasoning model is not truncated mid-thought', async () => {
+    stubRouter({ choices: [{ message: { content: 'ok' } }] })
+    // A thinking model spends this ceiling on hidden reasoning BEFORE any visible token, so a
+    // caller driving one must be able to raise it above the 8192 default.
+    await routerBrain({ ...cfg, maxTokens: 32_000 })([{ role: 'user', content: 'hi' }], [])
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.max_tokens).toBe(32_000)
+  })
+
+  it('sends no ceiling when the config names none, leaving the provider default', async () => {
+    stubRouter({ choices: [{ message: { content: 'ok' } }] })
+    await routerBrain(cfg)([{ role: 'user', content: 'hi' }], [])
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    // The tool-calling path omits max_tokens entirely rather than defaulting it, so the
+    // provider's own ceiling governs — which is what truncated a reasoning model in production.
+    expect('max_tokens' in body).toBe(false)
+  })
+
   it('forwards the conversation + tools to the router (no translation) and parses tool calls back', async () => {
     stubRouter({
       choices: [
