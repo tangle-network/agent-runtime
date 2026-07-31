@@ -247,6 +247,109 @@ describe('conserved budget pool', () => {
     expect(pool.readout().usdLeft).toBe(0)
   })
 
+  it('commits an UNBUDGETED child dollar spend against a capped root (no phantom $0 ceiling)', () => {
+    // A child budget may omit `maxUsd` even when the ROOT caps dollars — the common shape, and
+    // exactly what the supervisor spawns. Such a child reserves $0 because it asked for no
+    // dollar allocation, which is NOT the same as a declared ceiling of $0: its real dollars
+    // are observed spend, debited from the root's balance. Reading the $0 as a ceiling made a
+    // successful priced child fail its own reconcile and strand its reservation.
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 10 }, () => 0)
+    const r = pool.reserve({ maxIterations: 2, maxTokens: 500, label: '' } as Budget)
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    expect(r.ticket.reserved).toMatchObject({ usd: 0, usdBudgeted: false })
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        tokens: { input: 100, output: 50 },
+        usd: 0.25,
+        ms: 0,
+      }),
+    ).not.toThrow()
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    // The dollars are real, so the capped root's balance shrinks by exactly what was spent.
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 850,
+      reservedTokens: 0,
+      usdLeft: 9.75,
+      usdCapped: true,
+      tokensKnown: true,
+    })
+  })
+
+  it('closes admission once unbudgeted child dollars drain a capped root', () => {
+    // The debit above is what keeps the cap enforceable: nothing reserved those dollars, so the
+    // only thing standing between an unbudgeted child and an unbounded bill is the free balance
+    // falling through zero and `reserve` failing closed.
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    const first = pool.reserve({ maxIterations: 1, maxTokens: 100, label: '' } as Budget)
+    if (!first.ok) throw new Error('reserve should have succeeded')
+    pool.reconcile(first.ticket, {
+      iterations: 1,
+      tokens: { input: 1, output: 1 },
+      usd: 1.5,
+      ms: 0,
+    })
+    // Overspent past the root ceiling: the balance is honestly negative, not clamped to zero.
+    expect(pool.readout().usdLeft).toBe(-0.5)
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.01 } as Budget)).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
+  })
+
+  it('still fails loud when a child that DECLARED a dollar ceiling exceeds it', () => {
+    // The relaxation above is scoped to an UNDECLARED ceiling. A child that named `maxUsd` and
+    // blew through it is a clamp bug in the caller and stays fail-loud — while still settling.
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 10 }, () => 0)
+    const r = pool.reserve({ maxIterations: 2, maxTokens: 500, maxUsd: 0.5 } as Budget)
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    expect(r.ticket.reserved).toMatchObject({ usd: 0.5, usdBudgeted: true })
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        tokens: { input: 10, output: 10 },
+        usd: 0.75,
+        ms: 0,
+      }),
+    ).toThrow(/spent \$0\.75 > reserved \$0\.5/)
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+  })
+
+  it('closes the ticket on EVERY fail-loud reconcile path (no reservation escapes)', () => {
+    // The leak detector only helps if no error path can walk past the settlement. Each case
+    // below throws; each must still release its reservation and close its ticket, because the
+    // caller (`Scope.runChild`) marks the child reconciled BEFORE calling and never retries.
+    const overspend = (spent: Spend, root: Budget, child: Budget) => {
+      const pool = createBudgetPool(root, () => 0)
+      const r = pool.reserve(child)
+      if (!r.ok) throw new Error('reserve should have succeeded')
+      expect(() => pool.reconcile(r.ticket, spent)).toThrow()
+      expect(() => pool.assertNoOpenTickets()).not.toThrow()
+      expect(pool.readout().reservedTokens).toBe(0)
+      return pool
+    }
+    const root: Budget = { maxIterations: 10, maxTokens: 1000, maxUsd: 5 } as Budget
+    const child: Budget = { maxIterations: 2, maxTokens: 100, maxUsd: 1 } as Budget
+
+    // Token overspend: the actual spend is committed, so `free` goes honestly negative rather
+    // than the reservation being stranded at its ceiling forever.
+    const tokensOver = overspend(
+      { iterations: 1, tokens: { input: 300, output: 0 }, usd: 0, ms: 0 },
+      root,
+      child,
+    )
+    expect(tokensOver.readout().tokensLeft).toBe(700)
+
+    overspend({ iterations: 9, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 }, root, child)
+    overspend({ iterations: 1, tokens: { input: 1, output: 1 }, usd: 4, ms: 0 }, root, child)
+    overspend(
+      { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, usdKnown: false, ms: 0 },
+      root,
+      child,
+    )
+  })
+
   it('never interprets explicitly unknown dollar cost as $0 under a dollar limit', () => {
     const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, () => 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 500, maxUsd: 1 } as Budget)
@@ -408,6 +511,137 @@ describe('equal-k by construction', () => {
         budget: { maxIterations: 1, maxTokens: 1 },
       }),
     ).toEqual({ ok: false, reason: 'budget-exhausted' })
+  })
+
+  // ── The cost-event × declared-ceiling matrix ──────────────────────────────────
+  //
+  // Every cell runs the SAME successful child under a dollar-capped root and varies only
+  // (a) whether the executor emits a priced `cost` event and (b) whether the child's own
+  // budget declares `maxUsd`. Before the fix, the cost-event + no-declared-ceiling cell was
+  // the one that broke: `reserve` recorded $0, `clampSpend` passed the real dollars through
+  // untouched, and `reconcile` read the $0 as a ceiling and threw — past the ticket's
+  // settlement. The child settled `down` on its own SUCCESS path AND stranded its whole
+  // reservation, so `assertNoOpenTickets` failed the run at the join barrier.
+  for (const cell of [
+    { cost: true, declaresUsd: true },
+    { cost: true, declaresUsd: false },
+    { cost: false, declaresUsd: true },
+    { cost: false, declaresUsd: false },
+  ] as const) {
+    const name = `${cell.cost ? 'a priced' : 'an unpriced'} child ${
+      cell.declaresUsd ? 'that declares maxUsd' : 'with no declared maxUsd'
+    } settles done and leaks no reservation`
+    it(name, async () => {
+      const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000, maxUsd: 10 }, () => 0)
+      const { scope } = await beginScope({ pool })
+      const events: UsageEvent[] = [
+        { kind: 'iteration' },
+        { kind: 'tokens', input: 100, output: 50 },
+        ...(cell.cost ? [{ kind: 'cost', usd: 0.25 } as UsageEvent] : []),
+      ]
+      const spawned = scope.spawn(leafAgent('priced-leaf', { out: 'complete', events }), 'task', {
+        label: 'priced-leaf',
+        budget: {
+          maxIterations: 5,
+          maxTokens: 1000,
+          ...(cell.declaresUsd ? { maxUsd: 1 } : {}),
+        },
+      })
+      expect(spawned.ok).toBe(true)
+      if (!spawned.ok) return
+
+      const settled = await scope.next()
+      expect(settled).toMatchObject({ kind: 'done', out: 'complete' })
+      expect(settled?.spent).toMatchObject({
+        iterations: 1,
+        tokens: { input: 100, output: 50 },
+        usd: cell.cost ? 0.25 : 0,
+      })
+      expect(spawned.handle.status).toBe('done')
+      // The invariant the whole instrument rests on: nothing outstanding at the join barrier.
+      expect(() => pool.assertNoOpenTickets()).not.toThrow()
+      expect(pool.readout()).toMatchObject({
+        tokensLeft: 99_850,
+        reservedTokens: 0,
+        tokensKnown: true,
+        usdCapped: true,
+        // Priced dollars are debited from the capped root whether or not the CHILD named a
+        // ceiling; an unpriced child leaves the root balance untouched.
+        usdLeft: cell.cost ? 9.75 : 10,
+      })
+    })
+  }
+
+  it('an UNKNOWN-priced child under a capped root still taints the dollar channel without leaking', async () => {
+    // The neighbouring cell, unchanged by the fix and asserted here so it stays that way: a
+    // cost event whose dollars are explicitly UNKNOWN under a dollar-capped root is a
+    // different fact from a priced one. The root can no longer know its own balance, so the
+    // channel is tainted and admission closes — the child goes `down` and later reservations
+    // are refused. Only the leak is a defect; this refusal is the designed behavior. The
+    // child declares no `maxUsd` here, which is the shape a live supervisor spawns.
+    const pool = createBudgetPool({ maxIterations: 12, maxTokens: 400_000, maxUsd: 2 }, () => 0)
+    const { scope } = await beginScope({ pool })
+    const spawned = scope.spawn(
+      leafAgent('unknown-priced-leaf', {
+        out: 'complete',
+        events: [
+          { kind: 'iteration' },
+          { kind: 'tokens', input: 4000, output: 900 },
+          { kind: 'cost', usd: 0, usdKnown: false },
+        ],
+      }),
+      'task',
+      { label: 'unknown-priced-leaf', budget: { maxIterations: 6, maxTokens: 8000 } },
+    )
+    expect(spawned.ok).toBe(true)
+
+    const settled = await scope.next()
+    expect(settled).toMatchObject({
+      kind: 'down',
+      reason: expect.stringMatching(/unknown dollar cost/),
+    })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.readout()).toMatchObject({ reservedTokens: 0, usdLeft: 0, usdCapped: true })
+    expect(
+      scope.spawn(leafAgent('after-unknown', { out: 'should-not-run', events: [] }), 'task', {
+        label: 'after-unknown',
+        budget: { maxIterations: 1, maxTokens: 1 },
+      }),
+    ).toEqual({ ok: false, reason: 'budget-exhausted' })
+  })
+
+  it('records a priced child on an UNCAPPED root as observed-but-unbudgeted dollars', async () => {
+    // The regression guard for the other half of the rule: with no ROOT ceiling, dollars are
+    // observed, never budgeted. The settlement records them without a reservation channel, so
+    // `usdLeft` stays 0 with `usdCapped: false` (a readout of "not budgeted", not "exhausted")
+    // and a known dollar amount leaves `tokensKnown` alone.
+    const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, () => 0)
+    const { scope } = await beginScope({ pool })
+    const spawned = scope.spawn(
+      leafAgent('priced-uncapped', {
+        out: 'complete',
+        events: [
+          { kind: 'iteration' },
+          { kind: 'tokens', input: 100, output: 50 },
+          { kind: 'cost', usd: 0.25 },
+        ],
+      }),
+      'task',
+      { label: 'priced-uncapped', budget: { maxIterations: 5, maxTokens: 1000 } },
+    )
+    expect(spawned.ok).toBe(true)
+
+    const settled = await scope.next()
+    expect(settled).toMatchObject({ kind: 'done', out: 'complete' })
+    expect(settled?.spent).toMatchObject({ usd: 0.25 })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 99_850,
+      reservedTokens: 0,
+      tokensKnown: true,
+      usdCapped: false,
+      usdLeft: 0,
+    })
   })
 
   it('two arms at equal per-child budget spend equal total iterations', async () => {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.115.1
+
+### A failed reconcile no longer strands the child's reservation
+
+- Every fail-loud path in `BudgetPool.reconcile` threw BEFORE `open.delete(ticket.id)`, so a child that overspent any channel left its whole reservation open — `assertNoOpenTickets` then failed the run at the join barrier, on the SUCCESS path. Reconcile now decides the violation, settles unconditionally in straight-line arithmetic that cannot throw, and raises last. The assertion is unchanged: it is what caught this.
+- Over-spend paths now commit the ACTUAL spend and let `free` go honestly negative, keeping `total ≡ free + reserved + committed` exact, rather than stranding a reservation at its ceiling forever.
+- A child that declares no `maxUsd` is no longer read as declaring a `$0` ceiling. `ReservationTicket.reserved.usdBudgeted` records whether a ceiling was actually declared; an undeclared child's real dollars are committed and debited from a capped root's balance — the same treatment `observe()` already gives driver inference — so the cap stays enforceable and admission still closes once it is crossed. The field is optional and reads as `true` when absent, so a hand-built ticket keeps the strict reading.
+- `usdKnown`, `usdTainted`, and `tokensKnown` semantics are untouched, verified byte-identical against the previous release for every uncapped-root case.
+
 ## 0.115.0
 
 ### A supervisor tree is an OTLP trace

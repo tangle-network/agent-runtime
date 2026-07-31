@@ -9119,6 +9119,17 @@ Opaque, single-use reservation handle returned by `reserve` and consumed by
 
 > `readonly` **iterations**: `number`
 
+###### usdBudgeted?
+
+> `readonly` `optional` **usdBudgeted?**: `boolean`
+
+Whether the child's `Budget` actually declared `maxUsd`. `reserved.usd` is `0` for BOTH a
+child that named no dollar ceiling and one that named `$0`, and the two settle differently:
+an undeclared ceiling cannot be exceeded, so the child's real dollars are committed as
+OBSERVED spend, while a declared ceiling of `$0` is a limit whose breach is fail-loud.
+Optional so an externally constructed ticket stays valid; an absent flag is read as
+`true` — the strict, fail-closed reading.
+
 ***
 
 ### BudgetPool
