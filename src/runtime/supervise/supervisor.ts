@@ -267,6 +267,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       now,
       hooks: opts.hooks,
       ...(opts.probes ? { probes: opts.probes } : {}),
+      ...(opts.workerTrace ? { workerTrace: opts.workerTrace } : {}),
       ...(resumeFrom ? { resumeFrom } : {}),
     })
 

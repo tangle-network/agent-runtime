@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.116.0
+
+### A supervisor tree spans machines
+
+- When span recording is on, a spawned worker's environment carries `TRACE_ID` and `PARENT_SPAN_ID` — the run's trace and the span of the node that spawned it — using the env-var convention `mcp/trace-propagation.ts` already ships and already reads. A worker on a remote sandbox emits spans that join its parent's trace, so one tree assembles across machines with no viewer change and no second propagation format.
+- At depth the parent is the IMMEDIATE spawning driver's span, not the root's, so a deep tree nests correctly rather than flattening.
+- A caller that sets its own `TRACE_ID`/`PARENT_SPAN_ID` wins; theirs is never overwritten.
+- Off when recording is off: no stamping, no behavior change.
+- `WORKER_TRACE_PROPAGATION` states which backend arms carry the context — `pi`, `cli`, and `sandbox` do; `router`, `router-tools`, `bridge`, `cli-worktree`, and `provider` have no environment channel to a worker and say so rather than dropping silently. It is `satisfies Record<ExecutorConfig['backend'], boolean>`, so a ninth arm cannot be added without classifying it.
+
 ## 0.115.1
 
 ### A failed reconcile no longer strands the child's reservation

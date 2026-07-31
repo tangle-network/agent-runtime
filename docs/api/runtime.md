@@ -10408,6 +10408,17 @@ The trace every span of this run belongs to.
 
 The run's root span id — pass it to a child process to join this trace.
 
+##### workerTrace
+
+> `readonly` **workerTrace**: [`WorkerTraceResolver`](#workertraceresolver)
+
+The trace context a worker spawned BY node `spawningNodeId` should inherit, so its own spans
+join THIS trace under the span of the node that spawned it. Thread it to a run as
+`SupervisorOpts.workerTrace` (`supervise()` does this whenever it builds a recorder) and the
+`Scope` seeds it onto every child's `ExecutorContext`; a backend with an environment channel
+stamps it with `workerTraceEnv`. An unknown node — one whose span was never opened — resolves
+to the run's root span rather than to nothing, so a worker is never filed outside its own run.
+
 #### Methods
 
 ##### finish()
@@ -11652,6 +11663,14 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 > `readonly` `optional` **loopCtx?**: `Partial`\<`Omit`\<[`ExecCtx`](#execctx), `"signal"` \| `"sandboxClient"`\>\>
 
+##### traceEnv?
+
+> `readonly` `optional` **traceEnv?**: `Record`\<`string`, `string`\>
+
+Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the box, merged into `CreateSandboxOptions.env` so
+the remote worker's own spans join the supervisor's trace under the spawning node's span.
+Absent when the run records no spans — the create options are then untouched.
+
 ##### contentRef
 
 > `readonly` **contentRef**: (`prefix`, `value`) => `string`
@@ -11792,6 +11811,15 @@ Injected clock — keeps the journal `at` timestamp deterministic in tests.
 Lifecycle stream sink. `spawn` emits `agent.spawn`, `next` emits `agent.child` — the
  SAME stream `runAgentRounds`/`tool-loop` feed, so the recursive tree is ONE observable stream
  (the topology viewer reads it). Undefined ⇒ the journal stays the only record.
+
+##### workerTrace?
+
+> `readonly` `optional` **workerTrace?**: [`WorkerTraceResolver`](#workertraceresolver)
+
+Trace context to hand down to each spawned worker (`SupervisorOpts.workerTrace`). Called with
+THIS scope's own `parentId` — the node doing the spawning — and the resolved context is seeded
+onto each child's `ExecutorContext` under `workerTraceSeamKey`. Absent (the untraced default)
+⇒ no seam is seeded and no worker environment is touched.
 
 ##### resumeFrom?
 
@@ -13519,6 +13547,17 @@ consumer has. Resume is a durability contract the caller opts into, never a sile
 Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
  same `agent.spawn`/`agent.child` stream `runAgentRounds` feeds — one observable recursive tree.
 
+##### workerTrace?
+
+> `readonly` `optional` **workerTrace?**: [`WorkerTraceResolver`](#workertraceresolver)
+
+Trace context to hand DOWN to each spawned worker, so a worker in another process or on another
+machine emits spans that join THIS run's trace instead of opening its own root. Supply
+`SupervisorSpanRecorder.workerTrace`; the `Scope` seeds the resolved context onto every child's
+`ExecutorContext` and the backends with an environment channel stamp it as
+`TRACE_ID` / `PARENT_SPAN_ID` (see `worker-trace.ts` for the precedence rule and for which
+backends propagate). Omit and no worker environment is touched at all.
+
 ***
 
 ### NoWinnerError
@@ -13850,6 +13889,20 @@ Combined stdout+stderr of the verify/test command (already backend-capped).
 > `readonly` `optional` **reviewerNotes?**: `string`
 
 The worker's own closing commentary, when the backend surfaces one.
+
+***
+
+### WorkerTraceSeamCarrier
+
+What the two readers below need off an `ExecutorContext` — its seam bag, and nothing else.
+Structural (not an `ExecutorContext` import) so this module stays free of the keystone type
+surface, and exported because it is part of a public signature.
+
+#### Properties
+
+##### seams
+
+> `readonly` **seams**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
 ***
 
@@ -17374,6 +17427,26 @@ Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission
 
 ***
 
+### WorkerTraceResolver
+
+> **WorkerTraceResolver** = (`spawningNodeId`) => [`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
+
+Resolve the trace context a worker spawned BY `spawningNodeId` should inherit. `undefined` means
+this run records no spans, so nothing is stamped. Supplied by
+`SupervisorSpanRecorder.workerTrace` and threaded to the scope as `SupervisorOpts.workerTrace`.
+
+#### Parameters
+
+##### spawningNodeId
+
+`string`
+
+#### Returns
+
+[`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
+
+***
+
 ### WorktreePatchArtifact
 
 > **WorktreePatchArtifact** = [`WorktreeHarnessResult`](#worktreeharnessresult)
@@ -17791,6 +17864,16 @@ Tail of the verify output — the failing assertion lives at the END of a test l
 > `const` **NOTE\_MAX\_CHARS**: `300` = `300`
 
 Cap on the worker's closing note inside the evidence block.
+
+***
+
+### workerTraceSeamKey
+
+> `const` **workerTraceSeamKey**: `"worker-trace"` = `'worker-trace'`
+
+Seam key the `Scope` seeds a [TraceContext](mcp.md#tracecontext-2) under on each child's `ExecutorContext.seams`.
+Single-sourced here so the scope and every backend agree on it without a circular import — the
+same arrangement `nestedScopeSeamKey` uses.
 
 ## Functions
 
@@ -22134,11 +22217,19 @@ Stop only when EVERY rule stops — for a conservative gate that needs corrobora
 
 ### workerFromBackend()
 
-> **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](#makeworkeragent)
+> **workerFromBackend**(`backend`, `deliverable?`, `seams?`): [`MakeWorkerAgent`](#makeworkeragent)
 
 Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
- deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
- deliver"). The ONE place a backend becomes a spawnable worker.
+deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
+deliver"). The ONE place a backend becomes a spawnable worker.
+
+`seams` exists because this path builds the leaf executor EAGERLY and hands it back as a BYO
+`executorSpec.executor`. The registry resolves a BYO executor without ever consulting the
+per-child `ExecutorContext` the `Scope` seeds, so anything the scope would have supplied is
+invisible here and has to be passed in. It is a FUNCTION because it is resolved once per worker
+construction, so a caller may hand back something the run only learns later — which is exactly how
+`supervise()` gives a traced run's workers their trace context without ordering the span recorder
+ahead of the worker seam.
 
 #### Parameters
 
@@ -22149,6 +22240,10 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 ##### deliverable?
 
 [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+##### seams?
+
+() => `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
 #### Returns
 
@@ -22677,6 +22772,46 @@ final verdict line — written last — survives into the evidence block
 #### Returns
 
 `string` \| `undefined`
+
+***
+
+### readWorkerTraceContext()
+
+> **readWorkerTraceContext**(`ctx`): [`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
+
+Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no
+spans. Fails CLOSED on a malformed seam value (returns `undefined`) rather than stamping a
+half-formed id that would produce an unjoinable orphan span downstream.
+
+#### Parameters
+
+##### ctx
+
+[`WorkerTraceSeamCarrier`](#workertraceseamcarrier)
+
+#### Returns
+
+[`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
+
+***
+
+### workerTraceEnv()
+
+> **workerTraceEnv**(`ctx`): `Record`\<`string`, `string`\>
+
+The `TRACE_ID` / `PARENT_SPAN_ID` pair to merge into a worker's environment — EMPTY when the run
+records no spans, which is what keeps the untraced path byte-identical. Merge it BELOW the
+caller's own seam env so a deliberately-set id wins (see the precedence note above).
+
+#### Parameters
+
+##### ctx
+
+[`WorkerTraceSeamCarrier`](#workertraceseamcarrier)
+
+#### Returns
+
+`Record`\<`string`, `string`\>
 
 ***
 

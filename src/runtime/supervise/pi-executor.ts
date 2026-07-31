@@ -75,6 +75,7 @@ import type {
   Spend,
   UsageEvent,
 } from './types'
+import { workerTraceEnv } from './worker-trace'
 
 /** The runtime name `piExecutor` registers under. */
 export const PI_RUNTIME: Runtime = 'pi'
@@ -127,6 +128,9 @@ interface PiAssistantOutcome {
 /** Build the `Executor` for one pi worker. Registered as runtime `'pi'`. */
 export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readPiSeam(ctx)
+  // `TRACE_ID` / `PARENT_SPAN_ID` for this worker when the run records spans; `{}` otherwise, which
+  // leaves the spawn environment byte-identical to the untraced path.
+  const traceEnv = workerTraceEnv(ctx)
   const inbox = createInbox()
   const activity = createActivityLog(seam.activityWindow ?? 12)
   // One id per worker EXECUTION, not per factory: it labels the trace and names this worker's
@@ -170,6 +174,7 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         signal,
         controller,
         seam,
+        traceEnv,
         spec,
         runId,
         inbox,
@@ -213,6 +218,8 @@ interface StreamPiArgs {
   signal: AbortSignal
   controller: AbortController
   seam: PiSeam
+  /** Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the pi subprocess; empty when tracing is off. */
+  traceEnv: Record<string, string>
   spec: { profile: AgentProfile }
   /** This execution's id — labels the trace and names the private MCP config directory. */
   runId: string
@@ -277,7 +284,7 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
 
   let proc: ChildProcess
   try {
-    proc = spawnPi(seam, piMcp.args)
+    proc = spawnPi(seam, piMcp.args, args.traceEnv)
   } catch (spawnFailure) {
     // The config directory was created before the spawn was attempted; a spawn that never happened
     // still owes its removal.
@@ -673,8 +680,18 @@ function taskText(task: unknown): string {
  * the profile-derived extension flags (`--no-extensions` / `--extension`). Seam args go LAST so an
  * operator's explicit flag wins over a derived one under pi's last-flag-wins parsing; RPC mode has
  * no positional prompt, so nothing here has to precede an argument.
+ *
+ * `traceEnv` is the inherited `TRACE_ID` / `PARENT_SPAN_ID` pair (empty when the run records no
+ * spans). It sits ABOVE the supervisor's ambient `process.env` — a supervisor that was itself
+ * launched as someone's worker holds ids describing ITS place in an outer trace, which are the
+ * wrong parent for this child — and BELOW `seam.env`, so an operator who sets either id explicitly
+ * still wins. See `worker-trace.ts` for the full precedence rule.
  */
-function spawnPi(seam: PiSeam, profileArgs: ReadonlyArray<string> = []): ChildProcess {
+function spawnPi(
+  seam: PiSeam,
+  profileArgs: ReadonlyArray<string> = [],
+  traceEnv: Record<string, string> = {},
+): ChildProcess {
   const bin = seam.bin ?? 'pi'
   const argv = ['--mode', 'rpc']
   if (seam.model) {
@@ -689,7 +706,7 @@ function spawnPi(seam: PiSeam, profileArgs: ReadonlyArray<string> = []): ChildPr
   if (seam.args) argv.push(...seam.args)
   return spawn(bin, argv, {
     ...(seam.cwd ? { cwd: seam.cwd } : {}),
-    env: { ...process.env, ...(seam.env ?? {}) },
+    env: { ...process.env, ...traceEnv, ...(seam.env ?? {}) },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
 }

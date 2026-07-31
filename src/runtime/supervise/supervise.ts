@@ -20,7 +20,11 @@ import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import type { SupervisorFinalizer } from './finalizer'
 import { assertModelAllowed } from './model-policy'
-import { createSupervisorSpanRecorder, type SupervisorSpanOptions } from './otel-spans'
+import {
+  createSupervisorSpanRecorder,
+  type SupervisorSpanOptions,
+  type SupervisorSpanRecorder,
+} from './otel-spans'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
 import type { StopRule } from './stop-rules'
@@ -42,13 +46,25 @@ import type {
   SpawnJournal,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
+import { workerTraceSeamKey } from './worker-trace'
 
-/** Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
- *  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
- *  deliver"). The ONE place a backend becomes a spawnable worker. */
+/**
+ * Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
+ * deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
+ * deliver"). The ONE place a backend becomes a spawnable worker.
+ *
+ * `seams` exists because this path builds the leaf executor EAGERLY and hands it back as a BYO
+ * `executorSpec.executor`. The registry resolves a BYO executor without ever consulting the
+ * per-child `ExecutorContext` the `Scope` seeds, so anything the scope would have supplied is
+ * invisible here and has to be passed in. It is a FUNCTION because it is resolved once per worker
+ * construction, so a caller may hand back something the run only learns later — which is exactly how
+ * `supervise()` gives a traced run's workers their trace context without ordering the span recorder
+ * ahead of the worker seam.
+ */
 export function workerFromBackend(
   backend: ExecutorConfig,
   deliverable?: DeliverableSpec<unknown>,
+  seams?: () => Readonly<Record<string, unknown>>,
 ): MakeWorkerAgent {
   return (rawProfile) => {
     const p = (rawProfile ?? {}) as { name?: unknown }
@@ -56,7 +72,7 @@ export function workerFromBackend(
     // harness:null — createExecutor(backend) carries the harness in its config (the sandbox case-arm
     // reads config.harness when the spec leaves it null); the BYO executor below resolves the leaf.
     const spec: AgentSpec = { profile: rawProfile as AgentProfile, harness: null }
-    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: seams?.() ?? {} }
     const built = createExecutor(backend)(spec, ctx)
     const executor = deliverable ? gateOnDeliverable(built, deliverable) : built
     return { name, act: async () => '', executorSpec: { ...spec, executor } } as Agent<
@@ -323,6 +339,16 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   const blobs = opts.blobs ?? ctx.blobs
   const perWorker = opts.perWorker ?? defaultPerWorker(opts.budget)
 
+  const runId = opts.runId ?? 'supervise'
+  const log = ctx.coordinationLog
+  const now = opts.now ?? Date.now
+
+  // The span recorder for this run, built inside `start()` so a configuration fault below still
+  // throws without leaving an exporter's flush timer behind. The worker seam reads it LAZILY (it is
+  // resolved once per spawned worker, long after `start()` assigned this), which is what lets the
+  // seam be built here while the recorder is built there.
+  let spans: SupervisorSpanRecorder | undefined
+
   let makeWorkerAgent = opts.makeWorkerAgent
   if (!makeWorkerAgent) {
     if (!opts.backend) {
@@ -330,13 +356,15 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
         'supervise: provide opts.backend (where workers run) or opts.makeWorkerAgent',
       )
     }
-    makeWorkerAgent = workerFromBackend(opts.backend, deliverable)
+    // A front-door worker is spawned by the ROOT scope (the supervisor brain drives that scope
+    // directly), so the span that parents it is the run's root span — which is exactly what
+    // `workerTrace(runId)` resolves to. A caller nesting sub-drivers behind its own recursive
+    // `makeWorkerAgent` owns the same wiring one level down, for ITS spawning node.
+    makeWorkerAgent = workerFromBackend(opts.backend, deliverable, () =>
+      spans ? { [workerTraceSeamKey]: spans.workerTrace(runId) } : {},
+    )
   }
   const workerFactory = makeWorkerAgent
-
-  const runId = opts.runId ?? 'supervise'
-  const log = ctx.coordinationLog
-  const now = opts.now ?? Date.now
 
   // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
   // `expect(() => supervise(...)).toThrow` still sees the throw, and no compute starts. Only the
@@ -377,8 +405,9 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
 
     // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
     // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
-    const spans = opts.otel ? createSupervisorSpanRecorder({ runId, ...opts.otel, now }) : undefined
-    const hooks = spans ? composeRuntimeHooks(opts.hooks, spans.hooks) : opts.hooks
+    spans = opts.otel ? createSupervisorSpanRecorder({ runId, ...opts.otel, now }) : undefined
+    const recorder = spans
+    const hooks = recorder ? composeRuntimeHooks(opts.hooks, recorder.hooks) : opts.hooks
 
     const run = createSupervisor<unknown, unknown>().run(agent, task, {
       budget: opts.budget,
@@ -391,16 +420,19 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(ctx.resume === true ? { resume: true } : {}),
       ...(opts.now ? { now: opts.now } : {}),
       ...(hooks ? { hooks } : {}),
+      // Only a run that actually records spans hands trace context down to its workers; with no
+      // recorder this key is absent and no spawned worker's environment is touched.
+      ...(recorder ? { workerTrace: recorder.workerTrace } : {}),
     })
-    if (!spans) return run
+    if (!recorder) return run
     // The recorder closes the root span on BOTH exits and never rethrows, so tracing can neither
     // change the result nor swallow the run's own rejection.
     try {
       const result = await run
-      await spans.finish({ result })
+      await recorder.finish({ result })
       return result
     } catch (error) {
-      await spans.finish({ error })
+      await recorder.finish({ error })
       throw error
     }
   }
