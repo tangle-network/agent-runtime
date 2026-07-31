@@ -642,6 +642,7 @@ export {
   readWorkerSteerRequests,
   safeWorkerFile,
   supervisorRunDir,
+  supervisorRunsRoot,
   type WorkerSteerRequest,
   workerInboxFile,
   workerInboxFileFromEventDir,

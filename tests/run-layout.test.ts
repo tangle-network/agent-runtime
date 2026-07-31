@@ -7,6 +7,7 @@ import {
   readWorkerSteerRequests,
   safeWorkerFile,
   supervisorRunDir,
+  supervisorRunsRoot,
   workerInboxFile,
   writeWorkerSteer,
 } from '../src/runtime/supervise/run-layout'
@@ -26,6 +27,7 @@ describe('supervisor run layout', () => {
   it('pins the published path shape traces reads: <root>/.agent/supervisor/<id>', () => {
     // This exact shape is consumed by `traces analyze --supervisor-run-dir`; changing it is a
     // breaking change to a PUBLISHED reader, not a refactor.
+    expect(supervisorRunsRoot('/ws')).toBe(join('/ws', '.agent', 'supervisor'))
     expect(supervisorRunDir('/ws', 'run-1')).toBe(join('/ws', '.agent', 'supervisor', 'run-1'))
     expect(workerInboxFile('/ws', 'run-1', 'worker a/b')).toBe(
       join('/ws', '.agent', 'supervisor', 'run-1', 'workers', 'worker_a_b.inbox.ndjson'),

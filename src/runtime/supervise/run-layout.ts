@@ -48,9 +48,14 @@ export interface WorkerSteerRequest {
   readonly message: string
 }
 
+/** The root every supervisor run of one workspace lives under. */
+export function supervisorRunsRoot(rootDir: string): string {
+  return join(resolve(rootDir), '.agent', 'supervisor')
+}
+
 /** The run directory every artifact of one supervisor run lives under. */
 export function supervisorRunDir(rootDir: string, id: string): string {
-  return join(resolve(rootDir), '.agent', 'supervisor', id)
+  return join(supervisorRunsRoot(rootDir), id)
 }
 
 /**

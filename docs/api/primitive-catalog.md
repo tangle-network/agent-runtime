@@ -492,7 +492,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 615 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 616 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -667,6 +667,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 615 exports.
 | `supervisorAgent` | function | Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. |
 | `supervisorInstructions` | function | The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable |
 | `supervisorRunDir` | function | The run directory every artifact of one supervisor run lives under. |
+| `supervisorRunsRoot` | function | The root every supervisor run of one workspace lives under. |
 | `timerAt` | function | Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed |
 | `trajectoryReport` | function | Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the |
 | `validateWaitSpec` | function | Structural validation, independent of the run. Returns null when the spec is usable. |
