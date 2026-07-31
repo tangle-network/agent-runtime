@@ -353,31 +353,62 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       const tracker = opts.stopRule ? createProgressTracker({ now }) : undefined
       let progressStopReason: string | undefined
 
-      // Meter the driver's OWN inference each turn into the conserved pool — the largest single
+      // Meter the driver's OWN inference on EVERY turn into the conserved pool — the largest single
       // token consumer in the loop, and what makes maxTurns=0 genuinely bounded (a thinking driver
-      // drains the pool → poolStarved). Wrapping the brain keeps the debit exactly where it was; a
-      // scripted/mock turn reports no usage and meters nothing, so offline equal-k stays exact.
-      // iterations:0 — the conserved iteration channel budgets CHILD rounds, not driver turns.
+      // drains the pool → poolStarved). iterations:0 — the conserved iteration channel budgets
+      // CHILD rounds, not driver turns.
+      //
+      // There is deliberately no branch that skips `scope.meter`. A turn whose brain reported no
+      // usage is metered as an UNKNOWN turn (`tokensKnown: false`), not omitted: omitting it let the
+      // pool and the journal record a turn that ran as a turn that cost nothing, which is the one
+      // thing this package forbids — a missing measurement is never zero. The unknown turn debits
+      // the zero it actually knows and permanently marks `pool.readout().tokensKnown` false, so a
+      // reader of `tokensLeft` can see the balance is a ceiling rather than a measurement. A
+      // scripted/mock turn takes this path too, so offline equal-k still debits exactly zero tokens.
       let driverTurn = 0
       const meteredBrain = async (
         messages: ReadonlyArray<Record<string, unknown>>,
         tools: ReadonlyArray<ToolSpec>,
         detail: Record<string, unknown>,
       ) => {
+        // KNOWN LIMITATION (pre-existing, predates the streamed transport): a turn that THROWS is
+        // never metered at all. The throw propagates out of `meteredBrain` before `scope.meter`
+        // below, so a brain call that burned prefill and then failed (a 5xx after generation, an
+        // abort mid-completion) leaves NO record — not even an unknown-marked one — and the pool's
+        // `tokensKnown` stays true while real tokens were spent. Deferred deliberately: metering
+        // the throw path means deciding what a partial turn debits and re-throwing after the meter
+        // in every driver exit, which changes error-handling semantics across this file and belongs
+        // in its own change. Filed separately; do not fix inline.
         const res = await opts.brain(messages, tools)
-        if (res.usage || res.costUsd !== undefined) {
-          const turnSpend: Spend = {
-            iterations: 0,
-            tokens: { input: res.usage?.input ?? 0, output: res.usage?.output ?? 0 },
-            usd: res.costUsd ?? 0,
-            ms: 0,
-          }
-          await scope.meter(turnSpend, {
-            driver: opts.name,
-            toolCalls: (res.toolCalls ?? []).map((c) => c.name),
-            ...detail,
-          })
+        // Nothing at all came back about what the turn cost: neither tokens nor dollars. Both
+        // channels are marked unknown, mirroring how the pool already represents unknown dollars.
+        //
+        // KNOWN LIMITATION (pre-existing): "a turn that reported tokens but no price is a
+        // known-ZERO dollar turn" is true for a genuinely free model and WRONG for an UNPRICED one.
+        // `meterTurn` in `router-client.ts` returns `costUsd: undefined` both when a model costs
+        // nothing and when it is simply missing from the price table, and the two are
+        // indistinguishable here — so an unpriced model's real dollars are recorded as a measured
+        // $0 with `usdKnown` left true, and a dollar-denominated cap under-counts. Fixing it means
+        // the router result must distinguish "free" from "unpriced", which is an upstream contract
+        // change. Filed separately; do not fix inline.
+        const nothingReported = res.usage === undefined && res.costUsd === undefined
+        const turnSpend: Spend = {
+          iterations: 0,
+          tokens: { input: res.usage?.input ?? 0, output: res.usage?.output ?? 0 },
+          ...(res.usage === undefined ? { tokensKnown: false } : {}),
+          usd: res.costUsd ?? 0,
+          ...(nothingReported ? { usdKnown: false } : {}),
+          ms: 0,
         }
+        await scope.meter(turnSpend, {
+          driver: opts.name,
+          toolCalls: (res.toolCalls ?? []).map((c) => c.name),
+          // The streamed transport says explicitly when it finished with no usage chunk (a broken
+          // `include_usage` contract), which is a different fact from a brain that never reports
+          // usage at all. Recorded on the turn so the journal distinguishes them.
+          ...(res.usageUnknown === true ? { streamUsageMissing: true } : {}),
+          ...detail,
+        })
         return res
       }
       const chat: ToolLoopChat = async (messages, tools) => {
@@ -401,6 +432,14 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               opts.compaction.distill ??
               (async (msgs) => {
                 const roster = summarizeRoster(scope.view, coord.settled())
+                // KNOWN LIMITATION (pre-existing, predates the streamed transport): this `catch`
+                // degrades a failed distill to a roster-only summary, which is the right product
+                // behavior — compaction must not kill the run — but it also SWALLOWS the turn's
+                // cost. `meteredBrain` throws before reaching `scope.meter`, so a distill that
+                // burned a full O(history) prefill and then failed debits nothing and leaves the
+                // pool's `tokensKnown` true. It is the same unmetered-throw gap as the main loop
+                // (see `meteredBrain` above), reached through a different exit; both are deferred
+                // to one change that decides what a thrown turn debits. Filed separately.
                 try {
                   const res = await meteredBrain(
                     [...msgs, { role: 'user', content: distillInstruction }],

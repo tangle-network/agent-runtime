@@ -25,6 +25,10 @@ export type ToolLoopChat = (
   /** The turn's inference cost (usd) when the provider priced it — for callers that meter usd
    *  into a conserved pool (the supervisor brain). `runBrainLoop` itself ignores it. */
   costUsd?: number
+  /** The turn ran but its usage was not reported when the transport EXPECTED one (the streamed
+   *  router transport asks for usage and this says it never arrived). A metering caller records an
+   *  unknown turn on it; `runBrainLoop` itself ignores it. */
+  usageUnknown?: true
 }>
 
 /** Optional per-loop concerns the metered/steerable call sites attach. The loop is one copy;

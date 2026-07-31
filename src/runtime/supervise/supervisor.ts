@@ -619,6 +619,7 @@ function accumulate(a: Spend, b: Spend): void {
   a.tokens.input += b.tokens.input
   a.tokens.output += b.tokens.output
   a.usd += b.usd
+  if (b.tokensKnown === false) a.tokensKnown = false
   if (b.usdKnown === false) a.usdKnown = false
   a.ms += b.ms
 }
@@ -630,6 +631,7 @@ function addSpend(a: Spend, b: Spend): Spend {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
     usd: a.usd + b.usd,
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
@@ -637,7 +639,17 @@ function addSpend(a: Spend, b: Spend): Spend {
 
 /** True when any driver metered inference this run (so the winner carries a `spentBreakdown`).
  *  Checks every channel `addSpend` sums — including `ms` — so the gate stays consistent with the
- *  total even though the coordination driver currently stamps `ms: 0`. */
+ *  total even though the coordination driver currently stamps `ms: 0`. An all-zero spend that
+ *  carries an UNKNOWN marker is non-empty: work happened and went unmeasured, which is exactly the
+ *  fact a breakdown must not hide by looking like no work at all. */
 function isNonEmptySpend(s: Spend): boolean {
-  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0 || s.ms > 0
+  return (
+    s.iterations > 0 ||
+    s.tokens.input > 0 ||
+    s.tokens.output > 0 ||
+    s.usd > 0 ||
+    s.ms > 0 ||
+    s.tokensKnown === false ||
+    s.usdKnown === false
+  )
 }

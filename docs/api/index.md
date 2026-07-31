@@ -7952,7 +7952,7 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 ***
 
@@ -8264,6 +8264,16 @@ Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and 
 
 > **tokens**: [`LoopTokenUsage`](runtime.md#looptokenusage)
 
+##### tokensKnown?
+
+> `optional` **tokensKnown?**: `boolean`
+
+Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
+ an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
+ not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
+ turn whose provider reported no usage is recorded with this flag rather than omitted, because
+ omitting it makes the turn look free.
+
 ##### usdKnown?
 
 > `optional` **usdKnown?**: `boolean`
@@ -8325,7 +8335,7 @@ The live tree — reads the in-memory nursery, not the journal.
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 Conserved-pool readouts (post-reservation).
 

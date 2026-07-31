@@ -76,8 +76,9 @@ export const defaultSupervisorPrompt = [
  *    `prompt.instructions` and `resources.instructions`) reach the brain. A full `AgentProfile`'s
  *    `tools`, `mcp`, `permissions`, `resources.skills`/`files`, `hooks`, `modes`, `subagents`,
  *    `model.provider`, `model.small` and `model.reasoningEffort` are NOT honored here: the router
- *    brain is one `ToolLoopChat` over the coordination verbs, and `routerChatWithTools` (its only
- *    transport) has no parameter for any of them.
+ *    brain is one `ToolLoopChat` over the coordination verbs, and neither of its two tool-calling
+ *    transports (`routerChatWithTools` buffered, `streamRouterChatWithTools` when
+ *    `RouterConfig.stream` is set) has a parameter for any of them.
  *  - HARNESS arm (`harness` set): the WHOLE profile object is handed to `deps.driveHarness`
  *    untouched, plus the resolved system prompt as a separate argument. Everything the profile
  *    declares is the harness's to materialize; this module changes none of it.
@@ -106,9 +107,11 @@ export interface SupervisorProfile {
  *  stay `undefined` when the profile named none — the caller's fallback (`deps.router.model`,
  *  the built-in default supervisor prompt) then applies, and this type cannot hide which happened.
  *
- *  There is deliberately no `reasoningEffort` here: the router brain runs on `routerChatWithTools`,
- *  which has no `reasoning_effort` parameter, so a field carrying it would be a public promise
- *  nothing keeps. `model.reasoningEffort` still reaches the harness arm inside the profile. */
+ *  There is deliberately no `reasoningEffort` here: the router brain runs on `chatWithTools` (the
+ *  buffered/streamed switch in the router client), and neither transport has a `reasoning_effort`
+ *  parameter — only the chat-only `routerChatWithUsage` does — so a field carrying it would be a
+ *  public promise nothing keeps. `model.reasoningEffort` still reaches the harness arm inside the
+ *  profile. */
 export interface ResolvedSupervisorProfile {
   readonly name: string
   readonly harness: string | null
@@ -480,9 +483,10 @@ function routerBrainFromProfile(
     )
   }
   // The model id is resolved HERE, the one place it is consumed. `model.reasoningEffort` is not
-  // carried with it: `routerBrain` runs on `routerChatWithTools`, which has no `reasoning_effort`
-  // parameter (only the chat-only `routerChatWithUsage` does), so forwarding it would need a
-  // router-client change, not a local workaround.
+  // carried with it: `routerBrain` runs on `chatWithTools` — `routerChatWithTools` buffered, or
+  // `streamRouterChatWithTools` when the spread `deps.router` sets `stream` — and neither transport
+  // has a `reasoning_effort` parameter (only the chat-only `routerChatWithUsage` does), so
+  // forwarding it would need a router-client change, not a local workaround.
   const modelId = resolveSupervisorModelId(profile)
   return routerBrain({
     ...deps.router,

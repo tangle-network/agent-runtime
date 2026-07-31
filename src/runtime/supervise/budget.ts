@@ -18,6 +18,10 @@
  * unknown reconcile) so a child can never refund twice. If dollar cost is unknowable under a
  * dollar limit, reconciliation closes the known token/iteration work, marks the dollar channel
  * unusable, and refuses later reservations; inventing a numeric dollar total would be worse.
+ * If a TOKEN count is unknowable (a provider that reported no usage for work that ran), the pool
+ * records the work, debits what it knows, and marks `readout().tokensKnown` false — the balance is
+ * then a ceiling, not a measurement. It does not close admission the way the dollar channel does:
+ * tokens are always capped, so one unreported turn must not end the run.
  *
  * @experimental
  */
@@ -45,6 +49,13 @@ export interface ReservationTicket {
  *  reads `usdLeft: 0`) — the in-loop guard needs it to bound a usd-capped driver. */
 export type BudgetReadout = Readonly<{
   tokensLeft: number
+  /**
+   * False once the pool has recorded work whose token count was UNREPORTED (a `Spend` with
+   * `tokensKnown: false`). `tokensLeft` is then a ceiling on what remains, not a measurement: real
+   * consumption is at least the debited amount and possibly more. Reading `tokensLeft` without this
+   * flag would present an under-count as an exact balance.
+   */
+  tokensKnown?: boolean
   usdLeft: number
   usdCapped: boolean
   deadlineMs: number
@@ -160,6 +171,12 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   let freeTokens = root.maxTokens
   let reservedTokens = 0
   let committedTokens = 0
+  // Set once the pool records work with an unreported token count, and never cleared. Unlike
+  // `usdTainted` it does NOT close admission: the token channel is always capped, so refusing every
+  // later reservation would turn one provider that skipped a usage report into a dead run. The pool
+  // keeps enforcing the cap on what it knows and reports, via `readout().tokensKnown`, that the
+  // balance is an under-count rather than a measurement.
+  let tokensTainted = false
 
   const usdCapped = root.maxUsd !== undefined
   let freeUsd = root.maxUsd ?? 0
@@ -246,6 +263,7 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
 
     // Release the whole reservation, then commit actual spend; the difference is the
     // refund that flows back to `free`.
+    if (spent.tokensKnown === false) tokensTainted = true
     reservedTokens -= rTokens
     committedTokens += spentTokens
     freeTokens += rTokens - spentTokens
@@ -280,6 +298,10 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
         'budget pool: cannot observe unknown dollar cost under a dollar-capped budget',
       )
     }
+    // Work whose token count was never reported still debits what IS known (usually nothing) and
+    // marks the balance incomplete. The alternative — refusing to record it — is the "free turn"
+    // the pool must never see.
+    if (spend.tokensKnown === false) tokensTainted = true
     const tokens = totalTokens(spend.tokens)
     // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
     // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
@@ -296,6 +318,7 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   function readout(): BudgetReadout {
     return {
       tokensLeft: freeTokens,
+      tokensKnown: !tokensTainted,
       usdLeft: usdCapped ? (usdTainted ? 0 : freeUsd) : 0,
       usdCapped,
       deadlineMs: absoluteDeadlineMs,
