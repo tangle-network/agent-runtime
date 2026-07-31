@@ -1,35 +1,19 @@
+import {
+  AGENT_PROFILE_MATERIALIZATION_AXES,
+  type CanonicalAgentProfileMaterializationAxis,
+} from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 
-/** Known AgentProfile axes a run path may or may not carry into execution. */
-export const AGENT_PROFILE_MATERIALIZATION_AXES = [
-  'identity',
-  'name',
-  'model',
-  'prompt',
-  'systemPrompt',
-  'instructions',
-  'resources',
-  'files',
-  'resourceInstructions',
-  'skills',
-  'resourceTools',
-  'resourceAgents',
-  'commands',
-  'tools',
-  'permissions',
-  'mcp',
-  'mcpConnections',
-  'connections',
-  'subagents',
-  'hooks',
-  'modes',
-  'confidential',
-  'metadata',
-  'extensions',
-] as const
+/**
+ * The canonical AgentProfile leaves, re-exported from `@tangle-network/agent-interface`.
+ *
+ * These are LEAVES only: `modelReasoningEffort`, not `model`; `systemPrompt`, not `prompt`. A
+ * contract must name every leaf it carries, because claiming a compound parent while dropping one
+ * of its children is exactly the silent-drop this module exists to catch.
+ */
+export { AGENT_PROFILE_MATERIALIZATION_AXES }
 
-export type KnownAgentProfileMaterializationAxis =
-  (typeof AGENT_PROFILE_MATERIALIZATION_AXES)[number]
+export type KnownAgentProfileMaterializationAxis = CanonicalAgentProfileMaterializationAxis
 
 /** AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions. */
 export type AgentProfileMaterializationAxis =
@@ -72,34 +56,62 @@ export interface AssertProfileMaterializationOptions extends ValidateProfileMate
 
 const KNOWN_AXIS_SET = new Set<string>(AGENT_PROFILE_MATERIALIZATION_AXES)
 
-const AXIS_PARENTS: Partial<
-  Record<KnownAgentProfileMaterializationAxis, KnownAgentProfileMaterializationAxis>
-> = {
-  name: 'identity',
-  systemPrompt: 'prompt',
-  instructions: 'prompt',
-  files: 'resources',
-  resourceInstructions: 'resources',
-  skills: 'resources',
-  resourceTools: 'resources',
-  resourceAgents: 'resources',
-  commands: 'resources',
-  mcpConnections: 'mcp',
+/**
+ * Compound AgentProfile properties and the canonical leaves they expand to. Used ONLY to turn a
+ * rejected compound name into an actionable error — a contract must still name each leaf, so that
+ * dropping one is a visible edit rather than a silent consequence of claiming the parent.
+ */
+const compoundAxisLeaves: Record<string, readonly CanonicalAgentProfileMaterializationAxis[]> = {
+  identity: ['name', 'description', 'version', 'tags'],
+  prompt: ['systemPrompt', 'instructions'],
+  model: ['modelDefault', 'modelSmall', 'modelProvider', 'modelReasoningEffort', 'modelMetadata'],
+  resources: [
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+    'resourceFailOnError',
+  ],
+  mcpConnections: ['mcp'],
 }
 
-/** Materialization contract for `createSandboxAct`, which forwards the full AgentProfile. */
+/**
+ * Materialization contract for `createSandboxAct`.
+ *
+ * `createSandboxAct` hands the whole `AgentProfile` to the sandbox as `backend.profile`, so every
+ * profile leaf crosses the boundary — except `harness`. `buildBackendOptions` resolves the runner
+ * from an explicit `sandboxOverrides.backend.type`, then `profile.metadata.backendType`, then
+ * `'opencode'`; it never reads `profile.harness`. A candidate that changes only `harness` would
+ * therefore run on the SAME backend, so this path does not claim that axis.
+ */
 export const sandboxActProfileMaterialization = defineProfileMaterializationContract({
   name: 'createSandboxAct',
   axes: [
-    'identity',
-    'model',
-    'prompt',
-    'resources',
-    'tools',
+    'name',
+    'description',
+    'version',
+    'tags',
+    'systemPrompt',
+    'instructions',
+    'modelDefault',
+    'modelSmall',
+    'modelProvider',
+    'modelReasoningEffort',
+    'modelMetadata',
     'permissions',
+    'tools',
     'mcp',
     'connections',
     'subagents',
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+    'resourceFailOnError',
     'hooks',
     'modes',
     'confidential',
@@ -111,13 +123,27 @@ export const sandboxActProfileMaterialization = defineProfileMaterializationCont
 /** Materialization contract for a run path that only injects prompt text. */
 export const promptOnlyProfileMaterialization = defineProfileMaterializationContract({
   name: 'prompt-only-message',
-  axes: ['prompt'],
+  axes: ['systemPrompt', 'instructions'],
 })
 
-/** Materialization contract for a run path that injects prompt text plus inline resources. */
+/**
+ * Materialization contract for a run path that injects prompt text plus inline resources.
+ *
+ * `resourceFailOnError` is absent: it is a resolution POLICY the attaching path would have to
+ * enforce, and inlining resource content does not carry it.
+ */
 export const promptResourceProfileMaterialization = defineProfileMaterializationContract({
   name: 'prompt-resource-attachment',
-  axes: ['prompt', 'resources'],
+  axes: [
+    'systemPrompt',
+    'instructions',
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+  ],
 })
 
 /** Define the profile axes a concrete run path actually carries into execution. */
@@ -206,6 +232,13 @@ function normalizeAxis(
     throw new ValidationError(`${label}: profile axis must be non-empty`)
   }
   if (!KNOWN_AXIS_SET.has(axis) && !axis.startsWith('custom:')) {
+    const leaves = compoundAxisLeaves[axis]
+    if (leaves) {
+      throw new ValidationError(
+        `${label}: "${axis}" is a compound AgentProfile property, not a materialization axis. ` +
+          `Name the exact leaves this path carries: ${leaves.join(', ')}.`,
+      )
+    }
     throw new ValidationError(
       `${label}: unknown profile axis "${axis}". Use a known axis or custom:<name>.`,
     )
@@ -217,11 +250,5 @@ function isAxisSupported(
   axis: AgentProfileMaterializationAxis,
   supported: ReadonlySet<string>,
 ): boolean {
-  if (supported.has(axis)) return true
-  let parent = AXIS_PARENTS[axis as KnownAgentProfileMaterializationAxis]
-  while (parent) {
-    if (supported.has(parent)) return true
-    parent = AXIS_PARENTS[parent]
-  }
-  return false
+  return supported.has(axis)
 }
