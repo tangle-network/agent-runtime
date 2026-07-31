@@ -13,20 +13,75 @@ import {
   sandboxActProfileMaterialization,
   validateProfileMaterialization,
 } from '../src/agent'
+import { buildBackendOptions } from '../src/runtime/sandbox-backend'
+
+/** Pinned explicitly: comparing the re-export to itself could never fail. */
+const EXPECTED_CANONICAL_AXES = [
+  'name',
+  'description',
+  'version',
+  'tags',
+  'systemPrompt',
+  'instructions',
+  'modelDefault',
+  'modelSmall',
+  'modelProvider',
+  'modelReasoningEffort',
+  'modelMetadata',
+  'harness',
+  'permissions',
+  'tools',
+  'mcp',
+  'connections',
+  'subagents',
+  'files',
+  'resourceTools',
+  'skills',
+  'resourceAgents',
+  'commands',
+  'resourceInstructions',
+  'resourceFailOnError',
+  'hooks',
+  'modes',
+  'confidential',
+  'metadata',
+  'extensions',
+] as const
 
 describe('canonical axis set', () => {
-  it('is the exact set agent-interface publishes', () => {
-    expect([...AGENT_PROFILE_MATERIALIZATION_AXES].sort()).toEqual([...CANONICAL_AXES].sort())
+  it('is the exact 29-leaf set agent-interface publishes', () => {
+    expect([...AGENT_PROFILE_MATERIALIZATION_AXES].sort()).toEqual(
+      [...EXPECTED_CANONICAL_AXES].sort(),
+    )
+    expect([...CANONICAL_AXES].sort()).toEqual([...EXPECTED_CANONICAL_AXES].sort())
   })
 
   it('accepts every axis agent-interface can produce from a diff or a profile', () => {
-    // Both producers are agent-interface public exports and this validator is an agent-runtime
-    // public export, so every axis either can emit must be a legal input here.
-    const fromDiff = changedAgentProfileAxes({
-      kind: 'agent-profile-diff',
-      set: { harness: 'codex' },
+    // agent-interface publishes TWO axis vocabularies and both are public producers:
+    // profileMaterializationAxes emits canonical leaves, changedAgentProfileAxes emits diff
+    // axes, which are COMPOUND property names for everything but the scalar properties.
+    // This validator is a public agent-runtime export, so both must be legal inputs.
+    const contract = defineProfileMaterializationContract({
+      name: 'everything',
+      axes: CANONICAL_AXES,
     })
-    expect(fromDiff).toEqual(['harness'])
+
+    const diffs = [
+      { set: { harness: 'codex' } },
+      { set: { name: 'x' } },
+      { set: { model: { reasoningEffort: 'high' } } },
+      { set: { prompt: { systemPrompt: 'x' } } },
+      { set: { resources: { files: [] } } },
+      { set: { tools: {} } },
+    ] as const
+
+    for (const diff of diffs) {
+      const changed = changedAgentProfileAxes({ kind: 'agent-profile-diff', ...diff })
+      expect(
+        validateProfileMaterialization({ contract, changedAxes: changed }),
+        `changedAgentProfileAxes -> ${JSON.stringify(changed)} must be a legal input`,
+      ).toEqual([])
+    }
 
     const fromProfile = profileMaterializationAxes({
       name: 'x',
@@ -36,13 +91,38 @@ describe('canonical axis set', () => {
     })
     expect(fromProfile).toContain('modelReasoningEffort')
     expect(fromProfile).toContain('harness')
+    expect(validateProfileMaterialization({ contract, changedAxes: fromProfile })).toEqual([])
+    expect(validateProfileMaterialization({ contract, changedAxes: CANONICAL_AXES })).toEqual([])
+  })
 
+  it('expands a compound diff axis into leaves rather than rejecting it', () => {
     const contract = defineProfileMaterializationContract({
+      name: 'model-only',
+      axes: ['modelDefault', 'modelSmall', 'modelProvider', 'modelReasoningEffort'],
+    })
+
+    // `model` covers five leaves; the contract declares four, so the fifth is reported by NAME.
+    expect(
+      validateProfileMaterialization({ contract, changedAxes: ['model'] }).map((i) => i.axis),
+    ).toEqual(['modelMetadata'])
+  })
+
+  it('keeps every compound expansion inside the canonical leaf set', () => {
+    // Guards the expansion map against an upstream leaf rename making it silently stale: a
+    // stale leaf is not in the all-leaves contract, so it would surface as an issue here.
+    const everything = defineProfileMaterializationContract({
       name: 'everything',
       axes: CANONICAL_AXES,
     })
-    for (const axes of [fromProfile, CANONICAL_AXES]) {
-      expect(validateProfileMaterialization({ contract, changedAxes: axes })).toEqual([])
+
+    for (const compound of ['identity', 'prompt', 'model', 'resources', 'mcpConnections']) {
+      expect(
+        validateProfileMaterialization({
+          contract: everything,
+          changedAxes: [compound as never],
+        }),
+        `${compound} must expand to canonical leaves only`,
+      ).toEqual([])
     }
   })
 })
@@ -96,41 +176,20 @@ describe('profile materialization contracts', () => {
     )
   })
 
-  it('declares createSandboxAct as every profile leaf it forwards', () => {
+  it('declares createSandboxAct as every canonical leaf except harness', () => {
+    // Asserted as "the whole canonical set minus harness" rather than a hand-listed subset, so
+    // dropping a leaf from the contract fails here instead of passing an under-specified list.
+    const expected = CANONICAL_AXES.filter((axis) => axis !== 'harness')
+    expect(sandboxActProfileMaterialization.axes).toEqual(expected)
     expect(
       validateProfileMaterialization({
         contract: sandboxActProfileMaterialization,
-        changedAxes: [
-          'name',
-          'description',
-          'version',
-          'tags',
-          'modelDefault',
-          'modelReasoningEffort',
-          'modelMetadata',
-          'systemPrompt',
-          'instructions',
-          'files',
-          'skills',
-          'resourceFailOnError',
-          'tools',
-          'permissions',
-          'mcp',
-          'connections',
-          'subagents',
-          'hooks',
-          'modes',
-          'confidential',
-          'metadata',
-          'extensions',
-        ],
+        changedAxes: expected,
       }),
     ).toEqual([])
   })
 
   it('refuses to claim harness, which the backend resolver never reads', () => {
-    // buildBackendOptions resolves the runner from sandboxOverrides then
-    // profile.metadata.backendType — a harness-only change would run unchanged.
     const issues = validateProfileMaterialization({
       contract: sandboxActProfileMaterialization,
       changedAxes: changedAgentProfileAxes({
@@ -140,6 +199,21 @@ describe('profile materialization contracts', () => {
     })
 
     expect(issues.map((issue) => issue.axis)).toEqual(['harness'])
+  })
+
+  it('pins the resolver behavior that omission rests on', () => {
+    // The contract omits `harness` because buildBackendOptions resolves the runner from
+    // sandboxOverrides, then profile.metadata.backendType, and never profile.harness. If that
+    // ever grows a profile.harness fallback, the omission becomes wrong — catch it here.
+    expect(buildBackendOptions({ name: 'a', harness: 'codex' }, undefined).backend?.type).toBe(
+      'opencode',
+    )
+    expect(
+      buildBackendOptions(
+        { name: 'a', harness: 'codex', metadata: { backendType: 'amp' } },
+        undefined,
+      ).backend?.type,
+    ).toBe('amp')
   })
 
   it('deduplicates axes while preserving first-seen order', () => {

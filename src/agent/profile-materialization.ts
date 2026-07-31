@@ -57,9 +57,16 @@ export interface AssertProfileMaterializationOptions extends ValidateProfileMate
 const KNOWN_AXIS_SET = new Set<string>(AGENT_PROFILE_MATERIALIZATION_AXES)
 
 /**
- * Compound AgentProfile properties and the canonical leaves they expand to. Used ONLY to turn a
- * rejected compound name into an actionable error — a contract must still name each leaf, so that
- * dropping one is a visible edit rather than a silent consequence of claiming the parent.
+ * Compound AgentProfile properties and the canonical leaves they cover.
+ *
+ * agent-interface publishes two axis vocabularies, and this module has to sit between them:
+ * `profileMaterializationAxes` emits canonical LEAVES, while `changedAgentProfileAxes` emits
+ * DIFF axes, which are compound property names (`model`, `prompt`, `resources`, `identity`) for
+ * everything except the already-scalar properties. A changed-axis input is therefore expanded
+ * through this map, so both producers compose with this validator.
+ *
+ * A CONTRACT may still only name leaves. Expanding an input is safe — it asks about more, never
+ * less — whereas letting a contract claim a parent is what silently swallows a dropped child.
  */
 const compoundAxisLeaves: Record<string, readonly CanonicalAgentProfileMaterializationAxis[]> = {
   identity: ['name', 'description', 'version', 'tags'],
@@ -156,7 +163,7 @@ export function defineProfileMaterializationContract(
   }
   return {
     name,
-    axes: normalizeAxes(options.axes, `${name}.axes`),
+    axes: normalizeContractAxes(options.axes, `${name}.axes`),
   }
 }
 
@@ -164,9 +171,9 @@ export function defineProfileMaterializationContract(
 export function validateProfileMaterialization(
   options: ValidateProfileMaterializationOptions,
 ): readonly ProfileMaterializationIssue[] {
-  const changedAxes = normalizeAxes(options.changedAxes, 'changedAxes')
+  const changedAxes = normalizeChangedAxes(options.changedAxes, 'changedAxes')
   const supported = new Set<string>(
-    normalizeAxes(options.contract.axes, `${options.contract.name}.axes`),
+    normalizeContractAxes(options.contract.axes, `${options.contract.name}.axes`),
   )
   const issues: ProfileMaterializationIssue[] = []
   for (const axis of changedAxes) {
@@ -205,14 +212,41 @@ export function renderProfileMaterializationIssues(
   ].join('\n')
 }
 
-function normalizeAxes(
+/** Contract side: leaves (or `custom:`) only. A parent claim would hide a dropped child. */
+function normalizeContractAxes(
+  axes: readonly AgentProfileMaterializationAxis[],
+  label: string,
+): AgentProfileMaterializationAxis[] {
+  return dedupe(axes.map((raw) => assertLeafAxis(raw, label)))
+}
+
+/**
+ * Input side: leaves, `custom:`, and compound diff axes, which expand to their leaves so
+ * `changedAgentProfileAxes` output composes with a leaf-only contract.
+ */
+function normalizeChangedAxes(
   axes: readonly AgentProfileMaterializationAxis[],
   label: string,
 ): AgentProfileMaterializationAxis[] {
   const out: AgentProfileMaterializationAxis[] = []
-  const seen = new Set<string>()
   for (const raw of axes) {
-    const axis = normalizeAxis(raw, label)
+    const axis = readAxisName(raw, label)
+    const leaves = compoundAxisLeaves[axis]
+    if (leaves && !KNOWN_AXIS_SET.has(axis)) {
+      out.push(...leaves)
+      continue
+    }
+    out.push(assertLeafAxis(raw, label))
+  }
+  return dedupe(out)
+}
+
+function dedupe(
+  axes: readonly AgentProfileMaterializationAxis[],
+): AgentProfileMaterializationAxis[] {
+  const out: AgentProfileMaterializationAxis[] = []
+  const seen = new Set<string>()
+  for (const axis of axes) {
     if (seen.has(axis)) continue
     seen.add(axis)
     out.push(axis)
@@ -220,10 +254,7 @@ function normalizeAxes(
   return out
 }
 
-function normalizeAxis(
-  raw: AgentProfileMaterializationAxis,
-  label: string,
-): AgentProfileMaterializationAxis {
+function readAxisName(raw: AgentProfileMaterializationAxis, label: string): string {
   if (typeof raw !== 'string') {
     throw new ValidationError(`${label}: profile axis must be a string`)
   }
@@ -231,6 +262,14 @@ function normalizeAxis(
   if (!axis) {
     throw new ValidationError(`${label}: profile axis must be non-empty`)
   }
+  return axis
+}
+
+function assertLeafAxis(
+  raw: AgentProfileMaterializationAxis,
+  label: string,
+): AgentProfileMaterializationAxis {
+  const axis = readAxisName(raw, label)
   if (!KNOWN_AXIS_SET.has(axis) && !axis.startsWith('custom:')) {
     const leaves = compoundAxisLeaves[axis]
     if (leaves) {
