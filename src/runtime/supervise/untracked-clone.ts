@@ -60,7 +60,7 @@ export interface UntrackedCopyStats {
   bytes: number
 }
 
-interface CopyOptions {
+export interface CopyOptions {
   warnBytes?: number
   log?: (message: string) => void
 }

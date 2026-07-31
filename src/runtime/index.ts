@@ -763,6 +763,7 @@ export type {
 // real workspaces hold compiled build outputs as untracked files a worker's verify gate needs.
 // Promoted from the loops repo (#4519).
 export {
+  type CopyOptions,
   copyUntrackedIntoClone,
   type UntrackedCopyStats,
   withUntrackedArtifacts,
