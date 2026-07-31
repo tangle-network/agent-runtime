@@ -26,7 +26,10 @@
  * @experimental
  */
 
-import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
+import {
+  type AgentProfileMcpServer,
+  defineAgentProfilePublicConfig,
+} from '@tangle-network/agent-interface'
 import type { ToolSpec } from '../runtime/router-client'
 import {
   type CapabilityAuth,
@@ -395,12 +398,15 @@ function mcpServerFromBinding(
 ): AgentProfileMcpServer {
   const metadata: Record<string, unknown> = { capabilityId: cap.id }
   if (cap.iface.surface === 'mcp' && cap.iface.toolset) metadata.tools = cap.iface.toolset
+  // Binding strings are manifest-certified public material; the 0.40 profile
+  // contract wants explicit AgentProfileConfigValue entries, so wrap each as
+  // `{ kind: 'public' }` at this lowering point. Secrets never ride bindings.
   if (binding.kind === 'mcp-stdio') {
     return {
       transport: 'stdio',
       command: binding.command,
-      ...(binding.args ? { args: binding.args } : {}),
-      ...(binding.env ? { env: binding.env } : {}),
+      ...(binding.args ? { args: binding.args.map(defineAgentProfilePublicConfig) } : {}),
+      ...(binding.env ? { env: publicConfigRecord(binding.env) } : {}),
       ...(binding.cwd ? { cwd: binding.cwd } : {}),
       enabled: true,
       metadata,
@@ -409,10 +415,16 @@ function mcpServerFromBinding(
   return {
     transport: binding.transport,
     url: binding.url,
-    ...(binding.headers ? { headers: binding.headers } : {}),
+    ...(binding.headers ? { headers: publicConfigRecord(binding.headers) } : {}),
     enabled: true,
     metadata,
   }
+}
+
+function publicConfigRecord(values: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(values).map(([name, value]) => [name, defineAgentProfilePublicConfig(value)]),
+  )
 }
 
 /** http → a `ToolSpec` + a host-side fetch `execute`. THE host seam: an http

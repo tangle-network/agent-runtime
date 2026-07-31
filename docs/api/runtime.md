@@ -2456,6 +2456,31 @@ The value for `name`, or `undefined` when this provider does not hold it.
 
 ***
 
+### ResolvedMcpServerLaunch
+
+The spawn-ready strings for one stdio MCP server: profile config values
+ resolved, secrets separated so the client can redact them.
+
+#### Properties
+
+##### args?
+
+> `optional` **args?**: `string`[]
+
+##### env?
+
+> `optional` **env?**: `Record`\<`string`, `string`\>
+
+Public env, safe to appear in diagnostics.
+
+##### protectedEnv?
+
+> `optional` **protectedEnv?**: `Record`\<`string`, `string`\>
+
+Resolved secret env. Reaches only the child process; redacted everywhere else.
+
+***
+
 ### LocalSandboxClientOptions
 
 #### Properties
@@ -6544,11 +6569,12 @@ Cap on a tool result's text fed back to the worker. Default 2000 chars.
 
 > `optional` **keys?**: [`KeyProvider`](#keyprovider)
 
-Resolves a server's DECLARED secrets (`metadata.secretEnv`: env var name →
- provider key name) at spawn time. The resolved values reach ONLY the child
- process env — never the profile, the logs, or an error message. Fail-closed:
- a server declaring secrets without a provider (or with a missing key)
- throws instead of booting keyless.
+Resolves a server's DECLARED secrets at spawn time — env entries of kind
+ `secret-ref` (interface ≥0.40) and the legacy `metadata.secretEnv` map
+ (env var name → provider key name). The resolved values reach ONLY the
+ child process env — never the profile, the logs, or an error message.
+ Fail-closed: a server declaring secrets without a provider (or with a
+ missing key) throws instead of booting keyless.
 
 ##### profileSecurityPolicy?
 
@@ -17718,6 +17744,45 @@ server for the error (e.g. `profile.mcp['exa']`).
 #### Returns
 
 `Promise`\<`Record`\<`string`, `string`\>\>
+
+***
+
+### resolveMcpServerLaunch()
+
+> **resolveMcpServerLaunch**(`server`, `keys`, `label`): `Promise`\<[`ResolvedMcpServerLaunch`](#resolvedmcpserverlaunch)\>
+
+Resolve a profile MCP server's `args`/`env` config values (interface ≥0.40
+`AgentProfileConfigValue`) plus the legacy `metadata.secretEnv` channel into
+the plain strings a spawn needs.
+
+Rules, all fail-closed:
+- `args` must be public values. A secret-ref in argv is refused: argv is
+  readable by every host process (/proc/PID/cmdline) and outside the
+  protected-value redaction channel, so a secret there cannot be contained.
+- `env` secret-refs resolve through the KeyProvider (missing provider or key
+  throws, naming the KEY NAME only) and land in `protectedEnv`.
+- An env var declared secret on BOTH channels (env secret-ref and
+  metadata.secretEnv) is ambiguous configuration and throws.
+- A public `env` entry shadowed by a legacy metadata secret keeps the
+  pre-0.40 spawn precedence: the secret value wins in the child env.
+
+#### Parameters
+
+##### server
+
+`AgentProfileMcpServer`
+
+##### keys
+
+[`KeyProvider`](#keyprovider) \| `undefined`
+
+##### label
+
+`string`
+
+#### Returns
+
+`Promise`\<[`ResolvedMcpServerLaunch`](#resolvedmcpserverlaunch)\>
 
 ***
 

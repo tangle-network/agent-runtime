@@ -287,7 +287,10 @@ describe('agent improvement profile delivery', () => {
       },
       {
         surface: 'mcp',
-        desiredInput: { docs: { command: 'node', args: ['docs-server.js'] } },
+        // Interface >=0.40: MCP args entries are AgentProfileConfigValue objects.
+        desiredInput: {
+          docs: { command: 'node', args: [{ kind: 'public', value: 'docs-server.js' }] },
+        },
       },
       {
         surface: 'hooks',
@@ -318,7 +321,9 @@ describe('agent improvement profile delivery', () => {
       .reduce((profile, diff) => applyAgentProfileDiff(profile, diff), base)
 
     expect(applied.tools).toEqual({ Read: true })
-    expect(applied.mcp).toEqual({ docs: { command: 'node', args: ['docs-server.js'] } })
+    expect(applied.mcp).toEqual({
+      docs: { command: 'node', args: [{ kind: 'public', value: 'docs-server.js' }] },
+    })
     expect(applied.hooks).toEqual({ Stop: [{ command: 'echo done' }] })
     expect(applied.subagents).toEqual({ reviewer: { prompt: 'Review the result' } })
     expect(applied.resources?.tools).toEqual([defineInlineResource('read.tool.md', 'Use Read')])
@@ -367,7 +372,7 @@ describe('agent improvement profile delivery', () => {
         {
           ...candidate,
           tools: { Read: true },
-          mcp: { docs: { command: 'node', args: ['docs-server.js'] } },
+          mcp: { docs: { command: 'node', args: [{ kind: 'public', value: 'docs-server.js' }] } },
           hooks: { Stop: [{ command: 'node check.mjs' }] },
           subagents: { reviewer: { prompt: 'Review before answering' } },
         },

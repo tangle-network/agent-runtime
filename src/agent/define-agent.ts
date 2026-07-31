@@ -15,7 +15,7 @@
  * benefit is a manifest that can't ship broken.
  */
 
-import type { TraceAnalystKindSpec } from '@tangle-network/agent-eval'
+import type { TraceAnalystDefinition } from '@tangle-network/agent-eval'
 import type { RuntimeStreamEvent } from '../types'
 import { type AgentSurfaces, renderSurfaceIssues, validateSurfaces } from './surfaces'
 
@@ -94,7 +94,7 @@ export interface AgentManifest<TPersona = unknown, TRunOutput = unknown> {
    *
    * Empty array disables the loop — useful for `pnpm eval --no-analyst`.
    */
-  analystKinds: ReadonlyArray<TraceAnalystKindSpec>
+  analystKinds: ReadonlyArray<TraceAnalystDefinition>
 
   /**
    * Analyst LLM configuration. The substrate uses these for all four

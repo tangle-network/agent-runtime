@@ -1,7 +1,11 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  defineAgentProfilePublicConfig,
+  defineAgentProfileSecretRef,
+} from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import { mcpServeVerifier } from '../improvement/mcp-serve-verifier'
 import { localSandboxClient } from './local-sandbox-client'
@@ -60,6 +64,10 @@ const TRUSTED_LOCAL_MCP_POLICY = {
   allowHooks: false,
   allowedMcpHosts: [],
 }
+
+/** Shorthand: profile MCP `args`/`env` entries are AgentProfileConfigValue
+ *  objects under interface >=0.40, not plain strings. */
+const pub = defineAgentProfilePublicConfig
 
 describe('connectStdioMcp', () => {
   it('handshakes, lists tools, round-trips tools/call, closes', async () => {
@@ -136,7 +144,7 @@ describe('materializeLocalMcp', () => {
           greeter: {
             transport: 'stdio',
             command: 'node',
-            args: ['-e', HELLO_SERVER],
+            args: [pub('-e'), pub(HELLO_SERVER)],
             enabled: true,
           },
           // The disabled variant forbids launch fields by type — enabled:false is the whole entry.
@@ -175,8 +183,8 @@ describe('materializeLocalMcp', () => {
         untrusted: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', SECRET_SERVER],
-          env: { MARKER_PATH: marker },
+          args: [pub('-e'), pub(SECRET_SERVER)],
+          env: { MARKER_PATH: pub(marker) },
         },
       },
     }).catch((error) => error)
@@ -201,8 +209,8 @@ describe('materializeLocalMcp', () => {
         greeter: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', SECRET_SERVER],
-          env: { MARKER_PATH: marker },
+          args: [pub('-e'), pub(SECRET_SERVER)],
+          env: { MARKER_PATH: pub(marker) },
           metadata: { secretEnv: { TEST_TOKEN: 'GREETER_TOKEN' } },
         },
       },
@@ -232,6 +240,66 @@ describe('materializeLocalMcp', () => {
     }
   })
 
+  it('resolves interface >=0.40 env secret-refs through the key provider, fail-closed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'local-mcp-secret-ref-'))
+    const marker = join(dir, 'received.txt')
+    const profile: AgentProfile = {
+      mcp: {
+        greeter: {
+          transport: 'stdio',
+          command: 'node',
+          args: [pub('-e'), pub(SECRET_SERVER)],
+          env: {
+            MARKER_PATH: pub(marker),
+            TEST_TOKEN: defineAgentProfileSecretRef('GREETER_TOKEN'),
+          },
+        },
+      },
+    }
+    expect(JSON.stringify(profile)).not.toContain('test-token')
+    try {
+      // No provider → refuse to boot keyless instead of spawning with a blank env.
+      await expect(
+        materializeLocalMcp(profile, { profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY }),
+      ).rejects.toThrow(/no KeyProvider/)
+      const get = vi.fn(async (name: string) =>
+        name === 'GREETER_TOKEN' ? 'test-token' : undefined,
+      )
+      const mat = await materializeLocalMcp(profile, {
+        keys: { get },
+        profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
+      })
+      try {
+        expect(get).toHaveBeenCalledWith('GREETER_TOKEN')
+        expect(readFileSync(marker, 'utf8')).toBe('test-token')
+      } finally {
+        await mat.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a secret-ref in args — argv is host-visible and outside redaction', async () => {
+    await expect(
+      materializeLocalMcp(
+        {
+          mcp: {
+            leaky: {
+              transport: 'stdio',
+              command: 'node',
+              args: [pub('-e'), defineAgentProfileSecretRef('ARGV_TOKEN')],
+            },
+          },
+        },
+        {
+          keys: { get: vi.fn(async () => 'must-never-spawn') },
+          profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
+        },
+      ),
+    ).rejects.toThrow(/args\[1\] is a secret-ref/)
+  })
+
   it('does not transfer fixed-profile host trust to a different per-create profile', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'local-mcp-dynamic-'))
     const marker = join(dir, 'must-not-exist.txt')
@@ -240,7 +308,7 @@ describe('materializeLocalMcp', () => {
         trusted: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', HELLO_SERVER],
+          args: [pub('-e'), pub(HELLO_SERVER)],
         },
       },
     }
@@ -254,8 +322,8 @@ describe('materializeLocalMcp', () => {
         untrusted: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', SECRET_SERVER],
-          env: { MARKER_PATH: marker },
+          args: [pub('-e'), pub(SECRET_SERVER)],
+          env: { MARKER_PATH: pub(marker) },
         },
       },
     }
@@ -285,7 +353,7 @@ describe('materializeLocalMcp', () => {
         failing: {
           transport: 'stdio',
           command: 'node',
-          args: ['-e', 'process.stderr.write(process.env.TEST_TOKEN); process.exit(3)'],
+          args: [pub('-e'), pub('process.stderr.write(process.env.TEST_TOKEN); process.exit(3)')],
           metadata: { secretEnv: { TEST_TOKEN: 'FAILING_TOKEN' } },
         },
       },
@@ -308,7 +376,7 @@ describe('materializeLocalMcp', () => {
           leaking: {
             transport: 'stdio',
             command: 'node',
-            args: ['-e', SECRET_RESULT_SERVER],
+            args: [pub('-e'), pub(SECRET_RESULT_SERVER)],
             metadata: { secretEnv: { TEST_TOKEN: 'LEAKING_TOKEN' } },
           },
         },
@@ -344,7 +412,7 @@ describe('materializeLocalMcp', () => {
           leaking: {
             transport: 'stdio',
             command: 'node',
-            args: ['-e', server],
+            args: [pub('-e'), pub(server)],
             metadata: { secretEnv: { TEST_TOKEN: 'LEAKING_TOKEN' } },
           },
         },
@@ -382,7 +450,7 @@ describe('materializeLocalMcp', () => {
           leaking: {
             transport: 'stdio',
             command: 'node',
-            args: ['-e', server],
+            args: [pub('-e'), pub(server)],
             metadata: { secretEnv: { TEST_TOKEN: 'LEAKING_TOKEN' } },
           },
         },

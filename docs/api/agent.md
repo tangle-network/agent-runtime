@@ -145,7 +145,7 @@ persona ordering is preserved.
 
 ##### analystKinds
 
-> **analystKinds**: readonly `TraceAnalystKindSpec`[]
+> **analystKinds**: readonly `TraceAnalystDefinition`[]
 
 Analyst kinds the substrate runs against each persona's trace.
 Defaults to `DEFAULT_TRACE_ANALYST_KINDS` from agent-eval. Per-agent
