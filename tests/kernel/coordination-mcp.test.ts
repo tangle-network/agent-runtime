@@ -105,3 +105,124 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     expect(names).toContain('await_event')
   })
 })
+
+/** Run `body` against a REAL live scope — the same path the sandbox supervisor arm uses — and
+ *  surface whatever it returned or threw. No stub scope: a bind gate is only meaningful on the
+ *  scope the server would actually have fronted. */
+async function withLiveScope<T>(body: (scope: Scope<unknown>) => Promise<T>): Promise<T> {
+  const blobs = new InMemoryResultBlobStore()
+  let captured: { ok: true; value: T } | { ok: false; error: unknown } | undefined
+  const root: Agent<unknown, unknown> = {
+    name: 'bind-gate',
+    async act(_task, scope: Scope<unknown>) {
+      try {
+        captured = { ok: true, value: await body(scope) }
+      } catch (error) {
+        captured = { ok: false, error }
+      }
+      return undefined
+    },
+  }
+  await createSupervisor<unknown, unknown>().run(root, 'bind', {
+    budget: { maxIterations: 10, maxTokens: 1000 },
+    runId: 'bind-gate',
+    journal: new InMemorySpawnJournal(),
+    blobs,
+    executors: createExecutorRegistry(),
+    maxDepth: 2,
+    now: () => 0,
+  })
+  if (!captured) throw new Error('the root agent never ran')
+  if (!captured.ok) throw captured.error
+  return captured.value
+}
+
+describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () => {
+  // The verbs this server mounts (spawn_agent / steer_agent / stop) are unauthenticated, and this
+  // function is a PUBLIC export taking `host` directly — so the rule has to live HERE, not only at
+  // the `supervise` / `supervisorAgent` composition sites that happen to call it.
+  const serve = (
+    scope: Scope<unknown>,
+    extra: { host?: string; allowUnauthenticatedRemote?: true },
+  ) =>
+    serveCoordinationMcp({
+      scope,
+      blobs: new InMemoryResultBlobStore(),
+      makeWorkerAgent: () => deliveringLeaf('w', {}),
+      perWorker: { maxIterations: 1, maxTokens: 10 } as Budget,
+      ...extra,
+    })
+
+  it.each(['0.0.0.0', '10.0.0.7', '::', 'runner-7.internal'])(
+    'refuses the non-loopback host %s with no acknowledgment',
+    async (host) => {
+      // An unresolvable/unknown name counts as remote: whether it lands on a loopback interface is
+      // not knowable at bind time, and the safe direction of that doubt is "exposed".
+      await expect(
+        withLiveScope(async (scope) => {
+          const mcp = await serve(scope, { host })
+          await mcp.close()
+        }),
+      ).rejects.toThrow(/not a loopback address.*allowUnauthenticatedRemote/s)
+    },
+  )
+
+  it('accepts an acknowledged non-loopback host and serves the verbs on it', async () => {
+    const names = await withLiveScope(async (scope) => {
+      const mcp = await serve(scope, { host: '0.0.0.0', allowUnauthenticatedRemote: true })
+      try {
+        expect(mcp.url).toMatch(/^http:\/\/0\.0\.0\.0:\d+\/mcp$/)
+        const listed = (await jsonRpc(mcp.url, 'tools/list', {})).result as {
+          tools?: Array<{ name: string }>
+        }
+        return (listed.tools ?? []).map((t) => t.name)
+      } finally {
+        await mcp.close()
+      }
+    })
+    expect(names).toContain('spawn_agent')
+  })
+
+  it.each(['127.0.0.1', '127.0.0.53', 'localhost', '::1', '::ffff:127.0.0.1'])(
+    'binds the loopback host %s with no acknowledgment needed',
+    async (host) => {
+      const port = await withLiveScope(async (scope) => {
+        const mcp = await serve(scope, { host })
+        try {
+          return mcp.port
+        } finally {
+          await mcp.close()
+        }
+      })
+      expect(port).toBeGreaterThan(0)
+    },
+  )
+
+  it('classifies the bracketed loopback literal [::1] as loopback, not as remote', async () => {
+    // Node's own `listen` rejects the bracketed spelling (`ENOTFOUND [::1]`) — a transport error a
+    // caller fixes by unbracketing. What matters here is that the SECURITY gate let it through:
+    // callers carry `[::1]` from config, and refusing it as "remote" would be wrong.
+    const error = await withLiveScope(async (scope) => {
+      try {
+        const mcp = await serve(scope, { host: '[::1]' })
+        await mcp.close()
+        return undefined
+      } catch (e) {
+        return e
+      }
+    })
+    expect((error as Error | undefined)?.message ?? '').not.toMatch(/loopback/)
+  })
+
+  it('defaults to loopback when no host is given', async () => {
+    const url = await withLiveScope(async (scope) => {
+      const mcp = await serve(scope, {})
+      try {
+        return mcp.url
+      } finally {
+        await mcp.close()
+      }
+    })
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
+  })
+})

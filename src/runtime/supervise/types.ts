@@ -693,6 +693,19 @@ export interface SupervisorOpts {
   readonly hooks?: RuntimeHooks
 }
 
+/**
+ * A driver's `act()` rejection, normalized to a serializable triple so it survives the typed
+ * no-winner boundary (an `Error` does not cross a structured-clone / JSON hop intact). A
+ * non-`Error` rejection normalizes to `{ name: 'NonError', message }` — never dropped.
+ * Exported so a consumer handling `reason: 'driver-failed'` names this type instead of retyping
+ * its fields.
+ */
+export interface NoWinnerError {
+  name: string
+  message: string
+  stack?: string
+}
+
 /** Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. */
 export type SupervisedResult<Out> =
   | {
@@ -708,6 +721,13 @@ export type SupervisedResult<Out> =
       spentBreakdown?: { driverInference: Spend; childWork: Spend }
     }
   | {
+      /**
+       * The LIFECYCLE no-winner arms: the supervisor itself proved why nothing was delivered, so
+       * the reason is complete on its own and there is no driver rejection to hand back. A tripped
+       * breaker or a real `down` child is `all-children-down`, a cascaded abort is `aborted`, an
+       * empty pool is `budget-exhausted`. These outrank `driver-failed`: when the driver threw
+       * BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the explanation.
+       */
       kind: 'no-winner'
       reason: 'all-children-down' | 'budget-exhausted' | 'aborted'
       tree: TreeView
@@ -716,6 +736,29 @@ export type SupervisedResult<Out> =
        *  worker delivers, so the caller always learns what the delegation actually spent. Summed
        *  off the same journal the `winner` path reads. */
       spentTotal: Spend
+      /** Never present on a lifecycle arm — the discriminant, not prose, is what makes
+       *  `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it. */
+      error?: never
+    }
+  | {
+      /**
+       * The DRIVER-FAULT arm: `act()` rejected, no child ever went down, and no lifecycle cause
+       * (breaker/abort/budget) outranks it — so nothing about the tree explains the failure and the
+       * driver's own rejection is the only thing that does. It is therefore REQUIRED here.
+       * `all-children-down` with `downCount: 0` used to be indistinguishable from an honest empty
+       * result; this arm is that configuration/authoring fault, named.
+       */
+      kind: 'no-winner'
+      reason: 'driver-failed'
+      tree: TreeView
+      downCount: number
+      /** The conserved spend incurred before the run failed — real cost is paid even when no
+       *  worker delivers, so the caller always learns what the delegation actually spent. Summed
+       *  off the same journal the `winner` path reads. */
+      spentTotal: Spend
+      /** The driver's own rejection, carried across the typed no-winner boundary so the failure is
+       *  recoverable by the caller. A non-`Error` rejection is normalized, never dropped. */
+      error: NoWinnerError
     }
 
 /** Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `signal`
