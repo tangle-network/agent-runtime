@@ -701,6 +701,8 @@ export {
 // from a backend config + an optional completion oracle (settled⟺delivered).
 export {
   type SuperviseOptions,
+  type SuperviseRegistry,
+  type SuperviseRegistryTable,
   supervise,
   workerFromBackend,
 } from './supervise/supervise'
@@ -709,7 +711,11 @@ export { createSupervisor } from './supervise/supervisor'
 // `createExecutor({backend})` resolves a worker — `null` → the in-process router tool-loop,
 // a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
 export {
+  assertCoordinationBinding,
+  type CoordinationBinding,
   type DriveHarness,
+  type ResolvedSupervisorProfile,
+  resolveSupervisorProfile,
   type SupervisorAgentDeps,
   type SupervisorProfile,
   supervisorAgent,
@@ -741,6 +747,7 @@ export type {
   NodeId,
   NodeSnapshot,
   NodeStatus,
+  NoWinnerError,
   Restart,
   ResultBlobStore,
   ResumedKeyState,

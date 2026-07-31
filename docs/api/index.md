@@ -11265,7 +11265,7 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -11325,11 +11325,17 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
+\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \}
 
 ###### kind
 
 > **kind**: `"no-winner"`
+
+The LIFECYCLE no-winner arms: the supervisor itself proved why nothing was delivered, so
+the reason is complete on its own and there is no driver rejection to hand back. A tripped
+breaker or a real `down` child is `all-children-down`, a cascaded abort is `aborted`, an
+empty pool is `budget-exhausted`. These outrank `driver-failed`: when the driver threw
+BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the explanation.
 
 ###### reason
 
@@ -11350,6 +11356,56 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 The conserved spend incurred before the run failed — real cost is paid even when no
  worker delivers, so the caller always learns what the delegation actually spent. Summed
  off the same journal the `winner` path reads.
+
+###### error?
+
+> `optional` **error?**: `never`
+
+Never present on a lifecycle arm — the discriminant, not prose, is what makes
+ `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+
+###### kind
+
+> **kind**: `"no-winner"`
+
+The DRIVER-FAULT arm: `act()` rejected, no child ever went down, and no lifecycle cause
+(breaker/abort/budget) outranks it — so nothing about the tree explains the failure and the
+driver's own rejection is the only thing that does. It is therefore REQUIRED here.
+`all-children-down` with `downCount: 0` used to be indistinguishable from an honest empty
+result; this arm is that configuration/authoring fault, named.
+
+###### reason
+
+> **reason**: `"driver-failed"`
+
+###### tree
+
+> **tree**: [`TreeView`](runtime.md#treeview)
+
+###### downCount
+
+> **downCount**: `number`
+
+###### spentTotal
+
+> **spentTotal**: [`Spend`](#spend)
+
+The conserved spend incurred before the run failed — real cost is paid even when no
+ worker delivers, so the caller always learns what the delegation actually spent. Summed
+ off the same journal the `winner` path reads.
+
+###### error
+
+> **error**: [`NoWinnerError`](runtime.md#nowinnererror)
+
+The driver's own rejection, carried across the typed no-winner boundary so the failure is
+ recoverable by the caller. A non-`Error` rejection is normalized, never dropped.
 
 ***
 

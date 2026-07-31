@@ -11780,6 +11780,66 @@ Idle time that counts as stalled, passed through to the live progress read. Omit
 
 ***
 
+### SuperviseRegistryTable
+
+A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry`
+ uses): construction stays the caller's, lookup stays lazy, and a table backed by a file, a
+ plugin loader, or a plain object all satisfy one interface.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Methods
+
+##### resolve()
+
+> **resolve**(`name`): `T` \| `undefined`
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### Returns
+
+`T` \| `undefined`
+
+***
+
+### SuperviseRegistry
+
+The name→value tables that make the four CODE-valued options expressible as run DATA.
+
+`deliverable` / `finalizer` / `analysts` / `probes` are functions and registries, so a recorded
+run configuration (a JSON row, a campaign spec, a resumed run's options) cannot carry them — and
+a run with no `deliverable` cannot return a `winner` at all outside the sandbox backend, because
+the finalizer keeps only children whose oracle passed and nothing else writes that verdict. A
+caller that owns the code registers it here once and names it from data thereafter.
+
+#### Properties
+
+##### deliverables?
+
+> `readonly` `optional` **deliverables?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`DeliverableSpec`](#deliverablespec)\<`unknown`\>\>
+
+##### finalizers?
+
+> `readonly` `optional` **finalizers?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`SupervisorFinalizer`](index.md#supervisorfinalizer)\>
+
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`AnalystRegistry`](index.md#analystregistry)\>
+
+##### probes?
+
+> `readonly` `optional` **probes?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`WaitProbeRegistry`](#waitproberegistry)\>
+
+***
+
 ### SuperviseOptions
 
 #### Properties
@@ -11798,11 +11858,27 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 ##### deliverable?
 
-> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+> `readonly` `optional` **deliverable?**: `string` \| [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
 The independent completion check for backend-derived workers and direct supervisor
  submissions. Strongly recommended: without it the supervisor cannot submit its own work and
- backend-derived workers fall back to their own validity signal.
+ backend-derived workers fall back to their own validity signal. A `string` names an entry in
+ `registry.deliverables`.
+
+##### registry?
+
+> `readonly` `optional` **registry?**: [`SuperviseRegistry`](#superviseregistry)
+
+Name→value tables for the four code-valued options, so a recorded run configuration can name
+ them instead of carrying closures. See [SuperviseRegistry](#superviseregistry).
+
+##### coordination?
+
+> `readonly` `optional` **coordination?**: [`CoordinationBinding`](#coordinationbinding)
+
+Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
+ port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
+ unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated.
 
 ##### makeWorkerAgent?
 
@@ -11872,10 +11948,11 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
 
 ##### analysts?
 
-> `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
+> `readonly` `optional` **analysts?**: `string` \| [`AnalystRegistry`](index.md#analystregistry)
 
 Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
- (the driver receives settled worker outputs, no analyst findings).
+ (the driver receives settled worker outputs, no analyst findings). A `string` names an entry in
+ `registry.analysts`.
 
 ##### analyzeOnSettle?
 
@@ -11941,11 +12018,12 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 
 ##### probes?
 
-> `readonly` `optional` **probes?**: [`WaitProbeRegistry`](#waitproberegistry)
+> `readonly` `optional` **probes?**: `string` \| [`WaitProbeRegistry`](#waitproberegistry)
 
 Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
  wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
- refused `unknown-probe` and `timer` waits still work.
+ refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
+ `registry.probes`.
 
 ##### stopRule?
 
@@ -12017,20 +12095,42 @@ Restrict the run to this subset of models. When set, every configured model — 
 
 ##### finalizer?
 
-> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](index.md#supervisorfinalizer)
+> `readonly` `optional` **finalizer?**: `string` \| [`SupervisorFinalizer`](index.md#supervisorfinalizer)
 
 How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
  highest-scoring DELIVERED child (the exact behavior every existing caller had). Alternatives:
  `collectDelivered` (every verified distinct output with provenance — a Pareto set / recorded
  disagreement) or a custom `SupervisorFinalizer`. Whatever the finalizer, it operates on
- structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible.
+ structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. A
+ `string` names an entry in `registry.finalizers`.
 
 ***
 
 ### SupervisorProfile
 
 The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
- `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
+`harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
+
+A canonical `AgentProfile` from `@tangle-network/agent-interface` satisfies this interface
+structurally: its `model` is a hints OBJECT and its system prompt lives at `prompt.systemPrompt`,
+so both spellings are accepted here and reduced by [resolveSupervisorProfile](#resolvesupervisorprofile). Before that,
+a canonical profile's model object reached `RouterConfig.model` (a string) as an object and its
+`prompt.systemPrompt` was dropped — a request the provider rejects, and a supervisor running the
+default strategy while its profile named another.
+
+WHAT EACH ARM HONORS — the two brains read different amounts of a profile, so state it rather
+than let a caller infer that a field took effect:
+
+ - ROUTER arm (`harness` null): only `name`, the resolved model id (`model`, or
+   `model.default`), and the resolved system prompt (`prompt.systemPrompt`/`systemPrompt` plus
+   `prompt.instructions` and `resources.instructions`) reach the brain. A full `AgentProfile`'s
+   `tools`, `mcp`, `permissions`, `resources.skills`/`files`, `hooks`, `modes`, `subagents`,
+   `model.provider`, `model.small` and `model.reasoningEffort` are NOT honored here: the router
+   brain is one `ToolLoopChat` over the coordination verbs, and `routerChatWithTools` (its only
+   transport) has no parameter for any of them.
+ - HARNESS arm (`harness` set): the WHOLE profile object is handed to `deps.driveHarness`
+   untouched, plus the resolved system prompt as a separate argument. Everything the profile
+   declares is the harness's to materialize; this module changes none of it.
 
 #### Properties
 
@@ -12046,15 +12146,87 @@ null/undefined → router brain (in-process tool-loop); a coding-CLI harness →
 
 ##### model?
 
-> `readonly` `optional` **model?**: `string`
+> `readonly` `optional` **model?**: `string` \| `AgentProfileModelHints`
 
-The router model when the brain is router-driven (falls back to the deps router config).
+The router model when the brain is router-driven: a model id, or a canonical profile's model
+ hints whose `default` IS the id. Absent (including a hints object with no `default`) → the
+ deps router config's model applies. Other hints (`small`, `provider`, `reasoningEffort`) are
+ harness-arm material only.
+
+##### prompt?
+
+> `readonly` `optional` **prompt?**: `AgentProfilePrompt`
+
+Canonical `AgentProfile` prompt shaping. `prompt.systemPrompt` and the top-level `systemPrompt`
+ are the same standing instruction in two spellings; disagreeing values are a fault, not a pick.
+ `prompt.instructions` lines are appended to the resolved prompt, one per line.
+
+##### resources?
+
+> `readonly` `optional` **resources?**: `AgentProfileResources`
+
+Canonical `AgentProfile` resources. Only `instructions` shapes the brain here (appended to the
+ resolved system prompt); every other resource is the harness's to materialize.
 
 ##### systemPrompt?
 
 > `readonly` `optional` **systemPrompt?**: `string`
 
 The standing instructions ("you delegate, you do not solve").
+
+***
+
+### ResolvedSupervisorProfile
+
+A `SupervisorProfile` reduced to the scalars the two brain arms consume. `modelId`/`systemPrompt`
+ stay `undefined` when the profile named none — the caller's fallback (`deps.router.model`,
+ the built-in default supervisor prompt) then applies, and this type cannot hide which happened.
+
+ There is deliberately no `reasoningEffort` here: the router brain runs on `routerChatWithTools`,
+ which has no `reasoning_effort` parameter, so a field carrying it would be a public promise
+ nothing keeps. `model.reasoningEffort` still reaches the harness arm inside the profile.
+
+#### Properties
+
+##### name
+
+> `readonly` **name**: `string`
+
+##### harness
+
+> `readonly` **harness**: `string` \| `null`
+
+##### modelId?
+
+> `readonly` `optional` **modelId?**: `string`
+
+##### systemPrompt?
+
+> `readonly` `optional` **systemPrompt?**: `string`
+
+***
+
+### CoordinationBinding
+
+Where the coordination MCP binds. Omit = an ephemeral port on `127.0.0.1` (the local-harness
+ default); set `host` when the root or the harness runs off-host.
+
+#### Properties
+
+##### host?
+
+> `readonly` `optional` **host?**: `string`
+
+##### port?
+
+> `readonly` `optional` **port?**: `number`
+
+##### allowUnauthenticatedRemote?
+
+> `readonly` `optional` **allowUnauthenticatedRemote?**: `boolean`
+
+Explicit acknowledgment required to bind a NON-loopback host — see
+ [assertCoordinationBinding](#assertcoordinationbinding) for what is being accepted.
 
 ***
 
@@ -12230,6 +12402,14 @@ Questions + findings replayed from a prior process of this run (a durable coordi
 
 How the settled ledger becomes the run's output (both arms). Default `bestDelivered` — the
  exact keep-best every existing caller had. Always runs under the delivered-only invariant.
+
+##### coordination?
+
+> `readonly` `optional` **coordination?**: [`CoordinationBinding`](#coordinationbinding)
+
+Where the coordination MCP binds (sandbox arm). Omit = an ephemeral loopback port, which is
+ unreachable from an off-host harness. A non-loopback host fails closed — see
+ [assertCoordinationBinding](#assertcoordinationbinding).
 
 ***
 
@@ -12937,6 +13117,30 @@ consumer has. Resume is a durability contract the caller opts into, never a sile
 
 Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
  same `agent.spawn`/`agent.child` stream `runAgentRounds` feeds — one observable recursive tree.
+
+***
+
+### NoWinnerError
+
+A driver's `act()` rejection, normalized to a serializable triple so it survives the typed
+no-winner boundary (an `Error` does not cross a structured-clone / JSON hop intact). A
+non-`Error` rejection normalizes to `{ name: 'NonError', message }` — never dropped.
+Exported so a consumer handling `reason: 'driver-failed'` names this type instead of retyping
+its fields.
+
+#### Properties
+
+##### name
+
+> **name**: `string`
+
+##### message
+
+> **message**: `string`
+
+##### stack?
+
+> `optional` **stack?**: `string`
 
 ***
 
@@ -16244,6 +16448,19 @@ How to run a sandboxed harness as the DRIVER, with the coordination verbs mounte
 ###### profile
 
 [`SupervisorProfile`](#supervisorprofile)
+
+The caller's profile, EXACTLY as passed to `supervisorAgent` — never rewritten. A canonical
+ `AgentProfile` stays schema-valid here (the canonical schema rejects unknown top-level keys,
+ so hoisting a resolved prompt onto it would make a profile its own validator refuses).
+
+###### systemPrompt?
+
+`string`
+
+The standing instruction assembled from the profile: its system prompt in either spelling,
+ plus the `prompt.instructions` and `resources.instructions` lines. Absent when the profile
+ names none — the harness's own default then applies. This, not `profile.systemPrompt`, is what
+ the harness should run under.
 
 ###### task
 
@@ -20231,7 +20448,8 @@ readonly `object`[]
 > **serveCoordinationMcp**(`opts`): `Promise`\<[`CoordinationMcpHandle`](#coordinationmcphandle)\>
 
 Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
- opencode locally, same host); pass `host` to bind elsewhere when the harness is remote.
+ opencode locally, same host); pass `host` to bind elsewhere when the harness is remote — a
+ non-loopback host additionally requires `allowUnauthenticatedRemote`.
 
 #### Parameters
 
@@ -20281,6 +20499,17 @@ Max wall-clock ms a single `await_event` may block before returning a re-pollabl
 ###### host?
 
 `string`
+
+Bind address. Omit = `127.0.0.1`. A non-loopback host is REFUSED unless
+ `allowUnauthenticatedRemote` acknowledges the exposure.
+
+###### allowUnauthenticatedRemote?
+
+`boolean`
+
+Explicit acknowledgment that binding a non-loopback `host` publishes UNAUTHENTICATED
+ spawn_agent / steer_agent / stop to everyone who can reach the port. Required for any
+ non-loopback bind; ignored for loopback ones.
 
 ###### analysts?
 
@@ -21297,6 +21526,55 @@ One-call supervisor: build + run a supervisor from its profile with sensible def
 #### Returns
 
 `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+
+***
+
+### resolveSupervisorProfile()
+
+> **resolveSupervisorProfile**(`profile`): [`ResolvedSupervisorProfile`](#resolvedsupervisorprofile)
+
+Reduce either profile spelling — a hand-written `SupervisorProfile` or a canonical `AgentProfile`
+— to the scalars the brain arms consume:
+
+ - `modelId`: a string `model` verbatim, else `model.default`. Absent or unresolvable → the
+   router config's own model applies unchanged.
+ - `systemPrompt`: the system prompt plus the `prompt.instructions` and `resources.instructions`
+   lines, one per line.
+
+`supervisorAgent` resolves each piece only where it is consumed (the model id on the router arm
+only); this whole-profile reduction is the caller-facing view of the same rules.
+
+#### Parameters
+
+##### profile
+
+[`SupervisorProfile`](#supervisorprofile)
+
+#### Returns
+
+[`ResolvedSupervisorProfile`](#resolvedsupervisorprofile)
+
+***
+
+### assertCoordinationBinding()
+
+> **assertCoordinationBinding**(`binding`): `void`
+
+Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_agent /
+steer_agent / stop with NO authentication of any kind (it is a bare JSON-RPC-over-HTTP handler),
+so a non-loopback bind lets anyone who can reach the port spawn agents and spend the run's
+conserved budget. There is no token to require yet, so the only honest options are loopback or an
+explicit, recorded acknowledgment — never a silent bind.
+
+#### Parameters
+
+##### binding
+
+[`CoordinationBinding`](#coordinationbinding) \| `undefined`
+
+#### Returns
+
+`void`
 
 ***
 
