@@ -25,6 +25,16 @@ export interface RouterConfig {
    * drive the worker with no network: a deterministic in-process responder satisfies it, no server.
    */
   complete?: (body: Record<string, unknown>) => Promise<unknown>
+  /**
+   * Ceiling for one completion, forwarded as `max_tokens`. Defaults to 8192.
+   *
+   * A REASONING model spends this budget on hidden thinking BEFORE it emits a visible token, so
+   * the default can truncate one mid-thought and return no content at all — observed live with a
+   * model that spent 8,188 of the 8,192 on reasoning and answered with nothing. Raise it for a
+   * thinking model; the ceiling belongs to the router and model a caller chose, which is why it
+   * lives here rather than on one call site.
+   */
+  maxTokens?: number
 }
 
 export interface RouterChatResult {
@@ -327,5 +337,11 @@ export async function routerToolLoop(
 export function routerBrain(cfg: RouterConfig, opts: { temperature?: number } = {}): ToolLoopChat {
   const temperature = opts.temperature ?? 0.4
   return (messages, tools) =>
-    routerChatWithTools(cfg, messages, tools, { temperature, toolChoice: 'auto' })
+    routerChatWithTools(cfg, messages, tools, {
+      temperature,
+      toolChoice: 'auto',
+      // The config's ceiling reaches the completion, so a caller driving a reasoning model can
+      // raise it. Without this a router-brained supervisor is stuck on the 8192 default.
+      ...(cfg.maxTokens !== undefined ? { maxTokens: cfg.maxTokens } : {}),
+    })
 }

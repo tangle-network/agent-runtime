@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.113.1
+
+### A router-brained supervisor can raise its completion ceiling
+
+- `RouterConfig` gains `maxTokens`, forwarded by `routerBrain` to the tool-calling completion. It was previously unreachable: `routerBrain` passed only `temperature` and `toolChoice`, and `SuperviseOptions.router` takes a `RouterConfig`, so no caller could set it.
+- Why it matters: a reasoning model spends the ceiling on hidden thinking BEFORE emitting a visible token. Observed twice in a row on a live run — the model spent 8,188 tokens on hidden reasoning, hit the provider ceiling, and returned no content, so the supervisor failed with a truncation error it had no way to prevent. A thinking model was effectively unusable as a router-brained supervisor.
+- The tool-calling path still sends no `max_tokens` when the config names none, leaving the provider's own default in charge; this adds a knob rather than changing a default.
+
 ## 0.113.0
 
 ### A refused spawn says which kind of refusal it is

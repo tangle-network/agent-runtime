@@ -5127,6 +5127,18 @@ drive the worker with no network: a deterministic in-process responder satisfies
 
 `Promise`\<`unknown`\>
 
+##### maxTokens?
+
+> `optional` **maxTokens?**: `number`
+
+Ceiling for one completion, forwarded as `max_tokens`. Defaults to 8192.
+
+A REASONING model spends this budget on hidden thinking BEFORE it emits a visible token, so
+the default can truncate one mid-thought and return no content at all — observed live with a
+model that spent 8,188 of the 8,192 on reasoning and answered with nothing. Raise it for a
+thinking model; the ceiling belongs to the router and model a caller chose, which is why it
+lives here rather than on one call site.
+
 ***
 
 ### RouterChatResult
@@ -8131,7 +8143,7 @@ Completion cap per worker turn — REQUIRED for thinking models (they burn unbou
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`maxTokens`](#maxtokens-2)
+[`AgenticOptions`](#agenticoptions).[`maxTokens`](#maxtokens-3)
 
 ##### innerTurns?
 
