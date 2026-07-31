@@ -1096,7 +1096,7 @@ the loop produces 20 minutes later).
 
 ### KnownAgentProfileMaterializationAxis
 
-> **KnownAgentProfileMaterializationAxis** = *typeof* [`AGENT_PROFILE_MATERIALIZATION_AXES`](#agent_profile_materialization_axes)\[`number`\]
+> **KnownAgentProfileMaterializationAxis** = `CanonicalAgentProfileMaterializationAxis`
 
 ***
 
@@ -1108,19 +1108,17 @@ AgentProfile axis name, with `custom:<name>` reserved for caller-owned extension
 
 ## Variables
 
-### AGENT\_PROFILE\_MATERIALIZATION\_AXES
-
-> `const` **AGENT\_PROFILE\_MATERIALIZATION\_AXES**: readonly \[`"identity"`, `"name"`, `"model"`, `"prompt"`, `"systemPrompt"`, `"instructions"`, `"resources"`, `"files"`, `"resourceInstructions"`, `"skills"`, `"resourceTools"`, `"resourceAgents"`, `"commands"`, `"tools"`, `"permissions"`, `"mcp"`, `"mcpConnections"`, `"connections"`, `"subagents"`, `"hooks"`, `"modes"`, `"confidential"`, `"metadata"`, `"extensions"`\]
-
-Known AgentProfile axes a run path may or may not carry into execution.
-
-***
-
 ### sandboxActProfileMaterialization
 
 > `const` **sandboxActProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Materialization contract for `createSandboxAct`, which forwards the full AgentProfile.
+Materialization contract for `createSandboxAct`.
+
+`createSandboxAct` hands the whole `AgentProfile` to the sandbox as `backend.profile`, so every
+profile leaf crosses the boundary — except `harness`. `buildBackendOptions` resolves the runner
+from an explicit `sandboxOverrides.backend.type`, then `profile.metadata.backendType`, then
+`'opencode'`; it never reads `profile.harness`. A candidate that changes only `harness` would
+therefore run on the SAME backend, so this path does not claim that axis.
 
 ***
 
@@ -1137,6 +1135,9 @@ Materialization contract for a run path that only injects prompt text.
 > `const` **promptResourceProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
 Materialization contract for a run path that injects prompt text plus inline resources.
+
+`resourceFailOnError` is absent: it is a resolution POLICY the attaching path would have to
+enforce, and inlining resource content does not carry it.
 
 ## Functions
 

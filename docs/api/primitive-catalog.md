@@ -270,10 +270,10 @@ Import from `@tangle-network/agent-runtime/agent` — 41 exports.
 | `unimplementedAgentRun` | function | Stub for agents whose `runtime.act` is not yet wired to the substrate's |
 | `validateProfileMaterialization` | function | Return every changed profile axis that the selected run path would drop. |
 | `validateSurfaces` | function | Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits. |
-| `AGENT_PROFILE_MATERIALIZATION_AXES` | const | Known AgentProfile axes a run path may or may not carry into execution. |
+| `AGENT_PROFILE_MATERIALIZATION_AXES` | const | The 29 canonical AgentProfile leaves that can affect one execution. |
 | `promptOnlyProfileMaterialization` | const | Materialization contract for a run path that only injects prompt text. |
 | `promptResourceProfileMaterialization` | const | Materialization contract for a run path that injects prompt text plus inline resources. |
-| `sandboxActProfileMaterialization` | const | Materialization contract for `createSandboxAct`, which forwards the full AgentProfile. |
+| `sandboxActProfileMaterialization` | const | Materialization contract for `createSandboxAct`. |
 | `AgentManifestError` | class | Thrown when `defineAgent` finds a required surface missing on disk. |
 | `AgentManifest` | interface | The full agent manifest. Each agent ships ONE of these. |
 | `AgentSurfaces` | interface | Surface declarations. Every path is repo-relative (or absolute) at |
