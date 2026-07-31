@@ -20786,6 +20786,24 @@ existing consumer writes to disk or resumes unless it asks for this.
 
 ***
 
+### supervisorRunsRoot()
+
+> **supervisorRunsRoot**(`rootDir`): `string`
+
+The root every supervisor run of one workspace lives under.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### supervisorRunDir()
 
 > **supervisorRunDir**(`rootDir`, `id`): `string`
