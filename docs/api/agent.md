@@ -1115,10 +1115,10 @@ AgentProfile axis name, with `custom:<name>` reserved for caller-owned extension
 Materialization contract for `createSandboxAct`.
 
 `createSandboxAct` hands the whole `AgentProfile` to the sandbox as `backend.profile`, so every
-profile leaf crosses the boundary — except `harness`. `buildBackendOptions` resolves the runner
-from an explicit `sandboxOverrides.backend.type`, then `profile.metadata.backendType`, then
-`'opencode'`; it never reads `profile.harness`. A candidate that changes only `harness` would
-therefore run on the SAME backend, so this path does not claim that axis.
+profile leaf crosses the boundary. `buildBackendOptions` resolves the runner from an explicit
+`sandboxOverrides.backend.type`, then `profile.metadata.backendType`, then `profile.harness`,
+so a candidate that changes only `harness` runs on the harness it declares — and one declaring
+a harness the sandbox cannot run throws rather than running elsewhere and reporting success.
 
 ***
 
