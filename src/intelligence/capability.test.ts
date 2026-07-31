@@ -286,8 +286,10 @@ describe('composeCertifiedProfile — mcp lowering', () => {
     expect(server).toMatchObject({
       transport: 'stdio',
       command: 'node',
-      args: ['server.js'],
-      env: { K: 'v' },
+      // Interface >=0.40: profile MCP args/env are AgentProfileConfigValue
+      // entries; the resolver wraps certified binding strings as public config.
+      args: [{ kind: 'public', value: 'server.js' }],
+      env: { K: { kind: 'public', value: 'v' } },
       enabled: true,
     })
   })

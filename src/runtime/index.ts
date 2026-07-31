@@ -184,6 +184,8 @@ export {
   envKeyProvider,
   type KeyProvider,
   mcpSecretEnvMetadataKey,
+  type ResolvedMcpServerLaunch,
+  resolveMcpServerLaunch,
   resolveSecretEnv,
   secretEnvOfMcpServer,
 } from './key-provider'

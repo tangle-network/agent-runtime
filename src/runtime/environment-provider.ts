@@ -37,6 +37,7 @@ import type {
   ExecResult as SandboxExecResult,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+import { profileAsSandboxProfile, sandboxProfileAsProfile } from './sandbox-backend'
 import type {
   Executor,
   ExecutorContext,
@@ -421,7 +422,9 @@ function createInputFromSandboxOptions(
   const profile = options?.backend?.profile
   const backend = options?.backend?.type
   return {
-    ...(profile !== undefined ? { profile } : {}),
+    // sandboxProfileAsProfile: sandbox 0.15.2 types this profile against
+    // interface 0.36; it crosses as data (see sandbox-backend.ts).
+    ...(profile !== undefined ? { profile: sandboxProfileAsProfile(profile) } : {}),
     ...(backend ? { backend } : {}),
     workspace: {
       ...(options?.environment ? { environment: options.environment } : {}),
@@ -468,7 +471,9 @@ async function sandboxOptionsFromCreateInput(
     backend: {
       ...baseBackend,
       type: backendType,
-      profile,
+      // profileAsSandboxProfile: reverse hop of the interface 0.36/0.40 skew
+      // (see sandbox-backend.ts); the profile crosses as data.
+      profile: profileAsSandboxProfile(profile),
     },
   }
 }

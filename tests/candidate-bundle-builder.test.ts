@@ -258,8 +258,9 @@ describe('public agent candidate bundle builder', () => {
         review: {
           transport: 'stdio',
           command: 'node',
-          args: ['scripts/review.mjs'],
-          env: { MODE: 'check' },
+          // Interface >=0.40: MCP args/env are AgentProfileConfigValue entries.
+          args: [{ kind: 'public', value: 'scripts/review.mjs' }],
+          env: { MODE: { kind: 'public', value: 'check' } },
           cwd: 'tools',
           enabled: true,
         },

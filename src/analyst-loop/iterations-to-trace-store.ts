@@ -259,6 +259,17 @@ export function iterationsToTraceStore<Task, Output>(
   }
 
   return {
+    async hasTrace(trace_id: string): Promise<boolean> {
+      return byId.has(trace_id)
+    },
+
+    async hasSpans(opts): Promise<string[]> {
+      const t = byId.get(opts.trace_id)
+      if (!t) return []
+      const present = new Set(t.spans.map((s) => s.span_id))
+      return opts.span_ids.filter((id) => present.has(id))
+    },
+
     async getOverview(filters?: TraceAnalystFilters): Promise<DatasetOverview> {
       const set = traces.filter((t) => matchesFilters(t, filters))
       const services = new Set<string>()
@@ -335,17 +346,33 @@ export function iterationsToTraceStore<Task, Output>(
       const cap = opts.per_attribute_byte_cap ?? budgets.perAttributeSpanBudget
       const want = new Set(opts.span_ids)
       const found = (t?.spans ?? []).filter((s) => want.has(s.span_id))
+      // Fill the response up to the per-call byte ceiling; requested spans that
+      // exist but do not fit become `omitted_span_ids` continuation work. The
+      // first span is always included even when it alone exceeds the ceiling —
+      // otherwise a caller could never make progress on an oversized span.
       let truncated = 0
-      const spans = found.map((s) => {
+      let bytes = 0
+      const spans: TraceAnalystSpan[] = []
+      const omitted: string[] = []
+      for (const s of found) {
         const { capped, truncated: n } = capAttributes(s.attributes, cap)
+        const projected = { ...s, attributes: capped }
+        const size = bytesOf(projected)
+        if (spans.length > 0 && bytes + size > budgets.perCallByteCeiling) {
+          omitted.push(s.span_id)
+          continue
+        }
         truncated += n
-        return { ...s, attributes: capped }
-      })
+        bytes += size
+        spans.push(projected)
+      }
       const foundIds = new Set(found.map((s) => s.span_id))
       return {
         trace_id: opts.trace_id,
         spans,
         missing_span_ids: opts.span_ids.filter((id) => !foundIds.has(id)),
+        omitted_span_ids: omitted,
+        has_more: omitted.length > 0,
         truncated_attribute_count: truncated,
       }
     },
@@ -363,7 +390,6 @@ export function iterationsToTraceStore<Task, Output>(
       return {
         trace_id: opts.trace_id,
         hits,
-        total_matches: hits.length,
         has_more: hits.length >= max,
       }
     },
@@ -372,15 +398,13 @@ export function iterationsToTraceStore<Task, Output>(
       const t = byId.get(opts.trace_id)
       const max = opts.max_matches ?? 50
       const span = (t?.spans ?? []).find((s) => s.span_id === opts.span_id)
-      const hits = span
-        ? searchSpanAttrs(span, opts.regex_pattern, budgets.perMatchTextBudget).slice(0, max)
-        : []
+      const all = span ? searchSpanAttrs(span, opts.regex_pattern, budgets.perMatchTextBudget) : []
+      const hits = all.slice(0, max)
       return {
         trace_id: opts.trace_id,
         span_id: opts.span_id,
         hits,
-        total_matches: hits.length,
-        has_more: false,
+        has_more: all.length > hits.length,
       }
     },
   }
