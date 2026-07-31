@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.113.0
+
+### A refused spawn says which kind of refusal it is
+
+- `budget-exhausted` no longer covers two opposite conditions. A dollar request against a root that declares no `maxUsd` is refused as **`usd-unbudgeted`**: unsatisfiable at any amount, cleared only by giving the ROOT a dollar ceiling. A genuinely depleted balance keeps `budget-exhausted`, which a smaller request may still fit.
+- `spawn_agent` returns an actionable `hint` alongside `usd-unbudgeted`, telling the driver that retrying smaller will fail identically.
+- Found live: a root agent tried to spawn one child, read `budget-exhausted`, correctly ruled out the concurrency fence from `freeSlots: 2`, walked its child's `maxUsd` down to $0.01, failed identically every time, and spent 68,546 tokens ($0.061) before stopping to ask its caller for help. The rule was right and the diagnosis was impossible.
+- **BREAKING:** `SpawnRejection` gains `'usd-unbudgeted'`, so an exhaustive `switch` over it must handle the new member. A caller that branched on `'budget-exhausted'` to detect this case must branch on `'usd-unbudgeted'` instead. `ReservationRejection` is exported for the pool's own two-member result.
+
 ## 0.112.0
 
 The supervisor's public contract closes six gaps found by running a real recursive pursuit against the published stack. Four of the changes below are BREAKING for a consumer on 0.111.x; each names the migration.

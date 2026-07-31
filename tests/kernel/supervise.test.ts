@@ -155,6 +155,33 @@ describe('conserved budget pool', () => {
     expect(pool.readout().reservedTokens).toBe(600)
   })
 
+  it('names an UNBUDGETED dollar channel separately from an exhausted one', () => {
+    // The root budgets no dollars, so a child naming maxUsd is unsatisfiable at ANY amount.
+    // Reporting that as `budget-exhausted` invites a caller to retry smaller forever.
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000 }, () => 0)
+    const big = pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 5, label: '' } as Budget)
+    expect(big).toEqual({ ok: false, reason: 'usd-unbudgeted' })
+    // Shrinking the ask cannot help — the same refusal, which is the point of the distinct reason.
+    const tiny = pool.reserve({
+      maxIterations: 1,
+      maxTokens: 10,
+      maxUsd: 0.01,
+      label: '',
+    } as Budget)
+    expect(tiny).toEqual({ ok: false, reason: 'usd-unbudgeted' })
+    // A child that names no dollars is admitted against the same pool.
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 10, label: '' } as Budget).ok).toBe(true)
+  })
+
+  it('still reports an exhausted dollar balance as budget-exhausted when the root budgets dollars', () => {
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    expect(
+      pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.75, label: '' } as Budget).ok,
+    ).toBe(true)
+    const over = pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.5, label: '' } as Budget)
+    expect(over).toEqual({ ok: false, reason: 'budget-exhausted' })
+  })
+
   it('refunds the unspent remainder on reconcile (Σ conservation)', () => {
     const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
     const r = pool.reserve({ maxIterations: 5, maxTokens: 800, label: '' } as Budget)
@@ -194,7 +221,9 @@ describe('conserved budget pool', () => {
   it('a usd request against an uncapped root is unsatisfiable (fail closed)', () => {
     const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.5, label: '' } as Budget)
-    expect(r).toEqual({ ok: false, reason: 'budget-exhausted' })
+    // Refused as before; the REASON now separates "never budgeted" from "ran out", because only
+    // one of the two can be cleared by asking for less.
+    expect(r).toEqual({ ok: false, reason: 'usd-unbudgeted' })
   })
 
   it('commits OBSERVED usd spend under an uncapped root (maxUsd optional, not a hard $0 limit)', () => {

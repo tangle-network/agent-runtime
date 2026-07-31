@@ -983,7 +983,23 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 freeSlots: freeWorkerSlots(),
                 ...priorHistory,
               }
-            : { error: res.reason, live: liveWorkerCount(), freeSlots: freeWorkerSlots() },
+            : {
+                error: res.reason,
+                // A refusal a driver can ACT on. `usd-unbudgeted` is the one rejection that no
+                // retry can clear, so it says so: without this, a driver reads "budget" and walks
+                // its request down until it gives up.
+                ...(res.reason === 'usd-unbudgeted'
+                  ? {
+                      hint:
+                        "This run's root budget declares no maxUsd, so a child budget naming maxUsd " +
+                        'can never be admitted — at any amount. Retrying with a smaller maxUsd will ' +
+                        'fail identically. Spawn with a budget that omits maxUsd, or ask the caller ' +
+                        'to give the run a root maxUsd.',
+                    }
+                  : {}),
+                live: liveWorkerCount(),
+                freeSlots: freeWorkerSlots(),
+              },
         )
       },
     },

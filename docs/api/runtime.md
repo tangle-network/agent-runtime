@@ -9059,7 +9059,7 @@ Opaque, single-use reservation handle returned by `reserve` and consumed by
 
 ##### reserve()
 
-> **reserve**(`b`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"`; \}
+> **reserve**(`b`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover tokens, usd, or iterations — the
@@ -9073,7 +9073,7 @@ caller inspects `ok` before `ticket`.
 
 ###### Returns
 
-\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"`; \}
+\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
 
 ##### reconcile()
 
@@ -16375,6 +16375,16 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 ***
 
+### ReservationRejection
+
+> **ReservationRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"`
+
+Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
+ budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
+ unsatisfiable at any amount and the fix is to budget the root, not to ask for less.
+
+***
+
 ### DispatchStopReason
 
 > **DispatchStopReason** = `"drained"` \| `"not-admitted"` \| `"stopped"` \| `"aborted"`
@@ -16591,10 +16601,15 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ### SpawnRejection
 
-> **SpawnRejection** = `"budget-exhausted"` \| `"depth-exceeded"` \| `"duplicate-key"`
+> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"`
 
-Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, or a `key`
- that is still LIVE in this scope (the same assignment may not run twice concurrently).
+Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
+ no dollars, an exceeded recursion ceiling, or a `key` that is still LIVE in this scope (the
+ same assignment may not run twice concurrently).
+
+ `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
+ responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
+ refuses every amount until the ROOT budget names a `maxUsd`.
 
 ***
 
