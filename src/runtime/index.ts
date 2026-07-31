@@ -633,13 +633,16 @@ export {
   type InMemoryRunContextOptions,
   type RunContext,
 } from './supervise/run-context'
-// The durable, cross-process face of a run: the `<root>/.loops/supervisor/<id>` layout that
-// published `traces analyze --supervisor-run-dir` reads. Promoted from the loops repo (#4519 in
-// agent-dev-container) so the writer contract is published alongside its reader.
+// The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
+// published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
+// readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the
+// writer contract is published alongside its reader.
 export {
+  legacySupervisorRunDir,
   readWorkerSteerRequests,
   safeWorkerFile,
   supervisorRunDir,
+  supervisorRunsRoot,
   type WorkerSteerRequest,
   workerInboxFile,
   workerInboxFileFromEventDir,

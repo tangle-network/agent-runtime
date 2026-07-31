@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  legacySupervisorRunDir,
   readWorkerSteerRequests,
   safeWorkerFile,
   supervisorRunDir,
+  supervisorRunsRoot,
   workerInboxFile,
   writeWorkerSteer,
 } from '../src/runtime/supervise/run-layout'
@@ -22,12 +24,19 @@ function tempRoot(): string {
 }
 
 describe('supervisor run layout', () => {
-  it('pins the published path shape traces reads: <root>/.loops/supervisor/<id>', () => {
+  it('pins the published path shape traces reads: <root>/.agent/supervisor/<id>', () => {
     // This exact shape is consumed by `traces analyze --supervisor-run-dir`; changing it is a
     // breaking change to a PUBLISHED reader, not a refactor.
-    expect(supervisorRunDir('/ws', 'run-1')).toBe(join('/ws', '.loops', 'supervisor', 'run-1'))
+    expect(supervisorRunsRoot('/ws')).toBe(join('/ws', '.agent', 'supervisor'))
+    expect(supervisorRunDir('/ws', 'run-1')).toBe(join('/ws', '.agent', 'supervisor', 'run-1'))
     expect(workerInboxFile('/ws', 'run-1', 'worker a/b')).toBe(
-      join('/ws', '.loops', 'supervisor', 'run-1', 'workers', 'worker_a_b.inbox.ndjson'),
+      join('/ws', '.agent', 'supervisor', 'run-1', 'workers', 'worker_a_b.inbox.ndjson'),
+    )
+  })
+
+  it('pins the legacy pre-rename location readers fall back to: <root>/.loops/supervisor/<id>', () => {
+    expect(legacySupervisorRunDir('/ws', 'run-1')).toBe(
+      join('/ws', '.loops', 'supervisor', 'run-1'),
     )
   })
 

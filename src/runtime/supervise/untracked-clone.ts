@@ -47,8 +47,8 @@ import type { Workspace } from '../workspace'
  * @experimental
  */
 
-/** Loop-infra dirs living inside a workspace; orchestration state, never build inputs. */
-const SKIPPED_TOP_LEVEL = new Set(['.loops', '.evolve', '.agent-worktrees', '.claude'])
+/** Agent-infra dirs living inside a workspace; orchestration state, never build inputs. `.loops` is the pre-rename location of `.agent` supervisor state. */
+const SKIPPED_TOP_LEVEL = new Set(['.agent', '.loops', '.evolve', '.agent-worktrees', '.claude'])
 
 /** Warn (and copy anyway) past this untracked payload size. */
 const DEFAULT_WARN_BYTES = 2 * 1024 * 1024 * 1024
