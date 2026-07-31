@@ -633,6 +633,18 @@ export {
   type InMemoryRunContextOptions,
   type RunContext,
 } from './supervise/run-context'
+// The durable, cross-process face of a run: the `<root>/.loops/supervisor/<id>` layout that
+// published `traces analyze --supervisor-run-dir` reads. Promoted from the loops repo (#4519 in
+// agent-dev-container) so the writer contract is published alongside its reader.
+export {
+  readWorkerSteerRequests,
+  safeWorkerFile,
+  supervisorRunDir,
+  type WorkerSteerRequest,
+  workerInboxFile,
+  workerInboxFileFromEventDir,
+  writeWorkerSteer,
+} from './supervise/run-layout'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
@@ -749,6 +761,15 @@ export type {
   WaitOpts,
   WidenGate,
 } from './supervise/types'
+// Untracked-artifact fidelity for cloned worker workspaces: `git clone` carries history only, and
+// real workspaces hold compiled build outputs as untracked files a worker's verify gate needs.
+// Promoted from the loops repo (#4519).
+export {
+  type CopyOptions,
+  copyUntrackedIntoClone,
+  type UntrackedCopyStats,
+  withUntrackedArtifacts,
+} from './supervise/untracked-clone'
 // WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
 // (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute
 // deadline, so a killed run resumes still waiting to the same instant. Not `await_event`: that is
@@ -767,6 +788,18 @@ export {
   type WaitSpec,
   waitUntil,
 } from './supervise/wait'
+// The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
+// blind. Complementary to `CompletionEvidence` (a pointer), which this block is the target of.
+// Promoted from the loops repo (#4519).
+export {
+  closingWorkerNote,
+  composeWorkerEvidence,
+  EVIDENCE_MAX_CHARS,
+  NOTE_MAX_CHARS,
+  settledWorkerOut,
+  VERIFY_TAIL_CHARS,
+  type WorkerEvidenceInput,
+} from './supervise/worker-evidence'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)
 // driving a local harness CLI on its own git worktree, surfaced as the open `Executor` port.
 export {

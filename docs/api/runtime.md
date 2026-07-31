@@ -10635,6 +10635,40 @@ contexts have none: nothing outlives the process to replay into.
 
 ***
 
+### WorkerSteerRequest
+
+One durable down-leg request appended to a worker's inbox file.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### at
+
+> `readonly` **at**: `string`
+
+ISO timestamp of the append.
+
+##### source
+
+> `readonly` **source**: `string`
+
+Who asked — 'human', a brain label, a tool name. Provenance, not authorization.
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+The worker LABEL the request targets (already resolved by the caller).
+
+##### message
+
+> `readonly` **message**: `string`
+
+***
+
 ### RouterSeam
 
 Router/inline connection seam. A direct OpenAI-compatible Router endpoint —
@@ -13014,6 +13048,48 @@ Default impl returns false for every settlement (flat — never widens).
 
 ***
 
+### UntrackedCopyStats
+
+#### Properties
+
+##### copied
+
+> **copied**: `number`
+
+Files + symlinks that landed in the clone.
+
+##### bytes
+
+> **bytes**: `number`
+
+Total regular-file bytes enumerated (pre-copy, so the size warning fires first).
+
+***
+
+### CopyOptions
+
+#### Properties
+
+##### warnBytes?
+
+> `optional` **warnBytes?**: `number`
+
+##### log?
+
+> `optional` **log?**: (`message`) => `void`
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### Returns
+
+`void`
+
+***
+
 ### WaitProbeRegistry
 
 Resolves a `poll` spec's `probe` name to its predicate. Threaded through `SupervisorOpts` so
@@ -13131,6 +13207,44 @@ The ORIGINAL arm instant. A re-armed wait keeps it, so its deadline never slides
 > `readonly` **ordinal**: `number`
 
 The wait ordinal in its parent scope, so a resumed scope continues past it.
+
+***
+
+### WorkerEvidenceInput
+
+#### Properties
+
+##### passed
+
+> `readonly` **passed**: `boolean`
+
+##### testPassed
+
+> `readonly` **testPassed**: `boolean`
+
+##### typecheckPassed
+
+> `readonly` **typecheckPassed**: `boolean`
+
+##### testOutput
+
+> `readonly` **testOutput**: `string`
+
+Combined stdout+stderr of the verify/test command (already backend-capped).
+
+##### typecheckOutput
+
+> `readonly` **typecheckOutput**: `string`
+
+##### patch
+
+> `readonly` **patch**: `string`
+
+##### reviewerNotes?
+
+> `readonly` `optional` **reviewerNotes?**: `string`
+
+The worker's own closing commentary, when the backend surfaces one.
 
 ***
 
@@ -16978,6 +17092,30 @@ the other CLI leaves; the authored systemPrompt + model reach the harness via §
 Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
  this bounds how many times a supervisor may redirect ONE worker before it must respawn.
 
+***
+
+### EVIDENCE\_MAX\_CHARS
+
+> `const` **EVIDENCE\_MAX\_CHARS**: `3000` = `3000`
+
+Hard cap on one worker's evidence block so the brain's context cannot blow up.
+
+***
+
+### VERIFY\_TAIL\_CHARS
+
+> `const` **VERIFY\_TAIL\_CHARS**: `1200` = `1200`
+
+Tail of the verify output — the failing assertion lives at the END of a test log.
+
+***
+
+### NOTE\_MAX\_CHARS
+
+> `const` **NOTE\_MAX\_CHARS**: `300` = `300`
+
+Cap on the worker's closing note inside the evidence block.
+
 ## Functions
 
 ### contentAddress()
@@ -20648,6 +20786,165 @@ existing consumer writes to disk or resumes unless it asks for this.
 
 ***
 
+### supervisorRunDir()
+
+> **supervisorRunDir**(`rootDir`, `id`): `string`
+
+The run directory every artifact of one supervisor run lives under.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### safeWorkerFile()
+
+> **safeWorkerFile**(`label`): `string`
+
+A worker label reduced to a safe filename stem. Empty labels get a stable fallback.
+
+#### Parameters
+
+##### label
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerInboxFile()
+
+> **workerInboxFile**(`rootDir`, `supervisorId`, `worker`): `string`
+
+The durable inbox file for one worker of one run.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### supervisorId
+
+`string`
+
+##### worker
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerInboxFileFromEventDir()
+
+> **workerInboxFileFromEventDir**(`eventDir`, `worker`): `string`
+
+Same, addressed from an already-known run directory (the reader's usual entry point).
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### writeWorkerSteer()
+
+> **writeWorkerSteer**(`rootDir`, `supervisorId`, `worker`, `message`, `source?`): `object`
+
+Durably append one steer request to a worker's inbox and log the delivery attempt.
+
+The inbox append is the durable act; the control-event log is best-effort bookkeeping and may
+silently fail without voiding the steer.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### supervisorId
+
+`string`
+
+##### worker
+
+`string`
+
+##### message
+
+`string`
+
+##### source?
+
+`string` = `'human'`
+
+#### Returns
+
+`object`
+
+##### worker
+
+> **worker**: `string`
+
+##### file
+
+> **file**: `string`
+
+##### request
+
+> **request**: [`WorkerSteerRequest`](#workersteerrequest)
+
+***
+
+### readWorkerSteerRequests()
+
+> **readWorkerSteerRequests**(`eventDir`, `worker`): [`WorkerSteerRequest`](#workersteerrequest)[]
+
+Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+#### Returns
+
+[`WorkerSteerRequest`](#workersteerrequest)[]
+
+***
+
 ### createExecutor()
 
 > **createExecutor**(`config`): [`ExecutorFactory`](#executorfactory)\<`unknown`\>
@@ -21139,6 +21436,65 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 
 ***
 
+### copyUntrackedIntoClone()
+
+> **copyUntrackedIntoClone**(`sourceDir`, `cloneDir`, `opts?`): [`UntrackedCopyStats`](#untrackedcopystats)
+
+Copy every untracked file of `sourceDir`'s working tree — including git-ignored
+build outputs (`git ls-files --others` with NO exclude flags lists both) — into
+`cloneDir`, then shield the copied paths from the clone's `git add -A` via
+`.git/info/exclude`. Nested git repos (listed as bare `dir/` entries), any path
+containing a `.git` segment, and loop-infra dirs are skipped.
+
+#### Parameters
+
+##### sourceDir
+
+`string`
+
+##### cloneDir
+
+`string`
+
+##### opts?
+
+[`CopyOptions`](#copyoptions) = `{}`
+
+#### Returns
+
+[`UntrackedCopyStats`](#untrackedcopystats)
+
+***
+
+### withUntrackedArtifacts()
+
+> **withUntrackedArtifacts**(`ws`, `sourceDir`, `log?`): [`Workspace`](#workspace)
+
+Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside
+`runInWorkspace`) is followed by the untracked-artifact copy above — the clone
+the worker starts in matches the source WORKING TREE, not just its history.
+`commit`/`head` pass through untouched, so delivery semantics are unchanged.
+
+#### Parameters
+
+##### ws
+
+[`Workspace`](#workspace)
+
+##### sourceDir
+
+`string`
+
+##### log?
+
+(`message`) => `void`
+
+#### Returns
+
+[`Workspace`](#workspace)
+
+***
+
 ### timerAt()
 
 > **timerAt**(`ms`, `now`): [`WaitSpec`](#waitspec)
@@ -21268,6 +21624,86 @@ Structural validation, independent of the run. Returns null when the spec is usa
 #### Returns
 
 `string` \| `null`
+
+***
+
+### composeWorkerEvidence()
+
+> **composeWorkerEvidence**(`input`): `string`
+
+Compose the settle evidence block. Section order is priority order under the
+hard cap: the verify tail (what failed) survives before the diff head (what
+was tried) and the worker note — a truncated diff is recoverable from the
+persisted patch file, a truncated failing assertion is not recoverable at all.
+
+#### Parameters
+
+##### input
+
+[`WorkerEvidenceInput`](#workerevidenceinput)
+
+#### Returns
+
+`string`
+
+***
+
+### settledWorkerOut()
+
+> **settledWorkerOut**(`input`): `string`
+
+What a settled worker exposes as its output artifact (the blob the brain's
+`observe_agent` reads). A passing worker's output is its patch — the
+deliverable. A failing worker's output is its evidence block. A passing
+worker with NO edits — the post-delivery read-only reviewer: the workspace
+already holds a delivered fix, so the gate stays green under an empty diff —
+would otherwise settle with an EMPTY output and its review would be lost, so
+it exposes its evidence block instead (the worker note carries the review).
+
+#### Parameters
+
+##### input
+
+###### passed
+
+`boolean`
+
+###### patch
+
+`string`
+
+###### evidence
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### closingWorkerNote()
+
+> **closingWorkerNote**(`stdout`, `stderr`): `string` \| `undefined`
+
+The worker's closing commentary off a local harness run: the TAIL of its
+stdout (falling back to stderr), bounded to the note cap so a reviewer's
+final verdict line — written last — survives into the evidence block
+(`composeWorkerEvidence` keeps the note's FIRST `NOTE_MAX_CHARS` chars).
+
+#### Parameters
+
+##### stdout
+
+`string`
+
+##### stderr
+
+`string`
+
+#### Returns
+
+`string` \| `undefined`
 
 ***
 
