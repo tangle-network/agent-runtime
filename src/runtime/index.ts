@@ -510,6 +510,7 @@ export {
   type BudgetPool,
   type BudgetReadout,
   createBudgetPool,
+  type ReservationRejection,
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'

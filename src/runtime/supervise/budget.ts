@@ -50,6 +50,10 @@ export type BudgetReadout = Readonly<{
   deadlineMs: number
   reservedTokens: number
 }>
+/** Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
+ *  budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
+ *  unsatisfiable at any amount and the fix is to budget the root, not to ask for less. */
+export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted'
 
 export interface BudgetPool {
   /**
@@ -59,7 +63,7 @@ export interface BudgetPool {
    */
   reserve(
     b: Budget,
-  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: 'budget-exhausted' }
+  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection }
   /**
    * Release a reservation: commit the actual `spent`, refund the unspent remainder
    * to the free pool. Throws on an unknown or already-reconciled ticket (fail loud —
@@ -174,7 +178,7 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
 
   function reserve(
     b: Budget,
-  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: 'budget-exhausted' } {
+  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection } {
     const wantTokens = b.maxTokens
     const wantUsd = b.maxUsd ?? 0
     const wantIterations = b.maxIterations
@@ -183,9 +187,13 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     // usd request against an uncapped root is unsatisfiable (the root declared no $).
     if (wantTokens > freeTokens) return { ok: false, reason: 'budget-exhausted' }
     if (wantIterations > freeIterations) return { ok: false, reason: 'budget-exhausted' }
-    if (wantUsd > 0 && (!usdCapped || wantUsd > freeUsd)) {
-      return { ok: false, reason: 'budget-exhausted' }
-    }
+    // A dollar request against a root that declared no dollar ceiling can never be satisfied at
+    // ANY amount, which is a different fact from an exhausted balance and calls for a different
+    // fix: budget the root, do not retry smaller. Reporting both as `budget-exhausted` invites a
+    // caller to shrink its request forever — observed live, a driver walked its child budget down
+    // to $0.01 and spent 68k tokens before asking for help.
+    if (wantUsd > 0 && !usdCapped) return { ok: false, reason: 'usd-unbudgeted' }
+    if (wantUsd > freeUsd) return { ok: false, reason: 'budget-exhausted' }
 
     freeTokens -= wantTokens
     reservedTokens += wantTokens

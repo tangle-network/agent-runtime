@@ -302,9 +302,18 @@ export interface SpawnOpts {
   readonly key?: string
 }
 
-/** Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, or a `key`
- *  that is still LIVE in this scope (the same assignment may not run twice concurrently). */
-export type SpawnRejection = 'budget-exhausted' | 'depth-exceeded' | 'duplicate-key'
+/** Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
+ *  no dollars, an exceeded recursion ceiling, or a `key` that is still LIVE in this scope (the
+ *  same assignment may not run twice concurrently).
+ *
+ *  `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
+ *  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
+ *  refuses every amount until the ROOT budget names a `maxUsd`. */
+export type SpawnRejection =
+  | 'budget-exhausted'
+  | 'usd-unbudgeted'
+  | 'depth-exceeded'
+  | 'duplicate-key'
 
 /**
  * What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
