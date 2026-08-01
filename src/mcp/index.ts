@@ -173,6 +173,7 @@ export {
   DELEGATE_INPUT_SCHEMA,
   DELEGATE_TOOL_NAME,
   type DelegateArgs,
+  type DelegateError,
   type DelegateHandlerOptions,
   type DelegateResult,
   validateDelegateArgs,

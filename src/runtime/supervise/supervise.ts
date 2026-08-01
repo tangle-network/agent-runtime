@@ -7,7 +7,6 @@
  * `workerFromBackend` derives the worker seam (`makeWorkerAgent`) from a backend config + an optional
  * completion oracle — so "where the workers run" is one data choice, not a hand-rolled factory.
  */
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
@@ -17,6 +16,7 @@ import type {
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
+import { canonicalizeAuthoredProfile } from './authoring'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import type { SupervisorFinalizer } from './finalizer'
 import { assertModelAllowed } from './model-policy'
@@ -69,9 +69,13 @@ export function workerFromBackend(
   return (rawProfile) => {
     const p = (rawProfile ?? {}) as { name?: unknown }
     const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : 'worker'
+    // The supervisor authors in the skill's flat vocabulary; every leaf reads the canonical
+    // profile. Lift it HERE — the one place a backend becomes a spawnable worker — so no leaf
+    // has to guess which shape it was handed.
+    const profile = canonicalizeAuthoredProfile(rawProfile)
     // harness:null — createExecutor(backend) carries the harness in its config (the sandbox case-arm
     // reads config.harness when the spec leaves it null); the BYO executor below resolves the leaf.
-    const spec: AgentSpec = { profile: rawProfile as AgentProfile, harness: null }
+    const spec: AgentSpec = { profile, harness: null }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: seams?.() ?? {} }
     const built = createExecutor(backend)(spec, ctx)
     const executor = deliverable ? gateOnDeliverable(built, deliverable) : built

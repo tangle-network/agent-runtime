@@ -4331,6 +4331,24 @@ Parsed `delegate` tool arguments.
 
 ***
 
+### DelegateError
+
+What killed a delegation, projected for the calling agent: the rejection's name and message.
+ `reason` is a four-word code (`driver-failed`), and a code alone is not diagnosable — the
+ supervisor attaches the rejection to the result precisely so a caller can read it.
+
+#### Properties
+
+##### name
+
+> **name**: `string`
+
+##### message
+
+> **message**: `string`
+
+***
+
 ### DelegateHandlerOptions
 
 **`Experimental`**
@@ -5678,7 +5696,7 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 ### DelegateResult
 
-> **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](index.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `spentTotal`: [`Spend`](index.md#spend); \}
+> **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](index.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `error?`: [`DelegateError`](#delegateerror); `spentTotal`: [`Spend`](index.md#spend); \}
 
 The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or
  the no-winner reason) PLUS the conserved spend of the whole delegation.

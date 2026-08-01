@@ -16,13 +16,13 @@
  */
 
 import type { BackendType } from '@tangle-network/sandbox'
+import { ConfigError } from '../errors'
 import { type RouterEnv, resolveRouterBaseUrl } from '../model-resolution.js'
 import type { SandboxClient } from '../runtime'
 import type { RouterConfig } from '../runtime/router-client'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { DelegateHandlerOptions } from './tools/delegate'
 
-const DEFAULT_SUPERVISOR_MODEL = 'moonshotai/kimi-k2.6'
 const DEFAULT_WORKER_HARNESS = 'opencode'
 
 function trimmed(value: string | undefined): string | undefined {
@@ -36,8 +36,17 @@ export function delegateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.MCP_ENABLE_DELEGATE === '1'
 }
 
-/** Resolve the supervisor brain's router substrate from env. The key falls back through the platform
- *  key the bin already requires; the base reuses `resolveRouterBaseUrl`, normalised to `/v1`. */
+/**
+ * Resolve the supervisor brain's router substrate from env. The key falls back through the platform
+ * key the bin already requires; the base reuses `resolveRouterBaseUrl`, normalised to `/v1`.
+ *
+ * The model is NAMED, never guessed. Which ids a given router serves is deployment state this
+ * package cannot know, and a wrong guess is invisible until the supervisor's first completion
+ * rejects — after the tool has been advertised to an agent, from inside a child process whose
+ * stderr nobody reads. `TANGLE_ROUTER_MODEL` is on the ladder because the sandbox platform sets it
+ * on every box: a delegate child running there inherits the model its own host declared. When
+ * nothing names one, fail at startup with the ladder in the message.
+ */
 function resolveRouter(env: NodeJS.ProcessEnv): RouterConfig {
   const routerKey = trimmed(env.MCP_SUPERVISOR_ROUTER_KEY) ?? trimmed(env.TANGLE_API_KEY) ?? ''
   const base = trimmed(env.MCP_SUPERVISOR_ROUTER_BASE_URL) ?? resolveRouterBaseUrl(env as RouterEnv)
@@ -48,7 +57,13 @@ function resolveRouter(env: NodeJS.ProcessEnv): RouterConfig {
     trimmed(env.MCP_SUPERVISOR_MODEL) ??
     trimmed(env.MCP_WORKER_MODEL) ??
     trimmed(env.WORKER_MODEL) ??
-    DEFAULT_SUPERVISOR_MODEL
+    trimmed(env.TANGLE_ROUTER_MODEL)
+  if (!model) {
+    throw new ConfigError(
+      'agent-runtime-mcp: no supervisor brain model — set MCP_SUPERVISOR_MODEL (or MCP_WORKER_MODEL / ' +
+        'WORKER_MODEL / TANGLE_ROUTER_MODEL) to a tool-calling model the router serves.',
+    )
+  }
   return { routerBaseUrl, routerKey, model }
 }
 
