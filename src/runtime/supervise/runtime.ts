@@ -1145,6 +1145,21 @@ function killWithGrace(
  */
 /** Resolve the bridge wire model for this spawn. Per-create matrix settings win, then the
  * canonical profile's harness/model preferences, then the bridge's configured fallback. */
+/**
+ * A profile's selected model with its provider attached, the way a harness addresses one.
+ *
+ * Returns undefined when the profile selects no model, and the id unchanged when it is already
+ * qualified or when the profile names no provider — there, the harness's own provider resolution
+ * IS the caller's declared intent rather than a gap to fill.
+ */
+function qualifyProviderModel(model: AgentProfile['model']): string | undefined {
+  const id = model?.default
+  if (!id) return undefined
+  const provider = model?.provider
+  if (!provider || id.includes('/')) return id
+  return `${provider}/${id}`
+}
+
 function bridgeCellModel(
   seamModel: string | undefined,
   ctx: ExecutorContext,
@@ -1156,7 +1171,16 @@ function bridgeCellModel(
   const backend = create?.backend
   const profileHarness = profile.harness === 'cli-base' ? undefined : profile.harness
   const harness = backend?.type ?? profileHarness
-  const model = backend?.model?.model ?? profile.model?.default
+  // The PROVIDER rides with the model. A harness addresses a model as `provider/model`, so a wire
+  // id built from `model.default` alone loses it: `{provider:'tangle-router', default:'glm-5.2'}`
+  // becomes `pi/glm-5.2`, which routes to the right BACKEND and then hands pi a bare id it cannot
+  // place. pi falls back to its own default provider and dies with "No API key found for
+  // <that provider>" — a credential error naming a provider the caller never chose. Measured live;
+  // the same request with `pi/tangle-router/glm-5.2` returns 200.
+  //
+  // A per-cell `backend.model.model` override is left exactly as supplied: it is a caller-authored
+  // wire id, not a profile hint, and qualifying it would rewrite what the caller asked for.
+  const model = backend?.model?.model ?? qualifyProviderModel(profile.model)
   if (!harness && !model) return seamModel
   if (!harness) return model
   if (model) return model.startsWith(`${harness}/`) ? model : `${harness}/${model}`
