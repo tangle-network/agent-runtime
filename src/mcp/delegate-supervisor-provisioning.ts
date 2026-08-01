@@ -37,10 +37,16 @@ export function delegateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
- * Resolve the supervisor brain's router substrate from env. The key falls back through the platform
- * key the bin already requires; the base reuses `resolveRouterBaseUrl`, normalised to `/v1`.
+ * Resolve the supervisor brain's router substrate from env. The base reuses `resolveRouterBaseUrl`,
+ * normalised to `/v1`.
  *
- * The model is NAMED, never guessed. Which ids a given router serves is deployment state this
+ * The KEY is the one for INFERENCE, which inside a sandbox is not the one for the sandbox. A box
+ * carries both: `OPENAI_API_KEY` is its credential for the OpenAI-compatible endpoint the brain
+ * calls, and `TANGLE_API_KEY` authenticates the sandbox CONTROL API — create a box, run a process —
+ * which the router answers `403`. The brain therefore prefers the inference credential and keeps
+ * the platform key as the last rung, for a host that runs one key for both.
+ *
+ * The MODEL is NAMED, never guessed. Which ids a given router serves is deployment state this
  * package cannot know, and a wrong guess is invisible until the supervisor's first completion
  * rejects — after the tool has been advertised to an agent, from inside a child process whose
  * stderr nobody reads. `TANGLE_ROUTER_MODEL` is on the ladder because the sandbox platform sets it
@@ -48,7 +54,11 @@ export function delegateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  * nothing names one, fail at startup with the ladder in the message.
  */
 function resolveRouter(env: NodeJS.ProcessEnv): RouterConfig {
-  const routerKey = trimmed(env.MCP_SUPERVISOR_ROUTER_KEY) ?? trimmed(env.TANGLE_API_KEY) ?? ''
+  const routerKey =
+    trimmed(env.MCP_SUPERVISOR_ROUTER_KEY) ??
+    trimmed(env.OPENAI_API_KEY) ??
+    trimmed(env.TANGLE_API_KEY) ??
+    ''
   const base = trimmed(env.MCP_SUPERVISOR_ROUTER_BASE_URL) ?? resolveRouterBaseUrl(env as RouterEnv)
   const routerBaseUrl = /\/v\d+\/?$/.test(base)
     ? base.replace(/\/$/, '')
