@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.118.0
+
+### pi runs through the bridge, like every other harness
+
+BREAKING. The bespoke pi executor is gone. cli-bridge already routes pi generically — `matches(m) => m === 'pi' || m.startsWith('pi/')` — so a second pi-only code path was duplication. A pi worker is now `createExecutor({ backend: 'bridge', bridgeUrl, bridgeBearer, model: 'pi/<provider>/<model>' })`, the same call every other harness uses.
+
+Removed public exports: `piExecutor`, `PI_RUNTIME`, `piSeamKey`, `PiSeam`, `PiExecutorOutput`, `preparePiMcp`, `piMcpAdapterAvailable`, `buildPiMcpServers`, `PI_MCP_ADAPTER`, `PI_MCP_ADAPTER_ENV`, `PI_MCP_CONFIG_FLAG`, `PiMcpMount`, `PiMcpMountOptions`, `PiMcpPreparation`, `PiMcpReceipt`. The `{ backend: 'pi' }` arm of `ExecutorConfig` is removed, and the executor registry no longer pre-registers a `'pi'` runtime.
+
+What the bridge path does BETTER, and the old executor dropped outright:
+
+- `profile.model.reasoningEffort` is lowered to pi's `--thinking`.
+- `profile.tools` is lowered to `--exclude-tools`.
+- `profile.resources` (context / skills / commands / subagents / instructions) is materialized into the run directory.
+- `profile.prompt.systemPrompt` is passed as a native `--system-prompt` file instead of being prepended to the task text.
+- Consequently a pi backend is now held to `fullProfileMaterialization` in `workerFromBackend`, not the prompt-and-model-only contract. A profile that changes axes the old executor silently dropped is now honored rather than rejected.
+
+What the bridge path does NOT do today, stated so no consumer is surprised:
+
+- `Executor.progress()` and `Executor.traceSource()` are absent on `bridgeExecutor`. This is missing for every harness on the bridge, not only pi; tracked as #683.
+- Mid-turn steering degrades. The bridge runs pi as `--print --mode json` with stdin closed, so a steer lands after the current run rather than at the next turn boundary, and an interrupt is a process-tree kill rather than pi's non-destructive injection.
+- `PiSeam.args`, `PiSeam.env`, and a per-worker `bin` have no wire equivalent. A caller that pinned a specific pi binary or injected per-worker environment must configure it on the bridge server instead.
+- `WORKER_TRACE_PROPAGATION` loses its `pi: true` row. The bridge has no environment channel to the worker, so a pi worker no longer inherits `TRACE_ID`/`PARENT_SPAN_ID` — honestly unpropagated rather than silently dropped, same as the other bridge-dispatched arms.
+- MCP for pi is now the bridge's concern. agent-runtime no longer writes a `--mcp-config` file or checks for the `pi-mcp-adapter` extension.
+
+Known consumers to migrate, none broken until they upgrade:
+
+- `loops` — `src/pi-worker.ts` and `extensions/pi/loops.ts`. The largest migration: `pi-worker.ts` builds the executor directly, and steering is the part that changes behaviour rather than just call shape. Pinned at 0.111.0.
+- `supervisor-lab` — `bench/deepswe/live.ts:193`. A single `backend: 'pi'` in a benchmark rig; a call-shape change. Pinned at 0.116.0.
+- `agent-eval-runtime-run-reader` — two test files reference the pi backend.
+
 ## 0.117.0
 
 - Run every supervisor, including the root, from one complete `AgentProfile`, preserve exact profile/task/candidate identity through recursive delegation, and reject execution paths that would silently drop profile fields.

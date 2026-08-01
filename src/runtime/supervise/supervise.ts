@@ -184,7 +184,6 @@ function backendProfileMaterialization(backend: ExecutorConfig): ProfileMaterial
       return backend.bridge ? fullProfileMaterialization : worktreeCliProfileMaterialization
     case 'router':
     case 'router-tools':
-    case 'pi':
       return promptModelProfileMaterialization
     case 'cli':
       return controlProfileMaterialization

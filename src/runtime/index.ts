@@ -637,36 +637,6 @@ export {
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
-// pi WRAPPED, not forked: `piExecutor` speaks pi's own out-of-process RPC protocol, so its
-// steering queue, session persistence, abort, and compaction stay upstream's. Registered as
-// runtime `'pi'` through the documented `ExecutorRegistry.register` extension point.
-export {
-  PI_RUNTIME,
-  type PiExecutorOutput,
-  type PiSeam,
-  piExecutor,
-  piSeamKey,
-} from './supervise/pi-executor'
-// pi has NO native MCP: it comes from the `pi-mcp-adapter` extension, which reads the canonical
-// `{mcpServers}` object from the file its `--mcp-config` flag names. `piExecutor` writes that file
-// from `profile.mcp` before spawn — one file per worker EXECUTION, never one per workspace, so the
-// ordinary supervisor case of many children behind one shared `PiSeam.cwd` cannot collide. It
-// refuses to start when the adapter is missing, and RECORDS on `PiExecutorOutput.mcp` (and on the
-// live `progress().derived` channel, which survives a failed run) any extension it had to add to
-// keep `--no-extensions` from suppressing the adapter. Exported so a caller can perform the same
-// check ahead of a spawn.
-export {
-  buildPiMcpServers,
-  PI_MCP_ADAPTER,
-  PI_MCP_ADAPTER_ENV,
-  PI_MCP_CONFIG_FLAG,
-  type PiMcpMount,
-  type PiMcpMountOptions,
-  type PiMcpPreparation,
-  type PiMcpReceipt,
-  piMcpAdapterAvailable,
-  preparePiMcp,
-} from './supervise/pi-mcp'
 // The LIVE read-model of a RUNNING worker — last activity, idle time, derived stall, turns,
 // tokens so far, recent tool/file activity, unread steers. What `observe_agent` now returns
 // mid-flight, and the evidence a supervisor steers FROM.

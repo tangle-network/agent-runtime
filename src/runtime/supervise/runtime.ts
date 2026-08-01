@@ -72,7 +72,6 @@ import type {
 import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
-import { PI_RUNTIME, type PiSeam, piExecutor } from './pi-executor'
 import {
   type ActivityLog,
   createActivityLog,
@@ -2092,8 +2091,8 @@ interface BridgeStreamChunk {
  * `statusCaptured: false` and carries no `startedAt`/`endedAt` — its span is an instant with no
  * status. Synthesising an end time would inject a fabricated 0ms latency, and defaulting to 'ok'
  * would count an unobserved call as a success; both would silently corrupt any downstream latency
- * or error-rate analysis. An honest lower-fidelity span beats a fabricated one. `piExecutor` has
- * true durations because pi's RPC stream carries `tool_execution_start`/`_end`; this wire does not.
+ * or error-rate analysis. An honest lower-fidelity span beats a fabricated one. A harness whose
+ * native protocol reports tool completion could carry true durations; this wire does not.
  *
  * cli-bridge emits each call complete in ONE delta (`{id, name, arguments}` together), so no
  * cross-delta argument-fragment assembly is needed; a frame that carries argument bytes without a
@@ -2545,7 +2544,6 @@ export type ExecutorConfig =
   | ({ backend: 'cli' } & CliSeam)
   | ({ backend: 'cli-worktree' } & CliWorktreeSeam)
   | ({ backend: 'provider' } & ProviderSeam)
-  | ({ backend: 'pi' } & PiSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
 
 /** Capture one public executor configuration at its call boundary. All data that selects policy,
@@ -2611,7 +2609,6 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
     case 'router':
     case 'bridge':
     case 'cli':
-    case 'pi':
       return detachedSnapshot(config, `createExecutor ${config.backend} config`)
   }
 }
@@ -2675,7 +2672,6 @@ export function bindReusableExecutorExecutionId(
     case 'router-tools':
     case 'cli':
     case 'provider':
-    case 'pi':
     case 'sandbox':
       return captured
   }
@@ -2706,8 +2702,6 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         return cliExecutor(spec, seamed)
       case 'cli-worktree':
         return cliWorktreeExecutor(spec, seamed)
-      case 'pi':
-        return piExecutor(spec, seamed)
       case 'provider': {
         const providerSeam = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
         const provider = resolveAgentEnvironmentProvider(
@@ -2801,10 +2795,6 @@ export function createExecutorRegistry(): ExecutorRegistry {
   factories.set('inline', routerInlineExecutor)
   factories.set('sandbox', sandboxExecutor)
   factories.set('cli', cliExecutor)
-  // pi is wrapped, not forked: `piExecutor` speaks pi's own out-of-process RPC protocol, so its
-  // steering queue / session persistence / abort stay upstream's. Registered here through the
-  // documented extension point so a spec can select it by `AgentSpec.executor` or by name.
-  factories.set(PI_RUNTIME, piExecutor)
 
   return {
     register<Out>(runtime: Runtime, factory: ExecutorFactory<Out>): void {
