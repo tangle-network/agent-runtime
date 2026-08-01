@@ -25284,6 +25284,18 @@ Re-exports [SupervisorFinalizer](index.md#supervisorfinalizer)
 
 ***
 
+### createOpenInferenceFileExporter
+
+Re-exports [createOpenInferenceFileExporter](index.md#createopeninferencefileexporter)
+
+***
+
+### createOtelExporter
+
+Re-exports [createOtelExporter](index.md#createotelexporter)
+
+***
+
 ### AgentSpec
 
 Re-exports [AgentSpec](index.md#agentspec)

@@ -74,6 +74,11 @@ export type {
 } from './../mcp/tools/coordination'
 export { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from './../mcp/tools/coordination'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
+// Re-exported on the KERNEL entry, not only the package root: a `supervise` caller imports
+// `@tangle-network/agent-runtime/kernel`, so an exporter reachable only from the root is an
+// exporter that caller cannot pass to `SupervisorOpts.otel` — the recorder above would have had
+// nowhere to write without standing up an OTLP collector first.
+export { createOpenInferenceFileExporter, createOtelExporter } from '../otel-export'
 export {
   type AnytimeReport,
   type AnytimeStrategySummary,
