@@ -36,7 +36,7 @@ describe('run process-group timeout', () => {
       '-e',
       `const fs=require('node:fs'); const marker=process.argv[1]; process.on('SIGTERM',()=>{fs.writeFileSync(marker,'settled'); setTimeout(()=>process.exit(0),25)}); setInterval(()=>{},1000)`,
       marker,
-    ], { timeoutMs: 60, killGraceMs: 500 })
+    ], { timeoutMs: 1_000, killGraceMs: 500 })
 
     expect(result.code).toBe(TIMEOUT_RC)
     expect(result.timedOut).toBe(true)

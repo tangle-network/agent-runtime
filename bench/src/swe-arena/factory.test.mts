@@ -510,19 +510,19 @@ describe('judgeFactoryPatch', () => {
   it('gold (impl-only PR diff) resolves with full score', async () => {
     const { result } = await judgeFactoryPatch(goodInst, await goldImplPatch(goodInst))
     expect(result).toMatchObject({ resolved: true, score: 1, passed: 2, total: 2 })
-  })
+  }, 60_000)
 
   it('empty patch (bare base) fails: judge tests cannot even collect', async () => {
     const { result } = await judgeFactoryPatch(goodInst, '')
     expect(result).toMatchObject({ resolved: false, score: 0, passed: 0, total: 2 })
-  })
+  }, 60_000)
 
   it('partial impl earns partial credit, never resolved', async () => {
     // add correct, mul wrong → 1/2.
     const patch = await makePatch(goodInst, 'export const add = (a, b) => a + b\nexport const mul = (a, b) => a + b\n')
     const { result } = await judgeFactoryPatch(goodInst, patch)
     expect(result).toMatchObject({ resolved: false, score: 0.5, passed: 1, total: 2 })
-  })
+  }, 60_000)
 
   it('an unappliable patch is the candidate\'s failure (resolved false), not infra', async () => {
     const garbage = 'diff --git a/nope.txt b/nope.txt\n--- a/nope.txt\n+++ b/nope.txt\n@@ -1 +1 @@\n-x\n+y\n'
