@@ -11431,7 +11431,9 @@ Generic environment provider executor config. External packages implement
 > `optional` **steering?**: [`SandboxSteeringOptions`](#sandboxsteeringoptions)
 
 Compose the provider through the existing steerable sandbox session.
-The provider still owns environment creation and session semantics.
+The exact profile must name its harness, and the provider must expose live
+continuation plus session controls. The provider still owns environment
+creation and session semantics.
 
 ***
 

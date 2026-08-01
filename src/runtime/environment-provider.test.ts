@@ -581,6 +581,56 @@ describe('environment provider adapters', () => {
     }
   })
 
+  it.each([
+    [
+      'continuation',
+      (capabilities: ReturnType<typeof fakeCapabilities>) => {
+        capabilities.sessions.continue = false
+      },
+    ],
+    [
+      'live streaming',
+      (capabilities: ReturnType<typeof fakeCapabilities>) => {
+        capabilities.streaming.live = false
+      },
+    ],
+  ])(
+    'rejects a steerable provider executor without %s before creating an environment',
+    async (_label, disable) => {
+      const capabilities = fakeCapabilities()
+      disable(capabilities)
+      let createCalls = 0
+      const provider: AgentEnvironmentProvider = {
+        name: 'missing-live-capability',
+        capabilities: () => capabilities,
+        async create() {
+          createCalls += 1
+          throw new Error('must not create')
+        },
+      }
+      const factory = createExecutor({
+        backend: 'provider',
+        provider,
+        steering: {
+          maxTurns: 1,
+          activityWindow: 4,
+          turnTimeoutMs: 10_000,
+        },
+      })
+      const spec: AgentSpec = {
+        profile: { name: 'pi-worker', harness: 'pi' },
+        harness: null,
+      }
+      const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+      const executor = factory(spec, ctx)
+
+      await expect(
+        collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>),
+      ).rejects.toThrow(/live session continuation is required/)
+      expect(createCalls).toBe(0)
+    },
+  )
+
   it('adapts a provider to an ExecutorFactory and reports real usage', async () => {
     const provider: AgentEnvironmentProvider = {
       name: 'fake-provider',
@@ -619,7 +669,7 @@ describe('environment provider adapters', () => {
     })
   })
 
-  it('composes a fully profiled provider through the existing steerable session', async () => {
+  it('composes a profile-only supervisor spec through one steerable CLI-bridge-like Pi session', async () => {
     const firstTurnStreaming = deferred()
     const finishFirstTurn = deferred()
     const secondTurnStreaming = deferred()
@@ -748,9 +798,13 @@ describe('environment provider adapters', () => {
         workspace: { cwd: '/repo' },
         providerOptions: { region: 'us-west', tenancy: 'team-a' },
       },
-      steering: {},
+      steering: {
+        maxTurns: 4,
+        activityWindow: 8,
+        turnTimeoutMs: 10_000,
+      },
     })
-    const spec: AgentSpec = { profile, harness: null }
+    const spec = { profile } as AgentSpec
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
     const executor = factory(spec, ctx)
 
@@ -822,7 +876,7 @@ describe('environment provider adapters', () => {
     expect(artifact.spent.usd).toBeCloseTo(0.3)
   })
 
-  it('leaves backend selection to the provider when no caller or profile preference exists', async () => {
+  it('uses the exact profile harness while normalizing provider events', async () => {
     let created: Parameters<AgentEnvironmentProvider['create']>[0] | undefined
     const provider: AgentEnvironmentProvider = {
       name: 'native-default-provider',
@@ -877,15 +931,28 @@ describe('environment provider adapters', () => {
             yield {
               type: 'vendor.turn.finished',
               data: { opaque: true },
+              usage: { inputTokens: 2, outputTokens: 3, cost: 0 },
               normalized: { type: 'status', status: 'completed' },
             }
           },
         })
       },
     }
-    const factory = createExecutor({ backend: 'provider', provider, steering: {} })
+    const factory = createExecutor({
+      backend: 'provider',
+      provider,
+      steering: {
+        maxTurns: 1,
+        activityWindow: 4,
+        turnTimeoutMs: 10_000,
+      },
+    })
     const spec: AgentSpec = {
-      profile: { name: 'provider-default-worker' } as AgentProfile,
+      profile: {
+        name: 'normalized-worker',
+        harness: 'pi',
+        metadata: { backendType: 'codex' },
+      },
       harness: null,
     }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
@@ -893,8 +960,11 @@ describe('environment provider adapters', () => {
 
     await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
 
-    expect(created).not.toHaveProperty('backend')
-    expect(created?.providerOptions?.sandboxCreateOptions).not.toHaveProperty('backend')
+    expect(created).toMatchObject({
+      backend: 'pi',
+      profile: spec.profile,
+      providerOptions: { sandboxCreateOptions: { backend: { type: 'pi' } } },
+    })
     expect(executor.progress?.()).toMatchObject({
       recentActivity: [
         {
@@ -918,6 +988,79 @@ describe('environment provider adapters', () => {
       content: 'provider default',
       toolCalls: ['read'],
     })
+  })
+
+  it('rejects a missing profile harness before probing or creating the provider', () => {
+    let capabilityCalls = 0
+    let createCalls = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'must-not-run',
+      capabilities() {
+        capabilityCalls += 1
+        return fakeCapabilities()
+      },
+      async create() {
+        createCalls += 1
+        throw new Error('must not create')
+      },
+    }
+    const factory = createExecutor({
+      backend: 'provider',
+      provider,
+      steering: {
+        maxTurns: 1,
+        activityWindow: 4,
+        turnTimeoutMs: 10_000,
+      },
+    })
+    const spec: AgentSpec = {
+      profile: {
+        name: 'missing-harness',
+        metadata: { backendType: 'pi' },
+      },
+      harness: null,
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+
+    expect(() => factory(spec, ctx)).toThrow(/AgentProfile\.harness is required/)
+    expect({ capabilityCalls, createCalls }).toEqual({ capabilityCalls: 0, createCalls: 0 })
+  })
+
+  it.each([
+    ['AgentSpec harness', { specHarness: 'codex' as BackendType }],
+    ['provider default backend', { defaultBackend: 'codex' }],
+  ])('rejects a conflicting %s before provider execution', (_label, conflict) => {
+    let capabilityCalls = 0
+    let createCalls = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'must-not-run-conflict',
+      capabilities() {
+        capabilityCalls += 1
+        return fakeCapabilities()
+      },
+      async create() {
+        createCalls += 1
+        throw new Error('must not create')
+      },
+    }
+    const factory = createExecutor({
+      backend: 'provider',
+      provider,
+      ...('defaultBackend' in conflict ? { defaults: { backend: conflict.defaultBackend } } : {}),
+      steering: {
+        maxTurns: 1,
+        activityWindow: 4,
+        turnTimeoutMs: 10_000,
+      },
+    })
+    const spec: AgentSpec = {
+      profile: { name: 'pi-worker', harness: 'pi' },
+      harness: 'specHarness' in conflict ? conflict.specHarness : null,
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+
+    expect(() => factory(spec, ctx)).toThrow(/conflicts with AgentProfile\.harness "pi"/)
+    expect({ capabilityCalls, createCalls }).toEqual({ capabilityCalls: 0, createCalls: 0 })
   })
 
   it('plugs a provider into createExecutor as backend data', async () => {

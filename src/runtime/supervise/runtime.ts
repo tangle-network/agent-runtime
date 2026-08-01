@@ -221,7 +221,9 @@ export interface ProviderSeam extends ProviderExecutorOptions {
   registry?: AgentEnvironmentProviderRegistry
   /**
    * Compose the provider through the existing steerable sandbox session.
-   * The provider still owns environment creation and session semantics.
+   * The exact profile must name its harness, and the provider must expose live
+   * continuation plus session controls. The provider still owns environment
+   * creation and session semantics.
    */
   steering?: SandboxSteeringOptions
 }
@@ -1673,7 +1675,7 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
               'createExecutor(provider, steering): destroyOnSettle=false conflicts with the session-owned environment lifecycle',
             )
           }
-          const providerBackend = selectedProviderBackend(spec, providerSeam)
+          const harness = requiredProviderProfileHarness(spec, providerSeam)
           const sandboxClient = providerAsSandboxClient(provider, {
             defaults: {
               ...(providerSeam.defaults ?? {}),
@@ -1681,20 +1683,7 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             },
             requireTerminalEvent: providerSeam.requireTerminalEvent,
             requireSession: true,
-            ...(providerBackend === undefined
-              ? {
-                  mapCreateOptions: (createOptions) => {
-                    const { backend: _internalBackend, ...sandboxCreateOptions } =
-                      createOptions ?? {}
-                    return {
-                      backend: undefined,
-                      providerOptions: { sandboxCreateOptions },
-                    }
-                  },
-                }
-              : {}),
           })
-          const harness = (providerBackend ?? 'opencode') as BackendType
           const providerCtx: ExecutorContext = {
             ...seamed,
             seams: {
@@ -1723,14 +1712,24 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
   }
 }
 
-function selectedProviderBackend(spec: AgentSpec, seam: ProviderSeam): string | undefined {
-  const profile = spec.profile as AgentSpec['profile'] & { harness?: unknown }
-  return (
-    spec.harness ??
-    seam.defaults?.backend ??
-    (typeof profile.harness === 'string' ? profile.harness : undefined) ??
-    (typeof profile.metadata?.backendType === 'string' ? profile.metadata.backendType : undefined)
-  )
+function requiredProviderProfileHarness(spec: AgentSpec, seam: ProviderSeam): BackendType {
+  const harness = spec.profile.harness
+  if (harness === undefined) {
+    throw new ValidationError(
+      'createExecutor(provider, steering): AgentProfile.harness is required',
+    )
+  }
+  if (spec.harness != null && spec.harness !== harness) {
+    throw new ValidationError(
+      `createExecutor(provider, steering): AgentSpec.harness "${spec.harness}" conflicts with AgentProfile.harness "${harness}"`,
+    )
+  }
+  if (seam.defaults?.backend !== undefined && seam.defaults.backend !== harness) {
+    throw new ValidationError(
+      `createExecutor(provider, steering): provider default backend "${seam.defaults.backend}" conflicts with AgentProfile.harness "${harness}"`,
+    )
+  }
+  return harness as BackendType
 }
 
 // ── The open registry ──────────────────────────────────────────────────────────
