@@ -35,6 +35,7 @@ import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
 import { type BudgetPool, createBudgetPool, type ReservationTicket } from './budget'
+import { workerTokenFloor } from './budget-floor'
 import {
   armDeadlineTimer,
   boundedChildDeadlineAt,
@@ -556,6 +557,18 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         args.pool.reconcile(reservation.ticket, zeroSpend())
         permit.release()
         return { ok: false, reason: 'invalid-identity' }
+      }
+      // A budget under the harness's measured floor is UNSATISFIABLE at that size, not merely
+      // tight — the child burns the whole ceiling on scaffolding it re-sends every turn and dies
+      // before reaching the task. Its own reason, for the same purpose `usd-unbudgeted` has one:
+      // `budget-exhausted` invites a caller to retry SMALLER, which here is the exact wrong move.
+      // Checked after resolution because that is where the harness is known, and refunded the way
+      // every sibling failure on this path is.
+      const floor = workerTokenFloor(spec.harness)
+      if (floor !== null && opts.budget.maxTokens < floor) {
+        args.pool.reconcile(reservation.ticket, zeroSpend())
+        permit.release()
+        return { ok: false, reason: 'below-runtime-floor' }
       }
       const outcome = args.executors.resolve<C>(spec)
       if (!outcome.succeeded) throw new ValidationError(`scope.spawn: ${outcome.error}`)
