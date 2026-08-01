@@ -54,6 +54,6 @@ export const WORKER_TOKEN_FLOOR = {
  * harness admissible instead of refusing work on a name this table has not heard of.
  */
 export function workerTokenFloor(harness: BackendType | string | null | undefined): number | null {
-  if (harness === null) return null
+  if (harness === null || harness === undefined) return null
   return (WORKER_TOKEN_FLOOR as Record<string, number | null>)[harness] ?? null
 }
