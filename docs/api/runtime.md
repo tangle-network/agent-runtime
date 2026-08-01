@@ -18569,10 +18569,12 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 ### ReservationRejection
 
-> **ReservationRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"`
+> **ReservationRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"below-runtime-floor"`
 
 Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
- budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
+ budgets; `below-runtime-floor` means the request is under the amount that harness needs before
+ it does any work at all, so it is unsatisfiable at that size and the fix is to RAISE it;
+ `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
  unsatisfiable at any amount and the fix is to budget the root, not to ask for less.
 
 ***
@@ -18938,7 +18940,7 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ### SpawnRejection
 
-> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"`
+> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"below-runtime-floor"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"`
 
 Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, or a `key` that
@@ -18947,6 +18949,10 @@ Fail-closed spawn rejections: an exhausted pool, a dollar request against a root
  `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
  refuses every amount until the ROOT budget names a `maxUsd`.
+
+ `below-runtime-floor` is separate for the same reason and points the opposite way from
+ `budget-exhausted`: the request is under what that harness spends before it reads its task, so
+ it is unsatisfiable at that SIZE and the fix is to RAISE it, never to retry smaller.
 
 ***
 

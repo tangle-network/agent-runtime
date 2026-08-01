@@ -509,10 +509,15 @@ export interface SpawnOpts {
  *
  *  `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
  *  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
- *  refuses every amount until the ROOT budget names a `maxUsd`. */
+ *  refuses every amount until the ROOT budget names a `maxUsd`.
+ *
+ *  `below-runtime-floor` is separate for the same reason and points the opposite way from
+ *  `budget-exhausted`: the request is under what that harness spends before it reads its task, so
+ *  it is unsatisfiable at that SIZE and the fix is to RAISE it, never to retry smaller. */
 export type SpawnRejection =
   | 'budget-exhausted'
   | 'usd-unbudgeted'
+  | 'below-runtime-floor'
   | 'depth-exceeded'
   | 'duplicate-key'
   | 'invalid-identity'
