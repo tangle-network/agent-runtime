@@ -20,8 +20,9 @@
  *                                    WORKER_MODEL, then TANGLE_ROUTER_MODEL). Must be a tool-calling
  *                                    model the router serves; with none named the bin exits 2.
  *   MCP_SUPERVISOR_ROUTER_KEY        router key for the supervisor brain (falls back to the box's
- *                                    inference credential OPENAI_API_KEY, then TANGLE_API_KEY —
- *                                    which authenticates the sandbox API, not the router)
+ *                                    inference credential TANGLE_INFERENCE_KEY, then its vendor
+ *                                    spelling OPENAI_API_KEY, then TANGLE_API_KEY — which
+ *                                    authenticates the sandbox API, not the router)
  *   MCP_SUPERVISOR_ROUTER_BASE_URL   router base for the supervisor brain (defaults to the repo's
  *                                    resolveRouterBaseUrl, normalized to `/v1`)
  *   MCP_DELEGATE_WORKER_HARNESS      harness the authored workers run on (default `opencode`)
