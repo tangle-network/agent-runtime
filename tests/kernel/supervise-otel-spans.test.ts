@@ -179,6 +179,12 @@ afterEach(() => {
 
 // ── Off by default ────────────────────────────────────────────────────────────
 
+/** Attempt ids are per-execution nonces by design (`newExecutionAttemptId`); every OTHER byte of
+ *  two equivalent runs must still match, so comparisons normalize exactly that one field. */
+function normalizeAttemptIds<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value, (key, v) => (key === 'attemptId' ? '<attempt>' : v))) as T
+}
+
 describe('opt-in: a run that configures no exporter emits nothing', () => {
   it('resolves no recorder at all when neither an exporter nor an endpoint is configured', () => {
     delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT
@@ -214,8 +220,10 @@ describe('opt-in: a run that configures no exporter emits nothing', () => {
       supervisorOpts({ runId: 'run', journal: plain }),
     )
 
-    expect(plainResult).toEqual(tracedResult)
-    expect(await plain.loadTree('run')).toEqual(await traced.loadTree('run'))
+    expect(normalizeAttemptIds(plainResult)).toEqual(normalizeAttemptIds(tracedResult))
+    expect(normalizeAttemptIds(await plain.loadTree('run'))).toEqual(
+      normalizeAttemptIds(await traced.loadTree('run')),
+    )
     // …and the traced run really did produce spans, so the equality above is not vacuous.
     expect(spans.length).toBeGreaterThan(0)
   })
@@ -402,8 +410,10 @@ describe('an exporter that throws never fails the run', () => {
       supervisorOpts({ runId: 'run', journal: cleanJournal }),
     )
     expect(hostileResult.kind).toBe('winner')
-    expect(hostileResult).toEqual(cleanResult)
-    expect(await hostileJournal.loadTree('run')).toEqual(await cleanJournal.loadTree('run'))
+    expect(normalizeAttemptIds(hostileResult)).toEqual(normalizeAttemptIds(cleanResult))
+    expect(normalizeAttemptIds(await hostileJournal.loadTree('run'))).toEqual(
+      normalizeAttemptIds(await cleanJournal.loadTree('run')),
+    )
   })
 
   it('survives a hook fired directly with a malformed event', () => {
@@ -484,11 +494,14 @@ function superviseOnce(otel?: SuperviseOptions['otel']) {
   return supervise({ name: 'root', harness: null, systemPrompt: 'drive the worker' }, 'solve it', {
     budget: { maxIterations: 100, maxTokens: 100_000 },
     runId: 'front-door',
+    // Injected clock: the two arms of the identical-result comparison must not diverge on a
+    // real-millisecond `settledAt` boundary.
+    now: () => 1_000,
     makeWorkerAgent: () => workerLeaf('w', { answer: 42 }, { input: 5, output: 5 }, 1),
     brain: scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -519,7 +532,7 @@ describe('supervise(): telemetry is opt-in at the front door', () => {
     const { exporter, spans } = recordingExporter()
     const traced = await superviseOnce({ exporter })
     const untraced = await superviseOnce()
-    expect(untraced).toEqual(traced)
+    expect(normalizeAttemptIds(untraced)).toEqual(normalizeAttemptIds(traced))
     // The traced arm proves the untraced comparison is not vacuous.
     expect(spans.length).toBeGreaterThan(0)
   })

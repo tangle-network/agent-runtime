@@ -2,11 +2,13 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ConfigError } from '../../src/errors'
+import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
-import { createSupervisor } from '../../src/runtime/supervise/supervisor'
+import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
 import {
   type DriveHarness,
   defaultSupervisorPrompt,
+  type ResolveSupervisorTools,
   resolveSupervisorProfile,
   type SupervisorProfile,
   supervisorAgent,
@@ -19,6 +21,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { scriptedBrain } from './scripted-brain'
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
@@ -81,14 +84,18 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const brain = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
     const root = supervisorAgent(
-      { name: 'root', harness: null, systemPrompt: 'drive the worker' },
+      {
+        name: 'root',
+        harness: 'cli-base',
+        prompt: { systemPrompt: 'drive the worker' },
+      },
       { brain, blobs, makeWorkerAgent: () => worker, perWorker, maxTurns: 8 },
     )
     const result = await runSupervisor(root, blobs, journal)
@@ -109,7 +116,11 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
     const root = supervisorAgent(
-      { name: 'sup', harness: 'opencode', systemPrompt: 'delegate, do not solve' },
+      {
+        name: 'sup',
+        harness: 'opencode',
+        prompt: { systemPrompt: 'delegate, do not solve' },
+      },
       { blobs, makeWorkerAgent: () => deliveringLeaf('w', { answer: 7 }), perWorker, driveHarness },
     )
     const result = await runSupervisor(root, blobs, journal)
@@ -159,10 +170,427 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
       supervisorAgent(
-        { name: 'root', harness: null },
+        { name: 'root', harness: 'cli-base' },
         { blobs, makeWorkerAgent: () => deliveringLeaf('w', {}), perWorker },
       ),
     ).toThrow(/router/)
+  })
+
+  it('binds the same node-scoped product tool to router and external managers with trusted context', async () => {
+    const identity = {
+      profileDigest: `sha256:${'a'.repeat(64)}`,
+      taskDigest: `sha256:${'b'.repeat(64)}`,
+      correlation: { campaign: 'campaign-7' },
+    } as const
+    const nodeContext = {
+      runId: 'sup',
+      runNamespace: 'durable-run-namespace',
+      ownerId: 'owner-root',
+      depth: 0,
+      identity,
+    }
+    const calls: Array<{ raw: unknown; context: unknown }> = []
+    const resolveSupervisorTools: ResolveSupervisorTools = async () => [
+      {
+        name: 'read_product_evidence',
+        description: 'Read one product-owned evidence record',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: { type: 'string' },
+            runId: { type: 'string' },
+            trustedContext: { type: 'object' },
+          },
+          required: ['key'],
+        },
+        handler: async (raw, context) => {
+          calls.push({ raw, context })
+          return {
+            key: (raw as { key?: unknown }).key,
+            suppliedRunId: (raw as { runId?: unknown }).runId,
+            trustedRunId: context.runId,
+            trustedNodeId: context.nodeId,
+          }
+        },
+      },
+    ]
+    const modelArguments = {
+      key: 'claim-1',
+      runId: 'model-forged-run',
+      trustedContext: { nodeId: 'model-forged-node' },
+    }
+
+    let routerDescriptor: unknown
+    let routerTurn = 0
+    const brain: ToolLoopChat = async (_messages, tools) => {
+      routerDescriptor = tools.find((entry) => entry.function.name === 'read_product_evidence')
+      routerTurn += 1
+      return routerTurn === 1
+        ? {
+            toolCalls: [
+              {
+                id: 'product-call',
+                name: 'read_product_evidence',
+                arguments: JSON.stringify(modelArguments),
+              },
+            ],
+          }
+        : { content: 'done', toolCalls: [] }
+    }
+    const routerBlobs = new InMemoryResultBlobStore()
+    await runSupervisor(
+      supervisorAgent(
+        { name: 'router-manager', harness: 'cli-base' },
+        {
+          brain,
+          blobs: routerBlobs,
+          makeWorkerAgent: () => deliveringLeaf('unused', {}),
+          perWorker,
+          nodeContext,
+          resolveSupervisorTools,
+        },
+      ),
+      routerBlobs,
+      new InMemorySpawnJournal(),
+    )
+
+    let externalDescriptor: unknown
+    let externalCall: unknown
+    const externalBlobs = new InMemoryResultBlobStore()
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+      const listed = (await jsonRpc(coordinationMcpUrl, 'tools/list', {})) as {
+        result?: { tools?: unknown[] }
+      }
+      externalDescriptor = listed.result?.tools?.find(
+        (entry) =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          (entry as { name?: unknown }).name === 'read_product_evidence',
+      )
+      externalCall = await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'read_product_evidence',
+        arguments: modelArguments,
+      })
+    }
+    await runSupervisor(
+      supervisorAgent(
+        { name: 'external-manager', harness: 'opencode' },
+        {
+          blobs: externalBlobs,
+          makeWorkerAgent: () => deliveringLeaf('unused', {}),
+          perWorker,
+          driveHarness,
+          nodeContext,
+          resolveSupervisorTools,
+        },
+      ),
+      externalBlobs,
+      new InMemorySpawnJournal(),
+    )
+
+    expect(routerDescriptor).toMatchObject({
+      function: {
+        name: 'read_product_evidence',
+        description: 'Read one product-owned evidence record',
+      },
+    })
+    expect(externalDescriptor).toMatchObject({
+      name: 'read_product_evidence',
+      description: 'Read one product-owned evidence record',
+    })
+    expect(externalCall).toMatchObject({
+      result: {
+        structuredContent: {
+          key: 'claim-1',
+          suppliedRunId: 'model-forged-run',
+          trustedRunId: 'sup',
+          trustedNodeId: 'sup',
+        },
+      },
+    })
+    expect(calls).toHaveLength(2)
+    for (const call of calls) {
+      expect(call.raw).toEqual(modelArguments)
+      expect(Object.isFrozen(call.raw)).toBe(true)
+      expect(call.context).toMatchObject({
+        runId: 'sup',
+        runNamespace: 'durable-run-namespace',
+        nodeId: 'sup',
+        ownerId: 'owner-root',
+        identity,
+        task: 'solve it',
+      })
+      expect(Object.isFrozen(call.context)).toBe(true)
+      expect(Object.isFrozen((call.context as { identity: unknown }).identity)).toBe(true)
+      expect((call.context as { signal: AbortSignal }).signal).toBeInstanceOf(AbortSignal)
+      expect((call.context as { signal: AbortSignal }).signal.aborted).toBe(false)
+    }
+  })
+
+  it('RootHandle.abort cancels a product tool inside a recursive router manager', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const handle = createRootHandle<unknown>()
+    let toolStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      toolStarted = resolve
+    })
+    let toolCancelled!: () => void
+    const cancelled = new Promise<void>((resolve) => {
+      toolCancelled = resolve
+    })
+    let nestedSignal: AbortSignal | undefined
+    const nested = supervisorAgent(
+      { name: 'nested-manager', harness: 'cli-base' },
+      {
+        brain: scriptedBrain([
+          { toolCalls: [{ name: 'run_experiment', arguments: { candidate: 'a' } }] },
+          { content: 'must not continue after cancellation' },
+        ]),
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        nodeContext: {
+          runId: 'recursive-tool-abort',
+          runNamespace: 'recursive-tool-abort-namespace',
+          ownerId: 'owner-nested',
+          depth: 1,
+          assignmentId: 'nested-assignment',
+          identity: {
+            profileDigest: `sha256:${'e'.repeat(64)}`,
+            taskDigest: `sha256:${'f'.repeat(64)}`,
+          },
+        },
+        resolveSupervisorTools: async () => [
+          {
+            name: 'run_experiment',
+            description: 'Run a long product-owned experiment',
+            inputSchema: { type: 'object' },
+            handler: async (_raw, context) => {
+              nestedSignal = context.signal
+              toolStarted()
+              await new Promise<void>((_resolve, reject) => {
+                const onAbort = () => {
+                  toolCancelled()
+                  reject(new DOMException(String(context.signal.reason), 'AbortError'))
+                }
+                if (context.signal.aborted) onAbort()
+                else context.signal.addEventListener('abort', onAbort, { once: true })
+              })
+              return { unreachable: true }
+            },
+          },
+        ],
+      },
+    )
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(task, scope) {
+        const spawned = scope.spawn(
+          driverChild(
+            {
+              name: 'nested-manager',
+              harness: 'cli-base',
+              metadata: { role: 'driver' },
+            },
+            nested,
+            journal,
+          ),
+          task,
+          {
+            budget: { maxIterations: 20, maxTokens: 20_000 },
+            label: 'nested-manager',
+          },
+        )
+        if (!spawned.ok) throw new Error(spawned.reason)
+        await scope.next()
+        return undefined
+      },
+    }
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const running = supervisor.run(root, 'run the nested experiment', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'recursive-tool-abort',
+      journal,
+      blobs,
+      executors: withDriverExecutor(createExecutorRegistry()),
+      maxDepth: 4,
+      now: () => 0,
+    })
+
+    await started
+    handle.abort('stop the experiment tree')
+    await cancelled
+    const result = await running
+
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
+    expect(nestedSignal?.aborted).toBe(true)
+    expect(nestedSignal?.reason).toBe('stop the experiment tree')
+  })
+
+  it('a caller abort cancels a product tool invoked through the external MCP path', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const caller = new AbortController()
+    let toolStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      toolStarted = resolve
+    })
+    let toolCancelled!: () => void
+    const cancelled = new Promise<void>((resolve) => {
+      toolCancelled = resolve
+    })
+    let harnessFinished!: () => void
+    const finished = new Promise<void>((resolve) => {
+      harnessFinished = resolve
+    })
+    let externalSignal: AbortSignal | undefined
+    let externalResponse: unknown
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+      try {
+        externalResponse = await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'run_experiment',
+          arguments: { candidate: 'b' },
+        })
+      } finally {
+        harnessFinished()
+      }
+    }
+    const root = supervisorAgent(
+      { name: 'external-manager', harness: 'opencode' },
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        driveHarness,
+        nodeContext: {
+          runId: 'external-tool-abort',
+          runNamespace: 'external-tool-abort-namespace',
+          ownerId: 'owner-external',
+          depth: 0,
+          identity: {
+            profileDigest: `sha256:${'1'.repeat(64)}`,
+            taskDigest: `sha256:${'2'.repeat(64)}`,
+          },
+        },
+        resolveSupervisorTools: async () => [
+          {
+            name: 'run_experiment',
+            description: 'Run a long product-owned experiment',
+            inputSchema: { type: 'object' },
+            handler: async (_raw, context) => {
+              externalSignal = context.signal
+              toolStarted()
+              await new Promise<void>((_resolve, reject) => {
+                const onAbort = () => {
+                  toolCancelled()
+                  reject(new DOMException(String(context.signal.reason), 'AbortError'))
+                }
+                if (context.signal.aborted) onAbort()
+                else context.signal.addEventListener('abort', onAbort, { once: true })
+              })
+              return { unreachable: true }
+            },
+          },
+        ],
+      },
+    )
+    const running = createSupervisor<unknown, unknown>().run(root, 'run the external experiment', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'external-tool-abort',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+      now: () => 0,
+      signal: caller.signal,
+    })
+
+    await started
+    caller.abort()
+    await cancelled
+    const result = await running
+    await finished
+
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
+    expect(externalSignal?.aborted).toBe(true)
+    expect(externalSignal?.reason).toBe('caller signal aborted')
+    expect(externalResponse).toMatchObject({
+      error: { code: -32000, message: 'caller signal aborted' },
+    })
+  })
+
+  it('captures the resolver and rejects descriptor collisions before brain compute or MCP listen', async () => {
+    const seed = {
+      runId: 'sup',
+      runNamespace: 'namespace',
+      ownerId: 'owner',
+      depth: 0,
+      identity: {
+        profileDigest: `sha256:${'c'.repeat(64)}`,
+        taskDigest: `sha256:${'d'.repeat(64)}`,
+      },
+    } as const
+    let originalCalls = 0
+    let replacementCalls = 0
+    let brainCalls = 0
+    let harnessCalls = 0
+    const deps = {
+      blobs: new InMemoryResultBlobStore(),
+      makeWorkerAgent: () => deliveringLeaf('unused', {}),
+      perWorker,
+      nodeContext: seed,
+      resolveSupervisorTools: (async () => {
+        originalCalls += 1
+        return [
+          {
+            name: 'spawn_agent',
+            description: 'collision',
+            inputSchema: { type: 'object' },
+            handler: async () => ({}),
+          },
+        ]
+      }) as ResolveSupervisorTools,
+    }
+    const brain: ToolLoopChat = async () => {
+      brainCalls += 1
+      return { content: 'must not run', toolCalls: [] }
+    }
+    const mutableRouterDeps = { ...deps, brain }
+    const router = supervisorAgent({ name: 'router', harness: 'cli-base' }, mutableRouterDeps)
+    mutableRouterDeps.resolveSupervisorTools = async () => {
+      replacementCalls += 1
+      return []
+    }
+    const routerResult = await runSupervisor(router, deps.blobs, new InMemorySpawnJournal())
+    expect(routerResult.kind).toBe('no-winner')
+    expect(originalCalls).toBe(1)
+    expect(replacementCalls).toBe(0)
+    expect(brainCalls).toBe(0)
+
+    const externalBlobs = new InMemoryResultBlobStore()
+    const external = supervisorAgent(
+      { name: 'external', harness: 'opencode' },
+      {
+        ...deps,
+        blobs: externalBlobs,
+        resolveSupervisorTools: async () => [
+          {
+            name: 'spawn_agent',
+            description: 'collision',
+            inputSchema: { type: 'object' },
+            handler: async () => ({}),
+          },
+        ],
+        driveHarness: async () => {
+          harnessCalls += 1
+        },
+      },
+    )
+    const externalResult = await runSupervisor(external, externalBlobs, new InMemorySpawnJournal())
+    expect(externalResult.kind).toBe('no-winner')
+    expect(harnessCalls).toBe(0)
   })
 })
 
@@ -300,8 +728,10 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
       driveHarness,
     })
     await runSupervisor(root, blobs, journal)
-    expect(seen).toBe(profile)
+    // The harness receives the caller's profile VALUE untouched — a detached, frozen snapshot so a
+    // later mutation of the caller's object cannot redirect a live run — with nothing hoisted on.
     expect(seen).toEqual(profile)
+    expect(Object.isFrozen(seen)).toBe(true)
     expect(Object.hasOwn(seen as object, 'systemPrompt')).toBe(false)
     expect(seenPrompt).toBe('delegate, do not solve\nkeep it small\nprefer the fewest workers')
   })

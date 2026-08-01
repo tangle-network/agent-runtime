@@ -4,11 +4,13 @@
  * no hand-built brain. The supervisor stops being special — it's one profile, materialized by the
  * same resolution rule as every other agent.
  *
- *  - `harness` null/undefined → the in-process router tool-loop: `driverAgent` over the
+ *  - `harness` omitted or `cli-base` → the in-process router tool-loop: `driverAgent` over the
  *    canonical `ToolLoopChat`, built by `routerBrain` from the profile's model + the router seam.
- *  - `harness` a coding CLI (`claude-code`/`opencode`/`codex`/…) → a SANDBOXED harness drives the
+ *  - `harness` a coding CLI (`claude-code`/`opencode`/`codex`/…) → an EXTERNAL harness drives the
  *    coordination verbs: `serveCoordinationMcp` exposes spawn/await/steer/stop over the live scope,
- *    and the caller's `driveHarness` runs the harness with that MCP mounted. The harness IS the brain.
+ *    and the caller's `driveHarness` runs the harness with that MCP mounted. `supervise()` builds
+ *    this automatically only for a local bridge; a remote sandbox needs an explicit reachable
+ *    relay or tunnel. The harness IS the brain.
  *
  * Both arms spawn children through the SAME `makeWorkerAgent` seam and apply the SAME independent
  * deliverable check to direct submissions. Raw driver prose is never eligible.
@@ -19,21 +21,28 @@ import type {
   AgentProfileResources,
 } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
+import type { McpToolDescriptor } from '../../mcp/server'
 import type {
   AnalystRegistry,
+  AuthorizeDownMessage,
   CoordinationEvent,
   MakeWorkerAgent,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { coordinationVerbNames } from '../../mcp/tools/coordination'
 import { type RouterConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import { driverAgent } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import { isLoopbackHost, serveCoordinationMcp } from './coordination-mcp'
+import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
+import { createInbox } from './inbox'
+import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
+import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
-import type { Agent, Budget, ResultBlobStore, Scope } from './types'
+import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
 
 /** The standing strategy a router-brained supervisor runs with when its profile names no
  *  `systemPrompt`. The brain's competence IS this prompt: without it the brain has the coordination
@@ -85,7 +94,8 @@ export const defaultSupervisorPrompt = [
  */
 export interface SupervisorProfile {
   readonly name?: string
-  /** null/undefined → router brain (in-process tool-loop); a coding-CLI harness → sandboxed brain. */
+  /** null/undefined/`cli-base` → router brain (in-process tool-loop); a coding-CLI harness → an
+   *  external harness brain. */
   readonly harness?: string | null
   /** The router model when the brain is router-driven: a model id, or a canonical profile's model
    *  hints whose `default` IS the id. Absent (including a hints object with no `default`) → the
@@ -251,29 +261,94 @@ export function assertCoordinationBinding(binding: CoordinationBinding | undefin
   )
 }
 
-/** How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
- *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
- *  `task` in its backend (sandbox / cli-bridge) with `coordinationMcpUrl` mounted as an MCP server,
- *  so the harness calls spawn_agent / await_event / stop as native tools over the live scope. */
-export type DriveHarness = (args: {
-  /** The caller's profile, EXACTLY as passed to `supervisorAgent` — never rewritten. A canonical
-   *  `AgentProfile` stays schema-valid here (the canonical schema rejects unknown top-level keys,
-   *  so hoisting a resolved prompt onto it would make a profile its own validator refuses). */
+/** Trusted run/node identity Runtime binds to one manager. Model-authored tool arguments cannot
+ *  provide or replace any of these fields. */
+export interface SupervisorNodeContext {
+  readonly runId: string
+  /** Stable across a durable restart; unique per in-memory invocation. */
+  readonly runNamespace: string
+  /** Concrete Scope node that owns this manager's coordination stream. */
+  readonly nodeId: string
+  /** Stable identity of this manager's coordination stream. */
+  readonly ownerId: string
+  readonly depth: number
+  readonly identity: NodeExecutionIdentity
+  /** Assignment identity within the parent manager; absent only for the root. */
+  readonly assignmentId?: string
   readonly profile: SupervisorProfile
-  /** The standing instruction assembled from the profile: its system prompt in either spelling,
-   *  plus the `prompt.instructions` and `resources.instructions` lines. Absent when the profile
-   *  names none — the harness's own default then applies. This, not `profile.systemPrompt`, is what
-   *  the harness should run under. */
-  readonly systemPrompt?: string
   readonly task: unknown
-  readonly scope: Scope<unknown>
-  readonly coordinationMcpUrl: string
-}) => Promise<void>
+}
+
+/** Context known before `Agent.act`; Runtime adds the concrete node, profile, and task. */
+export type SupervisorNodeContextSeed = Omit<SupervisorNodeContext, 'nodeId' | 'profile' | 'task'>
+
+/** Trusted context for one product-tool invocation. The node identity remains the same detached,
+ * immutable snapshot supplied to the resolver; `signal` is the one live control reference Runtime
+ * adds. It aborts when this manager's scope is cancelled by the caller, RootHandle, deadline,
+ * breaker, or a recursive parent. */
+export interface SupervisorToolInvocationContext extends SupervisorNodeContext {
+  readonly signal: AbortSignal
+}
+
+/** One product-owned tool. It reuses the canonical MCP descriptor fields while Runtime supplies
+ *  the trusted invocation context as a separate argument and binds the result for either
+ *  transport. Existing handlers remain compatible: the second argument only gains `signal`. */
+export interface SupervisorToolDescriptor extends Omit<McpToolDescriptor, 'handler'> {
+  readonly handler: (raw: unknown, context: SupervisorToolInvocationContext) => Promise<unknown>
+}
+
+/** Product policy for the tools one exact supervisor node may call. Resolved once per node. */
+export type ResolveSupervisorTools = (
+  context: SupervisorNodeContext,
+) => ReadonlyArray<SupervisorToolDescriptor> | Promise<ReadonlyArray<SupervisorToolDescriptor>>
+
+/** Context-aware observer used internally to bind product transactions to the actual live node. */
+export type ObserveSupervisorNodeEvent = (
+  context: SupervisorNodeContext,
+  event: CoordinationEvent,
+  record: BusRecord<CoordinationEvent>,
+) => void | Promise<void>
+
+/** How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
+ *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
+ *  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
+ *  so the harness calls spawn_agent / await_event / stop as native tools over the live scope. */
+export interface DriveHarness {
+  (args: {
+    /** The caller's profile, EXACTLY as passed to `supervisorAgent` — never rewritten. A canonical
+     *  `AgentProfile` stays schema-valid here (the canonical schema rejects unknown top-level keys,
+     *  so hoisting a resolved prompt onto it would make a profile its own validator refuses). */
+    readonly profile: SupervisorProfile
+    /** The standing instruction assembled from the profile: its system prompt in either spelling,
+     *  plus the `prompt.instructions` and `resources.instructions` lines. Absent when the profile
+     *  names none — the harness's own default then applies. This, not `profile.systemPrompt`, is
+     *  what the harness should run under. */
+    readonly systemPrompt?: string
+    readonly task: unknown
+    readonly scope: Scope<unknown>
+    readonly coordinationMcpUrl: string
+    /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
+     *  this in their materialization evidence without persisting executable handlers. */
+    readonly coordinationTools: ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
+  }): Promise<void>
+  /** Optional live inbox for the manager session this adapter currently drives. Return `false`
+   * when no executor inbox is active instead of claiming a message was delivered. */
+  deliver?(message: unknown): boolean
+}
+
+/** Trusted manager identity available before its external harness starts. A product uses this to
+ * return one independently steerable harness session per recursive manager. */
+export type DriveHarnessOwnerContext = Omit<SupervisorNodeContext, 'nodeId'>
+
+/** Resolve an external harness for one exact Runtime-owned manager identity. */
+export type ResolveDriveHarness = (context: DriveHarnessOwnerContext) => DriveHarness
 
 export interface SupervisorAgentDeps {
   readonly blobs: ResultBlobStore
   /** Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms). */
   readonly makeWorkerAgent: MakeWorkerAgent
+  /** Product authorization for every down-leg continuation to a child. */
+  readonly authorizeDownMessage?: AuthorizeDownMessage
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
   /** Independent completion check for direct driver work (`submit_result`). */
@@ -282,12 +357,22 @@ export interface SupervisorAgentDeps {
    *  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
    *  boxes/sandboxes, not total work). Omit/`<= 0` = no cap. */
   readonly maxLiveWorkers?: number
-  /** Router substrate for a router-brained supervisor (`harness` null). The profile's model wins. */
+  /** Router substrate for a router-brained supervisor (`harness` omitted or `cli-base`). The
+   *  profile's model wins. */
   readonly router?: RouterConfig
   /** Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile. */
   readonly brain?: ToolLoopChat
-  /** Required for a sandboxed-harness supervisor (`harness` set): runs the harness as the driver. */
+  /** Required to run an external-harness supervisor: runs the harness as the driver. */
   readonly driveHarness?: DriveHarness
+  /** Trusted identity for this manager. Required with node-scoped tools or observation. */
+  readonly nodeContext?: SupervisorNodeContextSeed
+  /** Resolve product-owned tools for this exact manager. Static `extraTools` remain a router-only
+   *  compatibility seam and deliberately receive no new recursive authority. */
+  readonly resolveSupervisorTools?: ResolveSupervisorTools
+  /** Awaited product observation, enriched with this manager's actual live node context. */
+  readonly observeNodeEvent?: ObserveSupervisorNodeEvent
+  /** Replay resume-time settlements through `observeNodeEvent` before the manager starts. */
+  readonly replaySettlements?: boolean
   /** WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple work ITSELF and
    *  only delegate when it needs parallelism. Pair with `executeExtraTool`. */
   readonly extraTools?: ReadonlyArray<{
@@ -324,14 +409,22 @@ export interface SupervisorAgentDeps {
   readonly compaction?: ToolLoopCompactionOptions
   /** Pass-through subscriber for every coordination bus event (both arms) — the seam a durable
    *  caller hooks its coordination log onto. */
-  readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
-  /** Questions + findings replayed from a prior process of this run (a durable coordination log).
-   *  Router arm: seeds the question ledger + the resume brief. Sandbox arm: seeds the ledger. */
+  readonly onEvent?: (
+    event: CoordinationEvent,
+    record: BusRecord<CoordinationEvent>,
+  ) => void | Promise<void>
+  /** Questions, findings, and authorized continuation receipts loaded from a prior process.
+   *  Router arm: questions seed the ledger and all evidence enters the resume brief. External arm:
+   *  questions seed the ledger; receipts remain durable evidence and are never auto-delivered. */
   readonly priorCoordination?: PriorCoordination
+  /** Deferred owner-scoped replay for a recursive supervisor. Its stable owner is known while the
+   * parent authorizes the child, but loading remains asynchronous; Runtime calls this before the
+   * nested brain can publish or act on coordination state. */
+  readonly loadPriorCoordination?: () => Promise<PriorCoordination>
   /** How the settled ledger becomes the run's output (both arms). Default `bestDelivered` — the
    *  exact keep-best every existing caller had. Always runs under the delivered-only invariant. */
   readonly finalizer?: SupervisorFinalizer
-  /** Where the coordination MCP binds (sandbox arm). Omit = an ephemeral loopback port, which is
+  /** Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
    *  unreachable from an off-host harness. A non-loopback host fails closed — see
    *  {@link assertCoordinationBinding}. */
   readonly coordination?: CoordinationBinding
@@ -342,13 +435,30 @@ export function supervisorAgent(
   profile: SupervisorProfile,
   deps: SupervisorAgentDeps,
 ): Agent<unknown, unknown> {
-  const name = profile.name ?? 'supervisor'
-  const harness = profile.harness ?? null
+  const stableProfile = detachedSnapshot(profile, 'supervisorAgent profile')
+  const resolveTools = deps.resolveSupervisorTools
+  const observeNodeEvent = deps.observeNodeEvent
+  const nodeContextSeed =
+    deps.nodeContext === undefined
+      ? undefined
+      : detachedSnapshot(deps.nodeContext, 'supervisorAgent node context')
+  if ((resolveTools || observeNodeEvent) && !nodeContextSeed) {
+    throw new ValidationError(
+      'supervisorAgent: nodeContext is required with resolveSupervisorTools or observeNodeEvent',
+    )
+  }
+  const name = stableProfile.name ?? 'supervisor'
+  const harness =
+    stableProfile.harness === undefined ||
+    stableProfile.harness === null ||
+    stableProfile.harness === 'cli-base'
+      ? null
+      : stableProfile.harness
   // The prompt is consumed by BOTH arms, so it resolves here; the model id is router-arm-only and
   // resolves inside that arm, so a harness supervisor never touches a field it does not use.
   // No fallback at this site: the harness supplies its own standing prompt, and the router arm
   // re-resolves against its default below so instruction lines append to that default.
-  const profilePrompt = resolveSupervisorSystemPrompt(profile)
+  const profilePrompt = resolveSupervisorSystemPrompt(stableProfile)
 
   // Bind safety is a BUILD-time fault, not a run-time one: it must throw before any compute, on the
   // same synchronous path as the other configuration guards. The binding is SNAPSHOT here and the
@@ -369,56 +479,108 @@ export function supervisorAgent(
 
   if (harness !== null && deps.compaction) {
     throw new ValidationError(
-      'supervisorAgent: compaction is only supported for router-brained supervisors (profile.harness null)',
+      'supervisorAgent: compaction is only supported for router-brained supervisors (profile.harness omitted or cli-base)',
     )
   }
 
   if (harness === null) {
     // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller
     // passes a profile, not a hand-built brain (a test may still inject `deps.brain`).
-    const brain = deps.brain ?? routerBrainFromProfile(profile, deps)
-    return driverAgent({
+    const brain = deps.brain ?? routerBrainFromProfile(stableProfile, deps)
+    const inbox = createInbox()
+    const build = (
+      priorCoordination?: PriorCoordination,
+      nodeTools?: ReadonlyArray<McpToolDescriptor>,
+      onEvent?: SupervisorAgentDeps['onEvent'],
+    ) =>
+      driverAgent({
+        name,
+        brain,
+        blobs: deps.blobs,
+        makeWorkerAgent: deps.makeWorkerAgent,
+        ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
+        perWorker: deps.perWorker,
+        // Resolved against the router's own default, so a profile naming only instruction
+        // lines appends them to that default instead of replacing it.
+        systemPrompt:
+          resolveSupervisorSystemPrompt(stableProfile, defaultSupervisorPrompt) ??
+          defaultSupervisorPrompt,
+        ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+        ...(nodeTools?.length ? { nodeTools } : {}),
+        ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
+        ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
+        ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
+        ...(deps.analysts ? { analysts: deps.analysts } : {}),
+        ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+        ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
+        ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
+        ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
+        ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
+        ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
+        ...(deps.compaction ? { compaction: deps.compaction } : {}),
+        ...(onEvent ? { onEvent } : {}),
+        ...(deps.replaySettlements ? { replaySettlements: true } : {}),
+        ...(priorCoordination ? { priorCoordination } : {}),
+        ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
+        inbox,
+      })
+    if (!deps.loadPriorCoordination && !resolveTools && !observeNodeEvent) {
+      return build(deps.priorCoordination, undefined, deps.onEvent)
+    }
+    return {
       name,
-      brain,
-      blobs: deps.blobs,
-      makeWorkerAgent: deps.makeWorkerAgent,
-      perWorker: deps.perWorker,
-      // Resolved against the router's own default, so a profile naming only instruction
-      // lines appends them to that default instead of replacing it.
-      systemPrompt:
-        resolveSupervisorSystemPrompt(profile, defaultSupervisorPrompt) ?? defaultSupervisorPrompt,
-      ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
-      ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
-      ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
-      ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
-      ...(deps.analysts ? { analysts: deps.analysts } : {}),
-      ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
-      ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
-      ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
-      ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
-      ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
-      ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
-      ...(deps.compaction ? { compaction: deps.compaction } : {}),
-      ...(deps.onEvent ? { onEvent: deps.onEvent } : {}),
-      ...(deps.priorCoordination ? { priorCoordination: deps.priorCoordination } : {}),
-      ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
-    })
+      deliver(message): boolean {
+        return inbox.deliver(message)
+      },
+      async act(task, scope) {
+        const context = nodeContextSeed
+          ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)
+          : undefined
+        const priorCoordination = await deps.loadPriorCoordination?.()
+        const nodeTools =
+          resolveTools && context
+            ? await bindSupervisorTools(resolveTools, context, scope.signal)
+            : undefined
+        const onEvent = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
+        return build(priorCoordination, nodeTools, onEvent).act(task, scope)
+      },
+    }
   }
 
-  // SANDBOX arm: a sandboxed harness drives the coordination verbs over the live scope.
+  // EXTERNAL arm: a caller-driven harness uses the coordination verbs over the live scope.
   const driveHarness = deps.driveHarness
   if (!driveHarness) {
     throw new ValidationError(
       `supervisorAgent: profile.harness="${harness}" needs deps.driveHarness (how to run the harness with the coordination MCP mounted)`,
     )
   }
-  return {
+  const deliver = driveHarness.deliver?.bind(driveHarness)
+  const externalAgent: Agent<unknown, unknown> = {
     name,
+    ...(deliver
+      ? {
+          deliver(message: unknown): boolean {
+            return deliver(message)
+          },
+        }
+      : {}),
     async act(task, scope) {
+      const context = nodeContextSeed
+        ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)
+        : undefined
+      const priorCoordination = deps.loadPriorCoordination
+        ? await deps.loadPriorCoordination()
+        : deps.priorCoordination
+      const nodeTools =
+        resolveTools && context
+          ? await bindSupervisorTools(resolveTools, context, scope.signal)
+          : undefined
+      const onEvent = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
       const mcp = await serveCoordinationMcp({
         scope,
         blobs: deps.blobs,
         makeWorkerAgent: deps.makeWorkerAgent,
+        ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
         perWorker: deps.perWorker,
         ...(coordination?.host !== undefined ? { host: coordination.host } : {}),
         ...(coordination?.port !== undefined ? { port: coordination.port } : {}),
@@ -434,19 +596,26 @@ export function supervisorAgent(
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
-        ...(deps.onEvent ? { onEvent: deps.onEvent } : {}),
-        ...(deps.priorCoordination?.questions.length
-          ? { priorQuestions: deps.priorCoordination.questions }
+        ...(onEvent ? { onEvent } : {}),
+        ...(deps.replaySettlements ? { replaySettlements: true } : {}),
+        ...(priorCoordination?.questions.length
+          ? { priorQuestions: priorCoordination.questions }
           : {}),
+        ...(nodeTools?.length ? { nodeTools } : {}),
       })
       try {
         try {
           await driveHarness({
-            profile,
+            profile: stableProfile,
             ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
             task,
             scope,
             coordinationMcpUrl: mcp.url,
+            coordinationTools: (nodeTools ?? []).map(({ name, description, inputSchema }) => ({
+              name,
+              description,
+              inputSchema,
+            })),
           })
         } catch (error) {
           // Once the injected check has accepted a result, a later backend shutdown/timeout cannot
@@ -460,6 +629,8 @@ export function supervisorAgent(
         // check passes. Raw harness prose remains ineligible.
         const submitted = mcp.submittedResult()
         if (submitted) return submitted.result
+        // The deliverable comes from the finalizer seam over DELIVERED children only — never the
+        // harness's own output (Foreman 0/18). Default keep-best.
         return await runFinalizer(deps.finalizer ?? bestDelivered, {
           settled: mcp.settled(),
           blobs: deps.blobs,
@@ -471,6 +642,97 @@ export function supervisorAgent(
       }
     },
   }
+  const runtime = runtimeOwnedScopeOwnerRuntime(driveHarness)
+  return runtime === undefined
+    ? externalAgent
+    : attestRuntimeOwnedScopeOwner(externalAgent, runtime)
+}
+
+function supervisorNodeContext(
+  seed: SupervisorNodeContextSeed,
+  profile: SupervisorProfile,
+  task: unknown,
+  scope: Scope<unknown>,
+): SupervisorNodeContext {
+  return detachedSnapshot(
+    { ...seed, nodeId: scope.view.root, profile, task },
+    'supervisorAgent trusted node context',
+  )
+}
+
+async function bindSupervisorTools(
+  resolveTools: ResolveSupervisorTools,
+  context: SupervisorNodeContext,
+  signal: AbortSignal,
+): Promise<ReadonlyArray<McpToolDescriptor>> {
+  const resolved = await resolveTools(context)
+  if (!Array.isArray(resolved)) {
+    throw new ValidationError('supervisorAgent: resolveSupervisorTools must return an array')
+  }
+  // Keep the durable node snapshot free of live process objects. The invocation wrapper is frozen
+  // shallowly so handlers cannot replace identity or signal, while the AbortSignal itself remains
+  // live and follows the manager scope's existing root/parent cascade.
+  const invocationContext: SupervisorToolInvocationContext = Object.freeze({ ...context, signal })
+  const names = new Set<string>(coordinationVerbNames)
+  return Object.freeze(
+    resolved.map((rawTool, index) => {
+      if (typeof rawTool !== 'object' || rawTool === null || Array.isArray(rawTool)) {
+        throw new ValidationError(
+          `supervisorAgent: resolved tool at index ${index} must be a descriptor`,
+        )
+      }
+      const { name, description, inputSchema, handler } = rawTool
+      if (typeof name !== 'string' || name.length === 0) {
+        throw new ValidationError(
+          `supervisorAgent: resolved tool at index ${index} needs a non-empty name`,
+        )
+      }
+      if (names.has(name)) {
+        throw new ValidationError(
+          `supervisorAgent: resolved tool "${name}" collides with a coordination verb or another resolved tool`,
+        )
+      }
+      names.add(name)
+      if (typeof description !== 'string' || description.length === 0) {
+        throw new ValidationError(`supervisorAgent: resolved tool "${name}" needs a description`)
+      }
+      if (typeof inputSchema !== 'object' || inputSchema === null || Array.isArray(inputSchema)) {
+        throw new ValidationError(`supervisorAgent: resolved tool "${name}" needs an inputSchema`)
+      }
+      if (typeof handler !== 'function') {
+        throw new ValidationError(`supervisorAgent: resolved tool "${name}" needs a handler`)
+      }
+      const descriptor = detachedSnapshot(
+        { name, description, inputSchema },
+        `supervisorAgent resolved tool ${JSON.stringify(name)}`,
+      )
+      return Object.freeze({
+        ...descriptor,
+        handler: (raw: unknown) =>
+          handler(
+            detachedSnapshot(raw, `supervisorAgent tool ${JSON.stringify(name)} input`),
+            invocationContext,
+          ),
+      })
+    }),
+  )
+}
+
+function bindSupervisorNodeObserver(
+  context: SupervisorNodeContext | undefined,
+  observeNodeEvent: ObserveSupervisorNodeEvent | undefined,
+  onEvent: SupervisorAgentDeps['onEvent'],
+): SupervisorAgentDeps['onEvent'] {
+  if (!observeNodeEvent && !onEvent) return undefined
+  return async (event, record) => {
+    if (observeNodeEvent) {
+      if (!context) {
+        throw new ValidationError('supervisorAgent: observeNodeEvent has no trusted node context')
+      }
+      await observeNodeEvent(context, event, record)
+    }
+    await onEvent?.(event, record)
+  }
 }
 
 function routerBrainFromProfile(
@@ -479,7 +741,7 @@ function routerBrainFromProfile(
 ): ToolLoopChat {
   if (!deps.router) {
     throw new ValidationError(
-      'supervisorAgent: a router-brained supervisor (harness null) needs deps.router (or deps.brain)',
+      'supervisorAgent: a router-brained supervisor (harness omitted or cli-base) needs deps.router (or deps.brain)',
     )
   }
   // The model id is resolved HERE, the one place it is consumed. `model.reasoningEffort` is not

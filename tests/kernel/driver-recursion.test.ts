@@ -100,12 +100,13 @@ function scriptedDriver(
     scope: Scope<unknown>,
   ) => Array<{ label: string; agent: Agent<unknown, unknown> }>,
   observed: Observed,
+  childBudget = perChild,
 ): Agent<unknown, unknown> {
   return {
     name,
     async act(task, scope: Scope<unknown>): Promise<unknown> {
       for (const c of spawnChildren(scope)) {
-        const res = scope.spawn(c.agent, task, { budget: perChild, label: c.label })
+        const res = scope.spawn(c.agent, task, { budget: childBudget, label: c.label })
         if (!res.ok) throw new Error(`${name}: spawn ${c.label} failed: ${res.reason}`)
         // The node id IS the nesting proof: a driver child's nested scope parents its own
         // children under the driver's node id, so the worker's id is `rec:s0:s0:s0` — three
@@ -143,6 +144,58 @@ function supervisorOpts(over: Partial<SupervisorOpts> = {}): SupervisorOpts {
 }
 
 describe('recursive driver: agents drive agents drive agents', () => {
+  it('delivers a parent steer through driverChild and the nested driver executor', async () => {
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    let received: unknown
+    let acceptMessage!: () => void
+    const message = new Promise<void>((resolve) => {
+      acceptMessage = resolve
+    })
+    const nested: Agent<unknown, unknown> = {
+      name: 'nested-manager',
+      deliver(value): boolean {
+        received = value
+        acceptMessage()
+        return true
+      },
+      async act() {
+        await message
+        return received
+      },
+    }
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(task, scope) {
+        const spawned = scope.spawn(driverChild('nested-manager', nested, journal), task, {
+          budget: perChild,
+          label: 'nested-manager',
+        })
+        if (!spawned.ok) throw new Error(spawned.reason)
+        expect(
+          scope.send(spawned.handle.id, {
+            steer: 'change the experiment before continuing',
+            interrupt: true,
+          }),
+        ).toBe(true)
+        await scope.next()
+        return received
+      },
+    }
+
+    const result = await createSupervisor<unknown, unknown>().run(
+      root,
+      'task',
+      supervisorOpts({ runId: 'nested-delivery', journal, blobs }),
+    )
+
+    expect(result.kind).toBe('winner')
+    expect(received).toEqual({
+      steer: 'change the experiment before continuing',
+      interrupt: true,
+    })
+  })
+
   it('a driver spawns a driver spawns a worker (depth-2 tree settles, root selects)', async () => {
     const journal = new InMemorySpawnJournal()
     const blobs = new InMemoryResultBlobStore()
@@ -195,6 +248,57 @@ describe('recursive driver: agents drive agents drive agents', () => {
     expect(observed.settledIds).toContain('rec:s0:s0') // worker settled into the nested scope
   })
 
+  it('keeps a nested manager invalid when its finalizer refuses a valid child', async () => {
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    const worker = workerLeaf('worker', {
+      out: { partial: true },
+      tokens: { input: 5, output: 5 },
+      iterations: 1,
+      score: 1,
+    })
+    const refusingManager: Agent<unknown, unknown> = {
+      name: 'refusing-manager',
+      async act(task, scope) {
+        const spawned = scope.spawn(worker, task, {
+          budget: perChild,
+          label: 'worker',
+        })
+        if (!spawned.ok) throw new Error(spawned.reason)
+        await scope.next()
+        return undefined
+      },
+    }
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(task, scope) {
+        const spawned = scope.spawn(
+          driverChild('refusing-manager', refusingManager, journal),
+          task,
+          { budget: perChild, label: 'refusing-manager' },
+        )
+        if (!spawned.ok) throw new Error(spawned.reason)
+        await scope.next()
+        return undefined
+      },
+    }
+
+    const result = await createSupervisor<unknown, unknown>().run(
+      root,
+      'task',
+      supervisorOpts({ runId: 'finalizer-refusal', journal, blobs }),
+    )
+
+    expect(result.kind).toBe('no-winner')
+    const events = await journal.loadTree('finalizer-refusal')
+    const managerSettlement = events?.find((event) => event.kind === 'settled')
+    expect(managerSettlement).toMatchObject({
+      kind: 'settled',
+      status: 'done',
+      verdict: { valid: false },
+    })
+  })
+
   it('conserves the budget across depth: Σ spend over every tree ≤ the root ceiling', async () => {
     const journal = new InMemorySpawnJournal()
     const blobs = new InMemoryResultBlobStore()
@@ -219,9 +323,8 @@ describe('recursive driver: agents drive agents drive agents', () => {
     )
     expect(result.kind).toBe('winner')
 
-    // Sum spend over EVERY journaled tree (root + every nested tree). The conserved pool
-    // guarantees this never exceeds the root ceiling, because every spawn at every depth
-    // reserves from the SAME pool and fails closed when it can't cover the child.
+    // Sum spend over EVERY journaled tree (root + every nested tree). Each nested scope
+    // partitions its parent's reserved allocation and fails closed when a child cannot fit.
     const allTreeKeys = collectTreeKeys(journal)
     let totalTokens = 0
     let totalIterations = 0
@@ -254,12 +357,9 @@ describe('recursive driver: agents drive agents drive agents', () => {
     }
   })
 
-  it('budget is CONSERVED across depth: a deep spawn fails closed when the shared pool is too small', async () => {
-    // The root ceiling is sized to admit the mid driver's reservation but NOT the worker's
-    // on top of it — proving the nested scope reserves from the SAME conserved pool as the
-    // root. The mid driver's spawn of the worker fails closed (budget-exhausted), the driver
-    // throws, the parent types it into a down → no-winner. A non-shared pool would let the
-    // deep spawn succeed and the run would win — so this asserts conservation across depth.
+  it('budget is conserved across depth: a deep spawn cannot exceed its branch allocation', async () => {
+    // The root reserves 1000 tokens for the mid driver. Its nested scope owns exactly that
+    // partition, so a 1001-token child request fails closed even though no sibling is running.
     const journal = new InMemorySpawnJournal()
     const blobs = new InMemoryResultBlobStore()
     const observed = newObserved()
@@ -269,14 +369,15 @@ describe('recursive driver: agents drive agents drive agents', () => {
       iterations: 1,
       score: 0.5,
     })
-    const midDriver = scriptedDriver('mid', () => [{ label: 'w', agent: worker }], observed)
+    const midDriver = scriptedDriver('mid', () => [{ label: 'w', agent: worker }], observed, {
+      maxIterations: 4,
+      maxTokens: 1001,
+    })
     const rootDriver = scriptedDriver(
       'root',
       () => [{ label: 'mid', agent: driverChild('mid', midDriver, journal) }],
       observed,
     )
-    // perChild reserves 1000 tokens / 4 iterations. The root pool holds room for exactly ONE
-    // such reservation (the mid driver); the worker's reservation on top must fail closed.
     const result = await createSupervisor<unknown, unknown>().run(
       rootDriver,
       'task',
@@ -289,8 +390,7 @@ describe('recursive driver: agents drive agents drive agents', () => {
     )
     expect(result.kind).toBe('no-winner')
     if (result.kind === 'no-winner') {
-      // The mid driver was reserved (root scope spawn), but the worker's nested spawn could
-      // not be covered by the remaining pool — the shared pool conserved across depth.
+      // The mid driver was reserved at the root, but its oversized nested child never started.
       expect(observed.spawnedIds).toContain('rec:s0') // mid driver reserved at the root
       expect(observed.spawnedIds).not.toContain('rec:s0:s0') // worker never admitted (no budget)
     }

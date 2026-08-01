@@ -150,11 +150,17 @@ export {
 export {
   type AnalystFindingEvent,
   type AnalystRegistry,
+  type AuthorizeDownMessage,
+  type AuthorizedDownMessage,
+  type ContinuationInstruction,
   type CoordinationEvent,
   type CoordinationTools,
   type CoordinationToolsOptions,
   createCoordinationTools,
   DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
+  type DownMessageAuthorizationInput,
+  type DownMessageDeliveryAttempt,
+  type DownMessageDeliveryOutcome,
   type DownMessageEvent,
   type MakeWorkerAgent,
   type Question,
@@ -165,6 +171,7 @@ export {
   type QuestionRecord,
   type QuestionUrgency,
   type SettledWorker,
+  type WorkerSpawnContext,
   type WorkerWatchOptions,
 } from './tools/coordination'
 export {

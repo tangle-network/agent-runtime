@@ -1,9 +1,11 @@
 import {
   AGENT_PROFILE_MATERIALIZATION_AXES,
   type CanonicalAgentProfileMaterializationAxis,
+  profileMaterializationAxes,
 } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 
+export type { CanonicalAgentProfileMaterializationAxis }
 /**
  * The canonical AgentProfile leaves, re-exported from `@tangle-network/agent-interface`.
  *
@@ -11,7 +13,7 @@ import { ValidationError } from '../errors'
  * contract must name every leaf it carries, because claiming a compound parent while dropping one
  * of its children is exactly the silent-drop this module exists to catch.
  */
-export { AGENT_PROFILE_MATERIALIZATION_AXES }
+export { AGENT_PROFILE_MATERIALIZATION_AXES, profileMaterializationAxes }
 
 export type KnownAgentProfileMaterializationAxis = CanonicalAgentProfileMaterializationAxis
 
@@ -84,6 +86,72 @@ const compoundAxisLeaves: Record<string, readonly CanonicalAgentProfileMateriali
   mcpConnections: ['mcp'],
 }
 
+/** Materialization contract for a run path that executes every canonical AgentProfile leaf. */
+export const fullProfileMaterialization = defineProfileMaterializationContract({
+  name: 'full-profile-execution',
+  axes: AGENT_PROFILE_MATERIALIZATION_AXES,
+})
+
+/**
+ * Materialization contract for an intentionally limited prompt-and-model execution path.
+ * Identity, harness, and metadata are control fields consumed for naming, placement,
+ * authorization, and durable attribution; they are carried without adding worker behavior.
+ * Every behavioral axis other than prompt and model remains unsupported.
+ */
+export const promptModelProfileMaterialization = defineProfileMaterializationContract({
+  name: 'prompt-model-execution',
+  axes: ['name', 'systemPrompt', 'instructions', 'modelDefault', 'harness', 'metadata'],
+})
+
+/**
+ * Materialization contract for a local coding CLI in an isolated git worktree.
+ * The shared workspace materializer carries native tools, permissions, MCP, hooks, subagents,
+ * modes, and file-backed resources when the selected CLI supports their exact values.
+ * `resourceFailOnError` is carried: it is the fail-closed policy the pre-worktree resource
+ * RESOLUTION step (`resolveAgentProfileResources`) applies to remote profile resources. Runtime
+ * placement concerns (hub connections and confidential execution), provider-native extensions,
+ * and unused model hints are deliberately absent so they fail before a worktree or executor is
+ * created rather than being mistaken for an effective candidate change.
+ */
+export const worktreeCliProfileMaterialization = defineProfileMaterializationContract({
+  name: 'worktree-cli-execution',
+  axes: [
+    'name',
+    'systemPrompt',
+    'instructions',
+    'modelDefault',
+    'modelReasoningEffort',
+    'harness',
+    'permissions',
+    'tools',
+    'mcp',
+    'subagents',
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+    'resourceFailOnError',
+    'hooks',
+    'modes',
+    'metadata',
+  ],
+})
+
+/** Materialization contract for a raw process path that carries only control/identity fields. */
+export const controlProfileMaterialization = defineProfileMaterializationContract({
+  name: 'control-only-execution',
+  axes: ['name', 'harness', 'metadata'],
+})
+
+/** Materialization contract for an injected inference function whose surrounding driver still
+ * applies the profile prompt, name, placement, and metadata, but not model selection. */
+export const promptControlProfileMaterialization = defineProfileMaterializationContract({
+  name: 'prompt-control-execution',
+  axes: ['name', 'systemPrompt', 'instructions', 'harness', 'metadata'],
+})
+
 /**
  * Materialization contract for `createSandboxAct`.
  *
@@ -95,37 +163,7 @@ const compoundAxisLeaves: Record<string, readonly CanonicalAgentProfileMateriali
  */
 export const sandboxActProfileMaterialization = defineProfileMaterializationContract({
   name: 'createSandboxAct',
-  axes: [
-    'name',
-    'description',
-    'version',
-    'tags',
-    'harness',
-    'systemPrompt',
-    'instructions',
-    'modelDefault',
-    'modelSmall',
-    'modelProvider',
-    'modelReasoningEffort',
-    'modelMetadata',
-    'permissions',
-    'tools',
-    'mcp',
-    'connections',
-    'subagents',
-    'files',
-    'resourceTools',
-    'skills',
-    'resourceAgents',
-    'commands',
-    'resourceInstructions',
-    'resourceFailOnError',
-    'hooks',
-    'modes',
-    'confidential',
-    'metadata',
-    'extensions',
-  ],
+  axes: fullProfileMaterialization.axes,
 })
 
 /** Materialization contract for a run path that only injects prompt text. */

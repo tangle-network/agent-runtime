@@ -201,7 +201,6 @@ describe('runWorktreeHarness profile materialization', () => {
           name: 'resource-instructions',
           content: resourceInstructionMarker,
         },
-        failOnError: true,
       },
     }
 
@@ -370,12 +369,7 @@ describe('runWorktreeHarness profile materialization', () => {
         repoRoot,
         profile: {
           harness: 'codex',
-          model: {
-            default: 'claude-model',
-            small: 'small-routing-hint',
-            provider: 'anthropic',
-            metadata: { tier: 'research' },
-          },
+          model: { default: 'claude-model' },
           prompt: { systemPrompt: 'DIRECT_SYSTEM_a3563f03' },
           resources: {
             files: [
@@ -418,9 +412,6 @@ describe('runWorktreeHarness profile materialization', () => {
           expect(options.harness).toBe('claude')
           expect(options.invocation?.command).toBe('claude')
           expect(options.invocation?.args).toContain('claude-model')
-          expect(options.invocation?.args).not.toContain('small-routing-hint')
-          expect(options.invocation?.args).not.toContain('anthropic')
-          expect(options.invocation?.args).not.toContain('research')
           expect(readFileSync(join(options.cwd, paths.file), 'utf8')).toContain(
             'FILE_MARKER_5570e069',
           )
@@ -656,7 +647,7 @@ describe('runWorktreeHarness profile materialization', () => {
     }
   })
 
-  it('rejects unsupported behavior axes before worker launch and removes the worktree', async () => {
+  it('rejects unsupported behavior axes before worker launch or worktree creation', async () => {
     const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
     const runId = 'unsupported-behavior-axes'
     const runHarness = vi.fn()
@@ -665,11 +656,14 @@ describe('runWorktreeHarness profile materialization', () => {
         runWorktreeHarness({
           repoRoot,
           profile: {
-            tools: { shell: false },
-            permissions: { shell: 'deny' },
+            model: {
+              small: 'routing-model',
+              provider: 'provider-hint',
+              metadata: { tier: 'research' },
+            },
             connections: [{ connectionId: 'connection-1', capabilities: ['read'] }],
+            resources: { failOnError: false },
             confidential: { tee: 'any' },
-            modes: { review: { prompt: 'Review only.' } },
             extensions: { codex: { feature: true } },
           },
           harness: 'codex',
@@ -678,7 +672,7 @@ describe('runWorktreeHarness profile materialization', () => {
           runHarness,
         }),
       ).rejects.toThrow(
-        /unsupported worktree behavior: tools, permissions, connections, confidential, modes, extensions/u,
+        /profile materialization would drop axis changes.*modelSmall, modelProvider, modelMetadata, connections, confidential, extensions/su,
       )
       expect(runHarness).not.toHaveBeenCalled()
       expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
@@ -692,7 +686,9 @@ describe('runWorktreeHarness profile materialization', () => {
     const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
     const runId = 'run-and-cleanup-failures'
     const worktreePath = join(repoRoot, '.agent-worktrees', runId)
-    const runHarness = vi.fn()
+    const runHarness = vi.fn(async () => {
+      throw new Error('simulated harness failure')
+    })
     let interceptedRemoval = false
     const runGit: GitRunner = (args, { cwd }) => {
       if (args[0] === 'worktree' && args[1] === 'remove' && !interceptedRemoval) {
@@ -712,7 +708,7 @@ describe('runWorktreeHarness profile materialization', () => {
       try {
         await runWorktreeHarness({
           repoRoot,
-          profile: { tools: { shell: false } },
+          profile: {},
           harness: 'codex',
           taskPrompt: 'task',
           runId,
@@ -725,12 +721,12 @@ describe('runWorktreeHarness profile materialization', () => {
 
       expect(error).toBeInstanceOf(AggregateError)
       const errors = (error as AggregateError).errors as Error[]
-      expect(errors[0]?.message).toContain('unsupported worktree behavior: tools')
+      expect(errors[0]?.message).toContain('simulated harness failure')
       expect(errors[1]).toBeInstanceOf(AggregateError)
       const cleanupErrors = (errors[1] as AggregateError).errors as Error[]
       expect(cleanupErrors[0]?.message).toContain('worktree remove')
       expect(cleanupErrors[1]?.message).toContain('branch -D')
-      expect(runHarness).not.toHaveBeenCalled()
+      expect(runHarness).toHaveBeenCalledOnce()
       expect(interceptedRemoval).toBe(true)
       expect(existsSync(worktreePath)).toBe(true)
     } finally {
@@ -740,7 +736,7 @@ describe('runWorktreeHarness profile materialization', () => {
     }
   })
 
-  it('rejects nested controls the pinned materializer would silently drop', async () => {
+  it('rejects harness-specific controls the current materializer cannot preserve', async () => {
     const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
     const runHarness = vi.fn()
     const cases: Array<{
@@ -753,13 +749,6 @@ describe('runWorktreeHarness profile materialization', () => {
         runId: 'codex-nested-controls',
         harness: 'codex',
         profile: {
-          mcp: {
-            disabled: {
-              command: 'node',
-              enabled: false,
-              headers: { Authorization: 'redacted' },
-            },
-          },
           subagents: {
             helper: {
               prompt: 'Help.',
@@ -770,11 +759,9 @@ describe('runWorktreeHarness profile materialization', () => {
           },
         },
         dropped: [
-          'mcp["disabled"].enabled',
-          'mcp["disabled"].headers',
-          'subagents["helper"].permissions',
-          'subagents["helper"].maxSteps',
-          'subagents["helper"].tools',
+          'subagent "helper" does not support tools',
+          'subagent "helper" does not support permissions',
+          'subagent "helper" does not support maxSteps',
         ],
       },
       {
@@ -782,21 +769,14 @@ describe('runWorktreeHarness profile materialization', () => {
         harness: 'claude',
         profile: {
           model: { reasoningEffort: 'high' },
-          hooks: {
-            PreToolUse: [{ command: 'node hook.mjs', env: { MODE: 'strict' }, blocking: false }],
-          },
         },
-        dropped: [
-          'model.reasoningEffort',
-          'hooks["PreToolUse"][0].env',
-          'hooks["PreToolUse"][0].blocking',
-        ],
+        dropped: ['model.reasoningEffort'],
       },
       {
         runId: 'opencode-nested-controls',
         harness: 'opencode',
         profile: { mcp: { local: { command: 'node', cwd: 'required-directory' } } },
-        dropped: ['mcp["local"].cwd'],
+        dropped: ['MCP server "local" does not support a cwd field'],
       },
     ]
 

@@ -217,6 +217,8 @@ export type {
   SupervisedResult,
   Supervisor,
   SupervisorFinalizer,
+  WorkerTraceEvidence,
+  WorkerTraceUnavailableReason,
 } from './runtime'
 // ── Runtime hooks ────────────────────────────────────────────────────
 export type {

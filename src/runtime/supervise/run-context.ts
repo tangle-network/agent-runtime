@@ -61,10 +61,11 @@ export interface InMemoryRunContext {
    */
   readonly resume?: boolean
   /**
-   * Present only on a DURABLE context: the coordination side-log (questions + analyst findings —
-   * the bus messages the spawn journal does not record). `supervise({ runDir })` appends to it as
-   * they publish and replays it on resume, so a restarted coordinator keeps them. In-memory
-   * contexts have none: nothing outlives the process to replay into.
+   * Present only on a DURABLE context: the coordination side-log stores questions, analyst
+   * findings, answer decisions, and authorized continuation receipts that the spawn journal does
+   * not own. `supervise({ runDir })` appends them as they publish and loads them on resume.
+   * Continuation receipts are evidence and are never auto-delivered to a replacement worker.
+   * In-memory contexts have none: nothing outlives the process.
    */
   readonly coordinationLog?: CoordinationLog
 }
@@ -94,8 +95,9 @@ export function createInMemoryRunContext(opts: InMemoryRunContextOptions = {}): 
  * back on `Scope.resume` (rehydrated by `replaySpawnTree`) instead of being re-executed.
  *
  * Layout: `${dir}/spawn-journal.jsonl` (one JSONL record per event), `${dir}/blobs/` (one
- * content-addressed JSON file per settled result), and `${dir}/coordination-log.jsonl` (questions
- * + findings, replayed into a resumed driver). The directory is created on first write.
+ * content-addressed JSON file per settled result), and `${dir}/coordination-log.jsonl`
+ * (questions, findings, answer decisions, and authorized continuation receipts retained as
+ * evidence). The directory is created on first write.
  *
  * Opt-in by construction — `createInMemoryRunContext()` is unchanged and stays the default, so no
  * existing consumer writes to disk or resumes unless it asks for this.

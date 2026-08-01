@@ -12,7 +12,7 @@
  */
 
 import { appendFileSync } from 'node:fs'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -148,6 +148,10 @@ const root: Agent<unknown, string> = {
 const ctx = createFileRunContext(dir)
 const result = await createSupervisor<unknown, string>().run(root, 'task', {
   budget: { maxIterations: 50, maxTokens: 100_000 },
+  rootIdentity: {
+    profileDigest: canonicalCandidateDigest({ name: root.name }),
+    taskDigest: canonicalCandidateDigest('task'),
+  },
   runId,
   ...ctx,
   now: () => (phase === '1' ? 1_000 : 2_000),

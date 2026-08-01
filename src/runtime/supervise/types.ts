@@ -26,7 +26,7 @@
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentProfile, Sha256Digest } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
@@ -70,6 +70,13 @@ export interface WaitOpts {
 export interface Agent<Task, Out> {
   readonly name: string
   act(task: Task, scope: Scope<Out>): Promise<Out>
+  /**
+   * Optional manager inbox. A parent or attached `RootHandle` uses this to deliver the same raw
+   * down-message accepted by executor inboxes. Return `false` when the manager has no live receive
+   * path; returning `true` means the message was accepted for the current manager session.
+   */
+  // biome-ignore lint/suspicious/noConfusingVoidType: void is the legacy contract; boolean adds an acknowledgement without breaking existing agents.
+  deliver?(msg: unknown): void | boolean
 }
 
 // ── The open leaf runtime ─────────────────────────────────────────────────────
@@ -85,16 +92,17 @@ export interface Agent<Task, Out> {
  * Built-in implementations (in `runtime.ts`, NOT variants here): router/inline (a direct
  * Router/HTTP inference call, no box), sandbox (COMPOSES `runAgentRounds` as a leaf, forwarding
  * PR #150's optional `lineage` passthrough — does NOT reinvent checkpoint/fork), cli
- * (Halo/RLM subprocess; `budgetExempt`, excluded from equal-k by construction). A user's
+ * (Halo/RLM subprocess; `budgetExempt`, refused by budgeted supervision). A user's
  * own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this interface.
  */
 export interface Executor<Out> {
   /** Stable runtime tag for traces + the equal-k exemption check. */
   readonly runtime: Runtime
   /**
-   * When true, this executor's spend is NOT metered against the conserved pool and its
-   * iterations are excluded from the equal-k assertion (a `cli` subprocess without
-   * token accounting). Fail-loud everywhere else: a metered executor MUST report usage.
+   * When true, this executor cannot report the usage a conserved pool would need (for example, a
+   * subscription CLI with no token receipt). `Executor` can still be used directly, but `Scope`
+   * refuses it before `execute` so unknown compute can never appear as measured zero in a
+   * supervised or equal-resource run. A metered executor MUST report usage.
    */
   readonly budgetExempt?: boolean
   /**
@@ -110,10 +118,11 @@ export interface Executor<Out> {
    * Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
    * verb). A streaming executor drains pending messages between turns and folds them into the next
    * step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
-   * this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the
-   * executor's to ignore.
+   * this; `Scope.send` then returns `false` for it. Never throws — an inbox that rejects a malformed
+   * message returns `false`, and that refusal propagates to the caller.
    */
-  deliver?(msg: unknown): void
+  // biome-ignore lint/suspicious/noConfusingVoidType: void is the legacy contract; boolean adds an acknowledgement without breaking existing executors.
+  deliver?(msg: unknown): void | boolean
   /**
    * Optional LIVE progress: what this worker is doing RIGHT NOW, read synchronously and
    * cheaply while `execute` is still streaming. The scope already derives activity timing,
@@ -146,6 +155,15 @@ export interface Executor<Out> {
    */
   resultArtifact(): { outRef: string; out: Out; verdict?: DefaultVerdict; spent: Spend }
   /**
+   * Optional accounting split for recursive executors.
+   * `reported` is the child-work spend written on this node's settlement; `reservation` is the
+   * whole amount reconciled against this node's parent reservation.
+   * They differ when a driver owns a nested allocation: its child work and own inference consume
+   * that allocation together, while the journal keeps those two categories separate.
+   * Valid after `execute` resolves or throws; ordinary leaf executors omit it.
+   */
+  accounting?(): ExecutorAccounting | undefined
+  /**
    * A driver-executor's OWN-inference subtree total (rolled up from its nested tree's `metered`
    * events) — the parent scope journals it as a `metered` event for this node on settle, on BOTH
    * the done AND the down/crash paths, so a crashed sub-driver's partial inference still re-homes
@@ -154,6 +172,38 @@ export interface Executor<Out> {
    * executors omit it (returns `undefined`).
    */
   metered?(): Spend | undefined
+}
+
+/** Why Runtime cannot provide structured tool-call evidence for one settled execution. */
+export type WorkerTraceUnavailableReason =
+  | 'execution-did-not-start'
+  | 'executor-did-not-expose-trace-source'
+  | 'trace-source-unavailable'
+  | 'no-tool-spans-captured'
+  | 'invalid-tool-spans'
+  | 'trace-collection-failed'
+  | 'trace-persistence-failed'
+  | 'legacy-settlement-without-trace-evidence'
+  | 'not-an-executor'
+
+/** Durable proof of a worker's structured tool trace, or the exact reason it is unavailable. */
+export type WorkerTraceEvidence =
+  | {
+      readonly status: 'available'
+      /** Content-addressed pointer to a persisted `WorkerToolTraceArtifact`. */
+      readonly traceRef: string
+      readonly spanCount: number
+    }
+  | {
+      readonly status: 'unavailable'
+      readonly reason: WorkerTraceUnavailableReason
+    }
+
+/** Split used by a recursive executor when journaled child work differs from the full amount
+ * reconciled against its parent reservation. */
+export interface ExecutorAccounting {
+  readonly reported: Spend
+  readonly reservation: Spend
 }
 
 /** Terminal artifact of a one-shot `Executor.execute`. */
@@ -196,11 +246,12 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
 // ── Executor resolution (OPEN registry, not a switch) ─────────────────────────
 
 /**
- * `AgentProfile` does NOT carry a `harness`/backend field — `harness` lives on the
- * sandbox SDK's `BackendConfig`, not the portable profile. So an agent is mapped to its
- * executor through this MINIMAL wrapper, never by fabricating a field onto `AgentProfile`.
+ * `AgentProfile.harness` is a portable preference; this wrapper records the executor decision for
+ * one concrete run. A caller may honor the preference, override it for a comparison cell, or supply
+ * an executor directly, without changing the profile's behavioral identity.
  *
  * Resolution (in `runtime.ts`):
+ *  - `executorFactory` present → BYO: build it after admission with the live context.
  *  - `executor` present        → BYO: use it verbatim (a user's own `Executor`).
  *  - `harness === null`        → router/inline: a direct Router call, no box.
  *  - `harness` is a `BackendType` → sandbox: compose `runAgentRounds` against `profile` on that backend.
@@ -210,8 +261,136 @@ export interface AgentSpec {
   readonly profile: AgentProfile
   /** `null` selects router/inline; a `BackendType` selects the sandboxed harness. */
   readonly harness: BackendType | null
+  /** Trusted candidate/campaign attribution supplied by the caller. Profile/task digests are
+   *  computed by Scope from the exact values it executes and cannot be supplied here. */
+  readonly execution?: AgentExecutionRef
+  /** Per-spawn factory carrying caller configuration. Constructed only after admission, with the
+   *  real child signal and nested-scope context. */
+  readonly executorFactory?: ExecutorFactory<unknown>
   /** Bring-your-own executor: when set, overrides harness-based resolution entirely. */
   readonly executor?: Executor<unknown>
+}
+
+/** Caller-owned identity beyond the exact profile/task bytes Scope can compute itself. */
+export interface AgentExecutionRef {
+  readonly candidateDigest?: Sha256Digest
+  readonly correlation?: Readonly<Record<string, string>>
+}
+
+/** Durable identity of one realized node. Missing digests mean the input was not canonical JSON. */
+export interface NodeExecutionIdentity extends AgentExecutionRef {
+  readonly profileDigest?: Sha256Digest
+  readonly taskDigest?: Sha256Digest
+}
+
+/** A named model carried into an execution, or an explicit reason the exact model is unknowable. */
+export type MaterializedModelIdentity =
+  | { readonly status: 'known'; readonly id: string }
+  | { readonly status: 'unknown'; readonly reason: string }
+
+/** External execution identity that operators can use to join this node to its backend. */
+export interface MaterializedExecutionIdentity {
+  /** Backend-native identity kind, for example `request`, `session`, `run`, `process`, or `tree`. */
+  readonly kind: string
+  readonly id: string
+}
+
+/**
+ * Data-only declaration from trusted executor code about the exact sealed plan `execute` uses.
+ * Scope snapshots this value and computes the durable receipt; callers never provide digests.
+ */
+export interface ExecutorMaterialization {
+  /** Complete profile after trusted runtime-owned attachments or backend overlays were applied. */
+  readonly effectiveProfile: AgentProfile
+  /** Concrete backend or harness selected for this run. */
+  readonly backend: string
+  /** Exact selected model, or an explicit unknown reason. */
+  readonly model: MaterializedModelIdentity
+  /** Backend-native session/run/request/process identity. */
+  readonly execution: MaterializedExecutionIdentity
+  /** Named implementation that turns the effective profile into executable backend inputs. */
+  readonly materializer: string
+  /** Finite JSON describing the exact materialization plan. Persisted by digest only. */
+  readonly plan: unknown
+  /** Trusted runtime-only attachments, such as the coordination MCP. Persisted by digest only. */
+  readonly platformAttachments?: unknown
+}
+
+/** Volatile execution routing that is true for one attempt but is not profile identity. The full
+ * binding is hashed and discarded; only the safe structural descriptor is journaled. */
+export interface ExecutorExecutionBinding {
+  readonly attemptId: string
+  readonly binding: unknown
+  readonly descriptor: Readonly<Record<string, string | number | boolean | null>>
+}
+
+/** Why exact materialization evidence is unavailable for a node. */
+export type UnknownMaterializationReason =
+  | 'executor-did-not-report'
+  | 'invalid-executor-report'
+  | 'root-agent-did-not-report'
+
+/** What the kernel can prove about one node's actual execution plan. */
+export type ProfileMaterializationReceipt =
+  | {
+      readonly status: 'known'
+      readonly authoredProfileDigest: Sha256Digest
+      readonly effectiveProfileDigest: Sha256Digest
+      readonly materializationPlanDigest: Sha256Digest
+      readonly platformAttachmentsDigest?: Sha256Digest
+      readonly runtime: Runtime
+      readonly backend: string
+      readonly model: MaterializedModelIdentity
+      readonly execution: MaterializedExecutionIdentity
+      readonly materializer: string
+    }
+  | {
+      readonly status: 'unknown'
+      readonly authoredProfileDigest?: Sha256Digest
+      readonly runtime: Runtime
+      readonly reason: UnknownMaterializationReason
+    }
+
+/** One attempt's immutable link from a stable materialization plan to its actual transport. */
+export type ExecutionBindingReceipt =
+  | {
+      readonly status: 'known'
+      readonly attemptId: string
+      readonly materializationReceiptDigest: Sha256Digest
+      readonly bindingDigest: Sha256Digest
+      readonly descriptor: Readonly<Record<string, string | number | boolean | null>>
+    }
+  | {
+      readonly status: 'unknown'
+      readonly attemptId: string
+      readonly materializationReceiptDigest: Sha256Digest
+      readonly reason: UnknownMaterializationReason
+    }
+
+/** Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. */
+export type RootMaterialization =
+  | {
+      readonly runtime: Runtime
+      readonly declaration: ExecutorMaterialization
+      readonly binding: Omit<ExecutorExecutionBinding, 'attemptId'>
+    }
+  | {
+      /** The runtime-owned external adapter will publish the exact declaration after its dynamic
+       * platform attachment (for example a coordination URL) exists and before paid work starts. */
+      readonly runtime: Runtime
+      readonly declaration: 'deferred'
+      /** Exact admitted profile used to validate the stable effective identity at publication. */
+      readonly authoredProfile: AgentProfile
+    }
+
+/** Kernel-owned context for the concrete supervised node a factory is constructing. */
+export interface ExecutorNodeContext {
+  readonly rootId: NodeId
+  readonly parentId: NodeId
+  readonly nodeId: NodeId
+  /** Kernel-minted identity for this concrete execution attempt. */
+  readonly attemptId: string
+  readonly identity?: NodeExecutionIdentity
 }
 
 /**
@@ -226,6 +405,8 @@ export type ExecutorFactory<Out> = (spec: AgentSpec, ctx: ExecutorContext) => Ex
  *  the factory reaching into module globals. */
 export interface ExecutorContext {
   readonly signal: AbortSignal
+  /** Present when Scope constructs the executor for a supervised node. */
+  readonly node?: ExecutorNodeContext
   /** Opaque seams the registry threads through; a built-in narrows what it needs. */
   readonly seams: Readonly<Record<string, unknown>>
 }
@@ -240,8 +421,8 @@ export interface ExecutorRegistry {
   /** Register a factory for a named runtime. Throws on a duplicate name (fail loud). */
   register<Out>(runtime: Runtime, factory: ExecutorFactory<Out>): void
   /**
-   * Resolve a spec to a factory. Precedence: a BYO `spec.executor` → a trivial factory
-   * returning it; else `harness === null` → the `'router'` factory; else a registered
+   * Resolve a spec to a factory. Precedence: a BYO `spec.executorFactory` → `spec.executor` →
+   * `harness === null` → the `'router'` factory; else a registered
    * factory for the harness-derived runtime. Returns a typed outcome — the caller
    * inspects `succeeded` before `value` (no silent fallback).
    */
@@ -303,6 +484,9 @@ export type NodeId = string
 export interface SpawnOpts {
   readonly budget: Budget
   readonly label: string
+  /** Manager-scoped semantic assignment identity. Unlike `key`, this names every spawn, including
+   * unkeyed siblings, so product traces can join authorization, node, and backend execution. */
+  readonly assignmentId?: string
   readonly restart?: Restart
   /** Teardown grace handed to the executor when this node is reaped. */
   readonly shutdown?: number | 'brutalKill' | 'infinity'
@@ -320,8 +504,8 @@ export interface SpawnOpts {
 }
 
 /** Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
- *  no dollars, an exceeded recursion ceiling, or a `key` that is still LIVE in this scope (the
- *  same assignment may not run twice concurrently).
+ *  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, or a `key` that
+ *  is still LIVE in this scope (the same assignment may not run twice concurrently).
  *
  *  `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
  *  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
@@ -331,6 +515,10 @@ export type SpawnRejection =
   | 'usd-unbudgeted'
   | 'depth-exceeded'
   | 'duplicate-key'
+  | 'invalid-identity'
+  | 'key-conflict'
+  | 'max-live-workers'
+  | 'scope-aborted'
 
 /**
  * What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
@@ -339,8 +527,10 @@ export type SpawnRejection =
  * `'lost'` DID spawn fresh: the prior attempt settled `down` (retried) or was journaled as
  * started but never settled — the process died with it in flight and the built-in executors
  * cannot re-attach to a dead process's work, so the result is explicitly in doubt (lost), never
- * silently duplicated. An executor that CAN re-attach to a still-running external execution (a
- * live sandbox box) extends this union with an adoption state; none of the built-ins can today.
+ * silently duplicated. On restart, an in-doubt attempt's full declared reservation is charged and
+ * its telemetry remains unknown; a fresh retry is admitted only from safely remaining capacity.
+ * An executor that CAN re-attach to a still-running external execution extends this union with an
+ * adoption state; none of the built-ins can today.
  */
 export type SpawnPrior<Out = unknown> =
   | { readonly state: 'completed'; readonly settled: Settled<Out> & { kind: 'done' } }
@@ -356,6 +546,14 @@ export interface Handle<Out> {
   readonly id: NodeId
   readonly label: string
   readonly status: NodeStatus
+  /** Manager-scoped assignment identity supplied at admission. */
+  readonly assignmentId?: string
+  /** Durable identity of the authorized profile/task/candidate represented by this handle. */
+  readonly identity?: NodeExecutionIdentity
+  /** Stable execution plan once Runtime has committed it. */
+  readonly materialization?: ProfileMaterializationReceipt
+  /** Immutable per-attempt backend bindings committed so far, oldest first. */
+  readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
   abort(reason?: string): void
   /** Phantom: binds the handle to the child's output type so `spawn<C>` returns a
    *  `Handle<C>` distinct from a `Handle<other>`. Type-only — never present at runtime. */
@@ -375,6 +573,10 @@ export type Settled<Out> =
       outRef: string
       verdict?: DefaultVerdict
       spent: Spend
+      /** Structured tool evidence captured before this settlement was journaled. */
+      trace: WorkerTraceEvidence
+      /** Epoch ms parsed from the durable settlement record when available. */
+      settledAt?: number
       seq: number
     }
   | {
@@ -384,6 +586,10 @@ export type Settled<Out> =
       /** True = infrastructure failure (excluded from merge `n` / equal-k), not a bad result. */
       infra: boolean
       restartCount: number
+      /** Partial structured tool evidence captured before this failure was journaled. */
+      trace: WorkerTraceEvidence
+      /** Epoch ms parsed from the durable settlement/cancellation record when available. */
+      settledAt?: number
       seq: number
     }
 
@@ -397,14 +603,18 @@ export type Settled<Out> =
  */
 export interface Scope<Out> {
   /**
-   * Spawn a child. Reserves `opts.budget` from the conserved pool atomically; refunds the
-   * unspent remainder on settle. Returns a typed outcome — fail-closed on an exhausted
-   * pool, an exceeded depth ceiling, or a still-live duplicate `key` (the caller inspects
-   * `ok` before `handle`). A KEYED spawn whose key already settled `done` spends nothing:
-   * it returns the committed result on `prior` instead of re-running (see `SpawnOpts.key`).
+   * Spawn a child. For a fresh key or an unkeyed spawn, tree-wide worker admission happens before a
+   * lazy factory is called, so a full worker allocation creates no worker, executor, or reservation.
+   * Reserves `opts.budget` from the conserved pool atomically; refunds the unspent remainder on
+   * settle. Returns a typed outcome — fail-closed on an exhausted pool, an exceeded depth ceiling, a
+   * full worker allocation, or a still-live duplicate `key` (the caller inspects `ok` before
+   * `handle`). A KEYED spawn whose key already settled `done` invokes the factory only far enough to
+   * prepare and authorize the exact profile/task identity, then compares that identity with the
+   * journal. On a match it spends nothing, constructs no executor, reserves no budget, and runs no
+   * work: it returns the committed result on `prior` (see `SpawnOpts.key`).
    */
   spawn<C extends Out>(
-    agent: Agent<unknown, C>,
+    agent: Agent<unknown, C> | (() => Agent<unknown, C>),
     task: unknown,
     opts: SpawnOpts,
   ): { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> } | { ok: false; reason: SpawnRejection }
@@ -499,13 +709,21 @@ export interface Scope<Out> {
   /** Conserved-pool readouts (post-reservation). */
   readonly budget: Readonly<{
     tokensLeft: number
+    /** `false` once a turn settled without reporting its tokens: `tokensLeft` is then a ceiling,
+     *  not a measurement. */
+    tokensKnown: boolean
     usdLeft: number
     usdCapped: boolean
+    usdKnown: boolean
+    iterationsLeft: number
     deadlineMs: number
     reservedTokens: number
-    /** Present and `false` once a turn settled without reporting its tokens: `tokensLeft` is then
-     *  a ceiling, not a measurement. Absent means every settled turn reported. */
-    tokensKnown?: boolean
+  }>
+  /** One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
+   *  the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set. */
+  readonly workerCapacity: Readonly<{
+    live: number
+    freeSlots: number | null
   }>
 }
 
@@ -546,6 +764,8 @@ export interface ResumedWork<Out> {
 export interface ResumedKeyState<Out = unknown> {
   readonly id: NodeId
   readonly label: string
+  /** Identity recorded when this key was first admitted. Every reuse must match it exactly. */
+  readonly identity?: NodeExecutionIdentity
   readonly state: 'completed' | 'down' | 'in-doubt'
   /** The rehydrated settlement; absent exactly when `state` is `'in-doubt'`. */
   readonly settled?: Settled<Out>
@@ -560,10 +780,23 @@ export interface NodeSnapshot {
   readonly status: NodeStatus
   readonly runtime: Runtime
   readonly budget: Budget
+  /** Exact nested journal tree owned by this node, when Runtime attested recursive ownership. */
+  readonly ownedTreeRoot?: NodeId
+  /** Manager-scoped assignment identity, including deterministic ids for unkeyed siblings. */
+  readonly assignmentId?: string
+  readonly identity?: NodeExecutionIdentity
+  /** Kernel-owned execution evidence. `unknown` is distinct from a known zero/empty plan. */
+  readonly materialization?: ProfileMaterializationReceipt
+  /** Immutable attempt bindings, oldest first. A retried/resumed node may have more than one. */
+  readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
+  /** Epoch ms of the terminal journal record; absent while live or when legacy evidence lacks it. */
+  readonly settledAt?: number
   /** Conserved spend so far for this node. */
   readonly spent: Spend
   /** `outRef` once the node is `done` (the replay/result pointer). */
   readonly outRef?: string
+  /** Present on terminal executor nodes; legacy records carry an explicit unavailable reason. */
+  readonly trace?: WorkerTraceEvidence
 }
 
 /** The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer. */
@@ -591,8 +824,33 @@ export type SpawnEvent =
       /** The semantic spawn key (`SpawnOpts.key`), when the spawn carried one — what a resumed
        *  run matches to resolve the same assignment to its committed result. */
       key?: string
+      /** Manager-scoped assignment identity used to join unkeyed and keyed work alike. */
+      assignmentId?: string
       budget: Budget
       runtime: Runtime
+      /** Exact nested journal tree this node owns. Runtime writes this only after privately
+       * attesting the executor as a recursive scope owner. Its absence means no tree is followed,
+       * including records written before this field existed and caller leaves named `driver`. */
+      ownedTreeRoot?: NodeId
+      /** Exact profile/task digests plus trusted candidate/campaign attribution when available. */
+      identity?: NodeExecutionIdentity
+      seq: number
+      at: string
+    }
+  | {
+      /** Volatile transport/session binding for exactly one attempt. The full binding is retained
+       * only by digest; descriptor fields are safe structural labels, never credential-bearing URLs. */
+      kind: 'execution-bound'
+      id: NodeId
+      binding: ExecutionBindingReceipt
+      seq: number
+      at: string
+    }
+  | {
+      /** Trusted runtime transformation from the authorized profile to actual wire bytes. */
+      kind: 'materialized'
+      id: NodeId
+      receipt: ProfileMaterializationReceipt
       seq: number
       at: string
     }
@@ -605,6 +863,11 @@ export type SpawnEvent =
       verdict?: DefaultVerdict
       spent: Spend
       infra?: boolean
+      /** Exact child failure. Present on every new `status: 'down'` record; optional only so
+       * journals written before this field existed remain replayable. */
+      reason?: string
+      /** Structured tool evidence. Optional only for journals written before trace capture. */
+      trace?: WorkerTraceEvidence
       seq: number
       at: string
     }
@@ -684,6 +947,11 @@ export interface Supervisor<Task, Out> {
 export interface SupervisorOpts {
   /** The root conserved-pool ceiling (tokens + usd + iterations + deadline). */
   readonly budget: Budget
+  /** Exact root profile/task identity supplied by the one-call composition surface. */
+  readonly rootIdentity?: NodeExecutionIdentity
+  /** Trusted composition evidence for a root whose `act` drives an external backend. A generic
+   *  root omits it and is durably marked unknown; model-facing Scope never receives this writer. */
+  readonly rootMaterialization?: RootMaterialization
   /** Trace-correlation root + the journal/blob root key. */
   readonly runId: NodeId
   /** Event source — defaults to the in-memory journal in the impl; pass JSONL/FS for durability. */
@@ -698,6 +966,9 @@ export interface SupervisorOpts {
   readonly probes?: WaitProbeRegistry
   /** Runtime recursion-depth ceiling (paired with the conserved pool per R3). */
   readonly maxDepth?: number
+  /** Hard tree-wide cap on simultaneously executing spawned workers. The root is excluded; every
+   *  nested driver and leaf shares this one allocation. Omit/`<= 0` leaves worker count uncapped. */
+  readonly maxLiveWorkers?: number
   /**
    * OTP intensity breaker: more than `maxRestarts` child restarts within `withinMs`
    * trips the supervisor to `no-winner` rather than restarting forever.
@@ -799,15 +1070,23 @@ export type SupervisedResult<Out> =
       error: NoWinnerError
     }
 
-/** Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `signal`
- *  delivers an out-of-band message to the running root; `view()` materializes the tree. */
+/** Live root handle — a chat/pi-viz client uses it to inspect and control one root run. */
 export interface RootHandle<Out> {
   view(): TreeView
+  /** Optional for structural compatibility with existing view/signal/abort wrappers. Handles
+   * minted by `createRootHandle` implement the required form in `SteerableRootHandle`. */
+  deliver?(msg: unknown): boolean
   signal(msg: RootSignal): void
   abort(reason?: string): void
   /** Phantom: binds the handle to the supervised run's output type. Type-only — never
    *  present at runtime; lets `attach(h: RootHandle<Out>)` stay output-typed. */
   readonly __out?: Out
+}
+
+/** A Runtime-minted root handle that can deliver raw steering or answers to a live manager inbox.
+ * Delivery returns `false` when the manager has no receive path; detached calls fail loud. */
+export interface SteerableRootHandle<Out> extends RootHandle<Out> {
+  deliver(msg: unknown): boolean
 }
 
 /** Out-of-band message to a running root. Open by intent — a client extends it. */

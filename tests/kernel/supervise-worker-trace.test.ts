@@ -424,7 +424,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
         brain: scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },

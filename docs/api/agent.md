@@ -1108,6 +1108,57 @@ AgentProfile axis name, with `custom:<name>` reserved for caller-owned extension
 
 ## Variables
 
+### fullProfileMaterialization
+
+> `const` **fullProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for a run path that executes every canonical AgentProfile leaf.
+
+***
+
+### promptModelProfileMaterialization
+
+> `const` **promptModelProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for an intentionally limited prompt-and-model execution path.
+Identity, harness, and metadata are control fields consumed for naming, placement,
+authorization, and durable attribution; they are carried without adding worker behavior.
+Every behavioral axis other than prompt and model remains unsupported.
+
+***
+
+### worktreeCliProfileMaterialization
+
+> `const` **worktreeCliProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for a local coding CLI in an isolated git worktree.
+The shared workspace materializer carries native tools, permissions, MCP, hooks, subagents,
+modes, and file-backed resources when the selected CLI supports their exact values.
+`resourceFailOnError` is carried: it is the fail-closed policy the pre-worktree resource
+RESOLUTION step (`resolveAgentProfileResources`) applies to remote profile resources. Runtime
+placement concerns (hub connections and confidential execution), provider-native extensions,
+and unused model hints are deliberately absent so they fail before a worktree or executor is
+created rather than being mistaken for an effective candidate change.
+
+***
+
+### controlProfileMaterialization
+
+> `const` **controlProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for a raw process path that carries only control/identity fields.
+
+***
+
+### promptControlProfileMaterialization
+
+> `const` **promptControlProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Materialization contract for an injected inference function whose surrounding driver still
+applies the profile prompt, name, placement, and metadata, but not model selection.
+
+***
+
 ### sandboxActProfileMaterialization
 
 > `const` **sandboxActProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)

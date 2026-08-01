@@ -21,9 +21,10 @@
 
 import { createServer, type Server } from 'node:http'
 import { ConfigError } from '../../errors'
-import { createMcpServer } from '../../mcp/server'
+import { createMcpServer, type McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
+  type AuthorizeDownMessage,
   type CoordinationEvent,
   type CoordinationTools,
   createCoordinationTools,
@@ -35,6 +36,7 @@ import {
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { DeliverableSpec } from './completion-gate'
+import type { BusRecord } from './event-bus'
 import type { Budget, ResultBlobStore, Scope } from './types'
 
 export interface CoordinationMcpHandle {
@@ -49,7 +51,7 @@ export interface CoordinationMcpHandle {
    *  `settled()` for a finalize, so a delivered child the harness never awaited is not lost. */
   drainResolved: CoordinationTools['drainResolved']
   isStopped(): boolean
-  /** The full ordered bus-event log — observability audit + replay trail. */
+  /** The full ordered bus-event log for current-process observability and audit evidence. */
   history: CoordinationTools['history']
   /** Bus throughput counters for live dashboards. */
   stats: CoordinationTools['stats']
@@ -77,6 +79,7 @@ export async function serveCoordinationMcp(opts: {
   scope: Scope<unknown>
   blobs: ResultBlobStore
   makeWorkerAgent: MakeWorkerAgent
+  authorizeDownMessage?: AuthorizeDownMessage
   perWorker: Budget
   /** Independent completion check exposed to the driver as `submit_result`. */
   deliverable?: DeliverableSpec<unknown>
@@ -103,11 +106,17 @@ export async function serveCoordinationMcp(opts: {
   watchWorkers?: WorkerWatchOptions
   /** Idle time after which `observe_agent` reports a worker as stalled. */
   stallAfterMs?: number
-  /** Pass-through subscriber for every bus event (settled / question / finding). */
-  onEvent?: (event: CoordinationEvent) => void | Promise<void>
+  /** Pass-through subscriber for every bus event, including pre-delivery instruction receipts and
+   * steer/answer delivery outcomes. */
+  onEvent?: (event: CoordinationEvent, record: BusRecord<CoordinationEvent>) => void | Promise<void>
+  /** Re-publish resume-time settlements through the awaited observer before this server listens. */
+  replaySettlements?: boolean
   questionPolicy?: QuestionPolicy
   /** Questions replayed from a prior process of this run — seeds the question ledger. */
   priorQuestions?: ReadonlyArray<QuestionRecord>
+  /** Product-selected tools already bound to this exact supervisor node. They share this server
+   *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
+  nodeTools?: ReadonlyArray<McpToolDescriptor>
 }): Promise<CoordinationMcpHandle> {
   const host = opts.host ?? '127.0.0.1'
   // Fail closed on a non-loopback bind HERE, in the primitive, not only at the composition sites
@@ -130,6 +139,7 @@ export async function serveCoordinationMcp(opts: {
     scope: opts.scope,
     blobs: opts.blobs,
     makeWorkerAgent: opts.makeWorkerAgent,
+    ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
     perWorker: opts.perWorker,
     ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
     ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
@@ -139,10 +149,15 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
     ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
     ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
+    ...(opts.replaySettlements ? { replaySettlements: true } : {}),
     ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
     ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
   })
-  const mcp = createMcpServer({ extraTools: coord.tools, serverName: 'coordination' })
+  await coord.ready()
+  const mcp = createMcpServer({
+    extraTools: [...coord.tools, ...(opts.nodeTools ?? [])],
+    serverName: 'coordination',
+  })
 
   const server: Server = createServer((req, res) => {
     if (req.method !== 'POST') {

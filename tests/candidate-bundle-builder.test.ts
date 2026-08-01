@@ -15,6 +15,7 @@ import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 
 import { assertCandidateProfileBinding } from '../src/candidate-execution'
 import {
+  agentCandidateProfileAsAgentProfile,
   type BuildAgentCandidateBundleInput,
   buildAgentCandidateBundle,
   sealAgentCandidateBundle,
@@ -123,6 +124,10 @@ describe('public agent candidate bundle builder', () => {
         kind: 'inline',
         name: 'review/SKILL.md',
         sha256: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      })
+      expect(agentCandidateProfileAsAgentProfile(first.profile)).toMatchObject({
+        name: 'candidate',
+        harness: 'codex',
       })
       expect(first.knowledge).toEqual(input.knowledge)
 

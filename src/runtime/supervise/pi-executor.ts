@@ -42,8 +42,8 @@
  * | `profile.prompt.systemPrompt` | honored — prepended to the task text (pi RPC takes no separate system-prompt channel) |
  * | `profile.mcp` | honored — written to this execution's own file and passed as `--mcp-config` for `pi-mcp-adapter`; see `pi-mcp.ts` |
  * | `profile.extensions.pi.load` | honored — lowered to `--no-extensions` + `--extension <abs>` |
- * | `profile.prompt.instructions` | DROPPED — fold into `systemPrompt` before calling |
- * | `profile.model` | DROPPED — the seam's `model` is the only model channel; a profile that disagrees with the seam is silently overridden by the seam |
+ * | `profile.prompt.instructions` | honored — appended to the system prompt, one per line |
+ * | `profile.model.default` | honored — overrides the seam's `model`; the seam is the fallback for profiles that select none |
  * | `profile.model.reasoningEffort` | DROPPED — no `--thinking` flag is emitted, so pi's configured `defaultThinkingLevel` applies |
  * | `profile.tools` | DROPPED — no `--no-tools` / allow-deny mapping; pi runs its full builtin tool set |
  * | `profile.permissions` | DROPPED |
@@ -60,10 +60,12 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { abortError, throwIfAborted } from '../util'
 import { createInbox, type Inbox, type InboxMessage } from './inbox'
+import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import { PI_MCP_ADAPTER, type PiMcpReceipt, preparePiMcp } from './pi-mcp'
 import { type ActivityLog, createActivityLog, type ExecutorProgress } from './progress'
 import { createPushTraceSource, type ToolStepInput, type TraceSource } from './trace-source'
@@ -127,7 +129,13 @@ interface PiAssistantOutcome {
 
 /** Build the `Executor` for one pi worker. Registered as runtime `'pi'`. */
 export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
-  const seam = readPiSeam(ctx)
+  const configured = readPiSeam(ctx)
+  const seam: PiSeam = {
+    ...configured,
+    // The backend model is a fallback for profiles that do not select one. AgentProfile is the
+    // experiment-owned knob, so an ambient/default seam must never override the authored arm.
+    ...(spec.profile.model?.default ? { model: spec.profile.model.default } : {}),
+  }
   // `TRACE_ID` / `PARENT_SPAN_ID` for this worker when the run records spans; `{}` otherwise, which
   // leaves the spawn environment byte-identical to the untraced path.
   const traceEnv = workerTraceEnv(ctx)
@@ -137,6 +145,8 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // private MCP config directory, and two workers built from one seam must not share either.
   const runId = `pi-${spec.profile.name ?? 'worker'}-${Date.now()}`
   const trace = createPushTraceSource({ runId })
+  const executionId = ctx.node?.nodeId ?? `pi-run-${randomUUID()}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
   // What this executor changed about what the caller declared. Unlike `recentActivity` this is
   // never evicted, so a run that fails after the change still reports it.
   const derived: string[] = []
@@ -154,7 +164,7 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     artifact: undefined as ExecutorResult<unknown> | undefined,
   }
 
-  return {
+  const executor: ReturnType<ExecutorFactory<unknown>> = {
     runtime: PI_RUNTIME,
     // pi owns the queue; `deliver` only routes through its state-safe `prompt` command. Its
     // streaming behavior chooses steer versus follow-up atomically in pi, rather than trusting
@@ -202,6 +212,40 @@ export const piExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       return state.artifact
     },
   }
+  // Attestation binds the KERNEL-minted attempt id. An executor built outside a Scope (no
+  // `ctx.node`) has no kernel identity to bind, so it makes no attestation claim and a later
+  // scope spawn records honest unknown receipts instead of a mismatched binding.
+  if (ctx.node === undefined) return executor
+  return attestRuntimeOwnedExecutor(
+    executor,
+    {
+      effectiveProfile: spec.profile,
+      backend: 'pi',
+      model: seam.model
+        ? { status: 'known', id: seam.model }
+        : { status: 'unknown', reason: 'pi selected its configured default model' },
+      execution: { kind: 'run', id: executionId },
+      materializer: 'pi-rpc-agent-profile',
+      plan: {
+        kind: 'pi-rpc-session',
+        bin: seam.bin ?? 'pi',
+        args: seam.args ?? [],
+        cwd: seam.cwd ?? null,
+        model: seam.model ?? null,
+        turnTimeoutMs: seam.turnTimeoutMs ?? null,
+      },
+    },
+    {
+      attemptId,
+      binding: {
+        executionId,
+        bin: seam.bin ?? 'pi',
+        cwd: seam.cwd ?? null,
+        model: seam.model ?? null,
+      },
+      descriptor: { kind: 'pi-rpc-run', transport: 'process', backend: 'pi' },
+    },
+  )
 }
 
 /** What one pi run reports about the terminal assistant turn, plus any derived MCP mount. */
@@ -249,6 +293,7 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   const tokens = { input: 0, output: 0 }
   let usd = 0
   let usdKnown = true
+  let tokensKnown = true
   throwIfAborted(args.signal)
   throwIfAborted(args.controller.signal)
 
@@ -338,7 +383,12 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   args.signal.addEventListener('abort', abortAll, { once: true })
   args.controller.signal.addEventListener('abort', abortAll, { once: true })
 
-  const system = args.spec.profile.prompt?.systemPrompt
+  const system = [
+    args.spec.profile.prompt?.systemPrompt,
+    ...(args.spec.profile.prompt?.instructions ?? []),
+  ]
+    .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
+    .join('\n')
   const opening = system ? `${system}\n\n${taskText(args.task)}` : taskText(args.task)
   const deadline = seam.turnTimeoutMs ? Date.now() + seam.turnTimeoutMs : undefined
   const sendPrompt = (message: string, streamingBehavior?: 'steer' | 'followUp'): void => {
@@ -389,6 +439,7 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
         }
         const projected = projectPiEvent(ev, args, tokens, pendingTools)
         if (projected.assistant) lastAssistant = projected.assistant
+        if (projected.tokensUnknown) tokensKnown = false
         for (const usage of projected.events) {
           if (usage.kind === 'cost') {
             usd += usage.usd
@@ -469,6 +520,7 @@ async function* streamPiSession(args: StreamPiArgs): AsyncIterable<UsageEvent> {
   const spent: Spend = {
     iterations: state.turns,
     tokens,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
     ms: Date.now() - started,
@@ -517,7 +569,7 @@ function projectPiEvent(
   args: StreamPiArgs,
   tokens: { input: number; output: number },
   pendingTools: Map<string, PendingPiTool>,
-): { events: UsageEvent[]; assistant?: PiAssistantOutcome } {
+): { events: UsageEvent[]; assistant?: PiAssistantOutcome; tokensUnknown?: true } {
   const out: UsageEvent[] = []
   const at = Date.now()
   if (ev.type === 'tool_execution_start' && typeof ev.toolName === 'string') {
@@ -566,7 +618,14 @@ function projectPiEvent(
     args.activity.push({ at, kind: 'turn', label: `turn ${args.state.turns}` })
     out.push({ kind: 'iteration' })
     const assistant = readAssistantOutcome(ev.message)
-    return { events: out, ...(assistant ? { assistant } : {}) }
+    // A turn whose receipt named no token field at all did real work with an unreported count.
+    // The terminal artifact must carry that as `tokensKnown: false`, never as a silent zero.
+    const tokensUnknown = !usage || usage.tokensKnown === false
+    return {
+      events: out,
+      ...(assistant ? { assistant } : {}),
+      ...(tokensUnknown ? { tokensUnknown: true as const } : {}),
+    }
   }
   return { events: out }
 }
@@ -574,21 +633,25 @@ function projectPiEvent(
 /** Pi's fresh input excludes cache reads and writes. Runtime's input channel includes all model
  * input, so combine them once at the assistant receipt. A missing or zero price is unknown because
  * subscription-backed providers report zero even when compute was not free. */
-function readUsage(message: unknown): { input: number; output: number; usd?: number } | undefined {
+function readUsage(
+  message: unknown,
+): { input: number; output: number; usd?: number; tokensKnown: boolean } | undefined {
   if (!message || typeof message !== 'object') return undefined
   const usage = (message as { usage?: unknown }).usage
   if (!usage || typeof usage !== 'object') return undefined
   const u = usage as Record<string, unknown>
   const promptTokens = num(u.prompt_tokens)
+  const freshInput = num(u.input) ?? num(u.inputTokens)
+  const outputRaw = num(u.output) ?? num(u.outputTokens) ?? num(u.completion_tokens)
   const input =
     promptTokens ??
-    (num(u.input) ?? num(u.inputTokens) ?? 0) +
+    (freshInput ?? 0) +
       (num(u.cacheRead) ?? num(u.cache_read_input_tokens) ?? num(u.cacheReadInputTokens) ?? 0) +
       (num(u.cacheWrite) ??
         num(u.cache_creation_input_tokens) ??
         num(u.cacheCreationInputTokens) ??
         0)
-  const output = num(u.output) ?? num(u.outputTokens) ?? num(u.completion_tokens) ?? 0
+  const output = outputRaw ?? 0
   const costRaw = u.cost
   const reportedUsd =
     num(costRaw) ??
@@ -600,6 +663,8 @@ function readUsage(message: unknown): { input: number; output: number; usd?: num
     input,
     output,
     ...(reportedUsd !== undefined && reportedUsd > 0 ? { usd: reportedUsd } : {}),
+    // A usage object that named NO token field is a receipt without a count, not a zero.
+    tokensKnown: promptTokens !== undefined || freshInput !== undefined || outputRaw !== undefined,
   }
 }
 

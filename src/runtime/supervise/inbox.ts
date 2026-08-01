@@ -11,7 +11,8 @@
  *     in-flight turn immediately, then re-plan with the message folded in — breaking the worker out
  *     of a wrong path mid-task instead of waiting for it to finish the step.
  *
- * `deliver` never throws — a malformed message is ignored, per the `Executor.deliver` contract.
+ * `deliver` never throws — a malformed message is ignored and returns `false`, so no caller can
+ * report delivery for bytes this inbox discarded.
  *
  * @experimental
  */
@@ -26,8 +27,9 @@ export interface InboxMessage {
 }
 
 export interface Inbox {
-  /** The `Executor.deliver` implementation — accept a raw down-message from `Scope.send`. */
-  deliver(msg: unknown): void
+  /** The `Executor.deliver` implementation. Returns false when the raw message is malformed and
+   * therefore was not queued; callers must not acknowledge a message this inbox discarded. */
+  deliver(msg: unknown): boolean
   /** Remove and return all pending messages (the flush). */
   drain(): InboxMessage[]
   pending(): number
@@ -60,10 +62,11 @@ export function createInbox(): Inbox {
   return {
     deliver(msg) {
       const m = parseDown(msg)
-      if (!m) return
+      if (!m) return false
       pending.push(m)
       // A forceful message aborts the turn currently in flight (if any).
       if (m.interrupt && live && !live.signal.aborted) live.abort()
+      return true
     },
     drain() {
       return pending.splice(0, pending.length)

@@ -58,10 +58,14 @@ export {
   prepareAgentCandidateExecution,
 } from './prepare'
 export {
+  agentCandidateProfileAsAgentProfile,
   applyExactAgentProfileDiff,
   assertCandidateProfileBinding,
+  freezeGenericAgentCandidateProfile,
+  omitUndefinedObjectFields,
   parseExactAgentProfile,
   parseExactAgentProfileDiff,
+  parseExactCandidateProfile,
 } from './profile'
 export {
   type AgentCandidateModelGrantActivateInput,

@@ -139,7 +139,7 @@ const brain: ToolLoopChat = async (messages) => {
   }
 }
 
-const result = await supervise({ name: 'root', harness: null }, 'five assignments', {
+const result = await supervise({ name: 'root', harness: 'cli-base' }, 'five assignments', {
   budget: { maxIterations: 200, maxTokens: 500_000 },
   // Explicit per-worker ceiling: the default is a quarter of the pool, which would starve the
   // fifth spawn and make this a four-worker test.

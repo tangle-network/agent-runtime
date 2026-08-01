@@ -9,6 +9,7 @@ import {
 import { ValidationError } from '../../src/errors'
 import { defaultSelectWinner } from '../../src/runtime/run-loop'
 import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
+import { createInbox } from '../../src/runtime/supervise/inbox'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope, settledToIteration } from '../../src/runtime/supervise/scope'
 import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -70,7 +71,13 @@ function mockExecutor(script: MockScript): Executor<unknown> {
         for (const ev of script.events) yield ev
       })()
     },
-    ...(script.inbox ? { deliver: (m: unknown) => script.inbox?.push(m) } : {}),
+    ...(script.inbox
+      ? {
+          deliver(message: unknown): void {
+            script.inbox?.push(message)
+          },
+        }
+      : {}),
     teardown(): Promise<{ destroyed: boolean }> {
       return Promise.resolve({ destroyed: true })
     },
@@ -144,6 +151,27 @@ async function beginScope(over: Partial<Parameters<typeof createScope>[0]> = {})
 // ── 1. Conserved budget pool ─────────────────────────────────────────────────────
 
 describe('conserved budget pool', () => {
+  it.each([
+    { maxIterations: -1, maxTokens: 100 },
+    { maxIterations: 1.5, maxTokens: 100 },
+    { maxIterations: 1, maxTokens: -1 },
+    { maxIterations: 1, maxTokens: Number.MAX_SAFE_INTEGER + 1 },
+    { maxIterations: 1, maxTokens: 100, maxUsd: Number.POSITIVE_INFINITY },
+    { maxIterations: 1, maxTokens: 100, deadlineMs: -1 },
+  ] as Budget[])('rejects a malformed root budget before it can create capacity', (invalid) => {
+    expect(() => createBudgetPool(invalid, () => 0)).toThrow(/non-negative/)
+  })
+
+  it('rejects a negative reservation without changing the root balance', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 100 }, () => 0)
+    expect(() => pool.reserve({ maxIterations: -10, maxTokens: -100 })).toThrow(/non-negative/)
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 100,
+      tokensKnown: true,
+      reservedTokens: 0,
+    })
+  })
+
   it('reserve fails closed when the pool cannot cover the child', () => {
     const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000 }, () => 0)
     const a = pool.reserve({ maxIterations: 2, maxTokens: 600, label: '' } as Budget)
@@ -199,6 +227,30 @@ describe('conserved budget pool', () => {
     expect(pool.readout().reservedTokens).toBe(0)
   })
 
+  it('records actual overspend and refuses later work instead of clamping telemetry', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 20 }, () => 0)
+    const first = pool.reserve({ maxIterations: 1, maxTokens: 10 })
+    if (!first.ok) throw new Error('reserve should have succeeded')
+
+    // The violation is fail-loud, but ONLY AFTER the settlement: the actual spend is committed,
+    // the ticket closes, and `free` goes honestly negative — never a clamp, never a strand.
+    expect(() =>
+      pool.reconcile(first.ticket, {
+        iterations: 1,
+        tokens: { input: 20, output: 0 },
+        usd: 0,
+        ms: 0,
+      }),
+    ).toThrow(/spent 20 tokens > reserved 10/)
+
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.readout().tokensLeft).toBe(0)
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 1 })).toEqual({
+      ok: false,
+      reason: 'budget-exhausted',
+    })
+  })
+
   it('fails loud on a double reconcile (no silent double refund)', () => {
     const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
     const r = pool.reserve({ maxIterations: 5, maxTokens: 800, label: '' } as Budget)
@@ -245,6 +297,50 @@ describe('conserved budget pool', () => {
     // Tokens still conserve normally; usd is uncapped so usdLeft stays 0 (not budgeted).
     expect(pool.readout().tokensLeft).toBe(900)
     expect(pool.readout().usdLeft).toBe(0)
+  })
+
+  it('preserves unknown dollar telemetry under an uncapped root without blocking admission', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 1, maxTokens: 500 })
+    if (!r.ok) throw new Error('reserve should have succeeded')
+
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        tokens: { input: 40, output: 60 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      }),
+    ).not.toThrow()
+    expect(pool.readout()).toMatchObject({ usdCapped: false, usdKnown: false, tokensLeft: 900 })
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 100 }).ok).toBe(true)
+  })
+
+  it('marks restored in-doubt dollar telemetry unknown even without a dollar limit', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0, {
+      uncertainReservations: [{ maxIterations: 1, maxTokens: 500 }],
+    })
+
+    expect(pool.readout()).toMatchObject({
+      tokensKnown: false,
+      usdCapped: false,
+      usdKnown: false,
+      tokensLeft: 500,
+    })
+  })
+
+  it('refuses malformed committed spend during restore instead of restoring it as zero', () => {
+    expect(() =>
+      createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0, {
+        committed: {
+          iterations: 1,
+          tokens: { input: -1, output: 0 },
+          usd: 0,
+          ms: 0,
+        },
+      }),
+    ).toThrow(/budget restore committed\.tokens\.input/)
   })
 
   it('commits an UNBUDGETED child dollar spend against a capped root (no phantom $0 ceiling)', () => {
@@ -373,6 +469,44 @@ describe('conserved budget pool', () => {
       ok: false,
       reason: 'budget-exhausted',
     })
+  })
+
+  it('never interprets explicitly unknown token usage as zero', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 1, maxTokens: 500 })
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    // The turn happened with an unreported count: it settles (no strand) and the readout marks the
+    // balance a ceiling rather than a measurement. Token admission stays open — one provider that
+    // skipped a usage report must not end the run.
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        tokens: { input: 0, output: 0 },
+        tokensKnown: false,
+        usd: 0,
+        ms: 0,
+      }),
+    ).not.toThrow()
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    expect(pool.readout()).toMatchObject({ tokensKnown: false })
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 1 }).ok).toBe(true)
+  })
+
+  it('refuses to observe unknown manager dollar cost under a dollar cap', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    expect(() =>
+      pool.observe({
+        iterations: 1,
+        tokens: { input: 40, output: 60 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      }),
+    ).toThrow(/unknown dollar cost/)
+    // The refusal happens before any balance mutates: no invented figure, no silently consumed
+    // cap. The caller (`Scope.meter`) still journals the spend, and the run surfaces the refusal
+    // as `driver-failed` carrying this reason.
+    expect(pool.readout()).toMatchObject({ tokensLeft: 1000, usdLeft: 1, usdCapped: true })
   })
 
   it('spendFromUsageEvents folds tokens + usd on separate channels', () => {
@@ -728,7 +862,7 @@ describe('reactive scope', () => {
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })
 
-  it('send() steers a LIVE child via its inbox; false for settled / unknown / no-inbox', async () => {
+  it('accepts a void-returning Executor.deliver and steers its live child', async () => {
     const { scope } = await beginScope()
     const inbox: unknown[] = []
     let release!: () => void
@@ -774,6 +908,39 @@ describe('reactive scope', () => {
     )
     if (!res.ok) throw new Error('spawn should have succeeded')
     expect(scope.send(res.handle.id, { steer: 'x' })).toBe(false) // no `deliver` on the executor
+    release()
+    await scope.next()
+  })
+
+  it('send() returns false when a live child inbox rejects a malformed message', async () => {
+    const { scope } = await beginScope()
+    const inbox = createInbox()
+    let release!: () => void
+    const block = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const executor = mockExecutor({ out: 1, events: tokensOnly(1, 1, 1), block })
+    executor.deliver = (message) => inbox.deliver(message)
+    const agent = {
+      name: 'validated-inbox',
+      act: async () => 1,
+      executorSpec: {
+        profile: { name: 'validated-inbox' } as AgentProfile,
+        harness: null,
+        executor,
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const spawned = scope.spawn(agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'validated-inbox',
+    })
+    if (!spawned.ok) throw new Error('spawn should have succeeded')
+
+    expect(scope.send(spawned.handle.id, { junk: true })).toBe(false)
+    expect(scope.send(spawned.handle.id, { steer: 'use the valid route' })).toBe(true)
+    expect(inbox.drain()).toEqual([
+      { kind: 'steer', text: 'use the valid route', interrupt: false },
+    ])
     release()
     await scope.next()
   })
@@ -1165,26 +1332,205 @@ describe('supervisor', () => {
     const handle = createRootHandle<unknown>()
     // Detached: every method is a typed throw, never a silent no-op.
     expect(() => handle.view()).toThrow()
+    expect(() => handle.deliver({ steer: 'too early' })).toThrow()
     const supervisor = createSupervisor<unknown, unknown>()
     supervisor.attach(handle)
     let observed = -1
+    let received: unknown
+    const started = deferred()
+    const release = deferred()
     const driver: Agent<unknown, unknown> = {
       name: 'observe',
+      deliver(message): boolean {
+        received = message
+        return true
+      },
       async act(_t, scope: Scope<unknown>): Promise<unknown> {
         scope.spawn(leafAgent('c', { out: 'c', events: tokensOnly(1, 1, 1) }), 't', {
           budget: { maxIterations: 1, maxTokens: 10 },
           label: 'c',
         })
         observed = handle.view().nodes.length
+        started.resolve()
+        await release.promise
         await scope.next()
         return 'c'
       },
     }
-    const result = await supervisor.run(driver, 't', supervisorOpts())
+    const running = supervisor.run(driver, 't', supervisorOpts())
+    await started.promise
+    expect(handle.deliver({ steer: 'use the corrected plan', interrupt: true })).toBe(true)
+    release.resolve()
+    const result = await running
     expect(result.kind).toBe('winner')
     expect(observed).toBe(1)
+    expect(received).toEqual({ steer: 'use the corrected plan', interrupt: true })
     // Unbound again after the run completes.
     expect(() => handle.view()).toThrow()
+    expect(() => handle.deliver({ steer: 'too late' })).toThrow()
+  })
+
+  it('a live root manager without an inbox reports that delivery was not accepted', async () => {
+    const handle = createRootHandle<unknown>()
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const started = deferred()
+    const release = deferred()
+    const running = supervisor.run(
+      {
+        name: 'no-inbox',
+        async act() {
+          started.resolve()
+          await release.promise
+          return 'done'
+        },
+      },
+      't',
+      supervisorOpts(),
+    )
+    await started.promise
+    expect(handle.deliver({ steer: 'cannot receive this' })).toBe(false)
+    release.resolve()
+    await running
+  })
+
+  it('RootHandle returns false when the live manager inbox rejects malformed input', async () => {
+    const handle = createRootHandle<unknown>()
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const inbox = createInbox()
+    const started = deferred()
+    const release = deferred()
+    const running = supervisor.run(
+      {
+        name: 'validated-root-inbox',
+        deliver: (message) => inbox.deliver(message),
+        async act() {
+          started.resolve()
+          await release.promise
+          return 'done'
+        },
+      },
+      't',
+      supervisorOpts({ runId: 'validated-root-inbox' }),
+    )
+    await started.promise
+
+    expect(handle.deliver({ junk: true })).toBe(false)
+    expect(handle.deliver({ steer: 'valid correction' })).toBe(true)
+    expect(inbox.drain()).toEqual([{ kind: 'steer', text: 'valid correction', interrupt: false }])
+    release.resolve()
+    await running
+  })
+
+  it('refuses to cross-route one RootHandle across concurrent runs', async () => {
+    const handle = createRootHandle<unknown>()
+    const firstSupervisor = createSupervisor<unknown, unknown>()
+    const secondSupervisor = createSupervisor<unknown, unknown>()
+    firstSupervisor.attach(handle)
+    secondSupervisor.attach(handle)
+
+    const firstStarted = deferred()
+    const releaseFirst = deferred()
+    const firstMessages: unknown[] = []
+    const first = firstSupervisor.run(
+      {
+        name: 'first-owner',
+        deliver(message): boolean {
+          firstMessages.push(message)
+          return true
+        },
+        async act() {
+          firstStarted.resolve()
+          await releaseFirst.promise
+          return 'first'
+        },
+      },
+      't',
+      supervisorOpts({ runId: 'root-handle-first' }),
+    )
+    await firstStarted.promise
+
+    let secondActed = false
+    await expect(
+      secondSupervisor.run(
+        {
+          name: 'second-owner',
+          async act() {
+            secondActed = true
+            return 'second'
+          },
+        },
+        't',
+        supervisorOpts({ runId: 'root-handle-second' }),
+      ),
+    ).rejects.toThrow(/already controls a live run/)
+    expect(secondActed).toBe(false)
+    expect(handle.deliver({ steer: 'still for first' })).toBe(true)
+    expect(firstMessages).toEqual([{ steer: 'still for first' }])
+
+    releaseFirst.resolve()
+    await expect(first).resolves.toMatchObject({ kind: 'winner', out: 'first' })
+
+    const secondStarted = deferred()
+    const releaseSecond = deferred()
+    const secondMessages: unknown[] = []
+    const sequential = secondSupervisor.run(
+      {
+        name: 'second-owner-after-release',
+        deliver(message): boolean {
+          secondMessages.push(message)
+          return true
+        },
+        async act() {
+          secondStarted.resolve()
+          await releaseSecond.promise
+          return 'second'
+        },
+      },
+      't',
+      supervisorOpts({ runId: 'root-handle-sequential' }),
+    )
+    await secondStarted.promise
+    expect(handle.deliver({ steer: 'now for second' })).toBe(true)
+    expect(secondMessages).toEqual([{ steer: 'now for second' }])
+    releaseSecond.resolve()
+    await expect(sequential).resolves.toMatchObject({ kind: 'winner', out: 'second' })
+  })
+
+  it('releases a RootHandle lease when startup fails before the manager runs', async () => {
+    const handle = createRootHandle<unknown>()
+    const supervisor = createSupervisor<unknown, unknown>()
+    supervisor.attach(handle)
+    const occupied = new InMemorySpawnJournal()
+    await occupied.beginTree('occupied-root-handle', new Date(0).toISOString())
+
+    await expect(
+      supervisor.run(
+        { name: 'never-starts', act: async () => 'unreachable' },
+        't',
+        supervisorOpts({ runId: 'occupied-root-handle', journal: occupied }),
+      ),
+    ).rejects.toThrow(/already exists/)
+
+    const started = deferred()
+    const release = deferred()
+    const running = supervisor.run(
+      {
+        name: 'starts-after-failure',
+        async act() {
+          started.resolve()
+          await release.promise
+          return 'done'
+        },
+      },
+      't',
+      supervisorOpts({ runId: 'root-handle-after-startup-failure' }),
+    )
+    await started.promise
+    expect(handle.view().root).toBe('root-handle-after-startup-failure')
+    release.resolve()
+    await expect(running).resolves.toMatchObject({ kind: 'winner', out: 'done' })
   })
 
   it('attach rejects a foreign handle not minted by createRootHandle', () => {

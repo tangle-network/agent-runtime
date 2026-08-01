@@ -2134,7 +2134,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-6)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-10)
 
 ##### sandboxId?
 
@@ -3826,6 +3826,36 @@ A worker the driver has drained via `await_event`.
 
 > `readonly` **status**: `"done"` \| `"down"`
 
+##### assignmentId?
+
+> `readonly` `optional` **assignmentId?**: `string`
+
+Stable manager-scoped assignment, including deterministic unkeyed siblings.
+
+##### identity?
+
+> `readonly` `optional` **identity?**: [`NodeExecutionIdentity`](runtime.md#nodeexecutionidentity)
+
+Exact profile/task/candidate identity authorized for this node.
+
+##### materialization?
+
+> `readonly` `optional` **materialization?**: [`ProfileMaterializationReceipt`](runtime.md#profilematerializationreceipt)
+
+Stable effective execution plan, or an explicit unknown receipt.
+
+##### executionBindings?
+
+> `readonly` `optional` **executionBindings?**: readonly [`ExecutionBindingReceipt`](runtime.md#executionbindingreceipt)[]
+
+Backend bindings for each attempt, in durable oldest-first order.
+
+##### spent?
+
+> `readonly` `optional` **spent?**: [`Spend`](index.md#spend)
+
+Conserved spend. Missing means unavailable; unknown accounting remains explicitly unknown.
+
 ##### score?
 
 > `readonly` `optional` **score?**: `number`
@@ -3842,13 +3872,24 @@ A worker the driver has drained via `await_event`.
 
 > `readonly` `optional` **reason?**: `string`
 
+##### trace
+
+> `readonly` **trace**: [`WorkerTraceEvidence`](index.md#workertraceevidence)
+
+Structured tool-call evidence, never the worker's final prose.
+
+##### resumed?
+
+> `readonly` `optional` **resumed?**: `boolean`
+
+True when projected from a prior process of the same durable run.
+
 ##### settledAt?
 
 > `readonly` `optional` **settledAt?**: `number`
 
-Epoch ms the ledger recorded this settlement — the resolution a progress-based stop rule
- needs to answer "how long since anything landed?" without inventing a timestamp at read
- time. Stamped when the cursor yields the settlement, not when a reader first looks.
+Epoch ms from the durable terminal record — the resolution a progress-based stop rule needs
+ to answer "how long since anything landed?" without inventing a timestamp at read time.
 
 ***
 
@@ -3970,7 +4011,7 @@ Epoch ms the ledger recorded this settlement — the resolution a progress-based
 
 ##### status
 
-> `readonly` **status**: `"open"` \| `"answered"` \| `"deferred"` \| `"escalated"`
+> `readonly` **status**: `"deferred"` \| `"open"` \| `"answered"` \| `"escalated"`
 
 ##### decision?
 
@@ -4016,7 +4057,9 @@ first passing submission is retained; a false or throwing check fails closed.
 
 ##### onEvent?
 
-> `readonly` `optional` **onEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
+> `readonly` `optional` **onEvent?**: (`event`, `record`) => `void` \| `Promise`\<`void`\>
+
+Event-first for source compatibility; the second argument is its exact bus ordering stamp.
 
 ###### Parameters
 
@@ -4024,9 +4067,27 @@ first passing submission is retained; a false or throwing check fails closed.
 
 [`CoordinationEvent`](index.md#coordinationevent)
 
+###### record
+
+[`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>
+
 ###### Returns
 
 `void` \| `Promise`\<`void`\>
+
+##### replaySettlements?
+
+> `readonly` `optional` **replaySettlements?**: `boolean`
+
+Re-publish resumed settlements through the awaited observer before the driver starts. This is
+ the crash-window recovery path for product transactions; off preserves low-level legacy reads.
+
+##### authorizeDownMessage?
+
+> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](runtime.md#authorizedownmessage)
+
+Authorize each continuation against the exact worker identity. The returned instruction is
+detached, recorded durably through `onEvent`, and only then delivered.
 
 ##### questionPolicy?
 
@@ -4049,7 +4110,8 @@ Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. 
  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
  reserving from the pool when the cap is already met — a concurrency fence on top of the
  conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
- sandboxes/boxes). Omit or `<= 0` = no cap (the prior behavior; the pool stays the only fence).
+ sandboxes/boxes). A tree-wide limit owned by `Scope` takes precedence when present; this field
+ is the local form for a caller-owned scope. Omit or `<= 0` = no local cap.
 
 ##### awaitTimeoutMs?
 
@@ -4136,6 +4198,16 @@ choice, steerable counterpart to the one-shot own-sandbox delegation MCP.
 
 #### Methods
 
+##### ready()
+
+> **ready**(): `Promise`\<`void`\>
+
+Commit any resume-time event replay before a supervisor can reason or an MCP can listen.
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ##### isStopped()
 
 > **isStopped**(): `boolean`
@@ -4182,9 +4254,9 @@ readonly [`QuestionRecord`](#questionrecord)[]
 
 > **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
 
-The full ordered log of every bus event — UP (settled / question / finding) and DOWN
- (steer / answer) — the observability audit + replay trail. Each record carries seq,
- timestamp, and priority.
+The full ordered log of every bus event — UP (settled / question / finding), authorized
+ instruction receipts, and DOWN delivery outcomes (steer / answer). Each record carries seq,
+ timestamp, and priority. A receipt is evidence and is never auto-delivered on restart.
 
 ###### Returns
 
@@ -7601,6 +7673,24 @@ Re-exports [AnalystRegistry](index.md#analystregistry)
 
 ***
 
+### AuthorizeDownMessage
+
+Re-exports [AuthorizeDownMessage](runtime.md#authorizedownmessage)
+
+***
+
+### AuthorizedDownMessage
+
+Re-exports [AuthorizedDownMessage](runtime.md#authorizeddownmessage)
+
+***
+
+### ContinuationInstruction
+
+Re-exports [ContinuationInstruction](runtime.md#continuationinstruction)
+
+***
+
 ### CoordinationEvent
 
 Re-exports [CoordinationEvent](index.md#coordinationevent)
@@ -7613,6 +7703,24 @@ Re-exports [DEFAULT_AWAIT_EVENT_TIMEOUT_MS](runtime.md#default_await_event_timeo
 
 ***
 
+### DownMessageAuthorizationInput
+
+Re-exports [DownMessageAuthorizationInput](runtime.md#downmessageauthorizationinput)
+
+***
+
+### DownMessageDeliveryAttempt
+
+Re-exports [DownMessageDeliveryAttempt](runtime.md#downmessagedeliveryattempt)
+
+***
+
+### DownMessageDeliveryOutcome
+
+Re-exports [DownMessageDeliveryOutcome](runtime.md#downmessagedeliveryoutcome)
+
+***
+
 ### DownMessageEvent
 
 Re-exports [DownMessageEvent](runtime.md#downmessageevent)
@@ -7622,3 +7730,9 @@ Re-exports [DownMessageEvent](runtime.md#downmessageevent)
 ### MakeWorkerAgent
 
 Re-exports [MakeWorkerAgent](runtime.md#makeworkeragent)
+
+***
+
+### WorkerSpawnContext
+
+Re-exports [WorkerSpawnContext](runtime.md#workerspawncontext)

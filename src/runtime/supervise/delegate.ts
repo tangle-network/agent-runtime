@@ -58,24 +58,27 @@ export interface DelegateOptions<Out = unknown> {
   readonly brain?: ToolLoopChat
   /** Override the default authoring-supervisor profile (name / extra system-prompt stance). The
    *  default already carries the authoring skill; override only to add a goal or rename. */
-  readonly supervisor?: Partial<Pick<SupervisorProfile, 'name' | 'systemPrompt'>>
+  readonly supervisor?: {
+    readonly name?: string
+    readonly systemPrompt?: string
+  }
   /** Restrict the run to this subset of models (forwarded to `supervise()`). */
   readonly allowedModels?: readonly string[]
   readonly runId?: string
 }
 
-/** Build the DEFAULT authoring supervisor profile: a router-brained supervisor (`harness: null`)
+/** Build the DEFAULT authoring supervisor profile: a router-brained supervisor (`harness: cli-base`)
  *  whose standing instruction IS the authoring-agent-profiles skill, so it decomposes the intent and
  *  AUTHORS a worker profile per sub-task. No worker profile is baked in here. */
 function authoringSupervisorProfile(
   model: string | undefined,
-  override?: Partial<Pick<SupervisorProfile, 'name' | 'systemPrompt'>>,
+  override?: { readonly name?: string; readonly systemPrompt?: string },
 ): SupervisorProfile {
   return {
     name: override?.name ?? 'delegate-supervisor',
-    harness: null,
-    ...(model ? { model } : {}),
-    systemPrompt: override?.systemPrompt ?? supervisorInstructions(),
+    harness: 'cli-base',
+    ...(model ? { model: { default: model } } : {}),
+    prompt: { systemPrompt: override?.systemPrompt ?? supervisorInstructions() },
   }
 }
 

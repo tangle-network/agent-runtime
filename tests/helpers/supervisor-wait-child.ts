@@ -17,6 +17,7 @@
  */
 
 import { existsSync } from 'node:fs'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -119,6 +120,10 @@ async function killOnceJournaled(): Promise<void> {
 const ctx = createFileRunContext(dir)
 const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
   budget: { maxIterations: 50, maxTokens: 100_000 },
+  rootIdentity: {
+    profileDigest: canonicalCandidateDigest({ name: root.name }),
+    taskDigest: canonicalCandidateDigest('task'),
+  },
   runId,
   ...ctx,
   probes,

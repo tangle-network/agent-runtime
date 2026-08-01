@@ -21,6 +21,9 @@
  * post-steer actions never change.
  */
 
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
@@ -32,6 +35,7 @@ import type { SandboxClient } from '../../src/runtime/types'
 const WRONG = 'legacy/wrong.ts'
 const RIGHT = 'core/right.ts'
 const STEER = `stop editing ${WRONG} — the change belongs in ${RIGHT}`
+const ANSWER = `continue in ${RIGHT}`
 
 const budget: Budget = { maxIterations: 200, maxTokens: 400_000 }
 
@@ -180,6 +184,54 @@ function steeringBrain(harness: FakeHarness, record: BrainRecord): ToolLoopChat 
   }
 }
 
+function missingMessageAuthorityBrain(
+  harness: FakeHarness,
+  record: { steer?: Record<string, unknown>; answer?: Record<string, unknown> },
+): ToolLoopChat {
+  let turn = 0
+  let workerId = 'w'
+  let questionId = 'q'
+  return async (messages) => {
+    const lastTool = [...messages]
+      .reverse()
+      .find((message) => (message as { role?: string }).role === 'tool') as
+      | { content?: string }
+      | undefined
+    const parsed = lastTool?.content ? safeJson(lastTool.content) : undefined
+    turn += 1
+
+    if (turn === 1) {
+      return call('spawn_agent', { profile: { name: 'coder' }, task: 'make the change' })
+    }
+    if (turn === 2) {
+      workerId = String(parsed?.workerId ?? workerId)
+      await harness.workingOnWrongFile
+      return call('steer_agent', { workerId, instruction: STEER })
+    }
+    if (turn === 3) {
+      record.steer = parsed
+      return call('ask_parent', {
+        from: workerId,
+        level: 'worker',
+        question: 'Which file should I edit?',
+        reason: 'Two plausible targets',
+        urgency: 'blocks-step',
+      })
+    }
+    if (turn === 4) {
+      const question = parsed?.question as Record<string, unknown> | undefined
+      questionId = String(question?.id ?? questionId)
+      return call('answer_question', { questionId, answer: ANSWER })
+    }
+    if (turn === 5) {
+      record.answer = parsed
+      harness.releaseFirstTurn()
+      return call('await_event', {})
+    }
+    return { toolCalls: [], content: 'done' }
+  }
+}
+
 function call(name: string, args: Record<string, unknown>) {
   return {
     toolCalls: [{ id: `${name}-1`, name, arguments: JSON.stringify(args) }],
@@ -206,23 +258,94 @@ function backend(harness: FakeHarness, steerable: boolean): ExecutorConfig {
   } as ExecutorConfig
 }
 
-async function runSupervisedSteer(steerable: boolean) {
+interface AuthorityRecord {
+  spawnCalls: number
+  messages: Array<{ instruction: string; frozen: boolean; hasIdentity: boolean }>
+}
+
+async function runSupervisedSteer(steerable: boolean, authority?: AuthorityRecord) {
   const harness = createFakeHarness()
   const record: BrainRecord = {}
   const result = await supervise(
-    { name: 'root', harness: null, systemPrompt: 'drive one coder and correct it' },
+    {
+      name: 'root',
+      harness: 'cli-base',
+      prompt: { systemPrompt: 'drive one coder and correct it' },
+    },
     'change the right module',
     {
       budget,
       backend: backend(harness, steerable),
       brain: steeringBrain(harness, record),
       maxTurns: 8,
+      ...(authority
+        ? {
+            authorizeSpawn(input) {
+              authority.spawnCalls += 1
+              return { profile: input.profile }
+            },
+            authorizeMessage(input) {
+              authority.messages.push({
+                instruction: input.instruction,
+                frozen: Object.isFrozen(input) && Object.isFrozen(input.workerIdentity),
+                hasIdentity:
+                  input.workerIdentity.profileDigest !== undefined &&
+                  input.workerIdentity.taskDigest !== undefined,
+              })
+              return { instruction: input.instruction }
+            },
+          }
+        : {}),
     },
   )
   return { harness, record, result }
 }
 
 describe('mid-flight steering — a supervisor observes a live worker and changes what it does', () => {
+  it('refuses steer and answer when spawn authority has no message authority', async () => {
+    const runDir = await mkdtemp(join(tmpdir(), 'supervise-message-authority-'))
+    const harness = createFakeHarness()
+    const record: { steer?: Record<string, unknown>; answer?: Record<string, unknown> } = {}
+    try {
+      await supervise({ name: 'root', harness: 'cli-base' }, 'change the right module', {
+        budget,
+        backend: backend(harness, true),
+        brain: missingMessageAuthorityBrain(harness, record),
+        runDir,
+        runId: 'message-authority-refusal',
+        authorizeSpawn: (input) => ({ profile: input.profile }),
+      })
+
+      expect(JSON.stringify(record.steer)).toContain('authorizeMessage is required')
+      expect(JSON.stringify(record.answer)).toContain('authorizeMessage is required')
+      expect(
+        harness.prompts.some((prompt) => prompt.includes(STEER) || prompt.includes(ANSWER)),
+      ).toBe(false)
+      const coordinationLog = await readFile(join(runDir, 'coordination-log.jsonl'), 'utf8')
+      const eventTypes = coordinationLog
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => (JSON.parse(line) as { event: { type: string } }).event.type)
+      expect(eventTypes).not.toContain('instruction')
+    } finally {
+      harness.releaseFirstTurn()
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it('authorizes the continuation against the exact live worker identity', {
+    timeout: 30_000,
+  }, async () => {
+    const authority: AuthorityRecord = { spawnCalls: 0, messages: [] }
+    const { record } = await runSupervisedSteer(true, authority)
+    expect(record.steerResult?.delivered).toBe(true)
+    expect(authority).toEqual({
+      spawnCalls: 1,
+      messages: [{ instruction: STEER, frozen: true, hasIdentity: true }],
+    })
+  })
+
   it('delivers a steer to a RUNNING sandbox worker and the worker acts differently afterwards', {
     timeout: 30_000,
   }, async () => {

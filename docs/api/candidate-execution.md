@@ -254,6 +254,12 @@ Re-exports [prepareAgentCandidateExecution](index.md#prepareagentcandidateexecut
 
 ***
 
+### agentCandidateProfileAsAgentProfile
+
+Re-exports [agentCandidateProfileAsAgentProfile](index.md#agentcandidateprofileasagentprofile)
+
+***
+
 ### applyExactAgentProfileDiff
 
 Re-exports [applyExactAgentProfileDiff](index.md#applyexactagentprofilediff)
@@ -266,6 +272,18 @@ Re-exports [assertCandidateProfileBinding](index.md#assertcandidateprofilebindin
 
 ***
 
+### freezeGenericAgentCandidateProfile
+
+Re-exports [freezeGenericAgentCandidateProfile](index.md#freezegenericagentcandidateprofile)
+
+***
+
+### omitUndefinedObjectFields
+
+Re-exports [omitUndefinedObjectFields](index.md#omitundefinedobjectfields)
+
+***
+
 ### parseExactAgentProfile
 
 Re-exports [parseExactAgentProfile](index.md#parseexactagentprofile)
@@ -275,6 +293,12 @@ Re-exports [parseExactAgentProfile](index.md#parseexactagentprofile)
 ### parseExactAgentProfileDiff
 
 Re-exports [parseExactAgentProfileDiff](index.md#parseexactagentprofilediff)
+
+***
+
+### parseExactCandidateProfile
+
+Re-exports [parseExactCandidateProfile](index.md#parseexactcandidateprofile)
 
 ***
 

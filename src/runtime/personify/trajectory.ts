@@ -69,7 +69,14 @@ export async function trajectoryReport(
   // they accumulate ONTO the settled child-work base regardless of seq order; closes are the
   // settlements/cancellations that set node status.
   const closes = events
-    .filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'waiting' && ev.kind !== 'metered')
+    .filter(
+      (ev) =>
+        ev.kind !== 'spawned' &&
+        ev.kind !== 'waiting' &&
+        ev.kind !== 'metered' &&
+        ev.kind !== 'materialized' &&
+        ev.kind !== 'execution-bound',
+    )
     .sort(bySeq)
 
   const nodes = new Map<NodeId, MutableNode>()
@@ -285,6 +292,7 @@ function addNodeSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
@@ -296,6 +304,7 @@ function cloneSpend(spend: Spend): Spend {
   return {
     iterations: spend.iterations,
     tokens: { input: spend.tokens.input, output: spend.tokens.output },
+    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: spend.usd,
     ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
@@ -307,6 +316,7 @@ function cloneSpend(spend: Spend): Spend {
 function addSpend(acc: Spend, delta: Spend): void {
   acc.iterations += delta.iterations
   addTokenUsage(acc.tokens, delta.tokens)
+  if (delta.tokensKnown === false) acc.tokensKnown = false
   acc.usd += delta.usd
   if (delta.tokensKnown === false) acc.tokensKnown = false
   if (delta.usdKnown === false) acc.usdKnown = false

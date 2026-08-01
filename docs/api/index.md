@@ -6656,7 +6656,7 @@ Max research rounds (correct-on-veto remediation). Default 1.
 
 ###### trace
 
-`unknown`
+`TraceAnalysisStore`
 
 ###### Returns
 
@@ -7952,7 +7952,7 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ***
 
@@ -7968,7 +7968,7 @@ meters every runtime identically.
 Built-in implementations (in `runtime.ts`, NOT variants here): router/inline (a direct
 Router/HTTP inference call, no box), sandbox (COMPOSES `runAgentRounds` as a leaf, forwarding
 PR #150's optional `lineage` passthrough — does NOT reinvent checkpoint/fork), cli
-(Halo/RLM subprocess; `budgetExempt`, excluded from equal-k by construction). A user's
+(Halo/RLM subprocess; `budgetExempt`, refused by budgeted supervision). A user's
 own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this interface.
 
 #### Type Parameters
@@ -7981,7 +7981,7 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-2)
+> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-4)
 
 Stable runtime tag for traces + the equal-k exemption check.
 
@@ -7989,9 +7989,10 @@ Stable runtime tag for traces + the equal-k exemption check.
 
 > `readonly` `optional` **budgetExempt?**: `boolean`
 
-When true, this executor's spend is NOT metered against the conserved pool and its
-iterations are excluded from the equal-k assertion (a `cli` subprocess without
-token accounting). Fail-loud everywhere else: a metered executor MUST report usage.
+When true, this executor cannot report the usage a conserved pool would need (for example, a
+subscription CLI with no token receipt). `Executor` can still be used directly, but `Scope`
+refuses it before `execute` so unknown compute can never appear as measured zero in a
+supervised or equal-resource run. A metered executor MUST report usage.
 
 #### Methods
 
@@ -8019,13 +8020,13 @@ the terminal artifact is read from `resultArtifact()` after the stream drains.
 
 ##### deliver()?
 
-> `optional` **deliver**(`msg`): `void`
+> `optional` **deliver**(`msg`): `boolean` \| `void`
 
 Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
 verb). A streaming executor drains pending messages between turns and folds them into the next
 step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
-this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the
-executor's to ignore.
+this; `Scope.send` then returns `false` for it. Never throws — an inbox that rejects a malformed
+message returns `false`, and that refusal propagates to the caller.
 
 ###### Parameters
 
@@ -8035,7 +8036,7 @@ executor's to ignore.
 
 ###### Returns
 
-`void`
+`boolean` \| `void`
 
 ##### progress()?
 
@@ -8114,6 +8115,21 @@ driver branched on, its verdict, and the conserved spend. Read once, after settl
 
 > **spent**: [`Spend`](#spend)
 
+##### accounting()?
+
+> `optional` **accounting**(): [`ExecutorAccounting`](runtime.md#executoraccounting) \| `undefined`
+
+Optional accounting split for recursive executors.
+`reported` is the child-work spend written on this node's settlement; `reservation` is the
+whole amount reconciled against this node's parent reservation.
+They differ when a driver owns a nested allocation: its child work and own inference consume
+that allocation together, while the journal keeps those two categories separate.
+Valid after `execute` resolves or throws; ordinary leaf executors omit it.
+
+###### Returns
+
+[`ExecutorAccounting`](runtime.md#executoraccounting) \| `undefined`
+
 ##### metered()?
 
 > `optional` **metered**(): [`Spend`](#spend) \| `undefined`
@@ -8133,11 +8149,12 @@ executors omit it (returns `undefined`).
 
 ### AgentSpec
 
-`AgentProfile` does NOT carry a `harness`/backend field — `harness` lives on the
-sandbox SDK's `BackendConfig`, not the portable profile. So an agent is mapped to its
-executor through this MINIMAL wrapper, never by fabricating a field onto `AgentProfile`.
+`AgentProfile.harness` is a portable preference; this wrapper records the executor decision for
+one concrete run. A caller may honor the preference, override it for a comparison cell, or supply
+an executor directly, without changing the profile's behavioral identity.
 
 Resolution (in `runtime.ts`):
+ - `executorFactory` present → BYO: build it after admission with the live context.
  - `executor` present        → BYO: use it verbatim (a user's own `Executor`).
  - `harness === null`        → router/inline: a direct Router call, no box.
  - `harness` is a `BackendType` → sandbox: compose `runAgentRounds` against `profile` on that backend.
@@ -8154,6 +8171,20 @@ Fail loud on an unresolvable spec (no executor and an unknown harness).
 > `readonly` **harness**: `BackendType` \| `null`
 
 `null` selects router/inline; a `BackendType` selects the sandboxed harness.
+
+##### execution?
+
+> `readonly` `optional` **execution?**: [`AgentExecutionRef`](runtime.md#agentexecutionref)
+
+Trusted candidate/campaign attribution supplied by the caller. Profile/task digests are
+ computed by Scope from the exact values it executes and cannot be supplied here.
+
+##### executorFactory?
+
+> `readonly` `optional` **executorFactory?**: [`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
+
+Per-spawn factory carrying caller configuration. Constructed only after admission, with the
+ real child signal and nested-scope context.
 
 ##### executor?
 
@@ -8188,7 +8219,7 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 ###### runtime
 
-[`Runtime`](runtime.md#runtime-2)
+[`Runtime`](runtime.md#runtime-4)
 
 ###### factory
 
@@ -8202,8 +8233,8 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 > **resolve**\<`Out`\>(`spec`): \{ `succeeded`: `true`; `value`: [`ExecutorFactory`](runtime.md#executorfactory)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
 
-Resolve a spec to a factory. Precedence: a BYO `spec.executor` → a trivial factory
-returning it; else `harness === null` → the `'router'` factory; else a registered
+Resolve a spec to a factory. Precedence: a BYO `spec.executorFactory` → `spec.executor` →
+`harness === null` → the `'router'` factory; else a registered
 factory for the harness-derived runtime. Returns a typed outcome — the caller
 inspects `succeeded` before `value` (no silent fallback).
 
@@ -8335,9 +8366,16 @@ The live tree — reads the in-memory nursery, not the journal.
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Conserved-pool readouts (post-reservation).
+
+##### workerCapacity
+
+> `readonly` **workerCapacity**: `Readonly`\<\{ `live`: `number`; `freeSlots`: `number` \| `null`; \}\>
+
+One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
+ the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
 
 #### Methods
 
@@ -8345,11 +8383,15 @@ Conserved-pool readouts (post-reservation).
 
 > **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-2)\<`C`\>; `prior?`: [`SpawnPrior`](runtime.md#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](runtime.md#spawnrejection); \}
 
-Spawn a child. Reserves `opts.budget` from the conserved pool atomically; refunds the
-unspent remainder on settle. Returns a typed outcome — fail-closed on an exhausted
-pool, an exceeded depth ceiling, or a still-live duplicate `key` (the caller inspects
-`ok` before `handle`). A KEYED spawn whose key already settled `done` spends nothing:
-it returns the committed result on `prior` instead of re-running (see `SpawnOpts.key`).
+Spawn a child. For a fresh key or an unkeyed spawn, tree-wide worker admission happens before a
+lazy factory is called, so a full worker allocation creates no worker, executor, or reservation.
+Reserves `opts.budget` from the conserved pool atomically; refunds the unspent remainder on
+settle. Returns a typed outcome — fail-closed on an exhausted pool, an exceeded depth ceiling, a
+full worker allocation, or a still-live duplicate `key` (the caller inspects `ok` before
+`handle`). A KEYED spawn whose key already settled `done` invokes the factory only far enough to
+prepare and authorize the exact profile/task identity, then compares that identity with the
+journal. On a match it spends nothing, constructs no executor, reserves no budget, and runs no
+work: it returns the committed result on `prior` (see `SpawnOpts.key`).
 
 ###### Type Parameters
 
@@ -8361,7 +8403,7 @@ it returns the committed result on `prior` instead of re-running (see `SpawnOpts
 
 ###### agent
 
-[`Agent`](runtime.md#agent-1)\<`unknown`, `C`\>
+[`Agent`](runtime.md#agent-1)\<`unknown`, `C`\> \| (() => [`Agent`](runtime.md#agent-1)\<`unknown`, `C`\>)
 
 ###### task
 
@@ -8588,7 +8630,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ###### h
 
-[`RootHandle`](runtime.md#roothandle)\<`Out`\>
+[`RootHandle`](runtime.md#roothandle-1)\<`Out`\>
 
 ###### Returns
 
@@ -11115,11 +11157,12 @@ Mode → configured runner. Partial: only register the modes a
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
- the driver to `pull`. DOWN (parent→child): steer / answer — record-only (history + subscribers),
- routed to the child inbox. New kinds are additive.
+ the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
+ as evidence. DOWN (parent→child): steer / answer — record-only (history + subscribers), routed
+ to the child inbox. Receipts are never auto-delivered on restart. New kinds are additive.
 
 ***
 
@@ -11219,9 +11262,51 @@ The finalization seam: ledger in, output (or `undefined` = nothing deliverable) 
 
 ***
 
+### WorkerTraceUnavailableReason
+
+> **WorkerTraceUnavailableReason** = `"execution-did-not-start"` \| `"executor-did-not-expose-trace-source"` \| `"trace-source-unavailable"` \| `"no-tool-spans-captured"` \| `"invalid-tool-spans"` \| `"trace-collection-failed"` \| `"trace-persistence-failed"` \| `"legacy-settlement-without-trace-evidence"` \| `"not-an-executor"`
+
+Why Runtime cannot provide structured tool-call evidence for one settled execution.
+
+***
+
+### WorkerTraceEvidence
+
+> **WorkerTraceEvidence** = \{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
+
+Durable proof of a worker's structured tool trace, or the exact reason it is unavailable.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `status`: `"available"`; `traceRef`: `string`; `spanCount`: `number`; \}
+
+###### status
+
+> `readonly` **status**: `"available"`
+
+###### traceRef
+
+> `readonly` **traceRef**: `string`
+
+Content-addressed pointer to a persisted `WorkerToolTraceArtifact`.
+
+###### spanCount
+
+> `readonly` **spanCount**: `number`
+
+***
+
+##### Type Literal
+
+\{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
+
+***
+
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -11237,13 +11322,53 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ##### Type Literal
 
-\{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `seq`: `number`; \}
+\{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
+
+###### kind
+
+> **kind**: `"done"`
+
+###### handle
+
+> **handle**: [`Handle`](runtime.md#handle-2)\<`Out`\>
+
+###### out
+
+> **out**: `Out`
+
+###### outRef
+
+> **outRef**: `string`
+
+###### verdict?
+
+> `optional` **verdict?**: `DefaultVerdict`
+
+###### spent
+
+> **spent**: [`Spend`](#spend)
+
+###### trace
+
+> **trace**: [`WorkerTraceEvidence`](#workertraceevidence)
+
+Structured tool evidence captured before this settlement was journaled.
+
+###### settledAt?
+
+> `optional` **settledAt?**: `number`
+
+Epoch ms parsed from the durable settlement record when available.
+
+###### seq
+
+> **seq**: `number`
 
 ***
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -11266,6 +11391,18 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 ###### restartCount
 
 > **restartCount**: `number`
+
+###### trace
+
+> **trace**: [`WorkerTraceEvidence`](#workertraceevidence)
+
+Partial structured tool evidence captured before this failure was journaled.
+
+###### settledAt?
+
+> `optional` **settledAt?**: `number`
+
+Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ###### seq
 
@@ -12413,6 +12550,24 @@ Materializes a verified candidate into one immutable evaluator-owned execution p
 
 ***
 
+### freezeGenericAgentCandidateProfile()
+
+> **freezeGenericAgentCandidateProfile**(`input`): `AgentCandidateProfile`
+
+Convert only behavior-preserving generic profile fields into the closed candidate contract.
+
+#### Parameters
+
+##### input
+
+`AgentProfile`
+
+#### Returns
+
+`AgentCandidateProfile`
+
+***
+
 ### assertCandidateProfileBinding()
 
 > **assertCandidateProfileBinding**(`measuredInput`, `bundled`): `void`
@@ -12502,6 +12657,64 @@ Apply one exact diff and reject any value that cannot be preserved canonically.
 #### Returns
 
 `AgentProfile`
+
+***
+
+### parseExactCandidateProfile()
+
+> **parseExactCandidateProfile**(`input`): `AgentCandidateProfile`
+
+Parse a candidate profile without silently discarding unsupported or non-canonical fields.
+
+#### Parameters
+
+##### input
+
+`unknown`
+
+#### Returns
+
+`AgentCandidateProfile`
+
+***
+
+### agentCandidateProfileAsAgentProfile()
+
+> **agentCandidateProfileAsAgentProfile**(`candidate`): `AgentProfile`
+
+Convert the candidate profile contract into the portable interface profile it represents.
+
+#### Parameters
+
+##### candidate
+
+`AgentCandidateProfile`
+
+#### Returns
+
+`AgentProfile`
+
+***
+
+### omitUndefinedObjectFields()
+
+> **omitUndefinedObjectFields**(`value`, `path`): `unknown`
+
+Recursively remove undefined object fields while refusing undefined array entries.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+##### path
+
+`string`
+
+#### Returns
+
+`unknown`
 
 ***
 

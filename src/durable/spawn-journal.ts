@@ -20,8 +20,11 @@
  * @experimental
  */
 
-import { createHash } from 'node:crypto'
+import { detachedSnapshot } from '../runtime/supervise/snapshot'
+import { workerTraceAnalysisStore } from '../runtime/supervise/trace-evidence'
+import { nestedDriverTreeRoot } from '../runtime/supervise/tree-key'
 import type {
+  NodeExecutionIdentity,
   NodeId,
   NodeSnapshot,
   NodeStatus,
@@ -35,6 +38,58 @@ import type {
 } from '../runtime/supervise/types'
 import type { PendingWait } from '../runtime/supervise/wait'
 import { zeroTokenUsage } from '../runtime/util'
+import { contentAddress } from './content-address'
+import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
+
+export { contentAddress } from './content-address'
+
+/** One journal tree in a recursively loaded supervision forest. */
+export interface SpawnForestTree {
+  readonly root: NodeId
+  /** Driver node that owns this tree; absent for the requested root tree. */
+  readonly ownerNodeId?: NodeId
+  /** Journal tree containing `ownerNodeId`; absent for the requested root tree. */
+  readonly parentTreeRoot?: NodeId
+  readonly events: ReadonlyArray<SpawnEvent>
+  readonly view: TreeView
+}
+
+/** One event with the journal tree that establishes its cursor namespace. */
+export interface SpawnForestEvent {
+  readonly treeRoot: NodeId
+  readonly event: SpawnEvent
+}
+
+/** One flattened node with the journal tree that owns its records. */
+export interface SpawnForestNode extends NodeSnapshot {
+  readonly treeRoot: NodeId
+}
+
+/** A spawned worker with no terminal record in a cold snapshot. Resume treats the same state as
+ * in-doubt and conservatively retains its reservation. Root nodes and armed waits are excluded. */
+export interface SpawnForestInDoubtNode {
+  readonly treeRoot: NodeId
+  readonly nodeId: NodeId
+  readonly label: string
+  readonly runtime: Runtime
+}
+
+/** A driver spawn whose owned journal tree was never begun before the process stopped. */
+export interface SpawnForestMissingTree {
+  readonly parentTreeRoot: NodeId
+  readonly ownerNodeId: NodeId
+  readonly root: NodeId
+}
+
+/** Complete cold-readable view of one recursive supervision run. */
+export interface SpawnForest {
+  readonly root: NodeId
+  readonly trees: ReadonlyArray<SpawnForestTree>
+  readonly nodes: ReadonlyArray<SpawnForestNode>
+  readonly events: ReadonlyArray<SpawnForestEvent>
+  readonly inDoubt: ReadonlyArray<SpawnForestInDoubtNode>
+  readonly missingTrees: ReadonlyArray<SpawnForestMissingTree>
+}
 
 // ── Content addressing ──────────────────────────────────────────────────────
 
@@ -47,20 +102,6 @@ import { zeroTokenUsage } from '../runtime/util'
  * Stable encoding: object keys are sorted recursively so two structurally-equal
  * artifacts hash identically regardless of key insertion order.
  */
-export function contentAddress(artifact: unknown): string {
-  const hex = createHash('sha256').update(stableStringify(artifact), 'utf-8').digest('hex')
-  return `sha256:${hex}`
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`
-}
-
 // ── Result blob store ─────────────────────────────────────────────────────────
 
 /**
@@ -178,6 +219,8 @@ export class InMemorySpawnJournal implements SpawnJournal {
  * writes never loses an acknowledged event.
  */
 export class FileSpawnJournal implements SpawnJournal {
+  private appendTail: Promise<void> = Promise.resolve()
+
   constructor(private readonly path: string) {}
 
   async loadTree(root: NodeId): Promise<SpawnEvent[] | undefined> {
@@ -189,11 +232,9 @@ export class FileSpawnJournal implements SpawnJournal {
       if (isNoEntError(err)) return undefined
       throw err
     }
-    const lines = text.split('\n').filter((line) => line.length > 0)
     let begun = false
     const events: SpawnEvent[] = []
-    for (const line of lines) {
-      const record = JSON.parse(line) as SpawnJournalRecord
+    for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
       if (record.root !== root) continue
       if (record.kind === 'begin') {
         begun = true
@@ -241,26 +282,141 @@ export class FileSpawnJournal implements SpawnJournal {
       if (isNoEntError(err)) return undefined
       throw err
     }
-    const lines = text.split('\n').filter((line) => line.length > 0)
-    for (const line of lines) {
-      const record = JSON.parse(line) as SpawnJournalRecord
+    for (const record of parseCommittedJsonLines<SpawnJournalRecord>(text, this.path)) {
       if (record.root === root && record.kind === 'begin') return record.at
     }
     return undefined
   }
 
   private async appendRecord(record: SpawnJournalRecord): Promise<void> {
+    const append = this.appendTail.then(() => this.writeRecord(record))
+    this.appendTail = append.catch(() => undefined)
+    return append
+  }
+
+  private async writeRecord(record: SpawnJournalRecord): Promise<void> {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     await fs.mkdir(path.dirname(this.path), { recursive: true })
+    const needsSeparator = await prepareJsonlAppend(this.path)
     const fh = await fs.open(this.path, 'a')
     try {
-      await fh.write(`${JSON.stringify(record)}\n`)
+      await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
       await fh.sync()
     } finally {
       await fh.close()
     }
   }
+}
+
+/**
+ * Load every journal tree owned by one recursive supervision run and flatten its nodes/events.
+ *
+ * Nested driver tree keys are a Runtime implementation detail; callers should use this reader
+ * instead of deriving or scanning keys themselves. The reader follows only the explicit
+ * `ownedTreeRoot` written after Runtime privately attested a recursive executor; the open runtime
+ * string `driver` is never treated as ownership. Legacy records without `ownedTreeRoot` are
+ * intentionally treated as leaves rather than guessing or scanning convention-derived keys.
+ * This preserves each tree's independent cursor namespace on flattened events.
+ * A driver whose subtree was never begun is reported in `missingTrees`; any spawned non-root node
+ * without a terminal record is reported in `inDoubt`, matching resume's conservative lost-work
+ * interpretation.
+ *
+ * This is a cold/quiescent reader, not a transaction across an actively mutating file. Every value
+ * returned is a detached immutable snapshot, so later journal writes or caller mutation cannot
+ * change the result already observed.
+ */
+export async function loadSpawnForest(journal: SpawnJournal, root: NodeId): Promise<SpawnForest> {
+  const rootEvents = await journal.loadTree(root)
+  if (rootEvents === undefined) {
+    throw new Error(`loadSpawnForest: no journaled tree for root '${root}'`)
+  }
+
+  const trees: SpawnForestTree[] = []
+  const nodes: SpawnForestNode[] = []
+  const events: SpawnForestEvent[] = []
+  const inDoubt: SpawnForestInDoubtNode[] = []
+  const missingTrees: SpawnForestMissingTree[] = []
+  const visited = new Set<NodeId>()
+  const queue: Array<{
+    readonly root: NodeId
+    readonly events: SpawnEvent[]
+    readonly ownerNodeId?: NodeId
+    readonly parentTreeRoot?: NodeId
+  }> = [{ root, events: rootEvents }]
+
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const current = queue[cursor]!
+    if (visited.has(current.root)) {
+      throw new Error(`loadSpawnForest: recursive journal tree '${current.root}' was reached twice`)
+    }
+    visited.add(current.root)
+    const stableEvents = detachedSnapshot(
+      current.events,
+      `loadSpawnForest tree ${JSON.stringify(current.root)}`,
+    )
+    const view = detachedSnapshot(
+      materializeTreeView([...stableEvents]),
+      `loadSpawnForest view ${JSON.stringify(current.root)}`,
+    )
+    trees.push({
+      root: current.root,
+      ...(current.ownerNodeId === undefined ? {} : { ownerNodeId: current.ownerNodeId }),
+      ...(current.parentTreeRoot === undefined ? {} : { parentTreeRoot: current.parentTreeRoot }),
+      events: stableEvents,
+      view,
+    })
+    nodes.push(...view.nodes.map((node) => ({ treeRoot: current.root, ...node })))
+    events.push(...stableEvents.map((event) => ({ treeRoot: current.root, event })))
+
+    const terminal = new Set<NodeId>()
+    for (const event of stableEvents) {
+      if (event.kind === 'settled' || event.kind === 'cancelled') terminal.add(event.id)
+    }
+    const spawns = stableEvents
+      .filter(
+        (event): event is Extract<SpawnEvent, { kind: 'spawned' }> => event.kind === 'spawned',
+      )
+      .sort((a, b) => a.seq - b.seq || a.id.localeCompare(b.id))
+    for (const spawn of spawns) {
+      if (spawn.parent !== undefined && !terminal.has(spawn.id)) {
+        inDoubt.push({
+          treeRoot: current.root,
+          nodeId: spawn.id,
+          label: spawn.label,
+          runtime: spawn.runtime,
+        })
+      }
+      if (spawn.ownedTreeRoot === undefined) continue
+      const expectedRoot = nestedDriverTreeRoot(current.root, spawn.id)
+      if (spawn.ownedTreeRoot !== expectedRoot) {
+        throw new Error(
+          `loadSpawnForest: node '${spawn.id}' owns non-canonical tree '${spawn.ownedTreeRoot}'; expected '${expectedRoot}'`,
+        )
+      }
+      const nestedRoot = spawn.ownedTreeRoot
+      const nestedEvents = await journal.loadTree(nestedRoot)
+      if (nestedEvents === undefined) {
+        missingTrees.push({
+          parentTreeRoot: current.root,
+          ownerNodeId: spawn.id,
+          root: nestedRoot,
+        })
+        continue
+      }
+      queue.push({
+        root: nestedRoot,
+        events: nestedEvents,
+        ownerNodeId: spawn.id,
+        parentTreeRoot: current.root,
+      })
+    }
+  }
+
+  return detachedSnapshot(
+    { root, trees, nodes, events, inDoubt, missingTrees },
+    'loadSpawnForest result',
+  )
 }
 
 type SpawnJournalRecord =
@@ -276,6 +432,37 @@ type SpawnJournalRecord =
  * ordinal legitimately equals a later `settled` cursor seq and is not a collision.
  */
 function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): void {
+  if (ev.kind === 'materialized') {
+    if (events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
+      throw new Error(
+        `spawn journal corrupted: duplicate materialization receipt for node '${ev.id}' in tree '${root}'`,
+      )
+    }
+    if (!events.some((event) => event.kind === 'spawned' && event.id === ev.id)) {
+      throw new Error(
+        `spawn journal corrupted: materialization for node '${ev.id}' precedes its spawn in tree '${root}'`,
+      )
+    }
+  }
+  if (ev.kind === 'execution-bound') {
+    if (
+      events.some(
+        (event) =>
+          event.kind === 'execution-bound' &&
+          event.id === ev.id &&
+          event.binding.attemptId === ev.binding.attemptId,
+      )
+    ) {
+      throw new Error(
+        `spawn journal corrupted: duplicate execution binding for node '${ev.id}' attempt '${ev.binding.attemptId}' in tree '${root}'`,
+      )
+    }
+    if (!events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
+      throw new Error(
+        `spawn journal corrupted: execution binding for node '${ev.id}' precedes materialization in tree '${root}'`,
+      )
+    }
+  }
   // `spawned` (ordinal namespace), `waiting` (the wait-ordinal namespace — it CREATES a node, it
   // does not settle one), and `metered` (informational spend, no settlement order) live outside
   // the cursor-uniqueness namespace replay relies on. `woken` IS a settlement and does not.
@@ -292,7 +479,13 @@ function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): vo
  *  ordering rests on. The single predicate both the guard's sides read, so a new event kind is
  *  classified once. */
 function outsideCursorNamespace(ev: SpawnEvent): boolean {
-  return ev.kind === 'spawned' || ev.kind === 'waiting' || ev.kind === 'metered'
+  return (
+    ev.kind === 'spawned' ||
+    ev.kind === 'waiting' ||
+    ev.kind === 'metered' ||
+    ev.kind === 'materialized' ||
+    ev.kind === 'execution-bound'
+  )
 }
 
 // ── Replay executor (build step 7) ───────────────────────────────────────────────
@@ -319,24 +512,58 @@ export async function replaySpawnTree(
   }
   const ordered = [...events].sort((a, b) => a.seq - b.seq)
   const labels = new Map<NodeId, string>()
+  const assignmentIds = new Map<NodeId, string>()
+  const identities = new Map<NodeId, NodeExecutionIdentity>()
+  const materializations = new Map<NodeId, NodeSnapshot['materialization']>()
+  const executionBindings = new Map<
+    NodeId,
+    NonNullable<NodeSnapshot['executionBindings']>[number][]
+  >()
   for (const ev of ordered) {
     if (ev.kind === 'spawned' || ev.kind === 'waiting') labels.set(ev.id, ev.label)
+    if (ev.kind === 'spawned' && ev.assignmentId !== undefined) {
+      assignmentIds.set(ev.id, ev.assignmentId)
+    }
+    if (ev.kind === 'spawned' && ev.identity !== undefined) {
+      identities.set(ev.id, copyFrozenIdentity(ev.identity))
+    }
+    if (ev.kind === 'materialized') materializations.set(ev.id, ev.receipt)
+    if (ev.kind === 'execution-bound') {
+      const bindings = executionBindings.get(ev.id) ?? []
+      bindings.push(ev.binding)
+      executionBindings.set(ev.id, bindings)
+    }
+  }
+  const handleFor = (id: NodeId, status: NodeStatus) =>
+    replayHandle(id, labels.get(id) ?? id, status, {
+      assignmentId: assignmentIds.get(id),
+      identity: identities.get(id),
+      materialization: materializations.get(id),
+      executionBindings: executionBindings.get(id),
+    })
+  const settlementTime = (at: string): { readonly settledAt?: number } => {
+    const settledAt = Date.parse(at)
+    return Number.isFinite(settledAt) ? { settledAt } : {}
   }
   const settled: Settled<unknown>[] = []
   for (const ev of ordered) {
     if (ev.kind === 'spawned') continue
     if (ev.kind === 'waiting') continue // arms a wait node; `woken` is its settlement
     if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
+    if (ev.kind === 'materialized') continue // wire receipt, not a settlement
+    if (ev.kind === 'execution-bound') continue // attempt transport, not a settlement
     if (ev.kind === 'woken') {
       // A wait that was cancelled carries no outcome blob — it replays as a `down`, exactly as a
       // cancelled worker does. A fired/timed-out wait rehydrates its `WaitOutcome` and costs zero.
       if (ev.by === 'cancelled' || ev.outRef === undefined) {
         settled.push({
           kind: 'down',
-          handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'cancelled'),
+          handle: handleFor(ev.id, 'cancelled'),
           reason: 'wait cancelled',
           infra: false,
           restartCount: 0,
+          trace: { status: 'unavailable', reason: 'not-an-executor' },
+          ...settlementTime(ev.at),
           seq: ev.seq,
         })
         continue
@@ -349,10 +576,12 @@ export async function replaySpawnTree(
       }
       settled.push({
         kind: 'done',
-        handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'done'),
+        handle: handleFor(ev.id, 'done'),
         out: outcome,
         outRef: ev.outRef,
         spent: zeroSpend(),
+        trace: { status: 'unavailable', reason: 'not-an-executor' },
+        ...settlementTime(ev.at),
         seq: ev.seq,
       })
       continue
@@ -360,21 +589,29 @@ export async function replaySpawnTree(
     if (ev.kind === 'cancelled') {
       settled.push({
         kind: 'down',
-        handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'cancelled'),
+        handle: handleFor(ev.id, 'cancelled'),
         reason: ev.reason,
         infra: false,
         restartCount: 0,
+        trace: { status: 'unavailable', reason: 'execution-did-not-start' },
+        ...settlementTime(ev.at),
         seq: ev.seq,
       })
       continue
     }
     if (ev.status === 'down') {
+      const trace = traceEvidenceFor(ev)
+      if (trace.status === 'available') await workerTraceAnalysisStore(trace, blobs)
       settled.push({
         kind: 'down',
-        handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'failed'),
-        reason: ev.verdict?.notes ?? 'child down',
+        handle: handleFor(ev.id, 'failed'),
+        // `reason` is written by every current scope. The verdict fallback preserves the
+        // pre-field convention and the generic text keeps still-older reasonless journals usable.
+        reason: ev.reason ?? ev.verdict?.notes ?? 'child down',
         infra: ev.infra === true,
         restartCount: 0,
+        trace,
+        ...settlementTime(ev.at),
         seq: ev.seq,
       })
       continue
@@ -391,28 +628,66 @@ export async function replaySpawnTree(
         `replaySpawnTree: blob store has no artifact for outRef '${ev.outRef}' (node '${ev.id}', seq ${ev.seq})`,
       )
     }
+    const trace = traceEvidenceFor(ev)
+    if (trace.status === 'available') await workerTraceAnalysisStore(trace, blobs)
     settled.push({
       kind: 'done',
-      handle: replayHandle(ev.id, labels.get(ev.id) ?? ev.id, 'done'),
+      handle: handleFor(ev.id, 'done'),
       out,
       outRef: ev.outRef,
       verdict: ev.verdict,
       spent: ev.spent,
+      trace,
+      ...settlementTime(ev.at),
       seq: ev.seq,
     })
   }
   return settled
 }
 
-function replayHandle(id: NodeId, label: string, status: NodeStatus) {
-  return {
+function replayHandle(
+  id: NodeId,
+  label: string,
+  status: NodeStatus,
+  evidence: {
+    readonly assignmentId?: string
+    readonly identity?: NodeExecutionIdentity
+    readonly materialization?: NodeSnapshot['materialization']
+    readonly executionBindings?: ReadonlyArray<
+      NonNullable<NodeSnapshot['executionBindings']>[number]
+    >
+  } = {},
+) {
+  return Object.freeze({
     id,
     label,
     status,
+    ...(evidence.assignmentId === undefined ? {} : { assignmentId: evidence.assignmentId }),
+    ...(evidence.identity === undefined ? {} : { identity: evidence.identity }),
+    ...(evidence.materialization === undefined
+      ? {}
+      : { materialization: evidence.materialization }),
+    ...(evidence.executionBindings === undefined
+      ? {}
+      : { executionBindings: Object.freeze([...evidence.executionBindings]) }),
     abort() {
       throw new Error(`cannot abort node '${id}': replayed handles are terminal, not live`)
     },
-  }
+  })
+}
+
+/** A replayed handle must not retain mutable references into the loaded journal event. */
+function copyFrozenIdentity(identity: NodeExecutionIdentity): NodeExecutionIdentity {
+  const correlation =
+    identity.correlation === undefined ? undefined : Object.freeze({ ...identity.correlation })
+  return Object.freeze({
+    ...(identity.profileDigest === undefined ? {} : { profileDigest: identity.profileDigest }),
+    ...(identity.taskDigest === undefined ? {} : { taskDigest: identity.taskDigest }),
+    ...(identity.candidateDigest === undefined
+      ? {}
+      : { candidateDigest: identity.candidateDigest }),
+    ...(correlation === undefined ? {} : { correlation }),
+  })
 }
 
 /**
@@ -435,7 +710,14 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     )
     .sort((a, b) => a.seq - b.seq)
   const settlements = events
-    .filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'waiting' && ev.kind !== 'metered')
+    .filter(
+      (ev) =>
+        ev.kind !== 'spawned' &&
+        ev.kind !== 'waiting' &&
+        ev.kind !== 'metered' &&
+        ev.kind !== 'materialized' &&
+        ev.kind !== 'execution-bound',
+    )
     .sort((a, b) => a.seq - b.seq)
   for (const ev of spawns) {
     if (ev.kind === 'waiting') {
@@ -460,6 +742,9 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       status: 'pending',
       runtime: ev.runtime,
       budget: ev.budget,
+      ...(ev.ownedTreeRoot === undefined ? {} : { ownedTreeRoot: ev.ownedTreeRoot }),
+      ...(ev.assignmentId === undefined ? {} : { assignmentId: ev.assignmentId }),
+      ...(ev.identity ? { identity: ev.identity } : {}),
       spent: zeroSpend(),
     })
   }
@@ -469,14 +754,37 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.status = ev.status === 'done' ? 'done' : 'failed'
       node.spent = ev.spent
       node.outRef = ev.outRef
+      node.trace = traceEvidenceFor(ev)
+      const settledAt = Date.parse(ev.at)
+      if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else if (ev.kind === 'woken') {
       const node = requireNode(nodes, ev.id)
       node.status = ev.by === 'cancelled' ? 'cancelled' : 'done'
       node.outRef = ev.outRef
+      node.trace = { status: 'unavailable', reason: 'not-an-executor' }
+      const settledAt = Date.parse(ev.at)
+      if (Number.isFinite(settledAt)) node.settledAt = settledAt
     } else {
       const node = requireNode(nodes, ev.id)
       node.status = 'cancelled'
+      node.trace = { status: 'unavailable', reason: 'execution-did-not-start' }
+      const settledAt = Date.parse(ev.at)
+      if (Number.isFinite(settledAt)) node.settledAt = settledAt
     }
+  }
+  // Materialization is node evidence, not a settlement. Fold it after node creation and before
+  // freezing the view; exactly one receipt per node is enforced by the journal corruption guard.
+  for (const ev of events) {
+    if (ev.kind !== 'materialized') continue
+    const node = requireNode(nodes, ev.id)
+    node.materialization = ev.receipt
+    node.runtime = ev.receipt.runtime
+  }
+  for (const ev of events) {
+    if (ev.kind !== 'execution-bound') continue
+    const node = requireNode(nodes, ev.id)
+    node.executionBindings ??= []
+    node.executionBindings.push(ev.binding)
   }
   // Driver inference: a separate pass so it accumulates ONTO the settled child-work base (no
   // dependence on metered-vs-settled seq order) without touching node status.
@@ -523,8 +831,15 @@ interface MutableSnapshot {
   status: NodeStatus
   runtime: Runtime
   budget: NodeSnapshot['budget']
+  ownedTreeRoot?: NodeSnapshot['ownedTreeRoot']
+  assignmentId?: string
+  identity?: NodeSnapshot['identity']
+  materialization?: NodeSnapshot['materialization']
+  executionBindings?: NonNullable<NodeSnapshot['executionBindings']>[number][]
   spent: Spend
   outRef?: string
+  trace?: NodeSnapshot['trace']
+  settledAt?: number
 }
 
 function zeroSpend(): Spend {
@@ -536,6 +851,7 @@ function addJournalSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
@@ -559,9 +875,28 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     status: node.status,
     runtime: node.runtime,
     budget: node.budget,
+    ownedTreeRoot: node.ownedTreeRoot,
+    assignmentId: node.assignmentId,
+    identity: node.identity,
+    materialization: node.materialization,
+    executionBindings:
+      node.executionBindings === undefined ? undefined : Object.freeze([...node.executionBindings]),
     spent: node.spent,
     outRef: node.outRef,
+    trace: node.trace,
+    settledAt: node.settledAt,
   }
+}
+
+function traceEvidenceFor(
+  event: Extract<SpawnEvent, { kind: 'settled' }>,
+): NonNullable<NodeSnapshot['trace']> {
+  return (
+    event.trace ?? {
+      status: 'unavailable',
+      reason: 'legacy-settlement-without-trace-evidence',
+    }
+  )
 }
 
 function isNoEntError(err: unknown): boolean {

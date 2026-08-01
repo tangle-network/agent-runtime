@@ -30,6 +30,7 @@ import { RuntimeRunStateError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
+  type AuthorizeDownMessage,
   type CoordinationEvent,
   coordinationVerbNames,
   createCoordinationTools,
@@ -46,6 +47,7 @@ import {
 } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import type { PriorCoordination } from './coordination-log'
+import type { BusRecord } from './event-bus'
 import {
   bestDelivered,
   pickBestDelivered,
@@ -53,6 +55,7 @@ import {
   runTree,
   type SupervisorFinalizer,
 } from './finalizer'
+import { createInbox, type Inbox } from './inbox'
 import {
   createProgressTracker,
   type ProgressTracker,
@@ -80,6 +83,7 @@ export interface DriverAgentOptions {
   readonly blobs: ResultBlobStore
   /** Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam). */
   readonly makeWorkerAgent: MakeWorkerAgent
+  readonly authorizeDownMessage?: AuthorizeDownMessage
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
   /** Independent completion check for work the driver performs itself. When present, the driver
@@ -105,6 +109,9 @@ export interface DriverAgentOptions {
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
+  /** Product-selected tools already bound to this exact supervisor node. The same descriptors are
+   *  served over MCP for external supervisors; this arm projects them into router ToolSpecs. */
+  readonly nodeTools?: ReadonlyArray<McpToolDescriptor>
   /** WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
    *  not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
    *  Each is a router tool spec; their names must not collide with the coordination verbs. Pair with
@@ -155,18 +162,27 @@ export interface DriverAgentOptions {
    *  off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
    *  with the factual settled-worker roster; override to supply your own. */
   readonly compaction?: ToolLoopCompactionOptions
-  /** Pass-through subscriber for every coordination bus event (settled / question / finding /
-   *  steer / answer) — what a durable caller hooks its coordination log onto. Omit = no observer. */
-  readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
-  /** Questions + findings a durable coordination log replayed from a prior process of this run.
-   *  Questions seed the ledger (`list_questions`, blocking-stop policy); both feed the resume
-   *  brief. Omit = fresh (every run that is not a resume). */
+  /** Pass-through subscriber for every coordination bus event: settled/question/finding,
+   *  pre-delivery instruction receipts, and steer/answer delivery outcomes. A durable caller uses
+   *  this to append the coordination log. Omit = no observer. */
+  readonly onEvent?: (
+    event: CoordinationEvent,
+    record: BusRecord<CoordinationEvent>,
+  ) => void | Promise<void>
+  /** Re-publish resume-time settlements through the awaited observer before the first brain turn. */
+  readonly replaySettlements?: boolean
+  /** Questions, findings, and authorized continuation receipts loaded from a prior process.
+   *  Questions seed the ledger (`list_questions`, blocking-stop policy); all three feed the resume
+   *  brief. Continuation receipts are evidence only and are never auto-delivered. Omit = fresh. */
   readonly priorCoordination?: PriorCoordination
   /** How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
    *  highest-scoring DELIVERED child (the exact keep-best every existing caller had). Runs under
    *  the delivered-only invariant (`runFinalizer`): whatever the finalizer, an undelivered or
    *  invalid child's output stays unreachable. */
   readonly finalizer?: SupervisorFinalizer
+  /** Optional shared manager inbox used by a wrapper that must accept messages before async node
+   * setup finishes. Ordinary callers omit it and the driver owns a fresh inbox. */
+  readonly inbox?: Inbox
 }
 
 /** The default chapter-close prompt: the brain summarizes its OWN progress for its future self before
@@ -213,10 +229,13 @@ const runawayTripwireTurns = 2000
  *  overspend usd up to the turn tripwire). */
 function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
   const b = scope.budget
-  if (b.reservedTokens > 0) return false // a child is in flight — await it, don't finalize early
+  if (scope.view.inFlight > 0 || scope.view.waiting > 0) return false
   const tokenStarved = b.tokensLeft < perWorker.maxTokens
-  const usdStarved = b.usdCapped && b.usdLeft <= 0
-  return tokenStarved || usdStarved
+  const iterationStarved = b.iterationsLeft <= 0
+  const usdStarved =
+    b.usdCapped &&
+    (b.usdLeft <= 0 || (perWorker.maxUsd !== undefined && b.usdLeft < perWorker.maxUsd))
+  return tokenStarved || iterationStarved || usdStarved
 }
 
 /** The absolute wall-clock deadline (when the root set one) has passed. */
@@ -282,12 +301,21 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   // Validate against the reserved verb set HERE (construction), so the conflict fails loud — not
   // buried inside act() where the supervisor would swallow the throw into a quiet no-winner.
   const reserved = new Set<string>(coordinationVerbNames)
+  for (const tool of opts.nodeTools ?? []) {
+    if (reserved.has(tool.name)) {
+      throw new ValidationError(
+        `driverAgent: node tool "${tool.name}" collides with a coordination verb or another node tool`,
+      )
+    }
+    reserved.add(tool.name)
+  }
   for (const t of opts.extraTools ?? []) {
     if (reserved.has(t.name)) {
       throw new ValidationError(
-        `driverAgent: extra work tool "${t.name}" collides with a coordination verb`,
+        `driverAgent: extra work tool "${t.name}" collides with a coordination verb or node tool`,
       )
     }
+    reserved.add(t.name)
   }
   // Fail loud on a nonsensical cap: a negative maxTurns would silently run zero turns and
   // finalize an empty no-winner — a silent zero the house rules forbid.
@@ -302,14 +330,19 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   // pure anti-runaway guard, NOT the intended limit.
   const maxTurns = opts.maxTurns === 0 ? runawayTripwireTurns : (opts.maxTurns ?? 16)
   const now = opts.now ?? Date.now
+  const inbox = opts.inbox ?? createInbox()
 
   return {
     name: opts.name,
+    deliver(message): boolean {
+      return inbox.deliver(message)
+    },
     async act(task, scope: Scope<unknown>): Promise<unknown> {
       const coord = createCoordinationTools({
         scope,
         blobs: opts.blobs,
         makeWorkerAgent: opts.makeWorkerAgent,
+        ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
         perWorker: opts.perWorker,
         ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
         ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
@@ -318,10 +351,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
+        ...(opts.replaySettlements ? { replaySettlements: true } : {}),
         ...(opts.priorCoordination?.questions.length
           ? { priorQuestions: opts.priorCoordination.questions }
           : {}),
       })
+      await coord.ready()
       // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
       // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
       // (they settle through the same cursor `await_event` drains). Fail loud on a wait that
@@ -334,9 +369,15 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           )
         }
       }
-      const byName = new Map<string, McpToolDescriptor>(coord.tools.map((t) => [t.name, t]))
+      const byName = new Map<string, McpToolDescriptor>(
+        [...coord.tools, ...(opts.nodeTools ?? [])].map((t) => [t.name, t]),
+      )
       const toolSpecs: ToolSpec[] = [
         ...coord.tools.map((t) => ({
+          type: 'function' as const,
+          function: { name: t.name, description: t.description, parameters: t.inputSchema },
+        })),
+        ...(opts.nodeTools ?? []).map((t) => ({
           type: 'function' as const,
           function: { name: t.name, description: t.description, parameters: t.inputSchema },
         })),
@@ -486,13 +527,26 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           // work instead of re-planning (and re-paying) from scratch.
           ...(scope.resume
             ? [{ role: 'user', content: resumeBrief(scope.resume, opts.priorCoordination) }]
-            : []),
+            : hasPriorCoordination(opts.priorCoordination)
+              ? [
+                  {
+                    role: 'user',
+                    content: priorCoordinationBrief(opts.priorCoordination as PriorCoordination),
+                  },
+                ]
+              : []),
         ],
         maxTurns,
         // The conserved-pool + deadline + external-stop bound (what maxTurns=0 relies on): a driver
         // that can no longer spawn (pool starved) or has run past the deadline stops here instead of
         // burning turns. Checked before each inference turn.
         hooks: {
+          beforeTurn: (_turn, messages) => {
+            const pending = inbox.drain()
+            if (pending.length > 0) {
+              messages.push({ role: 'user', content: inbox.fold(pending) })
+            }
+          },
           stopBefore: () => {
             // HARD CEILINGS FIRST, and independently — a progress rule may never keep a run alive
             // past one, so they are not folded into the same expression.
@@ -546,8 +600,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
 /**
  * The factual context a resumed driver starts from — everything the durable stores prove about
  * the prior process(es): committed settlements, per-key states (completed / lost / failed),
- * re-armed waits, carried-over questions and findings, and the spend already paid. Injected as
- * the brain's first user-context on a resumed run so it continues from the unresolved work.
+ * re-armed waits, carried-over questions/findings/continuation receipts, and spend already paid.
+ * Injected as the brain's first user-context on a resumed run so it continues from unresolved work;
+ * old continuation receipts are evidence and are never auto-delivered.
  */
 function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): string {
   const lines: string[] = [
@@ -600,6 +655,38 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
       ...resume.waits.map((w) => `- ${w.label} (${w.spec.kind})`),
     )
   }
+  appendPriorCoordination(lines, prior)
+  const spent = resume.priorSpend
+  lines.push(
+    '',
+    'Budget the run ALREADY spent before this process (it counts toward the run total):',
+    `- child work: tokens in=${spent.childWork.tokens.input} out=${spent.childWork.tokens.output}, usd=${spent.childWork.usd}, iterations=${spent.childWork.iterations}`,
+    `- driver inference: tokens in=${spent.driverInference.tokens.input} out=${spent.driverInference.tokens.output}, usd=${spent.driverInference.usd}`,
+  )
+  return lines.join('\n')
+}
+
+function hasPriorCoordination(prior?: PriorCoordination): boolean {
+  return (
+    prior !== undefined &&
+    (prior.questions.length > 0 ||
+      prior.findings.length > 0 ||
+      prior.continuations.length > 0 ||
+      prior.deliveryEvidence.length > 0)
+  )
+}
+
+function priorCoordinationBrief(prior: PriorCoordination): string {
+  const lines = [
+    'PRIOR COORDINATION EVIDENCE: this logical supervisor ran in an earlier process.',
+    'Use the evidence below as context. Never auto-deliver an old continuation; issue a new',
+    'authorized instruction only when current live state still warrants it.',
+  ]
+  appendPriorCoordination(lines, prior)
+  return lines.join('\n')
+}
+
+function appendPriorCoordination(lines: string[], prior?: PriorCoordination): void {
   const openQuestions = (prior?.questions ?? []).filter(
     (q) => q.status === 'open' || q.status === 'escalated',
   )
@@ -621,14 +708,31 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
       ),
     )
   }
-  const spent = resume.priorSpend
-  lines.push(
-    '',
-    'Budget the run ALREADY spent before this process (it counts toward the run total):',
-    `- child work: tokens in=${spent.childWork.tokens.input} out=${spent.childWork.tokens.output}, usd=${spent.childWork.usd}, iterations=${spent.childWork.iterations}`,
-    `- driver inference: tokens in=${spent.driverInference.tokens.input} out=${spent.driverInference.tokens.output}, usd=${spent.driverInference.usd}`,
-  )
-  return lines.join('\n')
+  if ((prior?.continuations.length ?? 0) > 0) {
+    const attempts = new Set(
+      (prior?.deliveryEvidence ?? [])
+        .filter((event) => event.type === 'delivery-attempt')
+        .map((event) => event.attempt.receiptId),
+    )
+    const outcomes = new Map(
+      (prior?.deliveryEvidence ?? [])
+        .filter((event) => event.type === 'steer' || event.type === 'answer')
+        .map((event) => [event.down.receiptId, event.down.outcome] as const),
+    )
+    lines.push(
+      '',
+      'Authorized continuations committed by the prior process (evidence only; never replayed automatically):',
+      ...(prior?.continuations ?? []).map((continuation) => {
+        const outcome = outcomes.get(continuation.receiptId)
+        const delivery =
+          outcome ??
+          (attempts.has(continuation.receiptId)
+            ? 'unknown-after-crash'
+            : 'not-attempted-before-crash')
+        return `- receipt=${continuation.receiptId}, ${continuation.kind} → ${continuation.toWorker}, instruction=${continuation.instructionDigest}, delivery=${delivery}`
+      }),
+    )
+  }
 }
 
 /** Run a work tool. A throw is data to the driver (it can recover next turn), not a crash — fold

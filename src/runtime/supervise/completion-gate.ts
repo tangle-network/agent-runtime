@@ -21,6 +21,7 @@
  * @experimental
  */
 
+import { inheritRuntimeOwnedExecutorAttestation } from './materialization'
 import type { DefaultVerdict, Executor, ExecutorResult, UsageEvent } from './types'
 
 /**
@@ -58,7 +59,7 @@ export function gateOnDeliverable<Out>(
     return { valid: delivered, score: baseScore ?? (delivered ? 1 : 0) }
   }
 
-  return {
+  const wrapped: Executor<Out> = {
     runtime: inner.runtime,
     ...(inner.budgetExempt !== undefined ? { budgetExempt: inner.budgetExempt } : {}),
     ...(inner.deliver ? { deliver: (m: unknown) => inner.deliver?.(m) } : {}),
@@ -97,6 +98,7 @@ export function gateOnDeliverable<Out>(
       return { ...art, verdict: gated ?? art.verdict }
     },
   }
+  return inheritRuntimeOwnedExecutorAttestation(inner, wrapped)
 }
 
 function isAsyncIterable(v: unknown): v is AsyncIterable<UsageEvent> {

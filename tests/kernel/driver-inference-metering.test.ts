@@ -69,6 +69,55 @@ function meteredChat(turns: ScriptedTurn[]): ToolLoopChat {
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 
 describe("driver inference metering — the driver's own tokens count against the conserved pool", () => {
+  it('charges a nested worker once and releases the manager reservation', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const worker = workerLeaf('leaf', { input: 10, output: 0 })
+    const childBudget: Budget = { maxIterations: 4, maxTokens: 40 }
+
+    const nestedDriver: Agent<unknown, unknown> = {
+      name: 'nested',
+      async act(_task, scope) {
+        const spawned = scope.spawn(worker, 'work', { budget: childBudget, label: 'leaf' })
+        if (!spawned.ok) throw new Error(`nested spawn failed: ${spawned.reason}`)
+        const settled = await scope.next()
+        return settled?.kind === 'done' ? settled.out : undefined
+      },
+    }
+    const nested = driverChild(
+      { name: 'nested', metadata: { role: 'driver' } },
+      nestedDriver,
+      journal,
+    )
+    const root: Agent<unknown, number> = {
+      name: 'root',
+      async act(_task, scope) {
+        const spawned = scope.spawn(nested, 'nested work', {
+          budget: childBudget,
+          label: 'nested',
+        })
+        if (!spawned.ok) throw new Error(`root spawn failed: ${spawned.reason}`)
+        await scope.next()
+        return scope.budget.tokensLeft
+      },
+    }
+
+    const result = await createSupervisor<unknown, number>().run(root, 'task', {
+      budget: { maxIterations: 10, maxTokens: 100 },
+      runId: 'nested-budget-once',
+      journal,
+      blobs,
+      executors: withDriverExecutor(createExecutorRegistry()),
+      maxDepth: 4,
+      now: () => 0,
+    })
+
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    expect(result.out).toBe(90)
+    expect(result.spentTotal.tokens).toEqual({ input: 10, output: 0 })
+  })
+
   it('folds driver inference into spentTotal and exposes the driver-vs-child breakdown', async () => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
@@ -127,43 +176,59 @@ describe("driver inference metering — the driver's own tokens count against th
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const worker = workerLeaf('leaf', { input: 10, output: 5 })
+    const nestedPerWorker: Budget = { ...perWorker, maxUsd: 1 }
 
     // root driver → mid sub-driver → worker leaf. The recursive resolver: a 'driver' profile becomes
     // a driverChild wrapping another driverAgent; a 'worker' profile becomes the leaf.
-    type P = { kind: 'driver'; name: string; turns: ScriptedTurn[] } | { kind: 'worker' }
-    const driverOf = (name: string, brain: ToolLoopChat): DriverAgentOptions => ({
+    const driverOf = (
+      name: string,
+      brain: ToolLoopChat,
+      workerBudget: Budget = nestedPerWorker,
+    ): DriverAgentOptions => ({
       name,
       brain,
       blobs,
       makeWorkerAgent: makeAgent,
-      perWorker,
+      perWorker: workerBudget,
       systemPrompt: 'drive',
       maxTurns: 8,
     })
-    function makeAgent(raw: unknown): Agent<unknown, unknown> {
-      const p = raw as P
-      if (p?.kind === 'driver') {
-        return driverChild(p.name, driverAgent(driverOf(p.name, meteredChat(p.turns))), journal)
+
+    // mid sub-driver inference = 60/40 + 30/20 + 10/5 = 100/65 tokens, $0.05 (re-homed up).
+    const midTurns: ScriptedTurn[] = [
+      {
+        toolCalls: [
+          {
+            name: 'spawn_agent',
+            arguments: { profile: { metadata: { kind: 'worker' } }, task: 'sub' },
+          },
+        ],
+        usage: { input: 60, output: 40 },
+        costUsd: 0.05,
+      },
+      { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 30, output: 20 } },
+      { content: 'mid done', usage: { input: 10, output: 5 } },
+    ]
+    function makeAgent(
+      profile: AgentProfile,
+      context?: { readonly budget: Budget },
+    ): Agent<unknown, unknown> {
+      if (profile.metadata?.kind === 'driver') {
+        if (!context) throw new Error('driver spawn context missing')
+        const childBudget: Budget = {
+          maxIterations: context.budget.maxIterations,
+          maxTokens: Math.max(1, Math.floor(context.budget.maxTokens / 4)),
+          ...(context.budget.maxUsd !== undefined ? { maxUsd: context.budget.maxUsd / 4 } : {}),
+        }
+        return driverChild(
+          'mid',
+          driverAgent(driverOf('mid', meteredChat(midTurns), childBudget)),
+          journal,
+        )
       }
       return worker
     }
-
-    // mid sub-driver inference = 60/40 + 30/20 + 10/5 = 100/65 tokens, $0.05 (re-homed up).
-    const midProfile: P = {
-      kind: 'driver',
-      name: 'mid',
-      turns: [
-        {
-          toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
-          ],
-          usage: { input: 60, output: 40 },
-          costUsd: 0.05,
-        },
-        { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 30, output: 20 } },
-        { content: 'mid done', usage: { input: 10, output: 5 } },
-      ],
-    }
+    const midProfile: AgentProfile = { name: 'mid', metadata: { kind: 'driver' } }
     // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
     const rootChat = meteredChat([
       {
@@ -205,9 +270,8 @@ describe("driver inference metering — the driver's own tokens count against th
 
     // A sub-driver that meters turn 0 (40/20) then CRASHES (chat throws) on turn 1 — the crash
     // settles it `down`, which must STILL re-home the partial inference it durably metered.
-    const makeAgent = (raw: unknown): Agent<unknown, unknown> => {
-      const p = raw as { kind?: string }
-      if (p?.kind === 'driver') {
+    const makeAgent = (profile: AgentProfile): Agent<unknown, unknown> => {
+      if (profile.metadata?.kind === 'driver') {
         let t = 0
         const crashingChat: ToolLoopChat = async () => {
           t += 1
@@ -237,7 +301,10 @@ describe("driver inference metering — the driver's own tokens count against th
     const rootChat = meteredChat([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'driver' }, task: 'go' } },
+          {
+            name: 'spawn_agent',
+            arguments: { profile: { metadata: { kind: 'driver' } }, task: 'go' },
+          },
         ],
         usage: { input: 100, output: 50 },
       },
@@ -325,6 +392,54 @@ describe("driver inference metering — the driver's own tokens count against th
     expect(seen.length).toBe(3)
     expect(result.kind).toBe('no-winner')
     expect(n).toBe(3)
+  })
+
+  it.each([
+    {
+      label: 'zero remaining child iterations',
+      rootBudget: { maxIterations: 0, maxTokens: 10_000 } satisfies Budget,
+      workerBudget: { maxIterations: 1, maxTokens: 100 } satisfies Budget,
+    },
+    {
+      label: 'remaining capped dollars below the exact child allocation',
+      rootBudget: { maxIterations: 10, maxTokens: 10_000, maxUsd: 0.09 } satisfies Budget,
+      workerBudget: { maxIterations: 1, maxTokens: 100, maxUsd: 0.1 } satisfies Budget,
+    },
+  ])('does not buy a manager turn with $label', async ({ rootBudget, workerBudget }) => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let managerTurns = 0
+    const result = await createSupervisor<unknown, unknown>().run(
+      driverAgent({
+        name: 'root',
+        brain: async () => {
+          managerTurns += 1
+          return {
+            toolCalls: [{ id: 'would-spawn', name: 'spawn_agent', arguments: '{}' }],
+            usage: { input: 5, output: 5 },
+            costUsd: 0.01,
+          }
+        },
+        blobs,
+        makeWorkerAgent: () => workerLeaf('unused', { input: 1, output: 1 }),
+        perWorker: workerBudget,
+        systemPrompt: 'drive',
+        maxTurns: 0,
+      }),
+      'cannot admit child work',
+      {
+        budget: rootBudget,
+        runId: `pre-turn-admission-${rootBudget.maxUsd ?? 'iterations'}`,
+        journal,
+        blobs,
+        executors: createExecutorRegistry(),
+        maxDepth: 2,
+        now: () => 0,
+      },
+    )
+
+    expect(managerTurns).toBe(0)
+    expect(result.kind).toBe('no-winner')
   })
 
   it('emits an agent.turn observability event per metered driver turn (the live A++ view)', async () => {

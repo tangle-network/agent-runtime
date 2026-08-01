@@ -353,7 +353,10 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
     const chat = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+          {
+            name: 'spawn_agent',
+            arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+          },
           { name: 'await_event', arguments: {} },
         ],
       },
@@ -424,7 +427,10 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+            {
+              name: 'spawn_agent',
+              arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+            },
             { name: 'await_event', arguments: {} },
           ],
         },

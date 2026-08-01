@@ -41,6 +41,12 @@ const okHarness = vi.fn(async () => ({
   killedBySignal: null as NodeJS.Signals | null,
   durationMs: 1,
   timedOut: false,
+  usage: {
+    inputTokens: 10,
+    cachedInputTokens: 0,
+    outputTokens: 5,
+    reasoningOutputTokens: 0,
+  },
 }))
 
 describe('worktreeLoopRunner — the migrated generic coder path', () => {
@@ -51,8 +57,18 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
       taskPrompt: 'fix the off-by-one',
       budget,
       harnesses: [
-        { name: 'claude', profile: profile('claude'), harness: 'claude' },
-        { name: 'opencode', profile: profile('opencode'), harness: 'opencode' },
+        {
+          name: 'claude',
+          profile: profile('claude'),
+          harness: 'claude',
+          budgetExempt: false,
+        },
+        {
+          name: 'opencode',
+          profile: profile('opencode'),
+          harness: 'opencode',
+          budgetExempt: false,
+        },
       ],
       testCmd: 'pnpm test',
       typecheckCmd: 'pnpm typecheck',
@@ -76,7 +92,14 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
       repoRoot: '/repo',
       taskPrompt: 'fix it',
       budget,
-      harnesses: [{ name: 'claude', profile: profile('claude'), harness: 'claude' }],
+      harnesses: [
+        {
+          name: 'claude',
+          profile: profile('claude'),
+          harness: 'claude',
+          budgetExempt: false,
+        },
+      ],
       testCmd: 'pnpm test',
       require: ['tests'],
       runGit: fakeGitWith(() => ({
@@ -95,7 +118,14 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
       repoRoot: '/repo',
       taskPrompt: 'do nothing',
       budget,
-      harnesses: [{ name: 'claude', profile: profile('claude'), harness: 'claude' }],
+      harnesses: [
+        {
+          name: 'claude',
+          profile: profile('claude'),
+          harness: 'claude',
+          budgetExempt: false,
+        },
+      ],
       runGit: fakeGitWith(() => ({ patch: '', shortstat: ' 0 files changed\n' })),
       runHarness: okHarness,
     })

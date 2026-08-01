@@ -13,6 +13,7 @@
  * the right home for "supervise over a graded surface". The within-run self-improvement is the analyst
  * (authored content, swap `analysts`); the across-run kind wraps this call in `improve()`.
  */
+import { OUTPUT_VALUE, type TraceAnalysisStore } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { AnalystRegistry, MakeWorkerAgent } from '../mcp/tools/coordination'
 import type { RouterConfig } from './router-client'
@@ -26,6 +27,8 @@ import {
 import type { DeliverableSpec } from './supervise/completion-gate'
 import { supervise } from './supervise/supervise'
 import type { SupervisorProfile } from './supervise/supervisor-agent'
+import { isTraceAnalysisStore } from './supervise/trace-evidence'
+import { createPushTraceSource, type TraceSource } from './supervise/trace-source'
 import type { Agent, AgentSpec, Budget, Executor, ExecutorResult, Spend } from './supervise/types'
 
 /** What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is
@@ -39,35 +42,50 @@ export interface SurfaceWorkerOut {
   readonly failing?: readonly string[]
 }
 
-/** Remember the worker's LAST `run_tests` output so the analyst can name the still-failing tests — a
- *  transparent passthrough for every other surface call. Local to this module (no surface-zoo concept). */
-function captureFailures(base: AgenticSurface): {
+/** Instrument every real surface call with the shared push trace source. The last test report remains
+ *  available on `SurfaceWorkerOut` for compatibility, but analysts read only the persisted spans. */
+export function traceSurfaceCalls(base: AgenticSurface): {
   surface: AgenticSurface
   failing: () => string[]
+  traceSource: TraceSource
 } {
   let lastReport = ''
+  const trace = createPushTraceSource()
   const surface: AgenticSurface = {
     name: base.name,
     open: (t) => base.open(t),
     tools: (t, h) => base.tools(t, h),
     async call(h, name, args) {
-      const out = await base.call(h, name, args)
-      if (name === 'run_tests') lastReport = out
-      return out
+      const startedAt = Date.now()
+      const recordedArgs = structuredClone(args)
+      try {
+        const out = await base.call(h, name, args)
+        trace.record({
+          toolName: name,
+          args: recordedArgs,
+          result: out,
+          status: out.startsWith('ERROR:') ? 'error' : 'ok',
+          startedAt,
+          endedAt: Date.now(),
+        })
+        if (name === 'run_tests') lastReport = out
+        return out
+      } catch (error) {
+        trace.record({
+          toolName: name,
+          args: recordedArgs,
+          result: `ERROR: ${error instanceof Error ? error.message : String(error)}`,
+          status: 'error',
+          startedAt,
+          endedAt: Date.now(),
+        })
+        throw error
+      }
     },
     score: (t, h) => base.score(t, h),
     close: (h) => base.close(h),
   }
-  const failing = () => {
-    const body = /FAILING:\s*(.+)/i.exec(lastReport)?.[1]
-    return body
-      ? body
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : []
-  }
-  return { surface, failing }
+  return { surface, failing: () => failingTestNames(lastReport), traceSource: trace.source }
 }
 
 /** The default self-improvement LENS — authored content, not a code path. On each settled worker it hands
@@ -82,19 +100,84 @@ export function failuresAnalyst(): AnalystRegistry {
         area: 'progress',
       },
     ],
-    run: async (_kindId: string, trace: unknown) => {
-      const w = (trace ?? {}) as Partial<SurfaceWorkerOut>
-      if (!(typeof w === 'object' && w !== null && 'resolved' in w))
-        return { summary: `worker produced: ${JSON.stringify(trace).slice(0, 300)}` }
-      if (w.resolved) return { summary: 'worker RESOLVED — every check passed; stop.' }
-      const failing = (w.failing ?? []) as readonly string[]
-      const head = `worker did NOT resolve — score ${(100 * (w.score ?? 0)).toFixed(0)}%, ${w.shots ?? '?'} shot(s)`
+    run: async (_kindId: string, trace: TraceAnalysisStore) => {
+      if (!isTraceAnalysisStore(trace)) return missingRunTestsEvidence()
+      const report = await latestRunTestsReport(trace)
+      if (report === undefined) return missingRunTestsEvidence()
+      const failing = failingTestNames(report)
       return {
         summary: failing.length
-          ? `${head}. STILL FAILING (${failing.length}): ${failing.slice(0, 12).join(', ')}. Spawn the next worker to fix exactly these; if a test keeps failing across workers, give it concrete guidance about that case.`
-          : `${head}. (no failing-test list available this round)`,
+          ? `Latest structured run_tests evidence reports STILL FAILING (${failing.length}): ${failing.join(', ')}. Spawn the next worker to fix exactly these; if a test keeps failing across workers, give it concrete guidance about that case.`
+          : allTestsPassed(report)
+            ? 'Latest structured run_tests evidence reports every test passed; stop.'
+            : `Latest structured run_tests evidence contains no parseable failing-test names. Refusing to infer them from worker prose. run_tests output: ${report.slice(0, 300)}`,
       }
     },
+  }
+}
+
+async function latestRunTestsReport(store: TraceAnalysisStore): Promise<string | undefined> {
+  const overview = await store.getOverview({ tool_names: ['run_tests'] })
+  const candidates: Array<{ output: string; endedAt: string; ordinal: number }> = []
+  let ordinal = 0
+  for (const traceId of overview.sample_trace_ids) {
+    const view = await store.viewTrace({ trace_id: traceId, per_attribute_byte_cap: 16_384 })
+    let spans = view.spans
+    if (spans === undefined) {
+      const matches = await store.searchTrace({
+        trace_id: traceId,
+        regex_pattern: 'run_tests',
+        max_matches: 100,
+      })
+      const spanIds = [
+        ...new Set(
+          matches.hits.filter((hit) => hit.span_name === 'run_tests').map((hit) => hit.span_id),
+        ),
+      ]
+      spans = spanIds.length
+        ? (
+            await store.viewSpans({
+              trace_id: traceId,
+              span_ids: spanIds,
+              per_attribute_byte_cap: 16_384,
+            })
+          ).spans
+        : []
+    }
+    for (const span of spans) {
+      if (span.tool_name !== 'run_tests') continue
+      const output = span.attributes[OUTPUT_VALUE]
+      if (typeof output !== 'string') continue
+      candidates.push({ output, endedAt: span.end_time, ordinal: ordinal++ })
+    }
+  }
+  candidates.sort(
+    (left, right) =>
+      Date.parse(left.endedAt) - Date.parse(right.endedAt) || left.ordinal - right.ordinal,
+  )
+  return candidates.at(-1)?.output
+}
+
+function failingTestNames(report: string): string[] {
+  const body = /FAILING:\s*([^\n]+)/iu.exec(report)?.[1]
+  if (body === undefined) return []
+  return body
+    .replace(/\.\s+COLLECTION-BLOCKED:.*$/iu, '')
+    .replace(/\s*\(\+\d+\s+more\)\s*$/iu, '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+}
+
+function allTestsPassed(report: string): boolean {
+  const fraction = /(\d+)\s*\/\s*(\d+)\s+tests?\s+passed/iu.exec(report)
+  return fraction !== null && Number(fraction[1]) === Number(fraction[2])
+}
+
+function missingRunTestsEvidence(): { summary: string } {
+  return {
+    summary:
+      'Missing structured run_tests span evidence. Refusing to infer failing-test names from worker prose.',
   }
 }
 
@@ -119,6 +202,7 @@ function surfaceWorkerExecutor(
   strategy: Strategy,
 ): Executor<SurfaceWorkerOut> {
   let artifact: ExecutorResult<SurfaceWorkerOut> | undefined
+  const traced = traceSurfaceCalls(surface)
   return {
     runtime: 'surface-worker',
     async execute(brief: unknown): Promise<ExecutorResult<SurfaceWorkerOut>> {
@@ -129,9 +213,8 @@ function surfaceWorkerExecutor(
             systemPrompt: `${task.systemPrompt ?? ''}\n\n— Supervisor guidance for THIS attempt (incorporate it; do not just repeat a prior approach) —\n${guidance}`,
           }
         : task
-      const cap = captureFailures(surface)
       const r = await runAgentic({
-        surface: cap.surface,
+        surface: traced.surface,
         task: attemptTask,
         strategy,
         budget: worker.budget ?? 1,
@@ -146,7 +229,7 @@ function surfaceWorkerExecutor(
         score: r.score,
         shots: r.shots,
         summary: `${strategy.name} ${r.shots} shot(s) → ${(100 * r.score).toFixed(0)}% (${r.resolved ? 'resolved' : 'unresolved'})`,
-        failing: r.resolved ? [] : cap.failing(),
+        failing: r.resolved ? [] : traced.failing(),
       }
       const spent: Spend = { iterations: r.completions, tokens: r.tokens, usd: r.usd, ms: r.ms }
       artifact = {
@@ -157,6 +240,7 @@ function surfaceWorkerExecutor(
       }
       return artifact
     },
+    traceSource: () => traced.traceSource,
     teardown: () => Promise.resolve({ destroyed: true }),
     resultArtifact() {
       if (!artifact) throw new Error('surfaceWorkerExecutor: resultArtifact before execute')

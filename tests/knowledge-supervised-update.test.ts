@@ -75,7 +75,7 @@ describe('knowledge supervisor integration', () => {
     expect(captured?.task).toContain('Goal: candidate goal')
     expect(captured?.task).toContain('Knowledge base root: /kb/candidate')
     expect(captured?.profile.name).toBe('knowledge-research-supervisor')
-    expect(captured?.profile.systemPrompt).toContain(
+    expect(captured?.profile.prompt?.systemPrompt).toContain(
       'Each researcher worker you spawn follows this contract',
     )
   })

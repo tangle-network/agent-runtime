@@ -40,6 +40,7 @@ let commandLog: string
 const FAKE_PI = `#!/usr/bin/env node
 const fs = require('node:fs')
 const log = process.env.PI_COMMAND_LOG
+fs.appendFileSync(log, JSON.stringify({ type: 'argv', args: process.argv.slice(2) }) + '\\n')
 const emit = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
 const result = (text) => ({ content: [{ type: 'text', text }], details: {} })
 const message = (m) => {
@@ -289,7 +290,38 @@ async function waitForCommand(
 }
 
 describe('piExecutor — pi wrapped, not forked', () => {
-  it('runs a turn, reports REAL usage off pi events, and exposes live progress + tool spans', async () => {
+  it('uses AgentProfile.model.default instead of the backend fallback', async () => {
+    await writeFile(commandLog, '')
+    const ctx = piCtx()
+    const withFallback: ExecutorContext = {
+      ...ctx,
+      seams: {
+        ...ctx.seams,
+        [piSeamKey]: {
+          ...(ctx.seams[piSeamKey] as Record<string, unknown>),
+          model: 'fallback/ignored-model',
+        },
+      },
+    }
+    const ex = piExecutor(
+      {
+        profile: {
+          name: 'profile-model',
+          model: { default: 'profile/selected-model' },
+        },
+        harness: null,
+      },
+      withFallback,
+    )
+
+    await drain(ex.execute('make the change', withFallback.signal) as AsyncIterable<UsageEvent>)
+    const argv = (await readCommands()).find((command) => command.type === 'argv')?.args
+
+    expect(argv).toEqual(['--mode', 'rpc', '--provider', 'profile', '--model', 'selected-model'])
+    await ex.teardown('brutalKill')
+  })
+
+  it('counts duplicated message_end + turn_end telemetry once from authoritative turn_end', async () => {
     await writeFile(commandLog, '')
     const ctx = piCtx()
     const ex = piExecutor(spec, ctx)
@@ -325,6 +357,8 @@ describe('piExecutor — pi wrapped, not forked', () => {
     expect(String((artifact.out as { content: string }).content)).toContain('edited wrong.ts')
     expect(artifact.spent.tokens).toEqual({ input: 51, output: 16 })
     expect(artifact.spent.usd).toBe(0.003)
+    expect(artifact.spent).not.toHaveProperty('tokensKnown')
+    expect(artifact.spent).not.toHaveProperty('usdKnown')
     await ex.teardown('brutalKill')
   })
 

@@ -137,8 +137,8 @@ export async function runSupervisedKnowledgeUpdate(
 
   const profile: SupervisorProfile = {
     name: 'knowledge-research-supervisor',
-    model: options.supervisorModel,
-    systemPrompt,
+    ...(options.supervisorModel ? { model: { default: options.supervisorModel } } : {}),
+    prompt: { systemPrompt },
   }
   const run = options.runSupervised ?? supervise
   const task = formatSupervisedKnowledgeTask(options)

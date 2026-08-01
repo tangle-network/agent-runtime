@@ -1,15 +1,70 @@
+import type { ToolSpan, TraceAnalysisStore } from '@tangle-network/agent-eval'
 import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { createMcpServer } from '../../src/mcp/server'
 import {
+  type CoordinationEvent,
   createCoordinationTools,
   deriveSpawnProfileArg,
   spawnProfileFieldNames,
 } from '../../src/mcp/tools/coordination'
-import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
-import { createPushTraceSource, watchTrace } from '../../src/runtime'
+import type { Agent, ResultBlobStore, Scope, Spend, WorkerTraceEvidence } from '../../src/runtime'
+import {
+  contentAddress,
+  createPushTraceSource,
+  WORKER_TOOL_TRACE_SCHEMA_VERSION,
+  watchTrace,
+} from '../../src/runtime'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
+
+const noTrace = {
+  status: 'unavailable',
+  reason: 'executor-did-not-expose-trace-source',
+} as const satisfies WorkerTraceEvidence
+
+const toolSpan = {
+  spanId: 'worker-trace-t0',
+  runId: 'worker-trace',
+  kind: 'tool',
+  name: 'read_file',
+  toolName: 'read_file',
+  args: { path: 'actual.ts' },
+  result: { text: 'structured tool result' },
+  status: 'ok',
+  startedAt: 100,
+  endedAt: 105,
+} as const satisfies ToolSpan
+const traceArtifact = {
+  schemaVersion: WORKER_TOOL_TRACE_SCHEMA_VERSION,
+  spans: [toolSpan],
+}
+const traceRef = contentAddress(traceArtifact)
+const availableTrace = {
+  status: 'available',
+  traceRef,
+  spanCount: 1,
+} as const satisfies WorkerTraceEvidence
+
+function traceBlobStore(outputRef: string, output: unknown): ResultBlobStore {
+  return {
+    get: async (ref) => {
+      if (ref === traceRef) return traceArtifact
+      if (ref === outputRef) return output
+      return undefined
+    },
+    put: async () => {},
+  }
+}
+
+async function traceSummary(trace: TraceAnalysisStore) {
+  const overview = await trace.getOverview()
+  return {
+    traces: overview.total_traces,
+    tools: overview.tool_names,
+    traceIds: overview.sample_trace_ids,
+  }
+}
 
 function mockScope() {
   const sent: Array<{ id: string; msg: unknown }> = []
@@ -21,6 +76,10 @@ function mockScope() {
       status: 'running' as const,
       runtime: 'router',
       budget: { maxIterations: 1, maxTokens: 10 },
+      identity: {
+        profileDigest: `sha256:${'a'.repeat(64)}`,
+        taskDigest: `sha256:${'b'.repeat(64)}`,
+      },
       spent: zeroSpend(),
     },
     {
@@ -31,6 +90,7 @@ function mockScope() {
       budget: { maxIterations: 1, maxTokens: 10 },
       spent: zeroSpend(),
       outRef: 'blob:w1',
+      trace: noTrace,
     },
   ]
   let admit = true
@@ -140,6 +200,7 @@ describe('coordination tools', () => {
     // No `maxLiveWorkers` cap ⇒ `freeSlots: null` (uncapped; the conserved pool is the fence).
     expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w0',
+      assignmentId: 'ordinal:0',
       live: 1,
       freeSlots: null,
     })
@@ -148,6 +209,66 @@ describe('coordination tools', () => {
       error: 'budget-exhausted',
       live: 1,
       freeSlots: null,
+    })
+  })
+
+  it('continues unkeyed assignment identity past the highest durable resume ordinal', async () => {
+    const { scope } = mockScope()
+    Object.defineProperty(scope, 'resume', {
+      value: {
+        settled: [],
+        view: {
+          root: 'root',
+          nodes: [
+            {
+              id: 'prior-0',
+              parent: 'root',
+              label: 'prior 0',
+              status: 'done',
+              runtime: 'router',
+              budget: { maxIterations: 1, maxTokens: 10 },
+              assignmentId: 'ordinal:0',
+              spent: zeroSpend(),
+            },
+            {
+              id: 'prior-3',
+              parent: 'root',
+              label: 'prior 3',
+              status: 'done',
+              runtime: 'router',
+              budget: { maxIterations: 1, maxTokens: 10 },
+              assignmentId: 'ordinal:3',
+              spent: zeroSpend(),
+            },
+            {
+              id: 'prior-keyed',
+              parent: 'root',
+              label: 'prior keyed',
+              status: 'done',
+              runtime: 'router',
+              budget: { maxIterations: 1, maxTokens: 10 },
+              assignmentId: 'key:control',
+              spent: zeroSpend(),
+            },
+          ],
+          inFlight: 0,
+          waiting: 0,
+        },
+        waits: [],
+        keys: new Map(),
+        priorSpend: { childWork: zeroSpend(), driverInference: zeroSpend() },
+      },
+    })
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+
+    expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'new work' })).toMatchObject({
+      workerId: 'w0',
+      assignmentId: 'ordinal:4',
     })
   })
 
@@ -190,14 +311,29 @@ describe('coordination tools', () => {
     const spawn = () => tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })
     // `freeSlots` counts down as the cap fills — the reading that tells the driver capacity is
     // still idle, so it can fill slots instead of opening one worker per turn.
-    expect(await spawn()).toEqual({ workerId: 'w0', live: 1, freeSlots: 1 })
-    expect(await spawn()).toEqual({ workerId: 'w1', live: 2, freeSlots: 0 })
+    expect(await spawn()).toEqual({
+      workerId: 'w0',
+      assignmentId: 'ordinal:0',
+      live: 1,
+      freeSlots: 1,
+    })
+    expect(await spawn()).toEqual({
+      workerId: 'w1',
+      assignmentId: 'ordinal:1',
+      live: 2,
+      freeSlots: 0,
+    })
     // The 2 live workers fill the cap → the 3rd fails closed BEFORE scope.spawn is called.
     expect(await spawn()).toEqual({ error: 'max-live-workers', live: 2, freeSlots: 0 })
     expect(spawns).toHaveLength(2)
     // A settled worker frees a slot — mark one terminal and the next spawn admits again.
     live[0]!.status = 'done'
-    expect(await spawn()).toEqual({ workerId: 'w2', live: 2, freeSlots: 0 })
+    expect(await spawn()).toEqual({
+      workerId: 'w2',
+      assignmentId: 'ordinal:2',
+      live: 2,
+      freeSlots: 0,
+    })
 
     // No cap (omitted) → the pool stays the only fence; the same scope admits past the prior cap.
     const uncapped = createCoordinationTools({
@@ -208,6 +344,7 @@ describe('coordination tools', () => {
     })
     expect(await tool(uncapped, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w3',
+      assignmentId: 'ordinal:0',
       live: 3,
       freeSlots: null,
     })
@@ -225,6 +362,7 @@ describe('coordination tools', () => {
       outRef: 'blob:a',
       verdict: { score: 1, valid: true },
       spent: zeroSpend(),
+      trace: noTrace,
       seq: 0,
     }
     let deliveredKey: string | undefined
@@ -274,7 +412,12 @@ describe('coordination tools', () => {
       tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go', key })
 
     // Key 'a' runs and takes the only slot, then delivers.
-    expect(await spawnKeyed('a')).toEqual({ workerId: 'w0', live: 1, freeSlots: 0 })
+    expect(await spawnKeyed('a')).toEqual({
+      workerId: 'w0',
+      assignmentId: 'key:a',
+      live: 1,
+      freeSlots: 0,
+    })
     live[0]!.status = 'done'
     deliveredKey = 'a'
     // Drain the settlement the way the driver does — this is what teaches the toolbox that key
@@ -283,7 +426,12 @@ describe('coordination tools', () => {
     await tool(tb, 'await_event').handler({ kinds: ['settled'] })
 
     // A different assignment now occupies the single slot.
-    expect(await spawnKeyed('b')).toEqual({ workerId: 'w1', live: 1, freeSlots: 0 })
+    expect(await spawnKeyed('b')).toEqual({
+      workerId: 'w1',
+      assignmentId: 'key:b',
+      live: 1,
+      freeSlots: 0,
+    })
 
     // Re-asking for the DELIVERED key at the cap must return its committed result, not a refusal.
     expect(await spawnKeyed('a')).toEqual({
@@ -293,6 +441,8 @@ describe('coordination tools', () => {
       score: 1,
       valid: true,
       outRef: 'blob:a',
+      spent: zeroSpend(),
+      trace: noTrace,
       live: 1,
       freeSlots: 0,
     })
@@ -328,7 +478,12 @@ describe('coordination tools', () => {
         task: 'hard',
         budget: { maxTokens: 5000, maxUsd: 0.5 },
       }),
-    ).toEqual({ workerId: 'w0', live: 1, freeSlots: null })
+    ).toEqual({
+      workerId: 'w0',
+      assignmentId: 'ordinal:0',
+      live: 1,
+      freeSlots: null,
+    })
     expect(spawns[0].opts.budget).toEqual({ maxIterations: 2, maxTokens: 5000, maxUsd: 0.5 })
   })
 
@@ -410,6 +565,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w7',
         verdict: { valid: true, score: 0.83 },
         spent: zeroSpend(),
+        trace: noTrace,
         seq: 0,
       },
     ]
@@ -432,6 +588,8 @@ describe('coordination tools', () => {
       score: 0.83,
       valid: true,
       outRef: 'blob:w7',
+      spent: zeroSpend(),
+      trace: noTrace,
       freeSlots: null,
     })
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
@@ -441,9 +599,9 @@ describe('coordination tools', () => {
     expect(tb.settled()).toMatchObject([
       { id: 'w7', status: 'done', score: 0.83, valid: true, outRef: 'blob:w7' },
     ])
-    // The ledger stamps WHEN the settlement landed — the resolution a progress-based stop rule
-    // reads to answer "how long since anything landed?" without inventing a timestamp at read time.
-    expect(typeof tb.settled()[0]?.settledAt).toBe('number')
+    // This hand-rolled scope supplied no durable terminal timestamp. Missing stays missing; the
+    // coordination layer never invents a read-time value that would change on replay.
+    expect(tb.settled()[0]?.settledAt).toBeUndefined()
   })
 
   it('await_event bounds the block: { pending, live } while a worker runs, then pulls the settlement once it lands', async () => {
@@ -490,6 +648,7 @@ describe('coordination tools', () => {
       outRef: 'blob:w0',
       verdict: { valid: true, score: 0.5 },
       spent: zeroSpend(),
+      trace: noTrace,
       seq: 0,
     }
     release()
@@ -503,7 +662,7 @@ describe('coordination tools', () => {
 
   it('blocks stop under failClosed until a parent question is answered', async () => {
     const { scope } = mockScope()
-    const emitted: unknown[] = []
+    const emitted: CoordinationEvent[] = []
     const tb = createCoordinationTools({
       scope,
       blobs,
@@ -514,7 +673,7 @@ describe('coordination tools', () => {
     })
 
     const r = (await tool(tb, 'ask_parent').handler({
-      from: 'driver-1',
+      from: 'w0',
       level: 'driver',
       question: 'Which API version should this migration target?',
       reason: 'worker found two supported versions',
@@ -524,36 +683,110 @@ describe('coordination tools', () => {
       stopped: false,
       error: 'unresolved-blocking-questions',
     })
-    // The driver-1 asker is not a live worker in the mock scope → the answer reports delivered:false.
+    // The asker is a live worker, so accepted delivery resolves the blocking question.
     expect(
       await tool(tb, 'answer_question').handler({
         questionId: r.question.id,
         answer: 'Target v2.',
         by: 'user',
       }),
-    ).toMatchObject({ question: { status: 'answered' }, delivered: false })
+    ).toMatchObject({ question: { status: 'answered' }, delivered: true })
     expect(await tool(tb, 'stop').handler({ reason: 'answered and verified' })).toEqual({
       stopped: true,
     })
     expect(tb.questions()[0]).toMatchObject({ status: 'answered' })
-    // The pass-through trail records BOTH legs: the question up, then the answer routed down.
-    expect(emitted).toEqual([
+    // The exact answer is committed before it is routed down.
+    expect(emitted).toMatchObject([
       { type: 'question', question: expect.objectContaining(r.question) },
+      {
+        type: 'instruction',
+        instruction: expect.objectContaining({
+          kind: 'answer',
+          toWorker: 'w0',
+          instruction: 'Target v2.',
+          questionId: r.question.id,
+        }),
+      },
+      {
+        type: 'delivery-attempt',
+        attempt: expect.objectContaining({
+          kind: 'answer',
+          toWorker: 'w0',
+          questionId: r.question.id,
+        }),
+      },
       {
         type: 'answer',
         questionId: r.question.id,
-        down: { toWorker: 'driver-1', instruction: 'Target v2.', delivered: false },
+        down: expect.objectContaining({
+          toWorker: 'w0',
+          instruction: 'Target v2.',
+          delivered: true,
+          outcome: 'delivered',
+        }),
       },
     ])
+    const receipt = emitted[1]
+    const attempt = emitted[2]
+    const outcome = emitted[3]
+    if (
+      receipt?.type !== 'instruction' ||
+      attempt?.type !== 'delivery-attempt' ||
+      outcome?.type !== 'answer'
+    ) {
+      throw new Error('expected authorization, attempt, and answer outcome evidence')
+    }
+    expect(attempt.attempt.receiptId).toBe(receipt.instruction.receiptId)
+    expect(outcome.down.receiptId).toBe(receipt.instruction.receiptId)
+    expect(outcome.down.instructionDigest).toBe(receipt.instruction.instructionDigest)
+  })
+
+  it('keeps a blocking question open when its authorized answer cannot reach the worker', async () => {
+    const { scope } = mockScope()
+    const emitted: CoordinationEvent[] = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      questionPolicy: 'failClosed',
+      onEvent: (event) => emitted.push(event),
+    })
+    const raised = (await tool(tb, 'ask_parent').handler({
+      from: 'missing-worker',
+      level: 'worker',
+      question: 'Which target?',
+      reason: 'blocked on a choice',
+      urgency: 'blocks-run',
+    })) as { question: { id: string } }
+
+    const answer = await tool(tb, 'answer_question').handler({
+      questionId: raised.question.id,
+      answer: 'Target B',
+    })
+    expect(answer).toMatchObject({
+      question: { id: raised.question.id, status: (raised.question as { status: string }).status },
+      delivered: false,
+      reason: 'unknown-worker',
+    })
+    expect(tb.questions()).toMatchObject([
+      { id: raised.question.id, status: (raised.question as { status: string }).status },
+    ])
+    expect(await tool(tb, 'stop').handler({ reason: 'cannot claim done' })).toMatchObject({
+      stopped: false,
+      error: 'unresolved-blocking-questions',
+    })
+    const outcome = emitted.find((event) => event.type === 'answer')
+    expect(outcome?.down).toMatchObject({ delivered: false, outcome: 'unknown-worker' })
   })
 
   it('list_analysts surfaces the menu and run_analyst applies a lens to a settled worker', async () => {
     const { scope } = mockScope()
-    const traceBlobs: ResultBlobStore = {
-      get: async (ref) => (ref === 'blob:w1' ? { messages: ['trace'] } : undefined),
-      put: async () => {},
-    }
-    const seen: Array<{ kind: string; trace: unknown }> = []
+    Object.assign(scope.view.nodes.find((node) => node.id === 'w1')!, { trace: availableTrace })
+    const traceBlobs = traceBlobStore('blob:w1', {
+      messages: ['WORKER PROSE THAT MUST NEVER REACH A TRACE ANALYST'],
+    })
+    const seen: Array<{ kind: string; trace: Awaited<ReturnType<typeof traceSummary>> }> = []
     const tb = createCoordinationTools({
       scope,
       blobs: traceBlobs,
@@ -562,7 +795,7 @@ describe('coordination tools', () => {
       analysts: {
         kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
         run: async (kind, trace) => {
-          seen.push({ kind, trace })
+          seen.push({ kind, trace: await traceSummary(trace) })
           return [{ claim: 'X missing' }]
         },
       },
@@ -575,12 +808,45 @@ describe('coordination tools', () => {
         findings: [{ claim: 'X missing' }],
       },
     )
-    expect(seen).toEqual([{ kind: 'completeness', trace: { messages: ['trace'] } }])
+    expect(seen).toEqual([
+      {
+        kind: 'completeness',
+        trace: { traces: 1, tools: ['read_file'], traceIds: ['worker-trace'] },
+      },
+    ])
     expect(await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w0' })).toEqual(
       {
         error: expect.stringContaining('has not settled'),
       },
     )
+  })
+
+  it('refuses trace analysis when a settled worker has no structured tool spans', async () => {
+    const { scope } = mockScope()
+    let analystCalls = 0
+    const tb = createCoordinationTools({
+      scope,
+      blobs: traceBlobStore('blob:w1', {
+        messages: ['plausible-looking worker prose is still not tool evidence'],
+      }),
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      analysts: {
+        kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+        run: async () => {
+          analystCalls += 1
+          return []
+        },
+      },
+    })
+
+    await expect(
+      tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w1' }),
+    ).resolves.toEqual({
+      error: expect.stringContaining('trace evidence is missing'),
+      trace: noTrace,
+    })
+    expect(analystCalls).toBe(0)
   })
 
   it('await_event bumps a blocking question ahead of a non-blocking one (urgency→priority)', async () => {
@@ -622,7 +888,7 @@ describe('coordination tools', () => {
 
   it('steer_agent routes down + records in history but is never pulled back', async () => {
     const { scope, sent } = mockScope()
-    const emitted: Array<{ type: string }> = []
+    const emitted: CoordinationEvent[] = []
     const tb = createCoordinationTools({
       scope,
       blobs,
@@ -646,15 +912,110 @@ describe('coordination tools', () => {
     // The forceful steer reached the child inbox (down delivery)...
     expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X', interrupt: true } }])
     // ...and both attempts were recorded for observability (pass-through + history)...
-    expect(emitted.map((e) => e.type)).toEqual(['steer', 'steer'])
-    expect(tb.history().map((r) => r.event.type)).toEqual(['steer', 'steer'])
+    expect(emitted.map((e) => e.type)).toEqual([
+      'instruction',
+      'delivery-attempt',
+      'steer',
+      'instruction',
+      'delivery-attempt',
+      'steer',
+    ])
+    expect(tb.history().map((r) => r.event.type)).toEqual([
+      'instruction',
+      'delivery-attempt',
+      'steer',
+      'instruction',
+      'delivery-attempt',
+      'steer',
+    ])
+    const [
+      acceptedReceipt,
+      acceptedAttempt,
+      acceptedOutcome,
+      refusedReceipt,
+      refusedAttempt,
+      refusedOutcome,
+    ] = emitted
+    if (
+      acceptedReceipt?.type !== 'instruction' ||
+      acceptedAttempt?.type !== 'delivery-attempt' ||
+      acceptedOutcome?.type !== 'steer' ||
+      refusedReceipt?.type !== 'instruction' ||
+      refusedAttempt?.type !== 'delivery-attempt' ||
+      refusedOutcome?.type !== 'steer'
+    ) {
+      throw new Error('expected two complete delivery evidence chains')
+    }
+    expect(acceptedAttempt.attempt.receiptId).toBe(acceptedReceipt.instruction.receiptId)
+    expect(acceptedOutcome.down).toMatchObject({
+      receiptId: acceptedReceipt.instruction.receiptId,
+      outcome: 'delivered',
+      delivered: true,
+    })
+    expect(refusedAttempt.attempt.receiptId).toBe(refusedReceipt.instruction.receiptId)
+    expect(refusedOutcome.down).toMatchObject({
+      receiptId: refusedReceipt.instruction.receiptId,
+      outcome: 'unknown-worker',
+      delivered: false,
+    })
     // ...but the parent never pulls its own outbound messages back.
     expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true, freeSlots: null })
   })
 
+  it('authorizes and commits the exact continuation before delivery', async () => {
+    const { scope } = mockScope()
+    const steps: string[] = []
+    const mutable = scope as unknown as {
+      send(id: string, message: unknown): boolean
+    }
+    mutable.send = (_id, message) => {
+      steps.push(`send:${JSON.stringify(message)}`)
+      return true
+    }
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      authorizeDownMessage(input) {
+        steps.push(`authorize:${input.instruction}`)
+        expect(Object.isFrozen(input)).toBe(true)
+        expect(Object.isFrozen(input.workerIdentity)).toBe(true)
+        return { instruction: 'AUTHORIZED CONTINUATION' }
+      },
+      onEvent(event) {
+        if (event.type === 'instruction') steps.push(`commit:${event.instruction.instruction}`)
+        if (event.type === 'delivery-attempt') steps.push(`attempt:${event.attempt.kind}`)
+        if (event.type === 'steer') steps.push(`outcome:${event.down.outcome}`)
+      },
+    })
+
+    await tool(tb, 'steer_agent').handler({ workerId: 'w0', instruction: 'authored text' })
+
+    expect(steps).toEqual([
+      'authorize:authored text',
+      'commit:AUTHORIZED CONTINUATION',
+      'attempt:steer',
+      'send:{"steer":"AUTHORIZED CONTINUATION","interrupt":false}',
+      'outcome:delivered',
+    ])
+    expect(tb.history()[0]?.event).toMatchObject({
+      type: 'instruction',
+      instruction: {
+        kind: 'steer',
+        toWorker: 'w0',
+        instruction: 'AUTHORIZED CONTINUATION',
+        workerIdentity: {
+          profileDigest: `sha256:${'a'.repeat(64)}`,
+          taskDigest: `sha256:${'b'.repeat(64)}`,
+        },
+      },
+    })
+  })
+
   it('answer_question routes the answer down to a LIVE worker and surfaces delivered:true', async () => {
     const { scope, sent } = mockScope()
-    const emitted: Array<{ type: string }> = []
+    const emitted: CoordinationEvent[] = []
     const tb = createCoordinationTools({
       scope,
       blobs,
@@ -681,8 +1042,13 @@ describe('coordination tools', () => {
     expect(sent).toEqual([
       { id: 'w0', msg: { answer: 'path B', questionId: r.question.id, interrupt: true } },
     ])
-    // ...and both legs are on the trail: question up, answer down.
-    expect(emitted.map((e) => e.type)).toEqual(['question', 'answer'])
+    // ...and the committed exact instruction sits between question-up and answer-down.
+    expect(emitted.map((e) => e.type)).toEqual([
+      'question',
+      'instruction',
+      'delivery-attempt',
+      'answer',
+    ])
   })
 
   it('analyze-on-settle auto-runs lenses and await_event surfaces settled + finding', async () => {
@@ -695,6 +1061,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w7',
         verdict: { valid: false, score: 0.1 },
         spent: zeroSpend(),
+        trace: availableTrace,
         seq: 0,
       },
     ]
@@ -705,15 +1072,21 @@ describe('coordination tools', () => {
     const emitted: string[] = []
     const tb = createCoordinationTools({
       scope: drainScope,
-      blobs: {
-        get: async (ref) => (ref === 'blob:w7' ? { messages: ['trace'] } : undefined),
-        put: async () => {},
-      },
+      blobs: traceBlobStore('blob:w7', {
+        messages: ['worker final prose must not be analyzed as a trace'],
+      }),
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
       analysts: {
         kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
-        run: async () => [{ claim: 'stub left in place' }],
+        run: async (_kind, trace) => {
+          expect(await traceSummary(trace)).toEqual({
+            traces: 1,
+            tools: ['read_file'],
+            traceIds: ['worker-trace'],
+          })
+          return [{ claim: 'stub left in place' }]
+        },
       },
       analyzeOnSettle: ['completeness'],
       onEvent: (e) => emitted.push(e.type),
@@ -727,6 +1100,8 @@ describe('coordination tools', () => {
       score: 0.1,
       valid: false,
       outRef: 'blob:w7',
+      spent: zeroSpend(),
+      trace: availableTrace,
       freeSlots: null,
     })
     // The analyze-on-settle finding is now queued; the next pull surfaces it.
@@ -743,6 +1118,54 @@ describe('coordination tools', () => {
     expect(emitted).toEqual(['settled', 'finding'])
   })
 
+  it('retains a settlement when an awaited observer loses its acknowledgement', async () => {
+    const { scope } = mockScope()
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w-retry', label: 'w', status: 'done' as const, abort() {} },
+        out: { answer: 1 },
+        outRef: 'blob:w-retry',
+        verdict: { valid: true, score: 0.8 },
+        spent: zeroSpend(),
+        trace: noTrace,
+        seq: 0,
+      },
+    ]
+    const drainScope = {
+      ...scope,
+      next: () => Promise.resolve(settlements.shift() ?? null),
+    } as typeof scope
+    const stamps: Array<{ seq: number; at: number }> = []
+    let loseAcknowledgement = true
+    const tb = createCoordinationTools({
+      scope: drainScope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent(event, record) {
+        if (event.type !== 'settled') return
+        stamps.push({ seq: record.seq, at: record.at })
+        if (loseAcknowledgement) throw new Error('ack lost after commit')
+      },
+    })
+
+    await expect(tool(tb, 'await_event').handler({})).rejects.toThrow('ack lost after commit')
+    expect(tb.settled()).toEqual([])
+    expect(tb.history()).toEqual([])
+
+    loseAcknowledgement = false
+    await expect(tool(tb, 'await_event').handler({})).resolves.toMatchObject({
+      type: 'settled',
+      settled: 'w-retry',
+      status: 'done',
+    })
+    expect(stamps).toHaveLength(2)
+    expect(stamps[1]).toEqual(stamps[0])
+    expect(tb.settled()).toHaveLength(1)
+    expect(tb.history()).toHaveLength(1)
+  })
+
   it('await_event with kinds filter waits for a specific message type', async () => {
     const { scope } = mockScope()
     const settlements = [
@@ -753,6 +1176,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w8',
         verdict: { valid: true, score: 1 },
         spent: zeroSpend(),
+        trace: noTrace,
         seq: 0,
       },
     ]
@@ -767,6 +1191,7 @@ describe('coordination tools', () => {
       type: 'settled',
       settled: 'w8',
       valid: true,
+      trace: noTrace,
     })
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
       idle: true,
@@ -784,6 +1209,7 @@ describe('coordination tools', () => {
         outRef: 'blob:w9',
         verdict: { valid: true, score: 1 },
         spent: zeroSpend(),
+        trace: noTrace,
         seq: 0,
       },
     ]
@@ -802,6 +1228,7 @@ describe('coordination tools', () => {
     // The drained settled event was queued, not lost — a caller that asks for it still gets it.
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toMatchObject({
       settled: 'w9',
+      trace: noTrace,
     })
   })
 
@@ -970,11 +1397,10 @@ describe("spawn_agent's published child-profile schema", () => {
     expect(profile.description).toMatch(/makeWorkerAgent/)
   })
 
-  it('stays permissive, so a profile accepted before the schema existed is still accepted', async () => {
+  it('accepts every canonical profile and refuses an unknown field with a typed issue', async () => {
     const profile = profileArg()
-    // No `required` and open `additionalProperties` are the whole permissiveness guarantee: the
-    // canonical object is `additionalProperties: false` and omits none of these fields, so a
-    // faithful copy would make the seven reduced-away fields invalid to pass.
+    // The PUBLISHED tool schema stays permissive (no `required`, open `additionalProperties`) so a
+    // harness whose schema copy lags never fails at the protocol layer…
     expect(profile.additionalProperties).toBe(true)
     expect(profile.required).toBeUndefined()
 
@@ -990,12 +1416,23 @@ describe("spawn_agent's published child-profile schema", () => {
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
     const spawn = tool(tb, 'spawn_agent')
-    // The empty profile every prior test spawns with, and one carrying both a reduced-away
-    // canonical field and a field the canonical schema has never had.
-    const legacy = { tags: ['research'], someUnknownField: true, name: 'w' }
+    // …while the HANDLER validates the model-authored profile against the canonical schema and
+    // fails CLOSED with named issues: an unrecognized field would otherwise be silently dropped
+    // from the worker that runs, which is exactly the drop this runtime exists to refuse.
+    const canonical = { tags: ['research'], name: 'w' }
     expect(await spawn.handler({ profile: {}, task: 'go' })).toMatchObject({ workerId: 'w0' })
-    expect(await spawn.handler({ profile: legacy, task: 'go' })).toMatchObject({ workerId: 'w0' })
-    expect(seen).toEqual([{}, legacy])
+    expect(await spawn.handler({ profile: canonical, task: 'go' })).toMatchObject({
+      workerId: 'w0',
+    })
+    expect(
+      await spawn.handler({ profile: { ...canonical, someUnknownField: true }, task: 'go' }),
+    ).toMatchObject({
+      error: 'invalid-profile',
+      issues: [{ message: expect.stringContaining('someUnknownField') }],
+    })
+    // The worker factory is LAZY — the real scope invokes it only after reservation — so this
+    // mock scope records the spawn without building the agent.
+    expect(seen).toEqual([])
     expect(spawns).toHaveLength(2)
   })
 

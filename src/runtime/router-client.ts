@@ -260,7 +260,7 @@ export async function routerChatWithTools(
   const body = toolCompletionBody(cfg, messages, tools, opts)
   // Injected transport short-circuits the network — the offline benchmark seam (see RouterConfig.complete).
   const raw = cfg.complete
-    ? await cfg.complete(body)
+    ? await cfg.complete(structuredClone(body))
     : await (async () => {
         const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
           method: 'POST',

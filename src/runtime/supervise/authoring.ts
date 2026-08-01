@@ -15,30 +15,38 @@
  */
 
 import { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type AgentProfilePrompt,
+  agentProfileSchema,
+} from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
 import { type RouterConfig, routerChatWithUsage } from '../router-client'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from './types'
 
-/** What the supervisor AUTHORS per sub-task — a worker recipe (a partial `AgentProfile`). */
-export interface AuthoredProfile {
-  name: string
-  /** The rich, task-specific instructions the supervisor wrote for THIS worker. */
-  systemPrompt: string
-  /** The model the supervisor chose for this sub-task (falls back to the run default). */
-  model?: string
+/** What the supervisor AUTHORS per sub-task: one complete canonical profile whose name and
+ *  task-specific system prompt are present. Every other `AgentProfile` axis is preserved exactly. */
+export type AuthoredProfile = AgentProfile & {
+  readonly name: string
+  readonly prompt: AgentProfilePrompt & { readonly systemPrompt: string }
 }
 
 /** Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the
  *  supervisor failed to author one (empty/placeholder profile — a skill violation worth catching). */
 export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
-  const p = raw as Partial<AuthoredProfile> | undefined
-  if (!p || typeof p.systemPrompt !== 'string' || p.systemPrompt.trim().length === 0) return null
+  const parsed = agentProfileSchema.safeParse(raw)
+  if (!parsed.success) return null
+  const systemPrompt = parsed.data.prompt?.systemPrompt
+  if (typeof systemPrompt !== 'string' || systemPrompt.trim().length === 0) return null
   return {
-    name: typeof p.name === 'string' && p.name.length > 0 ? p.name : 'worker',
-    systemPrompt: p.systemPrompt,
-    ...(typeof p.model === 'string' ? { model: p.model } : {}),
+    ...parsed.data,
+    name:
+      typeof parsed.data.name === 'string' && parsed.data.name.length > 0
+        ? parsed.data.name
+        : 'worker',
+    prompt: { ...parsed.data.prompt, systemPrompt },
   }
 }
 
@@ -86,19 +94,21 @@ export function supervisorInstructions(opts?: { goal?: string }): string {
     'For the task you are given:',
     '1. DECOMPOSE it into the smallest set of sub-tasks a single focused worker can each deliver.',
     '2. For EACH sub-task, AUTHOR a worker by calling spawn_agent with a COMPLETE `profile`:',
-    '   • name: a short id for the worker.',
-    '   • systemPrompt: rich, specific instructions for THIS sub-task — tell the worker exactly what to produce, how to use its tools fully, and what "done" means. Never a one-liner; write the prompt a power-user would write.',
-    '   • model: the model best suited to this sub-task (omit to use the default).',
+    '   • name and description: who this specialist is and why it exists.',
+    '   • prompt.systemPrompt: rich instructions for THIS sub-task — exact output, process, evidence, and what "done" means.',
+    '   • model.default, model.reasoningEffort, and harness: choose the execution system deliberately when the task benefits from it.',
+    '   • tools, mcp, resources.skills/files/instructions, hooks, subagents, permissions, and modes: grant or attach every capability the worker needs; omit an axis only when it is intentionally unnecessary.',
+    '   • metadata.role="driver" when this child should be a sub-supervisor that may author and drive its own children.',
     '   NEVER spawn a worker with an empty profile. The quality of the worker IS the quality of the profile you write.',
     "3. await_event (kinds:['settled']) to collect each worker. Its result says valid:true only if the deployable check passed.",
-    '4. If a worker did NOT deliver, AUTHOR A NEW worker whose systemPrompt names the SPECIFIC failure and how to fix it — never just retry the same prompt.',
+    '4. If a worker did NOT deliver, AUTHOR A NEW profile whose prompt.systemPrompt names the SPECIFIC failure and how to fix it — never just retry the same profile.',
     '5. Stop (reply with no tool call) once the work is delivered. You cannot declare done yourself — only a delivered (valid:true) worker counts.',
     ...(opts?.goal ? ['', `The goal: ${opts.goal}`] : []),
   ].join('\n')
 }
 
-/** Build a worker AGENT from a profile the supervisor authored: the authored `systemPrompt` +
- *  `model` shape the worker's one model call; the deliverable gates settlement (valid ⟺ delivered). */
+/** Build a router-only worker from an authored profile. This helper executes the prompt/model axes;
+ *  use `workerFromBackend` for full materialization of tools, MCP, resources, hooks, and subagents. */
 export function authoredWorker(
   profile: AuthoredProfile,
   opts: {
@@ -108,42 +118,66 @@ export function authoredWorker(
     temperature?: number
   },
 ): Agent<unknown, unknown> {
-  let artifact: ExecutorResult<unknown> | undefined
-  const model = profile.model ?? opts.cfg.model
-  const inner: Executor<unknown> = {
-    runtime: 'router',
-    async execute(_t, signal) {
-      const res = await routerChatWithUsage(
-        { ...opts.cfg, model },
-        [
-          { role: 'system', content: profile.systemPrompt },
-          { role: 'user', content: opts.taskPrompt },
-        ],
-        { temperature: opts.temperature ?? 0.4, ...(signal ? { signal } : {}) },
-      )
-      artifact = {
-        outRef: contentAddress(res.content),
-        out: res.content,
-        spent: {
-          iterations: 1,
-          tokens: res.usage ?? { input: 0, output: 0 },
-          usd: res.costUsd ?? 0,
-          ms: 0,
+  const model = profile.model?.default ?? opts.cfg.model
+  const executorFactory: NonNullable<AgentSpec['executorFactory']> = (spec, ctx) => {
+    let artifact: ExecutorResult<unknown> | undefined
+    const executionId = ctx.node?.nodeId ?? `authored-router-${profile.name}`
+    const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
+    const inner: Executor<unknown> = attestRuntimeOwnedExecutor(
+      {
+        runtime: 'router',
+        async execute(_t, signal) {
+          const res = await routerChatWithUsage(
+            { ...opts.cfg, model },
+            [
+              { role: 'system', content: profile.prompt.systemPrompt },
+              { role: 'user', content: opts.taskPrompt },
+            ],
+            { temperature: opts.temperature ?? 0.4, ...(signal ? { signal } : {}) },
+          )
+          artifact = {
+            outRef: contentAddress(res.content),
+            out: res.content,
+            spent: {
+              iterations: 1,
+              tokens: res.usage ?? { input: 0, output: 0 },
+              usd: res.costUsd ?? 0,
+              ms: 0,
+            },
+          }
+          return artifact
         },
-      }
-      return artifact
-    },
-    teardown: () => Promise.resolve({ destroyed: true }),
-    resultArtifact: () => {
-      if (!artifact) throw new Error('authoredWorker: resultArtifact read before execute')
-      return artifact
-    },
+        teardown: () => Promise.resolve({ destroyed: true }),
+        resultArtifact: () => {
+          if (!artifact) throw new Error('authoredWorker: resultArtifact read before execute')
+          return artifact
+        },
+      },
+      {
+        effectiveProfile: spec.profile,
+        backend: 'router',
+        model: { status: 'known', id: model },
+        execution: { kind: 'request', id: executionId },
+        materializer: 'authored-router-prompt',
+        plan: {
+          kind: 'authored-router-completion',
+          model,
+          temperature: opts.temperature ?? 0.4,
+          taskPrompt: opts.taskPrompt,
+        },
+      },
+      {
+        attemptId,
+        binding: { endpoint: opts.cfg.routerBaseUrl, executionId, model },
+        descriptor: { kind: 'router-request', transport: 'http', backend: 'router' },
+      },
+    )
+    return gateOnDeliverable(inner, opts.deliverable)
   }
-  const gated = gateOnDeliverable(inner, opts.deliverable)
   const spec: AgentSpec = {
-    profile: { name: profile.name } as AgentProfile,
+    profile,
     harness: null,
-    executor: gated,
+    executorFactory,
   }
   return { name: profile.name, act: async () => '', executorSpec: spec } as Agent<
     unknown,
