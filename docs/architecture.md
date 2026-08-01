@@ -442,6 +442,11 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
 - **REAL** — a local external-harness supervisor runs automatically through a `bridge` `driverBackend ?? backend` with the live coordination MCP injected under one reserved alias.
   Its own tools, resources, MCP servers, hooks, subagents, permissions, modes, prompt, and model remain profile data sent to that backend (`supervise/supervise.ts`, `supervise/runtime.ts`).
   A pre-execution `materialized` journal event binds the authored-profile, effective-profile, and platform-attachment digests to the node that ran.
+- **REAL** — a cli-bridge worker is observable mid-run: `bridgeExecutor.progress()` reports its live turn count, tool activity, queued steers, and what it derived about the caller's declaration, and `bridgeExecutor.traceSource()` feeds the online detectors and the settle-time analysts (`supervise/runtime.ts`).
+  Its bridge-side run state (`GET /v1/runs/:id`) is refreshed OUT OF BAND — a read schedules the fetch and never awaits it — so an observability read can neither block nor fail a live run.
+- **LIMIT** — a bridge worker's tool spans are INSTANTS with no status: the OpenAI-shaped `tool_calls` wire reports the model's decision to call a tool and never reports the call finishing, so no duration or outcome exists to read.
+  A harness whose native protocol reports tool completion could carry true durations; this wire does not.
+  Order, counts, names, and arguments are all present; per-tool latency and per-tool error rate are not.
 - **LIMIT** — a remote sandbox cannot reach the loopback coordination server automatically.
   It needs an explicit `driveHarness` that provides a reachable relay or tunnel.
 - **LIMIT** — the in-process router arm has no environment in which to materialize profile resources, hooks, subagents, permissions, or modes.

@@ -72,10 +72,20 @@ import type {
 import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
-import type { ExecutorProgress } from './progress'
+import {
+  type ActivityLog,
+  createActivityLog,
+  describeToolArgs,
+  type ExecutorProgress,
+} from './progress'
 import { createSteerableSandboxSession, type SandboxSteeringOptions } from './sandbox-session'
 import { detachedSnapshot } from './snapshot'
-import type { TraceSource } from './trace-source'
+import {
+  createPushTraceSource,
+  decodeOpenAiPart,
+  type ToolStepInput,
+  type TraceSource,
+} from './trace-source'
 import type {
   AgentSpec,
   DefaultVerdict,
@@ -221,6 +231,8 @@ export interface BridgeSeam {
   /** Per-resume-turn inference cap before the worker settles on its last output.
    *  Mirrors `routerToolsInlineExecutor.maxTurns`; default 200 (runaway backstop). */
   maxTurns?: number
+  /** Newest-last activity window `progress()` reports. Default 12 (matches `PiSeam`). */
+  activityWindow?: number
 }
 
 /** Generic environment provider executor config. External packages implement
@@ -1188,11 +1200,61 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // turn. Keep the server-owned run identities until the bridge proves each job
   // terminal; closing a response body is deliberately not terminal evidence.
   const activeRuns = new Map<string, ActiveBridgeRun>()
+  // The live read-model behind `progress()`, filled as the SSE stream is consumed.
+  const observation: BridgeObservation = {
+    turns: 0,
+    note: 'starting',
+    activity: createActivityLog(seam.activityWindow ?? 12),
+    derived: [],
+    refreshedAt: 0,
+    refreshing: false,
+    closed: false,
+  }
+  // What this executor changed about what the caller declared. Recorded up front, never evicted,
+  // so a run that fails on turn 40 still answers "what was this worker actually given?".
+  if (base.agentProfile !== undefined) {
+    observation.derived.push(
+      "profile: merged the bridge seam's agentProfile over the spawn profile before materialization",
+    )
+  }
+  if (seam.model !== base.model) {
+    observation.derived.push(
+      `model: resolved the bridge wire model to ${seam.model} (seam default ${base.model ?? 'none'})`,
+    )
+  }
+  // One push source per SPAWN, not per turn: a steered worker's turn 4 tool calls belong to the
+  // same trace as its turn 0 calls, and `collect()` must still answer after the stream drains.
+  const trace = createPushTraceSource({ runId: sessionId })
 
   return attestRuntimeOwnedExecutor(
     {
       runtime: 'cli' as Runtime,
       deliver: (m) => inbox.deliver(m),
+      /**
+       * The LIVE read of this worker, answered entirely from local mirrors so it is synchronous
+       * and cannot block or fail the run. The bridge's own run state is refreshed OUT OF BAND —
+       * a read schedules a fetch whose answer lands for the NEXT read — because the executor
+       * cannot know from its own stream whether a silent run is thinking, detached mid-reconnect,
+       * or already cancelled server-side, and that is exactly the distinction a supervisor's
+       * respawn decision turns on.
+       */
+      progress: (): ExecutorProgress | undefined => {
+        try {
+          scheduleBridgeRunStateRefresh(seam, activeRuns, observation)
+          return {
+            turns: observation.turns,
+            pendingMessages: inbox.pending(),
+            recentActivity: observation.activity.read(),
+            ...(observation.derived.length > 0 ? { derived: [...observation.derived] } : {}),
+            note: bridgeProgressNote(observation, liveBridgeRunId(activeRuns)),
+          }
+        } catch {
+          // An observability read must degrade to "no progress available", never take a live
+          // run down. There is no partial answer worth risking the worker for.
+          return undefined
+        }
+      },
+      traceSource: (): TraceSource => trace.source,
       execute(task, signal): AsyncIterable<UsageEvent> {
         return streamBridgeSession({
           task,
@@ -1204,6 +1266,10 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           inbox,
           controller,
           activeRuns,
+          observation,
+          record: (step: ToolStepInput) => {
+            trace.record(step)
+          },
           onArtifact: (a) => {
             artifact = a
           },
@@ -1263,7 +1329,172 @@ interface StreamBridgeArgs {
   inbox: Inbox
   controller: AbortController
   activeRuns: Map<string, ActiveBridgeRun>
+  /** The live read-model `progress()` answers from; the turn loop is its only writer. */
+  observation: BridgeObservation
+  record: (step: ToolStepInput) => void
   onArtifact: (a: ExecutorResult<unknown>) => void
+}
+
+/** Everything `bridgeExecutor.progress()` answers from. Every field is written by the turn loop as
+ *  the stream is consumed, so the read itself touches no I/O and cannot block the run. */
+interface BridgeObservation {
+  turns: number
+  note: string
+  readonly activity: ActivityLog
+  /** Append-only record of what this executor changed about the caller's declaration. */
+  readonly derived: string[]
+  /** Newest bridge-side run snapshot; written by the out-of-band refresh, never awaited. */
+  runState?: BridgeRunStateRead
+  /** When the last refresh was STARTED — the rate limit, so a hot observe loop can't hammer. */
+  refreshedAt: number
+  refreshing: boolean
+  /** Set once the bridge reports the run terminal, or the stream ends. Stops all further reads. */
+  closed: boolean
+}
+
+/** The bridge's own view of the durable run, as `GET /v1/runs/:id` reports it. `at` is when this
+ *  executor read it, so a stale snapshot is presented as stale rather than as current truth. */
+interface BridgeRunStateRead {
+  readonly runId: string
+  readonly status: string
+  readonly state: string
+  readonly terminal: boolean
+  readonly lastSeq: number
+  readonly at: number
+}
+
+/** Minimum spacing between out-of-band run-state reads. A driver polling `observe_agent` in a
+ *  tight loop must not turn an observability read into load on the bridge. */
+const BRIDGE_RUN_STATE_REFRESH_MS = 1_000
+/** Ceiling on one run-state read. A bridge that hangs must not pin `refreshing` forever and
+ *  silently stop every later refresh. */
+const BRIDGE_RUN_STATE_TIMEOUT_MS = 2_000
+
+/** One human-readable line: the local turn phase, plus the bridge's own run state when a snapshot
+ *  has been read for a run that is still live. The snapshot's AGE is stated because a driver
+ *  reading "running" must be able to tell a fresh read from a 40-second-old one; and once this
+ *  executor holds terminal proof the line is DROPPED rather than left repeating a last-known
+ *  "running" that stopped being true the moment the run ended. */
+function bridgeProgressNote(observation: BridgeObservation, liveRunId: string | undefined): string {
+  const run = observation.runState
+  if (!run || run.runId !== liveRunId) return observation.note
+  const age = Math.max(0, Date.now() - run.at)
+  return `${observation.note} · bridge run ${run.state} (status ${run.status}, seq ${run.lastSeq}, read ${age}ms ago)`
+}
+
+/** The run this executor still believes live, if any — the one worth reporting on and the only one
+ *  worth asking the bridge about. */
+function liveBridgeRunId(activeRuns: Map<string, ActiveBridgeRun>): string | undefined {
+  for (const run of activeRuns.values()) {
+    if (!run.terminal) return run.id
+  }
+  return undefined
+}
+
+/**
+ * Start a NON-BLOCKING read of the bridge's run state; the answer lands on `observation` for a
+ * later `progress()` call. Nothing here is awaited by the caller and no failure escapes: a bridge
+ * that is down, slow, or has forgotten the run leaves the previous snapshot in place, and
+ * `progress()` still returns the local mirror.
+ */
+function scheduleBridgeRunStateRefresh(
+  seam: BridgeSeam,
+  activeRuns: Map<string, ActiveBridgeRun>,
+  observation: BridgeObservation,
+): void {
+  // A terminal answer is the end of the question. Local run state is NOT proof: `run.terminal`
+  // stays false forever when a session dies without it (a failed teardown), so keying only on that
+  // polls a dead worker for the life of the process.
+  if (observation.closed) return
+  if (observation.refreshing) return
+  const now = Date.now()
+  if (now - observation.refreshedAt < BRIDGE_RUN_STATE_REFRESH_MS) return
+  // Only a run this executor still believes live is worth asking about; a terminal one is already
+  // known, and there is nothing to steer.
+  const runId = liveBridgeRunId(activeRuns)
+  if (runId === undefined) return
+  observation.refreshedAt = now
+  observation.refreshing = true
+  void (async () => {
+    try {
+      const snapshot = await bridgeRunStateGet(seam, runId)
+      if (snapshot) {
+        observation.runState = snapshot
+        // Never write `run.terminal` from an observability read: `teardown` treats that field as
+        // terminal proof and would skip the cancel.
+        if (snapshot.terminal) observation.closed = true
+      }
+    } catch {
+      // Keep the previous snapshot. An unreadable run state is not evidence about the run.
+    } finally {
+      observation.refreshing = false
+    }
+  })()
+}
+
+/** `GET /v1/runs/:id` — the bridge's durable-run registry read. Resolves `undefined` for any
+ *  non-200 or non-conforming body rather than throwing: this is only ever an observability read. */
+function bridgeRunStateGet(
+  seam: BridgeSeam,
+  runId: string,
+): Promise<BridgeRunStateRead | undefined> {
+  const target = new URL(
+    `${seam.bridgeUrl.replace(/\/$/, '')}/v1/runs/${encodeURIComponent(runId)}`,
+  )
+  target.searchParams.set('wait_ms', '0')
+  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise<BridgeRunStateRead | undefined>((resolve, reject) => {
+    const req = requestFn(
+      target,
+      {
+        method: 'GET',
+        headers: { authorization: `Bearer ${seam.bridgeBearer}` },
+        timeout: BRIDGE_RUN_STATE_TIMEOUT_MS,
+      },
+      (res) => {
+        void (async () => {
+          const chunks: Buffer[] = []
+          for await (const chunk of res) chunks.push(Buffer.from(chunk))
+          if (res.statusCode !== 200) {
+            resolve(undefined)
+            return
+          }
+          resolve(readBridgeRunState(runId, Buffer.concat(chunks).toString('utf8')))
+        })().catch(reject)
+      },
+    )
+    req.on('timeout', () => req.destroy(new Error('bridgeExecutor: run state read timed out')))
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+/** Decode one run snapshot. A body that does not carry the fields we report is `undefined`, never
+ *  a partially-invented snapshot. */
+function readBridgeRunState(runId: string, body: string): BridgeRunStateRead | undefined {
+  let parsed: {
+    id?: unknown
+    status?: unknown
+    state?: unknown
+    terminal?: unknown
+    lastSeq?: unknown
+  }
+  try {
+    parsed = JSON.parse(body) as typeof parsed
+  } catch {
+    return undefined
+  }
+  if (parsed.id !== runId) return undefined
+  if (typeof parsed.status !== 'string' || typeof parsed.state !== 'string') return undefined
+  if (typeof parsed.terminal !== 'boolean' || typeof parsed.lastSeq !== 'number') return undefined
+  return {
+    runId,
+    status: parsed.status,
+    state: parsed.state,
+    terminal: parsed.terminal,
+    lastSeq: parsed.lastSeq,
+    at: Date.now(),
+  }
 }
 
 interface ActiveBridgeRun {
@@ -1282,7 +1513,7 @@ interface ActiveBridgeRun {
  * full streamed harness session call rather than a single chat round.
  */
 async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<UsageEvent> {
-  const { seam, inbox } = args
+  const { seam, inbox, observation } = args
   const started = Date.now()
   const external = mergeAbortSignals(args.signal, args.controller.signal)
   const tokens = zeroTokenUsage()
@@ -1302,8 +1533,17 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     if (pending.length) {
       const folded = inbox.fold(pending)
       nextPrompt = t === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
+      for (const m of pending) {
+        observation.activity.push({
+          at: Date.now(),
+          kind: 'note',
+          label: m.interrupt ? 'steer' : 'follow-up',
+          detail: m.text.length > 80 ? `${m.text.slice(0, 77)}...` : m.text,
+        })
+      }
     }
     if (nextPrompt === undefined) break
+    observation.note = `turn ${t}`
 
     // Each turn sends ONLY the new task/steer. The full canonical profile carries the standing
     // prompt, and cli-bridge materializes it once; duplicating it as a system message changes the
@@ -1362,7 +1602,18 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         if (chunk.content) {
           turnText += chunk.content
         }
-        if (chunk.toolCall) toolCalls.push(chunk.toolCall)
+        for (const step of chunk.toolCalls ?? []) {
+          toolCalls.push(step.toolName)
+          observation.activity.push({
+            at: Date.now(),
+            kind: 'tool',
+            label: step.toolName,
+            // No `status`: the bridge reported the DECISION to call this tool, and nothing on
+            // this wire ever reports the call finishing. An 'ok' here would be invented.
+            ...(describeToolArgs(step.args) ? { detail: describeToolArgs(step.args) } : {}),
+          })
+          args.record(step)
+        }
         if (chunk.usage) {
           turnTokensKnown = true
           tokens.input += chunk.usage.input
@@ -1410,12 +1661,17 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       interrupted = true
     }
     turns += 1
+    observation.turns = turns
+    observation.activity.push({ at: Date.now(), kind: 'turn', label: `turn ${turns}` })
     if (!turnTokensKnown) tokensKnown = false
     if (!turnUsdKnown) usdKnown = false
     yield { kind: 'iteration' }
     if (!interrupted && turnText) lastText = turnText
 
-    if (interrupted) continue
+    if (interrupted) {
+      observation.note = `turn ${turns} interrupted, resuming`
+      continue
+    }
 
     // Before settling, drain once more — the worker can't finish while a steer it
     // never read is pending (the sandbox/router settle contract). A pending steer
@@ -1423,6 +1679,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     if (inbox.pending() === 0) break
   }
 
+  observation.note = 'settled'
   const spent: Spend = {
     iterations: turns,
     tokens,
@@ -1816,9 +2073,56 @@ function errorMessage(error: unknown): string {
 
 interface BridgeStreamChunk {
   content?: string
-  toolCall?: string
+  /** Every tool call the delta carried, decoded into the shared tool-step currency. */
+  toolCalls?: ReadonlyArray<ToolStepInput>
   usage?: { input: number; output: number }
   cost?: number
+}
+
+/**
+ * Decode the OpenAI-shaped `tool_calls` of one delta into the shared `ToolStepInput` currency,
+ * through the SAME `decodeOpenAiPart` adapter the sandbox/parts trace source uses — the wire shape
+ * cli-bridge emits (`{index, id, type:'function', function:{name, arguments}}`) is exactly the one
+ * that decoder owns, so there is no second mapping to drift.
+ *
+ * FIDELITY, stated once: this wire carries the model's DECISION to call a tool. cli-bridge's
+ * backends surface the call the moment the harness announces it and NEVER report the call
+ * finishing, so no outcome, result, or duration exists to read. Each step is therefore marked
+ * `statusCaptured: false` and carries no `startedAt`/`endedAt` — its span is an instant with no
+ * status. Synthesising an end time would inject a fabricated 0ms latency, and defaulting to 'ok'
+ * would count an unobserved call as a success; both would silently corrupt any downstream latency
+ * or error-rate analysis. An honest lower-fidelity span beats a fabricated one. A harness whose
+ * native protocol reports tool completion could carry true durations; this wire does not.
+ *
+ * cli-bridge emits each call complete in ONE delta (`{id, name, arguments}` together), so no
+ * cross-delta argument-fragment assembly is needed; a frame that carries argument bytes without a
+ * name decodes to nothing rather than to a nameless call.
+ */
+function decodeBridgeToolCalls(raw: unknown): ToolStepInput[] {
+  if (!Array.isArray(raw)) return []
+  const steps: ToolStepInput[] = []
+  for (const call of raw) {
+    if (!call || typeof call !== 'object') continue
+    const record = call as Record<string, unknown>
+    const fn = record.function as Record<string, unknown> | undefined
+    // `type` is what `decodeOpenAiPart` matches on. A named function is a tool call whatever the
+    // entry calls itself, and the previous parser keyed only on `function.name` — so normalize on
+    // the name and never let an unrecognized `type` narrow what this executor observes. Dropping
+    // one here also drops it from the public `out.toolCalls`.
+    const named = typeof fn?.name === 'string' && fn.name.length > 0
+    const step = decodeOpenAiPart(named ? { ...record, type: 'function' } : record)
+    if (!step) continue
+    const rawArgs = fn?.arguments ?? record.arguments
+    const argsCaptured =
+      typeof rawArgs === 'string' ? rawArgs.trim().length > 0 : rawArgs !== undefined
+    steps.push({
+      ...step,
+      // An empty/absent `arguments` is an uncaptured argument list, not an empty one.
+      ...(argsCaptured ? {} : { args: {}, argsCaptured: false }),
+      statusCaptured: false,
+    })
+  }
+  return steps
 }
 
 type BridgeSseEvent =
@@ -1919,7 +2223,7 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
     choices?: Array<{
       delta?: {
         content?: string | null
-        tool_calls?: Array<{ function?: { name?: string } }>
+        tool_calls?: unknown
       }
       message?: { content?: string | null }
     }>
@@ -1949,8 +2253,8 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   const choice = parsed.choices?.[0]
   const content = choice?.delta?.content ?? choice?.message?.content
   if (typeof content === 'string' && content.length > 0) out.content = content
-  const toolName = choice?.delta?.tool_calls?.[0]?.function?.name
-  if (typeof toolName === 'string' && toolName.length > 0) out.toolCall = toolName
+  const toolCalls = decodeBridgeToolCalls(choice?.delta?.tool_calls)
+  if (toolCalls.length > 0) out.toolCalls = toolCalls
   const u = parsed.usage
   if (u && (typeof u.prompt_tokens === 'number' || typeof u.completion_tokens === 'number')) {
     out.usage = { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0 }

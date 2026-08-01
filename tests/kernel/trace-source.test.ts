@@ -137,4 +137,23 @@ describe('createPushTraceSource — owned-loop path', () => {
     expect(seen).toEqual(['a', 'b'])
     expect((await source.collect()).map((s) => s.toolName)).toEqual(['a', 'b', 'c'])
   })
+
+  it('leaves the status UNSTATED when the source never saw the call finish', async () => {
+    const { source, record } = createPushTraceSource({ runId: 'p' })
+    // A source that sees the call being MADE but never its result (cli-bridge's `tool_calls`
+    // deltas) must not have that call read as a success. `status` is optional on `ToolSpan`
+    // exactly so an unobserved outcome can stay unstated.
+    record({ toolName: 'decided', args: { path: 'x' }, statusCaptured: false })
+    record({ toolName: 'finished', args: {}, status: 'error', error: 'boom' })
+    const spans = await source.collect()
+    expect('status' in (spans[0] as object)).toBe(false)
+    expect(spans[0]?.endedAt).toBe(spans[0]?.startedAt)
+    expect(spans[1]?.status).toBe('error')
+  })
+
+  it('still defaults an observed call with no explicit status to ok', async () => {
+    const { source, record } = createPushTraceSource({ runId: 'p' })
+    record({ toolName: 'observed', args: {} })
+    expect((await source.collect())[0]?.status).toBe('ok')
+  })
 })
