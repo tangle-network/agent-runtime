@@ -495,6 +495,40 @@ describe('bridgeExecutor live observability', () => {
     ])
   })
 
+  it('records a named call whose entry type is not "function"', async () => {
+    // The decoder used to normalize only when `type` was ABSENT, so an entry carrying a different
+    // type was dropped whole — out of the spans AND out of the public `out.toolCalls`. A named
+    // function is a tool call whatever the entry calls itself.
+    bridgeHttpHandler = () =>
+      streamOf([
+        frame(1, {
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'c1',
+                    type: 'custom',
+                    function: { name: 'grep', arguments: '{"pattern":"z"}' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        frame(2, { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } }),
+        'data: [DONE]\n\n',
+      ])
+    const executor = observedBridgeExecutor()
+    await drain(executor)
+
+    const spans = await executor.traceSource?.()?.collect()
+    expect(spans?.map((span) => span.toolName)).toEqual(['grep'])
+    expect((executor.resultArtifact().out as { toolCalls: string[] }).toolCalls).toEqual(['grep'])
+  })
+
   it('marks a tool call whose arguments the wire omitted as uncaptured, not as empty', async () => {
     bridgeHttpHandler = () =>
       streamOf([

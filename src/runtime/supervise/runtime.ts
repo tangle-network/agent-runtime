@@ -1209,6 +1209,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     derived: [],
     refreshedAt: 0,
     refreshing: false,
+    closed: false,
   }
   // What this executor changed about what the caller declared. Recorded up front, never evicted,
   // so a run that fails on turn 40 still answers "what was this worker actually given?".
@@ -1348,6 +1349,8 @@ interface BridgeObservation {
   /** When the last refresh was STARTED — the rate limit, so a hot observe loop can't hammer. */
   refreshedAt: number
   refreshing: boolean
+  /** Set once the bridge reports the run terminal, or the stream ends. Stops all further reads. */
+  closed: boolean
 }
 
 /** The bridge's own view of the durable run, as `GET /v1/runs/:id` reports it. `at` is when this
@@ -1400,6 +1403,10 @@ function scheduleBridgeRunStateRefresh(
   activeRuns: Map<string, ActiveBridgeRun>,
   observation: BridgeObservation,
 ): void {
+  // A terminal answer is the end of the question. Local run state is NOT proof: `run.terminal`
+  // stays false forever when a session dies without it (a failed teardown), so keying only on that
+  // polls a dead worker for the life of the process.
+  if (observation.closed) return
   if (observation.refreshing) return
   const now = Date.now()
   if (now - observation.refreshedAt < BRIDGE_RUN_STATE_REFRESH_MS) return
@@ -1412,7 +1419,12 @@ function scheduleBridgeRunStateRefresh(
   void (async () => {
     try {
       const snapshot = await bridgeRunStateGet(seam, runId)
-      if (snapshot) observation.runState = snapshot
+      if (snapshot) {
+        observation.runState = snapshot
+        // Never write `run.terminal` from an observability read: `teardown` treats that field as
+        // terminal proof and would skip the cancel.
+        if (snapshot.terminal) observation.closed = true
+      }
     } catch {
       // Keep the previous snapshot. An unreadable run state is not evidence about the run.
     } finally {
@@ -2094,13 +2106,12 @@ function decodeBridgeToolCalls(raw: unknown): ToolStepInput[] {
     if (!call || typeof call !== 'object') continue
     const record = call as Record<string, unknown>
     const fn = record.function as Record<string, unknown> | undefined
-    // `type` is what `decodeOpenAiPart` matches on. cli-bridge always sets it; a bridge that omits
-    // it still named a function, and the previous parser accepted that, so normalize rather than
-    // narrow what this executor can observe.
+    // `type` is what `decodeOpenAiPart` matches on. A named function is a tool call whatever the
+    // entry calls itself, and the previous parser keyed only on `function.name` — so normalize on
+    // the name and never let an unrecognized `type` narrow what this executor observes. Dropping
+    // one here also drops it from the public `out.toolCalls`.
     const named = typeof fn?.name === 'string' && fn.name.length > 0
-    const step = decodeOpenAiPart(
-      typeof record.type === 'string' || !named ? record : { ...record, type: 'function' },
-    )
+    const step = decodeOpenAiPart(named ? { ...record, type: 'function' } : record)
     if (!step) continue
     const rawArgs = fn?.arguments ?? record.arguments
     const argsCaptured =
