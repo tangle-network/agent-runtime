@@ -16,6 +16,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # check:version-bump diffs this branch's package manifests against the
+          # merge base, so the base commit has to be in the clone.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
@@ -37,6 +40,14 @@ jobs:
 
       - name: Check publish credential isolation
         run: pnpm run check:publish-workflow
+
+      # GITHUB_BASE_REF is the base BRANCH. The webhook's frozen
+      # pull_request.base.sha is deliberately not used: the checked-out merge ref
+      # is recomputed against the current base tip, so the frozen sha can name a
+      # commit that is no longer the merge parent, and a release merged in the
+      # meantime would pay for this pull request's unpaid change.
+      - name: Check consumer-visible changes carry a version bump
+        run: pnpm run check:version-bump
 
       - name: Lint (biome)
         run: pnpm run lint
