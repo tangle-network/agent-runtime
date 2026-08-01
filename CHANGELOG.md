@@ -24,6 +24,12 @@ What the bridge path does NOT do today, stated so no consumer is surprised:
 - `WORKER_TRACE_PROPAGATION` loses its `pi: true` row. The bridge has no environment channel to the worker, so a pi worker no longer inherits `TRACE_ID`/`PARENT_SPAN_ID` — honestly unpropagated rather than silently dropped, same as the other bridge-dispatched arms.
 - MCP for pi is now the bridge's concern. agent-runtime no longer writes a `--mcp-config` file or checks for the `pi-mcp-adapter` extension.
 
+Known consumers to migrate, none broken until they upgrade:
+
+- `loops` — `src/pi-worker.ts` and `extensions/pi/loops.ts`. The largest migration: `pi-worker.ts` builds the executor directly, and steering is the part that changes behaviour rather than just call shape. Pinned at 0.111.0.
+- `supervisor-lab` — `bench/deepswe/live.ts:193`. A single `backend: 'pi'` in a benchmark rig; a call-shape change. Pinned at 0.116.0.
+- `agent-eval-runtime-run-reader` — two test files reference the pi backend.
+
 ## 0.117.0
 
 - Run every supervisor, including the root, from one complete `AgentProfile`, preserve exact profile/task/candidate identity through recursive delegation, and reject execution paths that would silently drop profile fields.
