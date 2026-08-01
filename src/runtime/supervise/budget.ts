@@ -86,9 +86,11 @@ export type BudgetReadout = Readonly<{
   reservedTokens: number
 }>
 /** Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
- *  budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
+ *  budgets; `below-runtime-floor` means the request is under the amount that harness needs before
+ *  it does any work at all, so it is unsatisfiable at that size and the fix is to RAISE it;
+ *  `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
  *  unsatisfiable at any amount and the fix is to budget the root, not to ask for less. */
-export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted'
+export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted' | 'below-runtime-floor'
 
 /** State recovered from a prior process before new work is admitted. `committed` is measured spend
  * already present in the durable journal. Each `uncertainReservation` is a child that was recorded
