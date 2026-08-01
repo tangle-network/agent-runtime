@@ -64,13 +64,26 @@ export function supervisorRunDir(rootDir: string, id: string): string {
  * here anymore.
  */
 export function legacySupervisorRunDir(rootDir: string, id: string): string {
-  return join(resolve(rootDir), '.loops', 'supervisor', id)
+  return join(legacySupervisorRunsRoot(rootDir), id)
+}
+
+/**
+ * The pre-rename runs root (`<root>/.loops/supervisor`). Only readers that ENUMERATE historical
+ * runs need this — the per-id form is {@link legacySupervisorRunDir}. Nothing writes here.
+ */
+export function legacySupervisorRunsRoot(rootDir: string): string {
+  return join(resolve(rootDir), '.loops', 'supervisor')
 }
 
 /** A worker label reduced to a safe filename stem. Empty labels get a stable fallback. */
 export function safeWorkerFile(label: string): string {
   const safe = label.replace(/[^A-Za-z0-9._-]/g, '_')
   return safe.length > 0 ? safe : 'worker'
+}
+
+/** The directory holding every per-worker file of one run (inboxes and control-event logs). */
+export function supervisorWorkersDir(eventDir: string): string {
+  return join(eventDir, 'workers')
 }
 
 /** The durable inbox file for one worker of one run. */
@@ -80,7 +93,16 @@ export function workerInboxFile(rootDir: string, supervisorId: string, worker: s
 
 /** Same, addressed from an already-known run directory (the reader's usual entry point). */
 export function workerInboxFileFromEventDir(eventDir: string, worker: string): string {
-  return join(eventDir, 'workers', `${safeWorkerFile(worker)}.inbox.ndjson`)
+  return join(supervisorWorkersDir(eventDir), `${safeWorkerFile(worker)}.inbox.ndjson`)
+}
+
+/**
+ * The best-effort control-event log for one worker (`workers/<label>.ndjson`) — delivery
+ * bookkeeping for steers, plus whatever lifecycle events a writer chooses to append. Distinct from
+ * the inbox: the inbox is the durable down-leg queue, this is the record of what happened to it.
+ */
+export function workerControlLogFile(eventDir: string, worker: string): string {
+  return join(supervisorWorkersDir(eventDir), `${safeWorkerFile(worker)}.ndjson`)
 }
 
 /**
@@ -99,7 +121,7 @@ export function writeWorkerSteer(
   const trimmed = message.trim()
   if (!trimmed) throw new Error('steer message is empty')
   const dir = supervisorRunDir(rootDir, supervisorId)
-  mkdirSync(join(dir, 'workers'), { recursive: true })
+  mkdirSync(supervisorWorkersDir(dir), { recursive: true })
   const request: WorkerSteerRequest = {
     id: randomUUID(),
     at: new Date().toISOString(),
@@ -151,10 +173,9 @@ function appendWorkerControlEvent(
   event: Record<string, unknown>,
 ): void {
   try {
-    const workersDir = join(eventDir, 'workers')
-    mkdirSync(workersDir, { recursive: true })
+    mkdirSync(supervisorWorkersDir(eventDir), { recursive: true })
     appendFileSync(
-      join(workersDir, `${safeWorkerFile(label)}.ndjson`),
+      workerControlLogFile(eventDir, label),
       `${JSON.stringify({ at: new Date().toISOString(), label, ...event })}\n`,
       'utf8',
     )

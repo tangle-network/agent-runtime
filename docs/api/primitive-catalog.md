@@ -508,7 +508,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 685 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 688 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -604,6 +604,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 685 exports.
 | `jjWorkspace` | function | A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote). |
 | `leaderboard` | function | Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic. |
 | `legacySupervisorRunDir` | function | Where a pre-rename writer put the same run (`<root>/.loops/supervisor/<id>`). Readers that must |
+| `legacySupervisorRunsRoot` | function | The pre-rename runs root (`<root>/.loops/supervisor`). Only readers that ENUMERATE historical |
 | `loadSpawnForest` | function | Load every journal tree owned by one recursive supervision run and flatten its nodes/events. |
 | `localSandboxClient` | function | A same-host `SandboxClient` adapter with no process isolation. Local MCP is |
 | `localShell` | function | Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit). |
@@ -697,6 +698,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 685 exports.
 | `supervisorInstructions` | function | The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable |
 | `supervisorRunDir` | function | The run directory every artifact of one supervisor run lives under. |
 | `supervisorRunsRoot` | function | The root every supervisor run of one workspace lives under. |
+| `supervisorWorkersDir` | function | The directory holding every per-worker file of one run (inboxes and control-event logs). |
 | `timerAt` | function | Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed |
 | `trajectoryReport` | function | Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the |
 | `validateWaitSpec` | function | Structural validation, independent of the run. Returns null when the spec is usable. |
@@ -706,6 +708,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 685 exports.
 | `watchTrace` | function | Subscribe to a `TraceSource` and run the streaming detectors over its live spans. Returns an |
 | `widen` | function | `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS |
 | `withUntrackedArtifacts` | function | Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside |
+| `workerControlLogFile` | function | The best-effort control-event log for one worker (`workers/<label>.ndjson`) — delivery |
 | `workerFromBackend` | function | Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the |
 | `workerInboxFile` | function | The durable inbox file for one worker of one run. |
 | `workerInboxFileFromEventDir` | function | Same, addressed from an already-known run directory (the reader's usual entry point). |
@@ -1407,6 +1410,21 @@ Import from `@tangle-network/agent-runtime/mcp` — 207 exports.
 | `UiAuditorDelegate` | type | UI-auditor delegate — fully consumer-injected. agent-runtime ships no |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CoderOutput`, `CoderReview`, `CoordinationToolsOptions`, `CreateKbGateOptions`, `CreateMemoryToolServerOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackHandlerOptions`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditHandlerOptions`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryHandlerOptions`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusHandlerOptions`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DetectExecutorArgs`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `Question`, `QuestionOption`, `QuestionRecord`, `RemoveWorktreeOptions`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `StdioToolServer`, `StdioToolServerOptions`, `SubmitInput`, `SubmitOutput`, `TraceContext`, `WorktreeHandle`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionLevel`, `QuestionPolicy`, `QuestionUrgency`, `ResearchSource`, `StdioToolDescriptor`, `UiAuditLensFilter`.
+
+### Supervisor TUI — live terminal view over the on-disk run layout
+
+Import from `@tangle-network/agent-runtime/tui` — 18 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `loadTopSnapshot` | function | Read every supervisor run under one workspace into a single point-in-time snapshot. |
+| `renderTopFrame` | function | Render one snapshot to an ANSI frame. Use this when nothing needs to be clickable. |
+| `renderTopFrameWithLayout` | function | Render one snapshot, returning the frame together with the row→entity map a mouse click resolves |
+| `renderTopOnce` | function | Render exactly one frame and return it. This is the non-interactive path — `--once`, a pipe, a |
+| `runTopApp` | function | Run the TUI. With a TTY on both ends and no `--once` this takes over the terminal until `q`; |
+| `TopSnapshot` | interface | The read side of the supervisor-run TUI: turn the on-disk run layout into one `TopSnapshot`, and |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BudgetStats`, `Distribution`, `RenderedTopFrame`, `RenderOptions`, `RenderTarget`, `SpendStats`, `SupervisorBase`, `SupervisorTotals`, `SupervisorView`, `TopAppOptions`, `WorkerView`, `TopJournalEvent`.
 
 ## 2. agent-eval — substrate primitives to REUSE
 

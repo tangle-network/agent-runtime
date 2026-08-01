@@ -11716,6 +11716,12 @@ Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
 Per-resume-turn inference cap before the worker settles on its last output.
  Mirrors `routerToolsInlineExecutor.maxTurns`; default 200 (runaway backstop).
 
+##### activityWindow?
+
+> `optional` **activityWindow?**: `number`
+
+Newest-last activity window `progress()` reports. Default 12 (matches `PiSeam`).
+
 ***
 
 ### ProviderSeam
@@ -13895,6 +13901,16 @@ False when the call was observed but its original arguments were unavailable.
 ##### status?
 
 > `readonly` `optional` **status?**: `"error"` \| `"ok"`
+
+##### statusCaptured?
+
+> `readonly` `optional` **statusCaptured?**: `boolean`
+
+False when the source observed the call being MADE but never observed it finishing — so no
+outcome is knowable, not even by default. Some wires (cli-bridge's OpenAI-shaped `tool_calls`
+deltas) report the model's DECISION to call a tool and never report the call's result at all.
+Without this marker such a call would project as `status: 'ok'` and be counted as a success in
+every downstream error-rate read. Set it and the span carries NO status, which is the truth.
 
 ##### result?
 
@@ -23557,6 +23573,25 @@ here anymore.
 
 ***
 
+### legacySupervisorRunsRoot()
+
+> **legacySupervisorRunsRoot**(`rootDir`): `string`
+
+The pre-rename runs root (`<root>/.loops/supervisor`). Only readers that ENUMERATE historical
+runs need this — the per-id form is [legacySupervisorRunDir](#legacysupervisorrundir). Nothing writes here.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### safeWorkerFile()
 
 > **safeWorkerFile**(`label`): `string`
@@ -23566,6 +23601,24 @@ A worker label reduced to a safe filename stem. Empty labels get a stable fallba
 #### Parameters
 
 ##### label
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### supervisorWorkersDir()
+
+> **supervisorWorkersDir**(`eventDir`): `string`
+
+The directory holding every per-worker file of one run (inboxes and control-event logs).
+
+#### Parameters
+
+##### eventDir
 
 `string`
 
@@ -23606,6 +23659,30 @@ The durable inbox file for one worker of one run.
 > **workerInboxFileFromEventDir**(`eventDir`, `worker`): `string`
 
 Same, addressed from an already-known run directory (the reader's usual entry point).
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerControlLogFile()
+
+> **workerControlLogFile**(`eventDir`, `worker`): `string`
+
+The best-effort control-event log for one worker (`workers/<label>.ndjson`) — delivery
+bookkeeping for steers, plus whatever lifecycle events a writer chooses to append. Distinct from
+the inbox: the inbox is the durable down-leg queue, this is the record of what happened to it.
 
 #### Parameters
 

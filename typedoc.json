@@ -16,7 +16,8 @@
     "src/primeintellect/index.ts",
     "src/candidate-execution/index.ts",
     "src/testing/index.ts",
-    "src/mcp/index.ts"
+    "src/mcp/index.ts",
+    "src/tui/index.ts"
   ],
   "entryPointStrategy": "resolve",
   "tsconfig": "./tsconfig.json",
@@ -35,7 +36,8 @@
     "**/tests/**",
     "**/examples/**",
     "src/mcp/bin.ts",
-    "src/loop-runner-bin.ts"
+    "src/loop-runner-bin.ts",
+    "src/tui/bin.ts"
   ],
   "disableSources": true,
   "hideGenerator": true,

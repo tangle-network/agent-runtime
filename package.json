@@ -93,12 +93,18 @@
       "types": "./dist/mcp/index.d.ts",
       "import": "./dist/mcp/index.js",
       "default": "./dist/mcp/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui/index.d.ts",
+      "import": "./dist/tui/index.js",
+      "default": "./dist/tui/index.js"
     }
   },
   "bin": {
     "agent-runtime-mcp": "./dist/mcp/bin.js",
     "agent-runtime-memory-mcp": "./dist/mcp/memory-bin.js",
-    "agent-runtime-loop": "./dist/loop-runner-bin.js"
+    "agent-runtime-loop": "./dist/loop-runner-bin.js",
+    "agent-runtime-top": "./dist/tui/bin.js"
   },
   "files": [
     "dist",

@@ -16,6 +16,10 @@ export default defineConfig({
         find: /^@tangle-network\/agent-runtime\/testing$/,
         replacement: resolve(__dirname, 'src/testing/index.ts'),
       },
+      {
+        find: /^@tangle-network\/agent-runtime\/tui$/,
+        replacement: resolve(__dirname, 'src/tui/index.ts'),
+      },
     ],
   },
   test: {
