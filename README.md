@@ -451,6 +451,8 @@ The general-purpose pieces, by import path. Every export with its one-line summa
 | Conversations + durability | Multi-turn two-agent sessions with SQL-backed resume (D1/pg/sqlite/libSQL adapters) | `/conversation` |
 | Training/eval adapter | Package the same runtime program as a PrimeIntellect Verifiers environment; import its traces back | `/primeintellect` |
 
+| Watching live runs | A terminal view of every supervisor run in a workspace — workers, spend, tokens, latency, plus steer and cancel (`agent-runtime-top`) | `/tui` |
+
 Remaining subpaths: `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`, `/testing` (validated fixture records for consumer tests).
 
 ## Examples

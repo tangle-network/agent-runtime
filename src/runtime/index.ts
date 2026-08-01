@@ -669,11 +669,14 @@ export {
 // writer contract is published alongside its reader.
 export {
   legacySupervisorRunDir,
+  legacySupervisorRunsRoot,
   readWorkerSteerRequests,
   safeWorkerFile,
   supervisorRunDir,
   supervisorRunsRoot,
+  supervisorWorkersDir,
   type WorkerSteerRequest,
+  workerControlLogFile,
   workerInboxFile,
   workerInboxFileFromEventDir,
   writeWorkerSteer,

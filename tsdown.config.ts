@@ -21,6 +21,8 @@ export default defineConfig({
     'mcp/bin': 'src/mcp/bin.ts',
     'mcp/memory-bin': 'src/mcp/memory-bin.ts',
     'loop-runner-bin': 'src/loop-runner-bin.ts',
+    'tui/index': 'src/tui/index.ts',
+    'tui/bin': 'src/tui/bin.ts',
   },
   format: ['esm'],
   dts: {

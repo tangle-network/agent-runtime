@@ -77,6 +77,7 @@ const ownSurfaceLabels = {
   './candidate-execution': 'Candidate execution — immutable prepare, run, grade, and receipt',
   './testing': 'Testing fixtures — validated Runtime wire records',
   './mcp': 'MCP servers — delegate / coordination / detached-session',
+  './tui': 'Supervisor TUI — live terminal view over the on-disk run layout',
 }
 // SUBSTRATE surface (agent-eval): the curated category -> exports-map subpath map. These
 // are the reuse surfaces the canonical doc points agents at; the SYMBOLS under each are
