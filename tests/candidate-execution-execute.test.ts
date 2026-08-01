@@ -1330,21 +1330,33 @@ describe('atomic prepared candidate execution', () => {
     )
     const traceStore = new InMemoryTraceStore()
     const claimStore = new InMemoryAgentCandidateExecutionClaimStore()
-    const startedAt = Date.now()
-    const result = await executePreparedAgentCandidate(prepared, {
+    vi.useFakeTimers({ now: Date.now() })
+    let markStopStarted!: () => void
+    const stopStarted = new Promise<void>((resolve) => {
+      markStopStarted = resolve
+    })
+    let stopSignal: AbortSignal | undefined
+    const pending = executePreparedAgentCandidate(prepared, {
       ...options(
         {
           execute: async (request) => {
             await terminalTrace(request, traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
-          stop: async () => await new Promise<never>(() => undefined),
+          stop: async (_request, context) => {
+            stopSignal = context.signal
+            markStopStarted()
+            return await new Promise<never>(() => undefined)
+          },
         },
         traceStore,
       ),
       cleanupTimeoutMs: 20,
     })
-    expect(Date.now() - startedAt).toBeLessThan(250)
+    await stopStarted
+    await vi.advanceTimersByTimeAsync(20)
+    const result = await pending
+    expect(stopSignal?.aborted).toBe(true)
     expect(result).toMatchObject({
       succeeded: false,
       reason: expect.stringMatching(/termination is not proven/),
