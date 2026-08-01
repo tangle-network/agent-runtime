@@ -65,6 +65,42 @@ describe('resolveDelegateSupervisor', () => {
     expect(opts!.router.routerKey).toBe('inference-key')
   })
 
+  // TANGLE_INFERENCE_KEY is Tangle's own name for the same value OPENAI_API_KEY carries. It leads
+  // the ladder because a vendor spelling of a Tangle credential made this resolution read
+  // backwards to the people who own the product (agent-dev-container#4614).
+  it('prefers the Tangle-native inference name over its vendor spelling', () => {
+    const opts = resolveDelegateSupervisor(stubClient, {
+      MCP_ENABLE_DELEGATE: '1',
+      MCP_SUPERVISOR_MODEL: 'brain-model',
+      TANGLE_INFERENCE_KEY: 'tangle-inference-key',
+      OPENAI_API_KEY: 'vendor-spelling',
+      TANGLE_API_KEY: 'sandbox-control-key',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(opts!.router.routerKey).toBe('tangle-inference-key')
+  })
+
+  // A box provisioned before the Tangle-native name existed, or a BYO OpenAI key, must keep working.
+  it('still resolves the vendor spelling when the Tangle name is absent', () => {
+    const opts = resolveDelegateSupervisor(stubClient, {
+      MCP_ENABLE_DELEGATE: '1',
+      MCP_SUPERVISOR_MODEL: 'brain-model',
+      OPENAI_API_KEY: 'vendor-spelling',
+      TANGLE_API_KEY: 'sandbox-control-key',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(opts!.router.routerKey).toBe('vendor-spelling')
+  })
+
+  // An explicit caller override still beats every inherited credential.
+  it('lets MCP_SUPERVISOR_ROUTER_KEY win over the Tangle inference name', () => {
+    const opts = resolveDelegateSupervisor(stubClient, {
+      MCP_ENABLE_DELEGATE: '1',
+      MCP_SUPERVISOR_MODEL: 'brain-model',
+      MCP_SUPERVISOR_ROUTER_KEY: 'explicit',
+      TANGLE_INFERENCE_KEY: 'tangle-inference-key',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(opts!.router.routerKey).toBe('explicit')
+  })
+
   it('keeps the platform key for a host that runs one key for both', () => {
     const opts = resolveDelegateSupervisor(stubClient, {
       MCP_ENABLE_DELEGATE: '1',

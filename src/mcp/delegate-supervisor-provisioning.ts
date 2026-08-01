@@ -41,10 +41,19 @@ export function delegateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  * normalised to `/v1`.
  *
  * The KEY is the one for INFERENCE, which inside a sandbox is not the one for the sandbox. A box
- * carries both: `OPENAI_API_KEY` is its credential for the OpenAI-compatible endpoint the brain
- * calls, and `TANGLE_API_KEY` authenticates the sandbox CONTROL API — create a box, run a process —
- * which the router answers `403`. The brain therefore prefers the inference credential and keeps
- * the platform key as the last rung, for a host that runs one key for both.
+ * carries both: an inference credential for the OpenAI-compatible endpoint the brain calls, and
+ * `TANGLE_API_KEY`, which authenticates the sandbox CONTROL API — create a box, run a process —
+ * and which the router answers `403`. The brain therefore prefers the inference credential and
+ * keeps the platform key as the last rung, for a host that runs one key for both.
+ *
+ * `TANGLE_INFERENCE_KEY` leads because it is Tangle's own name for that credential. `OPENAI_API_KEY`
+ * holds the identical value and stays on the ladder for boxes provisioned before the Tangle-native
+ * name existed, and for a BYO OpenAI key — but it is a vendor spelling of a Tangle credential, and
+ * naming it first made this ladder read as "prefer OpenAI over Tangle" to the people who own the
+ * product (agent-dev-container#4614). A name that needs a paragraph to disclaim is the wrong name.
+ *
+ * The order is not a preference between vendors. It is: what the caller explicitly set, then the
+ * inference credential, then the control-plane key as a single-key-host fallback.
  *
  * The MODEL is NAMED, never guessed. Which ids a given router serves is deployment state this
  * package cannot know, and a wrong guess is invisible until the supervisor's first completion
@@ -56,6 +65,7 @@ export function delegateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 function resolveRouter(env: NodeJS.ProcessEnv): RouterConfig {
   const routerKey =
     trimmed(env.MCP_SUPERVISOR_ROUTER_KEY) ??
+    trimmed(env.TANGLE_INFERENCE_KEY) ??
     trimmed(env.OPENAI_API_KEY) ??
     trimmed(env.TANGLE_API_KEY) ??
     ''
