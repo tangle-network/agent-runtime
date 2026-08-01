@@ -310,10 +310,20 @@ function buildSupervisorView(
 ): SupervisorView {
   const workers = new Map<string, MutableWorker>()
   let driverSpend = emptySpend
+  // `state.json` and the spawn journal are written by DIFFERENT producers, and their ids need not
+  // agree: the journal's root is the runtime's `runId`, which defaults to a literal unrelated to
+  // the supervisor id the state file records. Recover the journal's own root from its parentless
+  // root spawn, and treat EITHER id as the root everywhere. Checking only `state.id` — which the
+  // metered/settled/cancelled branches used to do — manufactures a phantom worker named after the
+  // runId that never settles, sorts first as RUNNING, and silently captures every steer and cancel.
+  const journalRootId = events.find(
+    (event) => event.kind === 'spawned' && !event.parent && event.label === 'root',
+  )?.id
+  const isRoot = (id: string): boolean => id === state.id || id === journalRootId
 
   for (const event of events) {
     if (event.kind === 'spawned') {
-      if (event.id === state.id || (!event.parent && event.label === 'root')) continue
+      if (isRoot(event.id) || (!event.parent && event.label === 'root')) continue
       const worker = ensureWorker(workers, event.id, event.label ?? event.id)
       worker.label = event.label ?? worker.label
       if (event.parent) worker.parent = event.parent
@@ -326,7 +336,7 @@ function buildSupervisorView(
     }
 
     if (event.kind === 'settled') {
-      if (event.id === state.id) continue
+      if (isRoot(event.id)) continue
       const worker = ensureWorker(workers, event.id, event.id)
       worker.status = event.status === 'down' ? 'down' : 'done'
       if (event.at) worker.endedAt = event.at
@@ -339,7 +349,7 @@ function buildSupervisorView(
     }
 
     if (event.kind === 'cancelled') {
-      if (event.id === state.id) continue
+      if (isRoot(event.id)) continue
       const worker = ensureWorker(workers, event.id, event.id)
       worker.status = 'cancelled'
       if (event.at) worker.endedAt = event.at
@@ -349,7 +359,7 @@ function buildSupervisorView(
 
     if (event.kind === 'metered') {
       const spend = parseSpend(event.spend)
-      if (event.id === state.id) {
+      if (isRoot(event.id)) {
         driverSpend = addSpend(driverSpend, spend)
       } else {
         const worker = ensureWorker(workers, event.id, event.id)

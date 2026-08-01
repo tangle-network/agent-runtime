@@ -21,6 +21,48 @@ describe('supervisor top model', () => {
     roots.length = 0
   })
 
+  it('does not manufacture a worker when the journal root id differs from state.json', () => {
+    // state.json and the journal have different producers: the journal's root is the runtime's
+    // `runId`, which defaults to a value unrelated to the supervisor id. A guard that only knows
+    // state.id lets every driver metered/settled event mint a phantom worker named for the runId —
+    // one that never settles, sorts first as RUNNING, and captures steers nothing will read.
+    const root = fixtureRoot()
+    const dir = supervisorRunDir(root, 'sup-mismatch')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'state.json'),
+      JSON.stringify({
+        id: 'sup-mismatch',
+        status: 'running',
+        task: 'root ids disagree',
+        workspaceDir: '/repo',
+        budget: 2,
+      }),
+    )
+    writeFileSync(
+      join(dir, 'spawn-journal.jsonl'),
+      `${[
+        JSON.stringify({ kind: 'spawned', id: 'supervise', label: 'root', at: 1 }),
+        JSON.stringify({
+          kind: 'metered',
+          id: 'supervise',
+          usd: 0.03,
+          tokensIn: 300,
+          tokensOut: 150,
+          at: 2,
+        }),
+        JSON.stringify({ kind: 'spawned', id: 'w-0', parent: 'supervise', label: 'w-0', at: 3 }),
+        JSON.stringify({ kind: 'settled', id: 'w-0', at: 4 }),
+      ].join('\n')}\n`,
+    )
+
+    const snapshot = loadTopSnapshot(root)
+    const view = snapshot.supervisors[0]!
+    expect(view.workers.map((w) => w.id)).toEqual(['w-0'])
+    // The driver's spend belongs to the driver, not to a fabricated worker row.
+    expect(view.workers.some((w) => w.id === 'supervise')).toBe(false)
+  })
+
   it('renders workers, status, token bars, cost bars, and latency histograms from the journal', () => {
     const root = fixtureRoot()
     const dir = supervisorRunDir(root, 'sup-1-rich')
