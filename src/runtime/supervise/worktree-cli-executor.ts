@@ -124,6 +124,8 @@ export function createWorktreeCliExecutor(
   ) {
     throw new ValidationError('createWorktreeCliExecutor: taskPrompt required')
   }
+  // KEPT harness-name test: `codexReproducible` is a codex-SPECIFIC public option, so this
+  // asserts caller self-consistency and throws loudly instead of varying behavior by name.
   if (options.codexReproducible && options.harness !== 'codex') {
     throw new ValidationError(
       'createWorktreeCliExecutor: codexReproducible requires harness "codex"',

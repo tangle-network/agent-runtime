@@ -1988,7 +1988,7 @@ Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.a
 
 **`Experimental`**
 
-Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude']`.
+Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude-code']`.
 
 ##### testCmd?
 
@@ -2390,8 +2390,8 @@ is used unchanged.
 
 **`Experimental`**
 
-Allow autonomous Claude edits without an interactive permission prompt.
- Use only when `cwd` is an isolated candidate worktree.
+Allow autonomous edits without an interactive approval gate, using whichever bypass argv the
+ harness declares. Use only when `cwd` is an isolated candidate worktree.
 
 ##### codexReproducible?
 
@@ -5713,9 +5713,13 @@ Use `McpToolDescriptor`; both names are the same protocol contract.
 
 ### LocalHarness
 
-> **LocalHarness** = `"claude"` \| `"codex"` \| `"opencode"`
+> **LocalHarness** = `Extract`\<`HarnessType`, `"claude-code"` \| `"codex"` \| `"opencode"`\>
 
-Local coding harness available inside the sandbox.
+Local coding harness available inside the sandbox — a narrowing of the shared `HarnessType`
+vocabulary, NOT a private spelling of it. The harness id is `claude-code`; `claude` is the
+EXECUTABLE name and lives only in the `command` field below. Keeping one vocabulary is what
+lets a `LocalHarness` be handed straight to the profile materializer and the capability table
+with no translation step.
 
 ***
 
@@ -5872,6 +5876,24 @@ Default cap on spans retained per delegation record.
 **`Experimental`**
 
 Default cap on the serialized trace payload per record, in bytes.
+
+***
+
+### LOCAL\_HARNESSES
+
+> `const` **LOCAL\_HARNESSES**: readonly [`LocalHarness`](#localharness)[]
+
+Every local harness, in table order — the one list `AGENT_RUNTIME_LOCAL_HARNESSES` and any
+ other harness enumeration reads, so adding a row above is the only edit a new harness needs.
+
+***
+
+### DEFAULT\_LOCAL\_HARNESS
+
+> `const` **DEFAULT\_LOCAL\_HARNESS**: [`LocalHarness`](#localharness) = `'claude-code'`
+
+The harness a caller gets when it expresses no preference. A composition-root default, not a
+ capability claim: one constant so the several entry points cannot drift apart.
 
 ***
 
@@ -7056,6 +7078,50 @@ then any consumer judges, returning on the first veto.
 #### Returns
 
 (`candidate`) => `Promise`\<[`KbGateResult`](#kbgateresult)\>
+
+***
+
+### localHarnessExecutable()
+
+> **localHarnessExecutable**(`harness`): `string`
+
+The CLI binary a harness id runs. The two are NOT the same string (`claude-code` runs `claude`),
+ so anything spawning a harness — a version probe, a login check — reads it from here rather than
+ passing the harness id as a command.
+
+#### Parameters
+
+##### harness
+
+[`LocalHarness`](#localharness)
+
+#### Returns
+
+`string`
+
+***
+
+### harnessSupportsReasoningEffort()
+
+> **harnessSupportsReasoningEffort**(`harness`, `reasoningEffort`): `boolean`
+
+Whether the harness's native control can express this reasoning effort. Admission checks read
+this so a profile the invocation would later refuse is rejected BEFORE any workspace state is
+created, against the same table that emits the argv.
+
+#### Parameters
+
+##### harness
+
+[`LocalHarness`](#localharness)
+
+##### reasoningEffort
+
+`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"`
+
+#### Returns
+
+`boolean`
 
 ***
 

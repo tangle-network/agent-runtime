@@ -172,7 +172,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'fix the off-by-one',
       runGit: makeFakeGit(state),
       runHarness,
@@ -181,7 +181,7 @@ describe('createWorktreeCliExecutor', () => {
     await exec.execute(undefined, new AbortController().signal)
 
     expect(seen).toBeDefined()
-    expect(seen?.harness).toBe('claude')
+    expect(seen?.harness).toBe('claude-code')
     // The §1.5 fix: the authored systemPrompt reaches the harness PROMPT channel ...
     const promptArg = seen?.invocation?.args.find((a) => a.includes('fix the off-by-one'))
     expect(promptArg).toBe(
@@ -258,7 +258,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
@@ -290,7 +290,7 @@ describe('createWorktreeCliExecutor', () => {
           ...authoredProfile,
           connections: [{ connectionId: 'github', capabilities: ['issues:read'] }],
         },
-        harness: 'claude',
+        harness: 'claude-code',
         taskPrompt: 'x',
         runGit: makeFakeGit(state),
         runHarness: vi.fn(),
@@ -432,7 +432,7 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: reproducibleCodexProfile,
-        harness: 'claude',
+        harness: 'claude-code',
         taskPrompt: 'x',
         codexReproducible: true,
       }),
@@ -477,7 +477,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'x',
       budgetExempt: false,
       runGit: makeFakeGit(freshGitState()),
@@ -508,7 +508,7 @@ describe('createWorktreeCliExecutor', () => {
     const executor = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async (options) => {
         seen = options
@@ -534,7 +534,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
@@ -613,7 +613,7 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(async () => ({
@@ -705,7 +705,7 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '',
         profile: authoredProfile,
-        harness: 'claude',
+        harness: 'claude-code',
         taskPrompt: 'x',
       }),
     ).toThrow(/repoRoot required/)
@@ -713,7 +713,7 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: authoredProfile,
-        harness: 'claude',
+        harness: 'claude-code',
         taskPrompt: '',
       }),
     ).toThrow(/taskPrompt required/)
@@ -721,7 +721,7 @@ describe('createWorktreeCliExecutor', () => {
     const noTask = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
-      harness: 'claude',
+      harness: 'claude-code',
     })
     await expect(noTask.execute(undefined, new AbortController().signal)).rejects.toThrow(
       /execute task required/,

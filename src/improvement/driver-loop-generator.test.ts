@@ -137,7 +137,7 @@ describe('driverLoopGenerator — the driver→worker build atom', () => {
       changedPaths: () => (sessions > 0 ? ['src/validate.ts', 'src/validate.test.ts'] : []),
       readDiff: () => '+ export function validateJson()',
     })
-    expect(generator.kind).toBe('driver-loop:claude')
+    expect(generator.kind).toBe('driver-loop:claude-code')
 
     const result = await generator.generate(generateArgs(findings, 3))
 

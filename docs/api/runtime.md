@@ -15607,7 +15607,7 @@ The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness v
 
 ##### harness
 
-> **harness**: `"opencode"` \| `"codex"` \| `"claude"`
+> **harness**: [`LocalHarness`](mcp.md#localharness)
 
 **`Experimental`**
 

@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### No harness is special: eleven name branches become table rows
+
+BREAKING. `LocalHarness` was a private three-member vocabulary (`'claude' | 'codex' | 'opencode'`) that spelled one harness differently from every other layer in the stack. It is now a narrowing of the shared `HarnessType`: **`'claude'` is renamed to `'claude-code'`**. `claude` remains the EXECUTABLE name and lives only in the harness table's `command` field.
+
+Callers to update: `runLocalHarness({ harness })`, `harnessInvocation(harness, …)`, `runWorktreeHarness({ harness })`, `agenticGenerator({ harness })`, `driverLoopGenerator({ harness })`, `createInProcessExecutor({ harnesses })`, `AuthoredHarness.harness`, and the `AGENT_RUNTIME_LOCAL_HARNESSES` env list. Anything that passed `'claude'` passes `'claude-code'`; `codex` and `opencode` are unchanged.
+
+Deleting the alias removed `materializerHarness()` outright — a `LocalHarness` is now handed straight to the profile materializer with no translation.
+
+**Reasoning effort now reaches claude-code and opencode.** `runWorktreeHarness` used to hard-REFUSE any profile carrying `model.reasoningEffort` unless the harness was codex, and `harnessInvocation` silently dropped it. Both read one capability table now:
+
+- `claude-code` → `--effort <low|medium|high|xhigh|max>`; canonical `ultracode` is native `max`.
+- `opencode` → `--variant <variant>`; canonical `ultracode` is `max`.
+- `codex` → `-c model_reasoning_effort="…"`, unchanged.
+
+A level a harness genuinely cannot express is still refused, and the refusal now lands in the pre-flight admission check (before any worktree exists) because the guard and the argv builder read the same rows. claude-code refuses `none` and `minimal` (its `--effort` has no such level); opencode refuses `none` (thinking-off is the absence of the flag).
+
+**Permission bypass is a property of the workspace, not of one CLI.** `dangerouslySkipPermissions` was tested against `'claude'` in four places; three were caller-side duplication of the fourth, which dropped the flag for every other harness with no error. Each harness now declares its own bypass argv:
+
+- `claude-code` → `--dangerously-skip-permissions` (unchanged).
+- `codex` → `--sandbox workspace-write -c approval_policy="never"`. NEW: a codex worker in a disposable worktree previously had its bypass request silently dropped. It edits non-interactively now and **keeps its OS sandbox** — writes stay confined to the workspace. `--dangerously-bypass-approvals-and-sandbox` is deliberately NOT used: `codex exec` has no approval gate to stall on (`-a/--ask-for-approval` exists only on the top-level `codex`), so it would surrender the sandbox for nothing, and the sandbox is what keeps a worker's blast radius equal to its worktree.
+- `opencode` → nothing; `opencode run` has no approval gate.
+- Reproducible Codex is unchanged: its controlled config already pins `approval_policy="never"` with the sandbox intact, so the blanket bypass flag is suppressed rather than layered on top. Reproducible argv is byte-identical to 0.118.0.
+
+**Other name branches replaced by rows, with no behaviour change:**
+
+- `projectCandidateSystemPrompt`'s four-arm `switch (plan.harness)` and its conflicting-argument guard are now one `HARNESS_SYSTEM_PROMPTS` row per harness (executable + projection + conflict predicate). The guard's fail-OPEN default for an unlisted harness is gone: no row means the projection is refused.
+- `harness === 'cli-base'` was re-derived at three call sites; it is now `harnessRunsAgent` / `agentHarness` in `src/runtime/harness-role.ts`.
+- New exports on `@tangle-network/agent-runtime/mcp`: `DEFAULT_LOCAL_HARNESS`, `LOCAL_HARNESSES`, `localHarnessExecutable`, `harnessSupportsReasoningEffort`.
+
+Deliberately KEPT: the `codexReproducible && harness !== 'codex'` guards (a codex-specific public option asserting caller self-consistency, not behaviour varying by name), and every `ExecutorConfig.backend` switch (a discriminated-union tag naming the materialization contract, not a harness name). Both now say so at the site.
+
 ## 0.118.0
 
 ### pi runs through the bridge, like every other harness

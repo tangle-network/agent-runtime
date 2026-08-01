@@ -245,9 +245,9 @@ describe('activation-predicate prefilter', () => {
 
   it('kills a candidate without .improve/activation.json (stage activation-predicate) and passes one WITH it', async () => {
     const proposers: ProposerSpec[] = [
-      { name: 'with-predicate', harness: 'claude' },
-      { name: 'without-predicate', harness: 'claude' },
-      { name: 'invalid-predicate', harness: 'claude' },
+      { name: 'with-predicate', harness: 'claude-code' },
+      { name: 'without-predicate', harness: 'claude-code' },
+      { name: 'invalid-predicate', harness: 'claude-code' },
     ]
     const gen = fanOutLoopsGenerator(config(proposers), {
       author: async (proposer, args) => {
@@ -284,7 +284,7 @@ describe('activation-predicate prefilter', () => {
   })
 
   it('does not require a predicate when the gate is off (gen-4 behavior unchanged)', async () => {
-    const cfg = config([{ name: 'legacy', harness: 'claude' }])
+    const cfg = config([{ name: 'legacy', harness: 'claude-code' }])
     cfg.activationGate = false
     const gen = fanOutLoopsGenerator(cfg, {
       author: async (_p, args) => {

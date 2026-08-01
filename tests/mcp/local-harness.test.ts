@@ -221,7 +221,7 @@ async function runCodexPromptEvidenceFixture(
 describe('runLocalHarness', () => {
   it('runs the harness, captures stdout + stderr, returns exit code', async () => {
     const result = await runLocalHarness({
-      harness: 'claude',
+      harness: 'claude-code',
       cwd: '/tmp/wt',
       taskPrompt: 'add util.ts',
       spawn: () => makeFakeChild({ stdoutChunks: ['hello'], stderrChunks: ['warn'], exitCode: 0 }),
@@ -242,7 +242,7 @@ describe('runLocalHarness', () => {
 
     await expect(
       runLocalHarness({
-        harness: 'claude',
+        harness: 'claude-code',
         cwd: '/tmp/wt',
         taskPrompt: 'must not launch',
         signal: controller.signal,
@@ -709,7 +709,7 @@ describe('runLocalHarness', () => {
   it('kills subprocess + flags timedOut when timeoutMs elapses', async () => {
     vi.useFakeTimers()
     const promise = runLocalHarness({
-      harness: 'claude',
+      harness: 'claude-code',
       cwd: '/tmp/wt',
       taskPrompt: 'slow',
       timeoutMs: 100,
@@ -744,7 +744,7 @@ describe('runLocalHarness', () => {
     })
     try {
       const promise = runLocalHarness({
-        harness: 'claude',
+        harness: 'claude-code',
         cwd: '/tmp/wt',
         taskPrompt: 'ignore termination',
         timeoutMs: 20,
@@ -786,7 +786,7 @@ describe('runLocalHarness', () => {
     ].join(';')
     const ctl = new AbortController()
     const run = runLocalHarness({
-      harness: 'claude',
+      harness: 'claude-code',
       cwd,
       taskPrompt: 'graceful process-tree cancellation smoke',
       invocation: {
@@ -834,7 +834,7 @@ describe('runLocalHarness', () => {
 
     try {
       const result = await runLocalHarness({
-        harness: 'claude',
+        harness: 'claude-code',
         cwd,
         taskPrompt: 'normal-exit process-tree cleanup smoke',
         invocation: { command: process.execPath, args: ['-e', parentScript, pidFile] },
@@ -877,7 +877,7 @@ describe('runLocalHarness', () => {
     let run: ReturnType<typeof runLocalHarness> | undefined
     try {
       run = runLocalHarness({
-        harness: 'claude',
+        harness: 'claude-code',
         cwd,
         taskPrompt: 'process-tree cancellation smoke',
         invocation: { command: process.execPath, args: ['-e', parentScript, pidFile] },
@@ -908,7 +908,7 @@ describe('runLocalHarness', () => {
 
   it('retains only the newest configured bytes from noisy output', async () => {
     const result = await runLocalHarness({
-      harness: 'claude',
+      harness: 'claude-code',
       cwd: process.cwd(),
       taskPrompt: 'bounded output smoke',
       invocation: {
@@ -926,7 +926,7 @@ describe('runLocalHarness', () => {
   it('kills subprocess on AbortSignal', async () => {
     const ctl = new AbortController()
     const promise = runLocalHarness({
-      harness: 'claude',
+      harness: 'claude-code',
       cwd: '/tmp/wt',
       taskPrompt: 'slow',
       signal: ctl.signal,
@@ -1103,7 +1103,7 @@ describe('runLocalHarness', () => {
     const spawnSpy = vi.fn((_cmd: string, _args: ReadonlyArray<string>) =>
       makeFakeChild({ exitCode: 0 }),
     )
-    for (const harness of ['claude', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
       await runLocalHarness({ harness, cwd: '/tmp/wt', taskPrompt: 'go', spawn: spawnSpy })
     }
     const calls = spawnSpy.mock.calls
@@ -1120,7 +1120,7 @@ describe('runLocalHarness', () => {
       makeFakeChild({ exitCode: 0 }),
     )
     await runLocalHarness({
-      harness: 'claude',
+      harness: 'claude-code',
       cwd: '/tmp/isolated-worktree',
       taskPrompt: 'go',
       dangerouslySkipPermissions: true,
@@ -1134,7 +1134,7 @@ describe('runLocalHarness', () => {
       makeFakeChild({ exitCode: 0 }),
     )
     await runLocalHarness({
-      harness: 'claude',
+      harness: 'claude-code',
       cwd: '/tmp/wt',
       // The prompt-only fallback path would emit ['-p','go'] — the override wins exactly.
       taskPrompt: 'go',
@@ -1154,7 +1154,7 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   })
 
   it('threads the authored systemPrompt into the prompt channel for every harness', () => {
-    for (const harness of ['claude', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
       const inv = harnessInvocation(
         harness,
         profileWith('You are a careful refactorer.'),
@@ -1167,7 +1167,7 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   })
 
   it('maps the authored model to the harness -m selector', () => {
-    for (const harness of ['claude', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
       const inv = harnessInvocation(harness, profileWith(undefined, 'deepseek/deepseek-v4'), 'go')
       const mIdx = inv.args.indexOf('-m')
       expect(mIdx).toBeGreaterThanOrEqual(0)
@@ -1176,7 +1176,7 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   })
 
   it('threads BOTH systemPrompt and model together', () => {
-    const inv = harnessInvocation('claude', profileWith('SYS', 'kimi-k2.7'), 'task')
+    const inv = harnessInvocation('claude-code', profileWith('SYS', 'kimi-k2.7'), 'task')
     expect(inv.command).toBe('claude')
     expect(inv.args).toEqual(['-p', 'SYS\n\ntask', '-m', 'kimi-k2.7'])
   })
@@ -1309,7 +1309,7 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     ).toThrow(/requires profile\.model\.reasoningEffort/)
     expect(() =>
       harnessInvocation(
-        'claude',
+        'claude-code',
         { model: { default: 'claude-opus-4-1', reasoningEffort: 'high' } },
         'task',
         { codexReproducible: true },
@@ -1317,7 +1317,7 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     ).toThrow(/requires the Codex harness/)
   })
 
-  it('rejects an unknown Codex reasoning effort instead of emitting invalid config', () => {
+  it('rejects a reasoning effort the harness cannot express instead of emitting invalid config', () => {
     expect(() =>
       harnessInvocation(
         'codex',
@@ -1325,22 +1325,77 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
         { model: { reasoningEffort: 'unbounded' } },
         'task',
       ),
-    ).toThrow(/unsupported Codex reasoning effort unbounded/)
+    ).toThrow(/codex cannot express reasoning effort unbounded/)
+    // claude-code's `--effort` has no thinking-off or `minimal` level, so those canonical levels
+    // are refused rather than silently dropped or coerced to a level the author did not ask for.
+    for (const reasoningEffort of ['none', 'minimal'] as const) {
+      expect(() =>
+        harnessInvocation('claude-code', { model: { reasoningEffort } }, 'task'),
+      ).toThrow(/claude-code cannot express reasoning effort/)
+    }
+    expect(() =>
+      harnessInvocation('opencode', { model: { reasoningEffort: 'none' } }, 'task'),
+    ).toThrow(/opencode cannot express reasoning effort none/)
+  })
+
+  it('threads reasoning effort onto every harness that has a native control', () => {
+    expect(
+      harnessInvocation('claude-code', { model: { reasoningEffort: 'high' } }, 'go').args,
+    ).toEqual(['-p', 'go', '--effort', 'high'])
+    // Canonical `ultracode` is claude-code's native `max` and opencode's `max` variant.
+    expect(
+      harnessInvocation('claude-code', { model: { reasoningEffort: 'ultracode' } }, 'go').args,
+    ).toEqual(['-p', 'go', '--effort', 'max'])
+    expect(
+      harnessInvocation('opencode', { model: { reasoningEffort: 'high' } }, 'go').args,
+    ).toEqual(['run', 'go', '--variant', 'high'])
+    expect(harnessInvocation('codex', { model: { reasoningEffort: 'high' } }, 'go').args).toEqual([
+      'exec',
+      'go',
+      '-c',
+      'model_reasoning_effort="high"',
+    ])
+  })
+
+  it("emits each harness's own permission-bypass argv, and none where there is no gate", () => {
+    const bypass = { dangerouslySkipPermissions: true }
+    expect(harnessInvocation('claude-code', { name: 'x' }, 'go', bypass).args).toEqual([
+      '-p',
+      'go',
+      '--dangerously-skip-permissions',
+    ])
+    // Codex keeps its OS sandbox. `--dangerously-bypass-approvals-and-sandbox` would surrender it,
+    // and `codex exec` has no approval gate to stall on in the first place, so that flag pays the
+    // whole sandbox for nothing. The sandbox is what keeps the blast radius equal to the worktree.
+    expect(harnessInvocation('codex', { name: 'x' }, 'go', bypass).args).toEqual([
+      'exec',
+      'go',
+      '--sandbox',
+      'workspace-write',
+      '-c',
+      'approval_policy="never"',
+    ])
+    expect(harnessInvocation('codex', { name: 'x' }, 'go', bypass).args).not.toContain(
+      '--dangerously-bypass-approvals-and-sandbox',
+    )
+    // `opencode run` is non-interactive and declares no bypass argv, so asking for one is a no-op
+    // rather than a silently dropped request for a flag that does not exist.
+    expect(harnessInvocation('opencode', { name: 'x' }, 'go', bypass).args).toEqual(['run', 'go'])
   })
 
   it('an empty/absent profile yields exactly the legacy prompt-only shape (byte-identical)', () => {
-    expect(harnessInvocation('claude', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
+    expect(harnessInvocation('claude-code', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
     expect(harnessInvocation('codex', { name: 'x' }, 'go').args).toEqual(['exec', 'go'])
     expect(harnessInvocation('opencode', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
   })
 
   it('adds Claude permission bypass only when an isolated worktree explicitly opts in', () => {
     expect(
-      harnessInvocation('claude', { name: 'x' }, 'go', {
+      harnessInvocation('claude-code', { name: 'x' }, 'go', {
         dangerouslySkipPermissions: true,
       }).args,
     ).toEqual(['-p', 'go', '--dangerously-skip-permissions'])
-    expect(harnessInvocation('claude', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
+    expect(harnessInvocation('claude-code', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
   })
 
   it('throws on an unknown harness', () => {
@@ -1381,7 +1436,7 @@ describe('runLocalHarness trace-context inheritance (in-process placement)', () 
         },
       )
       await runLocalHarness({
-        harness: 'claude',
+        harness: 'claude-code',
         cwd: '/tmp/wt',
         taskPrompt: 'go',
         spawn: spawnSpy,

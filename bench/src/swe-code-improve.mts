@@ -10,7 +10,7 @@
  * Wiring (all verified in this worktree):
  *   - improve()/codeProposerFor + rawTraceContext come from the LOCAL agent-runtime build, linked into
  *     this bench's node_modules (bench/node_modules/@tangle-network/agent-runtime -> /home/drew/code/agent-runtime).
- *   - The candidate proposer is agenticGenerator(harness:'claude'), BUT the shipped runLocalHarness
+ *   - The candidate proposer is agenticGenerator(harness:'claude-code'), BUT the shipped runLocalHarness
  *     spawns `claude --headless -p` and --headless is an unknown option on the current CLI (exit 1, no
  *     edits ever). We pass code.generator with a corrected runHarness that spawns
  *     `claude -p <prompt> --dangerously-skip-permissions` so the coding agent can actually edit the
@@ -286,7 +286,7 @@ async function main(): Promise<void> {
   }
 
   const generator = agenticGenerator({
-    harness: 'claude',
+    harness: 'claude-code',
     verify,
     timeoutMs: harnessTimeoutMs,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

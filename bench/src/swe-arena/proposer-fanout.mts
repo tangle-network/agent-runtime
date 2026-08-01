@@ -91,7 +91,7 @@ export interface ProposerSpec {
   profile?: string
   /** Required for harness-authored seats. Absent on an engine seat
    *  (`engine` set) — enforced both ways at generator construction. */
-  harness?: 'claude' | 'codex' | 'opencode'
+  harness?: 'claude-code' | 'codex' | 'opencode'
   /** GEN-4 pinned model id, threaded to the harness CLI as `-m <model>` via
    *  the author profile's `model.default` (harnessInvocation maps it for all
    *  three harnesses). Unset = the CLI's own resolved model (its login/settings
@@ -201,7 +201,7 @@ export function loadAuthorProfile(spec: ProposerSpec): AgentProfile | undefined 
 
 /** The gen-2 author, codified: one bare-profile claude proposer. */
 export function defaultProposers(): ProposerSpec[] {
-  return [{ name: 'default-author', profile: 'default-author.profile.json', harness: 'claude' }]
+  return [{ name: 'default-author', profile: 'default-author.profile.json', harness: 'claude-code' }]
 }
 
 /** The profile the author shot actually runs: the loaded profile (if any) with

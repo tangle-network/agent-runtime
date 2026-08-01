@@ -52,6 +52,7 @@ import {
 import {
   type CodexExecutionEvidence,
   type CodexTokenUsage,
+  DEFAULT_LOCAL_HARNESS,
   harnessInvocation,
   type LocalHarness,
   type LocalHarnessResult,
@@ -162,7 +163,7 @@ export type AgenticGeneratorShotDisposition =
     }
 
 export interface AgenticGeneratorOptions {
-  /** Local coding harness to run in the worktree. Default `claude`. */
+  /** Local coding harness to run in the worktree. Default `claude-code`. */
   harness?: LocalHarness
   /** Author profile rendered through the canonical harness mapper. Required
    *  for reproducible Codex so model and reasoning settings are explicit. */
@@ -210,7 +211,9 @@ export interface AgenticGeneratorOptions {
 
 /** Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place. */
 export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateGenerator {
-  const harness = opts.harness ?? 'claude'
+  const harness = opts.harness ?? DEFAULT_LOCAL_HARNESS
+  // KEPT harness-name test: `codexReproducible` is a codex-SPECIFIC public option, so this
+  // asserts caller self-consistency and throws loudly instead of varying behavior by name.
   if (opts.codexReproducible && harness !== 'codex') {
     throw new Error("agenticGenerator: codexReproducible requires harness 'codex'")
   }
@@ -270,7 +273,9 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         const taskPrompt = attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt
         const invocation = opts.profile
           ? harnessInvocation(harness, opts.profile, taskPrompt, {
-              dangerouslySkipPermissions: harness === 'claude',
+              // The candidate worktree is disposable; whether that needs argv, and which, is the
+              // harness capability row's answer, not a property of any one CLI's name.
+              dangerouslySkipPermissions: true,
               ...(opts.codexReproducible ? { codexReproducible: true } : {}),
             })
           : undefined
@@ -300,9 +305,9 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
                     ? { invocation: { command: invocation.command, args: invocation.args } }
                     : {}),
                   // The candidate worktree is isolated and must be editable without an
-                  // interactive permission prompt. Other runLocalHarness callers remain
+                  // interactive approval gate. Other runLocalHarness callers remain
                   // permission-safe by default.
-                  dangerouslySkipPermissions: harness === 'claude',
+                  dangerouslySkipPermissions: true,
                   ...(opts.codexReproducible ? { codexReproducible: true } : {}),
                   ...(readDeniedPaths ? { codexReadDeniedPaths: readDeniedPaths } : {}),
                   timeoutMs: opts.timeoutMs,

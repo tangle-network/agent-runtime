@@ -68,6 +68,9 @@ export interface CoderRunSpecOptions {
 /** Build the authored `AgentProfile` for one harness on the sandbox-session path: the caller's
  *  profile (or the minimal model-only default), with the per-run harness/model/prompt overrides. */
 function coderRunProfile(options: CoderRunSpecOptions): AgentProfile {
+  // A composition-root default on the SANDBOX-BACKEND axis (`HarnessType`), not the local-CLI
+  // axis that `DEFAULT_LOCAL_HARNESS` covers. Behavior varies on the profile's declared harness
+  // downstream, never on this name.
   const harness = options.harness ?? 'claude-code'
   const name = options.name ?? `coder-${harness}`
   const base = options.profile ?? minimalCoderProfile()

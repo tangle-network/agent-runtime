@@ -9,10 +9,10 @@ import type { ProposerSpec } from './proposer-fanout.mts'
 const ok = (stdout: string) => ({ code: 0, stdout, stderr: '' })
 
 const gen4ish: ProposerSpec[] = [
-  { name: 'claude-author', profile: 'default-author.profile.json', harness: 'claude' },
+  { name: 'claude-author', profile: 'default-author.profile.json', harness: 'claude-code' },
   { name: 'glm-author', harness: 'opencode', model: 'zai-coding-plan/glm-5.2' },
   { name: 'codex-author', harness: 'codex' },
-  { name: 'merge-author', profile: 'default-author.profile.json', harness: 'claude', merge: true },
+  { name: 'merge-author', profile: 'default-author.profile.json', harness: 'claude-code', merge: true },
 ]
 
 describe('captureProposerProvenance', () => {
@@ -31,7 +31,7 @@ describe('captureProposerProvenance', () => {
     const byName = Object.fromEntries(record.proposers.map((p) => [p.name, p]))
     // Claude seat: no pin — the CLI's resolved settings model is the record.
     expect(byName['claude-author']).toMatchObject({
-      harness: 'claude',
+      harness: 'claude-code',
       pinnedModel: null,
       settingsModel: 'claude-fable-5',
       harnessVersion: 'claude-version 9.9.9',

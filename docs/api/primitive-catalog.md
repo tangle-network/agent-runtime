@@ -1282,7 +1282,7 @@ Import from `@tangle-network/agent-runtime/testing` — 4 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 207 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 211 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1314,7 +1314,9 @@ Import from `@tangle-network/agent-runtime/mcp` — 207 exports.
 | `detectExecutor` | function | Pick the right executor for an MCP server invocation based on env vars. |
 | `eventToSnapshot` | function | Project a `FeedbackEvent` down to the snapshot shape carried on |
 | `formatDetachedSessionRef` | function | Encode ref parts into the JSON-safe string stored on the record: |
+| `harnessSupportsReasoningEffort` | function | Whether the harness's native control can express this reasoning effort. Admission checks read |
 | `hashIdempotencyInput` | function | Best-effort stable hash for use as `idempotencyKey`. Not cryptographic; |
+| `localHarnessExecutable` | function | The CLI binary a harness id runs. The two are NOT the same string (`claude-code` runs `claude`), |
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
 | `parseCodexTokenUsage` | function | Parse and validate the one terminal usage event emitted by `codex exec --json`. |
@@ -1334,6 +1336,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 207 exports.
 | `validateDelegationHistoryArgs` | function | Parse and validate raw MCP tool input into typed `DelegationHistoryArgs`; throws `TypeError` on bad input. |
 | `validateDelegationStatusArgs` | function | Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws `TypeError` on bad input. |
 | `DEFAULT_AWAIT_EVENT_TIMEOUT_MS` | const | Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote |
+| `DEFAULT_LOCAL_HARNESS` | const | The harness a caller gets when it expresses no preference. A composition-root default, not a |
 | `DELEGATE_DESCRIPTION` | const | Human-readable description of the `delegate` MCP tool, injected into the tool manifest. |
 | `DELEGATE_FEEDBACK_DESCRIPTION` | const | Human-readable description of the `delegate_feedback` MCP tool, injected into the tool manifest. |
 | `DELEGATE_FEEDBACK_INPUT_SCHEMA` | const | JSON Schema for `delegate_feedback` tool arguments (`refersTo`, `rating`, `by`, optional fields). |
@@ -1351,6 +1354,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 207 exports.
 | `DELEGATION_STATUS_TOOL_NAME` | const | MCP tool name for the `delegation_status` synchronous-poll tool. |
 | `DELEGATION_TRACE_MAX_BYTES` | const | Default cap on the serialized trace payload per record, in bytes. |
 | `DELEGATION_TRACE_MAX_SPANS` | const | Default cap on spans retained per delegation record. |
+| `LOCAL_HARNESSES` | const | Every local harness, in table order — the one list `AGENT_RUNTIME_LOCAL_HARNESSES` and any |
 | `MEMORY_FILE_ENV` | const | Env var naming the durable row store file the memory bin loads (the |
 | `MEMORY_ITEMS_ENV` | const | Env var carrying inline JSON `MemoryItem` rows (win over file rows on id). |
 | `MEMORY_LOG_ENV` | const | Env var naming the JSONL retrieval log (one row per `memory_search`). |
@@ -1406,7 +1410,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 207 exports.
 | `DownMessageDeliveryOutcome` | type | The exact result of one parent→child delivery attempt. |
 | `DriveTurnTick` | type | Structural mirror of the sandbox SDK's `TurnDriveResult` (>= 0.6). |
 | `GitRunner` | type | Pluggable git runner (sync) — replaceable in tests. |
-| `LocalHarness` | type | Local coding harness available inside the sandbox. |
+| `LocalHarness` | type | Local coding harness available inside the sandbox — a narrowing of the shared `HarnessType` |
 | `UiAuditorDelegate` | type | UI-auditor delegate — fully consumer-injected. agent-runtime ships no |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CoderOutput`, `CoderReview`, `CoordinationToolsOptions`, `CreateKbGateOptions`, `CreateMemoryToolServerOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackHandlerOptions`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditHandlerOptions`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryHandlerOptions`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusHandlerOptions`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DetectExecutorArgs`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `Question`, `QuestionOption`, `QuestionRecord`, `RemoveWorktreeOptions`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `StdioToolServer`, `StdioToolServerOptions`, `SubmitInput`, `SubmitOutput`, `TraceContext`, `WorktreeHandle`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionLevel`, `QuestionPolicy`, `QuestionUrgency`, `ResearchSource`, `StdioToolDescriptor`, `UiAuditLensFilter`.

@@ -4593,7 +4593,7 @@ git worktree through a pluggable `CandidateGenerator`.
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Local coding harness to run in the worktree. Default `claude`.
+Local coding harness to run in the worktree. Default `claude-code`.
 
 ##### profile?
 
@@ -4788,7 +4788,7 @@ The driver-LLM seam — ONE inference turn over the conversation + tool specs (t
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Local coding harness the driver's worker sessions run in the worktree. Default `claude`.
+Local coding harness the driver's worker sessions run in the worktree. Default `claude-code`.
 
 ##### timeoutMs?
 
@@ -5083,7 +5083,7 @@ still requires normal Git worktree and commit semantics.
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Coding harness the agentic generator runs in each worktree. Default `claude`.
+Coding harness the agentic generator runs in each worktree. Default `claude-code`.
 
 ##### verify?
 

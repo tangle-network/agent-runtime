@@ -503,7 +503,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     const localWorktreeWorker = workerFromBackend({
       backend: 'cli-worktree',
       repoRoot: '/workspace',
-      harness: 'claude',
+      harness: 'claude-code',
     })
     expect(() =>
       localWorktreeWorker({

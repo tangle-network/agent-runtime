@@ -35,7 +35,7 @@ import {
 } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentProfile, HarnessType, ReasoningEffort } from '@tangle-network/agent-interface'
 import {
   codexSensitiveEnvironmentName,
   collectCodexDiagnosticRedactionValues,
@@ -47,12 +47,25 @@ import {
 export type { CodexExecutionFailureDiagnostic } from './codex-diagnostics'
 export { CodexExecutionDiagnosticError } from './codex-diagnostics'
 
-/** Local coding harness available inside the sandbox. */
-export type LocalHarness = 'claude' | 'codex' | 'opencode'
+/**
+ * Local coding harness available inside the sandbox — a narrowing of the shared `HarnessType`
+ * vocabulary, NOT a private spelling of it. The harness id is `claude-code`; `claude` is the
+ * EXECUTABLE name and lives only in the `command` field below. Keeping one vocabulary is what
+ * lets a `LocalHarness` be handed straight to the profile materializer and the capability table
+ * with no translation step.
+ */
+export type LocalHarness = Extract<HarnessType, 'claude-code' | 'codex' | 'opencode'>
 
-type ReasoningEffort = NonNullable<NonNullable<AgentProfile['model']>['reasoningEffort']>
+/**
+ * Canonical reasoning effort → the native level string a harness's own control accepts.
+ * PRESENCE of a key is the capability claim: a level with no entry has no native spelling on
+ * that harness and is refused rather than silently dropped.
+ */
+type NativeReasoningLevels = Partial<Record<ReasoningEffort, string>>
 
-const codexReasoningEffort: Record<ReasoningEffort, string> = {
+/** `codex -c model_reasoning_effort=…`. `ultracode` has no distinct native level; it saturates
+ *  at `xhigh`, which is also the ceiling `assertCodexReproducibleInvocation` admits. */
+const CODEX_REASONING_LEVELS: NativeReasoningLevels = {
   none: 'none',
   minimal: 'minimal',
   low: 'low',
@@ -62,14 +75,45 @@ const codexReasoningEffort: Record<ReasoningEffort, string> = {
   ultracode: 'xhigh',
 }
 
-function codexReasoningArgs(reasoningEffort: ReasoningEffort): string[] {
-  const mapped = codexReasoningEffort[reasoningEffort]
-  if (mapped === undefined) {
-    throw new Error(
-      `harnessInvocation: unsupported Codex reasoning effort ${String(reasoningEffort)}`,
-    )
+/** `claude --effort <level>` accepts `low, medium, high, xhigh, max` (verified against the
+ *  installed CLI's `--help`); canonical `ultracode` is its `max`. It expresses no thinking-off
+ *  or `minimal` level, so those two canonical levels have no entry. */
+const CLAUDE_CODE_REASONING_LEVELS: NativeReasoningLevels = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh',
+  ultracode: 'max',
+}
+
+/** `opencode run --variant <variant>` is documented as "provider-specific reasoning effort,
+ *  e.g. high, max, minimal", so the canonical level passes through as the variant name and
+ *  `ultracode` maps to `max`. Thinking-off is expressed by omitting the flag, not by a variant
+ *  named `none`, so `none` has no entry. */
+const OPENCODE_REASONING_LEVELS: NativeReasoningLevels = {
+  minimal: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh',
+  ultracode: 'max',
+}
+
+interface HarnessInvocationSpec {
+  command: string
+  buildArgs: (taskPrompt: string) => string[]
+  /** Map a resolved model to the harness's model-selector flag. */
+  modelArgs: (model: string) => string[]
+  /** Native reasoning-effort control, absent when the harness exposes none. */
+  reasoning?: {
+    levels: NativeReasoningLevels
+    args: (nativeLevel: string) => string[]
   }
-  return ['-c', `model_reasoning_effort="${mapped}"`]
+  /**
+   * Argv that lets an unattended run edit its workspace without stopping on an interactive
+   * approval gate. Absent when the harness has no such gate on its non-interactive path.
+   */
+  permissionBypassArgs?: () => string[]
 }
 
 /**
@@ -79,36 +123,87 @@ function codexReasoningArgs(reasoningEffort: ReasoningEffort): string[] {
  * the harness's selector flag (every supported harness takes `-m <model>`). The §1.5
  * profile-aware mapper `harnessInvocation` composes these to thread the full
  * supervisor-authored profile (systemPrompt + model) into argv.
+ *
+ * Every per-harness difference is a FIELD on this row, never a test on the harness name at a
+ * call site: adding harness N+1 is one entry here, and a caller asking for a capability the
+ * row does not declare is refused up front instead of silently losing the request.
  */
-const HARNESS_INVOCATIONS: Record<
-  LocalHarness,
-  {
-    command: string
-    buildArgs: (taskPrompt: string) => string[]
-    /** Map a resolved model to the harness's model-selector flag. */
-    modelArgs: (model: string) => string[]
-    /** Map portable reasoning effort when the harness exposes a native control. */
-    reasoningArgs?: (reasoningEffort: ReasoningEffort) => string[]
-  }
-> = {
-  claude: {
+const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = {
+  'claude-code': {
     command: 'claude',
     // `-p` IS headless/print mode; the old `--headless` flag was removed from the CLI.
     // Permission bypass is an explicit per-run opt-in below, never the public default.
     buildArgs: (taskPrompt) => ['-p', taskPrompt],
     modelArgs: (model) => ['-m', model],
+    reasoning: {
+      levels: CLAUDE_CODE_REASONING_LEVELS,
+      args: (level) => ['--effort', level],
+    },
+    permissionBypassArgs: () => ['--dangerously-skip-permissions'],
   },
   codex: {
     command: 'codex',
     buildArgs: (taskPrompt) => ['exec', taskPrompt],
     modelArgs: (model) => ['-m', model],
-    reasoningArgs: codexReasoningArgs,
+    reasoning: {
+      levels: CODEX_REASONING_LEVELS,
+      args: (level) => ['-c', `model_reasoning_effort="${level}"`],
+    },
+    // Non-interactive editing WITHOUT surrendering the OS sandbox. `codex exec` has no approval
+    // gate to stall on (`-a/--ask-for-approval` exists only on the top-level `codex`), so
+    // `--dangerously-bypass-approvals-and-sandbox` buys nothing on the approvals axis and pays the
+    // entire sandbox for it — writes would escape the worktree to ~/.ssh, ~/.aws, and secrets.
+    // The sandbox is what MAKES the blast radius the worktree. Same form as CODEX_REPRODUCIBLE_ARGS.
+    permissionBypassArgs: () => ['--sandbox', 'workspace-write', '-c', 'approval_policy="never"'],
   },
   opencode: {
     command: 'opencode',
     buildArgs: (taskPrompt) => ['run', taskPrompt],
     modelArgs: (model) => ['-m', model],
+    reasoning: {
+      levels: OPENCODE_REASONING_LEVELS,
+      args: (level) => ['--variant', level],
+    },
+    // `opencode run` is non-interactive and has no approval gate to bypass.
   },
+}
+
+/** Every local harness, in table order — the one list `AGENT_RUNTIME_LOCAL_HARNESSES` and any
+ *  other harness enumeration reads, so adding a row above is the only edit a new harness needs. */
+export const LOCAL_HARNESSES = Object.keys(HARNESS_INVOCATIONS) as ReadonlyArray<LocalHarness>
+
+/** The harness a caller gets when it expresses no preference. A composition-root default, not a
+ *  capability claim: one constant so the several entry points cannot drift apart. */
+export const DEFAULT_LOCAL_HARNESS: LocalHarness = 'claude-code'
+
+/** The CLI binary a harness id runs. The two are NOT the same string (`claude-code` runs `claude`),
+ *  so anything spawning a harness — a version probe, a login check — reads it from here rather than
+ *  passing the harness id as a command. */
+export function localHarnessExecutable(harness: LocalHarness): string {
+  return HARNESS_INVOCATIONS[harness].command
+}
+
+/**
+ * Whether the harness's native control can express this reasoning effort. Admission checks read
+ * this so a profile the invocation would later refuse is rejected BEFORE any workspace state is
+ * created, against the same table that emits the argv.
+ */
+export function harnessSupportsReasoningEffort(
+  harness: LocalHarness,
+  reasoningEffort: ReasoningEffort,
+): boolean {
+  return HARNESS_INVOCATIONS[harness].reasoning?.levels[reasoningEffort] !== undefined
+}
+
+function harnessReasoningArgs(harness: LocalHarness, reasoningEffort: ReasoningEffort): string[] {
+  const reasoning = HARNESS_INVOCATIONS[harness].reasoning
+  const level = reasoning?.levels[reasoningEffort]
+  if (reasoning === undefined || level === undefined) {
+    throw new Error(
+      `harnessInvocation: ${harness} cannot express reasoning effort ${String(reasoningEffort)}`,
+    )
+  }
+  return reasoning.args(level)
 }
 
 /** Result of mapping an `AgentProfile` + task prompt onto a harness invocation. */
@@ -120,8 +215,15 @@ export interface HarnessInvocation {
 }
 
 export interface HarnessInvocationOptions {
-  /** Allow an unattended Claude process to edit its isolated candidate worktree.
-   *  Ignored by harnesses that do not use Claude's permission prompt. */
+  /** Let an unattended process edit its isolated candidate worktree without stopping on an
+   *  interactive approval gate. A property of the WORKSPACE, not of any one CLI: each harness
+   *  contributes its own `permissionBypassArgs`, and a harness with no approval gate on its
+   *  non-interactive path contributes nothing.
+   *
+   *  This never surrenders an OS sandbox. A harness that offers one flag for "skip approvals" and
+   *  another for "skip approvals AND sandbox" must contribute the former: the sandbox is what keeps
+   *  the blast radius equal to the worktree, and without it a prompt-injected worker reaches
+   *  `~/.ssh`, `~/.aws`, and any secrets on the box. */
   dangerouslySkipPermissions?: boolean
   /** Run Codex with benchmark-safe process controls and JSONL usage output.
    *  Valid only for the Codex harness. */
@@ -158,11 +260,18 @@ function buildHarnessArgs(
   taskPrompt: string,
   options: HarnessInvocationOptions = {},
 ): string[] {
-  const args = HARNESS_INVOCATIONS[harness].buildArgs(taskPrompt)
-  if (harness === 'claude' && options.dangerouslySkipPermissions) {
-    args.push('--dangerously-skip-permissions')
+  const invocation = HARNESS_INVOCATIONS[harness]
+  const args = invocation.buildArgs(taskPrompt)
+  // Reproducible mode pins `approval_policy="never"` inside its own controlled config, which is
+  // the same non-interactive guarantee with the sandbox left INTACT. Emitting a blanket bypass
+  // flag on top would tear that sandbox down and break the exact-argv reproducibility contract,
+  // so the reproducible arg set owns approvals whenever it is active.
+  if (options.dangerouslySkipPermissions && !options.codexReproducible) {
+    args.push(...(invocation.permissionBypassArgs?.() ?? []))
   }
   if (options.codexReproducible) {
+    // KEPT harness-name test: same reason as `runLocalHarness` below — `codexReproducible` is a
+    // codex-SPECIFIC public option, so this asserts caller self-consistency and throws loudly.
     if (harness !== 'codex') {
       throw new Error('harnessInvocation: codexReproducible requires the Codex harness')
     }
@@ -232,8 +341,8 @@ export function harnessInvocation(
   }
 
   const reasoningEffort = profile.model?.reasoningEffort
-  if (reasoningEffort !== undefined && invocation.reasoningArgs) {
-    args.push(...invocation.reasoningArgs(reasoningEffort))
+  if (reasoningEffort !== undefined) {
+    args.push(...harnessReasoningArgs(harness, reasoningEffort))
   }
 
   return { command: invocation.command, args, prompt: composedPrompt }
@@ -254,8 +363,8 @@ export interface RunLocalHarnessOptions {
    * is used unchanged.
    */
   invocation?: { command?: string; args: ReadonlyArray<string> }
-  /** Allow autonomous Claude edits without an interactive permission prompt.
-   *  Use only when `cwd` is an isolated candidate worktree. */
+  /** Allow autonomous edits without an interactive approval gate, using whichever bypass argv the
+   *  harness declares. Use only when `cwd` is an isolated candidate worktree. */
   dangerouslySkipPermissions?: boolean
   /** Isolate Codex from ambient configuration/instructions and require JSONL token usage.
    *  The invocation should come from `harnessInvocation(..., { codexReproducible: true })`. */
@@ -433,6 +542,10 @@ export async function runLocalHarness(
   options: RunLocalHarnessOptions,
 ): Promise<LocalHarnessResult> {
   const { harness, cwd, taskPrompt } = options
+  // KEPT harness-name test: `codexReproducible` is a codex-SPECIFIC public option (its arg set,
+  // its permission profile, its JSONL usage event), so this guard asserts caller self-consistency
+  // and throws loudly rather than varying behavior by name. When a second harness gains a
+  // reproducible mode, rename the option and make the arg set a row on `HARNESS_INVOCATIONS`.
   if (options.codexReproducible && harness !== 'codex') {
     throw new Error('runLocalHarness: codexReproducible requires the Codex harness')
   }
