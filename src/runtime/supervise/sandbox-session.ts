@@ -42,6 +42,7 @@ import {
   type ActivityLog,
   type ActivityNote,
   createActivityLog,
+  describeToolArgs,
   type ExecutorProgress,
 } from './progress'
 import { createPushTraceSource, decodeToolPart, type TraceSource } from './trace-source'
@@ -128,7 +129,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
             kind: 'tool',
             label: step.toolName,
             ...(step.status ? { status: step.status } : {}),
-            ...(describeArgs(step.args) ? { detail: describeArgs(step.args) } : {}),
+            ...(describeToolArgs(step.args) ? { detail: describeToolArgs(step.args) } : {}),
           }
           activity.push(note)
         }
@@ -304,19 +305,6 @@ function readFinalText(event: SandboxEvent): string | undefined {
   if (typeof text === 'string' && text.length > 0) return text
   const alt = (data as { text?: unknown }).text
   return typeof alt === 'string' && alt.length > 0 ? alt : undefined
-}
-
-/** A short, already-truncated descriptor of a tool call's target — the file/command a driver
- *  needs to tell "editing the right module" from "re-reading the same file for the fifth time",
- *  without pulling the worker's transcript across the wire. */
-function describeArgs(argsValue: unknown): string | undefined {
-  if (!argsValue || typeof argsValue !== 'object') return undefined
-  const a = argsValue as Record<string, unknown>
-  for (const key of ['filePath', 'file_path', 'path', 'file', 'command', 'cmd', 'pattern']) {
-    const v = a[key]
-    if (typeof v === 'string' && v.length > 0) return v.length > 120 ? `${v.slice(0, 117)}...` : v
-  }
-  return undefined
 }
 
 /** Prompt options the composed loop context already carries (agent profile / cwd), forwarded so

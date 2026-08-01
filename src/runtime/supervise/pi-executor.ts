@@ -67,7 +67,12 @@ import { abortError, throwIfAborted } from '../util'
 import { createInbox, type Inbox, type InboxMessage } from './inbox'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import { PI_MCP_ADAPTER, type PiMcpReceipt, preparePiMcp } from './pi-mcp'
-import { type ActivityLog, createActivityLog, type ExecutorProgress } from './progress'
+import {
+  type ActivityLog,
+  createActivityLog,
+  describeToolArgs,
+  type ExecutorProgress,
+} from './progress'
 import { createPushTraceSource, type ToolStepInput, type TraceSource } from './trace-source'
 import type {
   ExecutorContext,
@@ -573,7 +578,7 @@ function projectPiEvent(
   const out: UsageEvent[] = []
   const at = Date.now()
   if (ev.type === 'tool_execution_start' && typeof ev.toolName === 'string') {
-    args.activity.push({ at, kind: 'tool', label: ev.toolName, detail: describeArgs(ev.args) })
+    args.activity.push({ at, kind: 'tool', label: ev.toolName, detail: describeToolArgs(ev.args) })
     if (typeof ev.toolCallId === 'string') {
       pendingTools.set(ev.toolCallId, { args: ev.args ?? {}, startedAt: at })
     }
@@ -696,16 +701,6 @@ function readText(message: unknown): string | undefined {
 
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined
-}
-
-function describeArgs(argsValue: unknown): string | undefined {
-  if (!argsValue || typeof argsValue !== 'object') return undefined
-  const a = argsValue as Record<string, unknown>
-  for (const key of ['filePath', 'file_path', 'path', 'file', 'command', 'cmd', 'pattern']) {
-    const v = a[key]
-    if (typeof v === 'string' && v.length > 0) return v.length > 120 ? `${v.slice(0, 117)}...` : v
-  }
-  return undefined
 }
 
 function describeToolError(result: unknown): string | undefined {
