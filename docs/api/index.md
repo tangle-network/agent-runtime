@@ -14120,6 +14120,40 @@ Injectable catalog loader — overridden in tests.
 
 ***
 
+### createOpenInferenceFileExporter()
+
+> **createOpenInferenceFileExporter**(`filePath`): [`OtelExporter`](#otelexporter)
+
+Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per
+line, instead of posting them to a collector.
+
+Why this exists beside [createOtelExporter](#createotelexporter): that one needs an OTLP endpoint, so a run on a
+laptop, in CI, or inside a sandbox with no collector emits nothing and its per-turn shape is
+simply lost. The journal records the TREE (who spawned whom, what settled, what it spent); it
+does not record what happened inside a turn. A run whose tree is readable but whose turns are not
+is exactly the state that made an observability gap invisible until someone went looking.
+
+The line shape is the one `@tangle-network/traces` reads (`spans.otlp.jsonl`) and is a standard
+OpenInference representation, so the same file feeds any OpenInference tool with no conversion:
+snake_case identity fields, ISO-8601 times, `parent_span_id` empty at the root, and attributes as
+a plain object rather than OTLP's key/value array.
+
+Appends synchronously per span so a killed process keeps every span it had already finished —
+matching the spawn journal's durability posture, since a trace that only survives a clean exit is
+useless for the runs you most want to look at.
+
+#### Parameters
+
+##### filePath
+
+`string`
+
+#### Returns
+
+[`OtelExporter`](#otelexporter)
+
+***
+
 ### createOtelExporter()
 
 > **createOtelExporter**(`config?`): [`OtelExporter`](#otelexporter) \| `undefined`

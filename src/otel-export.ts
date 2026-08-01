@@ -9,6 +9,8 @@
  * (which get converted to OTLP spans automatically).
  */
 
+import { appendFileSync } from 'node:fs'
+
 import { type RuntimeTelemetryOptions, sanitizeRuntimeStreamEvent } from './sanitize'
 import type { RuntimeStreamEvent } from './types'
 
@@ -77,6 +79,99 @@ const GEN_AI = {
   inputTokens: 'gen_ai.usage.input_tokens',
   outputTokens: 'gen_ai.usage.output_tokens',
 } as const
+
+/**
+ * Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per
+ * line, instead of posting them to a collector.
+ *
+ * Why this exists beside {@link createOtelExporter}: that one needs an OTLP endpoint, so a run on a
+ * laptop, in CI, or inside a sandbox with no collector emits nothing and its per-turn shape is
+ * simply lost. The journal records the TREE (who spawned whom, what settled, what it spent); it
+ * does not record what happened inside a turn. A run whose tree is readable but whose turns are not
+ * is exactly the state that made an observability gap invisible until someone went looking.
+ *
+ * The line shape is the one `@tangle-network/traces` reads (`spans.otlp.jsonl`) and is a standard
+ * OpenInference representation, so the same file feeds any OpenInference tool with no conversion:
+ * snake_case identity fields, ISO-8601 times, `parent_span_id` empty at the root, and attributes as
+ * a plain object rather than OTLP's key/value array.
+ *
+ * Appends synchronously per span so a killed process keeps every span it had already finished —
+ * matching the spawn journal's durability posture, since a trace that only survives a clean exit is
+ * useless for the runs you most want to look at.
+ */
+export function createOpenInferenceFileExporter(filePath: string): OtelExporter {
+  const lines: string[] = []
+  let failed: Error | undefined
+  const append = (line: string): void => {
+    try {
+      appendFileSync(filePath, `${line}\n`, 'utf8')
+    } catch (error) {
+      // Telemetry must never take the run down with it, but a silently dead exporter is how a
+      // missing trace gets mistaken for an empty one. Remember the first failure and surface it
+      // from flush(), where a caller is already awaiting an answer.
+      failed ??= error instanceof Error ? error : new Error(String(error))
+    }
+  }
+  return {
+    exportSpan(span: OtelSpan): void {
+      append(JSON.stringify(toOpenInferenceLine(span)))
+      lines.push('')
+    },
+    async flush(): Promise<void> {
+      if (failed)
+        throw new Error(`OpenInference file exporter failed writing ${filePath}: ${failed.message}`)
+    },
+    async shutdown(): Promise<void> {
+      lines.length = 0
+    },
+  }
+}
+
+/** Nanosecond string -> ISO-8601, the time format an OpenInference reader parses with `Date.parse`. */
+function nanosToIso(nanos: string): string {
+  const ms = Number(BigInt(nanos) / 1_000_000n)
+  return new Date(ms).toISOString()
+}
+
+/** OTLP's key/value attribute array -> the plain object OpenInference carries. */
+function attributesToObject(
+  attributes: readonly OtelAttribute[] | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const a of attributes ?? []) {
+    const v = a.value
+    out[a.key] =
+      v.stringValue ??
+      (v.intValue !== undefined ? Number(v.intValue) : undefined) ??
+      v.doubleValue ??
+      v.boolValue
+  }
+  return out
+}
+
+/** One `OtelSpan` as the OpenInference JSONL line `traces` and other OpenInference tools read. */
+function toOpenInferenceLine(span: OtelSpan): Record<string, unknown> {
+  const attributes = attributesToObject(span.attributes)
+  const kind = attributes['openinference.span.kind']
+  const resource: Record<string, unknown> = {}
+  for (const key of ['service.name', 'agent.name']) {
+    if (attributes[key] !== undefined) resource[key] = attributes[key]
+  }
+  return {
+    trace_id: span.traceId,
+    span_id: span.spanId,
+    // Empty string, not null: the root is spelled "" in this representation.
+    parent_span_id: span.parentSpanId ?? '',
+    name: span.name,
+    kind: typeof kind === 'string' ? kind : 'CHAIN',
+    start_time: nanosToIso(span.startTimeUnixNano),
+    end_time: nanosToIso(span.endTimeUnixNano),
+    status: span.status ?? { code: 0 },
+    resource: { attributes: resource },
+    scope: { name: 'agent-runtime', version: '' },
+    attributes,
+  }
+}
 
 /**
  * Create an OTEL exporter. Returns undefined when no endpoint is configured.

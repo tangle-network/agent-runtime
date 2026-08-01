@@ -182,6 +182,7 @@ export {
   buildLoopOtelSpans,
   buildLoopSpanNodes,
   buildRuntimeEventOtelSpans,
+  createOpenInferenceFileExporter,
   createOtelExporter,
   exportEvalRuns,
   generateSpanId,
