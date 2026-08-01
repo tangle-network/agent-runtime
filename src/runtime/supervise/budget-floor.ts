@@ -48,8 +48,12 @@ export const WORKER_TOKEN_FLOOR = {
  *
  * A `null` harness is the router/inline arm: it holds only coordination verbs and re-sends no
  * harness scaffolding, so it has no floor of this kind.
+ *
+ * Accepts a bare `string` because `AgentProfile.harness` is not exactly `BackendType` — an
+ * unrecognised name resolves to `null` (no floor) rather than throwing, which keeps an unknown
+ * harness admissible instead of refusing work on a name this table has not heard of.
  */
-export function workerTokenFloor(harness: BackendType | null): number | null {
+export function workerTokenFloor(harness: BackendType | string | null | undefined): number | null {
   if (harness === null) return null
   return (WORKER_TOKEN_FLOOR as Record<string, number | null>)[harness] ?? null
 }
