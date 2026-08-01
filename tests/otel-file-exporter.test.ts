@@ -75,6 +75,24 @@ describe('createOpenInferenceFileExporter', () => {
     expect(writeAndRead([span({ attributes: [] })])[0]!.kind).toBe('CHAIN')
   })
 
+  // The bug this file did not catch on the first pass: every field above was checked and the
+  // status was not, so a reader FOUND the file and refused it — "status.code must be OK, ERROR,
+  // UNSET, or its STATUS_CODE_* form". A whole run's per-turn detail lost to one field.
+  it("spells status as an OpenInference NAME, never OTLP's numeric code", () => {
+    expect(writeAndRead([span({ status: { code: 1 } })])[0]!.status).toEqual({ code: 'OK' })
+    expect(writeAndRead([span({ status: { code: 2 } })])[0]!.status).toEqual({ code: 'ERROR' })
+    expect(writeAndRead([span({ status: { code: 0 } })])[0]!.status).toEqual({ code: 'UNSET' })
+  })
+
+  it('defaults a missing status to UNSET rather than omitting it', () => {
+    expect(writeAndRead([span({ status: undefined })])[0]!.status).toEqual({ code: 'UNSET' })
+  })
+
+  it('carries a status message through when there is one', () => {
+    const [row] = writeAndRead([span({ status: { code: 2, message: 'budget-exhausted' } })])
+    expect(row!.status).toEqual({ code: 'ERROR', message: 'budget-exhausted' })
+  })
+
   it('keeps spans already written when a later one fails, and surfaces the failure from flush', async () => {
     const exporter = createOpenInferenceFileExporter('/proc/definitely/not/writable/spans.jsonl')
     exporter.exportSpan(span())

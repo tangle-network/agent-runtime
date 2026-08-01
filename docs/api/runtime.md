@@ -25212,6 +25212,18 @@ Re-exports [WorktreeCheckRunner](index.md#worktreecheckrunner)
 
 ***
 
+### createOpenInferenceFileExporter
+
+Re-exports [createOpenInferenceFileExporter](index.md#createopeninferencefileexporter)
+
+***
+
+### createOtelExporter
+
+Re-exports [createOtelExporter](index.md#createotelexporter)
+
+***
+
 ### AgentEnvironmentProviderRef
 
 Re-exports [AgentEnvironmentProviderRef](runtime/environment-provider.md#agentenvironmentproviderref)

@@ -508,7 +508,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 698 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 700 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -555,6 +555,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 698 exports.
 | `createInbox` | function | Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle. |
 | `createInMemoryRunContext` | function | Build a fresh in-memory run context. Every call returns NEW stores (no shared global |
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
+| `createOpenInferenceFileExporter` | function | Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per |
+| `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
 | `createProgressTracker` | function | Build the settled-work ledger a `StopRule` decides from: record each settlement (idempotent by |
 | `createPushTraceSource` | function | A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): the loop calls |
 | `createRootHandle` | function | Mint a `RootHandle` plus its supervisor-private control. The handle is the substrate a |
