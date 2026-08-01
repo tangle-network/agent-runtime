@@ -15,6 +15,7 @@ import {
   WORKER_TOOL_TRACE_SCHEMA_VERSION,
   watchTrace,
 } from '../../src/runtime'
+import { WORKER_TOKEN_FLOOR } from '../../src/runtime/supervise/budget-floor'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
@@ -94,6 +95,7 @@ function mockScope() {
     },
   ]
   let admit = true
+  let refusal: 'budget-exhausted' | 'below-runtime-floor' = 'budget-exhausted'
   const scope = {
     spawn: (_agent: unknown, task: unknown, opts: { budget: unknown; label: string }) => {
       spawns.push({ task, opts })
@@ -102,7 +104,7 @@ function mockScope() {
             ok: true as const,
             handle: { id: 'w0', label: opts.label, status: 'running' as const, abort() {} },
           }
-        : { ok: false as const, reason: 'budget-exhausted' as const }
+        : { ok: false as const, reason: refusal }
     },
     next: async () => null,
     send: (id: string, msg: unknown) => {
@@ -118,7 +120,13 @@ function mockScope() {
     budget: { tokensLeft: 10, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
     signal: new AbortController().signal,
   } as unknown as Scope<unknown>
-  return { scope, sent, spawns, setAdmit: (v: boolean) => (admit = v) }
+  return {
+    scope,
+    sent,
+    spawns,
+    setAdmit: (v: boolean) => (admit = v),
+    setRefusal: (r: typeof refusal) => (refusal = r),
+  }
 }
 
 const blobs: ResultBlobStore = { get: async () => undefined, put: async () => {} }
@@ -505,6 +513,56 @@ describe('coordination tools', () => {
         budget: { maxTokens: Number.POSITIVE_INFINITY },
       }),
     ).toThrow(/"budget.maxTokens" must be a finite number/)
+  })
+
+  it('publishes every measured runtime floor in the budget description, from the census', () => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    const input = tool(tb, 'spawn_agent').inputSchema as {
+      properties: { budget: { description: string } }
+    }
+    const description = input.properties.budget.description
+    // Generated FROM the census, never transcribed: a harness measured tomorrow appears here
+    // with no edit to the tool text. `pi` is the one floor measured today.
+    expect(description).toContain('below-runtime-floor')
+    for (const [harness, floor] of Object.entries(WORKER_TOKEN_FLOOR))
+      if (floor !== null) expect(description).toContain(`${harness}=${floor}`)
+    expect(description).toContain(`pi=${WORKER_TOKEN_FLOOR.pi}`)
+  })
+
+  it('spawn_agent tells a below-runtime-floor refusal the floor and to RAISE, never retry smaller', async () => {
+    const { scope, setAdmit, setRefusal } = mockScope()
+    setAdmit(false)
+    setRefusal('below-runtime-floor')
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 4000 },
+    })
+    // The root declared the harness on the child profile, so the hint names THAT floor.
+    const refused = await tool(tb, 'spawn_agent').handler({
+      profile: { harness: 'pi' },
+      task: 'go',
+    })
+    expect(refused).toMatchObject({ error: 'below-runtime-floor', hint: expect.any(String) })
+    const hint = (refused as { hint: string }).hint
+    expect(hint).toContain(String(WORKER_TOKEN_FLOOR.pi))
+    expect(hint).toMatch(/raise/i)
+    // The whole point of a distinct reason: the driver must not walk the budget DOWN.
+    expect(hint).toMatch(/fail identically/i)
+
+    // No harness on the profile (the guard fired on a spec-level harness): the hint still
+    // carries every measured floor rather than an unactionable bare reason.
+    const bare = await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })
+    const bareHint = (bare as { hint: string }).hint
+    expect(bareHint).toContain(String(WORKER_TOKEN_FLOOR.pi))
+    expect(bareHint).toMatch(/raise/i)
   })
 
   it('observe_agent returns live status and settled output', async () => {
