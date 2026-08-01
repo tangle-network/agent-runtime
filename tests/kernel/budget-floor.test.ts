@@ -45,3 +45,25 @@ describe('worker token floor', () => {
     }
   })
 })
+
+describe('the floor reads the harness a root actually declared', () => {
+  // The guard originally read only `spec.harness`, which is null whenever the harness rides in the
+  // backend config rather than the spec — the path that actually spawns workers through the
+  // bridge. So it missed the case it exists for: run proof-bridge-20260801f authored a
+  // 6,000-token child against a 31,211 floor, admitted it, and the child produced nothing.
+  it('resolves a floor from an AgentProfile harness when the spec carries none', () => {
+    const specHarness = null
+    const profileHarness = 'pi' as const
+    expect(workerTokenFloor(specHarness ?? profileHarness)).toBe(31_211)
+  })
+
+  it('still has no floor when neither names a harness (router/inline arm)', () => {
+    const specHarness = null
+    const profileHarness = null
+    expect(workerTokenFloor(specHarness ?? profileHarness)).toBeNull()
+  })
+
+  it('refuses the exact budget that slipped through', () => {
+    expect(6_000).toBeLessThan(workerTokenFloor('pi')!)
+  })
+})
