@@ -149,7 +149,12 @@ const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = {
       levels: CODEX_REASONING_LEVELS,
       args: (level) => ['-c', `model_reasoning_effort="${level}"`],
     },
-    permissionBypassArgs: () => ['--dangerously-bypass-approvals-and-sandbox'],
+    // Non-interactive editing WITHOUT surrendering the OS sandbox. `codex exec` has no approval
+    // gate to stall on (`-a/--ask-for-approval` exists only on the top-level `codex`), so
+    // `--dangerously-bypass-approvals-and-sandbox` buys nothing on the approvals axis and pays the
+    // entire sandbox for it — writes would escape the worktree to ~/.ssh, ~/.aws, and secrets.
+    // The sandbox is what MAKES the blast radius the worktree. Same form as CODEX_REPRODUCIBLE_ARGS.
+    permissionBypassArgs: () => ['--sandbox', 'workspace-write', '-c', 'approval_policy="never"'],
   },
   opencode: {
     command: 'opencode',
@@ -213,7 +218,12 @@ export interface HarnessInvocationOptions {
   /** Let an unattended process edit its isolated candidate worktree without stopping on an
    *  interactive approval gate. A property of the WORKSPACE, not of any one CLI: each harness
    *  contributes its own `permissionBypassArgs`, and a harness with no approval gate on its
-   *  non-interactive path contributes nothing. */
+   *  non-interactive path contributes nothing.
+   *
+   *  This never surrenders an OS sandbox. A harness that offers one flag for "skip approvals" and
+   *  another for "skip approvals AND sandbox" must contribute the former: the sandbox is what keeps
+   *  the blast radius equal to the worktree, and without it a prompt-injected worker reaches
+   *  `~/.ssh`, `~/.aws`, and any secrets on the box. */
   dangerouslySkipPermissions?: boolean
   /** Run Codex with benchmark-safe process controls and JSONL usage output.
    *  Valid only for the Codex harness. */

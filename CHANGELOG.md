@@ -21,7 +21,7 @@ A level a harness genuinely cannot express is still refused, and the refusal now
 **Permission bypass is a property of the workspace, not of one CLI.** `dangerouslySkipPermissions` was tested against `'claude'` in four places; three were caller-side duplication of the fourth, which dropped the flag for every other harness with no error. Each harness now declares its own bypass argv:
 
 - `claude-code` → `--dangerously-skip-permissions` (unchanged).
-- `codex` → `--dangerously-bypass-approvals-and-sandbox`. NEW: a codex worker in a disposable worktree previously had its bypass request silently dropped and could stall on an approval gate.
+- `codex` → `--sandbox workspace-write -c approval_policy="never"`. NEW: a codex worker in a disposable worktree previously had its bypass request silently dropped. It edits non-interactively now and **keeps its OS sandbox** — writes stay confined to the workspace. `--dangerously-bypass-approvals-and-sandbox` is deliberately NOT used: `codex exec` has no approval gate to stall on (`-a/--ask-for-approval` exists only on the top-level `codex`), so it would surrender the sandbox for nothing, and the sandbox is what keeps a worker's blast radius equal to its worktree.
 - `opencode` → nothing; `opencode run` has no approval gate.
 - Reproducible Codex is unchanged: its controlled config already pins `approval_policy="never"` with the sandbox intact, so the blanket bypass flag is suppressed rather than layered on top. Reproducible argv is byte-identical to 0.118.0.
 

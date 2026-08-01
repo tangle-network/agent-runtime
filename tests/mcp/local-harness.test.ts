@@ -1364,11 +1364,20 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
       'go',
       '--dangerously-skip-permissions',
     ])
+    // Codex keeps its OS sandbox. `--dangerously-bypass-approvals-and-sandbox` would surrender it,
+    // and `codex exec` has no approval gate to stall on in the first place, so that flag pays the
+    // whole sandbox for nothing. The sandbox is what keeps the blast radius equal to the worktree.
     expect(harnessInvocation('codex', { name: 'x' }, 'go', bypass).args).toEqual([
       'exec',
       'go',
-      '--dangerously-bypass-approvals-and-sandbox',
+      '--sandbox',
+      'workspace-write',
+      '-c',
+      'approval_policy="never"',
     ])
+    expect(harnessInvocation('codex', { name: 'x' }, 'go', bypass).args).not.toContain(
+      '--dangerously-bypass-approvals-and-sandbox',
+    )
     // `opencode run` is non-interactive and declares no bypass argv, so asking for one is a no-op
     // rather than a silently dropped request for a flag that does not exist.
     expect(harnessInvocation('opencode', { name: 'x' }, 'go', bypass).args).toEqual(['run', 'go'])
