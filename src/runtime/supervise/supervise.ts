@@ -8,22 +8,35 @@
  * completion oracle — so "where the workers run" is one data choice, not a hand-rolled factory.
  */
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { ValidationError } from '../../errors'
+import { ConfigError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   MakeWorkerAgent,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import type { SupervisorFinalizer } from './finalizer'
 import { assertModelAllowed } from './model-policy'
+import {
+  createSupervisorSpanRecorder,
+  type SupervisorSpanOptions,
+  type SupervisorSpanRecorder,
+} from './otel-spans'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
 import type { StopRule } from './stop-rules'
 import { createSupervisor } from './supervisor'
-import { type DriveHarness, type SupervisorProfile, supervisorAgent } from './supervisor-agent'
+import {
+  assertCoordinationBinding,
+  type CoordinationBinding,
+  type DriveHarness,
+  resolveSupervisorModelId,
+  type SupervisorProfile,
+  supervisorAgent,
+} from './supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -33,13 +46,25 @@ import type {
   SpawnJournal,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
+import { workerTraceSeamKey } from './worker-trace'
 
-/** Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
- *  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
- *  deliver"). The ONE place a backend becomes a spawnable worker. */
+/**
+ * Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
+ * deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
+ * deliver"). The ONE place a backend becomes a spawnable worker.
+ *
+ * `seams` exists because this path builds the leaf executor EAGERLY and hands it back as a BYO
+ * `executorSpec.executor`. The registry resolves a BYO executor without ever consulting the
+ * per-child `ExecutorContext` the `Scope` seeds, so anything the scope would have supplied is
+ * invisible here and has to be passed in. It is a FUNCTION because it is resolved once per worker
+ * construction, so a caller may hand back something the run only learns later — which is exactly how
+ * `supervise()` gives a traced run's workers their trace context without ordering the span recorder
+ * ahead of the worker seam.
+ */
 export function workerFromBackend(
   backend: ExecutorConfig,
   deliverable?: DeliverableSpec<unknown>,
+  seams?: () => Readonly<Record<string, unknown>>,
 ): MakeWorkerAgent {
   return (rawProfile) => {
     const p = (rawProfile ?? {}) as { name?: unknown }
@@ -47,7 +72,7 @@ export function workerFromBackend(
     // harness:null — createExecutor(backend) carries the harness in its config (the sandbox case-arm
     // reads config.harness when the spec leaves it null); the BYO executor below resolves the leaf.
     const spec: AgentSpec = { profile: rawProfile as AgentProfile, harness: null }
-    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: seams?.() ?? {} }
     const built = createExecutor(backend)(spec, ctx)
     const executor = deliverable ? gateOnDeliverable(built, deliverable) : built
     return { name, act: async () => '', executorSpec: { ...spec, executor } } as Agent<
@@ -57,15 +82,84 @@ export function workerFromBackend(
   }
 }
 
+/** A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry`
+ *  uses): construction stays the caller's, lookup stays lazy, and a table backed by a file, a
+ *  plugin loader, or a plain object all satisfy one interface. */
+export interface SuperviseRegistryTable<T> {
+  resolve(name: string): T | undefined
+}
+
+/**
+ * The name→value tables that make the four CODE-valued options expressible as run DATA.
+ *
+ * `deliverable` / `finalizer` / `analysts` / `probes` are functions and registries, so a recorded
+ * run configuration (a JSON row, a campaign spec, a resumed run's options) cannot carry them — and
+ * a run with no `deliverable` cannot return a `winner` at all outside the sandbox backend, because
+ * the finalizer keeps only children whose oracle passed and nothing else writes that verdict. A
+ * caller that owns the code registers it here once and names it from data thereafter.
+ */
+export interface SuperviseRegistry {
+  readonly deliverables?: SuperviseRegistryTable<DeliverableSpec<unknown>>
+  readonly finalizers?: SuperviseRegistryTable<SupervisorFinalizer>
+  readonly analysts?: SuperviseRegistryTable<AnalystRegistry>
+  readonly probes?: SuperviseRegistryTable<WaitProbeRegistry>
+}
+
+/** Which registry table each nameable option resolves against. Indexing this map inside
+ *  {@link resolveNamed} makes the pairing a type error to get wrong: `resolveNamed('probes',
+ *  'deliverables', …)` does not compile. */
+interface SuperviseRegistryTableFor {
+  readonly deliverable: 'deliverables'
+  readonly finalizer: 'finalizers'
+  readonly analysts: 'analysts'
+  readonly probes: 'probes'
+}
+
+/** Resolve one option that may be given as a value OR as a name into `opts.registry`. Both failure
+ *  modes name the option, the requested name, and the table it was looked up in — a typo must not
+ *  degrade into a silently unconfigured run (which for `deliverable` means "no run can ever
+ *  deliver"). A resolver port cannot enumerate its names, so the message names the table instead of
+ *  listing what was in it. */
+function resolveNamed<K extends keyof SuperviseRegistryTableFor, T extends object>(
+  option: K,
+  table: SuperviseRegistryTableFor[K],
+  value: T | string | undefined,
+  registry: SuperviseRegistryTable<T> | undefined,
+): T | undefined {
+  if (typeof value !== 'string') return value
+  if (!registry) {
+    throw new ConfigError(
+      `supervise: opts.${option} = ${JSON.stringify(value)} names a registry entry, but no ` +
+        `opts.registry.${table} was provided to resolve it against`,
+    )
+  }
+  const entry = registry.resolve(value)
+  if (entry === undefined) {
+    throw new ConfigError(
+      `supervise: opts.${option} = ${JSON.stringify(value)} is not in opts.registry.${table} — ` +
+        'the table resolved no entry under that name',
+    )
+  }
+  return entry
+}
+
 export interface SuperviseOptions {
   /** The conserved compute pool for the whole run. */
   readonly budget: Budget
   /** WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`. */
   readonly backend?: ExecutorConfig
-  /** The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
-   *  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
-   *  failure mode of a static orchestrator. */
-  readonly deliverable?: DeliverableSpec<unknown>
+  /** The independent completion check for backend-derived workers and direct supervisor
+   *  submissions. Strongly recommended: without it the supervisor cannot submit its own work and
+   *  backend-derived workers fall back to their own validity signal. A `string` names an entry in
+   *  `registry.deliverables`. */
+  readonly deliverable?: DeliverableSpec<unknown> | string
+  /** Name→value tables for the four code-valued options, so a recorded run configuration can name
+   *  them instead of carrying closures. See {@link SuperviseRegistry}. */
+  readonly registry?: SuperviseRegistry
+  /** Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
+   *  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
+   *  unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated. */
+  readonly coordination?: CoordinationBinding
   /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`. */
   readonly makeWorkerAgent?: MakeWorkerAgent
   /** The supervisor's router substrate (`harness` null). The profile's model wins. */
@@ -94,8 +188,9 @@ export interface SuperviseOptions {
    *  sandboxes a real fleet runs at once). Omit/`<= 0` = no cap (the pool stays the only fence). */
   readonly maxLiveWorkers?: number
   /** Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
-   *  (the driver receives settled worker outputs, no analyst findings). */
-  readonly analysts?: AnalystRegistry
+   *  (the driver receives settled worker outputs, no analyst findings). A `string` names an entry in
+   *  `registry.analysts`. */
+  readonly analysts?: AnalystRegistry | string
   /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
    *  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
    *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
@@ -140,8 +235,9 @@ export interface SuperviseOptions {
   readonly journal?: SpawnJournal
   /** Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
    *  wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
-   *  refused `unknown-probe` and `timer` waits still work. */
-  readonly probes?: WaitProbeRegistry
+   *  refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
+   *  `registry.probes`. */
+  readonly probes?: WaitProbeRegistry | string
   /**
    * PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
    * before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
@@ -174,8 +270,24 @@ export interface SuperviseOptions {
    *  highest-scoring DELIVERED child (the exact behavior every existing caller had). Alternatives:
    *  `collectDelivered` (every verified distinct output with provenance — a Pareto set / recorded
    *  disagreement) or a custom `SupervisorFinalizer`. Whatever the finalizer, it operates on
-   *  structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. */
-  readonly finalizer?: SupervisorFinalizer
+   *  structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. A
+   *  `string` names an entry in `registry.finalizers`. */
+  readonly finalizer?: SupervisorFinalizer | string
+  /** Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into every nested
+   *  scope). Composed with the `otel` recorder below when both are set. Omit = no observers, which
+   *  is the behavior every existing caller has. */
+  readonly hooks?: RuntimeHooks
+  /**
+   * OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
+   * parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
+   * tree is readable by any trace viewer instead of only by a journal parser. See `otel-spans.ts`.
+   *
+   * Omit and the run emits nothing, allocates no recorder, and installs no hook — telemetry is
+   * never a default. Present with no reachable endpoint (no `exportConfig.endpoint` and no
+   * `OTEL_EXPORTER_OTLP_ENDPOINT`) is also a no-op. The spawn journal is untouched either way:
+   * spans are telemetry, never the replay/resume record.
+   */
+  readonly otel?: Omit<SupervisorSpanOptions, 'runId' | 'now'>
 }
 
 /** A quarter of the token pool per worker → ~4 workers fit before `poolStarved` halts spawning. */
@@ -189,14 +301,34 @@ function defaultPerWorker(budget: Budget): Budget {
 /** One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use. */
 export function supervise(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
-  // when allowedModels is unset). The backend seam carries its own model on most backends.
+  // when allowedModels is unset). The backend seam carries its own model on most backends. The
+  // profile's model is checked as the RESOLVED id, so a canonical AgentProfile's `model.default`
+  // is subject to the same policy a plain string model is.
   const backendModel = (opts.backend as { model?: unknown } | undefined)?.model
   assertModelAllowed(opts.router?.model, opts.allowedModels)
-  assertModelAllowed(profile.model, opts.allowedModels)
+  assertModelAllowed(resolveSupervisorModelId(profile), opts.allowedModels)
   assertModelAllowed(
     typeof backendModel === 'string' ? backendModel : undefined,
     opts.allowedModels,
   )
+
+  // Named options become values before anything is built or spent — an unknown name is a
+  // configuration fault, and a fault that surfaces after a run started has already cost budget.
+  const deliverable = resolveNamed(
+    'deliverable',
+    'deliverables',
+    opts.deliverable,
+    opts.registry?.deliverables,
+  )
+  const finalizer = resolveNamed(
+    'finalizer',
+    'finalizers',
+    opts.finalizer,
+    opts.registry?.finalizers,
+  )
+  const analysts = resolveNamed('analysts', 'analysts', opts.analysts, opts.registry?.analysts)
+  const probes = resolveNamed('probes', 'probes', opts.probes, opts.registry?.probes)
+  assertCoordinationBinding(opts.coordination)
 
   // `withDriver: true` is the wiring invariant either way (a `role: 'driver'` child must resolve
   // to the nested-scope executor); `runDir` only changes WHERE the journal and blobs live.
@@ -207,6 +339,16 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   const blobs = opts.blobs ?? ctx.blobs
   const perWorker = opts.perWorker ?? defaultPerWorker(opts.budget)
 
+  const runId = opts.runId ?? 'supervise'
+  const log = ctx.coordinationLog
+  const now = opts.now ?? Date.now
+
+  // The span recorder for this run, built inside `start()` so a configuration fault below still
+  // throws without leaving an exporter's flush timer behind. The worker seam reads it LAZILY (it is
+  // resolved once per spawned worker, long after `start()` assigned this), which is what lets the
+  // seam be built here while the recorder is built there.
+  let spans: SupervisorSpanRecorder | undefined
+
   let makeWorkerAgent = opts.makeWorkerAgent
   if (!makeWorkerAgent) {
     if (!opts.backend) {
@@ -214,13 +356,15 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
         'supervise: provide opts.backend (where workers run) or opts.makeWorkerAgent',
       )
     }
-    makeWorkerAgent = workerFromBackend(opts.backend, opts.deliverable)
+    // A front-door worker is spawned by the ROOT scope (the supervisor brain drives that scope
+    // directly), so the span that parents it is the run's root span — which is exactly what
+    // `workerTrace(runId)` resolves to. A caller nesting sub-drivers behind its own recursive
+    // `makeWorkerAgent` owns the same wiring one level down, for ITS spawning node.
+    makeWorkerAgent = workerFromBackend(opts.backend, deliverable, () =>
+      spans ? { [workerTraceSeamKey]: spans.workerTrace(runId) } : {},
+    )
   }
   const workerFactory = makeWorkerAgent
-
-  const runId = opts.runId ?? 'supervise'
-  const log = ctx.coordinationLog
-  const now = opts.now ?? Date.now
 
   // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
   // `expect(() => supervise(...)).toThrow` still sees the throw, and no compute starts. Only the
@@ -235,19 +379,21 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       blobs,
       makeWorkerAgent: workerFactory,
       perWorker,
+      ...(deliverable ? { deliverable } : {}),
       ...(log ? { onEvent: (ev) => log.append(runId, ev, new Date(now()).toISOString()) } : {}),
       ...(priorCoordination &&
       (priorCoordination.questions.length > 0 || priorCoordination.findings.length > 0)
         ? { priorCoordination }
         : {}),
-      ...(opts.finalizer ? { finalizer: opts.finalizer } : {}),
+      ...(finalizer ? { finalizer } : {}),
+      ...(opts.coordination ? { coordination: opts.coordination } : {}),
       ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
       ...(opts.router ? { router: opts.router } : {}),
       ...(opts.brain ? { brain: opts.brain } : {}),
       ...(opts.driveHarness ? { driveHarness: opts.driveHarness } : {}),
       ...(opts.extraTools ? { extraTools: opts.extraTools } : {}),
       ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
-      ...(opts.analysts ? { analysts: opts.analysts } : {}),
+      ...(analysts ? { analysts } : {}),
       ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
       ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
       ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
@@ -257,17 +403,38 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(opts.compaction ? { compaction: opts.compaction } : {}),
     })
 
-    return createSupervisor<unknown, unknown>().run(agent, task, {
+    // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
+    // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
+    spans = opts.otel ? createSupervisorSpanRecorder({ runId, ...opts.otel, now }) : undefined
+    const recorder = spans
+    const hooks = recorder ? composeRuntimeHooks(opts.hooks, recorder.hooks) : opts.hooks
+
+    const run = createSupervisor<unknown, unknown>().run(agent, task, {
       budget: opts.budget,
       runId,
       journal: opts.journal ?? ctx.journal,
       blobs,
       executors: ctx.executors,
       maxDepth: opts.maxDepth ?? 8,
-      ...(opts.probes ? { probes: opts.probes } : {}),
+      ...(probes ? { probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),
       ...(opts.now ? { now: opts.now } : {}),
+      ...(hooks ? { hooks } : {}),
+      // Only a run that actually records spans hands trace context down to its workers; with no
+      // recorder this key is absent and no spawned worker's environment is touched.
+      ...(recorder ? { workerTrace: recorder.workerTrace } : {}),
     })
+    if (!recorder) return run
+    // The recorder closes the root span on BOTH exits and never rethrows, so tracing can neither
+    // change the result nor swallow the run's own rejection.
+    try {
+      const result = await run
+      await recorder.finish({ result })
+      return result
+    } catch (error) {
+      await recorder.finish({ error })
+      throw error
+    }
   }
 
   return start()

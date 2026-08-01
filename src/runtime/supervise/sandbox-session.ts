@@ -81,6 +81,12 @@ export interface SteerableSandboxArgs {
   readonly taskToPrompt: (task: unknown) => string
   readonly options?: SandboxSteeringOptions
   readonly loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
+  /**
+   * Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the box, merged into `CreateSandboxOptions.env` so
+   * the remote worker's own spans join the supervisor's trace under the spawning node's span.
+   * Absent when the run records no spans — the create options are then untouched.
+   */
+  readonly traceEnv?: Record<string, string>
   readonly contentRef: (prefix: string, value: unknown) => string
   readonly now?: () => number
 }
@@ -141,7 +147,10 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       profile: args.profile,
       taskToPrompt: args.taskToPrompt,
       name: args.profile.name ?? String(args.harness),
-      sandboxOverrides: { backend: { type: args.harness } },
+      sandboxOverrides: {
+        backend: { type: args.harness },
+        ...(args.traceEnv && Object.keys(args.traceEnv).length > 0 ? { env: args.traceEnv } : {}),
+      },
     }
     const promptOptions = readPromptOptions(args.loopCtx)
 

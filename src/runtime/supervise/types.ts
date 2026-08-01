@@ -33,6 +33,7 @@ import type { LoopTokenUsage } from '../types'
 import type { ExecutorProgress, WorkerProgress } from './progress'
 import type { TraceSource } from './trace-source'
 import type { PendingWait, WaitOutcome, WaitProbeRegistry, WaitRejection, WaitSpec } from './wait'
+import type { WorkerTraceResolver } from './worker-trace'
 
 // `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
 // import the budget surface from one place. `usd` is a SEPARATE channel (see `UsageEvent`).
@@ -167,10 +168,25 @@ export interface ExecutorResult<Out> {
  * Normalized usage event — the single channel every executor reports through, so the
  * conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
  * `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+ *
+ * KNOWN LIMITATION (pre-existing): the `cost` variant can say its dollars are a subtotal
+ * (`usdKnown: false`), and the `tokens` variant has NO twin — there is no way to report "this turn
+ * happened and its token count is unknown". `Spend.tokensKnown` exists downstream, but nothing
+ * upstream of `foldStream` (`scope.ts`) can ever set it, so a STREAMING executor whose provider
+ * omitted usage reports the turn as costing zero tokens rather than as unmeasured. Only the
+ * non-streaming path, which returns a whole `Spend`, can carry the marker today. Closing it means
+ * widening this union (a `tokensKnown: false` field on `tokens`, or an `unknown` variant) and
+ * threading it through `foldStream` — a change to the metering contract every executor implements,
+ * which is why it is not folded into a streaming-transport fix. Filed separately.
  */
 export type UsageEvent =
   | { kind: 'tokens'; input: number; output: number }
-  | { kind: 'cost'; usd: number }
+  | {
+      kind: 'cost'
+      /** Known dollar subtotal. When false, `usd` must not be treated as total cost. */
+      usdKnown?: false
+      usd: number
+    }
   | { kind: 'iteration' }
 
 /** The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name.
@@ -249,6 +265,12 @@ export interface Budget {
 export interface Spend {
   iterations: number
   tokens: LoopTokenUsage
+  /** Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
+   *  an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
+   *  not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
+   *  turn whose provider reported no usage is recorded with this flag rather than omitted, because
+   *  omitting it makes the turn look free. */
+  tokensKnown?: boolean
   /** Dollar accounting is known unless explicitly false. A false value must not be treated as $0
    *  when enforcing a dollar-denominated comparison or limit. */
   usdKnown?: boolean
@@ -297,9 +319,18 @@ export interface SpawnOpts {
   readonly key?: string
 }
 
-/** Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, or a `key`
- *  that is still LIVE in this scope (the same assignment may not run twice concurrently). */
-export type SpawnRejection = 'budget-exhausted' | 'depth-exceeded' | 'duplicate-key'
+/** Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
+ *  no dollars, an exceeded recursion ceiling, or a `key` that is still LIVE in this scope (the
+ *  same assignment may not run twice concurrently).
+ *
+ *  `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
+ *  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
+ *  refuses every amount until the ROOT budget names a `maxUsd`. */
+export type SpawnRejection =
+  | 'budget-exhausted'
+  | 'usd-unbudgeted'
+  | 'depth-exceeded'
+  | 'duplicate-key'
 
 /**
  * What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
@@ -472,6 +503,9 @@ export interface Scope<Out> {
     usdCapped: boolean
     deadlineMs: number
     reservedTokens: number
+    /** Present and `false` once a turn settled without reporting its tokens: `tokensLeft` is then
+     *  a ceiling, not a measurement. Absent means every settled turn reported. */
+    tokensKnown?: boolean
   }>
 }
 
@@ -686,6 +720,28 @@ export interface SupervisorOpts {
   /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
    *  same `agent.spawn`/`agent.child` stream `runAgentRounds` feeds — one observable recursive tree. */
   readonly hooks?: RuntimeHooks
+  /**
+   * Trace context to hand DOWN to each spawned worker, so a worker in another process or on another
+   * machine emits spans that join THIS run's trace instead of opening its own root. Supply
+   * `SupervisorSpanRecorder.workerTrace`; the `Scope` seeds the resolved context onto every child's
+   * `ExecutorContext` and the backends with an environment channel stamp it as
+   * `TRACE_ID` / `PARENT_SPAN_ID` (see `worker-trace.ts` for the precedence rule and for which
+   * backends propagate). Omit and no worker environment is touched at all.
+   */
+  readonly workerTrace?: WorkerTraceResolver
+}
+
+/**
+ * A driver's `act()` rejection, normalized to a serializable triple so it survives the typed
+ * no-winner boundary (an `Error` does not cross a structured-clone / JSON hop intact). A
+ * non-`Error` rejection normalizes to `{ name: 'NonError', message }` — never dropped.
+ * Exported so a consumer handling `reason: 'driver-failed'` names this type instead of retyping
+ * its fields.
+ */
+export interface NoWinnerError {
+  name: string
+  message: string
+  stack?: string
 }
 
 /** Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. */
@@ -703,6 +759,13 @@ export type SupervisedResult<Out> =
       spentBreakdown?: { driverInference: Spend; childWork: Spend }
     }
   | {
+      /**
+       * The LIFECYCLE no-winner arms: the supervisor itself proved why nothing was delivered, so
+       * the reason is complete on its own and there is no driver rejection to hand back. A tripped
+       * breaker or a real `down` child is `all-children-down`, a cascaded abort is `aborted`, an
+       * empty pool is `budget-exhausted`. These outrank `driver-failed`: when the driver threw
+       * BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the explanation.
+       */
       kind: 'no-winner'
       reason: 'all-children-down' | 'budget-exhausted' | 'aborted'
       tree: TreeView
@@ -711,6 +774,29 @@ export type SupervisedResult<Out> =
        *  worker delivers, so the caller always learns what the delegation actually spent. Summed
        *  off the same journal the `winner` path reads. */
       spentTotal: Spend
+      /** Never present on a lifecycle arm — the discriminant, not prose, is what makes
+       *  `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it. */
+      error?: never
+    }
+  | {
+      /**
+       * The DRIVER-FAULT arm: `act()` rejected, no child ever went down, and no lifecycle cause
+       * (breaker/abort/budget) outranks it — so nothing about the tree explains the failure and the
+       * driver's own rejection is the only thing that does. It is therefore REQUIRED here.
+       * `all-children-down` with `downCount: 0` used to be indistinguishable from an honest empty
+       * result; this arm is that configuration/authoring fault, named.
+       */
+      kind: 'no-winner'
+      reason: 'driver-failed'
+      tree: TreeView
+      downCount: number
+      /** The conserved spend incurred before the run failed — real cost is paid even when no
+       *  worker delivers, so the caller always learns what the delegation actually spent. Summed
+       *  off the same journal the `winner` path reads. */
+      spentTotal: Spend
+      /** The driver's own rejection, carried across the typed no-winner boundary so the failure is
+       *  recoverable by the caller. A non-`Error` rejection is normalized, never dropped. */
+      error: NoWinnerError
     }
 
 /** Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `signal`

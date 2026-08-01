@@ -2456,6 +2456,31 @@ The value for `name`, or `undefined` when this provider does not hold it.
 
 ***
 
+### ResolvedMcpServerLaunch
+
+The spawn-ready strings for one stdio MCP server: profile config values
+ resolved, secrets separated so the client can redact them.
+
+#### Properties
+
+##### args?
+
+> `optional` **args?**: `string`[]
+
+##### env?
+
+> `optional` **env?**: `Record`\<`string`, `string`\>
+
+Public env, safe to appear in diagnostics.
+
+##### protectedEnv?
+
+> `optional` **protectedEnv?**: `Record`\<`string`, `string`\>
+
+Resolved secret env. Reaches only the child process; redacted everywhere else.
+
+***
+
 ### LocalSandboxClientOptions
 
 #### Properties
@@ -3028,7 +3053,7 @@ bridge; it only runs the projected inputs and firewalls the merged findings.
 
 > `readonly` `optional` **opts?**: `object`
 
-Optional `run` opts (e.g. `priorFindings`) forwarded verbatim to the registry.
+Optional `run` opts (e.g. `priorFindings`, `chainFindings`) forwarded verbatim to the registry.
 
 ###### Index Signature
 
@@ -3037,6 +3062,10 @@ Optional `run` opts (e.g. `priorFindings`) forwarded verbatim to the registry.
 ###### priorFindings?
 
 > `optional` **priorFindings?**: readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
+
+###### chainFindings?
+
+> `optional` **chainFindings?**: `boolean`
 
 ***
 
@@ -4269,7 +4298,7 @@ readonly `AnalystFinding`[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 ###### Returns
 
@@ -5098,6 +5127,45 @@ drive the worker with no network: a deterministic in-process responder satisfies
 
 `Promise`\<`unknown`\>
 
+##### maxTokens?
+
+> `optional` **maxTokens?**: `number`
+
+Ceiling for one completion, forwarded as `max_tokens`. Defaults to 8192.
+
+A REASONING model spends this budget on hidden thinking BEFORE it emits a visible token, so
+the default can truncate one mid-thought and return no content at all — observed live with a
+model that spent 8,188 of the 8,192 on reasoning and answered with nothing. Raise it for a
+thinking model; the ceiling belongs to the router and model a caller chose, which is why it
+lives here rather than on one call site.
+
+##### stream?
+
+> `optional` **stream?**: `boolean`
+
+Take the tool-calling completion over SSE instead of one buffered POST. Off by default —
+`routerChatWithTools` never streams, and every existing caller keeps the buffered transport
+byte for byte.
+
+Why it exists: a buffered POST holds one connection idle for the WHOLE completion, and a
+supervisor turn is the longest completion in the system. An intermediary gateway with an
+idle-read timeout kills that connection mid-completion (the 524/503 family). A streamed
+response puts bytes on the wire from the first generated token on, so the connection is only
+idle through prefill. It does NOT shorten prefill, so a gateway whose deadline is
+time-to-FIRST-byte is unaffected; only an idle-timeout gateway is.
+
+Mutually exclusive with `complete`: the injected transport returns one parsed JSON body and has
+no stream to read, so setting both throws rather than silently taking the buffered path.
+
+WHICH PATHS CAN OPT IN. This flag is read in exactly one place (the private `chatWithTools` transport switch), so
+every entry point that takes a caller-supplied `RouterConfig` honors it: `routerBrain`,
+`routerToolLoop`, and `supervisorAgent` (which spreads `deps.router` into the brain's config —
+the supervisor turn this exists for). Two production call sites build a `RouterConfig` literal
+from their own options and therefore CANNOT express it today: the bench strategy's
+`routerToolLoop` config in `strategy.ts` and the local sandbox client's `routerBrain` config in
+`local-sandbox-client.ts`. Neither drives a supervisor-length turn; setting `stream` on a
+config handed to either has no path to reach them, and they stay buffered.
+
 ***
 
 ### RouterChatResult
@@ -5192,6 +5260,35 @@ Raw JSON arguments string as emitted by the model.
 ##### costUsd?
 
 > `optional` **costUsd?**: `number`
+
+##### reasoning?
+
+> `optional` **reasoning?**: `string`
+
+Thinking-model reasoning, normalized the way `RouterChatResult.reasoning` is (a separate
+`reasoning_content`/`reasoning` field, or an inline `<think>` block split out of `content`).
+Populated by the STREAMED path only — `routerChatWithTools` discards reasoning today and its
+behavior is preserved unchanged, so a buffered turn still leaves this undefined.
+
+##### finishReason?
+
+> `optional` **finishReason?**: `string`
+
+The provider's `finish_reason` for the turn (`'stop'`, `'tool_calls'`, `'length'`, …).
+Populated by the STREAMED path only. `'length'` is the truncation signal the buffered path
+cannot surface: it says the turn hit `max_tokens`, not that the model chose to stop.
+
+##### usageUnknown?
+
+> `optional` **usageUnknown?**: `true`
+
+The turn happened and its token usage is UNKNOWN — not zero, not free. Set by the STREAMED
+transport when the stream ran to completion without a single usage-bearing chunk, which means
+the `stream_options.include_usage` contract was not honored upstream.
+
+It exists so a bare `usage: undefined` cannot read as a free turn: a metering caller branches
+on this marker and records an UNKNOWN turn (see the coordination driver's `meteredBrain`),
+rather than skipping the turn and letting a conserved budget pool believe it cost nothing.
 
 ***
 
@@ -6540,11 +6637,12 @@ Cap on a tool result's text fed back to the worker. Default 2000 chars.
 
 > `optional` **keys?**: [`KeyProvider`](#keyprovider)
 
-Resolves a server's DECLARED secrets (`metadata.secretEnv`: env var name →
- provider key name) at spawn time. The resolved values reach ONLY the child
- process env — never the profile, the logs, or an error message. Fail-closed:
- a server declaring secrets without a provider (or with a missing key)
- throws instead of booting keyless.
+Resolves a server's DECLARED secrets at spawn time — env entries of kind
+ `secret-ref` (interface ≥0.40) and the legacy `metadata.secretEnv` map
+ (env var name → provider key name). The resolved values reach ONLY the
+ child process env — never the profile, the logs, or an error message.
+ Fail-closed: a server declaring secrets without a provider (or with a
+ missing key) throws instead of booting keyless.
 
 ##### profileSecurityPolicy?
 
@@ -8101,7 +8199,7 @@ Completion cap per worker turn — REQUIRED for thinking models (they burn unbou
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`maxTokens`](#maxtokens-2)
+[`AgenticOptions`](#agenticoptions).[`maxTokens`](#maxtokens-3)
 
 ##### innerTurns?
 
@@ -9021,6 +9119,17 @@ Opaque, single-use reservation handle returned by `reserve` and consumed by
 
 > `readonly` **iterations**: `number`
 
+###### usdBudgeted?
+
+> `readonly` `optional` **usdBudgeted?**: `boolean`
+
+Whether the child's `Budget` actually declared `maxUsd`. `reserved.usd` is `0` for BOTH a
+child that named no dollar ceiling and one that named `$0`, and the two settle differently:
+an undeclared ceiling cannot be exceeded, so the child's real dollars are committed as
+OBSERVED spend, while a declared ceiling of `$0` is a limit whose breach is fail-loud.
+Optional so an externally constructed ticket stays valid; an absent flag is read as
+`true` — the strict, fail-closed reading.
+
 ***
 
 ### BudgetPool
@@ -9029,7 +9138,7 @@ Opaque, single-use reservation handle returned by `reserve` and consumed by
 
 ##### reserve()
 
-> **reserve**(`b`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"`; \}
+> **reserve**(`b`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
 ({ ok: false }) when the pool can't cover tokens, usd, or iterations — the
@@ -9043,7 +9152,7 @@ caller inspects `ok` before `ticket`.
 
 ###### Returns
 
-\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: `"budget-exhausted"`; \}
+\{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
 
 ##### reconcile()
 
@@ -9204,6 +9313,13 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 > `readonly` **perWorker**: [`Budget`](index.md#budget-4)
 
 Per-child budget reserved from the conserved pool on each spawn.
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+Independent completion check for work the driver performs itself. When present, the driver
+ receives `submit_result`; the first passing submission ends the loop and becomes the output.
 
 ##### maxLiveWorkers?
 
@@ -9460,6 +9576,18 @@ The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`.
 ##### port
 
 > `readonly` **port**: `number`
+
+##### submittedResult
+
+> **submittedResult**: () => \{ `result`: `unknown`; \} \| `undefined`
+
+The first driver-authored result whose injected independent check passed.
+
+The first result whose injected independent check passed, if the driver submitted one.
+
+###### Returns
+
+\{ `result`: `unknown`; \} \| `undefined`
 
 ##### drainResolved
 
@@ -10176,6 +10304,142 @@ readonly [`InboxMessage`](#inboxmessage)[]
 
 ***
 
+### SupervisorSpanOptions
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+The supervised run id (`SupervisorOpts.runId`). Roots the trace, identifies the root span, and
+is the parent lookup key for every depth-0 spawn (a root scope's `parentId` IS the run id).
+
+##### exporter?
+
+> `readonly` `optional` **exporter?**: [`OtelExporter`](index.md#otelexporter)
+
+Bring your own exporter. It is FLUSHED but never shut down by `finish()` — a caller that owns
+the exporter owns its lifecycle. Takes precedence over `exportConfig`.
+
+##### exportConfig?
+
+> `readonly` `optional` **exportConfig?**: [`OtelExportConfig`](index.md#otelexportconfig)
+
+Otherwise build one with [createOtelExporter](index.md#createotelexporter). With no `endpoint` here it reads
+`OTEL_EXPORTER_OTLP_ENDPOINT`, and with neither it resolves to `undefined` — which makes
+[createSupervisorSpanRecorder](#createsupervisorspanrecorder) return `undefined` and the run emit nothing.
+
+##### traceId?
+
+> `readonly` `optional` **traceId?**: `string`
+
+Trace id (32 hex chars). Pass the caller's own to JOIN an outer trace. Default: derived
+deterministically from `runId`, so a resumed run lands in the SAME trace as the process that
+started it.
+
+##### parentSpanId?
+
+> `readonly` `optional` **parentSpanId?**: `string`
+
+Parent span id (16 hex chars) to hang the run's root span under — an inherited delegation span.
+
+##### agentName?
+
+> `readonly` `optional` **agentName?**: `string`
+
+`agent.name` on the root span. Default `'supervisor'`.
+
+##### attributes?
+
+> `readonly` `optional` **attributes?**: [`SupervisorSpanAttributes`](#supervisorspanattributes)
+
+Extra attributes stamped on every span this recorder emits (subject, workspace, campaign, …).
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+Injectable clock; used only for the root span's start/end. Default `Date.now`.
+
+###### Returns
+
+`number`
+
+***
+
+### SupervisorSpanOutcome
+
+How the supervised run ended, as `finish()` records it on the root span.
+
+#### Properties
+
+##### result?
+
+> `readonly` `optional` **result?**: [`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>
+
+##### error?
+
+> `readonly` `optional` **error?**: `unknown`
+
+A rejection out of the run itself (the supervisor never resolved).
+
+***
+
+### SupervisorSpanRecorder
+
+#### Properties
+
+##### hooks
+
+> `readonly` **hooks**: [`RuntimeHooks`](index.md#runtimehooks)
+
+Attach to `SupervisorOpts.hooks` (compose with a caller's own via `composeRuntimeHooks`).
+
+##### traceId
+
+> `readonly` **traceId**: `string`
+
+The trace every span of this run belongs to.
+
+##### rootSpanId
+
+> `readonly` **rootSpanId**: `string`
+
+The run's root span id — pass it to a child process to join this trace.
+
+##### workerTrace
+
+> `readonly` **workerTrace**: [`WorkerTraceResolver`](#workertraceresolver)
+
+The trace context a worker spawned BY node `spawningNodeId` should inherit, so its own spans
+join THIS trace under the span of the node that spawned it. Thread it to a run as
+`SupervisorOpts.workerTrace` (`supervise()` does this whenever it builds a recorder) and the
+`Scope` seeds it onto every child's `ExecutorContext`; a backend with an environment channel
+stamps it with `workerTraceEnv`. An unknown node — one whose span was never opened — resolves
+to the run's root span rather than to nothing, so a worker is never filed outside its own run.
+
+#### Methods
+
+##### finish()
+
+> **finish**(`outcome?`): `Promise`\<`void`\>
+
+Close the root span (and any node that never settled, marked as such), export, and flush. Safe
+to call twice; never throws — a telemetry failure is not a run failure.
+
+###### Parameters
+
+###### outcome?
+
+[`SupervisorSpanOutcome`](#supervisorspanoutcome)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### PatchDeliverableOptions
 
 **`Experimental`**
@@ -10263,13 +10527,153 @@ Extra args appended after `--mode rpc`. `--provider` / `--model` are added from 
 
 > `optional` **turnTimeoutMs?**: `number`
 
-Wall-clock ceiling for one `prompt` (the wait for `agent_end`). Omit = no timeout.
+Wall-clock ceiling for one `prompt` (the wait for `agent_settled`). Omit = no timeout.
 
 ##### activityWindow?
 
 > `optional` **activityWindow?**: `number`
 
 Newest-last activity window `progress()` reports. Default 12.
+
+***
+
+### PiExecutorOutput
+
+What one pi run reports about the terminal assistant turn, plus any derived MCP mount.
+
+#### Properties
+
+##### content
+
+> **content**: `string`
+
+##### turns
+
+> **turns**: `number`
+
+##### mcp?
+
+> `optional` **mcp?**: [`PiMcpReceipt`](#pimcpreceipt)
+
+Present only when `profile.mcp` declared at least one usable server. Records what pi was
+ actually given — including an extension this executor added that the profile did not list.
+
+***
+
+### PiMcpMount
+
+What the caller must call once pi has exited, and where the config landed.
+
+#### Properties
+
+##### configPath
+
+> **configPath**: `string`
+
+Absolute path of the file passed to `--mcp-config`. Unique to this worker execution.
+
+##### serverNames
+
+> **serverNames**: `string`[]
+
+Server names actually written, post-filter — never the raw `profile.mcp` keys.
+
+#### Methods
+
+##### cleanup()
+
+> **cleanup**(): `void`
+
+Remove the private config directory. Idempotent; safe to call on any exit path.
+
+###### Returns
+
+`void`
+
+***
+
+### PiMcpReceipt
+
+What pi was actually given, as opposed to what the profile declared. This is the observable that
+makes rule 2 above honest: `adapterInjected` is `true` exactly when this module added an extension
+the caller did not ask for, because without it the MCP servers the caller DID ask for could not
+have mounted.
+
+#### Properties
+
+##### servers
+
+> **servers**: `string`[]
+
+Server names written into `configPath`, in declaration order.
+
+##### configPath
+
+> **configPath**: `string`
+
+Absolute path of the mounted config.
+
+##### extensions
+
+> **extensions**: `string`[]
+
+`extensions.pi.load` entries as pi received them, resolved to absolute entry files.
+
+##### adapterInjected
+
+> **adapterInjected**: `boolean`
+
+True when `pi-mcp-adapter` was absent from an explicit `load` array and was added here.
+
+***
+
+### PiMcpPreparation
+
+Everything `piExecutor` needs between "profile in hand" and "pi spawned".
+
+#### Properties
+
+##### args
+
+> **args**: `string`[]
+
+Extra argv for `pi`, in flag order: extension flags first, then `--mcp-config <path>`.
+
+##### mount
+
+> **mount**: [`PiMcpMount`](#pimcpmount) \| `null`
+
+Present only when at least one usable MCP server was declared.
+
+##### receipt
+
+> **receipt**: [`PiMcpReceipt`](#pimcpreceipt) \| `undefined`
+
+Present only when a mount happened — the derived-versus-declared record.
+
+***
+
+### PiMcpMountOptions
+
+Where one worker execution's private config directory is created, and what it is called.
+
+#### Properties
+
+##### cwd?
+
+> `optional` **cwd?**: `string`
+
+The worker's own working directory (`PiSeam.cwd`). Omit when the seam names none: the config
+then lands in the OS temp directory. It is NEVER written into `process.cwd()` — the operator's
+own working directory is not a scratch space for a worker's config.
+
+##### runId
+
+> **runId**: `string`
+
+The executor's per-execution run id, folded into the directory name so a directory that somehow
+survives names the worker that left it. Uniqueness is NOT taken from this — `mkdtemp` provides
+it — because two workers built from one factory in the same millisecond share a run id stem.
 
 ***
 
@@ -10327,6 +10731,19 @@ Steers/answers delivered but not yet folded into the worker's conversation.
 > `readonly` `optional` **recentActivity?**: readonly [`ActivityNote`](#activitynote)[]
 
 Newest-last window of what the worker has been doing.
+
+##### derived?
+
+> `readonly` `optional` **derived?**: readonly `string`[]
+
+What the executor CHANGED about what the caller declared, one short line each — an MCP config
+it materialized, an extension it had to add for the caller's own servers to mount at all.
+
+Deliberately NOT part of `recentActivity`: that is a bounded newest-last ring, so a derived
+change made before the first turn is evicted by turn 13 and gone by the time anyone looks. And
+deliberately not only on the settled artifact: a run that fails on turn 40 never produces one,
+yet "what was this worker actually given?" is exactly the question a failure raises. This
+channel is append-only and readable at any moment, including from a run that never finishes.
 
 ##### note?
 
@@ -10403,9 +10820,24 @@ Metered iterations so far (the executor's own count when it reports one).
 
 > `readonly` **output**: `number`
 
+##### tokensKnown?
+
+> `readonly` `optional` **tokensKnown?**: `boolean`
+
+False when observed `tokens` is only a known subtotal, not a complete total — the worker did
+ work whose token count its provider never reported. The twin of `usdKnown`, carried for the
+ same reason: a driver reading this over `observe_agent` would otherwise read the subtotal as
+ the measurement and conclude a busy worker was cheap.
+
 ##### usd
 
 > `readonly` **usd**: `number`
+
+##### usdKnown?
+
+> `readonly` `optional` **usdKnown?**: `boolean`
+
+False when observed dollar spend is only a known subtotal, not a complete total.
 
 ##### pendingMessages
 
@@ -10418,6 +10850,13 @@ Steers delivered but not yet read by the worker.
 > `readonly` **recentActivity**: readonly [`ActivityNote`](#activitynote)[]
 
 Newest-last window of tool/turn activity; empty when the executor exposes none.
+
+##### derived?
+
+> `readonly` `optional` **derived?**: readonly `string`[]
+
+What the executor changed about the caller's declaration; absent when it changed nothing.
+ Unlike `recentActivity` this is never evicted, so it still answers on a failed run.
 
 ##### note?
 
@@ -10515,9 +10954,17 @@ The scope-side facts about a child, independent of whether its executor cooperat
 
 > `readonly` **output**: `number`
 
+##### tokensKnown?
+
+> `readonly` `optional` **tokensKnown?**: `boolean`
+
 ##### usd
 
 > `readonly` **usd**: `number`
+
+##### usdKnown?
+
+> `readonly` `optional` **usdKnown?**: `boolean`
 
 ***
 
@@ -10573,6 +11020,40 @@ Present only on a DURABLE context: the coordination side-log (questions + analys
 the bus messages the spawn journal does not record). `supervise({ runDir })` appends to it as
 they publish and replays it on resume, so a restarted coordinator keeps them. In-memory
 contexts have none: nothing outlives the process to replay into.
+
+***
+
+### WorkerSteerRequest
+
+One durable down-leg request appended to a worker's inbox file.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### at
+
+> `readonly` **at**: `string`
+
+ISO timestamp of the append.
+
+##### source
+
+> `readonly` **source**: `string`
+
+Who asked — 'human', a brain label, a tool name. Provenance, not authorization.
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+The worker LABEL the request targets (already resolved by the caller).
+
+##### message
+
+> `readonly` **message**: `string`
 
 ***
 
@@ -11182,6 +11663,14 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 > `readonly` `optional` **loopCtx?**: `Partial`\<`Omit`\<[`ExecCtx`](#execctx), `"signal"` \| `"sandboxClient"`\>\>
 
+##### traceEnv?
+
+> `readonly` `optional` **traceEnv?**: `Record`\<`string`, `string`\>
+
+Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the box, merged into `CreateSandboxOptions.env` so
+the remote worker's own spans join the supervisor's trace under the spawning node's span.
+Absent when the run records no spans — the create options are then untouched.
+
 ##### contentRef
 
 > `readonly` **contentRef**: (`prefix`, `value`) => `string`
@@ -11322,6 +11811,15 @@ Injected clock — keeps the journal `at` timestamp deterministic in tests.
 Lifecycle stream sink. `spawn` emits `agent.spawn`, `next` emits `agent.child` — the
  SAME stream `runAgentRounds`/`tool-loop` feed, so the recursive tree is ONE observable stream
  (the topology viewer reads it). Undefined ⇒ the journal stays the only record.
+
+##### workerTrace?
+
+> `readonly` `optional` **workerTrace?**: [`WorkerTraceResolver`](#workertraceresolver)
+
+Trace context to hand down to each spawned worker (`SupervisorOpts.workerTrace`). Called with
+THIS scope's own `parentId` — the node doing the spawning — and the resolved context is seeded
+onto each child's `ExecutorContext` under `workerTraceSeamKey`. Absent (the untraced default)
+⇒ no seam is seeded and no worker environment is touched.
 
 ##### resumeFrom?
 
@@ -11687,6 +12185,66 @@ Idle time that counts as stalled, passed through to the live progress read. Omit
 
 ***
 
+### SuperviseRegistryTable
+
+A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry`
+ uses): construction stays the caller's, lookup stays lazy, and a table backed by a file, a
+ plugin loader, or a plain object all satisfy one interface.
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Methods
+
+##### resolve()
+
+> **resolve**(`name`): `T` \| `undefined`
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### Returns
+
+`T` \| `undefined`
+
+***
+
+### SuperviseRegistry
+
+The name→value tables that make the four CODE-valued options expressible as run DATA.
+
+`deliverable` / `finalizer` / `analysts` / `probes` are functions and registries, so a recorded
+run configuration (a JSON row, a campaign spec, a resumed run's options) cannot carry them — and
+a run with no `deliverable` cannot return a `winner` at all outside the sandbox backend, because
+the finalizer keeps only children whose oracle passed and nothing else writes that verdict. A
+caller that owns the code registers it here once and names it from data thereafter.
+
+#### Properties
+
+##### deliverables?
+
+> `readonly` `optional` **deliverables?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`DeliverableSpec`](#deliverablespec)\<`unknown`\>\>
+
+##### finalizers?
+
+> `readonly` `optional` **finalizers?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`SupervisorFinalizer`](index.md#supervisorfinalizer)\>
+
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`AnalystRegistry`](index.md#analystregistry)\>
+
+##### probes?
+
+> `readonly` `optional` **probes?**: [`SuperviseRegistryTable`](#superviseregistrytable)\<[`WaitProbeRegistry`](#waitproberegistry)\>
+
+***
+
 ### SuperviseOptions
 
 #### Properties
@@ -11705,11 +12263,27 @@ WHERE workers run — derives the worker seam. Provide this OR an explicit `make
 
 ##### deliverable?
 
-> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+> `readonly` `optional` **deliverable?**: `string` \| [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
-The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
- without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
- failure mode of a static orchestrator.
+The independent completion check for backend-derived workers and direct supervisor
+ submissions. Strongly recommended: without it the supervisor cannot submit its own work and
+ backend-derived workers fall back to their own validity signal. A `string` names an entry in
+ `registry.deliverables`.
+
+##### registry?
+
+> `readonly` `optional` **registry?**: [`SuperviseRegistry`](#superviseregistry)
+
+Name→value tables for the four code-valued options, so a recorded run configuration can name
+ them instead of carrying closures. See [SuperviseRegistry](#superviseregistry).
+
+##### coordination?
+
+> `readonly` `optional` **coordination?**: [`CoordinationBinding`](#coordinationbinding)
+
+Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
+ port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
+ unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated.
 
 ##### makeWorkerAgent?
 
@@ -11779,10 +12353,11 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
 
 ##### analysts?
 
-> `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
+> `readonly` `optional` **analysts?**: `string` \| [`AnalystRegistry`](index.md#analystregistry)
 
 Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
- (the driver receives settled worker outputs, no analyst findings).
+ (the driver receives settled worker outputs, no analyst findings). A `string` names an entry in
+ `registry.analysts`.
 
 ##### analyzeOnSettle?
 
@@ -11848,11 +12423,12 @@ Override the spawn journal directly (advanced; `runDir` is the ordinary durable 
 
 ##### probes?
 
-> `readonly` `optional` **probes?**: [`WaitProbeRegistry`](#waitproberegistry)
+> `readonly` `optional` **probes?**: `string` \| [`WaitProbeRegistry`](#waitproberegistry)
 
 Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
  wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
- refused `unknown-probe` and `timer` waits still work.
+ refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
+ `registry.probes`.
 
 ##### stopRule?
 
@@ -11924,20 +12500,64 @@ Restrict the run to this subset of models. When set, every configured model — 
 
 ##### finalizer?
 
-> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](index.md#supervisorfinalizer)
+> `readonly` `optional` **finalizer?**: `string` \| [`SupervisorFinalizer`](index.md#supervisorfinalizer)
 
 How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
  highest-scoring DELIVERED child (the exact behavior every existing caller had). Alternatives:
  `collectDelivered` (every verified distinct output with provenance — a Pareto set / recorded
  disagreement) or a custom `SupervisorFinalizer`. Whatever the finalizer, it operates on
- structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible.
+ structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. A
+ `string` names an entry in `registry.finalizers`.
+
+##### hooks?
+
+> `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
+
+Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into every nested
+ scope). Composed with the `otel` recorder below when both are set. Omit = no observers, which
+ is the behavior every existing caller has.
+
+##### otel?
+
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](#supervisorspanoptions), `"runId"` \| `"now"`\>
+
+OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
+parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
+tree is readable by any trace viewer instead of only by a journal parser. See `otel-spans.ts`.
+
+Omit and the run emits nothing, allocates no recorder, and installs no hook — telemetry is
+never a default. Present with no reachable endpoint (no `exportConfig.endpoint` and no
+`OTEL_EXPORTER_OTLP_ENDPOINT`) is also a no-op. The spawn journal is untouched either way:
+spans are telemetry, never the replay/resume record.
 
 ***
 
 ### SupervisorProfile
 
 The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
- `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
+`harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
+
+A canonical `AgentProfile` from `@tangle-network/agent-interface` satisfies this interface
+structurally: its `model` is a hints OBJECT and its system prompt lives at `prompt.systemPrompt`,
+so both spellings are accepted here and reduced by [resolveSupervisorProfile](#resolvesupervisorprofile). Before that,
+a canonical profile's model object reached `RouterConfig.model` (a string) as an object and its
+`prompt.systemPrompt` was dropped — a request the provider rejects, and a supervisor running the
+default strategy while its profile named another.
+
+WHAT EACH ARM HONORS — the two brains read different amounts of a profile, so state it rather
+than let a caller infer that a field took effect:
+
+ - ROUTER arm (`harness` null): only `name`, the resolved model id (`model`, or
+   `model.default`), and the resolved system prompt (`prompt.systemPrompt`/`systemPrompt` plus
+   `prompt.instructions` and `resources.instructions`) reach the brain. A full `AgentProfile`'s
+   `tools`, `mcp`, `permissions`, `resources.skills`/`files`, `hooks`, `modes`, `subagents`,
+   `model.provider`, `model.small` and `model.reasoningEffort` are NOT honored here: the router
+   brain is one `ToolLoopChat` over the coordination verbs, and neither of its two tool-calling
+   transports (`routerChatWithTools` buffered, `streamRouterChatWithTools` when
+   `RouterConfig.stream` is set) has a parameter for any of them.
+ - HARNESS arm (`harness` set): the WHOLE profile object is handed to `deps.driveHarness`
+   untouched, plus the resolved system prompt as a separate argument. Everything the profile
+   declares is the harness's to materialize; this module changes none of it.
 
 #### Properties
 
@@ -11953,15 +12573,89 @@ null/undefined → router brain (in-process tool-loop); a coding-CLI harness →
 
 ##### model?
 
-> `readonly` `optional` **model?**: `string`
+> `readonly` `optional` **model?**: `string` \| `AgentProfileModelHints`
 
-The router model when the brain is router-driven (falls back to the deps router config).
+The router model when the brain is router-driven: a model id, or a canonical profile's model
+ hints whose `default` IS the id. Absent (including a hints object with no `default`) → the
+ deps router config's model applies. Other hints (`small`, `provider`, `reasoningEffort`) are
+ harness-arm material only.
+
+##### prompt?
+
+> `readonly` `optional` **prompt?**: `AgentProfilePrompt`
+
+Canonical `AgentProfile` prompt shaping. `prompt.systemPrompt` and the top-level `systemPrompt`
+ are the same standing instruction in two spellings; disagreeing values are a fault, not a pick.
+ `prompt.instructions` lines are appended to the resolved prompt, one per line.
+
+##### resources?
+
+> `readonly` `optional` **resources?**: `AgentProfileResources`
+
+Canonical `AgentProfile` resources. Only `instructions` shapes the brain here (appended to the
+ resolved system prompt); every other resource is the harness's to materialize.
 
 ##### systemPrompt?
 
 > `readonly` `optional` **systemPrompt?**: `string`
 
 The standing instructions ("you delegate, you do not solve").
+
+***
+
+### ResolvedSupervisorProfile
+
+A `SupervisorProfile` reduced to the scalars the two brain arms consume. `modelId`/`systemPrompt`
+ stay `undefined` when the profile named none — the caller's fallback (`deps.router.model`,
+ the built-in default supervisor prompt) then applies, and this type cannot hide which happened.
+
+ There is deliberately no `reasoningEffort` here: the router brain runs on `chatWithTools` (the
+ buffered/streamed switch in the router client), and neither transport has a `reasoning_effort`
+ parameter — only the chat-only `routerChatWithUsage` does — so a field carrying it would be a
+ public promise nothing keeps. `model.reasoningEffort` still reaches the harness arm inside the
+ profile.
+
+#### Properties
+
+##### name
+
+> `readonly` **name**: `string`
+
+##### harness
+
+> `readonly` **harness**: `string` \| `null`
+
+##### modelId?
+
+> `readonly` `optional` **modelId?**: `string`
+
+##### systemPrompt?
+
+> `readonly` `optional` **systemPrompt?**: `string`
+
+***
+
+### CoordinationBinding
+
+Where the coordination MCP binds. Omit = an ephemeral port on `127.0.0.1` (the local-harness
+ default); set `host` when the root or the harness runs off-host.
+
+#### Properties
+
+##### host?
+
+> `readonly` `optional` **host?**: `string`
+
+##### port?
+
+> `readonly` `optional` **port?**: `number`
+
+##### allowUnauthenticatedRemote?
+
+> `readonly` `optional` **allowUnauthenticatedRemote?**: `boolean`
+
+Explicit acknowledgment required to bind a NON-loopback host — see
+ [assertCoordinationBinding](#assertcoordinationbinding) for what is being accepted.
 
 ***
 
@@ -11984,6 +12678,12 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 > `readonly` **perWorker**: [`Budget`](index.md#budget-4)
 
 Per-child budget reserved from the conserved pool on each spawn.
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+Independent completion check for direct driver work (`submit_result`).
 
 ##### maxLiveWorkers?
 
@@ -12132,6 +12832,14 @@ Questions + findings replayed from a prior process of this run (a durable coordi
 How the settled ledger becomes the run's output (both arms). Default `bestDelivered` — the
  exact keep-best every existing caller had. Always runs under the delivered-only invariant.
 
+##### coordination?
+
+> `readonly` `optional` **coordination?**: [`CoordinationBinding`](#coordinationbinding)
+
+Where the coordination MCP binds (sandbox arm). Omit = an ephemeral loopback port, which is
+ unreachable from an off-host harness. A non-loopback host fails closed — see
+ [assertCoordinationBinding](#assertcoordinationbinding).
+
 ***
 
 ### ToolStepInput
@@ -12146,6 +12854,12 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 
 > `readonly` **args**: `unknown`
 
+##### argsCaptured?
+
+> `readonly` `optional` **argsCaptured?**: `boolean`
+
+False when the call was observed but its original arguments were unavailable.
+
 ##### status?
 
 > `readonly` `optional` **status?**: `"error"` \| `"ok"`
@@ -12153,6 +12867,10 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 ##### result?
 
 > `readonly` `optional` **result?**: `unknown`
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
 
 ##### callId?
 
@@ -12829,6 +13547,41 @@ consumer has. Resume is a durability contract the caller opts into, never a sile
 Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
  same `agent.spawn`/`agent.child` stream `runAgentRounds` feeds — one observable recursive tree.
 
+##### workerTrace?
+
+> `readonly` `optional` **workerTrace?**: [`WorkerTraceResolver`](#workertraceresolver)
+
+Trace context to hand DOWN to each spawned worker, so a worker in another process or on another
+machine emits spans that join THIS run's trace instead of opening its own root. Supply
+`SupervisorSpanRecorder.workerTrace`; the `Scope` seeds the resolved context onto every child's
+`ExecutorContext` and the backends with an environment channel stamp it as
+`TRACE_ID` / `PARENT_SPAN_ID` (see `worker-trace.ts` for the precedence rule and for which
+backends propagate). Omit and no worker environment is touched at all.
+
+***
+
+### NoWinnerError
+
+A driver's `act()` rejection, normalized to a serializable triple so it survives the typed
+no-winner boundary (an `Error` does not cross a structured-clone / JSON hop intact). A
+non-`Error` rejection normalizes to `{ name: 'NonError', message }` — never dropped.
+Exported so a consumer handling `reason: 'driver-failed'` names this type instead of retyping
+its fields.
+
+#### Properties
+
+##### name
+
+> **name**: `string`
+
+##### message
+
+> **message**: `string`
+
+##### stack?
+
+> `optional` **stack?**: `string`
+
 ***
 
 ### RootHandle
@@ -12931,11 +13684,53 @@ Default impl returns false for every settlement (flat — never widens).
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 ###### Returns
 
 `boolean`
+
+***
+
+### UntrackedCopyStats
+
+#### Properties
+
+##### copied
+
+> **copied**: `number`
+
+Files + symlinks that landed in the clone.
+
+##### bytes
+
+> **bytes**: `number`
+
+Total regular-file bytes enumerated (pre-copy, so the size warning fires first).
+
+***
+
+### CopyOptions
+
+#### Properties
+
+##### warnBytes?
+
+> `optional` **warnBytes?**: `number`
+
+##### log?
+
+> `optional` **log?**: (`message`) => `void`
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### Returns
+
+`void`
 
 ***
 
@@ -13056,6 +13851,58 @@ The ORIGINAL arm instant. A re-armed wait keeps it, so its deadline never slides
 > `readonly` **ordinal**: `number`
 
 The wait ordinal in its parent scope, so a resumed scope continues past it.
+
+***
+
+### WorkerEvidenceInput
+
+#### Properties
+
+##### passed
+
+> `readonly` **passed**: `boolean`
+
+##### testPassed
+
+> `readonly` **testPassed**: `boolean`
+
+##### typecheckPassed
+
+> `readonly` **typecheckPassed**: `boolean`
+
+##### testOutput
+
+> `readonly` **testOutput**: `string`
+
+Combined stdout+stderr of the verify/test command (already backend-capped).
+
+##### typecheckOutput
+
+> `readonly` **typecheckOutput**: `string`
+
+##### patch
+
+> `readonly` **patch**: `string`
+
+##### reviewerNotes?
+
+> `readonly` `optional` **reviewerNotes?**: `string`
+
+The worker's own closing commentary, when the backend surfaces one.
+
+***
+
+### WorkerTraceSeamCarrier
+
+What the two readers below need off an `ExecutorContext` — its seam bag, and nothing else.
+Structural (not an `ExecutorContext` import) so this module stays free of the keystone type
+surface, and exported because it is part of a public signature.
+
+#### Properties
+
+##### seams
+
+> `readonly` **seams**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
 ***
 
@@ -15972,13 +16819,23 @@ Provider-neutral conversation records read by structural candidate extraction.
 
 ### BudgetReadout
 
-> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown?`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
  `deadlineMs` is the ABSOLUTE wall-clock deadline (0 when the root set none).
  `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion from an uncapped pool (which always
  reads `usdLeft: 0`) — the in-loop guard needs it to bound a usd-capped driver.
+
+***
+
+### ReservationRejection
+
+> **ReservationRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"`
+
+Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
+ budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
+ unsatisfiable at any amount and the fix is to budget the root, not to ask for less.
 
 ***
 
@@ -15989,6 +16846,15 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end);
  `not-admitted` = the conserved pool or the depth ceiling refused a spawn; `stopped` = the
  caller's `shouldStop` returned true; `aborted` = the scope's signal fired.
+
+***
+
+### SupervisorSpanAttributes
+
+> **SupervisorSpanAttributes** = `Record`\<`string`, `string` \| `number` \| `boolean`\>
+
+OTLP span attribute values. Exported because `SupervisorSpanOptions.attributes` is public and
+ a consumer cannot name the type it is asked to supply otherwise.
 
 ***
 
@@ -16056,6 +16922,19 @@ How to run a sandboxed harness as the DRIVER, with the coordination verbs mounte
 
 [`SupervisorProfile`](#supervisorprofile)
 
+The caller's profile, EXACTLY as passed to `supervisorAgent` — never rewritten. A canonical
+ `AgentProfile` stays schema-valid here (the canonical schema rejects unknown top-level keys,
+ so hoisting a resolved prompt onto it would make a profile its own validator refuses).
+
+###### systemPrompt?
+
+`string`
+
+The standing instruction assembled from the profile: its system prompt in either spelling,
+ plus the `prompt.instructions` and `resources.instructions` lines. Absent when the profile
+ names none — the harness's own default then applies. This, not `profile.systemPrompt`, is what
+ the harness should run under.
+
 ###### task
 
 `unknown`
@@ -16076,11 +16955,53 @@ How to run a sandboxed harness as the DRIVER, with the coordination verbs mounte
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
 `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+
+KNOWN LIMITATION (pre-existing): the `cost` variant can say its dollars are a subtotal
+(`usdKnown: false`), and the `tokens` variant has NO twin — there is no way to report "this turn
+happened and its token count is unknown". `Spend.tokensKnown` exists downstream, but nothing
+upstream of `foldStream` (`scope.ts`) can ever set it, so a STREAMING executor whose provider
+omitted usage reports the turn as costing zero tokens rather than as unmeasured. Only the
+non-streaming path, which returns a whole `Spend`, can carry the marker today. Closing it means
+widening this union (a `tokensKnown: false` field on `tokens`, or an `unknown` variant) and
+threading it through `foldStream` — a change to the metering contract every executor implements,
+which is why it is not folded into a streaming-transport fix. Filed separately.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \}
+
+###### kind
+
+> **kind**: `"cost"`
+
+###### usdKnown?
+
+> `optional` **usdKnown?**: `false`
+
+Known dollar subtotal. When false, `usd` must not be treated as total cost.
+
+###### usd
+
+> **usd**: `number`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"iteration"`; \}
 
 ***
 
@@ -16153,10 +17074,15 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ### SpawnRejection
 
-> **SpawnRejection** = `"budget-exhausted"` \| `"depth-exceeded"` \| `"duplicate-key"`
+> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"`
 
-Fail-closed spawn rejections: an exhausted pool, an exceeded recursion ceiling, or a `key`
- that is still LIVE in this scope (the same assignment may not run twice concurrently).
+Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
+ no dollars, an exceeded recursion ceiling, or a `key` that is still LIVE in this scope (the
+ same assignment may not run twice concurrently).
+
+ `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
+ responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
+ refuses every amount until the ROOT budget names a `maxUsd`.
 
 ***
 
@@ -16501,6 +17427,26 @@ Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission
 
 ***
 
+### WorkerTraceResolver
+
+> **WorkerTraceResolver** = (`spawningNodeId`) => [`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
+
+Resolve the trace context a worker spawned BY `spawningNodeId` should inherit. `undefined` means
+this run records no spans, so nothing is stamped. Supplied by
+`SupervisorSpanRecorder.workerTrace` and threaded to the scope as `SupervisorOpts.workerTrace`.
+
+#### Parameters
+
+##### spawningNodeId
+
+`string`
+
+#### Returns
+
+[`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
+
+***
+
 ### WorktreePatchArtifact
 
 > **WorktreePatchArtifact** = [`WorktreeHarnessResult`](#worktreeharnessresult)
@@ -16526,7 +17472,7 @@ Provider-neutral conversation record accepted by a tool-loop brain.
 
 ### ToolLoopChat
 
-> **ToolLoopChat** = (`messages`, `tools`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; \}\>
+> **ToolLoopChat** = (`messages`, `tools`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; `usageUnknown?`: `true`; \}\>
 
 One inference turn over the running conversation + the tool specs → the model's text, any
  tool calls, and token usage. The seam every brain satisfies.
@@ -16543,7 +17489,7 @@ One inference turn over the running conversation + the tool specs → the model'
 
 #### Returns
 
-`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; \}\>
+`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; `usageUnknown?`: `true`; \}\>
 
 ***
 
@@ -16844,6 +17790,30 @@ Build the `Executor` for one pi worker. Registered as runtime `'pi'`.
 
 ***
 
+### PI\_MCP\_ADAPTER
+
+> `const` **PI\_MCP\_ADAPTER**: `"pi-mcp-adapter"` = `'pi-mcp-adapter'`
+
+The pi extension that gives pi MCP at all. Everything here is gated on it being loadable.
+
+***
+
+### PI\_MCP\_ADAPTER\_ENV
+
+> `const` **PI\_MCP\_ADAPTER\_ENV**: `"AGENT_RUNTIME_PI_MCP_ADAPTER"` = `'AGENT_RUNTIME_PI_MCP_ADAPTER'`
+
+Overrides adapter detection for installs whose path does not carry the adapter's name.
+
+***
+
+### PI\_MCP\_CONFIG\_FLAG
+
+> `const` **PI\_MCP\_CONFIG\_FLAG**: `"--mcp-config"` = `'--mcp-config'`
+
+The adapter-registered flag that names this run's config file (`pi-mcp-adapter` `index.ts:252`).
+
+***
+
 ### DEFAULT\_STALL\_AFTER\_MS
 
 > `const` **DEFAULT\_STALL\_AFTER\_MS**: `180000` = `180_000`
@@ -16870,6 +17840,40 @@ the other CLI leaves; the authored systemPrompt + model reach the harness via §
 
 Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
  this bounds how many times a supervisor may redirect ONE worker before it must respawn.
+
+***
+
+### EVIDENCE\_MAX\_CHARS
+
+> `const` **EVIDENCE\_MAX\_CHARS**: `3000` = `3000`
+
+Hard cap on one worker's evidence block so the brain's context cannot blow up.
+
+***
+
+### VERIFY\_TAIL\_CHARS
+
+> `const` **VERIFY\_TAIL\_CHARS**: `1200` = `1200`
+
+Tail of the verify output — the failing assertion lives at the END of a test log.
+
+***
+
+### NOTE\_MAX\_CHARS
+
+> `const` **NOTE\_MAX\_CHARS**: `300` = `300`
+
+Cap on the worker's closing note inside the evidence block.
+
+***
+
+### workerTraceSeamKey
+
+> `const` **workerTraceSeamKey**: `"worker-trace"` = `'worker-trace'`
+
+Seam key the `Scope` seeds a [TraceContext](mcp.md#tracecontext-2) under on each child's `ExecutorContext.seams`.
+Single-sourced here so the scope and every backend agree on it without a circular import — the
+same arrangement `nestedScopeSeamKey` uses.
 
 ## Functions
 
@@ -17499,6 +18503,45 @@ server for the error (e.g. `profile.mcp['exa']`).
 #### Returns
 
 `Promise`\<`Record`\<`string`, `string`\>\>
+
+***
+
+### resolveMcpServerLaunch()
+
+> **resolveMcpServerLaunch**(`server`, `keys`, `label`): `Promise`\<[`ResolvedMcpServerLaunch`](#resolvedmcpserverlaunch)\>
+
+Resolve a profile MCP server's `args`/`env` config values (interface ≥0.40
+`AgentProfileConfigValue`) plus the legacy `metadata.secretEnv` channel into
+the plain strings a spawn needs.
+
+Rules, all fail-closed:
+- `args` must be public values. A secret-ref in argv is refused: argv is
+  readable by every host process (/proc/PID/cmdline) and outside the
+  protected-value redaction channel, so a secret there cannot be contained.
+- `env` secret-refs resolve through the KeyProvider (missing provider or key
+  throws, naming the KEY NAME only) and land in `protectedEnv`.
+- An env var declared secret on BOTH channels (env secret-ref and
+  metadata.secretEnv) is ambiguous configuration and throws.
+- A public `env` entry shadowed by a legacy metadata secret keeps the
+  pre-0.40 spawn precedence: the secret value wins in the child env.
+
+#### Parameters
+
+##### server
+
+`AgentProfileMcpServer`
+
+##### keys
+
+[`KeyProvider`](#keyprovider) \| `undefined`
+
+##### label
+
+`string`
+
+#### Returns
+
+`Promise`\<[`ResolvedMcpServerLaunch`](#resolvedmcpserverlaunch)\>
 
 ***
 
@@ -18411,6 +19454,66 @@ readonly `object`[]
 
 ***
 
+### streamRouterChatWithTools()
+
+> **streamRouterChatWithTools**(`cfg`, `messages`, `tools`, `opts?`): `Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
+
+The SAME completion as `routerChatWithTools`, taken over SSE (`stream: true`) and reassembled
+into the identical `RouterChatToolsResult`. Opt in with `RouterConfig.stream` — the buffered
+function is untouched and stays the default for every existing caller.
+
+What it buys: a buffered POST holds one connection idle for the whole completion, and that idle
+window is what an intermediary gateway kills (524/503). Streaming puts bytes on the wire from the
+first generated token, so the connection is only idle through prefill.
+
+Usage accounting is preserved exactly: `stream_options.include_usage` asks the provider for a
+terminal usage chunk, and those tokens run through the same `meterTurn` the buffered path uses.
+
+When NO chunk reported usage, `usage`/`costUsd` stay undefined (never a fabricated 0) AND
+`usageUnknown: true` is set. A stream that finishes with no usage chunk means the
+`include_usage` request was not honored upstream, and returning a quiet `undefined` for it is
+indistinguishable from a free turn — the marker is what lets a metering caller record an UNKNOWN
+turn instead. Streaming raises the odds of this (one dropped terminal frame is enough), which is
+why the streamed transport says so explicitly and the buffered one has no equivalent claim to make.
+
+#### Parameters
+
+##### cfg
+
+[`RouterConfig`](#routerconfig)
+
+##### messages
+
+readonly `Record`\<`string`, `unknown`\>[]
+
+##### tools
+
+readonly [`ToolSpec`](#toolspec)[]
+
+##### opts?
+
+###### temperature?
+
+`number`
+
+###### signal?
+
+`AbortSignal`
+
+###### toolChoice?
+
+`"auto"` \| `"none"` \| `"required"`
+
+###### maxTokens?
+
+`number`
+
+#### Returns
+
+`Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
+
+***
+
 ### routerToolLoop()
 
 > **routerToolLoop**(`cfg`, `system`, `user`, `tools`, `execute`, `opts?`): `Promise`\<[`RouterToolLoopResult`](#routertoolloopresult)\>
@@ -18486,6 +19589,9 @@ The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by th
 tool-calling. The driver's spawn/observe/steer/await/stop turns become real router tool-calls.
 The turnkey production brain — tests script a mock `ToolLoopChat`; production passes
 `routerBrain(cfg)`. No message translation: the loop already speaks the router's OpenAI shape.
+
+Transport follows `cfg.stream`: buffered by default, SSE when the caller opts in. A supervisor
+turn is the longest completion in the system, so it is the call site streaming exists for.
 
 #### Parameters
 
@@ -19947,7 +21053,8 @@ readonly `object`[]
 > **serveCoordinationMcp**(`opts`): `Promise`\<[`CoordinationMcpHandle`](#coordinationmcphandle)\>
 
 Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
- opencode locally, same host); pass `host` to bind elsewhere when the harness is remote.
+ opencode locally, same host); pass `host` to bind elsewhere when the harness is remote — a
+ non-loopback host additionally requires `allowUnauthenticatedRemote`.
 
 #### Parameters
 
@@ -19968,6 +21075,12 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 ###### perWorker
 
 [`Budget`](index.md#budget-4)
+
+###### deliverable?
+
+[`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+Independent completion check exposed to the driver as `submit_result`.
 
 ###### maxLiveWorkers?
 
@@ -19991,6 +21104,17 @@ Max wall-clock ms a single `await_event` may block before returning a re-pollabl
 ###### host?
 
 `string`
+
+Bind address. Omit = `127.0.0.1`. A non-loopback host is REFUSED unless
+ `allowUnauthenticatedRemote` acknowledges the exposure.
+
+###### allowUnauthenticatedRemote?
+
+`boolean`
+
+Explicit acknowledgment that binding a non-loopback `host` publishes UNAUTHENTICATED
+ spawn_agent / steer_agent / stop to everyone who can reach the port. Required for any
+ non-loopback bind; ignored for loopback ones.
 
 ###### analysts?
 
@@ -20329,7 +21453,7 @@ readonly [`FinalizerSettled`](#finalizersettled)[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 #### Returns
 
@@ -20373,6 +21497,27 @@ readonly `string`[] \| `undefined`
 
 ***
 
+### createSupervisorSpanRecorder()
+
+> **createSupervisorSpanRecorder**(`opts`): [`SupervisorSpanRecorder`](#supervisorspanrecorder) \| `undefined`
+
+Build the span recorder for one supervised run, or `undefined` when no exporter resolves — the
+off-by-default path. A run that passes no `exporter` and no `exportConfig` never reaches this
+function at all; one that passes an `exportConfig` with no endpoint (and no env endpoint) gets
+`undefined` here, so "configured but unreachable" also costs nothing.
+
+#### Parameters
+
+##### opts
+
+[`SupervisorSpanOptions`](#supervisorspanoptions)
+
+#### Returns
+
+[`SupervisorSpanRecorder`](#supervisorspanrecorder) \| `undefined`
+
+***
+
 ### patchDelivered()
 
 > **patchDelivered**(`options?`): [`DeliverableSpec`](#deliverablespec)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
@@ -20392,6 +21537,116 @@ whether the patch is DELIVERED (the `valid` conjunction).
 #### Returns
 
 [`DeliverableSpec`](#deliverablespec)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
+
+***
+
+### piMcpAdapterAvailable()
+
+> **piMcpAdapterAvailable**(): `boolean`
+
+True when pi can actually consume MCP config — i.e. `pi-mcp-adapter` is installed. Ported from
+cli-bridge `pi.ts:189`: an env override first (for vendored installs whose path does not carry the
+adapter's name), then the npm install directory, then a scan of `settings.json` `packages` in
+which a local-path entry is resolved by reading the target's `package.json` `name`. An
+unreadable or absent `settings.json` reports "not detected"; it never throws and never assumes.
+
+#### Returns
+
+`boolean`
+
+***
+
+### buildPiMcpServers()
+
+> **buildPiMcpServers**(`mcp`): `Record`\<`string`, `Record`\<`string`, `unknown`\>\>
+
+Build the canonical `{ mcpServers }` body the adapter reads, from `AgentProfile.mcp`.
+
+Every server is written with `directTools: true` (`pi-mcp-adapter` types.ts:351), which
+registers its tools as NATIVE pi tools instead of hiding them behind the generic `mcp` tool.
+Without it an agent must discover its own verbs before it can use them — connect to the server,
+then describe each tool — and a measured run spent 58 turns and 639,632 input tokens doing that
+before it could delegate once. A profile that declares an MCP server is asking for its tools,
+not for a directory it has to browse.
+
+This is cli-bridge's `buildCanonicalMcpServers`
+(`/home/drew/code/cli-bridge/src/backends/profile-support.ts:253`) reproduced field for field and
+in the same key order — same drop of `enabled:false`, same stdio-versus-remote decision
+(`isStdioMcpSpec`, `profile-support.ts:177`), same `{command, args, env}` and `{type, url,
+headers}` bodies, same silent drop of an entry with nothing to connect to. For any server both
+input types can express, the emitted JSON is byte-identical.
+
+The two input types are not the same type, so three differences remain and each is a field one
+side cannot express:
+
+1. **`cwd` (emitted here, absent there).** `AgentProfileLocalMcpServer` has `cwd`; cli-bridge's
+   `McpServerSpec` (`src/backends/types.ts:53`) has no such field, so it can never emit one. The
+   adapter honors it (`pi-mcp-adapter` `types.ts:325`, `ServerEntry.cwd`), so dropping it would
+   silently discard a declared setting. It is emitted where cli-bridge emits `timeout`.
+2. **`timeout` (emitted there, absent here).** `AgentProfileMcpServer` has no timeout field, so
+   there is nothing to emit. (The adapter's own knob is `requestTimeoutMs`, not `timeout`.)
+3. **A `url` with no declared transport.** cli-bridge DROPS it — its remote branch requires an
+   explicit `spec.type` — even though its own `McpServerSpec` docstring says "http is implied if
+   `url` is set" (`types.ts:53-56`). `transport` is optional on `AgentProfileRemoteMcpServer`, so
+   dropping such a server here would be exactly the silent-drop bug this module exists to fix.
+   We honor the documented convention and emit `type: 'http'`.
+
+`sse` is ACCEPTED and forwarded verbatim, as cli-bridge forwards it. The adapter connects a URL
+server by probing StreamableHTTP and falling back to `SSEClientTransport` when the probe fails
+(`pi-mcp-adapter` `server-manager.ts:765`), so an SSE-only endpoint does connect. Its
+`ServerEntry` (`types.ts:319`) carries no transport discriminator at all, which means the `type`
+key is inert to the adapter either way — but it is what cli-bridge writes, and a config file that
+round-trips the caller's declared transport is the one that stays readable by both.
+
+#### Parameters
+
+##### mcp
+
+`Record`\<`string`, `AgentProfileMcpServer`\> \| `undefined`
+
+#### Returns
+
+`Record`\<`string`, `Record`\<`string`, `unknown`\>\>
+
+***
+
+### preparePiMcp()
+
+> **preparePiMcp**(`profile`, `options`): [`PiMcpPreparation`](#pimcppreparation)
+
+The one call `piExecutor` makes before spawning pi: decide what pi must be told, fail loud if it
+cannot work, then mount.
+
+Order matters and is the point:
+
+1. Canonicalize `profile.mcp` first, so the adapter gate keys off servers that would ACTUALLY be
+   written — a block of `enabled:false` entries must not trip it.
+2. If any server survives and `pi-mcp-adapter` is not installed, throw. No file has been written
+   and pi has not been spawned.
+3. Lower `extensions.pi.load` (which may itself throw on an unresolvable extension) — still before
+   any file exists.
+4. Only then create this execution's private config directory and emit `--mcp-config`.
+
+A profile with no usable MCP server is a pure no-op: no adapter check, no directory, no flags, no
+throw. `extensions.pi.load` on its own still produces flags, because reproducible ablation arms
+need them whether or not MCP is involved.
+
+The caller MUST call `mount.cleanup()` on every exit path — settle, throw, abort, timeout, and
+spawn failure — so the directory does not outlive the worker that owns it.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile` \| `undefined`
+
+##### options
+
+[`PiMcpMountOptions`](#pimcpmountoptions)
+
+#### Returns
+
+[`PiMcpPreparation`](#pimcppreparation)
 
 ***
 
@@ -20493,6 +21748,207 @@ existing consumer writes to disk or resumes unless it asks for this.
 #### Returns
 
 [`InMemoryRunContext`](#inmemoryruncontext)
+
+***
+
+### supervisorRunsRoot()
+
+> **supervisorRunsRoot**(`rootDir`): `string`
+
+The root every supervisor run of one workspace lives under.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### supervisorRunDir()
+
+> **supervisorRunDir**(`rootDir`, `id`): `string`
+
+The run directory every artifact of one supervisor run lives under.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### legacySupervisorRunDir()
+
+> **legacySupervisorRunDir**(`rootDir`, `id`): `string`
+
+Where a pre-rename writer put the same run (`<root>/.loops/supervisor/<id>`). Readers that must
+see historical runs check [supervisorRunDir](#supervisorrundir) first and fall back to this; nothing writes
+here anymore.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### safeWorkerFile()
+
+> **safeWorkerFile**(`label`): `string`
+
+A worker label reduced to a safe filename stem. Empty labels get a stable fallback.
+
+#### Parameters
+
+##### label
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerInboxFile()
+
+> **workerInboxFile**(`rootDir`, `supervisorId`, `worker`): `string`
+
+The durable inbox file for one worker of one run.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### supervisorId
+
+`string`
+
+##### worker
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerInboxFileFromEventDir()
+
+> **workerInboxFileFromEventDir**(`eventDir`, `worker`): `string`
+
+Same, addressed from an already-known run directory (the reader's usual entry point).
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### writeWorkerSteer()
+
+> **writeWorkerSteer**(`rootDir`, `supervisorId`, `worker`, `message`, `source?`): `object`
+
+Durably append one steer request to a worker's inbox and log the delivery attempt.
+
+The inbox append is the durable act; the control-event log is best-effort bookkeeping and may
+silently fail without voiding the steer.
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### supervisorId
+
+`string`
+
+##### worker
+
+`string`
+
+##### message
+
+`string`
+
+##### source?
+
+`string` = `'human'`
+
+#### Returns
+
+`object`
+
+##### worker
+
+> **worker**: `string`
+
+##### file
+
+> **file**: `string`
+
+##### request
+
+> **request**: [`WorkerSteerRequest`](#workersteerrequest)
+
+***
+
+### readWorkerSteerRequests()
+
+> **readWorkerSteerRequests**(`eventDir`, `worker`): [`WorkerSteerRequest`](#workersteerrequest)[]
+
+Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+#### Returns
+
+[`WorkerSteerRequest`](#workersteerrequest)[]
 
 ***
 
@@ -20761,11 +22217,19 @@ Stop only when EVERY rule stops — for a conservative gate that needs corrobora
 
 ### workerFromBackend()
 
-> **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](#makeworkeragent)
+> **workerFromBackend**(`backend`, `deliverable?`, `seams?`): [`MakeWorkerAgent`](#makeworkeragent)
 
 Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
- deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
- deliver"). The ONE place a backend becomes a spawnable worker.
+deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
+deliver"). The ONE place a backend becomes a spawnable worker.
+
+`seams` exists because this path builds the leaf executor EAGERLY and hands it back as a BYO
+`executorSpec.executor`. The registry resolves a BYO executor without ever consulting the
+per-child `ExecutorContext` the `Scope` seeds, so anything the scope would have supplied is
+invisible here and has to be passed in. It is a FUNCTION because it is resolved once per worker
+construction, so a caller may hand back something the run only learns later — which is exactly how
+`supervise()` gives a traced run's workers their trace context without ordering the span recorder
+ahead of the worker seam.
 
 #### Parameters
 
@@ -20776,6 +22240,10 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 ##### deliverable?
 
 [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+##### seams?
+
+() => `Readonly`\<`Record`\<`string`, `unknown`\>\>
 
 #### Returns
 
@@ -20806,6 +22274,55 @@ One-call supervisor: build + run a supervisor from its profile with sensible def
 #### Returns
 
 `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+
+***
+
+### resolveSupervisorProfile()
+
+> **resolveSupervisorProfile**(`profile`): [`ResolvedSupervisorProfile`](#resolvedsupervisorprofile)
+
+Reduce either profile spelling — a hand-written `SupervisorProfile` or a canonical `AgentProfile`
+— to the scalars the brain arms consume:
+
+ - `modelId`: a string `model` verbatim, else `model.default`. Absent or unresolvable → the
+   router config's own model applies unchanged.
+ - `systemPrompt`: the system prompt plus the `prompt.instructions` and `resources.instructions`
+   lines, one per line.
+
+`supervisorAgent` resolves each piece only where it is consumed (the model id on the router arm
+only); this whole-profile reduction is the caller-facing view of the same rules.
+
+#### Parameters
+
+##### profile
+
+[`SupervisorProfile`](#supervisorprofile)
+
+#### Returns
+
+[`ResolvedSupervisorProfile`](#resolvedsupervisorprofile)
+
+***
+
+### assertCoordinationBinding()
+
+> **assertCoordinationBinding**(`binding`): `void`
+
+Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_agent /
+steer_agent / stop with NO authentication of any kind (it is a bare JSON-RPC-over-HTTP handler),
+so a non-loopback bind lets anyone who can reach the port spawn agents and spend the run's
+conserved budget. There is no token to require yet, so the only honest options are loopback or an
+explicit, recorded acknowledgment — never a silent bind.
+
+#### Parameters
+
+##### binding
+
+[`CoordinationBinding`](#coordinationbinding) \| `undefined`
+
+#### Returns
+
+`void`
 
 ***
 
@@ -20987,6 +22504,65 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 
 ***
 
+### copyUntrackedIntoClone()
+
+> **copyUntrackedIntoClone**(`sourceDir`, `cloneDir`, `opts?`): [`UntrackedCopyStats`](#untrackedcopystats)
+
+Copy every untracked file of `sourceDir`'s working tree — including git-ignored
+build outputs (`git ls-files --others` with NO exclude flags lists both) — into
+`cloneDir`, then shield the copied paths from the clone's `git add -A` via
+`.git/info/exclude`. Nested git repos (listed as bare `dir/` entries), any path
+containing a `.git` segment, and loop-infra dirs are skipped.
+
+#### Parameters
+
+##### sourceDir
+
+`string`
+
+##### cloneDir
+
+`string`
+
+##### opts?
+
+[`CopyOptions`](#copyoptions) = `{}`
+
+#### Returns
+
+[`UntrackedCopyStats`](#untrackedcopystats)
+
+***
+
+### withUntrackedArtifacts()
+
+> **withUntrackedArtifacts**(`ws`, `sourceDir`, `log?`): [`Workspace`](#workspace)
+
+Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside
+`runInWorkspace`) is followed by the untracked-artifact copy above — the clone
+the worker starts in matches the source WORKING TREE, not just its history.
+`commit`/`head` pass through untouched, so delivery semantics are unchanged.
+
+#### Parameters
+
+##### ws
+
+[`Workspace`](#workspace)
+
+##### sourceDir
+
+`string`
+
+##### log?
+
+(`message`) => `void`
+
+#### Returns
+
+[`Workspace`](#workspace)
+
+***
+
 ### timerAt()
 
 > **timerAt**(`ms`, `now`): [`WaitSpec`](#waitspec)
@@ -21116,6 +22692,126 @@ Structural validation, independent of the run. Returns null when the spec is usa
 #### Returns
 
 `string` \| `null`
+
+***
+
+### composeWorkerEvidence()
+
+> **composeWorkerEvidence**(`input`): `string`
+
+Compose the settle evidence block. Section order is priority order under the
+hard cap: the verify tail (what failed) survives before the diff head (what
+was tried) and the worker note — a truncated diff is recoverable from the
+persisted patch file, a truncated failing assertion is not recoverable at all.
+
+#### Parameters
+
+##### input
+
+[`WorkerEvidenceInput`](#workerevidenceinput)
+
+#### Returns
+
+`string`
+
+***
+
+### settledWorkerOut()
+
+> **settledWorkerOut**(`input`): `string`
+
+What a settled worker exposes as its output artifact (the blob the brain's
+`observe_agent` reads). A passing worker's output is its patch — the
+deliverable. A failing worker's output is its evidence block. A passing
+worker with NO edits — the post-delivery read-only reviewer: the workspace
+already holds a delivered fix, so the gate stays green under an empty diff —
+would otherwise settle with an EMPTY output and its review would be lost, so
+it exposes its evidence block instead (the worker note carries the review).
+
+#### Parameters
+
+##### input
+
+###### passed
+
+`boolean`
+
+###### patch
+
+`string`
+
+###### evidence
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### closingWorkerNote()
+
+> **closingWorkerNote**(`stdout`, `stderr`): `string` \| `undefined`
+
+The worker's closing commentary off a local harness run: the TAIL of its
+stdout (falling back to stderr), bounded to the note cap so a reviewer's
+final verdict line — written last — survives into the evidence block
+(`composeWorkerEvidence` keeps the note's FIRST `NOTE_MAX_CHARS` chars).
+
+#### Parameters
+
+##### stdout
+
+`string`
+
+##### stderr
+
+`string`
+
+#### Returns
+
+`string` \| `undefined`
+
+***
+
+### readWorkerTraceContext()
+
+> **readWorkerTraceContext**(`ctx`): [`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
+
+Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no
+spans. Fails CLOSED on a malformed seam value (returns `undefined`) rather than stamping a
+half-formed id that would produce an unjoinable orphan span downstream.
+
+#### Parameters
+
+##### ctx
+
+[`WorkerTraceSeamCarrier`](#workertraceseamcarrier)
+
+#### Returns
+
+[`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
+
+***
+
+### workerTraceEnv()
+
+> **workerTraceEnv**(`ctx`): `Record`\<`string`, `string`\>
+
+The `TRACE_ID` / `PARENT_SPAN_ID` pair to merge into a worker's environment — EMPTY when the run
+records no spans, which is what keeps the untraced path byte-identical. Merge it BELOW the
+caller's own seam env so a deliberately-set id wins (see the precedence note above).
+
+#### Parameters
+
+##### ctx
+
+[`WorkerTraceSeamCarrier`](#workertraceseamcarrier)
+
+#### Returns
+
+`Record`\<`string`, `string`\>
 
 ***
 

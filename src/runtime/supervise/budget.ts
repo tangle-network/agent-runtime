@@ -5,7 +5,7 @@
  * quantities (tokens, usd, iterations) plus an absolute deadline. Children reserve
  * atomically at spawn and reconcile at settle:
  *
- *   total ≡ free + reserved + committed          (invariant, always)
+ *   total ≡ free + reserved + committed          (for every known quantity)
  *
  * `reserve` moves a child's whole ceiling from `free` → `reserved` and fails closed
  * when `free` can't cover it (never read-then-spawn overcommit, so `Σk(treatment) ≡
@@ -15,7 +15,18 @@
  *
  * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
  * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
- * unknown reconcile) so a child can never refund twice.
+ * unknown reconcile) so a child can never refund twice. Reconciling an OPEN ticket always
+ * closes it: a fail-loud condition settles the reservation first and throws afterwards, so no
+ * error path can strand a reservation past the join barrier's `assertNoOpenTickets`.
+ * A child that declared no `maxUsd` reserved no dollar allocation, so its real dollars are
+ * committed as observed spend and debited from the root's balance rather than treated as an
+ * overspend of a $0 ceiling it never asked for. If dollar cost is unknowable under a
+ * dollar limit, reconciliation closes the known token/iteration work, marks the dollar channel
+ * unusable, and refuses later reservations; inventing a numeric dollar total would be worse.
+ * If a TOKEN count is unknowable (a provider that reported no usage for work that ran), the pool
+ * records the work, debits what it knows, and marks `readout().tokensKnown` false — the balance is
+ * then a ceiling, not a measurement. It does not close admission the way the dollar channel does:
+ * tokens are always capped, so one unreported turn must not end the run.
  *
  * @experimental
  */
@@ -33,6 +44,15 @@ export interface ReservationTicket {
     readonly tokens: number
     readonly usd: number
     readonly iterations: number
+    /**
+     * Whether the child's `Budget` actually declared `maxUsd`. `reserved.usd` is `0` for BOTH a
+     * child that named no dollar ceiling and one that named `$0`, and the two settle differently:
+     * an undeclared ceiling cannot be exceeded, so the child's real dollars are committed as
+     * OBSERVED spend, while a declared ceiling of `$0` is a limit whose breach is fail-loud.
+     * Optional so an externally constructed ticket stays valid; an absent flag is read as
+     * `true` — the strict, fail-closed reading.
+     */
+    readonly usdBudgeted?: boolean
   }
 }
 
@@ -43,11 +63,22 @@ export interface ReservationTicket {
  *  reads `usdLeft: 0`) — the in-loop guard needs it to bound a usd-capped driver. */
 export type BudgetReadout = Readonly<{
   tokensLeft: number
+  /**
+   * False once the pool has recorded work whose token count was UNREPORTED (a `Spend` with
+   * `tokensKnown: false`). `tokensLeft` is then a ceiling on what remains, not a measurement: real
+   * consumption is at least the debited amount and possibly more. Reading `tokensLeft` without this
+   * flag would present an under-count as an exact balance.
+   */
+  tokensKnown?: boolean
   usdLeft: number
   usdCapped: boolean
   deadlineMs: number
   reservedTokens: number
 }>
+/** Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
+ *  budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
+ *  unsatisfiable at any amount and the fix is to budget the root, not to ask for less. */
+export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted'
 
 export interface BudgetPool {
   /**
@@ -57,7 +88,7 @@ export interface BudgetPool {
    */
   reserve(
     b: Budget,
-  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: 'budget-exhausted' }
+  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection }
   /**
    * Release a reservation: commit the actual `spent`, refund the unspent remainder
    * to the free pool. Throws on an unknown or already-reconciled ticket (fail loud —
@@ -93,34 +124,50 @@ export interface BudgetPool {
 export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   const tokens = zeroTokenUsage()
   let usd = 0
+  let usdKnown = true
   let iterations = 0
   for (const ev of events) {
     if (ev.kind === 'tokens') {
       addTokenUsage(tokens, { input: ev.input, output: ev.output })
     } else if (ev.kind === 'cost') {
       usd += ev.usd
+      if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
     }
   }
-  return { iterations, tokens, usd, ms: 0 }
+  return {
+    iterations,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: 0,
+  }
 }
 
 async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend> {
   if (Array.isArray(events)) return spendFromUsageEvents(events)
   const tokens = zeroTokenUsage()
   let usd = 0
+  let usdKnown = true
   let iterations = 0
   for await (const ev of events) {
     if (ev.kind === 'tokens') {
       addTokenUsage(tokens, { input: ev.input, output: ev.output })
     } else if (ev.kind === 'cost') {
       usd += ev.usd
+      if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
     }
   }
-  return { iterations, tokens, usd, ms: 0 }
+  return {
+    iterations,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: 0,
+  }
 }
 
 function totalTokens(usage: LoopTokenUsage): number {
@@ -138,11 +185,18 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   let freeTokens = root.maxTokens
   let reservedTokens = 0
   let committedTokens = 0
+  // Set once the pool records work with an unreported token count, and never cleared. Unlike
+  // `usdTainted` it does NOT close admission: the token channel is always capped, so refusing every
+  // later reservation would turn one provider that skipped a usage report into a dead run. The pool
+  // keeps enforcing the cap on what it knows and reports, via `readout().tokensKnown`, that the
+  // balance is an under-count rather than a measurement.
+  let tokensTainted = false
 
   const usdCapped = root.maxUsd !== undefined
   let freeUsd = root.maxUsd ?? 0
   let reservedUsd = 0
   let committedUsd = 0
+  let usdTainted = false
 
   let freeIterations = root.maxIterations
   let reservedIterations = 0
@@ -155,17 +209,22 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
 
   function reserve(
     b: Budget,
-  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: 'budget-exhausted' } {
+  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection } {
     const wantTokens = b.maxTokens
     const wantUsd = b.maxUsd ?? 0
     const wantIterations = b.maxIterations
+    if (usdCapped && usdTainted) return { ok: false, reason: 'budget-exhausted' }
     // Fail-closed admission: every requested channel must fit the free balance. A
     // usd request against an uncapped root is unsatisfiable (the root declared no $).
     if (wantTokens > freeTokens) return { ok: false, reason: 'budget-exhausted' }
     if (wantIterations > freeIterations) return { ok: false, reason: 'budget-exhausted' }
-    if (wantUsd > 0 && (!usdCapped || wantUsd > freeUsd)) {
-      return { ok: false, reason: 'budget-exhausted' }
-    }
+    // A dollar request against a root that declared no dollar ceiling can never be satisfied at
+    // ANY amount, which is a different fact from an exhausted balance and calls for a different
+    // fix: budget the root, do not retry smaller. Reporting both as `budget-exhausted` invites a
+    // caller to shrink its request forever — observed live, a driver walked its child budget down
+    // to $0.01 and spent 68k tokens before asking for help.
+    if (wantUsd > 0 && !usdCapped) return { ok: false, reason: 'usd-unbudgeted' }
+    if (wantUsd > freeUsd) return { ok: false, reason: 'budget-exhausted' }
 
     freeTokens -= wantTokens
     reservedTokens += wantTokens
@@ -180,7 +239,15 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     open.add(id)
     return {
       ok: true,
-      ticket: { id, reserved: { tokens: wantTokens, usd: wantUsd, iterations: wantIterations } },
+      ticket: {
+        id,
+        reserved: {
+          tokens: wantTokens,
+          usd: wantUsd,
+          iterations: wantIterations,
+          usdBudgeted: b.maxUsd !== undefined,
+        },
+      },
     }
   }
 
@@ -188,38 +255,49 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     if (!open.has(ticket.id)) {
       throw new Error(`budget pool: reconcile of unknown or already-settled ticket ${ticket.id}`)
     }
-    open.delete(ticket.id)
-
     const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
-    if (usdCapped && spent.usdKnown === false) {
-      throw new Error(
-        `budget pool: ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`,
-      )
+    const unknownUnderCap = usdCapped && spent.usdKnown === false
+    const spentTokens = totalTokens(spent.tokens)
+    // A child whose `Budget` named no `maxUsd` reserved NO dollar allocation, so it has no
+    // dollar ceiling to exceed: under a capped root its real dollars are OBSERVED spend, and
+    // the settlement below commits them and debits them from `free` (the same treatment
+    // `observe` gives driver inference). Only a child that DECLARED a ceiling can overspend
+    // one. Conflating the two made a successful priced child fail its own reconcile.
+    const usdBudgeted = ticket.reserved.usdBudgeted !== false
+
+    // Fail-loud conditions are DECIDED here and thrown at the very END, after the reservation
+    // has been settled. A throw placed before settlement is how a ticket escapes the pool:
+    // `Scope.runChild` marks the child reconciled before calling, so nothing retries, the
+    // ticket stays open forever, and `assertNoOpenTickets` fails the whole run at the join
+    // barrier — on the SUCCESS path. Everything between here and the throw is unconditional
+    // pure arithmetic that cannot skip the settlement.
+    let violation: string | undefined
+    if (spentTokens > rTokens) {
+      // A child must never commit more than it reserved (that would overdraw the conserved
+      // pool). The settlement still commits the ACTUAL spend and lets `free` go negative,
+      // which keeps `total ≡ free + reserved + committed` exact and reports the overdraw
+      // through the readout instead of stranding the reservation.
+      violation = `ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`
+    } else if (spent.iterations > rIterations) {
+      violation = `ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`
+    } else if (usdCapped && usdBudgeted && spent.usd > rUsd) {
+      // USD is conserved ONLY when the root declared a ceiling AND the child declared one to
+      // be measured against. `maxUsd` is optional on both: when either is unset, usd is an
+      // OBSERVED quantity (committed for accounting), never a budgeted constraint — an unset
+      // ceiling must not behave as a hard $0 limit that fail-closes a real priced spend.
+      violation = `ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`
+    } else if (unknownUnderCap) {
+      // The known channels still settle, then the dollar channel is permanently tainted and
+      // admission closes.
+      violation = `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
     }
 
-    // Clamp actual spend to the reservation: a child must never commit more than it
-    // reserved (that would overdraw the conserved pool). Over-spend is a fail-loud bug.
-    const spentTokens = totalTokens(spent.tokens)
-    if (spentTokens > rTokens) {
-      throw new Error(
-        `budget pool: ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`,
-      )
-    }
-    if (spent.iterations > rIterations) {
-      throw new Error(
-        `budget pool: ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`,
-      )
-    }
-    // USD is conserved ONLY when the root declared a ceiling. `maxUsd` is optional: when no
-    // root ceiling exists, usd is an OBSERVED quantity (committed for accounting), never a
-    // budgeted constraint — so an unset ceiling must not behave as a hard $0 limit that
-    // fail-closes a real priced spend. The over-spend clamp applies only to a capped pool.
-    if (usdCapped && spent.usd > rUsd) {
-      throw new Error(`budget pool: ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`)
-    }
+    // ── Settlement: unconditional, and the only place the ticket closes ───────────────
+    open.delete(ticket.id)
 
     // Release the whole reservation, then commit actual spend; the difference is the
     // refund that flows back to `free`.
+    if (spent.tokensKnown === false) tokensTainted = true
     reservedTokens -= rTokens
     committedTokens += spentTokens
     freeTokens += rTokens - spentTokens
@@ -228,15 +306,24 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     committedIterations += spent.iterations
     freeIterations += rIterations - spent.iterations
 
-    if (usdCapped && rUsd > 0) {
+    if (usdCapped) {
       reservedUsd -= rUsd
       committedUsd += spent.usd
-      freeUsd += rUsd - spent.usd
+      if (unknownUnderCap) {
+        usdTainted = true
+        freeUsd = 0
+      } else {
+        // `rUsd` is 0 for a child that declared no ceiling, so this debits its observed
+        // dollars straight out of the capped root's free balance — the root's `usdLeft`
+        // shrinks by what the child really spent and admission closes when it runs out.
+        freeUsd += rUsd - spent.usd
+      }
     } else {
-      // Uncapped (or a zero-ceiling child under a capped root): record the observed spend
-      // without touching the reservation channel — usd is accounted, not conserved here.
+      // With no root dollar limit, record observed spend without a reservation channel.
       committedUsd += spent.usd
     }
+
+    if (violation !== undefined) throw new Error(`budget pool: ${violation}`)
   }
 
   function observe(spend: Spend): void {
@@ -245,6 +332,10 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
         'budget pool: cannot observe unknown dollar cost under a dollar-capped budget',
       )
     }
+    // Work whose token count was never reported still debits what IS known (usually nothing) and
+    // marks the balance incomplete. The alternative — refusing to record it — is the "free turn"
+    // the pool must never see.
+    if (spend.tokensKnown === false) tokensTainted = true
     const tokens = totalTokens(spend.tokens)
     // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
     // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
@@ -261,7 +352,8 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   function readout(): BudgetReadout {
     return {
       tokensLeft: freeTokens,
-      usdLeft: usdCapped ? freeUsd : 0,
+      tokensKnown: !tokensTainted,
+      usdLeft: usdCapped ? (usdTainted ? 0 : freeUsd) : 0,
       usdCapped,
       deadlineMs: absoluteDeadlineMs,
       reservedTokens,

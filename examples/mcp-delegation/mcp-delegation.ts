@@ -3,13 +3,22 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type AgentProfileMcpServer,
+  defineAgentProfilePublicConfig,
+  defineAgentProfileSecretRef,
+} from '@tangle-network/agent-interface'
 
 // ── 1. PROFILE ───────────────────────────────────────────────────────────
 //
 // The MCP entry a product mounts into its AgentProfile. `npx -y` resolves
 // the `agent-runtime-mcp` bin from the installed package; `env` is the
-// child-process env the bin reads at startup.
+// child-process env the bin reads at startup. Interface >=0.40 env entries are
+// AgentProfileConfigValue objects: public strings are wrapped explicitly, and
+// the API key rides as a secret-REF by name — the runtime's KeyProvider
+// resolves the value at materialize time, so plaintext never enters the
+// profile (which is logged, diffed, and digested).
 const DELEGATION_MCP_SERVER_KEY = 'agent-runtime-delegation'
 
 function buildDelegationMcpEntry(opts: {
@@ -20,13 +29,15 @@ function buildDelegationMcpEntry(opts: {
     [DELEGATION_MCP_SERVER_KEY]: {
       transport: 'stdio',
       command: 'npx',
-      args: ['-y', '@tangle-network/agent-runtime', 'mcp'],
+      args: ['-y', '@tangle-network/agent-runtime', 'mcp'].map(defineAgentProfilePublicConfig),
       env: {
-        TANGLE_API_KEY: opts.sandboxApiKey,
-        SANDBOX_BASE_URL: opts.sandboxBaseUrl ?? 'https://sandbox.tangle.tools',
+        TANGLE_API_KEY: defineAgentProfileSecretRef('TANGLE_API_KEY'),
+        SANDBOX_BASE_URL: defineAgentProfilePublicConfig(
+          opts.sandboxBaseUrl ?? 'https://sandbox.tangle.tools',
+        ),
         // Opt into the ONE generic `delegate` verb (a supervisor that authors + drives its own
         // worker and returns the delivered output with its cost). It needs a real sandbox key.
-        ...(opts.sandboxApiKey ? { MCP_ENABLE_DELEGATE: '1' } : {}),
+        ...(opts.sandboxApiKey ? { MCP_ENABLE_DELEGATE: defineAgentProfilePublicConfig('1') } : {}),
       },
       enabled: true,
       metadata: {

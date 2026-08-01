@@ -145,7 +145,7 @@ persona ordering is preserved.
 
 ##### analystKinds
 
-> **analystKinds**: readonly `TraceAnalystKindSpec`[]
+> **analystKinds**: readonly `TraceAnalystDefinition`[]
 
 Analyst kinds the substrate runs against each persona's trace.
 Defaults to `DEFAULT_TRACE_ANALYST_KINDS` from agent-eval. Per-agent
@@ -1096,7 +1096,7 @@ the loop produces 20 minutes later).
 
 ### KnownAgentProfileMaterializationAxis
 
-> **KnownAgentProfileMaterializationAxis** = *typeof* [`AGENT_PROFILE_MATERIALIZATION_AXES`](#agent_profile_materialization_axes)\[`number`\]
+> **KnownAgentProfileMaterializationAxis** = `CanonicalAgentProfileMaterializationAxis`
 
 ***
 
@@ -1108,19 +1108,17 @@ AgentProfile axis name, with `custom:<name>` reserved for caller-owned extension
 
 ## Variables
 
-### AGENT\_PROFILE\_MATERIALIZATION\_AXES
-
-> `const` **AGENT\_PROFILE\_MATERIALIZATION\_AXES**: readonly \[`"identity"`, `"name"`, `"model"`, `"prompt"`, `"systemPrompt"`, `"instructions"`, `"resources"`, `"files"`, `"resourceInstructions"`, `"skills"`, `"resourceTools"`, `"resourceAgents"`, `"commands"`, `"tools"`, `"permissions"`, `"mcp"`, `"mcpConnections"`, `"connections"`, `"subagents"`, `"hooks"`, `"modes"`, `"confidential"`, `"metadata"`, `"extensions"`\]
-
-Known AgentProfile axes a run path may or may not carry into execution.
-
-***
-
 ### sandboxActProfileMaterialization
 
 > `const` **sandboxActProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Materialization contract for `createSandboxAct`, which forwards the full AgentProfile.
+Materialization contract for `createSandboxAct`.
+
+`createSandboxAct` hands the whole `AgentProfile` to the sandbox as `backend.profile`, so every
+profile leaf crosses the boundary. `buildBackendOptions` resolves the runner from an explicit
+`sandboxOverrides.backend.type`, then `profile.metadata.backendType`, then `profile.harness`,
+so a candidate that changes only `harness` runs on the harness it declares — and one declaring
+a harness the sandbox cannot run throws rather than running elsewhere and reporting success.
 
 ***
 
@@ -1137,6 +1135,9 @@ Materialization contract for a run path that only injects prompt text.
 > `const` **promptResourceProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
 Materialization contract for a run path that injects prompt text plus inline resources.
+
+`resourceFailOnError` is absent: it is a resolution POLICY the attaching path would have to
+enforce, and inlining resource content does not carry it.
 
 ## Functions
 

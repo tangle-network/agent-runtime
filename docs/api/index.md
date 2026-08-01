@@ -1927,7 +1927,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### reasoningEffort
 
-`ReasoningEffort` \| `undefined`
+`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -2233,7 +2233,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### reasoningEffort
 
-`ReasoningEffort` \| `undefined`
+`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -4481,7 +4481,7 @@ One-based shot number within this candidate.
 
 ##### reasoningEffort
 
-> `readonly` **reasoningEffort**: `ReasoningEffort` \| `null`
+> `readonly` **reasoningEffort**: `"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `null`
 
 ##### promptSha256
 
@@ -7952,7 +7952,7 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 ***
 
@@ -8264,6 +8264,16 @@ Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and 
 
 > **tokens**: [`LoopTokenUsage`](runtime.md#looptokenusage)
 
+##### tokensKnown?
+
+> `optional` **tokensKnown?**: `boolean`
+
+Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
+ an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
+ not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
+ turn whose provider reported no usage is recorded with this flag rather than omitted, because
+ omitting it makes the turn look free.
+
 ##### usdKnown?
 
 > `optional` **usdKnown?**: `boolean`
@@ -8325,7 +8335,7 @@ The live tree — reads the in-memory nursery, not the journal.
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; `tokensKnown?`: `boolean`; \}\>
 
 Conserved-pool readouts (post-reservation).
 
@@ -11265,7 +11275,7 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -11325,11 +11335,17 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
+\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \}
 
 ###### kind
 
 > **kind**: `"no-winner"`
+
+The LIFECYCLE no-winner arms: the supervisor itself proved why nothing was delivered, so
+the reason is complete on its own and there is no driver rejection to hand back. A tripped
+breaker or a real `down` child is `all-children-down`, a cascaded abort is `aborted`, an
+empty pool is `budget-exhausted`. These outrank `driver-failed`: when the driver threw
+BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the explanation.
 
 ###### reason
 
@@ -11350,6 +11366,56 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 The conserved spend incurred before the run failed — real cost is paid even when no
  worker delivers, so the caller always learns what the delegation actually spent. Summed
  off the same journal the `winner` path reads.
+
+###### error?
+
+> `optional` **error?**: `never`
+
+Never present on a lifecycle arm — the discriminant, not prose, is what makes
+ `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+
+###### kind
+
+> **kind**: `"no-winner"`
+
+The DRIVER-FAULT arm: `act()` rejected, no child ever went down, and no lifecycle cause
+(breaker/abort/budget) outranks it — so nothing about the tree explains the failure and the
+driver's own rejection is the only thing that does. It is therefore REQUIRED here.
+`all-children-down` with `downCount: 0` used to be indistinguishable from an honest empty
+result; this arm is that configuration/authoring fault, named.
+
+###### reason
+
+> **reason**: `"driver-failed"`
+
+###### tree
+
+> **tree**: [`TreeView`](runtime.md#treeview)
+
+###### downCount
+
+> **downCount**: `number`
+
+###### spentTotal
+
+> **spentTotal**: [`Spend`](#spend)
+
+The conserved spend incurred before the run failed — real cost is paid even when no
+ worker delivers, so the caller always learns what the delegation actually spent. Summed
+ off the same journal the `winner` path reads.
+
+###### error
+
+> **error**: [`NoWinnerError`](runtime.md#nowinnererror)
+
+The driver's own rejection, carried across the typed no-winner boundary so the failure is
+ recoverable by the caller. A non-`Error` rejection is normalized, never dropped.
 
 ***
 
@@ -13988,6 +14054,41 @@ readonly `object`[]
 #### Returns
 
 [`LoopSpanNode`](#loopspannode)[]
+
+***
+
+### toOtelAttributes()
+
+> **toOtelAttributes**(`record`): [`OtelAttribute`](#otelattribute)[]
+
+Convert a flat record into the OTLP attribute list. Non-finite numbers are DROPPED (an OTLP
+`doubleValue` of `NaN`/`Infinity` is not representable), integers ride as `intValue`. Exported so
+a producer that mints its own `OtelSpan` (the supervisor span recorder) builds attributes exactly
+the way every span in this file does, rather than re-deriving the encoding.
+
+#### Parameters
+
+##### record
+
+`Record`\<`string`, `string` \| `number` \| `boolean`\>
+
+#### Returns
+
+[`OtelAttribute`](#otelattribute)[]
+
+***
+
+### generateSpanId()
+
+> **generateSpanId**(): `string`
+
+Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must know a span's id
+ BEFORE the span closes (a node opened at spawn and parented by its children) uses this one
+ generator instead of a second copy of it.
+
+#### Returns
+
+`string`
 
 ***
 

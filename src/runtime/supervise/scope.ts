@@ -74,6 +74,7 @@ import {
   type WaitRejection,
   type WaitSpec,
 } from './wait'
+import { type WorkerTraceResolver, workerTraceSeamKey } from './worker-trace'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
  *  blob store, and executor registry through; `depth`/`maxDepth` pair the runtime
@@ -110,6 +111,13 @@ export interface ScopeArgs {
    *  SAME stream `runAgentRounds`/`tool-loop` feed, so the recursive tree is ONE observable stream
    *  (the topology viewer reads it). Undefined ⇒ the journal stays the only record. */
   readonly hooks?: RuntimeHooks
+  /**
+   * Trace context to hand down to each spawned worker (`SupervisorOpts.workerTrace`). Called with
+   * THIS scope's own `parentId` — the node doing the spawning — and the resolved context is seeded
+   * onto each child's `ExecutorContext` under `workerTraceSeamKey`. Absent (the untraced default)
+   * ⇒ no seam is seeded and no worker environment is touched.
+   */
+  readonly workerTrace?: WorkerTraceResolver
   /**
    * Resume seam — set ONLY by the supervisor when `SupervisorOpts.resume` is on AND a non-empty
    * journal tree exists for this root. It carries the replayed committed work (so `scope.resume`
@@ -252,6 +260,9 @@ function makeNestedScopeSeam(args: ScopeArgs, childNodeId: NodeId): NestedScopeS
         signal,
         ...(args.now ? { now: args.now } : {}),
         ...(args.hooks ? { hooks: args.hooks } : {}),
+        // The nested scope resolves the trace context against ITS OWN `parentId` (this driver
+        // child), so a grandchild worker joins under the middle node's span, not the run root's.
+        ...(args.workerTrace ? { workerTrace: args.workerTrace } : {}),
       })
     },
   }
@@ -395,9 +406,18 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // executor ignores it; the parent's sandbox/router seams still pass through for leaves.
       // The mounted nested scope re-seeds the SAME bag for ITS children, so the recursion
       // composes — a driver child of a driver child mounts one level deeper still.
+      // Resolved per spawn, not once per scope: the span of the spawning node is opened by the
+      // `agent.spawn` hook, so reading it lazily needs no assumption about hook ordering. Absent
+      // resolver (the untraced default) ⇒ no seam, and the child's `ExecutorContext` is exactly
+      // the object it was before worker trace propagation existed.
+      const workerTrace = args.workerTrace?.(args.parentId)
       const ctx: ExecutorContext = {
         signal: childAbort.signal,
-        seams: { ...args.seams, [nestedScopeSeamKey]: makeNestedScopeSeam(args, id) },
+        seams: {
+          ...args.seams,
+          [nestedScopeSeamKey]: makeNestedScopeSeam(args, id),
+          ...(workerTrace ? { [workerTraceSeamKey]: workerTrace } : {}),
+        },
       }
       const executor = resolved.value(spec, ctx) as Executor<C>
 
@@ -719,7 +739,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         lastActivityAt: child.lastActivityAt,
         turns: child.spent.iterations,
         tokens: child.spent.tokens,
+        ...(child.spent.tokensKnown === false ? { tokensKnown: false } : {}),
         usd: child.spent.usd,
+        ...(child.spent.usdKnown === false ? { usdKnown: false } : {}),
       },
       fromExecutor,
       opts.now ?? now(),
@@ -1171,6 +1193,7 @@ async function foldStream(
 ): Promise<Spend> {
   const tokens = { input: 0, output: 0 }
   let usd = 0
+  let usdKnown = true
   let iterations = 0
   for await (const ev of stream) {
     if (ev.kind === 'tokens') {
@@ -1178,12 +1201,25 @@ async function foldStream(
       tokens.output += ev.output
     } else if (ev.kind === 'cost') {
       usd += ev.usd
+      if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
     }
-    onProgress?.({ iterations, tokens: { ...tokens }, usd, ms: 0 })
+    onProgress?.({
+      iterations,
+      tokens: { ...tokens },
+      usd,
+      ...(usdKnown ? {} : { usdKnown: false }),
+      ms: 0,
+    })
   }
-  return { iterations, tokens, usd, ms: 0 }
+  return {
+    iterations,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: 0,
+  }
 }
 
 /** Clamp a child's reported spend to its reservation so the pool's fail-loud over-spend
@@ -1206,6 +1242,7 @@ function clampSpend(spend: Spend, budget: Budget): Spend {
           }
         : spend.tokens,
     usd: budget.maxUsd === undefined ? spend.usd : Math.min(spend.usd, budget.maxUsd),
+    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
     ms: spend.ms,
   }

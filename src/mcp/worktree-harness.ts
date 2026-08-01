@@ -26,7 +26,11 @@ import {
   applyWorkspacePlan,
   type HarnessId,
   materializeProfile,
+  type ResolveAgentProfileResourcesOptions,
+  resolveAgentProfileResources,
   type WorkspacePlan,
+  type WorkspacePlanArgument,
+  type WorkspacePlanConfigValue,
   type WorkspacePlanReceipt,
 } from '@tangle-network/agent-profile-materialize'
 import {
@@ -172,6 +176,8 @@ export interface RunWorktreeHarnessOptions {
   checkOutputCap?: number
   /** Abort signal — linked into the harness subprocess and the check commands. */
   signal?: AbortSignal
+  /** Resource fetch options. GitHub-backed profile resources resolve before worker launch. */
+  resourceResolution?: ResolveAgentProfileResourcesOptions
   /** Test seam — inject a git runner so unit tests drive the worktree helpers without git. */
   runGit?: GitRunner
   /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
@@ -194,6 +200,27 @@ const defaultCheckOutputCap = 16_000
 
 function materializerHarness(harness: LocalHarness): HarnessId {
   return harness === 'claude' ? 'claude-code' : harness
+}
+
+/** This harness runs public plans only — it has no secret provider, so any
+ *  templated argument or secret-ref env value is refused rather than leaked
+ *  or silently stringified. */
+function publicPlanString(value: WorkspacePlanArgument | WorkspacePlanConfigValue): string {
+  if (typeof value === 'string') return value
+  throw new Error(
+    'runWorktreeHarness: plan value requires a secret provider; this harness applies public plans only',
+  )
+}
+
+function resolvePublicPlanEnv(
+  env: Record<string, WorkspacePlanConfigValue | undefined>,
+): Record<string, string> {
+  const resolved: Record<string, string> = {}
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) continue
+    resolved[name] = publicPlanString(value)
+  }
+  return resolved
 }
 
 /**
@@ -226,8 +253,13 @@ export async function runWorktreeHarness(
   try {
     assertSupportedWorktreeProfile(opts.profile, opts.harness)
     assertSafeProfileResourcePaths(opts.profile)
-    const resourceInstructions = resolveResourceInstructions(opts.profile)
-    const workspaceProfile = materializationOnlyProfile(opts.profile)
+    const profile = await resolveAgentProfileResources(
+      opts.profile,
+      resourceResolutionOptions(opts.resourceResolution, opts.signal),
+    )
+    opts.signal?.throwIfAborted()
+    const resourceInstructions = resolveResourceInstructions(profile)
+    const workspaceProfile = materializationOnlyProfile(profile)
     const plan = materializeProfile(workspaceProfile, materializerHarness(opts.harness))
     if (plan.unsupported.length > 0) {
       throw new Error(
@@ -245,7 +277,7 @@ export async function runWorktreeHarness(
     // §1.5: the authored prompt + model reach the harness directly. Resource instructions use
     // the same explicit channel because reproducible Codex deliberately disables native project
     // instructions; the workspace projection therefore omits both prompt sources.
-    const invocationProfile = profileWithResourceInstructions(opts.profile, resourceInstructions)
+    const invocationProfile = profileWithResourceInstructions(profile, resourceInstructions)
     const { command, args } = harnessInvocation(opts.harness, invocationProfile, opts.taskPrompt, {
       // This helper created the candidate worktree above; autonomous Claude
       // edits are permitted only inside that isolated checkout.
@@ -256,8 +288,8 @@ export async function runWorktreeHarness(
       harness: opts.harness,
       cwd: worktree.path,
       taskPrompt: opts.taskPrompt,
-      invocation: { command, args: [...args, ...applied.flags] },
-      env: { ...process.env, ...applied.env },
+      invocation: { command, args: [...args, ...applied.flags.map(publicPlanString)] },
+      env: { ...process.env, ...resolvePublicPlanEnv(applied.env) },
       ...(opts.codexReproducible ? { codexReproducible: true } : {}),
       ...(opts.codexReadDeniedPaths ? { codexReadDeniedPaths: opts.codexReadDeniedPaths } : {}),
       ...(opts.harnessTimeoutMs !== undefined ? { timeoutMs: opts.harnessTimeoutMs } : {}),
@@ -332,6 +364,25 @@ export async function runWorktreeHarness(
       )
     }
     throw err
+  }
+}
+
+function resourceResolutionOptions(
+  options: ResolveAgentProfileResourcesOptions | undefined,
+  signal: AbortSignal | undefined,
+): ResolveAgentProfileResourcesOptions | undefined {
+  if (!signal) return options
+  const fetchResource = options?.fetch ?? globalThis.fetch
+  return {
+    ...options,
+    fetch: (input, init) => {
+      signal.throwIfAborted()
+      const requestSignal = init?.signal
+      return fetchResource(input, {
+        ...init,
+        signal: requestSignal ? AbortSignal.any([signal, requestSignal]) : signal,
+      })
+    },
   }
 }
 
@@ -480,7 +531,7 @@ function profileMaterializationReceipt(
     writtenPaths: [...applied.written],
     unsupported: [...applied.unsupported],
     environmentNames: Object.keys(applied.env).sort(),
-    flags: [...applied.flags],
+    flags: applied.flags.map(publicPlanString),
     resourceInstructions: instructionBytes
       ? {
           delivery: 'invocation-prompt',

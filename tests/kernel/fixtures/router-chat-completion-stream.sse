@@ -1,0 +1,10 @@
+data: {"id":"202608010114","object":"chat.completion.chunk","model":"glm-5.2","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"The user wants"}}]}
+
+data: {"id":"202608010114","object":"chat.completion.chunk","model":"glm-5.2","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":" me to calculate."}}]}
+
+data: {"id":"202608010114","object":"chat.completion.chunk","model":"glm-5.2","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_83f2da0d","index":0,"type":"function","function":{"name":"calc","arguments":"{\"expr\":\"21*2\"}"}}]}}]}
+
+data: {"id":"202608010114","object":"chat.completion.chunk","model":"glm-5.2","choices":[{"index":0,"finish_reason":"tool_calls","delta":{"role":"assistant","content":""}}],"usage":{"prompt_tokens":162,"completion_tokens":28,"total_tokens":190,"completion_tokens_details":{"reasoning_tokens":15}}}
+
+data: [DONE]
+

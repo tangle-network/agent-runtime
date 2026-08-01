@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.109.2.**
+> **Version 0.116.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.135.2 <0.136.0`.
+> `agent-eval` must satisfy `>=0.139.2 <0.140.0`.
 > `sandbox` must satisfy `>=0.15.0 <0.16.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.36.0 <0.37.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.40.0 <0.41.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -44,6 +44,32 @@ It is separate from `runToolLoop` and `streamToolLoop` in `/tool-loop`, which ru
 
 An `AgentProfile` contains the agent's system prompt, skills, tools, MCP servers, subagents, hooks, permissions, memory, retrieval configuration, and model settings.
 Skills remain separate resources that the runtime can invoke; do not concatenate them into the system prompt.
+Package-owned skills can remain in their source repository.
+Reference the skill by an immutable commit and Runtime resolves it before a worktree worker starts:
+
+```ts
+import { defineGitHubResource, type AgentProfile } from '@tangle-network/agent-interface'
+
+const tracesSkillsRef = process.env.TRACES_SKILLS_REF
+if (!tracesSkillsRef) throw new Error('TRACES_SKILLS_REF must be an immutable commit')
+
+const profile: AgentProfile = {
+  name: 'trace-reviewer',
+  resources: {
+    failOnError: true,
+    skills: [
+      defineGitHubResource('skills/inspect-agent-traces/SKILL.md', {
+        repository: 'tangle-network/traces',
+        ref: tracesSkillsRef,
+        name: 'inspect-agent-traces',
+      }),
+    ],
+  },
+}
+```
+
+The shared materializer normalizes the fetched markdown and mounts it in the selected agent's native skill directory.
+The original profile remains unchanged, and the exact mounted bytes are covered by the materialization receipt.
 
 **You change an agent's behavior by changing its PROFILE: never by writing orchestration code around it.** The behaviors we keep hand-rolling are profile properties:
 - **Self-verification** is a profile lever, three ways, all configuration and zero glue code: (1) *steered*: the prompt says "run the tests, read failures, fix, repeat"; (2) *process-defined*: its instructions make verify-after-every-change its standing process; or (3) a **post-finish hook** that auto-runs the check and feeds failures back. The harness runs that loop. **You do not write a per-round judge, a `while(!done)`, or a bash hill-climb.**
@@ -81,6 +107,9 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Run a supervisor toward a goal with default setup | `supervise(profile, task, { budget, backend? })`: `/kernel` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for lower-level calls before you need a specific counterparty |
 | **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })`: `/kernel` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |
 | Run a profile through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })`: `/kernel` | a hand-rolled `createSupervisor().run` + seam-wiring helper |
+| Address a supervisor run's durable state on disk, or steer a live worker from another process | `supervisorRunsRoot(root)` / `supervisorRunDir(root, id)` / `writeWorkerSteer(...)` / `readWorkerSteerRequests(...)`: `/kernel` — the `<root>/.agent/supervisor/<id>` contract `traces analyze --supervisor-run-dir` reads (`legacySupervisorRunDir` names the pre-rename `.loops` location for readers only) | inventing a run-dir layout, joining `.agent/supervisor` by hand, or writing a steer file whose shape no published reader knows |
+| Give a worker's clone the source workspace's untracked build artifacts | `withUntrackedArtifacts(ws, sourceDir)` wrapping the `Workspace`: `/kernel` | a post-materialize `cp -r`, a hardlink farm, or accepting that a bare `git clone` cannot build |
+| Expose what a settled worker shows the brain (failing verify tail + diff head + note, bounded) | `composeWorkerEvidence(...)` + `settledWorkerOut(...)` + `closingWorkerNote(...)`: `/kernel` | re-rolling truncation caps per consumer, or settling with bare counters the brain cannot act on |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape`: `/kernel` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |
 | Run a worker agent under test conversing with a **simulated-user persona**, K rounds, worker-only metered | `runPersonaConversation({ worker, persona, backendFor, systemPromptOf })`: root `.` (also `/kernel`) | a hand-rolled per-agent `dispatchWithSurface` bridge / eval-dispatch loop |
 | Run **two `AgentProfile`s head-to-head** with a separate resumable session for each actor | `runConversation(...)` from root `.` | a hand-rolled two-agent turn loop |
@@ -124,6 +153,8 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Render a **multi-profile × multi-axis benchmark leaderboard** (ranked board + score matrix + SVG/HTML charts) from an EXISTING fleet of matrix runs | `leaderboard(records)` + `renderLeaderboardMarkdown` / `renderLeaderboardSvg` / `renderLeaderboardHtml`: `/kernel` (feed it `runProfileMatrix().records`, any domain; `defineLeaderboard` calls these for you) | a per-benchmark report/chart renderer; hand-rolled SVG/markdown tables; a curated subset of axes |
 | Attach N observers to a running loop | `composeRuntimeHooks(...)`: root export | a second event-bus or callback-prop zoo (there is ONE stream) |
 | Ship traces to an OTLP collector | `createOtelExporter()` + `buildLoopOtelSpans()`: root export | your own OTLP serializer or pulling the OTEL SDK |
+| See a **supervised tree** in a trace viewer (one span per node, opened at spawn, closed at settle, parented to its parent node; driver turns as LLM child spans) | `supervise(profile, task, { otel: { exporter } })`, or `createSupervisorSpanRecorder({ runId, … }).hooks` on `SupervisorOpts.hooks`: `/kernel` — OPT-IN, and omitting `otel` installs no hook at all | parsing the spawn journal to reconstruct the tree; a second exporter; routing replay/resume through telemetry (the journal stays the only durable record) |
+| Run an ordered analyst pass where later analysts use findings from earlier analysts | `runAnalystLoop({ chainFindings: true })`: `/analyst-loop`; registration order defines the dependency order, while omission keeps analysts independent | manually invoke each analyst and pipe findings between calls |
 | Know **what got mounted into a run** / **why a candidate won** | `result.provenance.mounts` / `result.provenance.selectionReceipts` (`MountManifestEntry`/`SelectionReceipt`/`RunProvenance`); declare mounts via the `recordMount` recorder in `prepareBox`: root export | re-reading box contents to reconstruct what was mounted, or re-deriving which candidate the selector picked |
 | State any benchmark/A-B claim | `pairedLift(...)` (bench) over `pairedBootstrap`/`heldoutSignificance` (substrate) | your own bootstrap loop/PRNG per gate; a point lift without `low/high/pairs` |
 | Let an agent **delegate ONE generic INTENT** (no fixed coder/researcher type) and get the result + real spend SYNCHRONOUSLY | the **`delegate` tool**: `createDelegateHandler` via `createMcpServer({ delegateSupervisor })`; mount it over the `agent-runtime mcp` bin with `MCP_ENABLE_DELEGATE=1` (the bin authors a supervisor over a `sandbox` backend): `/mcp` | a hardcoded coder/researcher profile, or task-specific `delegate_code`/`delegate_research` verbs (RETIRED): `delegate` is the ONE delegation path and the only one with a cost channel |

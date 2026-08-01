@@ -24,8 +24,11 @@ import type { ToolPart, ToolState } from '@tangle-network/agent-interface'
 export interface ToolStepInput {
   readonly toolName: string
   readonly args: unknown
+  /** False when the call was observed but its original arguments were unavailable. */
+  readonly argsCaptured?: boolean
   readonly status?: 'ok' | 'error'
   readonly result?: unknown
+  readonly error?: string
   /** Stable id of the tool call — used to de-duplicate the repeated state transitions a harness
    *  streams for one call (opencode emits pending→running→completed, plus a `raw`-wrapped copy). */
   readonly callId?: string
@@ -56,7 +59,9 @@ export function toToolSpan(input: ToolStepInput, runId: string, seq: number, at:
     name: input.toolName,
     toolName: input.toolName,
     args: input.args,
+    ...(input.argsCaptured === false ? { argsCaptured: false } : {}),
     status: input.status ?? 'ok',
+    ...(input.error !== undefined ? { error: input.error } : {}),
     startedAt,
     endedAt,
     ...(input.result !== undefined ? { result: input.result } : {}),

@@ -135,7 +135,7 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
       resourceSpans: [
         {
           resource: {
-            attributes: toAttributes({
+            attributes: toOtelAttributes({
               'service.name': serviceName,
               ...resourceAttrs,
             }),
@@ -191,7 +191,7 @@ export function loopEventToOtelSpan(
     kind: 1,
     startTimeUnixNano: ts,
     endTimeUnixNano: ts,
-    attributes: toAttributes(attrs),
+    attributes: toOtelAttributes(attrs),
     status: { code: 1 },
   }
 }
@@ -222,7 +222,7 @@ export function flatOtelSpan(
     kind: 1,
     startTimeUnixNano: start,
     endTimeUnixNano: end,
-    attributes: toAttributes(attributes),
+    attributes: toOtelAttributes(attributes),
     status: { code: 1 },
   }
 }
@@ -379,7 +379,7 @@ export function buildLoopOtelSpans(
     kind: 1,
     startTimeUnixNano: msToNs(node.startMs),
     endTimeUnixNano: msToNs(node.endMs),
-    attributes: toAttributes(node.attrs),
+    attributes: toOtelAttributes(node.attrs),
     status: { code: node.error ? 2 : 1 },
   }))
 }
@@ -605,7 +605,15 @@ function parseHeadersFromEnv(): Record<string, string> {
   return out
 }
 
-function toAttributes(record: Record<string, string | number | boolean>): OtelAttribute[] {
+/**
+ * Convert a flat record into the OTLP attribute list. Non-finite numbers are DROPPED (an OTLP
+ * `doubleValue` of `NaN`/`Infinity` is not representable), integers ride as `intValue`. Exported so
+ * a producer that mints its own `OtelSpan` (the supervisor span recorder) builds attributes exactly
+ * the way every span in this file does, rather than re-deriving the encoding.
+ */
+export function toOtelAttributes(
+  record: Record<string, string | number | boolean>,
+): OtelAttribute[] {
   return Object.entries(record).flatMap(([key, value]) => {
     if (typeof value === 'number' && !Number.isFinite(value)) return []
     return [
@@ -639,7 +647,10 @@ function padTraceId(id: string): string {
   return cleaned.slice(0, 32).padEnd(32, '0')
 }
 
-function generateSpanId(): string {
+/** Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must know a span's id
+ *  BEFORE the span closes (a node opened at spawn and parented by its children) uses this one
+ *  generator instead of a second copy of it. */
+export function generateSpanId(): string {
   const bytes = new Uint8Array(8)
   if (typeof globalThis.crypto?.getRandomValues === 'function') {
     globalThis.crypto.getRandomValues(bytes)

@@ -186,6 +186,15 @@ the most recent run in the store (excluding `runId` itself); pass
 
 Strategy for forwarding prior findings into `ctx.priorFindings`.
 
+##### chainFindings?
+
+> `optional` **chainFindings?**: `boolean`
+
+Pass findings produced earlier in this registry run to each later analyst
+through `ctx.upstreamFindings`.
+Registration order becomes dependency order when enabled.
+Disabled by default so independent analyst suites keep their current behavior.
+
 ##### knowledgeProposalSource?
 
 > `optional` **knowledgeProposalSource?**: [`KnowledgeProposalSource`](#knowledgeproposalsource)\<`unknown`\>
@@ -419,6 +428,10 @@ readonly `object`[]
 
 readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
 
+###### chainFindings?
+
+`boolean`
+
 ###### Returns
 
 `Promise`\<`AnalystRunResult`\>
@@ -520,6 +533,10 @@ readonly `object`[]
 
 readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
 
+###### chainFindings?
+
+`boolean`
+
 ###### Returns
 
 `Promise`\<`AnalystRunResult`\>
@@ -547,6 +564,10 @@ readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
 ###### priorFindings?
 
 readonly `AnalystFinding`[] \| `Record`\<`string`, readonly `AnalystFinding`[]\>
+
+###### chainFindings?
+
+`boolean`
 
 ###### Returns
 
