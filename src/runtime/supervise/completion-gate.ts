@@ -59,6 +59,22 @@ export function gateOnDeliverable<Out>(
     return { valid: delivered, score: baseScore ?? (delivered ? 1 : 0) }
   }
 
+  /**
+   * Ask the delivery question once, from whatever the inner executor managed to produce.
+   *
+   * Fail-closed on the artifact being unavailable: an executor that never produced one delivered
+   * nothing, and leaving `gated` unset keeps the existing invalid-by-default reading.
+   */
+  const settleVerdict = async (): Promise<void> => {
+    let art: ReturnType<Executor<Out>['resultArtifact']>
+    try {
+      art = inner.resultArtifact()
+    } catch {
+      return
+    }
+    gated = await check(art.out, art.verdict?.score)
+  }
+
   const wrapped: Executor<Out> = {
     runtime: inner.runtime,
     ...(inner.budgetExempt !== undefined ? { budgetExempt: inner.budgetExempt } : {}),
@@ -80,14 +96,38 @@ export function gateOnDeliverable<Out>(
         // Streaming: pass the usage events through (the conserved-pool fold consumes them),
         // then gate the verdict from the settled artifact.
         return (async function* () {
-          for await (const ev of r) yield ev
-          const art = inner.resultArtifact()
-          gated = await check(art.out, art.verdict?.score)
+          try {
+            for await (const ev of r) yield ev
+          } finally {
+            // `finally`, NOT the straight-line path: delivery is a property of the OUTPUT, not of
+            // how the worker terminated. A worker killed by budget, deadline, or abort AFTER it
+            // wrote its deliverable has still delivered, and checking only on clean completion
+            // reported failure over completed work.
+            //
+            // Measured: discovery-lab run `proof-native-tools-20260801b` spawned a child that
+            // wrote `child-artifact.txt` containing exactly the required line, then overran a
+            // parent-authored 12,000-token budget (it spent 76,657 — no pi child in six runs has
+            // finished under ~31,000). The stream aborted, this check never ran, and the run
+            // recorded `no-winner` over a file that was correct on disk.
+            //
+            // This does not weaken the gate. The deliverable check IS the ground truth, so a
+            // partially-written or absent artifact still fails it; all that changes is that the
+            // question now gets asked.
+            await settleVerdict()
+          }
         })()
       }
       // One-shot: gate the resolved result's verdict in place.
       return (async () => {
-        const res = await r
+        let res: ExecutorResult<Out>
+        try {
+          res = await r
+        } catch (error) {
+          // Same reason as the streaming path: a rejected execute can still have left a correct
+          // artifact behind. Check it, then re-throw so the failure itself is never swallowed.
+          await settleVerdict()
+          throw error
+        }
         gated = await check(res.out, res.verdict?.score)
         return { ...res, verdict: gated } satisfies ExecutorResult<Out>
       })()
