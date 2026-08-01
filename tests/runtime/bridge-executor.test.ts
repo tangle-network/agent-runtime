@@ -709,3 +709,60 @@ function isUsageStream(value: unknown): value is AsyncIterable<UsageEvent> {
     typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
   )
 }
+
+describe('profile-selected model keeps its provider', () => {
+  // A harness addresses a model as `provider/model`. Building the wire id from `model.default`
+  // alone dropped the provider: `{provider:'tangle-router', default:'glm-5.2'}` became
+  // `pi/glm-5.2`, which routes to the right BACKEND and then hands pi a bare id it cannot place.
+  // pi fell back to its own default provider and died with "No API key found for opencode" — a
+  // credential error naming a provider nobody chose. Measured live against a real cli-bridge:
+  // `pi/tangle-router/glm-5.2` returns 200, `pi/glm-5.2` does not.
+  async function wireModelFor(profile: Record<string, unknown>): Promise<unknown> {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('ok', 1, 2)
+    }
+    const executor = createExecutor({
+      backend: 'bridge',
+      bridgeUrl: 'http://bridge.test',
+      bridgeBearer: 'secret',
+      model: 'pi/seam-default',
+    })({ profile, harness: null } as unknown as AgentSpec, {
+      signal: new AbortController().signal,
+      seams: {},
+    })
+    const run = executor.execute('go', new AbortController().signal)
+    if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
+    for await (const _event of run) {
+      // drain
+    }
+    return seen[0]?.model
+  }
+
+  it('composes backend/provider/model when the profile names a provider', async () => {
+    expect(
+      await wireModelFor({
+        name: 'w',
+        harness: 'pi',
+        model: { provider: 'tangle-router', default: 'glm-5.2' },
+      }),
+    ).toBe('pi/tangle-router/glm-5.2')
+  })
+
+  it('leaves a model with no declared provider to the harness own resolution', async () => {
+    expect(await wireModelFor({ name: 'w', harness: 'pi', model: { default: 'glm-5.2' } })).toBe(
+      'pi/glm-5.2',
+    )
+  })
+
+  it('does not double-qualify a model that already carries its provider', async () => {
+    expect(
+      await wireModelFor({
+        name: 'w',
+        harness: 'pi',
+        model: { provider: 'tangle-router', default: 'tangle-router/glm-5.2' },
+      }),
+    ).toBe('pi/tangle-router/glm-5.2')
+  })
+})
