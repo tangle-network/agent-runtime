@@ -329,7 +329,7 @@ export function createProfileImprovementFixture(
         wallDurationMs: 0,
         cost: { usd: measurementCostUsd, provenance: 'observed' as const },
       },
-      ...(options.metadata ? { metadata: options.metadata } : {}),
+      metadata: options.metadata,
     }),
   )
   return {
