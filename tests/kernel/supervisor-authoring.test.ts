@@ -167,13 +167,24 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
       expect(canonicalizeAuthoredProfile(authored)).toEqual(authored)
     })
 
-    it('keeps the canonical prompt when a profile carries BOTH shapes', () => {
+    it('collapses BOTH shapes when they agree', () => {
       const canonical = canonicalizeAuthoredProfile({
-        prompt: { systemPrompt: 'canonical wins' },
-        systemPrompt: 'flat loses',
+        prompt: { systemPrompt: 'same instruction' },
+        systemPrompt: 'same instruction',
       }) as { prompt?: { systemPrompt?: string } }
-      expect(canonical.prompt?.systemPrompt).toBe('canonical wins')
+      expect(canonical.prompt?.systemPrompt).toBe('same instruction')
       expect(Object.keys(canonical)).not.toContain('systemPrompt')
+    })
+
+    // Two spellings of one standing instruction, set to different text, has no safe reading —
+    // the same rule the supervisor's own profile is held to.
+    it('fails loud when the two shapes disagree', () => {
+      expect(() =>
+        canonicalizeAuthoredProfile({
+          prompt: { systemPrompt: 'one instruction' },
+          systemPrompt: 'a different instruction',
+        }),
+      ).toThrow(/both set and differ/)
     })
 
     it('passes a blank flat prompt through rather than manufacturing an empty one', () => {

@@ -21,6 +21,7 @@ import {
   agentProfileSchema,
 } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
+import { ValidationError } from '../../errors'
 import { type RouterConfig, routerChatWithUsage } from '../router-client'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
@@ -61,7 +62,9 @@ export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
  * both here, once, so what the supervisor writes is what the worker runs.
  *
  * Purely additive: a profile already canonical is returned untouched, and a flat field is dropped
- * only after its canonical slot is filled.
+ * only after its canonical slot is filled. Both spellings of the same standing instruction, set to
+ * DIFFERENT text, is a contradiction with no safe reading — it fails loud, matching
+ * `resolveSupervisorProfile`'s rule for the supervisor's own profile.
  */
 export function canonicalizeAuthoredProfile(raw: unknown): AgentProfile {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return (raw ?? {}) as AgentProfile
@@ -73,7 +76,16 @@ export function canonicalizeAuthoredProfile(raw: unknown): AgentProfile {
       authored.prompt && typeof authored.prompt === 'object' && !Array.isArray(authored.prompt)
         ? { ...(authored.prompt as Record<string, unknown>) }
         : {}
-    if (typeof prompt.systemPrompt !== 'string') prompt.systemPrompt = flatPrompt
+    const canonicalPrompt = prompt.systemPrompt
+    if (typeof canonicalPrompt === 'string' && canonicalPrompt !== flatPrompt) {
+      throw new ValidationError(
+        'canonicalizeAuthoredProfile: prompt.systemPrompt and systemPrompt are both set and differ ' +
+          '— they are the same standing instruction, so author exactly one ' +
+          `(prompt.systemPrompt: ${JSON.stringify(canonicalPrompt.slice(0, 80))}; ` +
+          `systemPrompt: ${JSON.stringify(flatPrompt.slice(0, 80))})`,
+      )
+    }
+    if (typeof canonicalPrompt !== 'string') prompt.systemPrompt = flatPrompt
     authored.prompt = prompt
     delete authored.systemPrompt
   }
