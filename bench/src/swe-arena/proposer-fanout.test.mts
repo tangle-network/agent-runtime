@@ -363,13 +363,19 @@ describe('fanOutLoopsGenerator', () => {
     let inFlight = 0
     let maxInFlight = 0
     const seenWorktrees: string[] = []
+    let releaseAuthors!: () => void
+    const bothAuthorsStarted = new Promise<void>((resolve) => {
+      releaseAuthors = resolve
+    })
     const gen = fanOutLoopsGenerator(baseConfig(proposers), {
       author: async (proposer, args) => {
         inFlight++
         maxInFlight = Math.max(maxInFlight, inFlight)
         seenWorktrees.push(args.worktreePath)
-        // Hold the slot across a tick so real parallelism is observable.
-        await new Promise((r) => setTimeout(r, 30))
+        if (inFlight === proposers.length) releaseAuthors()
+        // Neither author may finish before both have started. A serial implementation
+        // therefore fails this test instead of passing or failing with machine speed.
+        await bothAuthorsStarted
         // Inside the declared change-space (extensions/pi/**) so the always-on
         // change-space pre-filter does not kill the candidate.
         await mkdir(join(args.worktreePath, 'extensions', 'pi'), { recursive: true })
