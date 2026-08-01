@@ -501,6 +501,7 @@ export {
   asAuthoredProfile,
   assessAuthoredProfile,
   authoredWorker,
+  canonicalizeAuthoredProfile,
   defaultProfileRichnessThresholds,
   type ProfileRichness,
   type ProfileRichnessThresholds,

@@ -20817,6 +20817,34 @@ Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or nul
 
 ***
 
+### canonicalizeAuthoredProfile()
+
+> **canonicalizeAuthoredProfile**(`raw`): `AgentProfile`
+
+Lift a profile the supervisor AUTHORED into the canonical shape every executor reads.
+
+The skill asks for `systemPrompt` and `model` as flat fields — the vocabulary a model writes
+well — while `AgentProfile` carries them as `prompt.systemPrompt` and `model.default`. Nothing
+downstream reads the flat form: the router and cli-bridge leaves read `profile.prompt
+.systemPrompt`, and the sandbox leaf hands the profile to a strict schema that REJECTS the flat
+key outright (`Unrecognized key: "systemPrompt"`), which fails the worker's every round. Lift
+both here, once, so what the supervisor writes is what the worker runs.
+
+Purely additive: a profile already canonical is returned untouched, and a flat field is dropped
+only after its canonical slot is filled.
+
+#### Parameters
+
+##### raw
+
+`unknown`
+
+#### Returns
+
+`AgentProfile`
+
+***
+
 ### supervisorInstructions()
 
 > **supervisorInstructions**(`opts?`): `string`

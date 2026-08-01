@@ -4,6 +4,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import {
   type AuthoredProfile,
   asAuthoredProfile,
+  canonicalizeAuthoredProfile,
   supervisorInstructions,
 } from '../../src/runtime/supervise/authoring'
 import { driverAgent } from '../../src/runtime/supervise/coordination-driver'
@@ -132,6 +133,49 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
     expect(asAuthoredProfile({ systemPrompt: '' })).toBeNull()
     expect(asAuthoredProfile({ systemPrompt: '   ' })).toBeNull()
     expect(asAuthoredProfile({ name: 'w', systemPrompt: 'real instructions' })?.name).toBe('w')
+  })
+
+  // The skill asks for flat `systemPrompt` / `model`; every leaf reads `prompt.systemPrompt` and
+  // `model.default`, and the sandbox leaf hands the profile to a schema that rejects the flat key
+  // outright. What the supervisor writes has to be what the worker runs.
+  describe('canonicalizeAuthoredProfile', () => {
+    it('lifts the flat fields the skill asks for into the shape every leaf reads', () => {
+      const canonical = canonicalizeAuthoredProfile({
+        name: 'ok-writer',
+        systemPrompt: 'Write exactly OK.',
+        model: 'glm-5.2',
+      }) as { name: string; prompt?: { systemPrompt?: string }; model?: unknown }
+      expect(canonical.prompt?.systemPrompt).toBe('Write exactly OK.')
+      expect(canonical.model).toEqual({ default: 'glm-5.2' })
+      expect(canonical.name).toBe('ok-writer')
+      // The flat key is what a strict profile schema rejects — it must be gone, not duplicated.
+      expect(Object.keys(canonical)).not.toContain('systemPrompt')
+    })
+
+    it('leaves an already-canonical profile untouched, including its other prompt fields', () => {
+      const authored = {
+        name: 'w',
+        prompt: { systemPrompt: 'canonical', instructions: ['one'] },
+        model: { default: 'm', small: 's' },
+      }
+      expect(canonicalizeAuthoredProfile(authored)).toEqual(authored)
+    })
+
+    it('keeps the canonical prompt when a profile carries BOTH shapes', () => {
+      const canonical = canonicalizeAuthoredProfile({
+        prompt: { systemPrompt: 'canonical wins' },
+        systemPrompt: 'flat loses',
+      }) as { prompt?: { systemPrompt?: string } }
+      expect(canonical.prompt?.systemPrompt).toBe('canonical wins')
+      expect(Object.keys(canonical)).not.toContain('systemPrompt')
+    })
+
+    it('passes a blank flat prompt through rather than manufacturing an empty one', () => {
+      const canonical = canonicalizeAuthoredProfile({ name: 'w', systemPrompt: '  ' }) as {
+        prompt?: unknown
+      }
+      expect(canonical.prompt).toBeUndefined()
+    })
   })
 
   it('the skill is the supervisor prompt and demands authored (non-empty) profiles', () => {

@@ -106,6 +106,45 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
     expect(result.spentTotal).toEqual(spentTotal)
   })
 
+  // `reason` is a four-word code. The supervisor attaches the rejection to the result precisely so
+  // a caller can read WHY; dropping it here leaves the agent — and whoever it reports to — with a
+  // failure that names nothing it can act on.
+  it('carries the driver’s rejection so a failure is diagnosable from the tool result', async () => {
+    superviseSpy.mockResolvedValue({
+      kind: 'no-winner',
+      reason: 'driver-failed',
+      tree: emptyTree,
+      downCount: 0,
+      spentTotal,
+      error: { name: 'Error', message: 'router 503: no provider configured for this model' },
+    } as unknown as SupervisedResult<unknown>)
+    const handler = createDelegateHandler({ router, backend })
+    const result = (await handler({ intent: 'do x' })) as {
+      status: string
+      reason: string
+      error?: { name: string; message: string }
+    }
+    expect(result.status).toBe('no-winner')
+    expect(result.reason).toBe('driver-failed')
+    expect(result.error).toEqual({
+      name: 'Error',
+      message: 'router 503: no provider configured for this model',
+    })
+  })
+
+  it('omits the error entirely on a no-winner the driver did not reject on', async () => {
+    superviseSpy.mockResolvedValue({
+      kind: 'no-winner',
+      reason: 'all-children-down',
+      tree: emptyTree,
+      downCount: 2,
+      spentTotal,
+    })
+    const handler = createDelegateHandler({ router, backend })
+    const result = (await handler({ intent: 'do x' })) as Record<string, unknown>
+    expect('error' in result).toBe(false)
+  })
+
   it('applies a per-call model override', async () => {
     const handler = createDelegateHandler({ router, backend, model: 'deepseek-v4-flash' })
     await handler({ intent: 'do x', model: 'glm-5.2' })

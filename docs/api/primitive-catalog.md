@@ -494,7 +494,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 646 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 647 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -518,6 +518,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 646 exports.
 | `buildPiMcpServers` | function | Build the canonical `{ mcpServers }` body the adapter reads, from `AgentProfile.mcp`. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
+| `canonicalizeAuthoredProfile` | function | Lift a profile the supervisor AUTHORED into the canonical shape every executor reads. |
 | `closingWorkerNote` | function | The worker's closing commentary off a local harness run: the TAIL of its |
 | `collectAgentTurn` | function | Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that |
 | `compareCheckOutcomes` | function | The selection order: crash < ran; then official pass-fraction; authored guesses only |
@@ -1222,7 +1223,7 @@ Import from `@tangle-network/agent-runtime/testing` — 4 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 199 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 200 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1311,6 +1312,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 199 exports.
 | `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool |
 | `DelegateArgs` | interface | Parsed `delegate` tool arguments. |
 | `DelegateCodeConfig` | interface | Minimal `CoderTask` overrides exposed over the MCP wire. The full |
+| `DelegateError` | interface | What killed a delegation, projected for the calling agent: the rejection's name and message. |
 | `DelegateUiAuditRoute` | interface | Optional per-route capture spec the agent surfaces over the wire. |
 | `DelegationRecord` | interface | Must be JSON-safe end to end (`args`, `result`, `error`, `feedback`) — |
 | `DelegationResumeDriver` | interface | Re-attaches restored in-flight records to their detached runs. The queue |

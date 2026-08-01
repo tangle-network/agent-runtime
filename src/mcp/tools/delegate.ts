@@ -97,7 +97,15 @@ export function validateDelegateArgs(raw: unknown): DelegateArgs {
  *  the no-winner reason) PLUS the conserved spend of the whole delegation. */
 export type DelegateResult =
   | { status: 'winner'; out: unknown; outRef: string; spentTotal: Spend }
-  | { status: 'no-winner'; reason: string; spentTotal: Spend }
+  | { status: 'no-winner'; reason: string; error?: DelegateError; spentTotal: Spend }
+
+/** What killed a delegation, projected for the calling agent: the rejection's name and message.
+ *  `reason` is a four-word code (`driver-failed`), and a code alone is not diagnosable — the
+ *  supervisor attaches the rejection to the result precisely so a caller can read it. */
+export interface DelegateError {
+  name: string
+  message: string
+}
 
 /** @experimental */
 export interface DelegateHandlerOptions {
@@ -118,7 +126,18 @@ export interface DelegateHandlerOptions {
  *  output and never a fabricated zero spend. */
 function toDelegateResult(result: SupervisedResult<unknown>): DelegateResult {
   if (result.kind === 'no-winner') {
-    return { status: 'no-winner', reason: result.reason, spentTotal: result.spentTotal }
+    // `stack` stays behind: an agent reads a cause, not a frame list.
+    const rejection = (result as { error?: { name?: unknown; message?: unknown } }).error
+    const error: DelegateError | undefined =
+      typeof rejection?.name === 'string' && typeof rejection.message === 'string'
+        ? { name: rejection.name, message: rejection.message }
+        : undefined
+    return {
+      status: 'no-winner',
+      reason: result.reason,
+      ...(error ? { error } : {}),
+      spentTotal: result.spentTotal,
+    }
   }
   return {
     status: 'winner',

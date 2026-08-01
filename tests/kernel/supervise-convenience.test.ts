@@ -155,6 +155,30 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(w.executorSpec.executor).toBeDefined()
   })
 
+  // The seam is where the skill's flat vocabulary meets the leaves' canonical one: the profile the
+  // executor is built against must already be the shape it reads.
+  it('workerFromBackend hands the leaf the CANONICAL profile the supervisor authored flat', () => {
+    const make = workerFromBackend({
+      backend: 'router-tools',
+      routerBaseUrl: 'http://localhost',
+      routerKey: 'k',
+      model: 'm',
+    } as ExecutorConfig)
+    const w = make({
+      name: 'w',
+      systemPrompt: 'authored instructions',
+      model: 'authored-model',
+    }) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const profile = w.executorSpec.profile as {
+      prompt?: { systemPrompt?: string }
+      model?: unknown
+      systemPrompt?: unknown
+    }
+    expect(profile.prompt?.systemPrompt).toBe('authored instructions')
+    expect(profile.model).toEqual({ default: 'authored-model' })
+    expect(profile.systemPrompt).toBeUndefined()
+  })
+
   it('fails loud with neither backend nor makeWorkerAgent', () => {
     expect(() => supervise({ name: 'r', harness: null }, 't', { budget })).toThrow(
       /backend|makeWorkerAgent/,

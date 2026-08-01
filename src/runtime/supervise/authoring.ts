@@ -42,6 +42,41 @@ export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
   }
 }
 
+/**
+ * Lift a profile the supervisor AUTHORED into the canonical shape every executor reads.
+ *
+ * The skill asks for `systemPrompt` and `model` as flat fields — the vocabulary a model writes
+ * well — while `AgentProfile` carries them as `prompt.systemPrompt` and `model.default`. Nothing
+ * downstream reads the flat form: the router and cli-bridge leaves read `profile.prompt
+ * .systemPrompt`, and the sandbox leaf hands the profile to a strict schema that REJECTS the flat
+ * key outright (`Unrecognized key: "systemPrompt"`), which fails the worker's every round. Lift
+ * both here, once, so what the supervisor writes is what the worker runs.
+ *
+ * Purely additive: a profile already canonical is returned untouched, and a flat field is dropped
+ * only after its canonical slot is filled.
+ */
+export function canonicalizeAuthoredProfile(raw: unknown): AgentProfile {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return (raw ?? {}) as AgentProfile
+  const authored = { ...(raw as Record<string, unknown>) }
+
+  const flatPrompt = authored.systemPrompt
+  if (typeof flatPrompt === 'string' && flatPrompt.trim().length > 0) {
+    const prompt =
+      authored.prompt && typeof authored.prompt === 'object' && !Array.isArray(authored.prompt)
+        ? { ...(authored.prompt as Record<string, unknown>) }
+        : {}
+    if (typeof prompt.systemPrompt !== 'string') prompt.systemPrompt = flatPrompt
+    authored.prompt = prompt
+    delete authored.systemPrompt
+  }
+
+  if (typeof authored.model === 'string' && authored.model.trim().length > 0) {
+    authored.model = { default: authored.model }
+  }
+
+  return authored as AgentProfile
+}
+
 /** The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable
  *  surface: editing this changes how the supervisor designs every agent it spawns. */
 export function supervisorInstructions(opts?: { goal?: string }): string {
