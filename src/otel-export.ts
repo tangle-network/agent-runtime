@@ -127,6 +127,9 @@ export function createOpenInferenceFileExporter(filePath: string): OtelExporter 
   }
 }
 
+/** OTLP's numeric status codes in the NAMES OpenInference requires. */
+const OTEL_STATUS_NAME: Record<number, string> = { 0: 'UNSET', 1: 'OK', 2: 'ERROR' }
+
 /** Nanosecond string -> ISO-8601, the time format an OpenInference reader parses with `Date.parse`. */
 function nanosToIso(nanos: string): string {
   const ms = Number(BigInt(nanos) / 1_000_000n)
@@ -166,7 +169,13 @@ function toOpenInferenceLine(span: OtelSpan): Record<string, unknown> {
     kind: typeof kind === 'string' ? kind : 'CHAIN',
     start_time: nanosToIso(span.startTimeUnixNano),
     end_time: nanosToIso(span.endTimeUnixNano),
-    status: span.status ?? { code: 0 },
+    // OpenInference spells status as a NAME, not OTLP's numeric code. Writing the number produced
+    // a file a reader found and then refused: "status.code must be OK, ERROR, UNSET, or its
+    // STATUS_CODE_* form" — the whole run's per-turn detail lost to one field.
+    status: {
+      code: OTEL_STATUS_NAME[span.status?.code ?? 0] ?? 'UNSET',
+      ...(span.status?.message === undefined ? {} : { message: span.status.message }),
+    },
     resource: { attributes: resource },
     scope: { name: 'agent-runtime', version: '' },
     attributes,
