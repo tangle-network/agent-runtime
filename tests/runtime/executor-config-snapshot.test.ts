@@ -103,9 +103,16 @@ describe('createExecutor config intake', () => {
         runtime: 'provider-runtime',
       },
       {
-        name: 'pi',
-        config: { backend: 'pi', bin: 'pi', args: ['--test'], model: 'provider/model' },
-        runtime: 'pi',
+        // pi is not a backend of its own: it is a bridge wire id like every other harness, and
+        // the intake capture must hold for it exactly as it does for the generic bridge case.
+        name: 'pi-over-bridge',
+        config: {
+          backend: 'bridge',
+          bridgeUrl: 'http://bridge.test',
+          bridgeBearer: 'secret',
+          model: 'pi/tangle-router/gpt-5-mini',
+        },
+        runtime: 'cli',
       },
       {
         name: 'sandbox',

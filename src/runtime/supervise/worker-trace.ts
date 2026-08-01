@@ -37,7 +37,7 @@
  * PRECEDENCE, from lowest to highest:
  *   1. the supervisor process's own `process.env` (ambient inheritance),
  *   2. the trace context stamped here,
- *   3. the caller's own seam env (`PiSeam.env`, `CliSeam.env`).
+ *   3. the caller's own seam env (`CliSeam.env`).
  * A caller who sets `TRACE_ID` / `PARENT_SPAN_ID` on a seam wins — theirs is a deliberate
  * declaration about the worker. Ambient `process.env` does NOT win: when the supervisor process was
  * itself launched as someone's worker, its inherited ids describe the SUPERVISOR's place in an
@@ -48,7 +48,6 @@
  *
  * WHICH BACKENDS PROPAGATE. Only a backend with a real environment channel to the worker can carry
  * this, and the ones that cannot say so here rather than dropping it silently:
- *   - `pi`            YES — `PiSeam.env` → the `pi --mode rpc` subprocess.
  *   - `cli`           YES — `CliSeam.env` → the spawned subprocess.
  *   - `sandbox`       YES — `CreateSandboxOptions.env` on the box the worker runs in (single-shot
  *                     and steerable). This is the cross-MACHINE case the feature exists for.
@@ -66,14 +65,13 @@ import type { ExecutorConfig } from './runtime'
 
 /**
  * The census above, as a value the compiler checks. `satisfies` against every `ExecutorConfig`
- * discriminant means a NINTH backend arm cannot be added without classifying it here — the prose
+ * discriminant means an EIGHTH backend arm cannot be added without classifying it here — the prose
  * alone could go stale silently, which is the failure this table exists to prevent.
  *
  * `true` = the arm has a real environment channel to the worker and stamps the context.
  * `false` = it has none today; it is honestly unpropagated rather than silently dropping.
  */
 export const WORKER_TRACE_PROPAGATION = {
-  pi: true,
   cli: true,
   sandbox: true,
   router: false,

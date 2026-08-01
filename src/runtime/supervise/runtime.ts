@@ -72,7 +72,6 @@ import type {
 import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
-import { PI_RUNTIME, type PiSeam, piExecutor } from './pi-executor'
 import type { ExecutorProgress } from './progress'
 import { createSteerableSandboxSession, type SandboxSteeringOptions } from './sandbox-session'
 import { detachedSnapshot } from './snapshot'
@@ -2241,7 +2240,6 @@ export type ExecutorConfig =
   | ({ backend: 'cli' } & CliSeam)
   | ({ backend: 'cli-worktree' } & CliWorktreeSeam)
   | ({ backend: 'provider' } & ProviderSeam)
-  | ({ backend: 'pi' } & PiSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
 
 /** Capture one public executor configuration at its call boundary. All data that selects policy,
@@ -2307,7 +2305,6 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
     case 'router':
     case 'bridge':
     case 'cli':
-    case 'pi':
       return detachedSnapshot(config, `createExecutor ${config.backend} config`)
   }
 }
@@ -2371,7 +2368,6 @@ export function bindReusableExecutorExecutionId(
     case 'router-tools':
     case 'cli':
     case 'provider':
-    case 'pi':
     case 'sandbox':
       return captured
   }
@@ -2402,8 +2398,6 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         return cliExecutor(spec, seamed)
       case 'cli-worktree':
         return cliWorktreeExecutor(spec, seamed)
-      case 'pi':
-        return piExecutor(spec, seamed)
       case 'provider': {
         const providerSeam = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
         const provider = resolveAgentEnvironmentProvider(
@@ -2497,10 +2491,6 @@ export function createExecutorRegistry(): ExecutorRegistry {
   factories.set('inline', routerInlineExecutor)
   factories.set('sandbox', sandboxExecutor)
   factories.set('cli', cliExecutor)
-  // pi is wrapped, not forked: `piExecutor` speaks pi's own out-of-process RPC protocol, so its
-  // steering queue / session persistence / abort stay upstream's. Registered here through the
-  // documented extension point so a spec can select it by `AgentSpec.executor` or by name.
-  factories.set(PI_RUNTIME, piExecutor)
 
   return {
     register<Out>(runtime: Runtime, factory: ExecutorFactory<Out>): void {
