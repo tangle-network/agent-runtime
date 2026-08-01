@@ -390,7 +390,7 @@ describe('fanOutLoopsGenerator', () => {
 
     expect(first).toMatchObject({ applied: true, label: 'alpha' })
     expect(second).toMatchObject({ applied: true, label: 'beta' })
-    expect(first.rationale).toContain('proposer alpha (claude)')
+    expect(first.rationale).toContain('proposer alpha (claude-code)')
     // Both patches landed on the SAME driver worktree across the two calls —
     // the driver discards/finalizes between calls in production; here we only
     // assert each call applied its own proposer's file.

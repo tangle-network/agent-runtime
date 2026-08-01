@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.119.0
 
 ### No harness is special: eleven name branches become table rows
 
@@ -34,6 +34,8 @@ A level a harness genuinely cannot express is still refused, and the refusal now
 Deliberately KEPT: the `codexReproducible && harness !== 'codex'` guards (a codex-specific public option asserting caller self-consistency, not behaviour varying by name), and every `ExecutorConfig.backend` switch (a discriminated-union tag naming the materialization contract, not a harness name). Both now say so at the site.
 
 ## 0.118.0
+
+Never published: the version bump landed on main but no tag was ever cut, so the registry went 0.117.0 -> 0.119.0. Everything below ships in 0.119.0.
 
 ### pi runs through the bridge, like every other harness
 
