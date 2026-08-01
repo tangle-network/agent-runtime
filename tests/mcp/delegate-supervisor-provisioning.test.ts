@@ -28,16 +28,38 @@ describe('resolveDelegateSupervisor', () => {
     const opts = resolveDelegateSupervisor(stubClient, {
       MCP_ENABLE_DELEGATE: '1',
       TANGLE_API_KEY: 'tk',
+      MCP_SUPERVISOR_MODEL: 'brain-model',
     } as unknown as NodeJS.ProcessEnv)
     expect(opts).toBeDefined()
     expect(opts!.router).toEqual({
       routerBaseUrl: 'https://router.tangle.tools/v1',
       routerKey: 'tk',
-      model: 'moonshotai/kimi-k2.6',
+      model: 'brain-model',
     })
-    expect(opts!.model).toBe('moonshotai/kimi-k2.6')
+    expect(opts!.model).toBe('brain-model')
     expect(opts!.backend).toMatchObject({ backend: 'sandbox', harness: 'opencode' })
     expect((opts!.backend as { sandboxClient: unknown }).sandboxClient).toBe(stubClient)
+  })
+
+  // Which ids a router serves is deployment state this package cannot know. A guess is invisible
+  // until the supervisor's first completion rejects — after the verb has been advertised to an
+  // agent — so an unnamed brain is a startup error, not a silently broken tool.
+  it('refuses to resolve a supervisor whose brain model nobody named', () => {
+    expect(() =>
+      resolveDelegateSupervisor(stubClient, {
+        MCP_ENABLE_DELEGATE: '1',
+        TANGLE_API_KEY: 'tk',
+      } as unknown as NodeJS.ProcessEnv),
+    ).toThrow(/MCP_SUPERVISOR_MODEL/)
+  })
+
+  it('reads the model its sandbox host declared when no override names one', () => {
+    const opts = resolveDelegateSupervisor(stubClient, {
+      MCP_ENABLE_DELEGATE: '1',
+      TANGLE_API_KEY: 'tk',
+      TANGLE_ROUTER_MODEL: 'host-declared',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(opts!.router.model).toBe('host-declared')
   })
 
   it('honors the supervisor model + worker harness + router overrides', () => {
@@ -74,6 +96,7 @@ describe('resolveDelegateSupervisor', () => {
   it('normalizes a router base without a version suffix to /v1', () => {
     const opts = resolveDelegateSupervisor(stubClient, {
       MCP_ENABLE_DELEGATE: '1',
+      MCP_SUPERVISOR_MODEL: 'brain-model',
       TANGLE_ROUTER_BASE_URL: 'https://r.example.com',
     } as unknown as NodeJS.ProcessEnv)
     expect(opts!.router.routerBaseUrl).toBe('https://r.example.com/v1')

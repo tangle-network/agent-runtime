@@ -120,6 +120,24 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
     ).toEqual({ type: 'llm_call', model: 'agent', tokensIn: 100, tokensOut: 20 })
   })
 
+  it.each([
+    {
+      type: 'result',
+      data: { usage: { inputTokens: 2, outputTokens: 3, reasoningTokens: 7 } },
+    },
+    {
+      type: 'usage',
+      data: { inputTokens: 2, outputTokens: 3, reasoningTokens: 7 },
+    },
+  ] as const)('folds separate reasoning tokens into output for $type events', (event) => {
+    expect(extractLlmCallEvent(event, 'agent')).toEqual({
+      type: 'llm_call',
+      model: 'agent',
+      tokensIn: 2,
+      tokensOut: 10,
+    })
+  })
+
   // Regression: sandbox 0.4.0's terminal `done` event carries usage under
   // `tokenUsage` (not `usage`) with cost top-level — without this the in-process
   // loopDispatch ledger read {0,0} and the backend-integrity guard misreported a

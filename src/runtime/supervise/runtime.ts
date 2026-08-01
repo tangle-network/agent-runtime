@@ -55,6 +55,7 @@ import {
   type AgentEnvironmentProviderRegistry,
   type ProviderExecutorOptions,
   providerAsExecutor,
+  providerAsSandboxClient,
   resolveAgentEnvironmentProvider,
 } from '../environment-provider'
 import { routerChatWithUsage, type ToolSpec } from '../router-client'
@@ -229,6 +230,13 @@ export interface BridgeSeam {
 export interface ProviderSeam extends ProviderExecutorOptions {
   provider: AgentEnvironmentProvider | string
   registry?: AgentEnvironmentProviderRegistry
+  /**
+   * Compose the provider through the existing steerable sandbox session.
+   * The exact profile must name its harness, and the provider must expose live
+   * continuation plus session controls. The provider still owns environment
+   * creation and session semantics.
+   */
+  steering?: SandboxSteeringOptions
 }
 
 const routerSeamKey = 'router'
@@ -869,8 +877,13 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
 
   try {
     const result = await runAgentRounds(loopOptions)
+    // Fail loud on a round that produced nothing: the worker settles `down`
+    // carrying the loop's own reason (a rejected profile, a box that would not
+    // provision) rather than an artifact it never produced.
+    const failure = failedRound(result)
+    if (failure) throw failure
     const out = result.winner?.output ?? { events: [] }
-    const verdict = result.winner?.verdict
+    const verdict = result.winner?.verdict ?? leafVerdict(result)
     const spent: Spend = {
       iterations: result.iterations.length,
       tokens: { input: result.tokenUsage.input, output: result.tokenUsage.output },
@@ -892,6 +905,36 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     args.signal.removeEventListener('abort', cascade)
     args.controller.signal.removeEventListener('abort', cascade)
   }
+}
+
+/** The loop's own failure, when NO iteration produced an output: the first error it
+ *  recorded, renamed so the settled worker names the leaf it died in. `undefined`
+ *  when any iteration produced an output — a partly-failed round still has material
+ *  to settle on. */
+function failedRound(result: {
+  iterations: ReadonlyArray<{ output?: unknown; error?: Error }>
+}): Error | undefined {
+  if (result.iterations.length === 0) return undefined
+  if (result.iterations.some((iteration) => iteration.output !== undefined)) return undefined
+  const first = result.iterations.find((iteration) => iteration.error)?.error
+  if (!first) return undefined
+  return new Error(`sandboxExecutor: agent round failed — ${first.message}`, { cause: first })
+}
+
+/**
+ * The leaf's OWN verdict, for a round the loop scored no validator against.
+ *
+ * `settled ⟺ delivered` is written by the completion oracle, and a caller that
+ * passes one keeps it: `gateOnDeliverable` wraps this executor and overrides
+ * `valid` from its check. This is the sandbox backend's structural answer for a
+ * run with no oracle at all — without it nothing ever writes `valid`, no settled
+ * child is ever DELIVERED, and the finalizer has nothing to select no matter how
+ * well the worker ran. Structural, never self-reported: the harness completed a
+ * round and returned an output artifact, or it did not.
+ */
+function leafVerdict(result: { winner?: { output?: unknown } }): DefaultVerdict | undefined {
+  if (result.winner?.output === undefined) return undefined
+  return { valid: true, score: 1 }
 }
 
 // ── cli executor (Halo / external RLM subprocess) ──────────────────────────────
@@ -2367,6 +2410,42 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           providerSeam.provider,
           providerSeam.registry,
         )
+        if (providerSeam.steering) {
+          if (providerSeam.taskToTurn) {
+            throw new ValidationError(
+              'createExecutor(provider, steering): taskToTurn is not representable by the text-only steerable session',
+            )
+          }
+          if (providerSeam.destroyOnSettle === false) {
+            throw new ValidationError(
+              'createExecutor(provider, steering): destroyOnSettle=false conflicts with the session-owned environment lifecycle',
+            )
+          }
+          const harness = requiredProviderProfileHarness(spec, providerSeam)
+          const sandboxClient = providerAsSandboxClient(provider, {
+            defaults: {
+              ...(providerSeam.defaults ?? {}),
+              signal: seamed.signal,
+            },
+            requireTerminalEvent: providerSeam.requireTerminalEvent,
+            requireSession: true,
+          })
+          const providerCtx: ExecutorContext = {
+            ...seamed,
+            seams: {
+              ...seamed.seams,
+              [sandboxSeamKey]: {
+                sandboxClient,
+                steering: providerSeam.steering,
+              } satisfies SandboxSeam,
+            },
+          }
+          const executor = sandboxExecutor({ ...spec, harness }, providerCtx)
+          return {
+            ...executor,
+            runtime: providerSeam.runtime ?? (provider.name as Runtime),
+          }
+        }
         return providerAsExecutor(provider, providerSeam)(spec, seamed)
       }
       case 'sandbox': {
@@ -2377,6 +2456,26 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
       }
     }
   }
+}
+
+function requiredProviderProfileHarness(spec: AgentSpec, seam: ProviderSeam): BackendType {
+  const harness = spec.profile.harness
+  if (harness === undefined) {
+    throw new ValidationError(
+      'createExecutor(provider, steering): AgentProfile.harness is required',
+    )
+  }
+  if (spec.harness != null && spec.harness !== harness) {
+    throw new ValidationError(
+      `createExecutor(provider, steering): AgentSpec.harness "${spec.harness}" conflicts with AgentProfile.harness "${harness}"`,
+    )
+  }
+  if (seam.defaults?.backend !== undefined && seam.defaults.backend !== harness) {
+    throw new ValidationError(
+      `createExecutor(provider, steering): provider default backend "${seam.defaults.backend}" conflicts with AgentProfile.harness "${harness}"`,
+    )
+  }
+  return harness as BackendType
 }
 
 // ── The open registry ──────────────────────────────────────────────────────────

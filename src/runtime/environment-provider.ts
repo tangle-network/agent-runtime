@@ -175,6 +175,8 @@ export function resolveAgentEnvironmentProvider(
 export interface ProviderAsSandboxClientOptions {
   defaults?: Partial<CreateAgentEnvironmentInput>
   requireTerminalEvent?: boolean
+  /** Require declared live continuation plus concrete session controls. */
+  requireSession?: boolean
   mapCreateOptions?: (
     options: CreateSandboxOptions | undefined,
   ) => Partial<CreateAgentEnvironmentInput>
@@ -188,17 +190,40 @@ export function providerAsSandboxClient(
 ): SandboxClient {
   return {
     async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
+      const defaults = options.defaults ?? {}
+      const sandboxInput = createInputFromSandboxOptions(createOptions)
+      const customInput = options.mapCreateOptions?.(createOptions) ?? {}
       const mapped = {
-        ...(options.defaults ?? {}),
-        ...createInputFromSandboxOptions(createOptions),
-        ...(options.mapCreateOptions?.(createOptions) ?? {}),
+        ...defaults,
+        ...sandboxInput,
+        ...customInput,
+        providerOptions: {
+          ...(defaults.providerOptions ?? {}),
+          ...(sandboxInput.providerOptions ?? {}),
+          ...(customInput.providerOptions ?? {}),
+        },
       }
+      if (mapped.backend === undefined) delete mapped.backend
       if (mapped.profile === undefined) {
         throw new ValidationError(
           `providerAsSandboxClient(${provider.name}): profile required in defaults or CreateSandboxOptions.backend.profile`,
         )
       }
+      if (options.requireSession) {
+        const capabilities = await provider.capabilities()
+        if (!capabilities.streaming.live || !capabilities.sessions.continue) {
+          throw new ValidationError(
+            `providerAsSandboxClient(${provider.name}): live session continuation is required`,
+          )
+        }
+      }
       const environment = await provider.create(mapped as CreateAgentEnvironmentInput)
+      if (options.requireSession && !environment.session) {
+        await environment.destroy?.()
+        throw new ValidationError(
+          `providerAsSandboxClient(${provider.name}): session() is required`,
+        )
+      }
       return environmentAsSandboxInstance(environment, {
         requireTerminalEvent: options.requireTerminalEvent ?? true,
       })
@@ -421,16 +446,17 @@ function createInputFromSandboxOptions(
 ): Partial<CreateAgentEnvironmentInput> {
   const profile = options?.backend?.profile
   const backend = options?.backend?.type
+  const workspace = {
+    ...(options?.environment ? { environment: options.environment } : {}),
+    ...(options?.git?.url ? { repoUrl: options.git.url } : {}),
+    ...(options?.git?.ref ? { gitRef: options.git.ref } : {}),
+  }
   return {
     // sandboxProfileAsProfile: sandbox 0.15.2 types this profile against
     // interface 0.36; it crosses as data (see sandbox-backend.ts).
     ...(profile !== undefined ? { profile: sandboxProfileAsProfile(profile) } : {}),
     ...(backend ? { backend } : {}),
-    workspace: {
-      ...(options?.environment ? { environment: options.environment } : {}),
-      ...(options?.git?.url ? { repoUrl: options.git.url } : {}),
-      ...(options?.git?.ref ? { gitRef: options.git.ref } : {}),
-    },
+    ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
     ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),
     ...(options?.env ? { env: options.env } : {}),
     ...(options?.secrets ? { secrets: options.secrets } : {}),
@@ -535,12 +561,65 @@ function environmentAsSandboxInstance(
     ): AsyncGenerator<SandboxEvent> {
       let terminal = false
       const input = turnInputFromPrompt(message, promptOptions)
-      for await (const event of environment.stream(input)) {
-        if (isTerminalEnvironmentEvent(event)) terminal = true
-        const usageEvent = usageSandboxEvent(event)
-        if (usageEvent) yield usageEvent
-        yield sandboxEventFromEnvironmentEvent(event)
+      let cancellation: Promise<void> | undefined
+      let cancellationStarted = false
+      let cancellationFailed = false
+      let cancellationError: unknown
+      const cancel = () => {
+        if (cancellationStarted || !input.sessionId || !environment.session) return
+        cancellationStarted = true
+        try {
+          cancellation = environment
+            .session(input.sessionId)
+            .cancel()
+            .catch((error: unknown) => {
+              cancellationFailed = true
+              cancellationError = error
+            })
+        } catch (error) {
+          cancellationFailed = true
+          cancellationError = error
+        }
       }
+      input.signal?.addEventListener('abort', cancel, { once: true })
+      if (input.signal?.aborted) cancel()
+      let streamFailed = false
+      let streamError: unknown
+      try {
+        for await (const event of environment.stream(input)) {
+          if (isTerminalEnvironmentEvent(event)) terminal = true
+          const usageEvent = usageSandboxEvent(event)
+          if (usageEvent) yield usageEvent
+          yield sandboxEventFromEnvironmentEvent(event)
+        }
+      } catch (error) {
+        streamFailed = true
+        streamError = error
+      } finally {
+        input.signal?.removeEventListener('abort', cancel)
+        if (input.signal?.aborted) {
+          cancel()
+          await cancellation
+        }
+      }
+      if (input.signal?.aborted) {
+        const abortError = new DOMException('Provider session stream aborted', 'AbortError')
+        const causes = [
+          ...(streamFailed ? [streamError] : []),
+          ...(cancellationFailed ? [cancellationError] : []),
+        ]
+        if (causes.length > 0) {
+          Object.defineProperty(abortError, 'cause', {
+            value:
+              causes.length === 1
+                ? causes[0]
+                : new AggregateError(causes, 'Provider stream and cancellation failed'),
+          })
+        }
+        throw abortError
+      }
+      if (streamFailed) throw streamError
+      if (cancellationFailed) throw cancellationError
       if (options.requireTerminalEvent && !terminal) {
         throw new ValidationError(
           `providerAsSandboxClient(${environment.provider}): stream ended without a terminal result/done/status event`,
@@ -827,18 +906,42 @@ function environmentEventFromSandboxEvent(event: SandboxEvent): AgentEnvironment
 }
 
 function sandboxEventFromEnvironmentEvent(event: AgentEnvironmentEvent): SandboxEvent {
+  const normalized = event.normalized
+  const type = normalized?.type ?? event.type
+  const baseData = normalized ? sandboxDataFromNormalizedEvent(event.data, normalized) : event.data
+  const usage = event.usage ? tokenUsageData(event.usage) : undefined
+  const data = (() => {
+    if (!usage) return baseData
+    if (isUsageType(type))
+      return {
+        ...baseData,
+        tokensIn: event.usage?.inputTokens,
+        tokensOut: event.usage?.outputTokens,
+        ...(event.usage?.cost !== undefined ? { costUsd: event.usage.cost } : {}),
+        ...usage,
+      }
+    if (isNestedUsageType(type)) return { ...baseData, usage }
+    if (type === 'done') {
+      return {
+        ...baseData,
+        tokenUsage: usage,
+        ...(usage.totalCostUsd !== undefined ? { totalCostUsd: usage.totalCostUsd } : {}),
+      }
+    }
+    return baseData
+  })()
   return {
-    type: event.type,
-    data: {
-      ...event.data,
-      ...(event.usage ? { usage: tokenUsageData(event.usage) } : {}),
-    },
+    type,
+    data,
     ...(event.id ? { id: event.id } : {}),
   }
 }
 
 function usageSandboxEvent(event: AgentEnvironmentEvent): SandboxEvent | undefined {
-  if (!event.usage || isUsageType(event.type)) return undefined
+  const type = event.normalized?.type ?? event.type
+  if (!event.usage || isUsageType(type) || isNestedUsageType(type) || type === 'done') {
+    return undefined
+  }
   const usage = tokenUsageData(event.usage)
   if (
     usage.inputTokens === undefined &&
@@ -850,11 +953,33 @@ function usageSandboxEvent(event: AgentEnvironmentEvent): SandboxEvent | undefin
   return { type: 'llm_call', data: usage }
 }
 
-function tokenUsageData(usage: TokenUsage): Record<string, number | undefined> {
+function sandboxDataFromNormalizedEvent(
+  rawData: Record<string, unknown>,
+  normalized: NonNullable<AgentEnvironmentEvent['normalized']>,
+): Record<string, unknown> {
+  const { type: _type, ...normalizedData } = normalized
+  return {
+    ...rawData,
+    ...normalizedData,
+    ...(normalized.type === 'message.part.updated' && normalized.part.type === 'text'
+      ? { text: normalized.part.text }
+      : {}),
+  }
+}
+
+function tokenUsageData(usage: TokenUsage): Record<string, number> {
   return {
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
-    totalCostUsd: usage.cost,
+    ...(usage.totalTokens !== undefined ? { totalTokens: usage.totalTokens } : {}),
+    ...(usage.cacheReadInputTokens !== undefined
+      ? { cacheReadInputTokens: usage.cacheReadInputTokens }
+      : {}),
+    ...(usage.cacheCreationInputTokens !== undefined
+      ? { cacheCreationInputTokens: usage.cacheCreationInputTokens }
+      : {}),
+    ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
+    ...(usage.cost !== undefined ? { totalCostUsd: usage.cost } : {}),
   }
 }
 
@@ -964,17 +1089,27 @@ function resultTextFromData(data: Record<string, unknown>): string | undefined {
 }
 
 function isTerminalEnvironmentEvent(event: AgentEnvironmentEvent): boolean {
-  if (event.type === 'result' || event.type === 'done' || event.type === 'final') return true
-  if (event.type.endsWith('.completed') || event.type.endsWith('.failed')) return true
-  if (event.type === 'status') {
-    const status = event.data.status
-    return status === 'completed' || status === 'failed' || status === 'cancelled'
-  }
-  return false
+  if (isTerminalEventShape(event.type, event.data)) return true
+  const normalized = event.normalized
+  return (
+    normalized?.type === 'status' &&
+    (normalized.status === 'completed' || normalized.status === 'failed')
+  )
+}
+
+function isTerminalEventShape(type: string, data: Record<string, unknown>): boolean {
+  if (type === 'result' || type === 'done' || type === 'final') return true
+  if (type.endsWith('.completed') || type.endsWith('.failed')) return true
+  if (type !== 'status') return false
+  return data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled'
 }
 
 function isUsageType(type: string): boolean {
   return type === 'llm_call' || type === 'usage' || type === 'cost.usage'
+}
+
+function isNestedUsageType(type: string): boolean {
+  return type === 'message.completed' || type === 'result' || type === 'final'
 }
 
 function usageFromEnvironmentEvent(event: AgentEnvironmentEvent): {
@@ -985,7 +1120,7 @@ function usageFromEnvironmentEvent(event: AgentEnvironmentEvent): {
   const usage = event.usage ?? tokenUsageFromData(event.data)
   return {
     input: finiteNumber(usage?.inputTokens) ?? 0,
-    output: finiteNumber(usage?.outputTokens) ?? 0,
+    output: (finiteNumber(usage?.outputTokens) ?? 0) + (finiteNumber(usage?.reasoningTokens) ?? 0),
     usd:
       finiteNumber(usage?.cost) ??
       finiteNumber(event.data.costUsd) ??
@@ -1009,17 +1144,33 @@ function tokenUsageFromData(data: Record<string, unknown>): TokenUsage | undefin
     finiteNumber(usageRecord.outputTokens) ??
     finiteNumber(usageRecord.tokensOut) ??
     finiteNumber(usageRecord.completion_tokens)
+  const totalTokens = finiteNumber(usageRecord.totalTokens)
+  const cacheReadInputTokens = finiteNumber(usageRecord.cacheReadInputTokens)
+  const cacheCreationInputTokens = finiteNumber(usageRecord.cacheCreationInputTokens)
+  const reasoningTokens = finiteNumber(usageRecord.reasoningTokens)
   const cost =
     finiteNumber(usageRecord.cost) ??
     finiteNumber(usageRecord.costUsd) ??
     finiteNumber(usageRecord.totalCostUsd) ??
     finiteNumber(data.costUsd) ??
     finiteNumber(data.totalCostUsd)
-  if (inputTokens === undefined && outputTokens === undefined && cost === undefined)
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined &&
+    cacheReadInputTokens === undefined &&
+    cacheCreationInputTokens === undefined &&
+    reasoningTokens === undefined &&
+    cost === undefined
+  )
     return undefined
   return {
     inputTokens: inputTokens ?? 0,
     outputTokens: outputTokens ?? 0,
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(cacheReadInputTokens !== undefined ? { cacheReadInputTokens } : {}),
+    ...(cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens } : {}),
+    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
     ...(cost !== undefined ? { cost } : {}),
   }
 }
@@ -1033,6 +1184,24 @@ function mergeTokenUsage(
   return {
     inputTokens: left.inputTokens + right.inputTokens,
     outputTokens: left.outputTokens + right.outputTokens,
+    ...(left.totalTokens !== undefined || right.totalTokens !== undefined
+      ? { totalTokens: (left.totalTokens ?? 0) + (right.totalTokens ?? 0) }
+      : {}),
+    ...(left.cacheReadInputTokens !== undefined || right.cacheReadInputTokens !== undefined
+      ? {
+          cacheReadInputTokens:
+            (left.cacheReadInputTokens ?? 0) + (right.cacheReadInputTokens ?? 0),
+        }
+      : {}),
+    ...(left.cacheCreationInputTokens !== undefined || right.cacheCreationInputTokens !== undefined
+      ? {
+          cacheCreationInputTokens:
+            (left.cacheCreationInputTokens ?? 0) + (right.cacheCreationInputTokens ?? 0),
+        }
+      : {}),
+    ...(left.reasoningTokens !== undefined || right.reasoningTokens !== undefined
+      ? { reasoningTokens: (left.reasoningTokens ?? 0) + (right.reasoningTokens ?? 0) }
+      : {}),
     ...(left.cost !== undefined || right.cost !== undefined
       ? { cost: (left.cost ?? 0) + (right.cost ?? 0) }
       : {}),

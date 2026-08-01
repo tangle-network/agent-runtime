@@ -17,7 +17,8 @@
  *                                    supervisor runs the brain on the router and spawns authored
  *                                    workers as sub-sandboxes via the same client; needs TANGLE_API_KEY.
  *   MCP_SUPERVISOR_MODEL             supervisor brain model id (falls back to MCP_WORKER_MODEL, then
- *                                    WORKER_MODEL, then a default). Must be a tool-calling model.
+ *                                    WORKER_MODEL, then TANGLE_ROUTER_MODEL). Must be a tool-calling
+ *                                    model the router serves; with none named the bin exits 2.
  *   MCP_SUPERVISOR_ROUTER_KEY        router key for the supervisor brain (defaults to TANGLE_API_KEY)
  *   MCP_SUPERVISOR_ROUTER_BASE_URL   router base for the supervisor brain (defaults to the repo's
  *                                    resolveRouterBaseUrl, normalized to `/v1`)
@@ -44,6 +45,7 @@ import { delegateEnabled, resolveDelegateSupervisor } from './delegate-superviso
 import { FileDelegationStore } from './delegation-store'
 import { createMcpServer } from './server'
 import { DelegationTaskQueue } from './task-queue'
+import type { DelegateHandlerOptions } from './tools/delegate'
 import { readTraceContextFromEnv, type TraceContext } from './trace-propagation'
 
 const DEFAULT_SANDBOX_BASE_URL = 'https://sandbox.tangle.tools'
@@ -81,10 +83,22 @@ async function main(): Promise<void> {
   // runs the brain on the router and spawns authored workers as sub-sandboxes through the SAME
   // client, so it needs the loaded `sandboxClient`. Gated on the client resolving (no key → no
   // delegate, fail-closed).
-  const delegateSupervisor =
-    wantDelegate && sandboxClient ? resolveDelegateSupervisor(sandboxClient) : undefined
-  if (wantDelegate && delegateSupervisor) {
-    process.stderr.write('agent-runtime-mcp: delegate enabled — generic authoring supervisor\n')
+  let delegateSupervisor: DelegateHandlerOptions | undefined
+  if (wantDelegate && sandboxClient) {
+    try {
+      delegateSupervisor = resolveDelegateSupervisor(sandboxClient)
+    } catch (error) {
+      // Refuse to serve a verb that cannot work. Advertising `delegate` on an
+      // unresolvable substrate spends an agent's turn on a tool whose first
+      // inference is guaranteed to reject.
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+      process.exit(2)
+    }
+  }
+  if (delegateSupervisor) {
+    process.stderr.write(
+      `agent-runtime-mcp: delegate enabled — generic authoring supervisor on ${delegateSupervisor.router.model}\n`,
+    )
   }
 
   const durableQueue = await buildDurableQueueFromEnv(traceContext)

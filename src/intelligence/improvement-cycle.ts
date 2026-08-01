@@ -62,7 +62,6 @@ import {
   agentImprovementSourceSchema,
   agentProfileImprovementArmSchema,
   agentProfileImprovementExecutionRefSchema,
-  agentProfileImprovementMeasuredComparisonSchema,
   candidateExecutionEvidenceSchema,
   numbersApproximatelyEqual,
 } from '@tangle-network/agent-interface'
@@ -765,7 +764,7 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
   const surface = options.improvement.surface ?? 'prompt'
   if (!isAgentProfileMeasuredSurface(surface)) {
     throw new Error(
-      'measured profile improvement supports prompt or skills; use the sealed-candidate path for this surface',
+      'measured profile improvement supports profile surfaces or a complete agent profile; use the sealed-candidate path for this surface',
     )
   }
   assertMeasuredAnalysisOptions(options.analysis)
@@ -1207,7 +1206,7 @@ function verifyAgentImprovementEvaluation(input: unknown): AgentImprovementEvalu
     'kind' in input &&
     input.kind === 'agent-profile-improvement-measured-comparison'
   ) {
-    const evaluation = agentProfileImprovementMeasuredComparisonSchema.parse(input)
+    const evaluation = verifyAgentProfileImprovementExperimentComparison(input)
     optimizationActivationReceiptFromMetadata(evaluation.metadata)
     return evaluation
   }

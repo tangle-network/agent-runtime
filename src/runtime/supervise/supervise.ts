@@ -43,6 +43,7 @@ import type {
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
+import { canonicalizeAuthoredProfile } from './authoring'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
@@ -125,7 +126,10 @@ export function workerFromBackend(
   const unscopedNamespace = randomUUID()
   let unscopedOrdinal = 0
   return (rawProfile, spawnContext) => {
-    const parsed = agentProfileSchema.safeParse(rawProfile)
+    // The supervisor authors in the skill's flat vocabulary; every leaf reads the canonical
+    // profile. Lift it HERE — the one place a backend becomes a spawnable worker — so no leaf
+    // has to guess which shape it was handed, then hold the LIFTED form to the canonical schema.
+    const parsed = agentProfileSchema.safeParse(canonicalizeAuthoredProfile(rawProfile))
     if (!parsed.success) {
       throw new ValidationError(`workerFromBackend: invalid AgentProfile: ${parsed.error.message}`)
     }

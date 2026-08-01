@@ -5,9 +5,14 @@ import {
 } from '@tangle-network/agent-eval'
 import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
+  measuredComparisonFromAgentProfileImprovementExperiment,
+  runAgentProfileImprovementExperiment,
+  sealAgentProfileImprovementExperiment,
+  sealAgentProfileImprovementSuite,
   sealAgentProfileImprovementTask,
   sealCandidateBenchmarkSuite,
   sealCandidateBenchmarkTask,
+  verifyAgentProfileImprovementExperimentComparison,
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -39,6 +44,7 @@ import {
   verifyCandidateExecutionEvidence,
 } from '../src/intelligence/improvement-cycle'
 import {
+  agentImprovementProfileDiffs,
   agentImprovementTargetDigest,
   agentImprovementTargetInput,
   deriveChangedSurfaces,
@@ -287,6 +293,193 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     ).toEqual(restoreResult)
   })
 
+  it('measures and activates a directly authored complete profile without improve()', async () => {
+    const template = createProfileImprovementFixture()
+    const task = template.evaluation.experiment.benchmark.tasks[0]
+    if (!task) throw new Error('expected a profile improvement task')
+    const identity = 'tenant/research/profile'
+    const baselineProfile: AgentProfile = {
+      name: 'researcher',
+      prompt: { systemPrompt: 'Investigate the question.' },
+      model: { default: 'provider/old-model' },
+      resources: {
+        failOnError: true,
+        skills: [
+          {
+            kind: 'github',
+            repository: 'owner/research-agents',
+            path: 'skills/research/SKILL.md',
+            ref: '0123456789abcdef',
+          },
+        ],
+      },
+      metadata: { lineage: 'baseline' },
+    }
+    const candidateProfile: AgentProfile = {
+      ...baselineProfile,
+      model: { default: 'provider/new-model', reasoningEffort: 'high' },
+      harness: 'codex',
+      tools: { Read: true, Bash: true },
+      mcp: { literature: { command: 'literature-server' } },
+      hooks: { Stop: [{ command: 'node verify-result.mjs', blocking: true }] },
+      metadata: { lineage: 'direct-reflection', reflectionRun: 'reflection-1' },
+    }
+    const stateDigest = ({
+      identity: profileIdentity,
+      profile,
+    }: {
+      identity: string
+      profile: AgentProfile
+    }) => canonicalCandidateDigest({ identity: profileIdentity, profile })
+    const baselineStateDigest = stateDigest({ identity, profile: baselineProfile })
+    const candidateStateDigest = stateDigest({ identity, profile: candidateProfile })
+    const change = agentImprovementProfileDiffs(baselineProfile, candidateProfile, {
+      id: 'direct-reflection-1',
+      source: {
+        kind: 'frontier-author',
+        artifacts: ['traces://reflection-1'],
+        notes: ['Candidate authored directly from a trace autopsy.'],
+      },
+    })
+    const profileDiffIds = change.map((step) => {
+      if (!step.id) throw new Error('expected a profile diff id')
+      return step.id
+    })
+    const reps = minimumPairedRuns
+    const seeds = Array.from({ length: reps }, (_, index) => 101 + index) as [number, ...number[]]
+    const benchmark = sealAgentProfileImprovementSuite({
+      splitDigest: canonicalCandidateDigest({ split: 'direct-profile-release' }),
+      tasks: [task],
+      reps,
+      seeds,
+    })
+    const executionRef = {
+      kind: 'agent-profile-improvement-execution-ref' as const,
+      identity: 'direct-profile-runner',
+      digest: canonicalCandidateDigest({ runner: 'direct-profile-runner', revision: 1 }),
+    }
+    const experiment = sealAgentProfileImprovementExperiment({
+      kind: 'agent-profile-improvement-experiment',
+      digestAlgorithm: 'rfc8785-sha256',
+      source: {
+        kind: 'platform-agent-profile',
+        sourceIdentity: identity,
+        sourceDigest: baselineStateDigest,
+        sourceRevision: 1,
+      },
+      executionRef,
+      baseline: { stateDigest: baselineStateDigest },
+      candidate: { stateDigest: candidateStateDigest },
+      change,
+      candidateLineage: {
+        source: 'optimizer',
+        parentDigests: [baselineStateDigest],
+        runIds: ['reflection-1'],
+        profileDiffIds,
+        developmentSplitDigest: canonicalCandidateDigest({ split: 'direct-profile-development' }),
+      },
+      benchmark,
+      policy: {
+        ...template.evaluation.experiment.policy,
+        minProductiveRuns: reps,
+      },
+    })
+    const profilesByDigest = new Map([
+      [baselineStateDigest, baselineProfile],
+      [candidateStateDigest, candidateProfile],
+    ])
+    const observedProfiles: AgentProfile[] = []
+    const run = await runAgentProfileImprovementExperiment({
+      experiment,
+      async execute(input) {
+        const profile = profilesByDigest.get(input.stateDigest)
+        if (!profile) throw new Error('executor received an unknown profile state')
+        observedProfiles.push(profile)
+        const candidateVariation = ((input.runCell.repetition % 3) - 1) * 0.02
+        const score = input.arm === 'baseline' ? 0.2 : 0.8 + candidateVariation
+        return createProfileImprovementRunReceipt(input, score)
+      },
+    })
+    const evaluation = verifyAgentProfileImprovementExperimentComparison(
+      measuredComparisonFromAgentProfileImprovementExperiment({
+        experiment,
+        measurements: run.measurements,
+        preparation: {
+          wallDurationMs: 1,
+          cost: { usd: 0, provenance: 'observed' },
+        },
+        measurement: run.measurement,
+        runId: 'direct-profile-improvement-1',
+        candidate: {
+          label: 'direct reflection',
+          rationale: 'A worker reflected on its trace and authored the complete candidate.',
+        },
+        generationsExplored: 1,
+      }),
+    )
+    const proposal = createAgentImprovementProposal({
+      runId: 'direct-profile-improvement-1',
+      findings: [productionFinding],
+      evaluation,
+      now: () => new Date('2026-07-28T00:00:00.000Z'),
+    })
+    const review = reviewAgentImprovementProposal(proposal, {
+      decision: 'approve',
+      reviewedBy: 'reviewer@example.com',
+      reason: 'The direct complete-profile candidate passed paired release work.',
+      now: () => new Date('2026-07-28T00:01:00.000Z'),
+    })
+    const activation = createAgentImprovementActivation(proposal, review, {
+      intent: 'activate-candidate',
+      targets: [
+        { surface: 'tools', identity },
+        { surface: 'mcp', identity },
+        { surface: 'hooks', identity },
+        { surface: 'agent-profile', identity },
+      ],
+      executionRef,
+      fundingOwner: 'tenant/research',
+      authorizedBy: 'operator@example.com',
+      expiresAt: '2026-07-28T00:10:00.000Z',
+      now: () => new Date('2026-07-28T00:02:00.000Z'),
+    })
+    let activeProfile = baselineProfile
+    const result = await executeAgentImprovementActivation(
+      { proposal, review, activation },
+      {
+        transition: async (input) => {
+          if (input.kind !== 'profile-improvement') {
+            throw new Error('expected a profile improvement transition')
+          }
+          const prepared = prepareAgentImprovementProfileActivation({
+            currentByIdentity: new Map([[identity, activeProfile]]),
+            profileTransition: input,
+            stateDigest,
+          })
+          if (prepared.status !== 'apply') throw new Error('expected a profile replacement')
+          activeProfile = prepared.replacements[0].profile
+          return createAgentImprovementActivationResult(input, {
+            completedAt: '2026-07-28T00:03:00.000Z',
+            outcome: {
+              status: 'applied',
+              transactionId: 'profile-version:2',
+              targets: prepared.targets,
+            },
+          })
+        },
+        now: () => new Date('2026-07-28T00:03:00.000Z'),
+      },
+    )
+
+    expect(observedProfiles).toHaveLength(reps * 2)
+    expect(evaluation.decision.outcome).toBe('ship')
+    expect(proposal.changedSurfaces).toEqual(['tools', 'mcp', 'hooks', 'agent-profile'])
+    expect(activation.executionRef).toEqual(executionRef)
+    expect(result.outcome.status).toBe('applied')
+    expect(activeProfile).toEqual(candidateProfile)
+    expect(change.every((step) => step.set?.resources === undefined)).toBe(true)
+  })
+
   it('builds a source-bound profile proposal without product experiment wiring', async () => {
     const template = createProfileImprovementFixture()
     const task = template.evaluation.experiment.benchmark.tasks[0]
@@ -313,9 +506,9 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     await expect(
       proposeAgentProfileImprovement({
         source,
-        improvement: { surface: 'tools' },
+        improvement: { surface: 'memory' },
       } as never),
-    ).rejects.toThrow(/supports prompt or skills/)
+    ).rejects.toThrow(/supports profile surfaces or a complete agent profile/)
     const {
       agent: rejectedOptimize,
       executionRef: rejectedExecutionDigest,
@@ -608,17 +801,68 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
 
   it('rejects malformed optimizer evidence on profile comparisons', () => {
     const fixture = createProfileImprovementFixture()
+    if (fixture.evaluation.kind !== 'agent-profile-improvement-measured-comparison') {
+      throw new Error('expected a profile improvement comparison')
+    }
+    const changed = {
+      ...fixture.evaluation,
+      metadata: { optimizationReceipt: { kind: 'caller-authored' } },
+    }
+    const { recordDigest: _recordDigest, ...provenance } = changed.provenance
+    const evaluation = {
+      ...changed,
+      provenance: {
+        ...provenance,
+        recordDigest: canonicalCandidateDigest({ ...changed, provenance }),
+      },
+    }
 
     expect(() =>
       createAgentImprovementProposal({
         runId: 'profile-improvement-1',
         findings: [productionFinding],
-        evaluation: {
-          ...fixture.evaluation,
-          metadata: { optimizationReceipt: { kind: 'caller-authored' } },
-        },
+        evaluation,
       }),
     ).toThrow(/optimization receipt/)
+  })
+
+  it('rejects a profile comparison that was not recomputed from its receipts', () => {
+    const fixture = createProfileImprovementFixture()
+    if (fixture.evaluation.kind !== 'agent-profile-improvement-measured-comparison') {
+      throw new Error('expected a profile improvement comparison')
+    }
+    const changed = { ...fixture.evaluation, diff: 'caller-authored result' }
+    const { recordDigest: _recordDigest, ...provenance } = changed.provenance
+    const evaluation = {
+      ...changed,
+      provenance: {
+        ...provenance,
+        recordDigest: canonicalCandidateDigest({ ...changed, provenance }),
+      },
+    }
+
+    expect(() =>
+      createAgentImprovementProposal({
+        runId: 'profile-improvement-1',
+        findings: [productionFinding],
+        evaluation,
+      }),
+    ).toThrow(/does not match.*receipts/)
+
+    const validProposal = createAgentImprovementProposal({
+      runId: 'profile-improvement-1',
+      findings: [productionFinding],
+      evaluation: fixture.evaluation,
+    })
+    const { digest: _digest, ...proposalMaterial } = validProposal
+    const invalidMaterial = { ...proposalMaterial, evaluation }
+    const invalidProposal = {
+      ...invalidMaterial,
+      digest: canonicalCandidateDigest(invalidMaterial),
+    }
+    expect(() => verifyAgentImprovementProposal(invalidProposal)).toThrow(
+      /does not match.*receipts/,
+    )
   })
 
   it('rejects unmetered proposal sources before analysis runs', async () => {
