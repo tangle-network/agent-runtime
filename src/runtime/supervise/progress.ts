@@ -109,6 +109,21 @@ export interface ActivityLog {
   size(): number
 }
 
+/** A short, already-truncated descriptor of a tool call's target — the file/command a driver
+ *  needs to tell "editing the right module" from "re-reading the same file for the fifth time",
+ *  without pulling the worker's transcript across the wire. Shared by every executor that fills an
+ *  `ActivityLog` (pi RPC, sandbox session parts, cli-bridge tool-call deltas) so one harness's
+ *  argument naming never reads differently from another's in the same driver's window. */
+export function describeToolArgs(argsValue: unknown): string | undefined {
+  if (!argsValue || typeof argsValue !== 'object') return undefined
+  const a = argsValue as Record<string, unknown>
+  for (const key of ['filePath', 'file_path', 'path', 'file', 'command', 'cmd', 'pattern']) {
+    const v = a[key]
+    if (typeof v === 'string' && v.length > 0) return v.length > 120 ? `${v.slice(0, 117)}...` : v
+  }
+  return undefined
+}
+
 /** Create a bounded activity ring. `limit` caps memory for a worker that runs thousands of tools. */
 export function createActivityLog(limit = 12): ActivityLog {
   const notes: ActivityNote[] = []

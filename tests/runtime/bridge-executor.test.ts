@@ -2,8 +2,9 @@ import { PassThrough, type Readable } from 'node:stream'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createExecutor, type ExecutorConfig, inlineSandboxClient } from '../../src/runtime'
+import { bridgeExecutor } from '../../src/runtime/supervise/runtime'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
-import type { Agent, AgentSpec, UsageEvent } from '../../src/runtime/supervise/types'
+import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/supervise/types'
 
 // `bridgeExecutor` POSTs each turn over the `node:http` core client, not global
 // `fetch`: the bridge runs a harness CLI and streams only once it starts
@@ -321,6 +322,351 @@ describe('bridgeExecutor over node:http', () => {
     await expect(runOnce(bridgeClient('kimi-code/k2'), 'go')).rejects.toThrow(/bridge 500/)
   })
 })
+
+/**
+ * `progress()` / `traceSource()` — the supervisor's LIVE read of a bridge worker (#683).
+ *
+ * The SSE frames below are the REAL bytes cli-bridge emitted for one
+ * `pi/tangle-router/gpt-5-mini` turn (captured 2026-08-01 off the bridge on 127.0.0.1:3355):
+ * each tool call arrives complete in ONE delta as
+ * `{index, id, type:'function', function:{name, arguments}}`, followed by a usage-only frame.
+ * Testing against replayed real bytes is the point — a decoder proven only against bytes this
+ * file invented proves nothing about the wire.
+ */
+describe('bridgeExecutor live observability', () => {
+  afterEach(() => {
+    bridgeHttpHandler = null
+    lastBridgeUrl = null
+  })
+
+  const REAL_TOOL_CALL_FRAMES = [
+    frame(1, {
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call_FjvWUA36BXG4yDn9LMw3Yc9R',
+                type: 'function',
+                function: {
+                  name: 'belief_hypothesize',
+                  arguments:
+                    '{"hypothesis":"The file /tmp/bridge-obs-probe-683.txt contains exactly one word."}',
+                },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    }),
+    frame(2, { choices: [], usage: { prompt_tokens: 6108, completion_tokens: 309 } }),
+    frame(3, {
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call_cBWLA0691IaJwXyA4HFvli6u',
+                type: 'function',
+                function: {
+                  name: 'read',
+                  arguments: '{"path":"/tmp/bridge-obs-probe-683.txt"}',
+                },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    }),
+    frame(4, { choices: [{ index: 0, delta: { content: 'PLATYPUS' }, finish_reason: null }] }),
+    frame(5, { choices: [], usage: { prompt_tokens: 6273, completion_tokens: 7, cost: 0.004 } }),
+    'data: [DONE]\n\n',
+  ]
+
+  it('reports the live turn, tool activity and queued steers while the turn streams', async () => {
+    bridgeHttpHandler = () => streamOf(REAL_TOOL_CALL_FRAMES)
+    const executor = observedBridgeExecutor()
+
+    expect(typeof executor.progress).toBe('function')
+    expect(executor.progress?.()).toMatchObject({ turns: 0, pendingMessages: 0, note: 'starting' })
+
+    const run = executor.execute('read the probe file', new AbortController().signal)
+    if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
+    const iterator = run[Symbol.asyncIterator]()
+    // The first metered event arrives AFTER the first tool-call frame, so this read happens with
+    // the turn still in flight — exactly when a supervisor decides to steer, respawn, or wait.
+    await iterator.next()
+    executor.deliver?.({ steer: 'also print the file size' })
+
+    const mid = executor.progress?.()
+    expect(mid?.note).toMatch(/^turn 0/)
+    expect(mid?.pendingMessages).toBe(1)
+    expect(mid?.recentActivity?.map((note) => note.label)).toContain('belief_hypothesize')
+    // The arguments the model actually sent are the detail a driver reads instead of the
+    // worker's whole transcript.
+    const read = mid?.recentActivity?.find((note) => note.label === 'read')
+    if (read) expect(read.detail).toBe('/tmp/bridge-obs-probe-683.txt')
+
+    for (;;) {
+      const next = await iterator.next()
+      if (next.done) break
+    }
+    const settled = executor.progress?.()
+    // The steer became a SECOND resume turn on the same session, and the window shows the whole
+    // causal chain a driver needs: what the worker did, what it was told, what it did next.
+    expect(settled?.turns).toBe(2)
+    expect(settled?.note).toBe('settled')
+    expect(settled?.recentActivity?.map((note) => note.label)).toEqual([
+      'belief_hypothesize',
+      'read',
+      'turn 1',
+      'follow-up',
+      'belief_hypothesize',
+      'read',
+      'turn 2',
+    ])
+    expect(settled?.recentActivity?.find((note) => note.label === 'follow-up')?.detail).toBe(
+      'also print the file size',
+    )
+  })
+
+  it('yields honest instant tool spans — real args, no invented status or duration', async () => {
+    bridgeHttpHandler = () => streamOf(REAL_TOOL_CALL_FRAMES)
+    const executor = observedBridgeExecutor()
+    await drain(executor)
+
+    const spans = await executor.traceSource?.()?.collect()
+    expect(spans?.map((span) => span.toolName)).toEqual(['belief_hypothesize', 'read'])
+    expect(spans?.[1]?.args).toEqual({ path: '/tmp/bridge-obs-probe-683.txt' })
+    for (const span of spans ?? []) {
+      // The bridge reports the DECISION to call a tool and never reports the call finishing, so
+      // an outcome and a duration are both unknowable. Asserting their ABSENCE is the contract:
+      // a defaulted 'ok' would count an unobserved call as a success in every error-rate read,
+      // and an end time later than the start would be a fabricated latency.
+      expect('status' in span).toBe(false)
+      expect(span.endedAt).toBe(span.startedAt)
+      expect(span.argsCaptured).toBeUndefined()
+    }
+  })
+
+  it('records every tool call in one delta, not just the first', async () => {
+    bridgeHttpHandler = () =>
+      streamOf([
+        frame(1, {
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'a',
+                    type: 'function',
+                    function: { name: 'read', arguments: '{"path":"x"}' },
+                  },
+                  {
+                    index: 1,
+                    id: 'b',
+                    type: 'function',
+                    function: { name: 'grep', arguments: '{"pattern":"y"}' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        frame(2, { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } }),
+        'data: [DONE]\n\n',
+      ])
+    const executor = observedBridgeExecutor()
+    await drain(executor)
+
+    const spans = await executor.traceSource?.()?.collect()
+    expect(spans?.map((span) => span.toolName)).toEqual(['read', 'grep'])
+    expect((executor.resultArtifact().out as { toolCalls: string[] }).toolCalls).toEqual([
+      'read',
+      'grep',
+    ])
+  })
+
+  it('marks a tool call whose arguments the wire omitted as uncaptured, not as empty', async () => {
+    bridgeHttpHandler = () =>
+      streamOf([
+        frame(1, {
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'a',
+                    type: 'function',
+                    function: { name: 'read', arguments: '' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        frame(2, { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } }),
+        'data: [DONE]\n\n',
+      ])
+    const executor = observedBridgeExecutor()
+    await drain(executor)
+
+    const spans = await executor.traceSource?.()?.collect()
+    expect(spans?.[0]?.args).toEqual({})
+    expect(spans?.[0]?.argsCaptured).toBe(false)
+  })
+
+  it("folds the bridge's own run state into the note, then drops it once the run is terminal", async () => {
+    bridgeHttpHandler = (payload) => {
+      if (lastBridgeUrl?.pathname.startsWith('/v1/runs/')) {
+        const id = decodeURIComponent(lastBridgeUrl.pathname.slice('/v1/runs/'.length))
+        return jsonOf({
+          id,
+          status: 'running',
+          state: 'running',
+          terminal: false,
+          lastSeq: 3,
+        })
+      }
+      void payload
+      return streamOf(REAL_TOOL_CALL_FRAMES)
+    }
+    const executor = observedBridgeExecutor()
+    const run = executor.execute('go', new AbortController().signal)
+    if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
+    const iterator = run[Symbol.asyncIterator]()
+    await iterator.next()
+
+    // The run-state read is deliberately OUT OF BAND: `progress()` schedules it and never awaits
+    // it, so the answer lands on a later read. Poll for that rather than blocking the run.
+    let note = ''
+    for (let attempt = 0; attempt < 50 && !note.includes('bridge run'); attempt += 1) {
+      note = executor.progress?.()?.note ?? ''
+      if (!note.includes('bridge run')) await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(note).toMatch(/^turn 0 · bridge run running \(status running, seq 3, read \d+ms ago\)$/)
+
+    for (;;) {
+      const next = await iterator.next()
+      if (next.done) break
+    }
+    // Terminal proof invalidates the last-known "running": reporting it after settle would be a
+    // stale claim dressed as a live one.
+    expect(executor.progress?.()?.note).toBe('settled')
+  })
+
+  it('degrades to the local mirror when the bridge cannot answer a run-state read', async () => {
+    bridgeHttpHandler = (payload) => {
+      if (lastBridgeUrl?.pathname.startsWith('/v1/runs/')) {
+        const failed = new PassThrough() as PassThrough & { statusCode?: number }
+        failed.statusCode = 500
+        failed.end('bridge exploded')
+        return failed
+      }
+      void payload
+      return streamOf(REAL_TOOL_CALL_FRAMES)
+    }
+    const executor = observedBridgeExecutor()
+    const run = executor.execute('go', new AbortController().signal)
+    if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
+    const iterator = run[Symbol.asyncIterator]()
+    await iterator.next()
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(() => executor.progress?.()).not.toThrow()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    // A failed observability read is not evidence about the run: the local mirror still answers,
+    // and the stream is untouched.
+    const during = executor.progress?.()
+    expect(during?.note).toBe('turn 0')
+    expect(during?.recentActivity?.length).toBeGreaterThan(0)
+    for (;;) {
+      const next = await iterator.next()
+      if (next.done) break
+    }
+    expect((executor.resultArtifact().out as { content: string }).content).toBe('PLATYPUS')
+  })
+
+  it('reports what it derived about the caller declaration, before any turn runs', () => {
+    bridgeHttpHandler = () => streamOf(REAL_TOOL_CALL_FRAMES)
+    const executor = bridgeExecutor(
+      { profile: { name: 'derived-worker' }, harness: null } as unknown as AgentSpec,
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: {
+            bridgeUrl: 'http://bridge.test',
+            bridgeBearer: 'secret',
+            model: 'kimi-code/kimi-k2.6',
+            agentProfile: { name: 'overlay', permissions: { shell: 'deny' } },
+          },
+          // A per-create backend override resolves a DIFFERENT wire model than the seam default.
+          createOptions: { backend: { type: 'opencode', model: { model: 'glm-4.6' } } },
+        },
+      },
+    )
+    // Readable BEFORE the first turn and never evicted, so a run that dies on turn 40 can still
+    // answer "which model did this actually run, and whose profile?" — the questions a failure
+    // raises and that neither the activity ring nor the settled artifact can answer.
+    const derived = executor.progress?.()?.derived ?? []
+    expect(derived).toEqual([
+      "profile: merged the bridge seam's agentProfile over the spawn profile before materialization",
+      'model: resolved the bridge wire model to opencode/glm-4.6 (seam default kimi-code/kimi-k2.6)',
+    ])
+  })
+})
+
+/** One numbered SSE data frame, exactly as cli-bridge writes it. */
+function frame(id: number, payload: unknown): string {
+  return `id: ${id}\ndata: ${JSON.stringify(payload)}\n\n`
+}
+
+function streamOf(frames: ReadonlyArray<string>): Readable {
+  const stream = new PassThrough()
+  stream.end(frames.join(''))
+  return stream
+}
+
+function jsonOf(body: unknown): Readable {
+  const stream = new PassThrough() as PassThrough & { statusCode?: number }
+  stream.statusCode = 200
+  stream.end(JSON.stringify(body))
+  return stream
+}
+
+function observedBridgeExecutor(): Executor<unknown> {
+  return bridgeExecutor(
+    { profile: { name: 'observed-worker' }, harness: null } as unknown as AgentSpec,
+    {
+      signal: new AbortController().signal,
+      seams: {
+        bridge: {
+          bridgeUrl: 'http://bridge.test',
+          bridgeBearer: 'secret',
+          model: 'pi/tangle-router/gpt-5-mini',
+        },
+      },
+    },
+  )
+}
+
+async function drain(executor: Executor<unknown>): Promise<void> {
+  const run = executor.execute('go', new AbortController().signal)
+  if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
+  for await (const _event of run) {
+    // drain the bridge stream
+  }
+}
 
 function isUsageStream(value: unknown): value is AsyncIterable<UsageEvent> {
   return (
