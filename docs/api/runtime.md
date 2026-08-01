@@ -20822,7 +20822,9 @@ key outright (`Unrecognized key: "systemPrompt"`), which fails the worker's ever
 both here, once, so what the supervisor writes is what the worker runs.
 
 Purely additive: a profile already canonical is returned untouched, and a flat field is dropped
-only after its canonical slot is filled.
+only after its canonical slot is filled. Both spellings of the same standing instruction, set to
+DIFFERENT text, is a contradiction with no safe reading — it fails loud, matching
+`resolveSupervisorProfile`'s rule for the supervisor's own profile.
 
 #### Parameters
 
