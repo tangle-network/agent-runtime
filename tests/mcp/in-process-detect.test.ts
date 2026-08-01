@@ -11,7 +11,7 @@ describe('detectExecutor — in-process selection', () => {
     })
     expect(exec.describe()).toMatch(/in-process/)
     expect(exec.describe()).toContain('/workspace')
-    expect(exec.describe()).toContain('harnesses=[claude]')
+    expect(exec.describe()).toContain('harnesses=[claude-code]')
     // In-process placement has no sandbox session — the bin keys detached
     // dispatch off this tag, so it must never read session-backed here.
     expect(exec.placement).toBe('in-process')
@@ -37,10 +37,10 @@ describe('detectExecutor — in-process selection', () => {
       env: {
         AGENT_RUNTIME_IN_SANDBOX: '1',
         AGENT_RUNTIME_REPO_ROOT: '/wk',
-        AGENT_RUNTIME_LOCAL_HARNESSES: 'claude,codex,opencode',
+        AGENT_RUNTIME_LOCAL_HARNESSES: 'claude-code,codex,opencode',
       },
     })
-    expect(exec.describe()).toContain('harnesses=[claude,codex,opencode]')
+    expect(exec.describe()).toContain('harnesses=[claude-code,codex,opencode]')
   })
 
   it('rejects unknown harness name', async () => {
@@ -50,7 +50,7 @@ describe('detectExecutor — in-process selection', () => {
         env: {
           AGENT_RUNTIME_IN_SANDBOX: '1',
           AGENT_RUNTIME_REPO_ROOT: '/wk',
-          AGENT_RUNTIME_LOCAL_HARNESSES: 'claude,gemini',
+          AGENT_RUNTIME_LOCAL_HARNESSES: 'claude-code,gemini',
         },
       }),
     ).rejects.toThrow(/unknown harness "gemini"/)

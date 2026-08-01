@@ -58,7 +58,7 @@ describe('validateGepaSeat', () => {
     expect(() => validateGepaSeat(seat())).not.toThrow()
     expect(() => validateGepaSeat(seat({ engine: 'omni', maxMetricCalls: 8 }))).not.toThrow()
     expect(isGepaSeat(seat())).toBe(true)
-    expect(isGepaSeat({ name: 'x', harness: 'claude' })).toBe(false)
+    expect(isGepaSeat({ name: 'x', harness: 'claude-code' })).toBe(false)
   })
 
   it('requires a surface inside the declared change-space', () => {
@@ -68,7 +68,7 @@ describe('validateGepaSeat', () => {
   })
 
   it('rejects harness-seat fields on an engine seat instead of silently ignoring them', () => {
-    expect(() => validateGepaSeat(seat({ harness: 'claude' }))).toThrow(/'harness' belongs to harness-authored/)
+    expect(() => validateGepaSeat(seat({ harness: 'claude-code' }))).toThrow(/'harness' belongs to harness-authored/)
     expect(() => validateGepaSeat(seat({ merge: true }))).toThrow(/'merge'/)
     expect(() => validateGepaSeat(seat({ model: 'x' }))).toThrow(/'model'/)
     expect(() => validateGepaSeat(seat({ profile: 'p.json' }))).toThrow(/'profile'/)
@@ -234,7 +234,7 @@ describe('captureProposerProvenance with a gepa seat', () => {
     return { code: 0, stdout: 'source', stderr: '' }
   }
   it('records engine, surface, gepa version, bridge module, and the python runtime as harnessVersion', async () => {
-    const record = await captureProposerProvenance([{ name: 'claude-author', harness: 'claude' }, seat()], {
+    const record = await captureProposerProvenance([{ name: 'claude-author', harness: 'claude-code' }, seat()], {
       exec: okExec,
       readSettingsModel: () => 'settings-model',
     })
@@ -251,7 +251,7 @@ describe('captureProposerProvenance with a gepa seat', () => {
     expect(gepa.harness).toBeUndefined()
     // The claude seat is untouched by the gepa capture path.
     expect(record.proposers.find((p) => p.name === 'claude-author')).toMatchObject({
-      harness: 'claude',
+      harness: 'claude-code',
       settingsModel: 'settings-model',
     })
   })

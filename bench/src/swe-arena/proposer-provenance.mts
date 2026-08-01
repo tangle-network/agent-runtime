@@ -24,6 +24,7 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { localHarnessExecutable } from '@tangle-network/agent-runtime/mcp'
 import {
   DEFAULT_GEPA_PYTHON,
   isGepaSeat,
@@ -117,10 +118,13 @@ export async function captureProposerProvenance(
     (h): h is NonNullable<ProposerSpec['harness']> => h !== undefined,
   )
   for (const harness of harnesses) {
-    const res = await exec(harness, ['--version'])
+    // The harness id is not the binary name (`claude-code` runs `claude`); read the executable
+    // from the runtime's harness table rather than spawning the id.
+    const executable = localHarnessExecutable(harness)
+    const res = await exec(executable, ['--version'])
     if (res.code !== 0) {
       throw new Error(
-        `proposer provenance: '${harness} --version' failed (rc=${res.code}) — the ${harness} seat cannot author. ` +
+        `proposer provenance: '${executable} --version' failed (rc=${res.code}) — the ${harness} seat cannot author. ` +
           `stderr: ${res.stderr.slice(0, 300)}`,
       )
     }
@@ -163,7 +167,7 @@ export async function captureProposerProvenance(
         harness: spec.harness,
         pinnedModel: spec.model ?? null,
         harnessVersion: versionByHarness.get(spec.harness!)!,
-        settingsModel: spec.harness === 'claude' && !spec.model ? readSettingsModel() : null,
+        settingsModel: spec.harness === 'claude-code' && !spec.model ? readSettingsModel() : null,
         authStatus: (spec.harness !== undefined ? authByHarness.get(spec.harness) : undefined) ?? null,
         merge: spec.merge === true,
       }

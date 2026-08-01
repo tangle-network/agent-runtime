@@ -58,6 +58,7 @@ import {
   providerAsSandboxClient,
   resolveAgentEnvironmentProvider,
 } from '../environment-provider'
+import { agentHarness } from '../harness-role'
 import { routerChatWithUsage, type ToolSpec } from '../router-client'
 import type { RunAgentRoundsOptions } from '../run-loop'
 import { runAgentRounds } from '../run-loop'
@@ -1154,7 +1155,7 @@ function bridgeCellModel(
     | { backend?: { type?: string; model?: { model?: string } } }
     | undefined
   const backend = create?.backend
-  const profileHarness = profile.harness === 'cli-base' ? undefined : profile.harness
+  const profileHarness = agentHarness(profile.harness)
   const harness = backend?.type ?? profileHarness
   const model = backend?.model?.model ?? profile.model?.default
   if (!harness && !model) return seamModel

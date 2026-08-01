@@ -193,7 +193,7 @@ export interface ImproveCodeOptions {
   /** Git-compatible adapter override, primarily for tests. Candidate advancement
    * still requires normal Git worktree and commit semantics. */
   worktree?: WorktreeAdapter
-  /** Coding harness the agentic generator runs in each worktree. Default `claude`. */
+  /** Coding harness the agentic generator runs in each worktree. Default `claude-code`. */
   harness?: LocalHarness
   /** Verify a candidate worktree before it becomes a measurable surface; failures
    * feed the next shot (see `agenticGenerator.verify` / `commandVerifier`). */

@@ -30,6 +30,7 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { coordinationVerbNames } from '../../mcp/tools/coordination'
+import { agentHarness } from '../harness-role'
 import { type RouterConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
@@ -448,12 +449,7 @@ export function supervisorAgent(
     )
   }
   const name = stableProfile.name ?? 'supervisor'
-  const harness =
-    stableProfile.harness === undefined ||
-    stableProfile.harness === null ||
-    stableProfile.harness === 'cli-base'
-      ? null
-      : stableProfile.harness
+  const harness = agentHarness(stableProfile.harness) ?? null
   // The prompt is consumed by BOTH arms, so it resolves here; the model id is router-arm-only and
   // resolves inside that arm, so a harness supervisor never touches a field it does not use.
   // No fallback at this site: the harness supplies its own standing prompt, and the router arm

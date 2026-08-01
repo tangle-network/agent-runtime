@@ -41,6 +41,7 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
+import { harnessRunsAgent } from '../harness-role'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { canonicalizeAuthoredProfile } from './authoring'
@@ -174,6 +175,14 @@ function externalExecutionId(kind: string, identity: unknown): string {
   return `${kind}-${digest.slice('sha256:'.length)}`
 }
 
+/**
+ * NOT a harness-name test — `ExecutorConfig.backend` is a discriminated-union TAG naming HOW a
+ * profile is materialized (bridge / sandbox / cli-worktree / router / cli / provider), which is a
+ * different axis from WHICH CLI runs. An exhaustive switch on a closed union tag is the correct
+ * shape and must stay: it is what makes a new executor kind a compile error here rather than a
+ * silently weaker materialization contract. Every other `backend.backend === …` in this file and
+ * in `runtime.ts` is the same tag; none of them are harness names.
+ */
 function backendProfileMaterialization(backend: ExecutorConfig): ProfileMaterializationContract {
   switch (backend.backend) {
     case 'bridge':
@@ -253,7 +262,7 @@ export const DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY: AgentProfileSecurityPolic
 })
 
 function isExternalSupervisor(profile: AgentProfile): boolean {
-  return profile.harness !== undefined && profile.harness !== 'cli-base'
+  return harnessRunsAgent(profile.harness)
 }
 
 function automaticDriverBackendSupported(backend: ExecutorConfig): boolean {

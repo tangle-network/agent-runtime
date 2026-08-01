@@ -10,14 +10,85 @@ import type {
   PlanFile,
 } from '@tangle-network/agent-profile-materialize'
 
-const NATIVE_EXECUTABLES = {
-  'claude-code': 'claude',
-  codex: 'codex',
-  opencode: 'opencode',
-  pi: 'pi',
-} as const satisfies Partial<Record<HarnessId, string>>
-
 const SYSTEM_PROMPT_FILE = '.tangle/system-prompt.md'
+
+/**
+ * How ONE harness expresses a replacement system prompt natively. Every difference between
+ * harnesses lives in a row: the executable that must be on the command line, the projection onto
+ * that harness's own control, and the launch arguments that would silently shadow the projection.
+ *
+ * The differences here are REAL — codex takes a TOML config override, claude-code and pi take
+ * prompt-file flags with different spellings, opencode has no flag at all and needs a mutated
+ * `opencode.json`. Adding harness N+1 is one entry; a harness with NO entry is refused by
+ * {@link projectCandidateSystemPrompt} rather than launched with an unprojected prompt, so the
+ * conflict check inherits the same fail-closed default instead of returning early.
+ */
+interface HarnessSystemPrompt {
+  /** The native binary the launch must run for this projection to be provable. */
+  readonly executable: string
+  /** Apply the prompt to the harness's own control, returning the projected plan. */
+  readonly project: (
+    plan: AgentCandidateWorkspacePlan,
+    systemPrompt: string,
+    systemPromptFilePath: string,
+  ) => AgentCandidateWorkspacePlan
+  /** Does the caller's argv already set a system prompt this projection would silently shadow? */
+  readonly conflictsWithArgs: (values: readonly string[]) => boolean
+}
+
+const SYSTEM_PROMPT_FLAGS = ['--system-prompt', '--system-prompt-file'] as const
+
+/** Shared by the harnesses whose native control IS a `--system-prompt*` flag. */
+function argsSetSystemPromptFlag(values: readonly string[]): boolean {
+  return values.some((value) =>
+    SYSTEM_PROMPT_FLAGS.some((flag) => value === flag || value.startsWith(`${flag}=`)),
+  )
+}
+
+function argsSetCodexDeveloperInstructions(values: readonly string[]): boolean {
+  for (let index = 0; index < values.length; index++) {
+    const value = values[index]!
+    const config =
+      value === '-c' || value === '--config'
+        ? values[index + 1]
+        : value.startsWith('--config=')
+          ? value.slice('--config='.length)
+          : undefined
+    if (config?.trimStart().startsWith('developer_instructions=')) return true
+  }
+  return false
+}
+
+const HARNESS_SYSTEM_PROMPTS = {
+  'claude-code': {
+    executable: 'claude',
+    project: (plan, systemPrompt, path) =>
+      appendFlags(addSystemPromptFile(plan, systemPrompt), '--system-prompt-file', path),
+    conflictsWithArgs: argsSetSystemPromptFlag,
+  },
+  codex: {
+    executable: 'codex',
+    project: (plan, systemPrompt) =>
+      appendFlags(plan, '-c', `developer_instructions=${tomlString(systemPrompt)}`),
+    conflictsWithArgs: argsSetCodexDeveloperInstructions,
+  },
+  opencode: {
+    executable: 'opencode',
+    project: (plan, systemPrompt) => ({
+      ...plan,
+      files: projectOpenCodeSystemPrompt(plan.files, systemPrompt),
+    }),
+    // `opencode run` takes no system-prompt flag; the prompt lives in `opencode.json`, whose
+    // conflicts `projectOpenCodeSystemPrompt` rejects at the file level.
+    conflictsWithArgs: () => false,
+  },
+  pi: {
+    executable: 'pi',
+    project: (plan, systemPrompt, path) =>
+      appendFlags(addSystemPromptFile(plan, systemPrompt), '--system-prompt', path),
+    conflictsWithArgs: argsSetSystemPromptFlag,
+  },
+} as const satisfies Partial<Record<HarnessId, HarnessSystemPrompt>>
 
 /** Project a replacement system prompt onto the exact native process control. */
 export function projectCandidateSystemPrompt(
@@ -28,10 +99,13 @@ export function projectCandidateSystemPrompt(
   const systemPrompt = plan.systemPrompt
   if (systemPrompt === undefined) return plan
 
-  const expectedExecutable = NATIVE_EXECUTABLES[plan.harness as keyof typeof NATIVE_EXECUTABLES]
-  if (!expectedExecutable) {
+  const projection = HARNESS_SYSTEM_PROMPTS[plan.harness as keyof typeof HARNESS_SYSTEM_PROMPTS] as
+    | HarnessSystemPrompt
+    | undefined
+  if (!projection) {
     throw new Error(`candidate system prompt has no native launch projection for ${plan.harness}`)
   }
+  const expectedExecutable = projection.executable
   if (launch.kind !== 'container-command') {
     throw new Error(
       `candidate-entrypoint launch cannot prove ${plan.harness} system-prompt replacement`,
@@ -49,38 +123,18 @@ export function projectCandidateSystemPrompt(
     )
   }
 
-  assertNoSystemPromptOverride(plan.harness, launch.args ?? [])
+  if (projection.conflictsWithArgs((launch.args ?? []).map((value) => value.value))) {
+    throw new Error(
+      `${plan.harness} launch arguments conflict with the candidate profile system prompt`,
+    )
+  }
   // The source-profile digest already binds the authored value. Sign only the
   // native projection here so an inert systemPrompt field cannot look active.
-  const projectedPlan = omitUnappliedSystemPrompt(plan)
-
-  switch (plan.harness) {
-    case 'codex':
-      return appendFlags(
-        projectedPlan,
-        '-c',
-        `developer_instructions=${tomlString(systemPrompt.value)}`,
-      )
-    case 'claude-code':
-      return appendFlags(
-        addSystemPromptFile(projectedPlan, systemPrompt.value),
-        '--system-prompt-file',
-        systemPromptFilePath,
-      )
-    case 'opencode':
-      return {
-        ...projectedPlan,
-        files: projectOpenCodeSystemPrompt(projectedPlan.files, systemPrompt.value),
-      }
-    case 'pi':
-      return appendFlags(
-        addSystemPromptFile(projectedPlan, systemPrompt.value),
-        '--system-prompt',
-        systemPromptFilePath,
-      )
-    default:
-      throw new Error(`candidate system prompt has no native launch projection for ${plan.harness}`)
-  }
+  return projection.project(
+    omitUnappliedSystemPrompt(plan),
+    systemPrompt.value,
+    systemPromptFilePath,
+  )
 }
 
 function omitUnappliedSystemPrompt(plan: AgentCandidateWorkspacePlan): AgentCandidateWorkspacePlan {
@@ -121,43 +175,6 @@ function addSystemPromptFile(
         source: 'generated',
       },
     ],
-  }
-}
-
-function assertNoSystemPromptOverride(
-  harness: HarnessId,
-  args: readonly AgentCandidateConfigValue[],
-): void {
-  const values = args.map((value) => value.value)
-  if (harness === 'claude-code' || harness === 'pi') {
-    if (
-      values.some(
-        (value) =>
-          value === '--system-prompt' ||
-          value.startsWith('--system-prompt=') ||
-          value === '--system-prompt-file' ||
-          value.startsWith('--system-prompt-file='),
-      )
-    ) {
-      throw new Error(
-        `${harness} launch arguments conflict with the candidate profile system prompt`,
-      )
-    }
-    return
-  }
-  if (harness !== 'codex') return
-
-  for (let index = 0; index < values.length; index++) {
-    const value = values[index]!
-    const config =
-      value === '-c' || value === '--config'
-        ? values[index + 1]
-        : value.startsWith('--config=')
-          ? value.slice('--config='.length)
-          : undefined
-    if (config?.trimStart().startsWith('developer_instructions=')) {
-      throw new Error('codex launch arguments conflict with the candidate profile system prompt')
-    }
   }
 }
 

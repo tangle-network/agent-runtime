@@ -88,11 +88,11 @@ export const PINNED_BASELINES: Record<string, GenerateSignals> = {
 /** The two demo author seats: the plain author and the quant lens. */
 export function defaultQuantProposers(): ProposerSpec[] {
   return [
-    { name: 'default-author', profile: 'default-author.profile.json', harness: 'claude' },
+    { name: 'default-author', profile: 'default-author.profile.json', harness: 'claude-code' },
     {
       name: 'quant-researcher',
       profile: join(QUANT_PROFILES_DIR, 'quant-researcher.profile.json'),
-      harness: 'claude',
+      harness: 'claude-code',
       lens:
         'Favor ONE economically-motivated effect (trend, mean reversion, vol targeting) with few parameters. ' +
         'State the regime in which it should work and keep turnover low enough that 15bps a side cannot eat the edge.',
@@ -218,7 +218,7 @@ async function claudeShot(opts: {
   const res = await run('claude', argv, {
     stdin: opts.prompt,
     cwd: opts.cwd,
-    env: proposerShotEnv('claude'),
+    env: proposerShotEnv('claude-code'),
     timeoutMs: opts.timeoutMs,
   })
   if (res.code !== 0) {

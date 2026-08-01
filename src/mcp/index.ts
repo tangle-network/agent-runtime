@@ -101,6 +101,10 @@ export type {
 } from './local-harness'
 export {
   CodexExecutionDiagnosticError,
+  DEFAULT_LOCAL_HARNESS,
+  harnessSupportsReasoningEffort,
+  LOCAL_HARNESSES,
+  localHarnessExecutable,
   parseCodexTokenUsage,
   runLocalHarness,
 } from './local-harness'

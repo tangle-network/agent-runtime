@@ -15,7 +15,7 @@ import {
   type FleetHandle,
 } from './executor'
 import { createInProcessExecutor } from './in-process-executor'
-import type { LocalHarness } from './local-harness'
+import { LOCAL_HARNESSES, type LocalHarness } from './local-harness'
 
 /** @experimental */
 export interface DetectExecutorArgs {
@@ -79,8 +79,6 @@ export async function detectExecutor(args: DetectExecutorArgs): Promise<Delegati
   })
 }
 
-const KNOWN_HARNESSES: ReadonlyArray<LocalHarness> = ['claude', 'codex', 'opencode']
-
 function parseHarnesses(raw: string | undefined): ReadonlyArray<LocalHarness> | undefined {
   if (!raw) return undefined
   const parts = raw
@@ -89,9 +87,9 @@ function parseHarnesses(raw: string | undefined): ReadonlyArray<LocalHarness> | 
     .filter(Boolean)
   if (parts.length === 0) return undefined
   for (const part of parts) {
-    if (!KNOWN_HARNESSES.includes(part as LocalHarness)) {
+    if (!LOCAL_HARNESSES.includes(part as LocalHarness)) {
       throw new Error(
-        `agent-runtime-mcp: AGENT_RUNTIME_LOCAL_HARNESSES contains unknown harness "${part}". Expected: ${KNOWN_HARNESSES.join(', ')}.`,
+        `agent-runtime-mcp: AGENT_RUNTIME_LOCAL_HARNESSES contains unknown harness "${part}". Expected: ${LOCAL_HARNESSES.join(', ')}.`,
       )
     }
   }

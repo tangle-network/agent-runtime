@@ -23,6 +23,8 @@ import type { RouterConfig } from '../runtime/router-client'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { DelegateHandlerOptions } from './tools/delegate'
 
+// Composition-root default: a worker must run on SOME harness, and the router-backed one is the
+// least vendor-locked choice. Not a capability claim — nothing here branches on the name.
 const DEFAULT_WORKER_HARNESS = 'opencode'
 
 function trimmed(value: string | undefined): string | undefined {

@@ -41,7 +41,7 @@
   "repsPerInstance": 2,
   "premeasuredBaselinePath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen4/premeasured-baseline.json",
   "maxShots": 3,
-  "proposerHarness": "claude",
+  "proposerHarness": "claude-code",
   "proposerTimeoutMs": 2400000,
   "analystModels": [
     "glm-5.2",

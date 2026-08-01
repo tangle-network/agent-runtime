@@ -119,6 +119,49 @@ describe('candidate execution preparation', () => {
     },
   )
 
+  it.each([
+    {
+      harness: 'codex',
+      executable: 'codex',
+      args: ['-c', 'developer_instructions="already set"'],
+    },
+    { harness: 'claude-code', executable: 'claude', args: ['--system-prompt-file', '/elsewhere'] },
+    { harness: 'claude-code', executable: 'claude', args: ['--system-prompt=inline'] },
+    { harness: 'pi', executable: 'pi', args: ['--system-prompt', '/elsewhere'] },
+  ] as const)(
+    'refuses $harness launch args that would shadow the profile system prompt',
+    async ({ harness, executable, args }) => {
+      const value = fixture()
+      value.bundle = redigestBundle(value.bundle, {
+        profile: {
+          ...value.bundle.profile,
+          harness,
+          prompt: { ...value.bundle.profile.prompt, systemPrompt: 'Must be active.' },
+        },
+        execution: {
+          ...value.bundle.execution,
+          harness,
+          launch: {
+            kind: 'container-command',
+            executable,
+            args: args.map((value) => ({ kind: 'public', value })),
+          },
+        },
+      })
+      bindCandidateFixtureBundle(value)
+
+      await expect(
+        prepareAgentCandidateExecution(
+          await verifyAgentCandidateBundle(value.bundle, value.ports),
+          value.task,
+          value.ports,
+        ),
+      ).rejects.toThrow(
+        new RegExp(`${harness} launch arguments conflict with the candidate profile system prompt`),
+      )
+    },
+  )
+
   it('rejects a system prompt when an arbitrary candidate entrypoint cannot apply it', async () => {
     const value = fixture(true)
     value.bundle = redigestBundle(value.bundle, {

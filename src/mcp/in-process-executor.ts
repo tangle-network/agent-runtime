@@ -22,7 +22,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
 import type { DelegationExecutor } from './executor'
-import type { LocalHarness } from './local-harness'
+import { DEFAULT_LOCAL_HARNESS, type LocalHarness } from './local-harness'
 import type { GitRunner, WorktreeHandle } from './worktree'
 import { runWorktreeHarness } from './worktree-harness'
 
@@ -30,7 +30,7 @@ import { runWorktreeHarness } from './worktree-harness'
 export interface InProcessExecutorOptions {
   /** Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.agent-worktrees/`. */
   repoRoot: string
-  /** Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude']`. */
+  /** Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude-code']`. */
   harnesses?: ReadonlyArray<LocalHarness>
   /** Optional per-delegation test command run in the worktree after the harness exits. */
   testCmd?: string
@@ -85,7 +85,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
   const harnesses =
     options.harnesses && options.harnesses.length > 0
       ? [...options.harnesses]
-      : (['claude'] as const)
+      : [DEFAULT_LOCAL_HARNESS]
   const runPostCheck = options.runPostCheck ?? defaultRunPostCheck
   // The core speaks one `runCommand` seam ({exitCode, output}); adapt the post-check seam
   // ({exitCode, stdout, stderr}) onto it, folding a throw into a non-fatal failure signal so a

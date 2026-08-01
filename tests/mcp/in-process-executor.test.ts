@@ -44,7 +44,7 @@ describe('createInProcessExecutor', () => {
     }
     const exec = createInProcessExecutor({
       repoRoot: '/workspace',
-      harnesses: ['claude'],
+      harnesses: ['claude-code'],
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async () => ({
         exitCode: 0,
@@ -105,7 +105,7 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude', 'codex', 'opencode'],
+      harnesses: ['claude-code', 'codex', 'opencode'],
       runGit: makeFakeGit(state),
       runHarness,
     })
@@ -119,7 +119,14 @@ describe('createInProcessExecutor', () => {
       }
     }
     const harnesses = runHarness.mock.calls.map((c) => (c[0] as { harness: string }).harness)
-    expect(harnesses).toEqual(['claude', 'codex', 'opencode', 'claude', 'codex', 'opencode'])
+    expect(harnesses).toEqual([
+      'claude-code',
+      'codex',
+      'opencode',
+      'claude-code',
+      'codex',
+      'opencode',
+    ])
   })
 
   it('runs testCmd + typecheckCmd against the worktree and folds results into the artifact checks', async () => {
@@ -137,7 +144,7 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude'],
+      harnesses: ['claude-code'],
       testCmd: 'pnpm test',
       typecheckCmd: 'pnpm typecheck',
       runGit: makeFakeGit(state),
@@ -205,7 +212,7 @@ describe('createInProcessExecutor', () => {
     const result = events.find((e) => e.type === 'result')!.data.result as {
       harness: { name: string; exitCode: number | null }
     }
-    expect(result.harness.name).toBe('claude')
+    expect(result.harness.name).toBe('claude-code')
     expect(result.harness.exitCode).toBe(2)
   })
 
@@ -293,14 +300,14 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude'],
+      harnesses: ['claude-code'],
       runGit: makeFakeGit(state),
       runHarness,
     })
     // The authored worker profile rides in `backend.profile` (where `buildBackendOptions` puts it).
     const box = await exec.client.create({
       backend: {
-        type: 'claude',
+        type: 'claude-code',
         profile: {
           name: 'w',
           prompt: { systemPrompt: 'BE RIGOROUS' },

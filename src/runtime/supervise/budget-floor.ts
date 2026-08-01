@@ -22,6 +22,8 @@
  */
 import type { BackendType } from '@tangle-network/sandbox'
 
+// Already the target shape: one exhaustive row per harness, `satisfies` pinned so a new
+// `BackendType` is a compile error rather than a silent gap. Add a harness by adding a row.
 export const WORKER_TOKEN_FLOOR = {
   // 31,211 was the lowest of six measured settlements; nothing rounds it up.
   pi: 31_211,

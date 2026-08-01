@@ -43,6 +43,7 @@ import {
   type CodexExecutionPolicy,
   type CodexTokenUsage,
   harnessInvocation,
+  harnessSupportsReasoningEffort,
   type LocalHarness,
   type LocalHarnessResult,
   runLocalHarness,
@@ -211,10 +212,6 @@ export interface WorktreeHarnessRun {
 
 const defaultCheckOutputCap = 16_000
 
-function materializerHarness(harness: LocalHarness): HarnessId {
-  return harness === 'claude' ? 'claude-code' : harness
-}
-
 /** This harness runs public plans only — it has no secret provider, so any
  *  templated argument or secret-ref env value is refused rather than leaked
  *  or silently stringified. */
@@ -288,9 +285,10 @@ export async function runWorktreeHarness(
     // instructions; the workspace projection therefore omits both prompt sources.
     const invocationProfile = profileWithResourceInstructions(profile, resourceInstructions)
     const { command, args } = harnessInvocation(opts.harness, invocationProfile, opts.taskPrompt, {
-      // This helper created the candidate worktree above; autonomous Claude
-      // edits are permitted only inside that isolated checkout.
-      dangerouslySkipPermissions: opts.harness === 'claude',
+      // This helper created the candidate worktree above; autonomous edits are permitted only
+      // inside that isolated checkout. Which argv (if any) expresses that is the harness row's
+      // business — the workspace being disposable is what decides it here.
+      dangerouslySkipPermissions: true,
       ...(opts.codexReproducible ? { codexReproducible: true } : {}),
     })
     const harnessResult: LocalHarnessResult = await runHarness({
@@ -400,7 +398,7 @@ function prepareWorktreeProfile(
   const workspaceProfile = materializationOnlyProfile(profile)
   assertSupportedWorktreeProfile(profile, harness)
   assertSafeProfileResourcePaths(profile)
-  const plan = materializeProfile(workspaceProfile, materializerHarness(harness))
+  const plan = materializeProfile(workspaceProfile, harness)
   if (plan.unsupported.length > 0) {
     throw new Error(
       `runWorktreeHarness: profile cannot be materialized for ${harness}: ${plan.unsupported
@@ -492,10 +490,12 @@ function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHar
     context: 'runWorktreeHarness',
   })
   // `profile.harness` is only a preference and the explicit run option wins. The contract above
-  // rejects routing-only model hints and `resources.failOnError`; this harness-specific check
-  // handles values supported by only a subset of the three local CLIs.
+  // rejects routing-only model hints and `resources.failOnError`; this check refuses an axis the
+  // chosen harness's own capability row cannot express, so the refusal lands before any worktree
+  // exists and cannot drift from the argv the invocation would build.
   const unsupportedAxes: string[] = []
-  if (profile.model?.reasoningEffort !== undefined && harness !== 'codex') {
+  const reasoningEffort = profile.model?.reasoningEffort
+  if (reasoningEffort !== undefined && !harnessSupportsReasoningEffort(harness, reasoningEffort)) {
     unsupportedAxes.push('model.reasoningEffort')
   }
   if (unsupportedAxes.length > 0) {

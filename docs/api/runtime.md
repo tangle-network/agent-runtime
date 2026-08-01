@@ -11716,6 +11716,12 @@ Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
 Per-resume-turn inference cap before the worker settles on its last output.
  Mirrors `routerToolsInlineExecutor.maxTurns`; default 200 (runaway backstop).
 
+##### activityWindow?
+
+> `optional` **activityWindow?**: `number`
+
+Newest-last activity window `progress()` reports. Default 12 (matches `PiSeam`).
+
 ***
 
 ### ProviderSeam
@@ -13896,6 +13902,16 @@ False when the call was observed but its original arguments were unavailable.
 
 > `readonly` `optional` **status?**: `"error"` \| `"ok"`
 
+##### statusCaptured?
+
+> `readonly` `optional` **statusCaptured?**: `boolean`
+
+False when the source observed the call being MADE but never observed it finishing — so no
+outcome is knowable, not even by default. Some wires (cli-bridge's OpenAI-shaped `tool_calls`
+deltas) report the model's DECISION to call a tool and never report the call's result at all.
+Without this marker such a call would project as `status: 'ok'` and be counted as a success in
+every downstream error-rate read. Set it and the span carries NO status, which is the truth.
+
 ##### result?
 
 > `readonly` `optional` **result?**: `unknown`
@@ -15591,7 +15607,7 @@ The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness v
 
 ##### harness
 
-> **harness**: `"opencode"` \| `"codex"` \| `"claude"`
+> **harness**: [`LocalHarness`](mcp.md#localharness)
 
 **`Experimental`**
 

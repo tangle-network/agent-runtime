@@ -15,6 +15,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { LocalHarness } from '../../mcp/local-harness'
 import { fanout, selectValidWinner } from '../personify/combinators'
 import type { CombinatorShape, WinnerStrategy } from '../personify/wave-types'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
@@ -34,7 +35,7 @@ export interface AuthoredHarness {
   /** The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness via §1.5). */
   profile: AgentProfile
   /** Which local harness CLI drives this leaf. */
-  harness: 'claude' | 'codex' | 'opencode'
+  harness: LocalHarness
   /** Require measured usage from this leaf. Budgeted supervision refuses the default unmetered
    *  local-CLI mode; set false only when the selected runner actually returns token usage. */
   budgetExempt?: WorktreeCliExecutorOptions['budgetExempt']

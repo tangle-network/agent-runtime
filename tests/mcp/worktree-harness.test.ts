@@ -283,7 +283,7 @@ describe('runWorktreeHarness profile materialization', () => {
         runWorktreeHarness({
           repoRoot,
           profile: {},
-          harness: 'claude',
+          harness: 'claude-code',
           taskPrompt: 'task',
           runId,
           testCmd: 'must-not-run',
@@ -405,11 +405,11 @@ describe('runWorktreeHarness profile materialization', () => {
           hooks: { PreToolUse: [{ command: 'node hook.mjs', matcher: 'Bash' }] },
           subagents: { helper: { description: 'Helper', prompt: 'SUBAGENT_MARKER_37bb713b' } },
         },
-        harness: 'claude',
+        harness: 'claude-code',
         taskPrompt: 'DIRECT_TASK_72c5c757',
         runId,
         runHarness: async (options) => {
-          expect(options.harness).toBe('claude')
+          expect(options.harness).toBe('claude-code')
           expect(options.invocation?.command).toBe('claude')
           expect(options.invocation?.args).toContain('claude-model')
           expect(readFileSync(join(options.cwd, paths.file), 'utf8')).toContain(
@@ -741,7 +741,7 @@ describe('runWorktreeHarness profile materialization', () => {
     const runHarness = vi.fn()
     const cases: Array<{
       runId: string
-      harness: 'claude' | 'codex' | 'opencode'
+      harness: 'claude-code' | 'codex' | 'opencode'
       profile: AgentProfile
       dropped: string[]
     }> = [
@@ -765,10 +765,12 @@ describe('runWorktreeHarness profile materialization', () => {
         ],
       },
       {
+        // `high` is now DELIVERED on claude-code (`--effort high`); what it genuinely cannot
+        // express is thinking-off, so that is what the refusal is proved against.
         runId: 'claude-nested-controls',
-        harness: 'claude',
+        harness: 'claude-code',
         profile: {
-          model: { reasoningEffort: 'high' },
+          model: { reasoningEffort: 'none' },
         },
         dropped: ['model.reasoningEffort'],
       },

@@ -646,7 +646,7 @@ export interface OuterLoopConfig {
    *  budget.maxImprovementShots; the LIB owns the dial (capabilities.mts
    *  fails loud on a substrate that would drop it). */
   maxShots: number
-  proposerHarness: 'claude' | 'codex' | 'opencode'
+  proposerHarness: 'claude-code' | 'codex' | 'opencode'
   proposerTimeoutMs: number
   /** GEN-3 proposer fan-out: N proposers author candidates CONCURRENTLY, each
    *  an AgentProfile-pinned harness invocation (see proposer-fanout.mts).
@@ -759,7 +759,7 @@ export function defaultRound4Config(
     // bootstrap run writes it; the lib validates it on every consumption.
     premeasuredBaselinePath: join(hh, 'r4', 'premeasured-baseline.json'),
     maxShots: 3,
-    proposerHarness: 'claude',
+    proposerHarness: 'claude-code',
     // Per author SHOT (agenticGenerator timeoutMs). 20 min timed out 3× under
     // degraded capacity in gen-1 ("author shot timed out") — doubled to 40 min.
     proposerTimeoutMs: 2_400_000,
@@ -858,18 +858,18 @@ export function defaultGen3Config(
   const base = defaultRound4Config(hh, opts)
   const outDirName = opts.outDirName ?? 'gen3'
   const proposers: ProposerSpec[] = [
-    { name: 'default-author', profile: 'default-author.profile.json', harness: 'claude' },
+    { name: 'default-author', profile: 'default-author.profile.json', harness: 'claude-code' },
     {
       name: 'mechanics-author',
       profile: 'default-author.profile.json',
-      harness: 'claude',
+      harness: 'claude-code',
       diagnosisSlice: 'mechanics',
       lens: 'Focus on MECHANICS: worker lifecycle, sandbox/clone contracts, settlement and delivery paths. Prefer code-path fixes over prompt wording.',
     },
     {
       name: 'prompts-author',
       profile: 'default-author.profile.json',
-      harness: 'claude',
+      harness: 'claude-code',
       diagnosisSlice: 'prompts',
       lens: 'Focus on PROMPTS: worker/brain instruction wording, placement guidance, self-check discipline. Prefer prompt/instruction changes over code-path rewrites.',
     },
@@ -945,10 +945,10 @@ export function defaultGen4Config(
 ): OuterLoopConfig {
   const base = defaultGen3Config(hh, { outDirName: opts.outDirName ?? 'gen4' })
   const proposers: ProposerSpec[] = [
-    { name: 'claude-author', profile: 'default-author.profile.json', harness: 'claude' },
+    { name: 'claude-author', profile: 'default-author.profile.json', harness: 'claude-code' },
     { name: 'glm-author', harness: 'opencode', model: 'zai-coding-plan/glm-5.2' },
     ...(opts.includeCodex === false ? [] : [{ name: 'codex-author', harness: 'codex' } satisfies ProposerSpec]),
-    { name: 'merge-author', profile: 'default-author.profile.json', harness: 'claude', merge: true },
+    { name: 'merge-author', profile: 'default-author.profile.json', harness: 'claude-code', merge: true },
   ]
   return {
     ...base,
@@ -1263,7 +1263,7 @@ const CODEX_AMBIENT_AUTH_VARS = ['OPENAI_API_KEY', 'OPENAI_BASE_URL'] as const
 
 export function proposerShotEnv(harness: OuterLoopConfig['proposerHarness']): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
-  if (harness === 'claude') {
+  if (harness === 'claude-code') {
     for (const name of CLAUDE_AMBIENT_AUTH_VARS) delete env[name]
   }
   if (harness === 'codex') {
