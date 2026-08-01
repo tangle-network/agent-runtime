@@ -4,6 +4,7 @@
 
 - Runtime now requires Eval 0.140.1 and Knowledge 7.0.4, so its own enveloped spawn journals parse into non-empty recursive run trees.
 - Three release checks no longer infer concurrency or process readiness from sub-second wall-clock sleeps; they wait for the event under test or allow their real container/process boundary to start.
+- Candidate cleanup timeout coverage now advances a fake clock and observes the abort signal, while the Git-heavy knowledge activation checks use a process-boundary timeout that survives parallel CI load.
 
 ## 0.119.0
 
