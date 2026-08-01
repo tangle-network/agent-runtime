@@ -5,6 +5,7 @@ import type {
   AgentCandidateProfilePlanEvidence,
   AgentCandidateResourceRef,
   AgentProfile,
+  AgentProfileConfigValue,
   AgentProfileDiff,
   AgentProfileMcpServer,
   AgentProfileResourceRef,
@@ -244,8 +245,12 @@ export function agentCandidateProfileAsAgentProfile(
         name,
         {
           ...server,
-          ...(server.args ? { args: server.args.map(publicValue) } : {}),
-          ...(server.env ? { env: mapPublicValues(server.env) } : {}),
+          // Candidate config values ({kind:'public', value}) are already valid
+          // AgentProfileConfigValue entries under interface >=0.40 — clone them
+          // rather than unwrapping to plain strings, which the 0.40 profile
+          // schema rejects.
+          ...(server.args ? { args: server.args.map((value) => ({ ...value })) } : {}),
+          ...(server.env ? { env: cloneRecord(server.env) } : {}),
         },
       ]),
     )
@@ -259,7 +264,9 @@ export function agentCandidateProfileAsAgentProfile(
         hooks.map(({ executable, args, env, ...hook }) => ({
           ...hook,
           command: [executable, ...(args ?? []).map(publicValue)].map(shellQuote).join(' '),
-          ...(env ? { env: mapPublicValues(env) } : {}),
+          // Hook env stays in config-value form: the 0.40 profile hook contract
+          // types env as Record<string, AgentProfileConfigValue>.
+          ...(env ? { env: cloneRecord(env) } : {}),
         })),
       ]),
     )
@@ -335,8 +342,14 @@ function freezeMcpServers(servers: Record<string, AgentProfileMcpServer>): Recor
         {
           ...(server.transport ? { transport: server.transport } : {}),
           ...(server.command ? { command: server.command } : {}),
-          ...(server.args ? { args: server.args.map(candidatePublicValue) } : {}),
-          ...(server.env ? { env: mapCandidatePublicValues(server.env) } : {}),
+          ...(server.args
+            ? {
+                args: server.args.map((value, index) =>
+                  candidatePublicValue(value, `mcp.${name}.args[${index}]`),
+                ),
+              }
+            : {}),
+          ...(server.env ? { env: mapCandidatePublicValues(server.env, `mcp.${name}.env`) } : {}),
           ...(server.cwd ? { cwd: server.cwd } : {}),
           ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
         },
@@ -416,26 +429,31 @@ function publicResource(resource: AgentCandidateResourceRef): unknown {
   }
 }
 
-function candidatePublicValue(value: string): { kind: 'public'; value: string } {
-  return { kind: 'public', value }
+/** Freeze one profile config value into the candidate's PUBLIC-only config
+ *  shape. A secret-ref has no candidate representation (AgentCandidateConfigValue
+ *  is public-only), so it is rejected, never silently dropped or unwrapped. */
+function candidatePublicValue(
+  value: AgentProfileConfigValue,
+  path: string,
+): { kind: 'public'; value: string } {
+  if (value.kind !== 'public') unsupportedProfileField(`${path} (secret-ref '${value.key}')`)
+  return { kind: 'public', value: value.value }
 }
 
 function mapCandidatePublicValues(
-  values: Record<string, string>,
+  values: Record<string, AgentProfileConfigValue>,
+  pathPrefix: string,
 ): Record<string, { kind: 'public'; value: string }> {
   return Object.fromEntries(
-    Object.entries(values).map(([name, value]) => [name, candidatePublicValue(value)]),
+    Object.entries(values).map(([name, value]) => [
+      name,
+      candidatePublicValue(value, `${pathPrefix}.${name}`),
+    ]),
   )
 }
 
 function publicValue(value: AgentCandidateConfigValue): string {
   return value.value
-}
-
-function mapPublicValues(
-  values: Record<string, AgentCandidateConfigValue>,
-): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, publicValue(value)]))
 }
 
 function cloneRecord<T>(values: Record<string, T>): Record<string, T> {

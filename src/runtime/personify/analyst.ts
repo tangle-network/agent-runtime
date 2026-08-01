@@ -185,7 +185,7 @@ function readAnalystFindings<D>(settled: Settled<Outcome<D>>): ReadonlyArray<Ana
 export interface RegistryAnalyzeProjection {
   readonly runId: string
   readonly inputs: AnalystRunInputs
-  /** Optional `run` opts (e.g. `priorFindings`) forwarded verbatim to the registry. */
+  /** Optional `run` opts (e.g. `priorFindings`, `chainFindings`) forwarded verbatim to the registry. */
   readonly opts?: Parameters<AnalystRegistryLike['run']>[2]
 }
 

@@ -693,6 +693,7 @@ function createRepo(prefix: string): {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
   git(['init', '-q', '-b', 'main'])
+  git(['config', 'core.hooksPath', '/dev/null'])
   git(['config', 'user.email', 'improve@test.local'])
   git(['config', 'user.name', 'improve-test'])
   writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')

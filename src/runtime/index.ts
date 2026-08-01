@@ -198,6 +198,8 @@ export {
   envKeyProvider,
   type KeyProvider,
   mcpSecretEnvMetadataKey,
+  type ResolvedMcpServerLaunch,
+  resolveMcpServerLaunch,
   resolveSecretEnv,
   secretEnvOfMcpServer,
 } from './key-provider'
@@ -338,6 +340,7 @@ export {
   routerChatWithTools,
   routerChatWithUsage,
   routerToolLoop,
+  streamRouterChatWithTools,
 } from './router-client'
 export {
   type BenchmarkCell,
@@ -523,6 +526,7 @@ export {
   type BudgetPoolRestore,
   type BudgetReadout,
   createBudgetPool,
+  type ReservationRejection,
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
@@ -611,6 +615,19 @@ export {
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
 // The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
 export { assertModelAllowed, assertProfileModelsAllowed } from './supervise/model-policy'
+// OPT-IN OTLP tracing for a supervised tree: a pure `RuntimeHooks` observer that turns the
+// lifecycle events `Scope` already emits into one span per node (opened at spawn, closed at settle,
+// parented to its parent node's span) plus an LLM child span per metered driver turn. A span with a
+// `parent_span_id` IS a tree, so the supervisor becomes readable by the same viewer as every other
+// multi-agent shape — with no per-system reader. Telemetry only: the spawn journal remains the sole
+// replay/resume record, and nothing here is ever read back.
+export {
+  createSupervisorSpanRecorder,
+  type SupervisorSpanAttributes,
+  type SupervisorSpanOptions,
+  type SupervisorSpanOutcome,
+  type SupervisorSpanRecorder,
+} from './supervise/otel-spans'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
@@ -619,10 +636,31 @@ export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-
 // runtime `'pi'` through the documented `ExecutorRegistry.register` extension point.
 export {
   PI_RUNTIME,
+  type PiExecutorOutput,
   type PiSeam,
   piExecutor,
   piSeamKey,
 } from './supervise/pi-executor'
+// pi has NO native MCP: it comes from the `pi-mcp-adapter` extension, which reads the canonical
+// `{mcpServers}` object from the file its `--mcp-config` flag names. `piExecutor` writes that file
+// from `profile.mcp` before spawn — one file per worker EXECUTION, never one per workspace, so the
+// ordinary supervisor case of many children behind one shared `PiSeam.cwd` cannot collide. It
+// refuses to start when the adapter is missing, and RECORDS on `PiExecutorOutput.mcp` (and on the
+// live `progress().derived` channel, which survives a failed run) any extension it had to add to
+// keep `--no-extensions` from suppressing the adapter. Exported so a caller can perform the same
+// check ahead of a spawn.
+export {
+  buildPiMcpServers,
+  PI_MCP_ADAPTER,
+  PI_MCP_ADAPTER_ENV,
+  PI_MCP_CONFIG_FLAG,
+  type PiMcpMount,
+  type PiMcpMountOptions,
+  type PiMcpPreparation,
+  type PiMcpReceipt,
+  piMcpAdapterAvailable,
+  preparePiMcp,
+} from './supervise/pi-mcp'
 // The LIVE read-model of a RUNNING worker — last activity, idle time, derived stall, turns,
 // tokens so far, recent tool/file activity, unread steers. What `observe_agent` now returns
 // mid-flight, and the evidence a supervisor steers FROM.
@@ -649,6 +687,21 @@ export {
   type InMemoryRunContextOptions,
   type RunContext,
 } from './supervise/run-context'
+// The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
+// published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
+// readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the
+// writer contract is published alongside its reader.
+export {
+  legacySupervisorRunDir,
+  readWorkerSteerRequests,
+  safeWorkerFile,
+  supervisorRunDir,
+  supervisorRunsRoot,
+  type WorkerSteerRequest,
+  workerInboxFile,
+  workerInboxFileFromEventDir,
+  writeWorkerSteer,
+} from './supervise/run-layout'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
@@ -706,6 +759,8 @@ export {
   DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY,
   type DeliverableResolutionInput,
   type SuperviseOptions,
+  type SuperviseRegistry,
+  type SuperviseRegistryTable,
   supervise,
   workerFromBackend,
 } from './supervise/supervise'
@@ -714,11 +769,15 @@ export { createRootHandle, createSupervisor } from './supervise/supervisor'
 // `createExecutor({backend})` resolves a worker — omitted/`cli-base` → the in-process router tool-loop,
 // a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
 export {
+  assertCoordinationBinding,
+  type CoordinationBinding,
   type DriveHarness,
   type DriveHarnessOwnerContext,
   type ObserveSupervisorNodeEvent,
   type ResolveDriveHarness,
+  type ResolvedSupervisorProfile,
   type ResolveSupervisorTools,
+  resolveSupervisorProfile,
   type SupervisorAgentDeps,
   type SupervisorNodeContext,
   type SupervisorNodeContextSeed,
@@ -770,6 +829,7 @@ export type {
   NodeId,
   NodeSnapshot,
   NodeStatus,
+  NoWinnerError,
   ProfileMaterializationReceipt,
   Restart,
   ResultBlobStore,
@@ -799,6 +859,15 @@ export type {
   WorkerTraceEvidence,
   WorkerTraceUnavailableReason,
 } from './supervise/types'
+// Untracked-artifact fidelity for cloned worker workspaces: `git clone` carries history only, and
+// real workspaces hold compiled build outputs as untracked files a worker's verify gate needs.
+// Promoted from the loops repo (#4519).
+export {
+  type CopyOptions,
+  copyUntrackedIntoClone,
+  type UntrackedCopyStats,
+  withUntrackedArtifacts,
+} from './supervise/untracked-clone'
 // WAIT-STATES: a tree node that waits on wall-clock time (`timer`) or a named external predicate
 // (`poll`) with NO executor, NO sandbox, and NO conserved budget — journaled with its absolute
 // deadline, so a killed run resumes still waiting to the same instant. Not `await_event`: that is
@@ -817,6 +886,31 @@ export {
   type WaitSpec,
   waitUntil,
 } from './supervise/wait'
+// The bounded settle-evidence block a worker exposes so the brain's next decision is not authored
+// blind. Complementary to `CompletionEvidence` (a pointer), which this block is the target of.
+// Promoted from the loops repo (#4519).
+export {
+  closingWorkerNote,
+  composeWorkerEvidence,
+  EVIDENCE_MAX_CHARS,
+  NOTE_MAX_CHARS,
+  settledWorkerOut,
+  VERIFY_TAIL_CHARS,
+  type WorkerEvidenceInput,
+} from './supervise/worker-evidence'
+// The same tracing, carried ACROSS the process boundary: a spawned worker inherits the run's trace
+// id and the spawning node's span id through the `TRACE_ID` / `PARENT_SPAN_ID` env convention this
+// package already reads (`readTraceContextFromEnv`), so a worker on a remote sandbox emits spans
+// that join the parent's trace and one viewer assembles the whole cross-machine tree. Off unless a
+// run records spans; a caller's own seam env always wins. `worker-trace.ts` documents the
+// precedence rule and names which backends carry it and which cannot.
+export {
+  readWorkerTraceContext,
+  type WorkerTraceResolver,
+  type WorkerTraceSeamCarrier,
+  workerTraceEnv,
+  workerTraceSeamKey,
+} from './supervise/worker-trace'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)
 // driving a local harness CLI on its own git worktree, surfaced as the open `Executor` port.
 export {

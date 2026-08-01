@@ -106,6 +106,7 @@ import {
   type WaitRejection,
   type WaitSpec,
 } from './wait'
+import { type WorkerTraceResolver, workerTraceSeamKey } from './worker-trace'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
  *  blob store, and executor registry through; `depth`/`maxDepth` pair the runtime
@@ -147,6 +148,13 @@ export interface ScopeArgs {
    *  SAME stream `runAgentRounds`/`tool-loop` feed, so the recursive tree is ONE observable stream
    *  (the topology viewer reads it). Undefined ⇒ the journal stays the only record. */
   readonly hooks?: RuntimeHooks
+  /**
+   * Trace context to hand down to each spawned worker (`SupervisorOpts.workerTrace`). Called with
+   * THIS scope's own `parentId` — the node doing the spawning — and the resolved context is seeded
+   * onto each child's `ExecutorContext` under `workerTraceSeamKey`. Absent (the untraced default)
+   * ⇒ no seam is seeded and no worker environment is touched.
+   */
+  readonly workerTrace?: WorkerTraceResolver
   /** @internal Trusted root-adapter publication channel. It is never exposed as a Scope method. */
   readonly ownerMaterialization?: {
     readonly runtime: NodeSnapshot['runtime']
@@ -352,6 +360,9 @@ function makeNestedScopeSeam(
         signal,
         ...(args.now ? { now: args.now } : {}),
         ...(args.hooks ? { hooks: args.hooks } : {}),
+        // The nested scope resolves the trace context against ITS OWN `parentId` (this driver
+        // child), so a grandchild worker joins under the middle node's span, not the run root's.
+        ...(args.workerTrace ? { workerTrace: args.workerTrace } : {}),
         ...(deferredOwner.ownerMaterialization === undefined
           ? {}
           : { ownerMaterialization: deferredOwner.ownerMaterialization }),
@@ -592,6 +603,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // pool backed by THIS reservation. A leaf executor ignores it; the parent's sandbox/router
       // seams still pass through for leaves. Each nested driver repeats the same partitioning.
       const deferredOwner: DeferredOwnerSlot = {}
+      // Resolved per spawn, not once per scope: the span of the spawning node is opened by the
+      // `agent.spawn` hook, so reading it lazily needs no assumption about hook ordering. Absent
+      // resolver (the untraced default) ⇒ no seam, and the child's `ExecutorContext` is exactly
+      // the object it was before worker trace propagation existed.
+      const workerTrace = args.workerTrace?.(args.parentId)
       const ctx: ExecutorContext = {
         signal: controller.signal,
         node: {
@@ -611,6 +627,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             childDeadlineAtMs,
             deferredOwner,
           ),
+          ...(workerTrace ? { [workerTraceSeamKey]: workerTrace } : {}),
         },
       }
       const executor = resolved.value(spec, ctx) as Executor<C>
@@ -1069,7 +1086,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         lastActivityAt: child.lastActivityAt,
         turns: child.spent.iterations,
         tokens: child.spent.tokens,
+        ...(child.spent.tokensKnown === false ? { tokensKnown: false } : {}),
         usd: child.spent.usd,
+        ...(child.spent.usdKnown === false ? { usdKnown: false } : {}),
       },
       fromExecutor,
       opts.now ?? now(),
@@ -1708,11 +1727,10 @@ async function runChild<C>(
     // refunds its reservation; the executor observes zero calls.
     await executionReady
     if (childAbort.signal.aborted) throw abortError(childAbort.signal)
-    if (executor.budgetExempt) {
-      throw new ValidationError(
-        `scope.spawn: runtime ${JSON.stringify(executor.runtime)} does not report usage and cannot execute inside a budgeted supervisor`,
-      )
-    }
+    // A budgetExempt WORKER (e.g. the raw `cli` printer) reports zero spend by contract; its
+    // reconcile refunds the whole reservation, keeping it out of the conserved Σk by construction.
+    // Only the DRIVER path refuses budget-exempt runtimes (`driveHarnessFromBackend`), because a
+    // driver's own inference must be metered.
     live.status = 'running'
     started = true
     const ran = executor.execute(task, childAbort.signal)
@@ -2006,6 +2024,7 @@ async function foldStream(
 ): Promise<Spend> {
   const tokens = { input: 0, output: 0 }
   let usd = 0
+  let usdKnown = true
   let iterations = 0
   const iterator = stream[Symbol.asyncIterator]()
   try {
@@ -2020,10 +2039,17 @@ async function foldStream(
         tokens.output += ev.output
       } else if (ev.kind === 'cost') {
         usd += ev.usd
+        if (ev.usdKnown === false) usdKnown = false
       } else {
         iterations += 1
       }
-      onProgress?.({ iterations, tokens: { ...tokens }, usd, ms: 0 })
+      onProgress?.({
+        iterations,
+        tokens: { ...tokens },
+        usd,
+        ...(usdKnown ? {} : { usdKnown: false }),
+        ms: 0,
+      })
     }
   } catch (error) {
     // Ask a cooperative async generator to close, but never let a broken `return()` hide the
@@ -2031,7 +2057,13 @@ async function foldStream(
     void Promise.resolve(iterator.return?.()).catch(() => undefined)
     throw error
   }
-  return { iterations, tokens, usd, ms: 0 }
+  return {
+    iterations,
+    tokens,
+    usd,
+    ...(usdKnown ? {} : { usdKnown: false }),
+    ms: 0,
+  }
 }
 
 /** Usage events carry measured increments; the terminal artifact carries whether a provider omitted

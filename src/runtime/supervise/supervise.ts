@@ -21,6 +21,7 @@ import type { BackendType } from '@tangle-network/sandbox'
 import {
   assertProfileMaterialization,
   controlProfileMaterialization,
+  defineProfileMaterializationContract,
   fullProfileMaterialization,
   type ProfileMaterializationContract,
   profileMaterializationAxes,
@@ -28,7 +29,7 @@ import {
   promptModelProfileMaterialization,
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
-import { ValidationError } from '../../errors'
+import { ConfigError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   AuthorizeDownMessage,
@@ -39,6 +40,7 @@ import type {
   WorkerSpawnContext,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
@@ -54,6 +56,11 @@ import {
   runtimeOwnedScopeOwnerRuntime,
 } from './materialization'
 import { assertModelAllowed, assertProfileModelsAllowed } from './model-policy'
+import {
+  createSupervisorSpanRecorder,
+  type SupervisorSpanOptions,
+  type SupervisorSpanRecorder,
+} from './otel-spans'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import {
   bindReusableExecutorExecutionId,
@@ -71,6 +78,8 @@ import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
 import { createSupervisor } from './supervisor'
 import {
+  assertCoordinationBinding,
+  type CoordinationBinding,
   type DriveHarness,
   type DriveHarnessOwnerContext,
   type ResolveDriveHarness,
@@ -94,12 +103,23 @@ import type {
 } from './types'
 import type { WaitProbeRegistry } from './wait'
 
-/** Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
- *  deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
- *  deliver"). The ONE place a backend becomes a spawnable worker. */
+/**
+ * Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
+ * deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
+ * deliver"). The ONE place a backend becomes a spawnable worker.
+ *
+ * `seams` exists because this path builds the leaf executor EAGERLY and hands it back as a BYO
+ * `executorSpec.executor`. The registry resolves a BYO executor without ever consulting the
+ * per-child `ExecutorContext` the `Scope` seeds, so anything the scope would have supplied is
+ * invisible here and has to be passed in. It is a FUNCTION because it is resolved once per worker
+ * construction, so a caller may hand back something the run only learns later — which is exactly how
+ * `supervise()` gives a traced run's workers their trace context without ordering the span recorder
+ * ahead of the worker seam.
+ */
 export function workerFromBackend(
   backend: ExecutorConfig,
   deliverable?: DeliverableSpec<unknown>,
+  seams?: () => Readonly<Record<string, unknown>>,
 ): MakeWorkerAgent {
   const capturedBackend = captureReusableExecutorConfig(backend, 'workerFromBackend')
   const unscopedNamespace = randomUUID()
@@ -124,7 +144,13 @@ export function workerFromBackend(
     // Carry the configured factory into Scope. It is built only AFTER reservation with the real
     // child signal/context, so a rejected or already-completed keyed spawn creates no executor.
     const executorFactory = (spec: AgentSpec, ctx: ExecutorContext) => {
-      const built = baseFactory(spec, ctx)
+      // Caller-supplied seams sit UNDER the per-child seams the Scope seeds, so the scope's
+      // recursion and trace context always win on a key collision.
+      const extraSeams = seams?.()
+      const built = baseFactory(
+        spec,
+        extraSeams === undefined ? ctx : { ...ctx, seams: { ...extraSeams, ...ctx.seams } },
+      )
       return deliverable ? gateOnDeliverable(built, deliverable) : built
     }
     const spec: AgentSpec = {
@@ -180,6 +206,35 @@ function assertBackendProfileMaterialization(
 ): void {
   assertProfileContract(profile, backendProfileMaterialization(backend), context)
 }
+
+/**
+ * The ROOT router-brained supervisor's materialization claim. The router arm consumes the
+ * identity fields, the resolved system prompt (`systemPrompt` + `prompt.instructions` +
+ * `resources.instructions`), and the resolved model id (`model.default`); the remaining model
+ * HINTS (`small`, `provider`, `reasoningEffort`, `metadata`) are accepted as documented-unhonored
+ * router-arm material (`supervisorAgent`'s contract table states each one), so a canonical
+ * profile carrying ordinary hints is not refused. Every behavioral axis — tools, permissions,
+ * MCP, hooks, modes, subagents, file resources — still fails loud before any compute.
+ */
+const routerSupervisorProfileMaterialization = defineProfileMaterializationContract({
+  name: 'router-supervisor-execution',
+  axes: [
+    'name',
+    'description',
+    'version',
+    'tags',
+    'systemPrompt',
+    'instructions',
+    'resourceInstructions',
+    'modelDefault',
+    'modelSmall',
+    'modelProvider',
+    'modelReasoningEffort',
+    'modelMetadata',
+    'harness',
+    'metadata',
+  ],
+})
 
 const coordinationMcpAlias = 'agent-runtime-coordination'
 const defaultAllowedMcpHosts: string[] = []
@@ -243,15 +298,18 @@ function driveHarnessFromBackend(
     ) {
       throw new ValidationError('driveHarnessFromBackend: supervisor budget exhausted')
     }
-    if (profile.mcp?.[coordinationMcpAlias] !== undefined) {
+    // `supervise` only builds this drive path for canonical, schema-parsed AgentProfiles; parsing
+    // again here keeps that invariant local and gives the compound `mcp` field a real type.
+    const canonicalDriverProfile = agentProfileSchema.parse(profile)
+    if (canonicalDriverProfile.mcp?.[coordinationMcpAlias] !== undefined) {
       throw new ValidationError(
         `driveHarnessFromBackend: profile MCP alias ${JSON.stringify(coordinationMcpAlias)} is reserved`,
       )
     }
     const effectiveProfile = agentProfileSchema.parse({
-      ...profile,
+      ...canonicalDriverProfile,
       mcp: {
-        ...profile.mcp,
+        ...canonicalDriverProfile.mcp,
         [coordinationMcpAlias]: { transport: 'http', url: coordinationMcpUrl },
       },
     })
@@ -320,7 +378,7 @@ function driveHarnessFromBackend(
           ...declaration,
           // The endpoint is one attempt's transport binding, not AgentProfile identity. Keep the
           // admitted profile stable and commit the logical coordination capability separately.
-          effectiveProfile: profile,
+          effectiveProfile: canonicalDriverProfile,
           platformAttachments: {
             [coordinationMcpAlias]: {
               kind: 'coordination-mcp',
@@ -452,6 +510,67 @@ function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
   )
 }
 
+/** A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry`
+ *  uses): construction stays the caller's, lookup stays lazy, and a table backed by a file, a
+ *  plugin loader, or a plain object all satisfy one interface. */
+export interface SuperviseRegistryTable<T> {
+  resolve(name: string): T | undefined
+}
+
+/**
+ * The name→value tables that make the four CODE-valued options expressible as run DATA.
+ *
+ * `deliverable` / `finalizer` / `analysts` / `probes` are functions and registries, so a recorded
+ * run configuration (a JSON row, a campaign spec, a resumed run's options) cannot carry them — and
+ * a run with no `deliverable` cannot return a `winner` at all outside the sandbox backend, because
+ * the finalizer keeps only children whose oracle passed and nothing else writes that verdict. A
+ * caller that owns the code registers it here once and names it from data thereafter.
+ */
+export interface SuperviseRegistry {
+  readonly deliverables?: SuperviseRegistryTable<DeliverableSpec<unknown>>
+  readonly finalizers?: SuperviseRegistryTable<SupervisorFinalizer>
+  readonly analysts?: SuperviseRegistryTable<AnalystRegistry>
+  readonly probes?: SuperviseRegistryTable<WaitProbeRegistry>
+}
+
+/** Which registry table each nameable option resolves against. Indexing this map inside
+ *  {@link resolveNamed} makes the pairing a type error to get wrong: `resolveNamed('probes',
+ *  'deliverables', …)` does not compile. */
+interface SuperviseRegistryTableFor {
+  readonly deliverable: 'deliverables'
+  readonly finalizer: 'finalizers'
+  readonly analysts: 'analysts'
+  readonly probes: 'probes'
+}
+
+/** Resolve one option that may be given as a value OR as a name into `opts.registry`. Both failure
+ *  modes name the option, the requested name, and the table it was looked up in — a typo must not
+ *  degrade into a silently unconfigured run (which for `deliverable` means "no run can ever
+ *  deliver"). A resolver port cannot enumerate its names, so the message names the table instead of
+ *  listing what was in it. */
+function resolveNamed<K extends keyof SuperviseRegistryTableFor, T extends object>(
+  option: K,
+  table: SuperviseRegistryTableFor[K],
+  value: T | string | undefined,
+  registry: SuperviseRegistryTable<T> | undefined,
+): T | undefined {
+  if (typeof value !== 'string') return value
+  if (!registry) {
+    throw new ConfigError(
+      `supervise: opts.${option} = ${JSON.stringify(value)} names a registry entry, but no ` +
+        `opts.registry.${table} was provided to resolve it against`,
+    )
+  }
+  const entry = registry.resolve(value)
+  if (entry === undefined) {
+    throw new ConfigError(
+      `supervise: opts.${option} = ${JSON.stringify(value)} is not in opts.registry.${table} — ` +
+        'the table resolved no entry under that name',
+    )
+  }
+  return entry
+}
+
 export interface SuperviseOptions {
   /** The conserved compute pool for the whole run. */
   readonly budget: Budget
@@ -466,16 +585,24 @@ export interface SuperviseOptions {
   readonly execution?: AgentExecutionRef
   /** WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`. */
   readonly backend?: ExecutorConfig
-  /** The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
-   *  without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
-   *  failure mode of a static orchestrator. */
-  readonly deliverable?: DeliverableSpec<unknown>
+  /** The independent completion check for backend-derived workers and direct supervisor
+   *  submissions. Strongly recommended: without it the supervisor cannot submit its own work and
+   *  backend-derived workers fall back to their own validity signal. A `string` names an entry in
+   *  `registry.deliverables`. */
+  readonly deliverable?: DeliverableSpec<unknown> | string
   /** Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
    * after spawn authorization and driver classification, receives a detached immutable context,
    * and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it. */
   readonly resolveDeliverable?: (
     input: DeliverableResolutionInput,
   ) => DeliverableSpec<unknown> | undefined
+  /** Name→value tables for the four code-valued options, so a recorded run configuration can name
+   *  them instead of carrying closures. See {@link SuperviseRegistry}. */
+  readonly registry?: SuperviseRegistry
+  /** Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
+   *  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
+   *  unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated. */
+  readonly coordination?: CoordinationBinding
   /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
    *  This is caller-owned execution: profile security, spawn authorization, and recursive-driver
    *  selection below apply only to the backend-derived worker path. `authorizeMessage` still
@@ -569,8 +696,9 @@ export interface SuperviseOptions {
    *  the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound). */
   readonly maxLiveWorkers?: number
   /** Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
-   *  (the driver receives settled worker outputs, no analyst findings). */
-  readonly analysts?: AnalystRegistry
+   *  (the driver receives settled worker outputs, no analyst findings). A `string` names an entry in
+   *  `registry.analysts`. */
+  readonly analysts?: AnalystRegistry | string
   /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
    *  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
    *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
@@ -621,8 +749,9 @@ export interface SuperviseOptions {
   readonly journal?: SpawnJournal
   /** Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
    *  wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
-   *  refused `unknown-probe` and `timer` waits still work. */
-  readonly probes?: WaitProbeRegistry
+   *  refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
+   *  `registry.probes`. */
+  readonly probes?: WaitProbeRegistry | string
   /**
    * PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
    * before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
@@ -655,8 +784,24 @@ export interface SuperviseOptions {
    *  highest-scoring DELIVERED child (the exact behavior every existing caller had). Alternatives:
    *  `collectDelivered` (every verified distinct output with provenance — a Pareto set / recorded
    *  disagreement) or a custom `SupervisorFinalizer`. Whatever the finalizer, it operates on
-   *  structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. */
-  readonly finalizer?: SupervisorFinalizer
+   *  structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. A
+   *  `string` names an entry in `registry.finalizers`. */
+  readonly finalizer?: SupervisorFinalizer | string
+  /** Lifecycle observers for the whole recursive tree (`Scope` re-seeds them into every nested
+   *  scope). Composed with the `otel` recorder below when both are set. Omit = no observers, which
+   *  is the behavior every existing caller has. */
+  readonly hooks?: RuntimeHooks
+  /**
+   * OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
+   * parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
+   * tree is readable by any trace viewer instead of only by a journal parser. See `otel-spans.ts`.
+   *
+   * Omit and the run emits nothing, allocates no recorder, and installs no hook — telemetry is
+   * never a default. Present with no reachable endpoint (no `exportConfig.endpoint` and no
+   * `OTEL_EXPORTER_OTLP_ENDPOINT`) is also a no-op. The spawn journal is untouched either way:
+   * spans are telemetry, never the replay/resume record.
+   */
+  readonly otel?: Omit<SupervisorSpanOptions, 'runId' | 'now'>
 }
 
 /** The product-authorized result for one complete spawn request. Attribution is never accepted
@@ -718,6 +863,9 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     blobs,
     journal,
     probes,
+    registry,
+    hooks,
+    otel,
     authorizeSpawn,
     authorizeMessage,
     isDriverProfile,
@@ -739,8 +887,12 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
   const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
   const capturedDriverBackend =
     driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend)
+  // A string names a registry entry; it is resolved (and the resolved spec validated) by
+  // `resolveNamed` before anything is built or spent.
   const capturedDeliverable =
-    deliverable === undefined ? undefined : captureDeliverable(deliverable, 'supervise deliverable')
+    deliverable === undefined || typeof deliverable === 'string'
+      ? deliverable
+      : captureDeliverable(deliverable, 'supervise deliverable')
   const capturedRouter =
     router === undefined
       ? undefined
@@ -776,8 +928,8 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
             : { detectors: Object.freeze([...watchWorkers.detectors]) }),
         })
   const capturedAnalysts =
-    analysts === undefined
-      ? undefined
+    analysts === undefined || typeof analysts === 'string'
+      ? analysts
       : Object.freeze({
           kinds: detachedSnapshot(analysts.kinds, 'supervise analyst kinds'),
           run: analysts.run,
@@ -812,6 +964,11 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(now === undefined ? {} : { now }),
     ...(signal === undefined ? {} : { signal }),
     ...(rootHandle === undefined ? {} : { rootHandle }),
+    // Live collaborators: registries resolve lazily, hooks and otel exporters are process objects.
+    // They are captured as the exact references selected at intake, never deep-snapshot.
+    ...(registry === undefined ? {} : { registry }),
+    ...(hooks === undefined ? {} : { hooks }),
+    ...(otel === undefined ? {} : { otel }),
   })
 }
 
@@ -830,6 +987,39 @@ function freezeDetached<T>(value: T): T {
 
 function freezeDetachedProfile(value: unknown): AgentProfile {
   return freezeDetached(agentProfileSchema.parse(value))
+}
+
+/**
+ * Map the two loose `SupervisorProfile` spellings onto their canonical `AgentProfile` form before
+ * the strict schema parse, so both documented spellings run the SAME canonical pipeline and share
+ * one identity digest:
+ *  - a string `model` IS `model.default`;
+ *  - a top-level `systemPrompt` IS `prompt.systemPrompt` (two disagreeing values are a fault);
+ *  - `harness: null` selects the router brain, which canonically is an ABSENT harness.
+ * A canonical profile passes through byte-identical; every other field is left for the schema to
+ * accept or refuse.
+ */
+function canonicalSupervisorProfileInput(profile: SupervisorProfile): unknown {
+  if (typeof profile !== 'object' || profile === null) return profile
+  const { harness, model, systemPrompt, prompt, ...rest } = profile as SupervisorProfile &
+    Record<string, unknown>
+  const promptSystem = prompt?.systemPrompt
+  if (systemPrompt !== undefined && promptSystem !== undefined && systemPrompt !== promptSystem) {
+    throw new ValidationError(
+      'supervise: profile.prompt.systemPrompt and profile.systemPrompt are both set and differ — ' +
+        'they are the same standing instruction, so keep exactly one',
+    )
+  }
+  const canonicalPrompt =
+    systemPrompt !== undefined ? { ...prompt, systemPrompt } : (prompt as unknown)
+  return {
+    ...rest,
+    ...(harness === null || harness === undefined ? {} : { harness }),
+    ...(model === undefined
+      ? {}
+      : { model: typeof model === 'string' ? { default: model } : model }),
+    ...(canonicalPrompt === undefined ? {} : { prompt: canonicalPrompt }),
+  }
 }
 
 function canonicalExecution(
@@ -937,7 +1127,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   assertValidBudget(options.budget, 'supervise budget')
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
-  const parsedProfile = agentProfileSchema.safeParse(profile)
+  const parsedProfile = agentProfileSchema.safeParse(canonicalSupervisorProfileInput(profile))
   if (!parsedProfile.success) {
     throw new ValidationError(`supervise: invalid AgentProfile: ${parsedProfile.error.message}`)
   }
@@ -1003,6 +1193,29 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     options.allowedModels,
   )
 
+  // Named options become values before anything is built or spent — an unknown name is a
+  // configuration fault, and a fault that surfaces after a run started has already cost budget.
+  const deliverable = resolveNamed(
+    'deliverable',
+    'deliverables',
+    options.deliverable,
+    options.registry?.deliverables,
+  )
+  const finalizer = resolveNamed(
+    'finalizer',
+    'finalizers',
+    options.finalizer,
+    options.registry?.finalizers,
+  )
+  const analysts = resolveNamed(
+    'analysts',
+    'analysts',
+    options.analysts,
+    options.registry?.analysts,
+  )
+  const probes = resolveNamed('probes', 'probes', options.probes, options.registry?.probes)
+  assertCoordinationBinding(options.coordination)
+
   // `withDriver: true` is the wiring invariant either way (a `role: 'driver'` child must resolve
   // to the nested-scope executor); `runDir` only changes WHERE the journal and blobs live.
   const ctx =
@@ -1031,13 +1244,13 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
   }
   const hasCustomDriveHarness = Boolean(options.driveHarness || options.resolveDriveHarness)
-  if (hasCustomDriveHarness && !options.driveHarnessMaterialization) {
-    throw new ValidationError(
-      'supervise: custom driveHarness or resolveDriveHarness requires driveHarnessMaterialization so profile fields cannot be silently dropped',
-    )
-  }
+  // A custom harness receives the WHOLE profile by contract (`DriveHarness.profile` is the
+  // caller's object, never rewritten), so an undeclared materialization defaults to the full
+  // canonical leaf set — responsibility for every axis transfers to the harness the caller owns.
+  // Declaring `driveHarnessMaterialization` narrows that claim and turns dropped axes into
+  // pre-spawn faults.
   const driverMaterialization = hasCustomDriveHarness
-    ? options.driveHarnessMaterialization
+    ? (options.driveHarnessMaterialization ?? fullProfileMaterialization)
     : managerBackend && automaticDriverBackendSupported(managerBackend)
       ? backendProfileMaterialization(managerBackend)
       : undefined
@@ -1125,9 +1338,17 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ? (driverMaterialization as ProfileMaterializationContract)
       : options.brain
         ? promptControlProfileMaterialization
-        : promptModelProfileMaterialization,
+        : routerSupervisorProfileMaterialization,
     'supervise root',
   )
+
+  const now = options.now ?? Date.now
+
+  // The span recorder for this run, built inside `start()` so a configuration fault below still
+  // throws without leaving an exporter's flush timer behind. The worker seam reads it LAZILY (it is
+  // resolved once per spawned worker, long after `start()` assigned this), which is what lets the
+  // seam be built here while the recorder is built there.
+  let spans: SupervisorSpanRecorder | undefined
 
   let makeWorkerAgent = options.makeWorkerAgent
   if (!makeWorkerAgent) {
@@ -1136,7 +1357,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
         'supervise: provide opts.backend (where workers run) or opts.makeWorkerAgent',
       )
     }
-    const makeLeaf = workerFromBackend(options.backend, options.deliverable)
+    const makeLeaf = workerFromBackend(options.backend, deliverable)
     const securityPolicy = options.profileSecurity ?? DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY
 
     const makeRecursiveWorkerFor = (
@@ -1218,13 +1439,13 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
           const selectedDeliverable = options.resolveDeliverable?.(postAuthorizationContext)
           const leafDeliverable =
             selectedDeliverable === undefined
-              ? options.deliverable
+              ? deliverable
               : captureDeliverable(
                   selectedDeliverable,
                   `supervise deliverable for ${JSON.stringify(spawnContext.label)}`,
                 )
           const makeSelectedLeaf =
-            leafDeliverable === options.deliverable
+            leafDeliverable === deliverable
               ? makeLeaf
               : workerFromBackend(options.backend as ExecutorConfig, leafDeliverable)
           return makeSelectedLeaf(
@@ -1299,7 +1520,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
             ? { resolveSupervisorTools: options.resolveSupervisorTools }
             : {}),
           ...(observeNodeEvent ? { observeNodeEvent, replaySettlements: true } : {}),
-          ...(options.analysts ? { analysts: options.analysts } : {}),
+          ...(analysts ? { analysts } : {}),
           ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
           ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
           ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
@@ -1313,7 +1534,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
                 loadPriorCoordination: () => log.load(runId, ownerId),
               }
             : {}),
-          ...(options.finalizer ? { finalizer: options.finalizer } : {}),
+          ...(finalizer ? { finalizer } : {}),
         })
         return driverChild(authorized, nested, journal, childExecution.ref)
       }
@@ -1350,6 +1571,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
             onEvent: (_event, record) => log.append(runId, record, rootOwnerId),
           }
         : {}),
+      ...(deliverable ? { deliverable } : {}),
       ...(priorCoordination &&
       (priorCoordination.questions.length > 0 ||
         priorCoordination.findings.length > 0 ||
@@ -1357,7 +1579,9 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
         priorCoordination.deliveryEvidence.length > 0)
         ? { priorCoordination }
         : {}),
-      ...(options.finalizer ? { finalizer: options.finalizer } : {}),
+      ...(finalizer ? { finalizer } : {}),
+      ...(options.coordination ? { coordination: options.coordination } : {}),
+      ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),
       ...(options.brain ? { brain: options.brain } : {}),
       ...(rootDriveHarness ? { driveHarness: rootDriveHarness } : {}),
@@ -1374,7 +1598,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(observeNodeEvent ? { observeNodeEvent, replaySettlements: true } : {}),
       ...(options.extraTools ? { extraTools: options.extraTools } : {}),
       ...(options.executeExtraTool ? { executeExtraTool: options.executeExtraTool } : {}),
-      ...(options.analysts ? { analysts: options.analysts } : {}),
+      ...(analysts ? { analysts } : {}),
       ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
       ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
@@ -1384,9 +1608,15 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(options.compaction ? { compaction: options.compaction } : {}),
     })
 
+    // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
+    // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.
+    spans = options.otel ? createSupervisorSpanRecorder({ runId, ...options.otel, now }) : undefined
+    const recorder = spans
+    const hooks = recorder ? composeRuntimeHooks(options.hooks, recorder.hooks) : options.hooks
+
     const supervisor = createSupervisor<unknown, unknown>()
     if (options.rootHandle) supervisor.attach(options.rootHandle)
-    return supervisor.run(agent, canonicalTask, {
+    const run = supervisor.run(agent, canonicalTask, {
       budget: options.budget,
       runId,
       journal,
@@ -1404,11 +1634,26 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
           }),
       maxDepth: options.maxDepth ?? 8,
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
-      ...(options.probes ? { probes: options.probes } : {}),
+      ...(probes ? { probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),
       ...(options.now ? { now: options.now } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
+      ...(hooks ? { hooks } : {}),
+      // Only a run that actually records spans hands trace context down to its workers; with no
+      // recorder this key is absent and no spawned worker's environment is touched.
+      ...(recorder ? { workerTrace: recorder.workerTrace } : {}),
     })
+    if (!recorder) return run
+    // The recorder closes the root span on BOTH exits and never rethrows, so tracing can neither
+    // change the result nor swallow the run's own rejection.
+    try {
+      const result = await run
+      await recorder.finish({ result })
+      return result
+    } catch (error) {
+      await recorder.finish({ error })
+      throw error
+    }
   }
 
   return start()

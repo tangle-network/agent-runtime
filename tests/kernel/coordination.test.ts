@@ -1,7 +1,13 @@
 import type { ToolSpan, TraceAnalysisStore } from '@tangle-network/agent-eval'
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { createMcpServer } from '../../src/mcp/server'
-import { type CoordinationEvent, createCoordinationTools } from '../../src/mcp/tools/coordination'
+import {
+  type CoordinationEvent,
+  createCoordinationTools,
+  deriveSpawnProfileArg,
+  spawnProfileFieldNames,
+} from '../../src/mcp/tools/coordination'
 import type { Agent, ResultBlobStore, Scope, Spend, WorkerTraceEvidence } from '../../src/runtime'
 import {
   contentAddress,
@@ -124,6 +130,65 @@ const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
 }
 
 describe('coordination tools', () => {
+  it('exposes direct submission only with an injected check and retains the first passing result', async () => {
+    const { scope } = mockScope()
+    const withoutCheck = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    expect(withoutCheck.tools.map((t) => t.name)).not.toContain('submit_result')
+
+    const checked: unknown[] = []
+    const withCheck = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      deliverable: {
+        describe: 'an object whose answer is 42',
+        check(result) {
+          checked.push(result)
+          const answer = (result as { answer?: unknown }).answer
+          if (answer === 'throw') throw new Error('check broke')
+          return answer === 42
+        },
+      },
+    })
+    const submit = tool(withCheck, 'submit_result')
+
+    expect(await submit.handler({ result: { answer: 0 } })).toEqual({
+      accepted: false,
+      stop: false,
+    })
+    expect(await submit.handler({ result: { answer: 'throw' } })).toEqual({
+      accepted: false,
+      stop: false,
+    })
+    expect(withCheck.isStopped()).toBe(false)
+    expect(withCheck.submittedResult()).toBeUndefined()
+
+    const passing = { answer: 42 }
+    expect(await submit.handler({ result: passing })).toEqual({
+      accepted: true,
+      retained: 'this-result',
+      stop: true,
+    })
+    passing.answer = 0
+    expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
+    expect(withCheck.isStopped()).toBe(true)
+    expect(withCheck.stopReason()).toBe('result-accepted')
+
+    expect(await submit.handler({ result: { answer: 43 } })).toEqual({
+      accepted: true,
+      retained: 'earlier-passing-result',
+      stop: true,
+    })
+    expect(checked).toHaveLength(3)
+    expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
+  })
+
   it('spawn_agent returns workerId and fails closed when admission fails', async () => {
     const { scope, setAdmit } = mockScope()
     const tb = createCoordinationTools({
@@ -1223,5 +1288,209 @@ describe('coordination tools', () => {
         ],
       }),
     ).toThrow(/shadows a built-in/)
+  })
+})
+
+describe("spawn_agent's published child-profile schema", () => {
+  const profileArg = (): Record<string, unknown> => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    const input = tool(tb, 'spawn_agent').inputSchema as {
+      properties: Record<string, Record<string, unknown>>
+    }
+    return input.properties.profile
+  }
+  const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v), 'utf8')
+  const canonicalProperties = (): Record<string, unknown> =>
+    agentProfileSchema.toJSONSchema({
+      io: 'input',
+      target: 'draft-07',
+      unrepresentable: 'any',
+    }).properties as Record<string, unknown>
+  const publishedFields = [
+    'name',
+    'description',
+    'version',
+    'harness',
+    'model',
+    'prompt',
+    'tools',
+    'permissions',
+    'mcp',
+    'resources',
+    'metadata',
+  ]
+  /** Every node in a JSON Schema tree, so a keyword can be asserted absent at EVERY depth. */
+  const nodes = function* (node: unknown): Generator<Record<string, unknown>> {
+    if (Array.isArray(node)) {
+      for (const item of node) yield* nodes(item)
+      return
+    }
+    if (!node || typeof node !== 'object') return
+    yield node as Record<string, unknown>
+    for (const value of Object.values(node as Record<string, unknown>)) yield* nodes(value)
+  }
+
+  it('declares an object shape carrying the canonical fields a spawning parent sets', () => {
+    const profile = profileArg()
+    expect(profile.type).toBe('object')
+    const props = profile.properties as Record<string, Record<string, unknown>>
+    expect(Object.keys(props)).toEqual(publishedFields)
+    // Derived, not transcribed: apart from the added description and the stripped key-codec
+    // artifact, each published sub-schema must be the canonical one, so a field the shared stack
+    // changes changes here with no edit to this repo. `mcp` and `resources` are the two documented
+    // brief forms and are asserted separately below.
+    const canonical = canonicalProperties()
+    const stripKeyCodec = (node: unknown): unknown => {
+      if (Array.isArray(node)) return node.map(stripKeyCodec)
+      if (!node || typeof node !== 'object') return node
+      return Object.fromEntries(
+        Object.entries(node as Record<string, unknown>)
+          .filter(([k]) => k !== 'propertyNames')
+          .map(([k, v]) => [k, stripKeyCodec(v)]),
+      )
+    }
+    for (const field of publishedFields) {
+      if (field === 'mcp' || field === 'resources') continue
+      const { description: _added, ...rest } = props[field]
+      expect(rest).toEqual(stripKeyCodec(canonical[field]))
+    }
+    expect((props.harness as { enum: string[] }).enum).toContain('claude-code')
+    expect(profile.description).toMatch(/canonical/i)
+  })
+
+  it('publishes NO zod key-codec propertyNames pattern at any depth', () => {
+    // `z.record(z.string(), …)` converts to `propertyNames: { pattern: '^u(?:[0-9a-f]{4})*$' }`,
+    // a lossy-round-trip marker, not a constraint — plain keys parse fine. Published verbatim a
+    // model reads it as "keys must be hex quads" and emits encoded garbage keys or drops the field.
+    expect(
+      agentProfileSchema.safeParse({ name: 'r', tools: { bash: true, Read: false } }).success,
+    ).toBe(true)
+    // The artifact is really there in the canonical conversion — so its absence below is a strip,
+    // not an upstream schema that never had it.
+    const canonicalHits = [...nodes(canonicalProperties())].filter((n) => 'propertyNames' in n)
+    expect(canonicalHits.length).toBeGreaterThan(0)
+
+    const profile = profileArg()
+    for (const node of nodes(profile)) expect(node).not.toHaveProperty('propertyNames')
+    expect(JSON.stringify(profile)).not.toContain('[0-9a-f]')
+  })
+
+  it('gives every published field a one-line description a model can act on', () => {
+    const profile = profileArg()
+    const props = profile.properties as Record<string, Record<string, unknown>>
+    for (const field of publishedFields) {
+      const description = props[field].description
+      expect(typeof description, `${field} description`).toBe('string')
+      expect((description as string).length, `${field} description`).toBeGreaterThan(30)
+    }
+    // The two brief forms must say so, and the parameter description must name both the canonical
+    // schema's authority and the fact that a custom worker seam may accept a different shape.
+    expect(props.mcp.description).toMatch(/brief form/i)
+    expect(props.resources.description).toMatch(/brief form/i)
+    expect(profile.description).toMatch(/governs validation/i)
+    expect(profile.description).toMatch(/makeWorkerAgent/)
+  })
+
+  it('accepts every canonical profile and refuses an unknown field with a typed issue', async () => {
+    const profile = profileArg()
+    // The PUBLISHED tool schema stays permissive (no `required`, open `additionalProperties`) so a
+    // harness whose schema copy lags never fails at the protocol layer…
+    expect(profile.additionalProperties).toBe(true)
+    expect(profile.required).toBeUndefined()
+
+    const { scope, spawns } = mockScope()
+    const seen: unknown[] = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent: (p) => {
+        seen.push(p)
+        return { name: 'w', act: async () => 0 }
+      },
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    const spawn = tool(tb, 'spawn_agent')
+    // …while the HANDLER validates the model-authored profile against the canonical schema and
+    // fails CLOSED with named issues: an unrecognized field would otherwise be silently dropped
+    // from the worker that runs, which is exactly the drop this runtime exists to refuse.
+    const canonical = { tags: ['research'], name: 'w' }
+    expect(await spawn.handler({ profile: {}, task: 'go' })).toMatchObject({ workerId: 'w0' })
+    expect(await spawn.handler({ profile: canonical, task: 'go' })).toMatchObject({
+      workerId: 'w0',
+    })
+    expect(
+      await spawn.handler({ profile: { ...canonical, someUnknownField: true }, task: 'go' }),
+    ).toMatchObject({
+      error: 'invalid-profile',
+      issues: [{ message: expect.stringContaining('someUnknownField') }],
+    })
+    // The worker factory is LAZY — the real scope invokes it only after reservation — so this
+    // mock scope records the spawn without building the agent.
+    expect(seen).toEqual([])
+    expect(spawns).toHaveLength(2)
+  })
+
+  it('publishes every field it names — the drift check, as a TEST, never at import', () => {
+    // The upstream rename this catches used to throw inside a module-load IIFE, which `src/runtime/
+    // index.ts` imports statically: an Interface field rename bricked `import
+    // '@tangle-network/agent-runtime/kernel'` for every consumer. It is caught here instead.
+    const canonical = canonicalProperties()
+    const missing = spawnProfileFieldNames.filter((f) => !(f in canonical))
+    expect(missing, `canonical fields: ${Object.keys(canonical).join(', ')}`).toEqual([])
+    expect([...spawnProfileFieldNames]).toEqual(publishedFields)
+  })
+
+  it('degrades to a smaller shape when an upstream field is renamed, instead of throwing', () => {
+    const canonical = canonicalProperties()
+    // Interface renames `tools` and drops `mcp`. Nothing throws; the two fields are simply not
+    // published, and every surviving field still carries its description.
+    const { tools: _renamedAway, mcp: _dropped, ...renamed } = canonical
+    const degraded = deriveSpawnProfileArg({ ...renamed, toolPolicy: canonical.tools })
+    const props = degraded.properties as Record<string, Record<string, unknown>>
+    expect(Object.keys(props)).toEqual(publishedFields.filter((f) => f !== 'tools' && f !== 'mcp'))
+    for (const field of Object.keys(props)) expect(typeof props[field].description).toBe('string')
+    expect(degraded.additionalProperties).toBe(true)
+    // The extreme case: the canonical schema stops being an object at all.
+    expect(() => deriveSpawnProfileArg(undefined)).not.toThrow()
+    expect(deriveSpawnProfileArg(undefined).properties).toEqual({})
+    expect(deriveSpawnProfileArg({}).properties).toEqual({})
+  })
+
+  it('keeps the two heavy fields in their brief form and the whole shape sanely bounded', () => {
+    const profile = profileArg()
+    const props = profile.properties as Record<string, Record<string, unknown>>
+    const canonical = canonicalProperties()
+    // The load-bearing assertion is STRUCTURAL, not a byte count: `mcp` and `resources` are the
+    // two fields a spawning parent is least likely to author inline (2663 B and 3122 B canonical,
+    // 85% of the published cost), so they publish a brief shape, never the canonical sub-tree.
+    expect(props.mcp).not.toEqual(canonical.mcp)
+    expect(props.resources).not.toEqual(canonical.resources)
+    expect(bytes(props.mcp)).toBeLessThan(bytes(canonical.mcp))
+    expect(bytes(props.resources)).toBeLessThan(bytes(canonical.resources))
+    // `mcp`'s brief form describes servers by name without the secret-ref/metadata sub-tree.
+    expect(props.mcp.additionalProperties).toEqual({ type: 'object' })
+    // `resources`' brief form names its four buckets and nothing deeper.
+    expect(Object.keys(props.resources.properties as Record<string, unknown>)).toEqual([
+      'files',
+      'tools',
+      'skills',
+      'agents',
+    ])
+    // A LOOSE sanity bound, not a fence an upstream field addition can trip: the reduction is what
+    // keeps this parameter from dwarfing the rest of the driver's tool list, and it stays well
+    // under the whole canonical schema. The floor fails only if the derived sub-schemas stop being
+    // published at all and the argument reverts to a bare prose description.
+    const published = bytes(profile)
+    const canonicalWhole = bytes(
+      agentProfileSchema.toJSONSchema({ io: 'input', target: 'draft-07', unrepresentable: 'any' }),
+    )
+    expect(published).toBeGreaterThan(1024)
+    expect(published).toBeLessThan(canonicalWhole)
   })
 })

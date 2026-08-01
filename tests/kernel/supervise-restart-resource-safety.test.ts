@@ -1113,7 +1113,7 @@ describe('supervision restart and resource safety', () => {
     })
   })
 
-  it('refuses an unmetered executor before compute and refunds its reservation', async () => {
+  it('admits a budget-exempt executor, reconciles it at zero, and refunds its reservation', async () => {
     let exemptExecutions = 0
     let exemptTeardowns = 0
     let measuredExecutions = 0
@@ -1159,7 +1159,9 @@ describe('supervision restart and resource safety', () => {
             label: 'subscription-cli',
           })
           expect(first.ok).toBe(true)
-          const refused = await scope.next()
+          const exemptSettled = await scope.next()
+          // The exempt worker reconciled at ZERO by contract, so its whole reservation refunded
+          // and the measured worker's reservation still fits the same conserved pool.
           const second = scope.spawn(measured, task, {
             budget: { maxIterations: 1, maxTokens: 10 },
             label: 'measured',
@@ -1167,7 +1169,7 @@ describe('supervision restart and resource safety', () => {
           expect(second.ok).toBe(true)
           const accepted = await scope.next()
           return {
-            refusal: refused?.kind === 'down' ? refused.reason : 'not refused',
+            exempt: exemptSettled?.kind === 'done' ? exemptSettled.out : 'not settled',
             accepted: accepted?.kind === 'done' ? accepted.out : 'not accepted',
           }
         },
@@ -1185,11 +1187,10 @@ describe('supervision restart and resource safety', () => {
     expect(result.kind).toBe('winner')
     if (result.kind !== 'winner') return
     expect(result.out).toEqual({
-      refusal:
-        'scope.spawn: runtime "cli" does not report usage and cannot execute inside a budgeted supervisor',
+      exempt: 'unmeasured',
       accepted: 'measured',
     })
-    expect(exemptExecutions).toBe(0)
+    expect(exemptExecutions).toBe(1)
     expect(exemptTeardowns).toBe(1)
     expect(measuredExecutions).toBe(1)
     expect(result.spentTotal).toMatchObject({

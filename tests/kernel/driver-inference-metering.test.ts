@@ -657,6 +657,178 @@ describe('equal-k ledger — trajectoryReport sums driver inference from the jou
   })
 })
 
+// A turn that reports no usage is the one the pool used to never hear about at all: the driver
+// skipped `scope.meter` entirely, so a turn that RAN was indistinguishable from a turn that never
+// happened, and the conserved pool counted it as free. A missing measurement is never zero.
+describe('unmetered turns are impossible — a turn with unknown usage is recorded, not skipped', () => {
+  it('journals a metered event for EVERY driver turn, marking the unmeasured ones unknown', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    // Turn 0 reports real usage; turns 1 and 2 report NOTHING — the shape a provider that omitted
+    // its usage block (or a stream that lost its terminal usage chunk) produces.
+    const chat = meteredChat([
+      {
+        toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go' } }],
+        usage: { input: 100, output: 50 },
+        costUsd: 0.01,
+      },
+      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'delivered' },
+    ])
+    const opts: DriverAgentOptions = {
+      name: 'root',
+      brain: chat,
+      blobs,
+      makeWorkerAgent: () => workerLeaf('w', { input: 10, output: 5 }),
+      perWorker,
+      systemPrompt: 'drive',
+      maxTurns: 8,
+    }
+    const result = await createSupervisor<unknown, unknown>().run(driverAgent(opts), 'task', {
+      // No maxUsd: an unknown-dollar turn under a dollar CAP is a separate, fail-loud case the
+      // pool already owns (`observe` refuses it) — here the run is only token/iteration budgeted.
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'unknown-usage',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
+    expect(result.kind).toBe('winner')
+
+    const events = (await journal.loadTree('unknown-usage')) ?? []
+    const metered = events.filter(
+      (e): e is Extract<(typeof events)[number], { kind: 'metered' }> => e.kind === 'metered',
+    )
+    // THREE turns ran, so THREE metered records exist. Before this, only the first turn was
+    // journaled and the other two vanished — two real inference turns recorded as never happening.
+    expect(metered.length).toBe(3)
+    expect(metered[0]!.spend.tokens).toEqual({ input: 100, output: 50 })
+    expect(metered[0]!.spend.tokensKnown).toBeUndefined() // measured
+    for (const ev of metered.slice(1)) {
+      // Zero tokens, explicitly flagged as an unknown count rather than a measured zero — the same
+      // shape the pool already uses for unknown dollars.
+      expect(ev.spend.tokens).toEqual({ input: 0, output: 0 })
+      expect(ev.spend.tokensKnown).toBe(false)
+      expect(ev.spend.usdKnown).toBe(false)
+    }
+    // The unknown marker survives the roll-up: a total that summed the flag away would present an
+    // under-count as an exact figure.
+    expect(result.kind === 'winner' && result.spentTotal.tokensKnown).toBe(false)
+  })
+
+  it('marks the pool readout as an under-count once a turn goes unmeasured, without freezing the run', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
+    expect(pool.readout().tokensKnown).toBe(true)
+
+    pool.observe({
+      iterations: 0,
+      tokens: { input: 0, output: 0 },
+      tokensKnown: false,
+      usd: 0,
+      usdKnown: false,
+      ms: 0,
+    })
+    // `tokensLeft` is now a CEILING on what remains, not a measurement — and says so.
+    expect(pool.readout().tokensKnown).toBe(false)
+    expect(pool.readout().tokensLeft).toBe(1000)
+    // Unlike the dollar channel, an unknown token count does NOT close admission: tokens are always
+    // capped, so refusing every later reservation would turn one silent provider into a dead run.
+    expect(pool.reserve({ maxIterations: 1, maxTokens: 100 }).ok).toBe(true)
+  })
+
+  it('fails loud instead of guessing when a turn of unknown cost runs under a DOLLAR cap', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    // The pool already owns this rule (`observe` refuses an unknown dollar cost under a cap): once
+    // a turn's price is unknowable, a dollar ceiling cannot be enforced, and pretending the turn
+    // cost $0 to keep going is exactly the over-spend the conserved pool exists to prevent. This
+    // case exists so the escalation is a chosen contract, not an accident of the metering change.
+    const chat: ToolLoopChat = async () => ({ content: 'no idea what that cost' })
+    const result = await createSupervisor<unknown, unknown>().run(
+      driverAgent({
+        name: 'root',
+        brain: chat,
+        blobs,
+        makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
+        perWorker,
+        systemPrompt: 'drive',
+        maxTurns: 4,
+      }),
+      'task',
+      {
+        budget: { maxIterations: 10, maxTokens: 10_000, maxUsd: 1 },
+        runId: 'usd-capped-unknown',
+        journal,
+        blobs,
+        executors: createExecutorRegistry(),
+        maxDepth: 2,
+        now: () => 0,
+      },
+    )
+    // The supervisor surfaces it as a named driver failure carrying the pool's own refusal — not a
+    // crash, and above all not a run that quietly continued spending against a cap it stopped
+    // enforcing. Nothing is guessed: no dollar figure is invented for the turn.
+    expect(result.kind).toBe('no-winner')
+    expect(result.kind === 'no-winner' && result.reason).toBe('driver-failed')
+    expect(result.kind === 'no-winner' && (result.error as Error | undefined)?.message).toMatch(
+      /unknown dollar cost under a dollar-capped budget/,
+    )
+  })
+
+  it('records the turn as unknown even when the brain also emitted tool calls (no turn escapes)', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const turnDetails: Array<Record<string, unknown>> = []
+    // A brain reporting no usage AND flagging the streamed transport's broken include_usage
+    // contract — the driver records both facts on the turn.
+    let n = 0
+    const chat: ToolLoopChat = async () => {
+      n += 1
+      return n === 1
+        ? {
+            toolCalls: [{ id: 'call-1', name: 'list_questions', arguments: '{}' }],
+            usageUnknown: true as const,
+          }
+        : { content: 'done', usageUnknown: true as const }
+    }
+    await createSupervisor<unknown, unknown>().run(
+      driverAgent({
+        name: 'root',
+        brain: chat,
+        blobs,
+        makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
+        perWorker,
+        systemPrompt: 'drive',
+        maxTurns: 8,
+      }),
+      'task',
+      {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId: 'stream-unknown',
+        journal,
+        blobs,
+        executors: createExecutorRegistry(),
+        maxDepth: 2,
+        now: () => 0,
+        hooks: {
+          onEvent: (e) => {
+            if (e.target === 'agent.turn') turnDetails.push(e.payload as Record<string, unknown>)
+          },
+        },
+      },
+    )
+    expect(turnDetails.length).toBe(2)
+    for (const d of turnDetails) {
+      // A stream that finished with no usage chunk is a DIFFERENT fact from a brain that never
+      // reports usage, and the journal keeps them apart.
+      expect(d.streamUsageMissing).toBe(true)
+      expect((d.spend as { tokensKnown?: boolean }).tokensKnown).toBe(false)
+    }
+  })
+})
+
 describe('budget pool — observe() debits the conserved pool for the live in-loop guard', () => {
   it('moves free → committed (invariant preserved) and drives the readout negative on overspend', () => {
     const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000, maxUsd: 5 }, () => 0)

@@ -49,6 +49,17 @@ export interface ExecutorProgress {
   readonly pendingMessages?: number
   /** Newest-last window of what the worker has been doing. */
   readonly recentActivity?: ReadonlyArray<ActivityNote>
+  /**
+   * What the executor CHANGED about what the caller declared, one short line each — an MCP config
+   * it materialized, an extension it had to add for the caller's own servers to mount at all.
+   *
+   * Deliberately NOT part of `recentActivity`: that is a bounded newest-last ring, so a derived
+   * change made before the first turn is evicted by turn 13 and gone by the time anyone looks. And
+   * deliberately not only on the settled artifact: a run that fails on turn 40 never produces one,
+   * yet "what was this worker actually given?" is exactly the question a failure raises. This
+   * channel is append-only and readable at any moment, including from a run that never finishes.
+   */
+  readonly derived?: ReadonlyArray<string>
   /** A one-line human-readable state ("turn 3, running tests"). */
   readonly note?: string
 }
@@ -71,11 +82,21 @@ export interface WorkerProgress {
   /** Metered iterations so far (the executor's own count when it reports one). */
   readonly turns: number
   readonly tokens: { readonly input: number; readonly output: number }
+  /** False when observed `tokens` is only a known subtotal, not a complete total — the worker did
+   *  work whose token count its provider never reported. The twin of `usdKnown`, carried for the
+   *  same reason: a driver reading this over `observe_agent` would otherwise read the subtotal as
+   *  the measurement and conclude a busy worker was cheap. */
+  readonly tokensKnown?: boolean
   readonly usd: number
+  /** False when observed dollar spend is only a known subtotal, not a complete total. */
+  readonly usdKnown?: boolean
   /** Steers delivered but not yet read by the worker. */
   readonly pendingMessages: number
   /** Newest-last window of tool/turn activity; empty when the executor exposes none. */
   readonly recentActivity: ReadonlyArray<ActivityNote>
+  /** What the executor changed about the caller's declaration; absent when it changed nothing.
+   *  Unlike `recentActivity` this is never evicted, so it still answers on a failed run. */
+  readonly derived?: ReadonlyArray<string>
   readonly note?: string
 }
 
@@ -112,7 +133,9 @@ export interface ScopeProgressInput {
   readonly lastActivityAt: number
   readonly turns: number
   readonly tokens: { readonly input: number; readonly output: number }
+  readonly tokensKnown?: boolean
   readonly usd: number
+  readonly usdKnown?: boolean
 }
 
 /** Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the
@@ -145,9 +168,16 @@ export function readWorkerProgress(
     stallAfterMs,
     turns: executor?.turns ?? scope.turns,
     tokens: scope.tokens,
+    // Both markers are carried the same way and only when false, so an unmarked read means the
+    // channel is measured — never "the fold forgot to pass it through".
+    ...(scope.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: scope.usd,
+    ...(scope.usdKnown === false ? { usdKnown: false } : {}),
     pendingMessages: executor?.pendingMessages ?? 0,
     recentActivity: executor?.recentActivity ?? [],
+    // Absent rather than empty, so "this executor derived nothing" and "this executor does not
+    // report derivations" read the same way — neither is a claim that nothing was changed.
+    ...(executor?.derived?.length ? { derived: executor.derived } : {}),
     ...(note ? { note } : {}),
   }
 }

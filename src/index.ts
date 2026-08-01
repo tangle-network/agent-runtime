@@ -184,8 +184,10 @@ export {
   buildRuntimeEventOtelSpans,
   createOtelExporter,
   exportEvalRuns,
+  generateSpanId,
   INTELLIGENCE_WIRE_VERSION,
   loopEventToOtelSpan,
+  toOtelAttributes,
 } from './otel-export'
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'

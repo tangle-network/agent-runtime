@@ -3812,77 +3812,6 @@ Stop a `serve` call. Subsequent requests are rejected.
 
 ***
 
-### Check
-
-One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is
- upgradeable to the full agentic factory; `lookFor` is the lens question the actor applies.
-
-#### Properties
-
-##### id
-
-> `readonly` **id**: `string`
-
-##### description
-
-> `readonly` **description**: `string`
-
-##### area
-
-> `readonly` **area**: `string`
-
-Coarse classification stamped on every finding this kind emits (the renderer groups by it).
-
-##### version
-
-> `readonly` **version**: `string`
-
-##### lookFor
-
-> `readonly` **lookFor**: `string`
-
-The lens — what this analyst looks for in the trace.
-
-***
-
-### CheckRunnerOptions
-
-#### Properties
-
-##### routerBaseUrl
-
-> **routerBaseUrl**: `string`
-
-##### routerKey
-
-> **routerKey**: `string`
-
-##### model
-
-> **model**: `string`
-
-##### chat?
-
-> `optional` **chat?**: (`system`, `user`) => `Promise`\<`string`\>
-
-Test/override seam — replace the LLM call. Default: a router chat completion.
-
-###### Parameters
-
-###### system
-
-`string`
-
-###### user
-
-`string`
-
-###### Returns
-
-`Promise`\<`string`\>
-
-***
-
 ### SettledWorker
 
 A worker the driver has drained via `await_event`.
@@ -4030,7 +3959,7 @@ Epoch ms from the durable terminal record — the resolution a progress-based st
 
 ###### Inherited from
 
-[`Question`](#question).[`id`](#id-6)
+[`Question`](#question).[`id`](#id-5)
 
 ##### from
 
@@ -4113,6 +4042,14 @@ Epoch ms from the durable terminal record — the resolution a progress-based st
 ##### perWorker
 
 > `readonly` **perWorker**: [`Budget`](index.md#budget-4)
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
+
+The same independent completion check used for workers. When present, the driver receives a
+`submit_result` tool and may finish work itself instead of being forced to delegate it. The
+first passing submission is retained; a false or throwing check fails closed.
 
 ##### analysts?
 
@@ -4286,6 +4223,16 @@ Commit any resume-time event replay before a supervisor can reason or an MCP can
 ###### Returns
 
 `string` \| `undefined`
+
+##### submittedResult()
+
+> **submittedResult**(): \{ `result`: `unknown`; \} \| `undefined`
+
+The first result whose injected independent check passed, if the driver submitted one.
+
+###### Returns
+
+\{ `result`: `unknown`; \} \| `undefined`
 
 ##### settled()
 
@@ -5943,14 +5890,6 @@ Env var overriding the served display name (default 'agent-memory').
 
 ***
 
-### defaultChecks
-
-> `const` **defaultChecks**: `Record`\<`string`, [`Check`](#check)\>
-
-The built-in lens directory. Domain-blind (about any agent trace); compose at test time.
-
-***
-
 ### DELEGATE\_FEEDBACK\_TOOL\_NAME
 
 > `const` **DELEGATE\_FEEDBACK\_TOOL\_NAME**: `"delegate_feedback"` = `'delegate_feedback'`
@@ -7344,128 +7283,6 @@ Build the generic stdio JSON-RPC tool server.
 #### Returns
 
 [`StdioToolServer`](#stdiotoolserver)
-
-***
-
-### liftFindings()
-
-> **liftFindings**(`kind`, `rows`, `producedAt`): `AnalystFinding`[]
-
-Lift validated raw rows into `AnalystFinding`s (agent-eval `makeFinding` stamps `finding_id`/
- `produced_at`), then enforce the trace-derived firewall (selector ≠ judge). Pure — no LLM.
-
-#### Parameters
-
-##### kind
-
-[`Check`](#check)
-
-##### rows
-
-`unknown`[]
-
-##### producedAt
-
-`string`
-
-#### Returns
-
-`AnalystFinding`[]
-
-***
-
-### renderTrace()
-
-#### Call Signature
-
-> **renderTrace**(`trace`): `Promise`\<`string`\>
-
-Render a worker's trace (tool calls + results) into the text an analyst lens reads. Conversation
- values remain synchronous; the official bounded store is read asynchronously through its own
- overview and view operations instead of stringifying its prototype to `{}`.
-
-##### Parameters
-
-###### trace
-
-`TraceAnalysisStore`
-
-##### Returns
-
-`Promise`\<`string`\>
-
-#### Call Signature
-
-> **renderTrace**(`trace`): `string`
-
-Render a worker's trace (tool calls + results) into the text an analyst lens reads. Conversation
- values remain synchronous; the official bounded store is read asynchronously through its own
- overview and view operations instead of stringifying its prototype to `{}`.
-
-##### Parameters
-
-###### trace
-
-`unknown`
-
-##### Returns
-
-`string`
-
-***
-
-### runCheck()
-
-> **runCheck**(`kind`, `trace`, `opts`, `producedAt`): `Promise`\<`AnalystFinding`[]\>
-
-Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval
- finding schema; the model's JSON array is parsed (`parseRawFinding`), lifted, and firewalled.
-
-#### Parameters
-
-##### kind
-
-[`Check`](#check)
-
-##### trace
-
-`unknown`
-
-##### opts
-
-[`CheckRunnerOptions`](#checkrunneroptions)
-
-##### producedAt
-
-`string`
-
-#### Returns
-
-`Promise`\<`AnalystFinding`[]\>
-
-***
-
-### makeCheckRunner()
-
-> **makeCheckRunner**(`kinds`, `opts`): (`kindId`, `trace`, `producedAt`) => `Promise`\<`AnalystFinding`[] \| \{ `error`: `string`; \}\>
-
-Build a `run_analyst` runner over a kind directory.
-Returns findings, or a typed error for an unknown kind. `producedAt` is
-passed in because replay-safe paths must not read `Date.now`.
-
-#### Parameters
-
-##### kinds
-
-`Record`\<`string`, [`Check`](#check)\>
-
-##### opts
-
-[`CheckRunnerOptions`](#checkrunneroptions)
-
-#### Returns
-
-(`kindId`, `trace`, `producedAt`) => `Promise`\<`AnalystFinding`[] \| \{ `error`: `string`; \}\>
 
 ***
 

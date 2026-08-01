@@ -390,6 +390,7 @@ function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
     total.tokens.output += ev.spent.tokens.output
     if (ev.spent.tokensKnown === false) total.tokensKnown = false
     total.usd += ev.spent.usd
+    if (ev.spent.tokensKnown === false) total.tokensKnown = false
     if (ev.spent.usdKnown === false) total.usdKnown = false
     total.ms += ev.spent.ms
   }
@@ -408,6 +409,7 @@ function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
     total.tokens.output += ev.spend.tokens.output
     if (ev.spend.tokensKnown === false) total.tokensKnown = false
     total.usd += ev.spend.usd
+    if (ev.spend.tokensKnown === false) total.tokensKnown = false
     if (ev.spend.usdKnown === false) total.usdKnown = false
     total.ms += ev.spend.ms
   }
@@ -432,15 +434,18 @@ function addSpend(a: Spend, b: Spend): Spend {
   }
 }
 
+/** An all-zero spend that carries an UNKNOWN marker counts as non-zero: a sub-driver whose turns
+ *  went unmeasured did real work, and dropping its `metered` event here would re-hide upstream the
+ *  very turn the driver refused to skip. */
 function isNonZeroSpend(s: Spend): boolean {
   return (
     s.iterations > 0 ||
     s.tokens.input > 0 ||
     s.tokens.output > 0 ||
-    s.tokensKnown === false ||
     s.usd > 0 ||
-    s.usdKnown === false ||
-    s.ms > 0
+    s.ms > 0 ||
+    s.tokensKnown === false ||
+    s.usdKnown === false
   )
 }
 

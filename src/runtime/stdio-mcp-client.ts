@@ -40,7 +40,7 @@ import {
   redactProtectedValue,
 } from '../candidate-execution/protected-redaction'
 import { ValidationError } from '../errors'
-import { type KeyProvider, resolveSecretEnv, secretEnvOfMcpServer } from './key-provider'
+import { type KeyProvider, resolveMcpServerLaunch } from './key-provider'
 import { sanitizeMcpToolSchema } from './mcp-environment'
 import type { AgenticTool } from './strategy'
 
@@ -295,11 +295,12 @@ export interface MaterializeLocalMcpOptions {
   timeoutMs?: number
   /** Cap on a tool result's text fed back to the worker. Default 2000 chars. */
   maxResultChars?: number
-  /** Resolves a server's DECLARED secrets (`metadata.secretEnv`: env var name →
-   *  provider key name) at spawn time. The resolved values reach ONLY the child
-   *  process env — never the profile, the logs, or an error message. Fail-closed:
-   *  a server declaring secrets without a provider (or with a missing key)
-   *  throws instead of booting keyless. */
+  /** Resolves a server's DECLARED secrets at spawn time — env entries of kind
+   *  `secret-ref` (interface ≥0.40) and the legacy `metadata.secretEnv` map
+   *  (env var name → provider key name). The resolved values reach ONLY the
+   *  child process env — never the profile, the logs, or an error message.
+   *  Fail-closed: a server declaring secrets without a provider (or with a
+   *  missing key) throws instead of booting keyless. */
   keys?: KeyProvider
   /** Required trust decision for profiles that declare local MCP processes.
    * Omit to refuse all profile-controlled host execution. Passing
@@ -360,22 +361,21 @@ export async function materializeLocalMcp(
           `materializeLocalMcp: profile.mcp['${key}'] declares a stdio server with no command`,
         )
       }
-      // Provision declared secrets NOW, into the spawn env only. The resolved
-      // values live in this local and the child env — nowhere else.
-      const secretRefs = secretEnvOfMcpServer(server)
-      const provisioned = secretRefs
-        ? await resolveSecretEnv(
-            secretRefs,
-            opts.keys,
-            `materializeLocalMcp: profile.mcp['${key}']`,
-          )
-        : undefined
+      // Resolve profile config values (public args/env, env secret-refs, and
+      // the legacy metadata.secretEnv channel) into spawn strings NOW. The
+      // resolved secret values live in this local and the child env — nowhere
+      // else — and every resolution failure aborts the whole materialization.
+      const launch = await resolveMcpServerLaunch(
+        server,
+        opts.keys,
+        `materializeLocalMcp: profile.mcp['${key}']`,
+      )
       const conn = await connectStdioMcp({
         command: server.command,
-        ...(server.args ? { args: server.args } : {}),
+        ...(launch.args ? { args: launch.args } : {}),
         ...(server.cwd ? { cwd: server.cwd } : {}),
-        ...(server.env ? { env: server.env } : {}),
-        ...(provisioned ? { protectedEnv: provisioned } : {}),
+        ...(launch.env ? { env: launch.env } : {}),
+        ...(launch.protectedEnv ? { protectedEnv: launch.protectedEnv } : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       })
       connections.push(conn)

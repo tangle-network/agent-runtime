@@ -88,6 +88,7 @@ import type {
   Spend,
   UsageEvent,
 } from './types'
+import { workerTraceEnv } from './worker-trace'
 import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
 // ── Seam contracts (read off ExecutorContext.seams, narrowed per built-in) ─────
@@ -670,6 +671,11 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   if (!Number.isFinite(maxIterations) || maxIterations <= 0) {
     throw new ValidationError('sandboxExecutor: maxIterations must be > 0')
   }
+  // The cross-MACHINE case this exists for: the box gets `TRACE_ID` / `PARENT_SPAN_ID` through
+  // `CreateSandboxOptions.env`, so whatever the remote worker emits lands in this run's trace under
+  // the spawning node's span. Empty when the run records no spans, and an empty record adds no
+  // `env` key to the create options at all.
+  const traceEnv = workerTraceEnv(ctx)
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -723,6 +729,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       taskToPrompt: (t) => taskToPrompt(t),
       options: seam.steering,
       ...(seam.loopCtx ? { loopCtx: seam.loopCtx } : {}),
+      ...(Object.keys(traceEnv).length > 0 ? { traceEnv } : {}),
       contentRef,
     })
     return attestRuntimeOwnedExecutor(
@@ -778,6 +785,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           maxIterations,
           controller,
           loopCtx: seam.loopCtx,
+          traceEnv,
           onArtifact: (a) => {
             artifact = a
           },
@@ -816,6 +824,8 @@ interface StreamSandboxArgs {
   maxIterations: number
   controller: AbortController
   loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
+  /** Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the box; empty when tracing is off. */
+  traceEnv: Record<string, string>
   onArtifact: (a: ExecutorResult<unknown>) => void
 }
 
@@ -832,7 +842,11 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     profile: args.spec.profile,
     taskToPrompt: (t) => taskToPrompt(t),
     name: args.spec.profile.name ?? args.harness,
-    sandboxOverrides: { backend: { type: args.harness } },
+    sandboxOverrides: {
+      backend: { type: args.harness },
+      // Absent entirely when tracing is off, so the create options are byte-identical to before.
+      ...(Object.keys(args.traceEnv).length > 0 ? { env: args.traceEnv } : {}),
+    },
   }
   const started = Date.now()
 
@@ -891,6 +905,8 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
 export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
   const seam = readSeam<CliSeam>(ctx, cliSeamKey, 'cli')
   if (!seam.bin) throw new ValidationError('cliExecutor: CliSeam.bin required')
+  // `TRACE_ID` / `PARENT_SPAN_ID` for this worker when the run records spans; `{}` otherwise.
+  const traceEnv = workerTraceEnv(ctx)
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -912,6 +928,7 @@ export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
         return streamCliLeaf({
           task,
           signal,
+          traceEnv,
           seam,
           controller,
           onProc: (p) => {
@@ -965,6 +982,8 @@ interface StreamCliArgs {
   task: unknown
   signal: AbortSignal
   seam: CliSeam
+  /** Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the subprocess; empty when tracing is off. */
+  traceEnv: Record<string, string>
   controller: AbortController
   onProc: (p: ReturnType<typeof spawn>) => void
   onArtifact: (a: ExecutorResult<unknown>) => void
@@ -974,7 +993,9 @@ async function* streamCliLeaf(args: StreamCliArgs): AsyncIterable<UsageEvent> {
   const prompt = taskToPrompt(args.task)
   const proc = spawn(args.seam.bin, args.seam.args ?? [], {
     ...(args.seam.cwd ? { cwd: args.seam.cwd } : {}),
-    env: { ...process.env, ...(args.seam.env ?? {}) },
+    // Trace context above ambient `process.env` (whose ids describe the SUPERVISOR's place in an
+    // outer trace, not this child's) and below `seam.env` (a deliberate operator declaration).
+    env: { ...process.env, ...args.traceEnv, ...(args.seam.env ?? {}) },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   args.onProc(proc)

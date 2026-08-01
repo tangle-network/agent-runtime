@@ -1,60 +1,26 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  AGENT_PROFILE_MATERIALIZATION_AXES,
+  type CanonicalAgentProfileMaterializationAxis,
+  profileMaterializationAxes,
+} from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 
-/** Known AgentProfile axes a run path may or may not carry into execution. */
-export const AGENT_PROFILE_MATERIALIZATION_AXES = [
-  'identity',
-  'name',
-  'description',
-  'version',
-  'tags',
-  'model',
-  'modelDefault',
-  'modelSmall',
-  'modelProvider',
-  'modelReasoningEffort',
-  'modelMetadata',
-  'harness',
-  'prompt',
-  'systemPrompt',
-  'instructions',
-  'resources',
-  'files',
-  'resourceInstructions',
-  'skills',
-  'resourceTools',
-  'resourceAgents',
-  'commands',
-  'resourceFailOnError',
-  'tools',
-  'permissions',
-  'mcp',
-  'mcpConnections',
-  'connections',
-  'subagents',
-  'hooks',
-  'modes',
-  'confidential',
-  'metadata',
-  'extensions',
-] as const
+export type { CanonicalAgentProfileMaterializationAxis }
+/**
+ * The canonical AgentProfile leaves, re-exported from `@tangle-network/agent-interface`.
+ *
+ * These are LEAVES only: `modelReasoningEffort`, not `model`; `systemPrompt`, not `prompt`. A
+ * contract must name every leaf it carries, because claiming a compound parent while dropping one
+ * of its children is exactly the silent-drop this module exists to catch.
+ */
+export { AGENT_PROFILE_MATERIALIZATION_AXES, profileMaterializationAxes }
 
-export type KnownAgentProfileMaterializationAxis =
-  (typeof AGENT_PROFILE_MATERIALIZATION_AXES)[number]
+export type KnownAgentProfileMaterializationAxis = CanonicalAgentProfileMaterializationAxis
 
 /** AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions. */
 export type AgentProfileMaterializationAxis =
   | KnownAgentProfileMaterializationAxis
   | `custom:${string}`
-
-type AgentProfileIdentityProperty = 'name' | 'description' | 'version' | 'tags'
-type AgentProfilePropertyMaterializationAxis = Exclude<
-  keyof AgentProfile,
-  AgentProfileIdentityProperty
->
-
-/** Canonical AgentProfile axes used when checking one complete profile. */
-export type CanonicalAgentProfileMaterializationAxis = KnownAgentProfileMaterializationAxis
 
 /** Declares which AgentProfile axes a concrete run path really carries. */
 export interface ProfileMaterializationContract {
@@ -92,65 +58,38 @@ export interface AssertProfileMaterializationOptions extends ValidateProfileMate
 
 const KNOWN_AXIS_SET = new Set<string>(AGENT_PROFILE_MATERIALIZATION_AXES)
 
-const AXIS_PARENTS: Partial<
-  Record<KnownAgentProfileMaterializationAxis, KnownAgentProfileMaterializationAxis>
-> = {
-  name: 'identity',
-  description: 'identity',
-  version: 'identity',
-  tags: 'identity',
-  modelDefault: 'model',
-  modelSmall: 'model',
-  modelProvider: 'model',
-  modelReasoningEffort: 'model',
-  modelMetadata: 'model',
-  systemPrompt: 'prompt',
-  instructions: 'prompt',
-  files: 'resources',
-  resourceInstructions: 'resources',
-  skills: 'resources',
-  resourceTools: 'resources',
-  resourceAgents: 'resources',
-  commands: 'resources',
-  resourceFailOnError: 'resources',
-  mcpConnections: 'mcp',
+/**
+ * Compound AgentProfile properties and the canonical leaves they cover.
+ *
+ * agent-interface publishes two axis vocabularies, and this module has to sit between them:
+ * `profileMaterializationAxes` emits canonical LEAVES, while `changedAgentProfileAxes` emits
+ * DIFF axes, which are compound property names (`model`, `prompt`, `resources`, `identity`) for
+ * everything except the already-scalar properties. A changed-axis input is therefore expanded
+ * through this map, so both producers compose with this validator.
+ *
+ * A CONTRACT may still only name leaves. Expanding an input is safe — it asks about more, never
+ * less — whereas letting a contract claim a parent is what silently swallows a dropped child.
+ */
+const compoundAxisLeaves: Record<string, readonly CanonicalAgentProfileMaterializationAxis[]> = {
+  identity: ['name', 'description', 'version', 'tags'],
+  prompt: ['systemPrompt', 'instructions'],
+  model: ['modelDefault', 'modelSmall', 'modelProvider', 'modelReasoningEffort', 'modelMetadata'],
+  resources: [
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+    'resourceFailOnError',
+  ],
+  mcpConnections: ['mcp'],
 }
 
-const canonicalAgentProfilePropertyAxes = [
-  'prompt',
-  'model',
-  'harness',
-  'permissions',
-  'tools',
-  'mcp',
-  'connections',
-  'subagents',
-  'resources',
-  'hooks',
-  'modes',
-  'confidential',
-  'metadata',
-  'extensions',
-] as const satisfies readonly AgentProfilePropertyMaterializationAxis[]
-
-type MissingAgentProfilePropertyMaterializationAxis = Exclude<
-  AgentProfilePropertyMaterializationAxis,
-  (typeof canonicalAgentProfilePropertyAxes)[number]
->
-const agentProfilePropertyAxesAreExhaustive: MissingAgentProfilePropertyMaterializationAxis extends never
-  ? true
-  : never = true
-void agentProfilePropertyAxesAreExhaustive
-
-const fullProfileMaterializationAxes = [
-  'identity',
-  ...canonicalAgentProfilePropertyAxes,
-] as const satisfies readonly CanonicalAgentProfileMaterializationAxis[]
-
-/** Materialization contract for a run path that executes every canonical AgentProfile axis. */
+/** Materialization contract for a run path that executes every canonical AgentProfile leaf. */
 export const fullProfileMaterialization = defineProfileMaterializationContract({
   name: 'full-profile-execution',
-  axes: fullProfileMaterializationAxes,
+  axes: AGENT_PROFILE_MATERIALIZATION_AXES,
 })
 
 /**
@@ -167,10 +106,12 @@ export const promptModelProfileMaterialization = defineProfileMaterializationCon
 /**
  * Materialization contract for a local coding CLI in an isolated git worktree.
  * The shared workspace materializer carries native tools, permissions, MCP, hooks, subagents,
- * modes, and file-backed resources when the selected CLI supports their exact values. Runtime
+ * modes, and file-backed resources when the selected CLI supports their exact values.
+ * `resourceFailOnError` is carried: it is the fail-closed policy the pre-worktree resource
+ * RESOLUTION step (`resolveAgentProfileResources`) applies to remote profile resources. Runtime
  * placement concerns (hub connections and confidential execution), provider-native extensions,
- * unused model hints, and `resources.failOnError` are deliberately absent so they fail before a
- * worktree or executor is created rather than being mistaken for an effective candidate change.
+ * and unused model hints are deliberately absent so they fail before a worktree or executor is
+ * created rather than being mistaken for an effective candidate change.
  */
 export const worktreeCliProfileMaterialization = defineProfileMaterializationContract({
   name: 'worktree-cli-execution',
@@ -191,6 +132,7 @@ export const worktreeCliProfileMaterialization = defineProfileMaterializationCon
     'resourceAgents',
     'commands',
     'resourceInstructions',
+    'resourceFailOnError',
     'hooks',
     'modes',
     'metadata',
@@ -210,7 +152,15 @@ export const promptControlProfileMaterialization = defineProfileMaterializationC
   axes: ['name', 'systemPrompt', 'instructions', 'harness', 'metadata'],
 })
 
-/** Materialization contract for `createSandboxAct`, which forwards the full AgentProfile. */
+/**
+ * Materialization contract for `createSandboxAct`.
+ *
+ * `createSandboxAct` hands the whole `AgentProfile` to the sandbox as `backend.profile`, so every
+ * profile leaf crosses the boundary. `buildBackendOptions` resolves the runner from an explicit
+ * `sandboxOverrides.backend.type`, then `profile.metadata.backendType`, then `profile.harness`,
+ * so a candidate that changes only `harness` runs on the harness it declares — and one declaring
+ * a harness the sandbox cannot run throws rather than running elsewhere and reporting success.
+ */
 export const sandboxActProfileMaterialization = defineProfileMaterializationContract({
   name: 'createSandboxAct',
   axes: fullProfileMaterialization.axes,
@@ -219,13 +169,27 @@ export const sandboxActProfileMaterialization = defineProfileMaterializationCont
 /** Materialization contract for a run path that only injects prompt text. */
 export const promptOnlyProfileMaterialization = defineProfileMaterializationContract({
   name: 'prompt-only-message',
-  axes: ['prompt'],
+  axes: ['systemPrompt', 'instructions'],
 })
 
-/** Materialization contract for a run path that injects prompt text plus inline resources. */
+/**
+ * Materialization contract for a run path that injects prompt text plus inline resources.
+ *
+ * `resourceFailOnError` is absent: it is a resolution POLICY the attaching path would have to
+ * enforce, and inlining resource content does not carry it.
+ */
 export const promptResourceProfileMaterialization = defineProfileMaterializationContract({
   name: 'prompt-resource-attachment',
-  axes: ['prompt', 'resources'],
+  axes: [
+    'systemPrompt',
+    'instructions',
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+  ],
 })
 
 /** Define the profile axes a concrete run path actually carries into execution. */
@@ -238,68 +202,17 @@ export function defineProfileMaterializationContract(
   }
   return {
     name,
-    axes: normalizeAxes(options.axes, `${name}.axes`),
+    axes: normalizeContractAxes(options.axes, `${name}.axes`),
   }
-}
-
-/**
- * Return the exact canonical axes a complete profile actually requests. Compound prompt, model,
- * identity, and resource objects are split so a path cannot claim an entire object while silently
- * dropping one of its fields.
- * Empty strings, arrays, and nested records do not claim support; explicit
- * scalar values such as `false` and `0` remain meaningful requests.
- */
-export function profileMaterializationAxes(
-  profile: AgentProfile,
-): readonly CanonicalAgentProfileMaterializationAxis[] {
-  const axes: CanonicalAgentProfileMaterializationAxis[] = []
-  addIfRequested(axes, 'name', profile.name)
-  addIfRequested(axes, 'description', profile.description)
-  addIfRequested(axes, 'version', profile.version)
-  addIfRequested(axes, 'tags', profile.tags)
-  addIfRequested(axes, 'systemPrompt', profile.prompt?.systemPrompt)
-  addIfRequested(axes, 'instructions', profile.prompt?.instructions)
-  addIfRequested(axes, 'modelDefault', profile.model?.default)
-  addIfRequested(axes, 'modelSmall', profile.model?.small)
-  addIfRequested(axes, 'modelProvider', profile.model?.provider)
-  addIfRequested(axes, 'modelReasoningEffort', profile.model?.reasoningEffort)
-  addIfRequested(axes, 'modelMetadata', profile.model?.metadata)
-  addIfRequested(axes, 'harness', profile.harness)
-  addIfRequested(axes, 'permissions', profile.permissions)
-  addIfRequested(axes, 'tools', profile.tools)
-  addIfRequested(axes, 'mcp', profile.mcp)
-  addIfRequested(axes, 'connections', profile.connections)
-  addIfRequested(axes, 'subagents', profile.subagents)
-  addIfRequested(axes, 'files', profile.resources?.files)
-  addIfRequested(axes, 'resourceTools', profile.resources?.tools)
-  addIfRequested(axes, 'skills', profile.resources?.skills)
-  addIfRequested(axes, 'resourceAgents', profile.resources?.agents)
-  addIfRequested(axes, 'commands', profile.resources?.commands)
-  addIfRequested(axes, 'resourceInstructions', profile.resources?.instructions)
-  addIfRequested(axes, 'resourceFailOnError', profile.resources?.failOnError)
-  addIfRequested(axes, 'hooks', profile.hooks)
-  addIfRequested(axes, 'modes', profile.modes)
-  addIfRequested(axes, 'confidential', profile.confidential)
-  addIfRequested(axes, 'metadata', profile.metadata)
-  addIfRequested(axes, 'extensions', profile.extensions)
-  return axes
-}
-
-function addIfRequested(
-  axes: CanonicalAgentProfileMaterializationAxis[],
-  axis: CanonicalAgentProfileMaterializationAxis,
-  value: unknown,
-): void {
-  if (hasNonEmptyMaterializationValue(value)) axes.push(axis)
 }
 
 /** Return every changed profile axis that the selected run path would drop. */
 export function validateProfileMaterialization(
   options: ValidateProfileMaterializationOptions,
 ): readonly ProfileMaterializationIssue[] {
-  const changedAxes = normalizeAxes(options.changedAxes, 'changedAxes')
+  const changedAxes = normalizeChangedAxes(options.changedAxes, 'changedAxes')
   const supported = new Set<string>(
-    normalizeAxes(options.contract.axes, `${options.contract.name}.axes`),
+    normalizeContractAxes(options.contract.axes, `${options.contract.name}.axes`),
   )
   const issues: ProfileMaterializationIssue[] = []
   for (const axis of changedAxes) {
@@ -338,14 +251,41 @@ export function renderProfileMaterializationIssues(
   ].join('\n')
 }
 
-function normalizeAxes(
+/** Contract side: leaves (or `custom:`) only. A parent claim would hide a dropped child. */
+function normalizeContractAxes(
+  axes: readonly AgentProfileMaterializationAxis[],
+  label: string,
+): AgentProfileMaterializationAxis[] {
+  return dedupe(axes.map((raw) => assertLeafAxis(raw, label)))
+}
+
+/**
+ * Input side: leaves, `custom:`, and compound diff axes, which expand to their leaves so
+ * `changedAgentProfileAxes` output composes with a leaf-only contract.
+ */
+function normalizeChangedAxes(
   axes: readonly AgentProfileMaterializationAxis[],
   label: string,
 ): AgentProfileMaterializationAxis[] {
   const out: AgentProfileMaterializationAxis[] = []
-  const seen = new Set<string>()
   for (const raw of axes) {
-    const axis = normalizeAxis(raw, label)
+    const axis = readAxisName(raw, label)
+    const leaves = compoundAxisLeaves[axis]
+    if (leaves && !KNOWN_AXIS_SET.has(axis)) {
+      out.push(...leaves)
+      continue
+    }
+    out.push(assertLeafAxis(raw, label))
+  }
+  return dedupe(out)
+}
+
+function dedupe(
+  axes: readonly AgentProfileMaterializationAxis[],
+): AgentProfileMaterializationAxis[] {
+  const out: AgentProfileMaterializationAxis[] = []
+  const seen = new Set<string>()
+  for (const axis of axes) {
     if (seen.has(axis)) continue
     seen.add(axis)
     out.push(axis)
@@ -353,10 +293,7 @@ function normalizeAxes(
   return out
 }
 
-function normalizeAxis(
-  raw: AgentProfileMaterializationAxis,
-  label: string,
-): AgentProfileMaterializationAxis {
+function readAxisName(raw: AgentProfileMaterializationAxis, label: string): string {
   if (typeof raw !== 'string') {
     throw new ValidationError(`${label}: profile axis must be a string`)
   }
@@ -364,7 +301,22 @@ function normalizeAxis(
   if (!axis) {
     throw new ValidationError(`${label}: profile axis must be non-empty`)
   }
+  return axis
+}
+
+function assertLeafAxis(
+  raw: AgentProfileMaterializationAxis,
+  label: string,
+): AgentProfileMaterializationAxis {
+  const axis = readAxisName(raw, label)
   if (!KNOWN_AXIS_SET.has(axis) && !axis.startsWith('custom:')) {
+    const leaves = compoundAxisLeaves[axis]
+    if (leaves) {
+      throw new ValidationError(
+        `${label}: "${axis}" is a compound AgentProfile property, not a materialization axis. ` +
+          `Name the exact leaves this path carries: ${leaves.join(', ')}.`,
+      )
+    }
     throw new ValidationError(
       `${label}: unknown profile axis "${axis}". Use a known axis or custom:<name>.`,
     )
@@ -376,36 +328,5 @@ function isAxisSupported(
   axis: AgentProfileMaterializationAxis,
   supported: ReadonlySet<string>,
 ): boolean {
-  if (supported.has(axis)) return true
-  let parent = AXIS_PARENTS[axis as KnownAgentProfileMaterializationAxis]
-  while (parent) {
-    if (supported.has(parent)) return true
-    parent = AXIS_PARENTS[parent]
-  }
-  return false
-}
-
-function hasNonEmptyMaterializationValue(root: unknown): boolean {
-  const pending: unknown[] = [root]
-  const seen = new Set<object>()
-  while (pending.length > 0) {
-    const value = pending.pop()
-    if (value === undefined || value === null) continue
-    if (typeof value === 'string') {
-      if (value.trim().length > 0) return true
-      continue
-    }
-    if (typeof value === 'object') {
-      // Profiles are normally serializable trees. Treat a repeated reference as nonempty so a
-      // cyclic opaque metadata value cannot recurse forever or make an unsupported axis disappear.
-      if (seen.has(value)) return true
-      seen.add(value)
-      for (const child of Array.isArray(value) ? value : Object.values(value)) {
-        pending.push(child)
-      }
-      continue
-    }
-    return true
-  }
-  return false
+  return supported.has(axis)
 }

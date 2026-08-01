@@ -294,6 +294,7 @@ function addNodeSpend(a: Spend, b: Spend): Spend {
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
@@ -305,6 +306,7 @@ function cloneSpend(spend: Spend): Spend {
     tokens: { input: spend.tokens.input, output: spend.tokens.output },
     ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: spend.usd,
+    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
     ms: spend.ms,
   }
@@ -316,6 +318,7 @@ function addSpend(acc: Spend, delta: Spend): void {
   addTokenUsage(acc.tokens, delta.tokens)
   if (delta.tokensKnown === false) acc.tokensKnown = false
   acc.usd += delta.usd
+  if (delta.tokensKnown === false) acc.tokensKnown = false
   if (delta.usdKnown === false) acc.usdKnown = false
   acc.ms += delta.ms
 }

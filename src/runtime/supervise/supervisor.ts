@@ -58,6 +58,7 @@ import type {
   Agent,
   Budget,
   ExecutionBindingReceipt,
+  NoWinnerError,
   ProfileMaterializationReceipt,
   ResumedKeyState,
   RootHandle,
@@ -74,6 +75,11 @@ import type {
   TreeView,
 } from './types'
 import type { PendingWait } from './wait'
+
+/** The driver-rejection shape a `reason: 'driver-failed'` result carries. Re-exported from the
+ *  module that produces it so a consumer catching a driver failure names the type instead of
+ *  retyping `{ name; message; stack? }`. Declared in `./types` beside the result it rides on. */
+export type { NoWinnerError } from './types'
 
 /** The committed work + cursor maxima the supervisor hands a resumed scope. Shaped to spread
  *  into `ScopeArgs.resumeFrom`. */
@@ -319,11 +325,43 @@ function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean): numb
  *  runaway recursion hits budget-exhaustion first and depth-exceeded second (R3). */
 const defaultMaxDepth = 4
 
-/** A no-winner reason the supervisor can prove from its OWN lifecycle state — pinned to
- *  the frozen `SupervisedResult` reason union. A driver rejecting for a domain reason
- *  (not budget/abort) is classed `all-children-down`, the only typed bucket for "the tree
- *  produced no usable result". */
+/** Every no-winner reason, pinned to the published `SupervisedResult` union so the contract
+ *  and the impl cannot drift. */
 type NoWinnerReason = (SupervisedResult<unknown> & { kind: 'no-winner' })['reason']
+
+/** The reasons the supervisor can prove from its OWN lifecycle state — everything except the
+ *  driver's rejection, which no lifecycle observation can establish. */
+type LifecycleNoWinnerReason = Exclude<NoWinnerReason, 'driver-failed'>
+
+/** A captured `act()` rejection. Wrapped rather than passed bare so `throw undefined` — legal, and
+ *  exactly the kind of authoring bug this field exists to surface — is still distinguishable from
+ *  "the driver never threw". */
+interface DriverRejection {
+  readonly error: unknown
+}
+
+/**
+ * Normalize an arbitrary rejection into the serializable triple the result carries. A driver may
+ * reject with anything (a string, a plain object, a null-prototype value), and the whole point of
+ * this field is that the failure survives, so every branch produces a message instead of throwing:
+ * a stringification that itself throws (circular, hostile `toString`) falls back to the tag.
+ */
+function describeRejection(error: unknown): NoWinnerError {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.stack !== undefined ? { stack: error.stack } : {}),
+    }
+  }
+  let message: string
+  try {
+    message = typeof error === 'string' ? error : (JSON.stringify(error) ?? String(error))
+  } catch {
+    message = Object.prototype.toString.call(error)
+  }
+  return { name: 'NonError', message }
+}
 
 /** Create a supervisor that owns one recursive agent execution tree. */
 export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
@@ -354,6 +392,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       now: suppliedNow,
       signal,
       hooks,
+      workerTrace,
     } = opts
     const input = detachedSnapshot(
       {
@@ -381,6 +420,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       ...(suppliedNow === undefined ? {} : { now: suppliedNow }),
       ...(signal === undefined ? {} : { signal }),
       ...(hooks === undefined ? {} : { hooks }),
+      ...(workerTrace === undefined ? {} : { workerTrace }),
     })
     task = input.task
     const rootAct = root.act.bind(root)
@@ -562,6 +602,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
             }
           : {}),
         ...(opts.probes ? { probes: opts.probes } : {}),
+        ...(opts.workerTrace ? { workerTrace: opts.workerTrace } : {}),
         ...(resumeFrom ? { resumeFrom } : {}),
       })
 
@@ -671,23 +712,35 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         return noWinner()
       }
 
-      // act() rejected. The reason is proven from lifecycle state, in precedence order:
+      // act() rejected. The reason is proven from lifecycle state first, in precedence order:
       // a tripped breaker outranks any abort (it is the most specific cause) outranks
-      // budget-exhaustion outranks the residual "the tree produced nothing usable" bucket.
+      // budget-exhaustion outranks a real `down` child. Only when NONE of those hold does the
+      // rejection itself become the reason — `driver-failed`, the one arm that carries `error`.
       // A no-winner is TYPED — never a best-effort coercion of a partial child (M2).
-      return noWinner()
+      return noWinner({ error: actOutcome.error })
 
       // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
       // summed off the SAME journal the winner path reads — the caller always learns the cost.
-      async function noWinner(): Promise<SupervisedResult<Out>> {
+      async function noWinner(rejection?: DriverRejection): Promise<SupervisedResult<Out>> {
         const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
-        return {
-          kind: 'no-winner',
-          reason: classifyNoWinner(controller, pool, opts, breaker, deadlineExceeded, tree),
+        const common = {
+          kind: 'no-winner' as const,
           tree,
           downCount: breaker.downCount(),
           spentTotal: addSpend(childWork, driverInference),
         }
+        // The lifecycle causes outrank the driver's own rejection, so they are asked first and a
+        // proven one ends it. `undefined` means the supervisor's own state explains nothing.
+        const lifecycle = classifyNoWinner(controller, pool, opts, breaker, deadlineExceeded, tree)
+        if (lifecycle !== undefined) return { ...common, reason: lifecycle }
+        // No lifecycle cause AND the driver threw ⇒ the driver itself is the fault. `error` is
+        // REQUIRED on this arm, and it is present by construction: this is the only branch that
+        // produces `driver-failed`, and it is unreachable unless a rejection was captured.
+        if (rejection !== undefined) {
+          return { ...common, reason: 'driver-failed', error: describeRejection(rejection.error) }
+        }
+        // The residual bucket: ran to completion under budget and selected nothing usable.
+        return { ...common, reason: 'all-children-down' }
       }
     } finally {
       rootLease?.release()
@@ -967,6 +1020,12 @@ function supervisorAbortError(signal: AbortSignal): Error {
   return error
 }
 
+/**
+ * The lifecycle cause of a no-winner, or `undefined` when the supervisor's own state proves
+ * nothing. Returning `undefined` rather than falling through to `all-children-down` is what lets
+ * the caller decide between the `driver-failed` arm (a rejection was captured) and the residual
+ * bucket — and it is why `driver-failed` cannot be produced without an `error` to attach.
+ */
 function classifyNoWinner(
   controller: AbortController,
   pool: BudgetPool,
@@ -974,11 +1033,11 @@ function classifyNoWinner(
   breaker: IntensityBreaker,
   deadlineExceeded: boolean,
   tree: TreeView,
-): NoWinnerReason {
+): LifecycleNoWinnerReason | undefined {
   // A tripped breaker is the most specific cause (children kept dying), so it outranks
   // the abort it raised. A deadline that won the abort race remains budget exhaustion;
-  // then come caller/handle abort and other exhausted pool channels. The residual bucket is
-  // "ran to completion under budget but produced nothing usable".
+  // then come caller/handle abort and other exhausted pool channels. Then a real `down`
+  // child, which is what `all-children-down` asserts and which only `downCount > 0` can prove.
   if (breaker.tripped()) return 'all-children-down'
   if (deadlineExceeded) return 'budget-exhausted'
   if (controller.signal.aborted) return 'aborted'
@@ -988,7 +1047,8 @@ function classifyNoWinner(
   // still classifies as budget exhaustion below.
   if (allSpawnedChildrenDown(tree)) return 'all-children-down'
   if (poolExhausted(pool, opts)) return 'budget-exhausted'
-  return 'all-children-down'
+  if (breaker.downCount() > 0) return 'all-children-down'
+  return undefined
 }
 
 function allSpawnedChildrenDown(tree: TreeView): boolean {
@@ -1102,8 +1162,9 @@ function isNonEmptySpend(s: Spend): boolean {
     s.iterations > 0 ||
     s.tokens.input > 0 ||
     s.tokens.output > 0 ||
-    s.tokensKnown === false ||
     s.usd > 0 ||
-    s.ms > 0
+    s.ms > 0 ||
+    s.tokensKnown === false ||
+    s.usdKnown === false
   )
 }

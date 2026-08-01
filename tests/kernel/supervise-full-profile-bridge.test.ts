@@ -1006,11 +1006,16 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
     expect(result.kind).toBe('no-winner')
     if (result.kind !== 'no-winner') return
-    expect(result.reason).toBe('budget-exhausted')
+    // The pool REFUSES an unknown-dollar observation before mutating, so the run fails on the
+    // driver arm carrying the refusal — never an invented figure, never a silently consumed cap.
+    expect(result.reason).toBe('driver-failed')
+    if (result.reason === 'driver-failed') {
+      expect(result.error.message).toMatch(/unknown dollar cost under a dollar-capped budget/)
+    }
     expect(result.spentTotal).toMatchObject({ usd: 0, usdKnown: false })
   })
 
-  it('refuses a manager with unknown token usage under the always-capped token budget', async () => {
+  it('records a manager with unknown token usage as unknown telemetry without ending the run', async () => {
     server = createServer(async (req, res) => {
       const body = await readJson(req)
       respondWithBridgeStream(res, body, unknownTokenStream('managed'))
@@ -1039,7 +1044,10 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
     expect(result.kind).toBe('no-winner')
     if (result.kind !== 'no-winner') return
-    expect(result.reason).toBe('budget-exhausted')
+    // Tokens are always capped, so ONE unreported turn must not end the run: the manager keeps
+    // running, the pool marks the balance a ceiling rather than a measurement, and the terminal
+    // accounting carries the unknown instead of a silent zero.
+    expect(result.reason).toBe('all-children-down')
     expect(result.spentTotal).toMatchObject({
       tokens: { input: 0, output: 0 },
       tokensKnown: false,

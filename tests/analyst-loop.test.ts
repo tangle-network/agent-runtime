@@ -1,8 +1,9 @@
-import type {
-  AnalystFinding,
-  AnalystRunEvent,
-  AnalystRunInputs,
-  AnalystRunResult,
+import {
+  type AnalystFinding,
+  AnalystRegistry,
+  type AnalystRunEvent,
+  type AnalystRunInputs,
+  type AnalystRunResult,
 } from '@tangle-network/agent-eval'
 import { describe, expect, it, vi } from 'vitest'
 import type {
@@ -72,6 +73,57 @@ function stubRegistry(
     }),
   }
   return stub as AnalystRegistryLike & { lastOpts: unknown }
+}
+
+async function captureSameRunUpstreamFindings(
+  chainFindings?: boolean,
+  streaming = false,
+): Promise<{
+  seen: ReadonlyArray<AnalystFinding> | undefined
+  emittedEvents: number
+}> {
+  let seen: ReadonlyArray<AnalystFinding> | undefined
+  let emittedEvents = 0
+  const registry = new AnalystRegistry()
+  registry.register({
+    id: 'first',
+    description: 'Produces the first diagnosis.',
+    inputKind: 'custom',
+    cost: { kind: 'deterministic' },
+    version: '1',
+    async analyze() {
+      return [f('first-finding', 'first')]
+    },
+  })
+  registry.register({
+    id: 'second',
+    description: 'Consumes an earlier diagnosis when chaining is enabled.',
+    inputKind: 'custom',
+    cost: { kind: 'deterministic' },
+    version: '1',
+    async analyze(_input, context) {
+      seen = context.upstreamFindings
+      return []
+    },
+  })
+
+  await runAnalystLoop({
+    runId: 'run-cur',
+    registry,
+    inputs: { custom: { first: true, second: true } },
+    findingsStore: null,
+    chainFindings,
+    ...(streaming
+      ? {
+          onEvent: () => {
+            emittedEvents++
+          },
+        }
+      : {}),
+    log: () => {},
+  })
+
+  return { seen, emittedEvents }
 }
 
 describe('runAnalystLoop', () => {
@@ -170,6 +222,39 @@ describe('runAnalystLoop', () => {
 
     const opts = registry.lastOpts as { priorFindings?: unknown }
     expect(opts.priorFindings).toBeUndefined()
+  })
+
+  it('passes earlier same-run findings to later analysts when chaining is enabled', async () => {
+    const { seen } = await captureSameRunUpstreamFindings(true)
+
+    expect(seen?.map((finding) => finding.finding_id)).toEqual(['first-finding'])
+  })
+
+  it('passes earlier same-run findings through the streaming registry path', async () => {
+    const { seen, emittedEvents } = await captureSameRunUpstreamFindings(true, true)
+
+    expect(emittedEvents).toBeGreaterThan(0)
+    expect(seen?.map((finding) => finding.finding_id)).toEqual(['first-finding'])
+  })
+
+  it('forwards an explicit false chain setting', async () => {
+    const registry = stubRegistry({ findings: [] }, [])
+
+    await runAnalystLoop({
+      runId: 'run-cur',
+      registry,
+      inputs: {},
+      findingsStore: null,
+      chainFindings: false,
+      log: () => {},
+    })
+
+    const opts = registry.lastOpts as { chainFindings?: boolean }
+    expect(opts.chainFindings).toBe(false)
+  })
+
+  it('keeps same-run findings isolated by default', async () => {
+    expect((await captureSameRunUpstreamFindings()).seen).toBeUndefined()
   })
 
   it('baselineRunId:null skips diff entirely', async () => {

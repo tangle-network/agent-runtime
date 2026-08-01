@@ -20,6 +20,7 @@
  */
 
 import { createServer, type Server } from 'node:http'
+import { ConfigError } from '../../errors'
 import { createMcpServer, type McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
@@ -34,6 +35,7 @@ import {
   type SettledWorker,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import type { DeliverableSpec } from './completion-gate'
 import type { BusRecord } from './event-bus'
 import type { Budget, ResultBlobStore, Scope } from './types'
 
@@ -43,6 +45,8 @@ export interface CoordinationMcpHandle {
   readonly port: number
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
   settled(): ReadonlyArray<SettledWorker>
+  /** The first driver-authored result whose injected independent check passed. */
+  submittedResult: CoordinationTools['submittedResult']
   /** Post-loop drain of already-settled, unpulled children into the ledger — call before reading
    *  `settled()` for a finalize, so a delivered child the harness never awaited is not lost. */
   drainResolved: CoordinationTools['drainResolved']
@@ -56,14 +60,29 @@ export interface CoordinationMcpHandle {
   close(): Promise<void>
 }
 
+/** Hosts that reach only this machine, including the IPv4-mapped and bracketed IPv6 spellings a
+ *  caller may pass through from config. A name that is not recognizably loopback counts as REMOTE:
+ *  whether it resolves to a loopback interface is not knowable here, and the safe direction of that
+ *  doubt is "exposed". */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
+  if (h === 'localhost' || h === '::1' || h === '0:0:0:0:0:0:0:1' || h === '::ffff:127.0.0.1') {
+    return true
+  }
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)
+}
+
 /** Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
- *  opencode locally, same host); pass `host` to bind elsewhere when the harness is remote. */
+ *  opencode locally, same host); pass `host` to bind elsewhere when the harness is remote — a
+ *  non-loopback host additionally requires `allowUnauthenticatedRemote`. */
 export async function serveCoordinationMcp(opts: {
   scope: Scope<unknown>
   blobs: ResultBlobStore
   makeWorkerAgent: MakeWorkerAgent
   authorizeDownMessage?: AuthorizeDownMessage
   perWorker: Budget
+  /** Independent completion check exposed to the driver as `submit_result`. */
+  deliverable?: DeliverableSpec<unknown>
   /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   maxLiveWorkers?: number
@@ -72,7 +91,13 @@ export async function serveCoordinationMcp(opts: {
    *  {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0` = prior unbounded block (in-process only). */
   awaitTimeoutMs?: number
   port?: number
+  /** Bind address. Omit = `127.0.0.1`. A non-loopback host is REFUSED unless
+   *  `allowUnauthenticatedRemote` acknowledges the exposure. */
   host?: string
+  /** Explicit acknowledgment that binding a non-loopback `host` publishes UNAUTHENTICATED
+   *  spawn_agent / steer_agent / stop to everyone who can reach the port. Required for any
+   *  non-loopback bind; ignored for loopback ones. */
+  allowUnauthenticatedRemote?: boolean
   /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
   analysts?: AnalystRegistry
   /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
@@ -93,12 +118,30 @@ export async function serveCoordinationMcp(opts: {
    *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
   nodeTools?: ReadonlyArray<McpToolDescriptor>
 }): Promise<CoordinationMcpHandle> {
+  const host = opts.host ?? '127.0.0.1'
+  // Fail closed on a non-loopback bind HERE, in the primitive, not only at the composition sites
+  // that happen to call it. This function is a public export taking `host` directly, and it mounts
+  // spawn_agent / steer_agent / stop as a bare JSON-RPC-over-HTTP handler with NO authentication of
+  // any kind — so a caller reaching it without going through `supervise`/`supervisorAgent` would
+  // otherwise stand up unauthenticated spawn/steer/stop on every interface. There is no token to
+  // require yet, so the only honest options are a loopback bind or an explicit, recorded
+  // acknowledgment. The check runs before anything is constructed or listening.
+  if (!isLoopbackHost(host) && opts.allowUnauthenticatedRemote !== true) {
+    throw new ConfigError(
+      `coordination host=${JSON.stringify(host)} is not a loopback address and the coordination ` +
+        'MCP has no authentication: any client that can reach the port could call ' +
+        "spawn_agent/steer_agent and spend this run's budget. Bind a loopback host " +
+        '("127.0.0.1", "localhost", "::1"), or set allowUnauthenticatedRemote: true to accept ' +
+        'that exposure explicitly.',
+    )
+  }
   const coord = createCoordinationTools({
     scope: opts.scope,
     blobs: opts.blobs,
     makeWorkerAgent: opts.makeWorkerAgent,
     ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
     perWorker: opts.perWorker,
+    ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
     ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
     awaitTimeoutMs: opts.awaitTimeoutMs ?? DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
@@ -115,7 +158,6 @@ export async function serveCoordinationMcp(opts: {
     extraTools: [...coord.tools, ...(opts.nodeTools ?? [])],
     serverName: 'coordination',
   })
-  const host = opts.host ?? '127.0.0.1'
 
   const server: Server = createServer((req, res) => {
     if (req.method !== 'POST') {
@@ -165,6 +207,7 @@ export async function serveCoordinationMcp(opts: {
     url: `http://${host}:${port}/mcp`,
     port,
     settled: () => coord.settled(),
+    submittedResult: () => coord.submittedResult(),
     drainResolved: () => coord.drainResolved(),
     isStopped: () => coord.isStopped(),
     history: () => coord.history(),

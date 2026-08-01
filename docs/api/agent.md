@@ -145,7 +145,7 @@ persona ordering is preserved.
 
 ##### analystKinds
 
-> **analystKinds**: readonly `TraceAnalystKindSpec`[]
+> **analystKinds**: readonly `TraceAnalystDefinition`[]
 
 Analyst kinds the substrate runs against each persona's trace.
 Defaults to `DEFAULT_TRACE_ANALYST_KINDS` from agent-eval. Per-agent
@@ -1096,7 +1096,7 @@ the loop produces 20 minutes later).
 
 ### KnownAgentProfileMaterializationAxis
 
-> **KnownAgentProfileMaterializationAxis** = *typeof* [`AGENT_PROFILE_MATERIALIZATION_AXES`](#agent_profile_materialization_axes)\[`number`\]
+> **KnownAgentProfileMaterializationAxis** = `CanonicalAgentProfileMaterializationAxis`
 
 ***
 
@@ -1106,29 +1106,13 @@ the loop produces 20 minutes later).
 
 AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions.
 
-***
-
-### CanonicalAgentProfileMaterializationAxis
-
-> **CanonicalAgentProfileMaterializationAxis** = [`KnownAgentProfileMaterializationAxis`](#knownagentprofilematerializationaxis)
-
-Canonical AgentProfile axes used when checking one complete profile.
-
 ## Variables
-
-### AGENT\_PROFILE\_MATERIALIZATION\_AXES
-
-> `const` **AGENT\_PROFILE\_MATERIALIZATION\_AXES**: readonly \[`"identity"`, `"name"`, `"description"`, `"version"`, `"tags"`, `"model"`, `"modelDefault"`, `"modelSmall"`, `"modelProvider"`, `"modelReasoningEffort"`, `"modelMetadata"`, `"harness"`, `"prompt"`, `"systemPrompt"`, `"instructions"`, `"resources"`, `"files"`, `"resourceInstructions"`, `"skills"`, `"resourceTools"`, `"resourceAgents"`, `"commands"`, `"resourceFailOnError"`, `"tools"`, `"permissions"`, `"mcp"`, `"mcpConnections"`, `"connections"`, `"subagents"`, `"hooks"`, `"modes"`, `"confidential"`, `"metadata"`, `"extensions"`\]
-
-Known AgentProfile axes a run path may or may not carry into execution.
-
-***
 
 ### fullProfileMaterialization
 
 > `const` **fullProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Materialization contract for a run path that executes every canonical AgentProfile axis.
+Materialization contract for a run path that executes every canonical AgentProfile leaf.
 
 ***
 
@@ -1149,10 +1133,12 @@ Every behavioral axis other than prompt and model remains unsupported.
 
 Materialization contract for a local coding CLI in an isolated git worktree.
 The shared workspace materializer carries native tools, permissions, MCP, hooks, subagents,
-modes, and file-backed resources when the selected CLI supports their exact values. Runtime
+modes, and file-backed resources when the selected CLI supports their exact values.
+`resourceFailOnError` is carried: it is the fail-closed policy the pre-worktree resource
+RESOLUTION step (`resolveAgentProfileResources`) applies to remote profile resources. Runtime
 placement concerns (hub connections and confidential execution), provider-native extensions,
-unused model hints, and `resources.failOnError` are deliberately absent so they fail before a
-worktree or executor is created rather than being mistaken for an effective candidate change.
+and unused model hints are deliberately absent so they fail before a worktree or executor is
+created rather than being mistaken for an effective candidate change.
 
 ***
 
@@ -1177,7 +1163,13 @@ applies the profile prompt, name, placement, and metadata, but not model selecti
 
 > `const` **sandboxActProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
-Materialization contract for `createSandboxAct`, which forwards the full AgentProfile.
+Materialization contract for `createSandboxAct`.
+
+`createSandboxAct` hands the whole `AgentProfile` to the sandbox as `backend.profile`, so every
+profile leaf crosses the boundary. `buildBackendOptions` resolves the runner from an explicit
+`sandboxOverrides.backend.type`, then `profile.metadata.backendType`, then `profile.harness`,
+so a candidate that changes only `harness` runs on the harness it declares — and one declaring
+a harness the sandbox cannot run throws rather than running elsewhere and reporting success.
 
 ***
 
@@ -1194,6 +1186,9 @@ Materialization contract for a run path that only injects prompt text.
 > `const` **promptResourceProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
 
 Materialization contract for a run path that injects prompt text plus inline resources.
+
+`resourceFailOnError` is absent: it is a resolution POLICY the attaching path would have to
+enforce, and inlining resource content does not carry it.
 
 ## Functions
 
@@ -1329,28 +1324,6 @@ Define the profile axes a concrete run path actually carries into execution.
 #### Returns
 
 [`ProfileMaterializationContract`](#profilematerializationcontract)
-
-***
-
-### profileMaterializationAxes()
-
-> **profileMaterializationAxes**(`profile`): readonly (`"metadata"` \| `"resources"` \| `"name"` \| `"tools"` \| `"model"` \| `"mcp"` \| `"connections"` \| `"subagents"` \| `"hooks"` \| `"modes"` \| `"extensions"` \| `"description"` \| `"version"` \| `"tags"` \| `"prompt"` \| `"harness"` \| `"permissions"` \| `"confidential"` \| `"systemPrompt"` \| `"instructions"` \| `"skills"` \| `"identity"` \| `"modelDefault"` \| `"modelSmall"` \| `"modelProvider"` \| `"modelReasoningEffort"` \| `"modelMetadata"` \| `"files"` \| `"resourceInstructions"` \| `"resourceTools"` \| `"resourceAgents"` \| `"commands"` \| `"resourceFailOnError"` \| `"mcpConnections"`)[]
-
-Return the exact canonical axes a complete profile actually requests. Compound prompt, model,
-identity, and resource objects are split so a path cannot claim an entire object while silently
-dropping one of its fields.
-Empty strings, arrays, and nested records do not claim support; explicit
-scalar values such as `false` and `0` remain meaningful requests.
-
-#### Parameters
-
-##### profile
-
-`AgentProfile`
-
-#### Returns
-
-readonly (`"metadata"` \| `"resources"` \| `"name"` \| `"tools"` \| `"model"` \| `"mcp"` \| `"connections"` \| `"subagents"` \| `"hooks"` \| `"modes"` \| `"extensions"` \| `"description"` \| `"version"` \| `"tags"` \| `"prompt"` \| `"harness"` \| `"permissions"` \| `"confidential"` \| `"systemPrompt"` \| `"instructions"` \| `"skills"` \| `"identity"` \| `"modelDefault"` \| `"modelSmall"` \| `"modelProvider"` \| `"modelReasoningEffort"` \| `"modelMetadata"` \| `"files"` \| `"resourceInstructions"` \| `"resourceTools"` \| `"resourceAgents"` \| `"commands"` \| `"resourceFailOnError"` \| `"mcpConnections"`)[]
 
 ***
 

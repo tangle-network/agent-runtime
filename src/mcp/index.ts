@@ -148,15 +148,6 @@ export {
   type StdioToolServerOptions,
 } from './tool-server'
 export {
-  type Check,
-  type CheckRunnerOptions,
-  defaultChecks,
-  liftFindings,
-  makeCheckRunner,
-  renderTrace,
-  runCheck,
-} from './tools/checks'
-export {
   type AnalystFindingEvent,
   type AnalystRegistry,
   type AuthorizeDownMessage,
