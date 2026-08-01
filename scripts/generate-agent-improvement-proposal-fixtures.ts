@@ -150,18 +150,16 @@ try {
     fixturePath,
     `${JSON.stringify(runtime.verifyAgentImprovementProposal(proposal), null, 2)}\n`,
   )
-  const profileFixture = profileFixtures.createProfileImprovementFixture()
+  const profileFixture = profileFixtures.createProfileImprovementFixture({
+    metadata: {
+      fixture: 'agent-profile-improvement-proposal',
+      runtimeVersion: packageJson.version,
+    },
+  })
   const profileProposal = runtime.createAgentImprovementProposal({
     runId: profileFixture.evaluation.provenance.runId,
     findings: [],
-    evaluation: {
-      ...profileFixture.evaluation,
-      metadata: {
-        ...(profileFixture.evaluation.metadata ?? {}),
-        fixture: 'agent-profile-improvement-proposal',
-        runtimeVersion: packageJson.version,
-      },
-    },
+    evaluation: profileFixture.evaluation,
     now: () => new Date('2026-07-10T01:30:00.000Z'),
   })
   const serializedProfileProposalFixture = formatFixture(

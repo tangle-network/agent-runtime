@@ -3881,7 +3881,7 @@ Usage class for billing. Base-stream tokens bill `'inference'`; every
 
 ##### surface
 
-> **surface**: [`AgentImprovementProfileSurface`](#agentimprovementprofilesurface)
+> **surface**: [`AgentProfileMeasuredSurface`](#agentprofilemeasuredsurface)
 
 ***
 
@@ -3893,7 +3893,7 @@ Usage class for billing. Base-stream tokens bill `'inference'`; every
 
 ##### surface
 
-> **surface**: [`AgentImprovementProfileSurface`](#agentimprovementprofilesurface)
+> **surface**: [`AgentProfileMeasuredSurface`](#agentprofilemeasuredsurface)
 
 ***
 
@@ -4072,10 +4072,11 @@ Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements.
 
 ### AGENT\_PROFILE\_MEASURED\_SURFACES
 
-> `const` **AGENT\_PROFILE\_MEASURED\_SURFACES**: readonly \[`"prompt"`, `"skills"`\]
+> `const` **AGENT\_PROFILE\_MEASURED\_SURFACES**: readonly \[`"prompt"`, `"skills"`, `"tools"`, `"mcp"`, `"hooks"`, `"subagents"`, `"agent-profile"`\]
 
-Portable profile surfaces eligible for shared measured comparisons.
-Other profile settings can contain credentials or executable configuration.
+Profile changes eligible for the product-owned measured comparison path.
+The six directly deliverable profile surfaces retain their granular labels;
+any residual profile axis also adds the complete `agent-profile` surface.
 
 ## Functions
 
@@ -4760,7 +4761,7 @@ surface is "tools" \| "mcp" \| "subagents" \| "hooks" \| "prompt" \| "skills"
 
 ### isAgentProfileMeasuredSurface()
 
-> **isAgentProfileMeasuredSurface**(`surface`): surface is "prompt" \| "skills"
+> **isAgentProfileMeasuredSurface**(`surface`): surface is "tools" \| "mcp" \| "subagents" \| "hooks" \| "prompt" \| "skills" \| "agent-profile"
 
 Return whether a surface is eligible for shared profile measurement.
 
@@ -4772,7 +4773,7 @@ Return whether a surface is eligible for shared profile measurement.
 
 #### Returns
 
-surface is "prompt" \| "skills"
+surface is "tools" \| "mcp" \| "subagents" \| "hooks" \| "prompt" \| "skills" \| "agent-profile"
 
 ***
 

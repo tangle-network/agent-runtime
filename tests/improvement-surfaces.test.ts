@@ -335,7 +335,7 @@ describe('agent improvement profile delivery', () => {
     ])
   })
 
-  it('derives measured prompt and skill changes and rejects other profile changes', () => {
+  it('derives granular profile surfaces plus exact complete-profile authority', () => {
     const baseline: AgentProfile = {
       name: 'support-agent',
       prompt: { systemPrompt: 'Old prompt' },
@@ -366,21 +366,220 @@ describe('agent improvement profile delivery', () => {
 
     expect(agentProfileSchema.parse(applied)).toEqual(agentProfileSchema.parse(candidate))
     expect(profileImprovementChangedSurfaces(changes)).toEqual(['prompt', 'skills'])
-    expect(() =>
-      agentImprovementProfileDiffs(
-        baseline,
-        {
-          ...candidate,
+    const completeCandidate: AgentProfile = {
+      name: 'complete-agent',
+      description: 'Exercises the complete profile transition.',
+      version: '2.0.0',
+      tags: ['research', 'review'],
+      prompt: { systemPrompt: 'Measured prompt', instructions: ['Report evidence.'] },
+      model: {
+        default: 'provider/model',
+        small: 'provider/small-model',
+        provider: 'provider',
+        reasoningEffort: 'high',
+        metadata: { route: 'research' },
+      },
+      harness: 'codex',
+      permissions: { shell: 'deny', files: { read: 'allow', write: 'ask' } },
+      tools: { Read: true, Bash: false },
+      mcp: {
+        docs: {
+          transport: 'stdio',
+          command: 'node',
+          cwd: 'tools',
+          enabled: true,
+        },
+      },
+      connections: [{ connectionId: 'docs', capabilities: ['read'] }],
+      subagents: {
+        reviewer: {
+          description: 'Checks the result.',
+          prompt: 'Review before answering',
+          model: 'provider/model',
           tools: { Read: true },
-          mcp: { docs: { command: 'node', args: [{ kind: 'public', value: 'docs-server.js' }] } },
-          hooks: { Stop: [{ command: 'node check.mjs' }] },
-          subagents: { reviewer: { prompt: 'Review before answering' } },
+          permissions: { shell: 'deny' },
+          maxSteps: 4,
+          metadata: { role: 'critic' },
         },
-        {
-          id: 'unsupported-profile-change',
+      },
+      resources: {
+        failOnError: true,
+        files: [
+          {
+            path: 'context.md',
+            resource: defineInlineResource('context.md', 'Research context'),
+          },
+        ],
+        tools: [defineInlineResource('read.tool.md', 'Use Read')],
+        skills: [defineInlineResource('measured.SKILL.md', 'Use the evidence first')],
+        agents: [defineInlineResource('reviewer.md', 'Review instructions')],
+        commands: [defineInlineResource('research.md', 'Run the research workflow')],
+        instructions: defineInlineResource('instructions.md', 'Keep an audit trail'),
+      },
+      hooks: {
+        Stop: [
+          {
+            command: 'node check.mjs',
+            timeoutMs: 1_000,
+            blocking: true,
+            matcher: 'complete',
+          },
+        ],
+      },
+      modes: {
+        review: {
+          description: 'Review mode.',
+          model: 'provider/model',
+          prompt: 'Review only.',
+          tools: { Read: true },
+          permissions: { shell: 'deny' },
+          metadata: { depth: 'deep' },
         },
-      ),
-    ).toThrow(/measured profile contract cannot apply/)
+      },
+      confidential: { tee: 'tdx', sealed: true },
+      metadata: { tenant: 'research' },
+      extensions: { codex: { feature: true } },
+    }
+    const completeChanges = agentImprovementProfileDiffs(baseline, completeCandidate, {
+      id: 'complete-profile-change',
+    })
+    const completeApplied = completeChanges.reduce(
+      (profile, change) => applyAgentProfileDiff(profile, change),
+      baseline,
+    )
+
+    expect(agentProfileSchema.parse(completeApplied)).toEqual(
+      agentProfileSchema.parse(completeCandidate),
+    )
+    expect(profileImprovementChangedSurfaces(completeChanges)).toEqual([
+      'prompt',
+      'skills',
+      'tools',
+      'mcp',
+      'hooks',
+      'subagents',
+      'agent-profile',
+    ])
+  })
+
+  it('omits unchanged external resources from a complete-profile change', () => {
+    const externalSkill = {
+      kind: 'github' as const,
+      repository: 'owner/research-agents',
+      path: 'skills/research/SKILL.md',
+      ref: '0123456789abcdef',
+    }
+    const baseline: AgentProfile = {
+      name: 'researcher',
+      model: { default: 'provider/old-model' },
+      resources: { failOnError: true, skills: [externalSkill] },
+    }
+    const candidate: AgentProfile = {
+      ...baseline,
+      model: { default: 'provider/new-model', reasoningEffort: 'high' },
+    }
+    const changes = agentImprovementProfileDiffs(baseline, candidate, {
+      id: 'model-only-change',
+    })
+
+    expect(changes).toMatchObject([
+      { remove: { model: true } },
+      { set: { model: candidate.model } },
+    ])
+    for (const change of changes) {
+      expect(change.set?.resources).toBeUndefined()
+      expect(change.remove?.resources).toBeUndefined()
+    }
+    expect(
+      changes.reduce((profile, change) => applyAgentProfileDiff(profile, change), baseline),
+    ).toEqual(candidate)
+    expect(profileImprovementChangedSurfaces(changes)).toEqual(['agent-profile'])
+  })
+
+  it('does not copy unchanged external resources into direct-field changes', () => {
+    const external = {
+      kind: 'github' as const,
+      repository: 'owner/research-agents',
+      path: 'profiles/resource.md',
+      ref: '0123456789abcdef',
+    }
+    const cases: Array<{ baseline: AgentProfile; candidate: AgentProfile }> = [
+      {
+        baseline: {
+          name: 'tool-user',
+          tools: { Read: true },
+          resources: { tools: [external] },
+        },
+        candidate: {
+          name: 'tool-user',
+          tools: { Read: true, Bash: false },
+          resources: { tools: [external] },
+        },
+      },
+      {
+        baseline: {
+          name: 'manager',
+          subagents: { reviewer: { prompt: 'Review.' } },
+          resources: { agents: [external] },
+        },
+        candidate: {
+          name: 'manager',
+          subagents: {
+            reviewer: { prompt: 'Review.' },
+            researcher: { prompt: 'Research.' },
+          },
+          resources: { agents: [external] },
+        },
+      },
+    ]
+
+    for (const [index, { baseline, candidate }] of cases.entries()) {
+      const changes = agentImprovementProfileDiffs(baseline, candidate, {
+        id: `direct-field-${index}`,
+      })
+
+      for (const change of changes) {
+        expect(change.set?.resources).toBeUndefined()
+        expect(change.remove?.resources).toBeUndefined()
+      }
+      expect(
+        changes.reduce((profile, change) => applyAgentProfileDiff(profile, change), baseline),
+      ).toEqual(candidate)
+    }
+  })
+
+  it('reproduces a complete profile using removal-only changes', () => {
+    const baseline: AgentProfile = {
+      name: 'retired-agent',
+      description: 'Every populated axis should be removable.',
+      version: '1.0.0',
+      tags: ['retired'],
+      prompt: { systemPrompt: 'Old prompt' },
+      model: { default: 'provider/old-model' },
+      harness: 'codex',
+      tools: { Bash: true },
+      resources: {
+        failOnError: true,
+        skills: [defineInlineResource('old.SKILL.md', 'Old skill')],
+      },
+      metadata: { owner: 'old-team' },
+    }
+    const candidate: AgentProfile = {}
+    const changes = agentImprovementProfileDiffs(baseline, candidate, {
+      id: 'remove-complete-profile',
+    })
+
+    expect(changes).toHaveLength(1)
+    expect(changes[0]?.set).toBeUndefined()
+    expect(
+      changes.reduce((profile, change) => applyAgentProfileDiff(profile, change), baseline),
+    ).toEqual(candidate)
+    expect(profileImprovementChangedSurfaces(changes)).toEqual([
+      'prompt',
+      'skills',
+      'tools',
+      'agent-profile',
+    ])
   })
 
   it('accepts every profile surface shape produced by Runtime', () => {
@@ -475,7 +674,12 @@ describe('agent improvement profile delivery', () => {
     expect(isAgentImprovementProfileSurface('knowledge')).toBe(false)
     expect(isAgentProfileMeasuredSurface('prompt')).toBe(true)
     expect(isAgentProfileMeasuredSurface('skills')).toBe(true)
-    expect(isAgentProfileMeasuredSurface('tools')).toBe(false)
+    expect(isAgentProfileMeasuredSurface('tools')).toBe(true)
+    expect(isAgentProfileMeasuredSurface('mcp')).toBe(true)
+    expect(isAgentProfileMeasuredSurface('hooks')).toBe(true)
+    expect(isAgentProfileMeasuredSurface('subagents')).toBe(true)
+    expect(isAgentProfileMeasuredSurface('agent-profile')).toBe(true)
+    expect(isAgentProfileMeasuredSurface('memory')).toBe(false)
   })
 
   it('rejects input that does not match Runtime surface shape', () => {

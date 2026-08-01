@@ -411,7 +411,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 | `verifyCandidateExecutionEvidence` | function | Recheck one Runtime receipt against its exact signed experiment cell. |
 | `withIntelligence` | function | Wrap an agent so it (a) RECEIVES the tenant's certified profile — the prompt |
 | `AGENT_IMPROVEMENT_PROFILE_SURFACES` | const | Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements. |
-| `AGENT_PROFILE_MEASURED_SURFACES` | const | Portable profile surfaces eligible for shared measured comparisons. |
+| `AGENT_PROFILE_MEASURED_SURFACES` | const | Profile changes eligible for the product-owned measured comparison path. |
 | `defaultEffortTier` | const | The default tier when a client declares no effort. `'standard'` turns |
 | `exactProcessCandidateExperimentExecutionSupport` | const | Candidate surfaces implemented by the neutral exact-process executor. |
 | `AgentCandidateExperimentCellExecutionError` | class | A failed baseline or candidate cell with its complete Runtime failure result. |
