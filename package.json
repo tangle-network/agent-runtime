@@ -128,6 +128,7 @@
     "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts --check",
     "check:skills": "node scripts/check-skills.mjs",
     "check:publish-workflow": "node scripts/check-publish-workflow.mjs",
+    "check:version-bump": "node scripts/check-version-bump.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
     "verify:static-imports": "node scripts/verify-static-imports.mjs",
     "verify:edge-tool-loop": "node scripts/verify-edge-tool-loop.mjs",

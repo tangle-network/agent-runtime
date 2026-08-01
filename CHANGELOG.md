@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `pnpm run check:version-bump` (new, in the `ci` job) fails any change that alters a consumer-visible package surface without raising that package's version. Compared: every field npm copies into the published manifest — `exports`, `files`, `bin`, `directories`, `engines`, `typesVersions`, `dependencies`, `peerDependencies`, install-lifecycle `scripts`, `private` — plus the `pnpm-workspace.yaml` catalog pins those resolve through. A `catalog:` specifier is compared by what it RESOLVES to, because a byte-identical `"catalog:"` hiding a moved version is exactly how 0.119.0 shipped its peer range twice. Packages are keyed by name, not path, so relocating one still compares against what that name already published.
+
 ## 0.120.0
 
 ### The runtime's own supervision journal is readable again
