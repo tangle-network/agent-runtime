@@ -53,6 +53,27 @@ describe('resolveDelegateSupervisor', () => {
     ).toThrow(/MCP_SUPERVISOR_MODEL/)
   })
 
+  // Inside a sandbox the platform key is for the sandbox, not for inference: the router answers it
+  // 403, and the whole delegation dies on the supervisor's first completion with no worker spawned.
+  it('brains on the box INFERENCE credential, not the sandbox control key beside it', () => {
+    const opts = resolveDelegateSupervisor(stubClient, {
+      MCP_ENABLE_DELEGATE: '1',
+      MCP_SUPERVISOR_MODEL: 'brain-model',
+      OPENAI_API_KEY: 'inference-key',
+      TANGLE_API_KEY: 'sandbox-control-key',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(opts!.router.routerKey).toBe('inference-key')
+  })
+
+  it('keeps the platform key for a host that runs one key for both', () => {
+    const opts = resolveDelegateSupervisor(stubClient, {
+      MCP_ENABLE_DELEGATE: '1',
+      MCP_SUPERVISOR_MODEL: 'brain-model',
+      TANGLE_API_KEY: 'one-key',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(opts!.router.routerKey).toBe('one-key')
+  })
+
   it('reads the model its sandbox host declared when no override names one', () => {
     const opts = resolveDelegateSupervisor(stubClient, {
       MCP_ENABLE_DELEGATE: '1',
