@@ -50,6 +50,7 @@ import {
   type AgentEnvironmentProviderRegistry,
   type ProviderExecutorOptions,
   providerAsExecutor,
+  providerAsSandboxClient,
   resolveAgentEnvironmentProvider,
 } from '../environment-provider'
 import { routerChatWithUsage, type ToolSpec } from '../router-client'
@@ -218,6 +219,13 @@ export interface BridgeSeam {
 export interface ProviderSeam extends ProviderExecutorOptions {
   provider: AgentEnvironmentProvider | string
   registry?: AgentEnvironmentProviderRegistry
+  /**
+   * Compose the provider through the existing steerable sandbox session.
+   * The exact profile must name its harness, and the provider must expose live
+   * continuation plus session controls. The provider still owns environment
+   * creation and session semantics.
+   */
+  steering?: SandboxSteeringOptions
 }
 
 const routerSeamKey = 'router'
@@ -1656,6 +1664,42 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           providerSeam.provider,
           providerSeam.registry,
         )
+        if (providerSeam.steering) {
+          if (providerSeam.taskToTurn) {
+            throw new ValidationError(
+              'createExecutor(provider, steering): taskToTurn is not representable by the text-only steerable session',
+            )
+          }
+          if (providerSeam.destroyOnSettle === false) {
+            throw new ValidationError(
+              'createExecutor(provider, steering): destroyOnSettle=false conflicts with the session-owned environment lifecycle',
+            )
+          }
+          const harness = requiredProviderProfileHarness(spec, providerSeam)
+          const sandboxClient = providerAsSandboxClient(provider, {
+            defaults: {
+              ...(providerSeam.defaults ?? {}),
+              signal: seamed.signal,
+            },
+            requireTerminalEvent: providerSeam.requireTerminalEvent,
+            requireSession: true,
+          })
+          const providerCtx: ExecutorContext = {
+            ...seamed,
+            seams: {
+              ...seamed.seams,
+              [sandboxSeamKey]: {
+                sandboxClient,
+                steering: providerSeam.steering,
+              } satisfies SandboxSeam,
+            },
+          }
+          const executor = sandboxExecutor({ ...spec, harness }, providerCtx)
+          return {
+            ...executor,
+            runtime: providerSeam.runtime ?? (provider.name as Runtime),
+          }
+        }
         return providerAsExecutor(provider, providerSeam)(spec, seamed)
       }
       case 'sandbox': {
@@ -1666,6 +1710,26 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
       }
     }
   }
+}
+
+function requiredProviderProfileHarness(spec: AgentSpec, seam: ProviderSeam): BackendType {
+  const harness = spec.profile.harness
+  if (harness === undefined) {
+    throw new ValidationError(
+      'createExecutor(provider, steering): AgentProfile.harness is required',
+    )
+  }
+  if (spec.harness != null && spec.harness !== harness) {
+    throw new ValidationError(
+      `createExecutor(provider, steering): AgentSpec.harness "${spec.harness}" conflicts with AgentProfile.harness "${harness}"`,
+    )
+  }
+  if (seam.defaults?.backend !== undefined && seam.defaults.backend !== harness) {
+    throw new ValidationError(
+      `createExecutor(provider, steering): provider default backend "${seam.defaults.backend}" conflicts with AgentProfile.harness "${harness}"`,
+    )
+  }
+  return harness as BackendType
 }
 
 // ── The open registry ──────────────────────────────────────────────────────────
