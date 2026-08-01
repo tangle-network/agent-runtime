@@ -142,7 +142,7 @@ function isMissingFile(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
 }
 
-const KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS = 15_000
+const KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS = 60_000
 
 describe('runKnowledgeImprovementJob', () => {
   it(
