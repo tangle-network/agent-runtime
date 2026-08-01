@@ -364,3 +364,90 @@ describe('gateOnDeliverable — forwards the live-observation surfaces so a gate
     expect(gated.metered).toBeUndefined()
   })
 })
+
+// ── A worker killed AFTER it delivered ────────────────────────────────────────────────────
+//
+// The measured failure: discovery-lab run `proof-native-tools-20260801b` spawned a child that
+// wrote its artifact correctly and was then cut down for overrunning a parent-authored budget.
+// The gate only checked delivery on clean completion, so the check never ran and the run
+// reported `no-winner` over a file that was correct on disk.
+
+/** Streams one event, writes its artifact, then dies — the shape of a budget/deadline kill. */
+function killedAfterDeliveringWorker(out: unknown): Executor<unknown> {
+  return {
+    runtime: 'router',
+    execute() {
+      return (async function* () {
+        yield { kind: 'iteration' } as UsageEvent
+        throw new Error('budget-exhausted')
+      })()
+    },
+    teardown: () => Promise.resolve({ destroyed: true }),
+    resultArtifact: (): ExecutorResult<unknown> => ({
+      outRef: `k:${JSON.stringify(out)}`,
+      out,
+      verdict: undefined,
+      spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
+    }),
+  }
+}
+
+/** One-shot equivalent: execute() rejects, but the artifact is already on disk. */
+function rejectedAfterDeliveringWorker(out: unknown): Executor<unknown> {
+  return {
+    runtime: 'router',
+    execute: () => Promise.reject(new Error('budget-exhausted')),
+    teardown: () => Promise.resolve({ destroyed: true }),
+    resultArtifact: (): ExecutorResult<unknown> => ({
+      outRef: `r:${JSON.stringify(out)}`,
+      out,
+      verdict: undefined,
+      spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
+    }),
+  }
+}
+
+describe('delivery is checked even when the worker dies', () => {
+  const wantsProof: DeliverableSpec<unknown> = {
+    check: (out) => out === 'PROOF-RECURSIVE-CHILD',
+  }
+
+  it('streaming: a worker killed after writing its deliverable is VALID', async () => {
+    const gated = gateOnDeliverable(
+      killedAfterDeliveringWorker('PROOF-RECURSIVE-CHILD'),
+      wantsProof,
+    )
+    const stream = gated.execute({} as never, undefined as never)
+    await expect(
+      (async () => {
+        for await (const _ of stream as AsyncIterable<UsageEvent>) {
+          // drain
+        }
+      })(),
+    ).rejects.toThrow('budget-exhausted')
+    // The kill still propagates — but the delivery question got asked.
+    expect(gated.resultArtifact().verdict).toEqual({ valid: true, score: 1 })
+  })
+
+  it('streaming: a worker killed WITHOUT delivering stays invalid', async () => {
+    const gated = gateOnDeliverable(killedAfterDeliveringWorker('nothing-useful'), wantsProof)
+    const stream = gated.execute({} as never, undefined as never)
+    await expect(
+      (async () => {
+        for await (const _ of stream as AsyncIterable<UsageEvent>) {
+          // drain
+        }
+      })(),
+    ).rejects.toThrow('budget-exhausted')
+    expect(gated.resultArtifact().verdict).toEqual({ valid: false, score: 0 })
+  })
+
+  it('one-shot: a rejected execute still has its artifact checked, and still throws', async () => {
+    const gated = gateOnDeliverable(
+      rejectedAfterDeliveringWorker('PROOF-RECURSIVE-CHILD'),
+      wantsProof,
+    )
+    await expect(gated.execute({} as never, undefined as never)).rejects.toThrow('budget-exhausted')
+    expect(gated.resultArtifact().verdict).toEqual({ valid: true, score: 1 })
+  })
+})
