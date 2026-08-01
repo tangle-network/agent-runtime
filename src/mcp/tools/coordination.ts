@@ -29,6 +29,7 @@ import type {
   WorkerTraceEvidence,
 } from '../../runtime'
 import { assertValidBudget } from '../../runtime/supervise/budget'
+import { WORKER_TOKEN_FLOOR, workerTokenFloor } from '../../runtime/supervise/budget-floor'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { freeSlots } from '../../runtime/supervise/dispatch'
@@ -36,6 +37,44 @@ import { type BusRecord, type BusStats, createEventBus } from '../../runtime/sup
 import type { WorkerProgress } from '../../runtime/supervise/progress'
 import { workerTraceAnalysisStore } from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
+
+// The floors a root must know BEFORE it authors a child budget, generated from the measured
+// census so a newly measured harness appears in the published schema without a prose edit.
+// Across a live n=8 sample, 5 of 6 authored child budgets were below the pi floor — the guard
+// in scope.spawn defends, but only this description TELLS the root at tool-discovery time.
+const measuredFloors: ReadonlyArray<readonly [string, number]> = Object.entries(
+  WORKER_TOKEN_FLOOR,
+).flatMap(([harness, floor]) => (floor === null ? [] : [[harness, floor] as const]))
+const measuredFloorSentence =
+  measuredFloors.length === 0
+    ? ''
+    : ' A harness child spends a measured minimum before any work — a maxTokens under that ' +
+      'minimum is refused (`error: "below-runtime-floor"`). Measured floors (input tokens): ' +
+      measuredFloors.map(([harness, floor]) => `${harness}=${floor}`).join(', ') +
+      '. Unmeasured harnesses have no floor and are admitted.'
+
+/**
+ * The actionable fact behind a `below-runtime-floor` refusal: the floor for the harness the
+ * root declared, and that the only fix is to raise maxTokens to at least that floor. Falls back
+ * to the whole measured census if the declared harness resolves to no floor (a guard fired on a
+ * spec-level harness this profile did not name).
+ */
+function belowFloorHint(harness: string | undefined): string {
+  const floor = workerTokenFloor(harness ?? null)
+  if (floor !== null)
+    return (
+      `The ${harness} harness spends a measured minimum of ${floor} input tokens before any ` +
+      `work, so this budget's maxTokens can never be satisfied. Raise maxTokens to at least ` +
+      `${floor}; retrying with a smaller budget will fail identically.`
+    )
+  return (
+    "This budget's maxTokens is below the measured minimum a harness child spends before any " +
+    'work, so it can never be satisfied. Raise maxTokens to at least the floor for the child ' +
+    'harness — measured floors (input tokens): ' +
+    measuredFloors.map(([h, f]) => `${h}=${f}`).join(', ') +
+    ' — retrying with a smaller budget will fail identically.'
+  )
+}
 
 /** A worker the driver has drained via `await_event`. */
 export interface SettledWorker {
@@ -1260,7 +1299,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             type: 'object',
             description:
               'Optional per-spawn budget that merges over the per-worker default (per field). ' +
-              'Only set the ceilings this sub-task needs raised; the conserved pool still fences.',
+              'Only set the ceilings this sub-task needs raised; the conserved pool still fences.' +
+              measuredFloorSentence,
             properties: {
               maxIterations: { type: 'number', minimum: 0 },
               maxTokens: { type: 'number', minimum: 0 },
@@ -1389,6 +1429,13 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                         'fail identically. Spawn with a budget that omits maxUsd, or ask the caller ' +
                         'to give the run a root maxUsd.',
                     }
+                  : {}),
+                // Same purpose as the `usd-unbudgeted` hint: `below-runtime-floor` reads as
+                // "budget" and invites a SMALLER retry, which is the exact wrong move — the
+                // ceiling is unsatisfiable at that size, not tight. The profile the root authored
+                // is in scope here, so name that harness's measured floor directly.
+                ...(res.reason === 'below-runtime-floor'
+                  ? { hint: belowFloorHint(profile.harness) }
                   : {}),
                 live: liveWorkerCount(),
                 freeSlots: freeWorkerSlots(),
