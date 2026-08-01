@@ -10,14 +10,14 @@ catalogs:
       specifier: 0.18.5
       version: 0.18.5
     '@tangle-network/agent-eval':
-      specifier: 0.139.2
-      version: 0.139.2
+      specifier: 0.140.1
+      version: 0.140.1
     '@tangle-network/agent-interface':
       specifier: 0.40.0
       version: 0.40.0
     '@tangle-network/agent-knowledge':
-      specifier: 7.0.3
-      version: 7.0.3
+      specifier: 7.0.4
+      version: 7.0.4
     '@tangle-network/agent-profile-materialize':
       specifier: 0.9.4
       version: 0.9.4
@@ -46,7 +46,7 @@ importers:
     dependencies:
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 7.0.3
+        version: 7.0.4
       '@tangle-network/agent-profile-materialize':
         specifier: 'catalog:'
         version: 0.9.4(@tangle-network/agent-interface@0.40.0)
@@ -62,7 +62,7 @@ importers:
         version: 2.5.5
       '@tangle-network/agent-eval':
         specifier: 'catalog:'
-        version: 0.139.2
+        version: 0.140.1
       '@tangle-network/agent-interface':
         specifier: 'catalog:'
         version: 0.40.0
@@ -113,13 +113,13 @@ importers:
     dependencies:
       '@tangle-network/agent-eval':
         specifier: 'catalog:'
-        version: 0.139.2
+        version: 0.140.1
       '@tangle-network/agent-interface':
         specifier: 'catalog:'
         version: 0.40.0
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 7.0.3
+        version: 7.0.4
       '@tangle-network/agent-runtime':
         specifier: workspace:*
         version: link:..
@@ -1105,8 +1105,8 @@ packages:
   '@tangle-network/agent-core@0.4.29':
     resolution: {integrity: sha512-8RaZSTYU/HXZt48Mr0KfwLla0j3K6EH8H8xc0lI5qFggAMsNBic8Tk951CnFaNX680VSXGOma499zS1NgowqfA==}
 
-  '@tangle-network/agent-eval@0.139.2':
-    resolution: {integrity: sha512-4o0ubPLz+G59AHdvr7xAEbjcwKHCMFWF/VXdd8LafxMN37BjdjH/Z9klC8Jfm4HI3fFSZXF7itnRC62b3mvPqA==}
+  '@tangle-network/agent-eval@0.140.1':
+    resolution: {integrity: sha512-fuC+2haGKI93z96mcTcSumsFa4gIsuOOqA3BCeeLPQkasoSLgej3aJ6yDMim0vvbyDhtaW6jYSQ+fdGSPYnqjg==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -1116,8 +1116,8 @@ packages:
   '@tangle-network/agent-interface@0.40.0':
     resolution: {integrity: sha512-4A6+bb5Ub22WJsVQRNuNIr6BSsfQG4ZZT436GZ2qUcZocjJ7186MEbN7kOmYq9TQ9qeMSUh/HbyYw2nsok5b+w==}
 
-  '@tangle-network/agent-knowledge@7.0.3':
-    resolution: {integrity: sha512-0okwiDr/EE3DbHdlLiIYFDWNU2dvBcNGfPpehpT5l7VjSd3QxXqBeUfWXPRvRBZQhrUq35PbwEEyKsxApFtBuA==}
+  '@tangle-network/agent-knowledge@7.0.4':
+    resolution: {integrity: sha512-/7FBk6OI14I/L7kc4sDmFwR7hDyndKajOjeQGdP6iSiPE/q8DldQ5UNSjJlUTeMfE3YBmLZe1/IuJEuiaqtzvg==}
     engines: {node: '>=20.19.0'}
     hasBin: true
 
@@ -2800,7 +2800,7 @@ snapshots:
       '@tangle-network/agent-interface': 0.40.0
       zod: 4.4.3
 
-  '@tangle-network/agent-eval@0.139.2':
+  '@tangle-network/agent-eval@0.140.1':
     dependencies:
       '@asteasolutions/zod-to-openapi': 9.1.0(zod@4.4.3)
       '@hono/node-server': 2.0.12(hono@4.12.32)
@@ -2822,9 +2822,9 @@ snapshots:
       spdx-expression-parse: 5.0.0
       zod: 4.4.3
 
-  '@tangle-network/agent-knowledge@7.0.3':
+  '@tangle-network/agent-knowledge@7.0.4':
     dependencies:
-      '@tangle-network/agent-eval': 0.139.2
+      '@tangle-network/agent-eval': 0.140.1
       '@tangle-network/agent-interface': 0.40.0
       proper-lockfile: 4.1.2
       zod: 4.4.3
