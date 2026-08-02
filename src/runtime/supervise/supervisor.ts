@@ -393,6 +393,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       signal,
       hooks,
       workerTrace,
+      workerTraceUnpropagated,
     } = opts
     const input = detachedSnapshot(
       {
@@ -421,6 +422,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       ...(signal === undefined ? {} : { signal }),
       ...(hooks === undefined ? {} : { hooks }),
       ...(workerTrace === undefined ? {} : { workerTrace }),
+      ...(workerTraceUnpropagated === undefined ? {} : { workerTraceUnpropagated }),
     })
     task = input.task
     const rootAct = root.act.bind(root)
@@ -603,6 +605,9 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           : {}),
         ...(opts.probes ? { probes: opts.probes } : {}),
         ...(opts.workerTrace ? { workerTrace: opts.workerTrace } : {}),
+        ...(opts.workerTraceUnpropagated
+          ? { workerTraceUnpropagated: opts.workerTraceUnpropagated }
+          : {}),
         ...(resumeFrom ? { resumeFrom } : {}),
       })
 

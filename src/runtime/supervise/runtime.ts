@@ -38,6 +38,7 @@ import {
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import type { LocalHarness } from '../../mcp/local-harness'
+import { mergeTraceEnv } from '../../mcp/trace-propagation'
 import {
   captureWorktreeDiff,
   createWorktree,
@@ -1050,7 +1051,9 @@ async function* streamCliLeaf(args: StreamCliArgs): AsyncIterable<UsageEvent> {
     ...(args.seam.cwd ? { cwd: args.seam.cwd } : {}),
     // Trace context above ambient `process.env` (whose ids describe the SUPERVISOR's place in an
     // outer trace, not this child's) and below `seam.env` (a deliberate operator declaration).
-    env: { ...process.env, ...args.traceEnv, ...(args.seam.env ?? {}) },
+    // `mergeTraceEnv`, not a plain spread: a seam that overrides the legacy pair without its own
+    // `TRACEPARENT` gets the W3C wire rebuilt from ITS ids, never left as the recorder's.
+    env: mergeTraceEnv(process.env, args.traceEnv, args.seam.env),
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   args.onProc(proc)

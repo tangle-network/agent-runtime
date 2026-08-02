@@ -2134,7 +2134,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-10)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-12)
 
 ##### sandboxId?
 
@@ -4095,12 +4095,16 @@ detached, recorded durably through `onEvent`, and only then delivered.
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
 
-Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle
- hook). Each result is published as a `finding` event on the bus — pass-through to subscribers
- and queued for the driver to pull via `await_event`. Omit/empty = no auto-analysis (default;
- the driver can still run lenses on demand via `run_analyst`). Requires `analysts`.
+Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle hook).
+ A bare string names a lens whose findings go to THE DRIVER: published as a `finding` event on
+ the bus — pass-through to subscribers and queued for `await_event`. An
+ [AnalyzeOnSettleRoute](runtime.md#analyzeonsettleroute) generalizes the DESTINATION: findings can be delivered to a
+ named live WORKER (wrapped in the route's directive, through the same authorized steer
+ machinery a driver steer uses) instead of being hardwired to the spawning driver, and `over`
+ restricts which settled workers feed the lens. Omit/empty = no auto-analysis (default; the
+ driver can still run lenses on demand via `run_analyst`). Requires `analysts`.
 
 ##### maxLiveWorkers?
 
@@ -4512,6 +4516,14 @@ Trace id inherited from the parent process, or a fresh one.
 > `optional` **parentSpanId?**: `string`
 
 Parent span id from the delegation that launched this MCP server.
+
+##### unpropagated?
+
+> `optional` **unpropagated?**: `boolean`
+
+True when NO context reached this process and the trace id is a fallback mint — the hop
+ above this process is severed. Span trees emitted under this context are stamped
+ `tangle.trace.unpropagated=true` so the severed hop is queryable.
 
 ***
 
@@ -7590,10 +7602,17 @@ Build the MCP tool handler that polls a `DelegationTaskQueue` for task status.
 
 ### readTraceContextFromEnv()
 
-> **readTraceContextFromEnv**(): [`TraceContext`](#tracecontext-2)
+> **readTraceContextFromEnv**(`env?`): [`TraceContext`](#tracecontext-2)
 
-Read trace context from the process environment.
-Returns a context with inherited ids or a freshly generated root.
+Read trace context from a process environment (defaults to `process.env`).
+`TRACEPARENT` wins; the legacy `TRACE_ID` / `PARENT_SPAN_ID` pair is the fallback; with
+neither present a fresh root is generated AND marked `unpropagated` — see [TraceContext](#tracecontext-2).
+
+#### Parameters
+
+##### env?
+
+`Record`\<`string`, `string` \| `undefined`\> = `process.env`
 
 #### Returns
 
@@ -7606,7 +7625,7 @@ Returns a context with inherited ids or a freshly generated root.
 > **createPropagatingTraceEmitter**(`ctx`): `object`
 
 Create a LoopTraceEmitter that:
-  1. Parents all spans under the inherited PARENT_SPAN_ID.
+  1. Parents all spans under the inherited parent span id.
   2. Exports spans to OTEL when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 
 Returns both the emitter and the optional exporter handle for shutdown.
@@ -7639,8 +7658,14 @@ Returns both the emitter and the optional exporter handle for shutdown.
 
 > **traceContextToEnv**(`ctx`): `Record`\<`string`, `string`\>
 
-Build env vars to pass to a child MCP subprocess so it inherits the
-current trace context.
+Build env vars to pass to a child subprocess so it inherits the current trace context.
+
+Writes BOTH conventions (see the module doc): `TRACEPARENT` carries the W3C-hex ids — mapped
+through the exporter's own `padTraceId`/`padSpanId` (dashed hex passes through dash-stripped, a
+human id is derived through the contract's `deriveHexId`), the SAME normalization every emitted
+span uses, so both spellings and the parent's own spans all name ONE trace — and the legacy
+pair carries the caller's ids verbatim. `TRACEPARENT` needs a parent span id by grammar; when
+the context has none, the legacy pair still propagates the trace id alone.
 
 #### Parameters
 
@@ -7651,6 +7676,40 @@ current trace context.
 #### Returns
 
 `Record`\<`string`, `string`\>
+
+***
+
+### mergeTraceEnv()
+
+> **mergeTraceEnv**(`ambient`, `traceEnv`, `overrides?`): `Record`\<`string`, `string` \| `undefined`\>
+
+Merge a spawned child's environment from lowest to highest precedence — ambient env, the
+recorder's stamped trace env, the caller's own overrides — while keeping the ONE cross-key
+invariant a plain spread cannot: `TRACEPARENT` and the legacy pair must name the SAME trace.
+A caller override that declares `TRACE_ID` / `PARENT_SPAN_ID` without its own `TRACEPARENT`
+would otherwise keep the recorder's W3C wire — the child would join the caller's trace on the
+legacy pair and the RECORDER's on the standard one. The dual-write is performed on the
+caller's behalf: the merged `TRACEPARENT` is rebuilt from the merged legacy pair through the
+same [traceContextToEnv](#tracecontexttoenv) derivation (`deriveHexId` for human ids), or dropped when no
+parent span id survives the merge (the W3C grammar requires one).
+
+#### Parameters
+
+##### ambient
+
+`Record`\<`string`, `string` \| `undefined`\>
+
+##### traceEnv
+
+`Record`\<`string`, `string`\>
+
+##### overrides?
+
+`Record`\<`string`, `string`\>
+
+#### Returns
+
+`Record`\<`string`, `string` \| `undefined`\>
 
 ***
 

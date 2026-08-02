@@ -11,6 +11,7 @@
 
 import { appendFileSync } from 'node:fs'
 
+import { deriveHexId, isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
 import { type RuntimeTelemetryOptions, sanitizeRuntimeStreamEvent } from './sanitize'
 import type { RuntimeStreamEvent } from './types'
 
@@ -741,14 +742,31 @@ function msToNs(ms: number): string {
   return (BigInt(Math.floor(safeMs)) * 1_000_000n).toString()
 }
 
-function padSpanId(id: string): string {
-  const cleaned = id.replace(/-/g, '')
-  return cleaned.slice(0, 16).padEnd(16, '0')
+/**
+ * Map a caller-supplied span id onto the 16-hex OTLP encoding. An id that is already a valid W3C
+ * span id passes through UNCHANGED — that is what lets an inherited `PARENT_SPAN_ID`/`TRACEPARENT`
+ * id keep parenting the same trace. A DASHED hex id (a UUID-form id) passes through dash-stripped:
+ * that is the exact wire id every earlier release exported for it, so cross-version joins survive
+ * the strict-W3C upgrade. Anything else (a human run id) is DERIVED via the zero-dep contract's
+ * `deriveHexId`, the one legal derivation: the old slice-and-pad produced ids that embedded the
+ * raw input in the wire id and were not even valid hex (the contract's own `non-hex-id` validator
+ * rejected what this module exported). Exported as the ONE wire-id normalization every writer
+ * shares — `traceContextToEnv` builds the child's `TRACEPARENT` through these same functions, so
+ * a parent's exported spans and the context it hands its children always name the same trace.
+ */
+export function padSpanId(id: string): string {
+  if (isW3CSpanId(id)) return id
+  const dashless = id.replace(/-/g, '')
+  return isW3CSpanId(dashless) ? dashless : deriveHexId(id, 8)
 }
 
-function padTraceId(id: string): string {
-  const cleaned = id.replace(/-/g, '')
-  return cleaned.slice(0, 32).padEnd(32, '0')
+/** Trace-id counterpart of {@link padSpanId}: valid W3C trace ids pass through (dash-stripped when
+ *  UUID-form, preserving the pre-strict-W3C wire id), everything else is derived with
+ *  `deriveHexId(id, 16)` so every process derives the SAME wire id for the same run. */
+export function padTraceId(id: string): string {
+  if (isW3CTraceId(id)) return id
+  const dashless = id.replace(/-/g, '')
+  return isW3CTraceId(dashless) ? dashless : deriveHexId(id, 16)
 }
 
 /** Mint a fresh 16-hex-character OTLP span id. Exported so a producer that must know a span's id

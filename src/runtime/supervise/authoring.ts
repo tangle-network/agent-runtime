@@ -25,6 +25,7 @@ import { ValidationError } from '../../errors'
 import { type RouterConfig, routerChatWithUsage } from '../router-client'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
+import { supervisorPolicyPrompt } from './prompt-registry'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from './types'
 
 /** What the supervisor AUTHORS per sub-task: one complete canonical profile whose name and
@@ -98,10 +99,17 @@ export function canonicalizeAuthoredProfile(raw: unknown): AgentProfile {
 }
 
 /** The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable
- *  surface: editing this changes how the supervisor designs every agent it spawns. */
+ *  surface: editing this changes how the supervisor designs every agent it spawns.
+ *
+ *  The POLICY paragraph is the registry's one `supervisor/policy` entry — the same stance
+ *  `defaultSupervisorPrompt` carries — so both front doors run the same work-vs-delegate rule;
+ *  this function ADDS the profile-authoring skill (how to WRITE the workers it spawns), which is
+ *  additive craft, not a different policy. */
 export function supervisorInstructions(opts?: { goal?: string }): string {
   return [
-    'You are a SUPERVISOR. You do NOT do the work yourself — your job is to DESIGN and DRIVE specialist worker agents.',
+    supervisorPolicyPrompt.text,
+    '',
+    'Your delegation craft is AUTHORING: a spawned worker is exactly as good as the profile you write.',
     '',
     'For the task you are given:',
     '1. DECOMPOSE it into the smallest set of sub-tasks a single focused worker can each deliver.',
@@ -114,7 +122,7 @@ export function supervisorInstructions(opts?: { goal?: string }): string {
     '   NEVER spawn a worker with an empty profile. The quality of the worker IS the quality of the profile you write.',
     "3. await_event (kinds:['settled']) to collect each worker. Its result says valid:true only if the deployable check passed.",
     '4. If a worker did NOT deliver, AUTHOR A NEW profile whose prompt.systemPrompt names the SPECIFIC failure and how to fix it — never just retry the same profile.',
-    '5. Stop (reply with no tool call) once the work is delivered. You cannot declare done yourself — only a delivered (valid:true) worker counts.',
+    '5. Stop (reply with no tool call) once the work is delivered.',
     ...(opts?.goal ? ['', `The goal: ${opts.goal}`] : []),
   ].join('\n')
 }

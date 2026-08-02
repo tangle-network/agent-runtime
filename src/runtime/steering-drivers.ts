@@ -55,6 +55,74 @@ import type { Driver, Iteration } from './types'
 export type SteeringDecision = 'refine' | 'pick-winner' | 'fail'
 
 /**
+ * A steering POLICY as plain data — the delegates-edge directive form of the two control
+ * drivers. `kind` names how much of the verdict the policy may read (the experimental axis);
+ * the continuation strings are the payload. Because this is JSON-able data, it is versionable
+ * in a prompt registry and attachable to a graph edge — the same policy that used to exist
+ * only as a builder FUNCTION, which made it invisible to any optimizer. Default texts are
+ * seeded in the kernel prompt registry (`delegates/naive-continuation`,
+ * `delegates/dumb-continuation-pass` / `-fail`); a caller may carry its own.
+ */
+export type SteeringDirectiveData =
+  | {
+      /** Reads NOTHING from the verdict: one fixed continuation every round. */
+      readonly kind: 'naive'
+      readonly continuation: string
+      /** Hard traversal cap: the loop stops refining once history reaches this length. */
+      readonly maxTraversals: number
+    }
+  | {
+      /** Reads ONLY `verdict.valid` (the boolean): one of two fixed continuations. */
+      readonly kind: 'dumb'
+      readonly onPass: string
+      readonly onFail: string
+      readonly maxTraversals: number
+    }
+
+/**
+ * Interpret a {@link SteeringDirectiveData} as a loop `Driver` — the ONE interpreter both
+ * control policies share. The directive is data; only `applyContinuation` (how the caller's
+ * opaque Task carries a steering string) remains code, exactly as `taskToPrompt` does.
+ */
+export function steeringDriver<Task, Output>(
+  directive: SteeringDirectiveData,
+  applyContinuation: ApplyContinuation<Task>,
+  name?: string,
+): Driver<Task, Output, SteeringDecision> {
+  const driverName = name ?? directive.kind
+  const maxIterations = directive.maxTraversals
+  const continuationFor = (passed: boolean): string =>
+    directive.kind === 'naive'
+      ? directive.continuation
+      : passed
+        ? directive.onPass
+        : directive.onFail
+  const rationale =
+    directive.kind === 'naive'
+      ? 'naive fixed continuation (no grade signal)'
+      : 'dumb pass/fail-only continuation (no grader findings)'
+  return {
+    name: driverName,
+    plan(task, history) {
+      if (history.length === 0) return Promise.resolve([task])
+      const last = history[history.length - 1]
+      const passed = last?.verdict?.valid === true
+      if (passed) return Promise.resolve([])
+      if (history.length >= maxIterations) return Promise.resolve([])
+      // The ONLY verdict read in the steering path is the pass/fail boolean, and only for the
+      // dumb directive. `.notes`/`.scores` are never touched — the leak-free firewall.
+      return Promise.resolve([applyContinuation(task, continuationFor(passed))])
+    },
+    decide(history) {
+      return decideUntilValidOrCapped(history, maxIterations)
+    },
+    describePlan() {
+      return { kind: 'refine', rationale }
+    },
+  }
+}
+
+/**
  * Fold a steering string into the caller's Task shape, producing the Task for
  * the next shot. The substrate never assumes how a Task carries its prompt, so
  * the caller supplies this — the same way it supplies `taskToPrompt`. The
@@ -106,30 +174,19 @@ export interface NaiveDriverOptions<Task> {
  * attributable to the pass/fail bit, and any lift of `refine` over `dumb` is
  * attributable to the grader's findings.
  */
+/** Thin compatibility wrapper over {@link steeringDriver} for the naive (no-signal) control.
+ *  @deprecated The policy is DATA now — build the directive and interpret it:
+ *  `steeringDriver({ kind: 'naive', continuation, maxTraversals }, applyContinuation)`. This
+ *  wrapper survives for existing callers and will be removed in the next major. */
 export function naiveDriver<Task, Output>(
   options: NaiveDriverOptions<Task>,
 ): Driver<Task, Output, SteeringDecision> {
   const { continuation, applyContinuation, maxIterations, name = 'naive' } = options
-  return {
+  return steeringDriver(
+    { kind: 'naive', continuation, maxTraversals: maxIterations },
+    applyContinuation,
     name,
-    plan(task, history) {
-      if (history.length === 0) return Promise.resolve([task])
-      const last = history[history.length - 1]
-      // Stop once a shot is valid or the cap is reached. The verdict is read
-      // ONLY for `.valid` here, never to compose the prompt — the continuation
-      // is fixed regardless of how the prior shot scored.
-      if (last?.verdict?.valid) return Promise.resolve([])
-      if (history.length >= maxIterations) return Promise.resolve([])
-      return Promise.resolve([applyContinuation(task, continuation)])
-    },
-    decide(history) {
-      return decideUntilValidOrCapped(history, maxIterations)
-    },
-    // Pure refine topology (one task per round) — render the steer move.
-    describePlan() {
-      return { kind: 'refine', rationale: 'naive fixed continuation (no grade signal)' }
-    },
-  }
+  )
 }
 
 /** Options for {@link dumbDriver}. */
@@ -165,28 +222,17 @@ export interface DumbDriverOptions<Task> {
  * grader's `notes`, dumb reads only the pass/fail bit, so the difference is
  * exactly the value the findings add over a bare boolean.
  */
+/** Thin compatibility wrapper over {@link steeringDriver} for the dumb (pass/fail-only) control.
+ *  @deprecated The policy is DATA now — build the directive and interpret it:
+ *  `steeringDriver({ kind: 'dumb', onPass, onFail, maxTraversals }, applyContinuation)`. This
+ *  wrapper survives for existing callers and will be removed in the next major. */
 export function dumbDriver<Task, Output>(
   options: DumbDriverOptions<Task>,
 ): Driver<Task, Output, SteeringDecision> {
   const { onPass, onFail, applyContinuation, maxIterations, name = 'dumb' } = options
-  return {
+  return steeringDriver(
+    { kind: 'dumb', onPass, onFail, maxTraversals: maxIterations },
+    applyContinuation,
     name,
-    plan(task, history) {
-      if (history.length === 0) return Promise.resolve([task])
-      const last = history[history.length - 1]
-      const passed = last?.verdict?.valid === true
-      if (passed) return Promise.resolve([])
-      if (history.length >= maxIterations) return Promise.resolve([])
-      // The ONLY verdict read in the steering path: the pass/fail boolean.
-      // `.notes`/`.scores` are deliberately never touched.
-      const continuation = passed ? onPass : onFail
-      return Promise.resolve([applyContinuation(task, continuation)])
-    },
-    decide(history) {
-      return decideUntilValidOrCapped(history, maxIterations)
-    },
-    describePlan() {
-      return { kind: 'refine', rationale: 'dumb pass/fail-only continuation (no grader findings)' }
-    },
-  }
+  )
 }

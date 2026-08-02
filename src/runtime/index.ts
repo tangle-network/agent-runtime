@@ -61,6 +61,7 @@ export {
 export type {
   AnalystFindingEvent,
   AnalystRegistry,
+  AnalyzeOnSettleRoute,
   AuthorizeDownMessage,
   AuthorizedDownMessage,
   ContinuationInstruction,
@@ -72,7 +73,11 @@ export type {
   MakeWorkerAgent,
   WorkerSpawnContext,
 } from './../mcp/tools/coordination'
-export { DEFAULT_AWAIT_EVENT_TIMEOUT_MS } from './../mcp/tools/coordination'
+export {
+  canonicalFindingEvent,
+  DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
+  normalizeAnalyzeOnSettle,
+} from './../mcp/tools/coordination'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from './../mcp/worktree-harness'
 // Re-exported on the KERNEL entry, not only the package root: a `supervise` caller imports
 // `@tangle-network/agent-runtime/kernel`, so an exporter reachable only from the root is an
@@ -420,6 +425,8 @@ export {
   type NaiveDriverOptions,
   naiveDriver,
   type SteeringDecision,
+  type SteeringDirectiveData,
+  steeringDriver,
 } from './steering-drivers'
 // The optimization suite: a domain = an Environment (5 hooks); a Strategy = how the
 // budget is spent to beat its check. Built-ins `sample`/`refine`; author your own with
@@ -616,6 +623,21 @@ export {
   runTree,
   type SupervisorFinalizer,
 } from './supervise/finalizer'
+// Agent graphs: profiles as nodes, registry-backed prompt directives as typed edges, every
+// traversal ledgered. An interpretation layer over `supervise()` (the execution core), never a
+// second scheduler — driver↔worker is the 2-node cyclic instance.
+export {
+  type AgentGraph,
+  defaultEdgeTraversalCap,
+  type EdgeDeliveryOutcome,
+  type EdgeTraversal,
+  type GraphEdge,
+  GraphEdgeCapError,
+  type GraphNode,
+  type GraphResult,
+  type RunGraphOptions,
+  runGraph,
+} from './supervise/graph'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
@@ -650,6 +672,23 @@ export {
   type ScopeProgressInput,
   type WorkerProgress,
 } from './supervise/progress'
+// The kernel prompt registry: versioned prompt text as data (`<surface>/v<n>`), the directive
+// store graph edges and the supervisor front doors resolve against.
+export {
+  analyzesFindingsReportPrompt,
+  createPromptRegistry,
+  delegatesWorkerBriefPrompt,
+  dumbContinuationFailPrompt,
+  dumbContinuationPassPrompt,
+  formatPromptHandle,
+  kernelPromptRegistry,
+  naiveContinuationPrompt,
+  type PromptHandle,
+  type PromptRegistry,
+  promptHandle,
+  type RegisteredPrompt,
+  supervisorPolicyPrompt,
+} from './supervise/prompt-registry'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores

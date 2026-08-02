@@ -30,6 +30,7 @@ import { RuntimeRunStateError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
+  type AnalyzeOnSettleRoute,
   type AuthorizeDownMessage,
   type CoordinationEvent,
   coordinationVerbNames,
@@ -98,7 +99,7 @@ export interface DriverAgentOptions {
   /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
    *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
    *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
-  readonly analyzeOnSettle?: ReadonlyArray<string>
+  readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
    *  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
    *  Omit = no online watching. */

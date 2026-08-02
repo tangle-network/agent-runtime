@@ -75,7 +75,9 @@ export async function trajectoryReport(
         ev.kind !== 'waiting' &&
         ev.kind !== 'metered' &&
         ev.kind !== 'materialized' &&
-        ev.kind !== 'execution-bound',
+        ev.kind !== 'execution-bound' &&
+        ev.kind !== 'edge' &&
+        ev.kind !== 'trace-unpropagated',
     )
     .sort(bySeq)
 

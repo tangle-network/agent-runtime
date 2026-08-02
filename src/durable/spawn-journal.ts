@@ -484,7 +484,9 @@ function outsideCursorNamespace(ev: SpawnEvent): boolean {
     ev.kind === 'waiting' ||
     ev.kind === 'metered' ||
     ev.kind === 'materialized' ||
-    ev.kind === 'execution-bound'
+    ev.kind === 'execution-bound' ||
+    ev.kind === 'edge' ||
+    ev.kind === 'trace-unpropagated'
   )
 }
 
@@ -552,6 +554,8 @@ export async function replaySpawnTree(
     if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
     if (ev.kind === 'materialized') continue // wire receipt, not a settlement
     if (ev.kind === 'execution-bound') continue // attempt transport, not a settlement
+    if (ev.kind === 'edge') continue // edge-ledger observability, not a settlement
+    if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement
     if (ev.kind === 'woken') {
       // A wait that was cancelled carries no outcome blob — it replays as a `down`, exactly as a
       // cancelled worker does. A fired/timed-out wait rehydrates its `WaitOutcome` and costs zero.
@@ -716,7 +720,9 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
         ev.kind !== 'waiting' &&
         ev.kind !== 'metered' &&
         ev.kind !== 'materialized' &&
-        ev.kind !== 'execution-bound',
+        ev.kind !== 'execution-bound' &&
+        ev.kind !== 'edge' &&
+        ev.kind !== 'trace-unpropagated',
     )
     .sort((a, b) => a.seq - b.seq)
   for (const ev of spawns) {

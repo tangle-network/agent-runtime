@@ -7,11 +7,13 @@
  * parent's trace id and the spawning node's span id emits spans that JOIN the parent's trace, and
  * the viewer assembles the whole cross-machine tree with no viewer change.
  *
- * NO NEW FORMAT. The wire is the env-var convention this package already ships and already reads:
- * `TRACE_ID` / `PARENT_SPAN_ID`, written by {@link traceContextToEnv} and read back by
- * `readTraceContextFromEnv()` (`src/mcp/trace-propagation.ts`). Nothing here invents a second
- * encoding; W3C `traceparent` would be the standard alternative, but adopting it alongside this one
- * would fork the contract, and the reader for THIS one is already in the package.
+ * THE WIRE IS W3C `TRACEPARENT`, dual-written with the legacy pair. `traceContextToEnv`
+ * (`src/mcp/trace-propagation.ts`) writes `TRACEPARENT` (the convention the ecosystem — OTel SDKs,
+ * collectors, the Claude Code harness binary — reads at spawn) ALONGSIDE the bespoke
+ * `TRACE_ID` / `PARENT_SPAN_ID` pair this package shipped first, and `readTraceContextFromEnv()`
+ * reads `TRACEPARENT` first with the legacy pair as fallback. The bespoke pair is the fork, not
+ * the standard; it is kept for one release so children on the previous package version still join,
+ * then removed in the next major.
  *
  * WHICH SPAN. The stamped `PARENT_SPAN_ID` is the span of the node that DID the spawning — the
  * scope's own `parentId` — not the span of the worker's own node. At depth 0 that is the run's root
@@ -39,7 +41,10 @@
  *   2. the trace context stamped here,
  *   3. the caller's own seam env (`CliSeam.env`).
  * A caller who sets `TRACE_ID` / `PARENT_SPAN_ID` on a seam wins — theirs is a deliberate
- * declaration about the worker. Ambient `process.env` does NOT win: when the supervisor process was
+ * declaration about the worker — and the W3C wire follows: a seam that overrides the legacy pair
+ * without its own `TRACEPARENT` gets `TRACEPARENT` rebuilt from ITS ids (`mergeTraceEnv` performs
+ * the dual-write on the caller's behalf), never left as the recorder's, so both spellings always
+ * name the same trace. Ambient `process.env` does NOT win: when the supervisor process was
  * itself launched as someone's worker, its inherited ids describe the SUPERVISOR's place in an
  * outer trace, and reusing them for a child would file the child's spans under the wrong parent.
  * The supported way to join that outer trace is `SupervisorSpanOptions.traceId` / `parentSpanId`
@@ -123,7 +128,8 @@ export function readWorkerTraceContext(ctx: WorkerTraceSeamCarrier): TraceContex
 }
 
 /**
- * The `TRACE_ID` / `PARENT_SPAN_ID` pair to merge into a worker's environment — EMPTY when the run
+ * The trace env to merge into a worker's environment — `TRACEPARENT` plus the legacy
+ * `TRACE_ID` / `PARENT_SPAN_ID` pair (dual-written for one release) — EMPTY when the run
  * records no spans, which is what keeps the untraced path byte-identical. Merge it BELOW the
  * caller's own seam env so a deliberately-set id wins (see the precedence note above).
  */

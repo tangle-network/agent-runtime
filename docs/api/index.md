@@ -11157,12 +11157,69 @@ Mode → configured runner. Partial: only register the modes a
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
  as evidence. DOWN (parent→child): steer / answer — record-only (history + subscribers), routed
  to the child inbox. Receipts are never auto-delivered on restart. New kinds are additive.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `analyst?`: `string`; \}
+
+###### type
+
+> `readonly` **type**: `"steer"`
+
+###### down
+
+> `readonly` **down**: [`DownMessageEvent`](runtime.md#downmessageevent)
+
+###### analyst?
+
+> `readonly` `optional` **analyst?**: `string`
+
+Present when this steer DELIVERED an analyst's routed findings (an analyzes-edge
+ traversal), naming the lens — absent on an ordinary driver-authored steer.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \}
 
 ***
 
@@ -14322,6 +14379,53 @@ the way every span in this file does, rather than re-deriving the encoding.
 #### Returns
 
 [`OtelAttribute`](#otelattribute)[]
+
+***
+
+### padSpanId()
+
+> **padSpanId**(`id`): `string`
+
+Map a caller-supplied span id onto the 16-hex OTLP encoding. An id that is already a valid W3C
+span id passes through UNCHANGED — that is what lets an inherited `PARENT_SPAN_ID`/`TRACEPARENT`
+id keep parenting the same trace. A DASHED hex id (a UUID-form id) passes through dash-stripped:
+that is the exact wire id every earlier release exported for it, so cross-version joins survive
+the strict-W3C upgrade. Anything else (a human run id) is DERIVED via the zero-dep contract's
+`deriveHexId`, the one legal derivation: the old slice-and-pad produced ids that embedded the
+raw input in the wire id and were not even valid hex (the contract's own `non-hex-id` validator
+rejected what this module exported). Exported as the ONE wire-id normalization every writer
+shares — `traceContextToEnv` builds the child's `TRACEPARENT` through these same functions, so
+a parent's exported spans and the context it hands its children always name the same trace.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### padTraceId()
+
+> **padTraceId**(`id`): `string`
+
+Trace-id counterpart of [padSpanId](#padspanid): valid W3C trace ids pass through (dash-stripped when
+ UUID-form, preserving the pre-strict-W3C wire id), everything else is derived with
+ `deriveHexId(id, 16)` so every process derives the SAME wire id for the same run.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
 
 ***
 

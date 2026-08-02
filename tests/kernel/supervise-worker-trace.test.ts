@@ -19,6 +19,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { deriveHexId } from '@tangle-network/agent-trace-contract'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
@@ -47,14 +48,16 @@ import { scriptedBrain } from './scripted-brain'
 interface InheritedEnv {
   TRACE_ID: string | null
   PARENT_SPAN_ID: string | null
+  TRACEPARENT: string | null
 }
 
-/** A real child process that prints exactly the two env vars this feature is about. */
+/** A real child process that prints exactly the env vars this feature is about. */
 const PRINT_TRACE_ENV = [
   '-e',
   'process.stdout.write(JSON.stringify({' +
     'TRACE_ID: process.env.TRACE_ID ?? null,' +
-    'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null}))',
+    'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null,' +
+    'TRACEPARENT: process.env.TRACEPARENT ?? null}))',
 ]
 
 /** Read the worker's printed environment back off the supervised run's output. */
@@ -125,6 +128,9 @@ function supervisorOpts(over: Partial<SupervisorOpts>): SupervisorOpts {
     now: over.now ?? (() => 1_000),
     ...(over.hooks ? { hooks: over.hooks } : {}),
     ...(over.workerTrace ? { workerTrace: over.workerTrace } : {}),
+    ...(over.workerTraceUnpropagated
+      ? { workerTraceUnpropagated: over.workerTraceUnpropagated }
+      : {}),
   }
 }
 
@@ -177,17 +183,25 @@ function printerFactory(env?: Record<string, string>): ExecutorFactory<unknown> 
 }
 
 // The supervisor process's OWN ambient ids must not leak into these assertions: the whole point of
-// the precedence rule is that they are NOT what a child inherits.
-const saved = { trace: process.env.TRACE_ID, parent: process.env.PARENT_SPAN_ID }
+// the precedence rule is that they are NOT what a child inherits. TRACEPARENT included — an
+// ambient W3C wire from the shell/CI that launched vitest would leak into every untraced child.
+const saved = {
+  trace: process.env.TRACE_ID,
+  parent: process.env.PARENT_SPAN_ID,
+  traceparent: process.env.TRACEPARENT,
+}
 beforeEach(() => {
   delete process.env.TRACE_ID
   delete process.env.PARENT_SPAN_ID
+  delete process.env.TRACEPARENT
 })
 afterEach(() => {
   if (saved.trace === undefined) delete process.env.TRACE_ID
   else process.env.TRACE_ID = saved.trace
   if (saved.parent === undefined) delete process.env.PARENT_SPAN_ID
   else process.env.PARENT_SPAN_ID = saved.parent
+  if (saved.traceparent === undefined) delete process.env.TRACEPARENT
+  else process.env.TRACEPARENT = saved.traceparent
 })
 
 // ── The wire ──────────────────────────────────────────────────────────────────
@@ -215,6 +229,9 @@ describe('a spawned worker inherits the run trace and the spawning node span', (
     expect(env.PARENT_SPAN_ID).toBe(recorder.rootSpanId)
     // …and the span the child names as its parent is a span this run actually emitted.
     expect(spans.some((s) => s.spanId === env.PARENT_SPAN_ID)).toBe(true)
+    // Dual-write (B4): the SAME spawn env carries the W3C wire alongside the legacy pair, so a
+    // standard reader (an OTel SDK, the Claude Code harness) joins the same trace with no shim.
+    expect(env.TRACEPARENT).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
   })
 
   it('stamps the MIDDLE node span on a depth-2 worker, never the run root', async () => {
@@ -275,6 +292,14 @@ describe('a spawned worker inherits the run trace and the spawning node span', (
     expect(env.TRACE_ID).toBe('caller-owned-trace')
     expect(env.PARENT_SPAN_ID).toBe('caller-owned-span')
     expect(env.TRACE_ID).not.toBe(recorder.traceId)
+    // The W3C wire follows the caller too: the merged TRACEPARENT is rebuilt from the CALLER's
+    // ids (the same deriveHexId dual-write every emitter uses), never left as the recorder's —
+    // or a standard reader would join the recorder's trace while the legacy pair names the
+    // caller's.
+    expect(env.TRACEPARENT).toBe(
+      `00-${deriveHexId('caller-owned-trace', 16)}-${deriveHexId('caller-owned-span', 8)}-01`,
+    )
+    expect(env.TRACEPARENT).not.toContain(recorder.traceId)
   })
 })
 
@@ -290,7 +315,11 @@ describe('a run that records no spans stamps nothing', () => {
       supervisorOpts({ executors: registryOf(printerFactory()) }),
     )
     if (untraced.kind !== 'winner') throw new Error('expected a winner')
-    expect(inherited(untraced.out)).toEqual({ TRACE_ID: null, PARENT_SPAN_ID: null })
+    expect(inherited(untraced.out)).toEqual({
+      TRACE_ID: null,
+      PARENT_SPAN_ID: null,
+      TRACEPARENT: null,
+    })
 
     // Recording ON but `workerTrace` NOT threaded is also silent: the seam, not the hook, is what
     // stamps — so an observer alone can never perturb a worker's environment.
@@ -303,9 +332,63 @@ describe('a run that records no spans stamps nothing', () => {
     )
     await recorder.finish({ result: observedOnly })
     if (observedOnly.kind !== 'winner') throw new Error('expected a winner')
-    expect(inherited(observedOnly.out)).toEqual({ TRACE_ID: null, PARENT_SPAN_ID: null })
+    expect(inherited(observedOnly.out)).toEqual({
+      TRACE_ID: null,
+      PARENT_SPAN_ID: null,
+      TRACEPARENT: null,
+    })
     // …and that run really did trace, so the equality above is not vacuous.
     expect(spans.length).toBeGreaterThan(0)
+  })
+})
+
+// ── The severed hop is a journaled fact ───────────────────────────────────────
+
+describe('a traced run on a channel-less backend journals each severed hop', () => {
+  it('appends a trace-unpropagated event per spawn, naming backend + reason + expected trace id', async () => {
+    const { exporter } = recordingExporter()
+    const recorder = recorderWith(exporter)
+    const journal = new InMemorySpawnJournal()
+    const result = await createSupervisor<unknown, unknown>().run(
+      scriptedDriver('root', () => [{ label: 'w', agent: resolvedLeaf('w') }]),
+      'task',
+      supervisorOpts({
+        journal,
+        executors: registryOf(printerFactory()),
+        hooks: recorder.hooks,
+        workerTrace: recorder.workerTrace,
+        // The declaration `supervise()` derives from WORKER_TRACE_PROPAGATION for a bridge run:
+        // the transport exposes no environment channel, so the context CANNOT reach the worker.
+        workerTraceUnpropagated: { backend: 'bridge', reason: 'no-env-channel' },
+      }),
+    )
+    await recorder.finish({ result })
+    expect(result.kind).toBe('winner')
+    const events = (await journal.loadTree('run')) ?? []
+    const severed = events.filter((ev) => ev.kind === 'trace-unpropagated')
+    expect(severed).toHaveLength(1)
+    expect(severed[0]).toMatchObject({
+      id: 'run:s0',
+      expectedTraceId: recorder.traceId,
+      backend: 'bridge',
+      reason: 'no-env-channel',
+    })
+  })
+
+  it('journals nothing when the run is untraced — the declaration alone claims no severed hop', async () => {
+    const journal = new InMemorySpawnJournal()
+    const result = await createSupervisor<unknown, unknown>().run(
+      scriptedDriver('root', () => [{ label: 'w', agent: resolvedLeaf('w') }]),
+      'task',
+      supervisorOpts({
+        journal,
+        executors: registryOf(printerFactory()),
+        workerTraceUnpropagated: { backend: 'bridge', reason: 'no-env-channel' },
+      }),
+    )
+    expect(result.kind).toBe('winner')
+    const events = (await journal.loadTree('run')) ?? []
+    expect(events.filter((ev) => ev.kind === 'trace-unpropagated')).toHaveLength(0)
   })
 })
 
@@ -408,7 +491,8 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
       '-e',
       'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({' +
         'TRACE_ID: process.env.TRACE_ID ?? null,' +
-        'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null}))',
+        'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null,' +
+        'TRACEPARENT: process.env.TRACEPARENT ?? null}))',
       outPath,
     ]
   }
@@ -445,6 +529,9 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
     expect(root).toBeDefined()
     expect(env.TRACE_ID).toBe(root?.traceId)
     expect(env.PARENT_SPAN_ID).toBe(root?.spanId)
+    // The dual-write reaches the front-door wire too: the W3C TRACEPARENT the ecosystem reads
+    // carries the SAME run trace id and root span id, not just the legacy pair.
+    expect(env.TRACEPARENT).toBe(`00-${root?.traceId}-${root?.spanId}-01`)
   })
 
   it('stamps nothing when the front door configures no telemetry', async () => {
@@ -453,6 +540,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
     expect(JSON.parse(await readFile(outPath, 'utf8'))).toEqual({
       TRACE_ID: null,
       PARENT_SPAN_ID: null,
+      TRACEPARENT: null,
     })
   })
 })

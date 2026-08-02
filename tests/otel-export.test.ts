@@ -1,3 +1,9 @@
+import {
+  deriveHexId,
+  isW3CSpanId,
+  isW3CTraceId,
+  validateTraceSpans,
+} from '@tangle-network/agent-trace-contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildLoopOtelSpans,
@@ -548,12 +554,15 @@ describe('otel-export', () => {
       'parent-span-456',
     )
 
-    // traceId: "trace-id-123" → strip dashes → "traceid123" → pad to 32
-    expect(span.traceId).toHaveLength(32)
-    expect(span.traceId).toMatch(/^traceid123/)
-    // parentSpanId: "parent-span-456" → strip dashes → "parentspan456" → pad to 16
-    expect(span.parentSpanId).toHaveLength(16)
-    expect(span.parentSpanId).toMatch(/^parentspan456/)
+    // A human id is DERIVED via the zero-dep contract, never sliced-and-padded: the old
+    // "traceid123…" output embedded the raw id in the wire id and was not valid W3C hex —
+    // the contract's own validator rejected what this module exported.
+    expect(span.traceId).toBe(deriveHexId('trace-id-123', 16))
+    expect(isW3CTraceId(span.traceId)).toBe(true)
+    expect(span.traceId).not.toMatch(/^traceid123/)
+    expect(span.parentSpanId).toBe(deriveHexId('parent-span-456', 8))
+    expect(isW3CSpanId(span.parentSpanId)).toBe(true)
+    expect(span.parentSpanId).not.toMatch(/^parentspan456/)
     expect(span.name).toBe('loop.iteration.started')
     // 1700000000000ms * 1_000_000 = 1700000000000000000000ns
     expect(span.startTimeUnixNano).toBe((BigInt(1700000000000) * 1_000_000n).toString())
@@ -561,6 +570,71 @@ describe('otel-export', () => {
     expect(attrMap['loop.event_kind']).toEqual({ stringValue: 'loop.iteration.started' })
     expect(attrMap['loop.iterationIndex']).toEqual({ intValue: '0' })
     expect(attrMap['loop.agentRunName']).toEqual({ stringValue: 'coder' })
+  })
+
+  it('passes an already-valid W3C id through unchanged, so an inherited trace keeps joining', () => {
+    const traceId = 'a3ce929d0e0e4736a3ce929d0e0e4736'
+    const parentSpanId = '00f067aa0ba902b7'
+    const span = loopEventToOtelSpan(
+      { kind: 'loop.started', runId: 'run-1', timestamp: 1700000000000, payload: {} },
+      traceId,
+      parentSpanId,
+    )
+    expect(span.traceId).toBe(traceId)
+    expect(span.parentSpanId).toBe(parentSpanId)
+  })
+
+  it('passes a UUID-form id through DASH-STRIPPED — the exact wire id earlier releases exported', () => {
+    // Cross-version join guard: the old padTraceId/padSpanId stripped dashes, so a UUID produced
+    // a valid, joinable hex id. Deriving it instead would silently break every join against
+    // spans the previous release (or an external system feeding UUIDs) already exported.
+    const uuid = 'a3ce929d-0e0e-4736-a3ce-929d0e0e4736'
+    const dashedSpan = 'a3ce929d-0e0e4736'
+    const span = loopEventToOtelSpan(
+      { kind: 'loop.started', runId: 'run-1', timestamp: 1, payload: {} },
+      uuid,
+      dashedSpan,
+    )
+    expect(span.traceId).toBe('a3ce929d0e0e4736a3ce929d0e0e4736')
+    expect(span.parentSpanId).toBe('a3ce929d0e0e4736')
+    expect(isW3CTraceId(span.traceId)).toBe(true)
+    expect(span.traceId).not.toBe(deriveHexId(uuid, 16))
+  })
+
+  it('derives the same wire id for the same run id in every process (deterministic derivation)', () => {
+    // The issue's executed proof: the retired slice-and-pad produced
+    // 'vbwebgrounded20260801cella000000' — invalid hex, leaking the raw run id.
+    const runId = 'vb-web-grounded-20260801-cell-a'
+    const a = loopEventToOtelSpan({ kind: 'loop.started', runId, timestamp: 1, payload: {} }, runId)
+    const b = loopEventToOtelSpan({ kind: 'loop.ended', runId, timestamp: 2, payload: {} }, runId)
+    expect(a.traceId).toBe(b.traceId)
+    expect(a.traceId).toBe(deriveHexId(runId, 16))
+    expect(a.traceId).not.toBe('vbwebgrounded20260801cella000000')
+    expect(isW3CTraceId('vbwebgrounded20260801cella000000')).toBe(false)
+    expect(isW3CTraceId(a.traceId)).toBe(true)
+  })
+
+  it('exported spans now pass the contract validator that rejected the old derivation', () => {
+    const runId = 'vb-web-grounded-20260801-cell-a'
+    const span = loopEventToOtelSpan(
+      { kind: 'loop.started', runId, timestamp: 1, payload: {} },
+      runId,
+    )
+    const asContractSpan = (s: OtelSpan) => ({
+      trace_id: s.traceId,
+      span_id: s.spanId,
+      name: s.name,
+      start_time_unix_nano: s.startTimeUnixNano,
+      end_time_unix_nano: s.endTimeUnixNano,
+    })
+    // The shipped code used to violate the shipped validator: slice-and-pad output drew the
+    // `non-hex-id` finding. The derived id draws none.
+    const nowValid = validateTraceSpans([asContractSpan(span)] as never)
+    expect(nowValid.findings.map((f) => f.code)).not.toContain('non-hex-id')
+    const oldStyle = validateTraceSpans([
+      asContractSpan({ ...span, traceId: 'vbwebgrounded20260801cella000000' }),
+    ] as never)
+    expect(oldStyle.findings.map((f) => f.code)).toContain('non-hex-id')
   })
 })
 

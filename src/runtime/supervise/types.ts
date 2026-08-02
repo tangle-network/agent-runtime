@@ -917,6 +917,49 @@ export type SpawnEvent =
       seq: number
       at: string
     }
+  | {
+      /** One GRAPH-EDGE traversal (`runGraph`): what the runtime actually DELIVERED across a
+       *  delegates/analyzes edge, with byte counts — the observability that makes an edge's
+       *  directive trustable and therefore optimizable. Informational: replay,
+       *  `materializeTreeView`, and cost readers skip it; its `seq` is the per-run edge-ledger
+       *  ordinal, outside the cursor-uniqueness namespace. */
+      kind: 'edge'
+      /** The destination node when known (a spawned worker's id), else `graph:<node>`. */
+      id: NodeId
+      edge: {
+        kind: 'delegates' | 'analyzes'
+        from: string
+        to: string
+        /** The resolved directive reference (`<surface>/v<n>`), never the directive bytes. */
+        directive: string
+      }
+      /** 1-based traversal ordinal for THIS edge within the run. */
+      traversal: number
+      outcome: 'delivered' | 'stripped' | 'empty' | 'unpropagated'
+      /** Bytes of directive + payload that actually crossed the edge (0 for `empty`). */
+      bytes: number
+      /** Why a non-`delivered` outcome happened, when the runtime knows. */
+      reason?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** A spawned worker ran WITHOUT the run's trace context because its backend has no channel
+       *  to carry one — the severed distributed-trace hop, journaled so a disconnected child trace
+       *  is a queryable fact instead of a silent stranger tree. The child-side twin is the
+       *  `tangle.trace.unpropagated=true` span attribute a fallback-minted root stamps.
+       *  Informational: replay, `materializeTreeView`, and cost readers skip it; `seq` shares the
+       *  spawn-ordinal namespace of the `spawned` event it annotates. */
+      kind: 'trace-unpropagated'
+      id: NodeId
+      /** The trace id the worker SHOULD have inherited. */
+      expectedTraceId: string
+      /** The worker-execution backend that has no propagation channel. */
+      backend: string
+      reason: 'no-env-channel' | 'no-worker-process' | 'caller-omitted'
+      seq: number
+      at: string
+    }
 
 /**
  * The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape).
@@ -1001,10 +1044,22 @@ export interface SupervisorOpts {
    * machine emits spans that join THIS run's trace instead of opening its own root. Supply
    * `SupervisorSpanRecorder.workerTrace`; the `Scope` seeds the resolved context onto every child's
    * `ExecutorContext` and the backends with an environment channel stamp it as
-   * `TRACE_ID` / `PARENT_SPAN_ID` (see `worker-trace.ts` for the precedence rule and for which
-   * backends propagate). Omit and no worker environment is touched at all.
+   * `TRACEPARENT` plus the legacy `TRACE_ID` / `PARENT_SPAN_ID` pair (see `worker-trace.ts` for
+   * the precedence rule and for which backends propagate). Omit and no worker environment is
+   * touched at all.
    */
   readonly workerTrace?: WorkerTraceResolver
+  /**
+   * Declare that this run's worker backend CANNOT carry the trace context
+   * (`WORKER_TRACE_PROPAGATION[backend] === false`). With `workerTrace` also set, every spawn then
+   * journals a `trace-unpropagated` event naming the severed hop — the host-side record of a
+   * distributed trace that will surface disconnected. `supervise()` derives this from its backend;
+   * a direct `createSupervisor()` caller may set it for a caller-owned executor registry.
+   */
+  readonly workerTraceUnpropagated?: {
+    readonly backend: string
+    readonly reason: 'no-env-channel' | 'no-worker-process' | 'caller-omitted'
+  }
 }
 
 /**
