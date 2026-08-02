@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0
+
+- Consume Runtime 0.121.0 with Sandbox 0.16.0 so a clean install no longer requires the superseded Sandbox 0.15 line.
+- Release under a new minor because Sandbox is a pre-1.0 dependency moving across a minor boundary.
+
 ## 0.5.0
 
 - Consume Runtime 0.120.0 with Eval 0.140.1, Interface 0.40.0, Knowledge 7.0.4, and Sandbox 0.15.2.
