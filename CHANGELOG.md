@@ -2,7 +2,17 @@
 
 ## Unreleased
 
+## 0.121.0
+
 - `pnpm run check:version-bump` (new, in the `ci` job) fails any change that alters a consumer-visible package surface without raising that package's version. Compared: every field npm copies into the published manifest — `exports`, `files`, `bin`, `directories`, `engines`, `typesVersions`, `dependencies`, `peerDependencies`, install-lifecycle `scripts`, `private` — plus the `pnpm-workspace.yaml` catalog pins those resolve through. A `catalog:` specifier is compared by what it RESOLVES to, because a byte-identical `"catalog:"` hiding a moved version is exactly how 0.119.0 shipped its peer range twice. Packages are keyed by name, not path, so relocating one still compares against what that name already published.
+
+### Runtime accepts the current Sandbox release
+
+`@tangle-network/sandbox@0.16.0` was published after Runtime 0.120.0 with execution-bound session controls, but Runtime's peer range still ended below 0.16.0.
+An installation that explicitly selected every latest package therefore failed with `ERESOLVE` before application code could run.
+
+Runtime now requires Sandbox `>=0.16.0 <0.17.0`, and its development cohort tests against 0.16.0.
+The narrow profile type adapter remains necessary because Sandbox 0.16.0 is compiled against Interface 0.38.0 while Runtime is compiled against Interface 0.40.0; the profile crosses that adapter unchanged as data.
 
 ## 0.120.0
 

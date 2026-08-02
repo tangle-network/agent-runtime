@@ -15,11 +15,11 @@ type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
 type BackendOverride = NonNullable<CreateSandboxOptions['backend']>
 
 /** The AgentProfile type as @tangle-network/sandbox declares it — compiled
- *  against agent-interface 0.36, not this package's 0.40. */
+ *  against agent-interface 0.38, not this package's 0.40. */
 export type SandboxAgentProfile = NonNullable<BackendOverride['profile']>
 
 /**
- * Version-skew boundary: sandbox 0.15.2 types profiles against interface 0.36
+ * Version-skew boundary: sandbox 0.16.0 types profiles against interface 0.38
  * (MCP `args`/`env`/`headers` as plain strings), while this runtime is on 0.40
  * (`AgentProfileConfigValue` objects). No published sandbox release is typed
  * against 0.40 yet, and the profile crosses this boundary as data — the values
