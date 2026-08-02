@@ -2,7 +2,28 @@
 
 ## Unreleased
 
+- `pnpm run check:version-bump` (new, in the `ci` job) fails any change that alters a consumer-visible package surface without raising that package's version. Compared: every field npm copies into the published manifest — `exports`, `files`, `bin`, `directories`, `engines`, `typesVersions`, `dependencies`, `peerDependencies`, install-lifecycle `scripts`, `private` — plus the `pnpm-workspace.yaml` catalog pins those resolve through. A `catalog:` specifier is compared by what it RESOLVES to, because a byte-identical `"catalog:"` hiding a moved version is exactly how 0.119.0 shipped its peer range twice. Packages are keyed by name, not path, so relocating one still compares against what that name already published.
+
+## 0.120.0
+
+### The runtime's own supervision journal is readable again
+
+`src/durable/spawn-journal.ts` writes each supervision event wrapped in an envelope — `{kind:'event', root, event}`. Through agent-eval 0.140.0 `parseSupervisorTree` only understood the flat dialect, so it read `kind` as the literal string `event`, matched no tree event kind, and reported **zero spawns for every journal this package produces**. agent-eval 0.140.1 adds `readJournalRow`, which unwraps that envelope and tags the dialect `runtime-envelope`.
+
+The fix therefore lives in agent-eval, but a consumer only receives it if this package's peer range admits it. The peer floor moves accordingly:
+
+| Peer | 0.119.0 as published | 0.120.0 |
+|---|---|---|
+| `@tangle-network/agent-eval` | `>=0.139.2 <0.140.0` | `>=0.140.1 <0.141.0` |
+
+`@tangle-network/agent-knowledge` moves `7.0.3` -> `7.0.4` in the same cohort because `scripts/verify-packed-cohort.mjs` asserts that knowledge's own agent-eval dependency EXACTLY equals the packed agent-eval version; `7.0.3` pins `0.139.2` and `7.0.4` pins `0.140.1`.
+
+**Why this needed its own version.** The cohort move landed on main in #697 without a version bump, so main declared `0.119.0` — a version already on the registry carrying the OLD `>=0.139.2 <0.140.0` range. The publish workflow skips a version the registry already has, so re-tagging cannot correct it and the fix could not reach any consumer until this bump.
+
+### Release checks no longer race the clock
+
 - Three release checks no longer infer concurrency or process readiness from sub-second wall-clock sleeps; they wait for the event under test or allow their real container/process boundary to start.
+- Candidate cleanup timeout coverage now advances a fake clock and observes the abort signal, while the Git-heavy knowledge activation checks use a process-boundary timeout that survives parallel CI load.
 
 ## 0.119.0
 
@@ -215,7 +236,6 @@ The supervisor's public contract closes six gaps found by running a real recursi
 - Candidate profile freeze/thaw preserves config values instead of unwrapping them to schema-invalid strings; certified intelligence bindings wrap through `defineAgentProfilePublicConfig`.
 - Implement eval 0.138's `TraceAnalysisStore` contract on the iterations store: real `hasTrace`/`hasSpans`, byte-ceiling span continuation (`omitted_span_ids`/`has_more`), and `total_matches` removed from search results.
 - Sandbox 0.15.2 remains typed against interface 0.36; profiles cross that boundary as data through one commented adapter pair (`profileAsSandboxProfile`), to be removed when sandbox releases against 0.40.
->>>>>>> origin/main
 
 ## 0.109.2
 
