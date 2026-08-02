@@ -11499,7 +11499,22 @@ which is a different resource profile from a fire-and-forget shot.
 
 ### CliSeam
 
-CLI subprocess seam. `bin` + `args` describe the Halo/RLM process to spawn.
+UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn.
+
+READ THIS BEFORE CHOOSING `backend: 'cli'`. This backend pipes a prompt to a subprocess's stdin
+and reads its stdout. It has no usage receipt of any kind, so it reports its spend with
+`Spend.tokensKnown: false`: the work is recorded, its `{0,0}` tokens and `$0` are a FLOOR rather
+than a measurement, and a ceiling priced from either is a ceiling that cannot fire. The executor
+is also `budgetExempt: true`, which is why `driveHarnessFromBackend` refuses it outright rather
+than pretending to budget it.
+
+If you need a metered harness worker, use `backend: 'bridge'` (a cli-bridge session, which
+reports the harness's real per-turn tokens and cost) or `backend: 'cli-worktree'` with
+`codexReproducible`. Reach for this seam only when the subprocess genuinely is not an inference
+agent, or when you have accepted that its cost is invisible.
+
+`args` is argv for a LOCAL, in-process spawn under this process's own privileges. It is not a
+remote channel and nothing forwards it over a wire.
 
 #### Properties
 
@@ -11669,6 +11684,40 @@ The executor opens a resumable cli-bridge session. `sessionId` identifies the
 harness conversation across turns; each turn also receives its own durable run id.
 A dropped HTTP reader reattaches to that exact run and explicit cancel is the only
 operation allowed to stop it. Omit `sessionId` and the executor mints one per spawn.
+
+── HOW TO CONTROL WHAT THE HARNESS LOADS (there is no argv field, by design) ──
+
+A worker often needs the harness started in a KNOWN state — no ambient extensions, skills,
+context files, or prompt templates — because ambient state is how a paired experiment silently
+loses its pairing: an installed extension that persists memory across runs carries arm A's state
+into arm B, and nothing reports it.
+
+That is what the `AgentProfile` on this seam (and on the spawn spec) is FOR. `agent_profile`
+rides every request verbatim, and cli-bridge maps it onto each harness's own native controls:
+
+  - Materializing any profile at all already starts the harness isolated from ambient
+    workspace state — for pi that is `--no-context-files --no-skills --no-prompt-templates`,
+    applied to every request that carries an `agent_profile`.
+  - `AgentProfile.extensions.<harness>` is the named, per-harness control channel. An explicit
+    `extensions: { pi: { load: [] } }` disables ambient extension discovery outright
+    (pi's `--no-extensions`); listing package names loads exactly those and nothing else.
+  - `permissions` / `tools` / `mcp` map onto the harness's native tool and server controls.
+
+A caller therefore does NOT need to hand-roll an `Executor` to isolate a harness run, and the
+profile expressing it stays portable: the same declaration means the same thing on a different
+harness, whereas an argv string means nothing anywhere else.
+
+WHY NOT A GENERAL ARGV PASSTHROUGH. `bridgeUrl` addresses a process-spawning server. Forwarding
+an arbitrary argv array to it would let any caller holding a bearer token choose the flags of a
+process on the bridge host — which for real harness CLIs includes flags that load code from a
+path, read a file into the prompt, redirect the working directory, or turn off the isolation the
+bridge applies. cli-bridge deliberately confines workers (a filesystem jail and deny-by-default
+network egress), and every one of those confinements is expressed as spawn configuration, so an
+argv channel is a channel for unwinding them. It would also break this executor's own contract:
+the durable-run replay protocol, session pinning, and streaming mode are all argv the bridge
+owns, and a caller-supplied duplicate silently wins or corrupts the parse. The structured profile
+channel is validated, per-harness, portable, and refuses controls it does not understand — keep
+new harness capability there.
 
 #### Properties
 

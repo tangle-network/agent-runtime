@@ -780,7 +780,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 688 exports.
 | `CheckRunner` | interface | Executes the frozen checks against one candidate. Implementations MUST fail loud |
 | `CheckSource` | interface | Produces the task's visible checks. MUST derive them from agent-visible information |
 | `CheckSourceCtx` | interface | What a CheckSource composes with. `consult` is the strategy family's raw analyst |
-| `CliSeam` | interface | CLI subprocess seam. `bin` + `args` describe the Halo/RLM process to spawn. |
+| `CliSeam` | interface | UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn. |
 | `CliWorktreeSeam` | interface | cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI |
 | `CollectedAgentTurn` | interface | A drained turn: the terminal summary plus every event the stream yielded. |
 | `CompletionAnalyst` | interface | Reads a node's trace → a completion verdict. Same input shape as the `analyze` hook, so |
