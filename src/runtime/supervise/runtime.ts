@@ -146,7 +146,24 @@ export interface SandboxSeam {
   steering?: SandboxSteeringOptions
 }
 
-/** CLI subprocess seam. `bin` + `args` describe the Halo/RLM process to spawn. */
+/**
+ * UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn.
+ *
+ * READ THIS BEFORE CHOOSING `backend: 'cli'`. This backend pipes a prompt to a subprocess's stdin
+ * and reads its stdout. It has no usage receipt of any kind, so it reports its spend with
+ * `Spend.tokensKnown: false`: the work is recorded, its `{0,0}` tokens and `$0` are a FLOOR rather
+ * than a measurement, and a ceiling priced from either is a ceiling that cannot fire. The executor
+ * is also `budgetExempt: true`, which is why `driveHarnessFromBackend` refuses it outright rather
+ * than pretending to budget it.
+ *
+ * If you need a metered harness worker, use `backend: 'bridge'` (a cli-bridge session, which
+ * reports the harness's real per-turn tokens and cost) or `backend: 'cli-worktree'` with
+ * `codexReproducible`. Reach for this seam only when the subprocess genuinely is not an inference
+ * agent, or when you have accepted that its cost is invisible.
+ *
+ * `args` is argv for a LOCAL, in-process spawn under this process's own privileges. It is not a
+ * remote channel and nothing forwards it over a wire.
+ */
 export interface CliSeam {
   bin: string
   args?: string[]
@@ -216,6 +233,40 @@ export interface CliWorktreeBridgeSeam {
  * harness conversation across turns; each turn also receives its own durable run id.
  * A dropped HTTP reader reattaches to that exact run and explicit cancel is the only
  * operation allowed to stop it. Omit `sessionId` and the executor mints one per spawn.
+ *
+ * ── HOW TO CONTROL WHAT THE HARNESS LOADS (there is no argv field, by design) ──
+ *
+ * A worker often needs the harness started in a KNOWN state — no ambient extensions, skills,
+ * context files, or prompt templates — because ambient state is how a paired experiment silently
+ * loses its pairing: an installed extension that persists memory across runs carries arm A's state
+ * into arm B, and nothing reports it.
+ *
+ * That is what the `AgentProfile` on this seam (and on the spawn spec) is FOR. `agent_profile`
+ * rides every request verbatim, and cli-bridge maps it onto each harness's own native controls:
+ *
+ *   - Materializing any profile at all already starts the harness isolated from ambient
+ *     workspace state — for pi that is `--no-context-files --no-skills --no-prompt-templates`,
+ *     applied to every request that carries an `agent_profile`.
+ *   - `AgentProfile.extensions.<harness>` is the named, per-harness control channel. An explicit
+ *     `extensions: { pi: { load: [] } }` disables ambient extension discovery outright
+ *     (pi's `--no-extensions`); listing package names loads exactly those and nothing else.
+ *   - `permissions` / `tools` / `mcp` map onto the harness's native tool and server controls.
+ *
+ * A caller therefore does NOT need to hand-roll an `Executor` to isolate a harness run, and the
+ * profile expressing it stays portable: the same declaration means the same thing on a different
+ * harness, whereas an argv string means nothing anywhere else.
+ *
+ * WHY NOT A GENERAL ARGV PASSTHROUGH. `bridgeUrl` addresses a process-spawning server. Forwarding
+ * an arbitrary argv array to it would let any caller holding a bearer token choose the flags of a
+ * process on the bridge host — which for real harness CLIs includes flags that load code from a
+ * path, read a file into the prompt, redirect the working directory, or turn off the isolation the
+ * bridge applies. cli-bridge deliberately confines workers (a filesystem jail and deny-by-default
+ * network egress), and every one of those confinements is expressed as spawn configuration, so an
+ * argv channel is a channel for unwinding them. It would also break this executor's own contract:
+ * the durable-run replay protocol, session pinning, and streaming mode are all argv the bridge
+ * owns, and a caller-supplied duplicate silently wins or corrupts the parse. The structured profile
+ * channel is validated, per-harness, portable, and refuses controls it does not understand — keep
+ * new harness capability there.
  */
 export interface BridgeSeam {
   bridgeUrl: string
@@ -279,8 +330,34 @@ function contentRef(prefix: string, value: unknown): string {
   return `${prefix}:${(h >>> 0).toString(16).padStart(8, '0')}`
 }
 
-function zeroSpend(): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+/**
+ * The spend of work that HAPPENED and reported no usage receipt.
+ *
+ * Not the same value as a plain zero even though both carry `{0,0}` tokens and `$0`. A bare zero
+ * asserts a MEASUREMENT — "this ran and cost nothing" — and every consumer downstream reads it that
+ * way: the pool keeps reporting `readout().tokensKnown === true`, the journal totals stay clean, the
+ * OTEL span records a priced zero, and a caller's token-denominated ceiling can never fire no matter
+ * how much the work really burned. A ceiling that cannot fire is worse than no ceiling, because it
+ * reads as protection.
+ *
+ * `Spend.tokensKnown` is the marker the substrate already threads end to end for exactly this case
+ * (`budget.ts`, `otel-spans.ts`, `spawn-journal.ts`, `supervisor.ts`): the work is recorded, the
+ * zero is labelled a floor rather than a total, and every rollup that touches it reports its balance
+ * as a ceiling rather than a measurement. Use this — never a bare zero — whenever a runtime cannot
+ * see what its worker spent.
+ *
+ * DELIBERATELY NOT `usdKnown: false`, and this is not an oversight. On the dollar channel that flag
+ * is not a marker but a REFUSAL: `budget.ts` treats unknown dollars under a dollar-capped root as a
+ * reconcile violation and fails the child. Applying it here would contradict `budgetExempt`, whose
+ * whole documented contract is that such a worker settles OUT of the conserved pool rather than
+ * against it (`scope.ts`) — a worker the kernel already agreed not to budget would start failing
+ * after its work had burned, which is a policy change about which configurations are allowed, not a
+ * fix to how honestly spend is reported. The token marker taints only token accounting. Under the
+ * current `budgetExempt` policy the surviving `usd: 0` remains dollar-known; callers that require
+ * dollar accounting must use a backend that returns priced usage.
+ */
+function unmeteredSpend(ms: number): Spend {
+  return { iterations: 0, tokens: zeroTokenUsage(), tokensKnown: false, usd: 0, ms }
 }
 
 // ── router/inline executor (harness === null) ──────────────────────────────────
@@ -957,6 +1034,10 @@ function leafVerdict(result: { winner?: { output?: unknown } }): DefaultVerdict 
  * `budgetExempt: true`: it remains usable as a direct executor, while budgeted supervision
  * refuses it before process execution because the CLI exposes no usage receipt. teardown is SIGTERM → SIGKILL
  * with a grace window. Streaming: yields one `iteration` event on clean exit.
+ *
+ * Its terminal spend is `unmeteredSpend`, NOT a zero: an unmetered runtime that reports a plain
+ * `0` is indistinguishable from one that measured zero, and every ceiling downstream then reads
+ * as enforced while enforcing nothing.
  */
 export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
   const seam = readSeam<CliSeam>(ctx, cliSeamKey, 'cli')
@@ -1046,6 +1127,7 @@ interface StreamCliArgs {
 }
 
 async function* streamCliLeaf(args: StreamCliArgs): AsyncIterable<UsageEvent> {
+  const started = Date.now()
   const prompt = taskToPrompt(args.task)
   const proc = spawn(args.seam.bin, args.seam.args ?? [], {
     ...(args.seam.cwd ? { cwd: args.seam.cwd } : {}),
@@ -1093,8 +1175,13 @@ async function* streamCliLeaf(args: StreamCliArgs): AsyncIterable<UsageEvent> {
     )
   }
   const out = { content: chunks.join('') } as unknown
-  // budgetExempt: spend is recorded zero (not metered) — never a fabricated cost.
-  args.onArtifact({ outRef: contentRef('cli', out), out, spent: zeroSpend() })
+  // A raw subprocess exposes no usage receipt, so its spend is UNKNOWN — not zero. Wall-clock is
+  // the one thing this runtime did measure, so that is the one field reported as measured.
+  args.onArtifact({
+    outRef: contentRef('cli', out),
+    out,
+    spent: unmeteredSpend(Date.now() - started),
+  })
   yield { kind: 'iteration' }
 }
 
