@@ -452,8 +452,8 @@ function createInputFromSandboxOptions(
     ...(options?.git?.ref ? { gitRef: options.git.ref } : {}),
   }
   return {
-    // sandboxProfileAsProfile: sandbox 0.15.2 types this profile against
-    // interface 0.36; it crosses as data (see sandbox-backend.ts).
+    // sandboxProfileAsProfile: sandbox 0.16.0 types this profile against
+    // interface 0.38; it crosses as data (see sandbox-backend.ts).
     ...(profile !== undefined ? { profile: sandboxProfileAsProfile(profile) } : {}),
     ...(backend ? { backend } : {}),
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
@@ -497,7 +497,7 @@ async function sandboxOptionsFromCreateInput(
     backend: {
       ...baseBackend,
       type: backendType,
-      // profileAsSandboxProfile: reverse hop of the interface 0.36/0.40 skew
+      // profileAsSandboxProfile: reverse hop of the interface 0.38/0.40 skew
       // (see sandbox-backend.ts); the profile crosses as data.
       profile: profileAsSandboxProfile(profile),
     },

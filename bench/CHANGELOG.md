@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0
+
+- Consume Runtime 0.121.0 with Sandbox 0.16.0 so a clean install no longer requires the superseded Sandbox 0.15 line.
+- Release under a new minor because Sandbox is a pre-1.0 dependency moving across a minor boundary.
+
+## 0.5.0
+
+- Consume Runtime 0.120.0 with Eval 0.140.1, Interface 0.40.0, Knowledge 7.0.4, and Sandbox 0.15.2.
+- Released under a new minor, not a patch, because Knowledge crosses a major (6.1.11 -> 7.0.4) and Runtime crosses eleven minors. A `^0.4.9` range admits only patches, so shipping this alignment as 0.4.10 would hand every such consumer a major dependency move without a range change.
+- Resolve the supervisor tree from the `{kind:'event', root, event}` journal envelope, and take the optional `controlAdapter` on the DSPy RLM trace engine, both by way of Eval 0.140.1. Bench calls neither surface directly, so no adapter code changed.
+
 ## 0.4.9
 
 - Consume Runtime 0.109.2 with Eval 0.135.2 and Knowledge 6.1.11 so benchmark runs use the corrected paired promotion decisions.
