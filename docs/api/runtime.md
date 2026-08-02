@@ -10965,6 +10965,14 @@ Leaf-execution override (offline tests / advanced). `runGraph` still owns node p
 
 The driver brain's router substrate (`profile.harness` omitted or `cli-base`).
 
+##### hooks?
+
+> `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
+
+Caller-side runtime hooks (telemetry, policy, product extensions). Composed AFTER the
+ graph's own spawn-binding hook on the SAME event stream — the graph never swallows the
+ seam supervise() exposes.
+
 ##### brain?
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)

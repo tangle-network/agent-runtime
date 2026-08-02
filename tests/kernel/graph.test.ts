@@ -717,6 +717,34 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
   })
 })
 
+describe('runGraph — caller hooks compose onto the same event stream', () => {
+  it('forwards runtime hook events to opts.hooks without breaking spawn binding', async () => {
+    const seen: string[] = []
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gh1',
+      makeWorkerAgent: leafSeam([]),
+      hooks: {
+        onEvent: (event) => {
+          if (event.target === 'agent.spawn' && event.phase === 'after') seen.push('spawn:after')
+        },
+      },
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'done' },
+      ]),
+    })
+    expect(res.result.kind).toBe('winner')
+    // The caller saw the same stream the graph used for ledger binding — neither starved the other.
+    expect(seen).toContain('spawn:after')
+    expect(res.ledger.filter((row) => row.kind === 'delegates')[0]!.workerId).toBe('gh1:s0')
+  })
+})
+
 describe('runGraph — validation fails loud before any compute', () => {
   const brain = scriptedBrain([])
   const seam = leafSeam([])

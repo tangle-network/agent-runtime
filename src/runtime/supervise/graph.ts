@@ -49,6 +49,7 @@ import type {
   CoordinationEvent,
   MakeWorkerAgent,
 } from '../../mcp/tools/coordination'
+import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
@@ -169,6 +170,10 @@ export interface RunGraphOptions {
   readonly makeWorkerAgent?: MakeWorkerAgent
   /** The driver brain's router substrate (`profile.harness` omitted or `cli-base`). */
   readonly router?: RouterConfig
+  /** Caller-side runtime hooks (telemetry, policy, product extensions). Composed AFTER the
+   *  graph's own spawn-binding hook on the SAME event stream — the graph never swallows the
+   *  seam supervise() exposes. */
+  readonly hooks?: RuntimeHooks
   /** Inject the driver brain directly (offline tests / advanced). */
   readonly brain?: ToolLoopChat
   /** The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT, not nodes. */
@@ -690,7 +695,7 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
   }
 
   // ── Spawn-hook: bind ledger rows to concrete worker ids, then journal them ──
-  const hooks = {
+  const graphHooks = {
     onEvent: (event: {
       target?: string
       phase?: string
@@ -708,6 +713,7 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
       return appendJournal(bound, payload.childId)
     },
   }
+  const hooks = composeRuntimeHooks(graphHooks, opts.hooks)
 
   // Every configuration fault above throws SYNCHRONOUSLY (matching `supervise()`'s own
   // contract); only the run itself is asynchronous.
