@@ -32,6 +32,7 @@ import {
 import { ConfigError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
+  AnalyzeOnSettleRoute,
   AuthorizeDownMessage,
   AuthorizedDownMessage,
   CoordinationEvent,
@@ -104,6 +105,7 @@ import type {
   UsageEvent,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
+import { WORKER_TRACE_PROPAGATION } from './worker-trace'
 
 /**
  * Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
@@ -173,6 +175,24 @@ export function workerFromBackend(
 function externalExecutionId(kind: string, identity: unknown): string {
   const digest = canonicalCandidateDigest({ kind, identity })
   return `${kind}-${digest.slice('sha256:'.length)}`
+}
+
+/**
+ * The `trace-unpropagated` declaration for a worker backend, or `undefined` when the backend HAS a
+ * propagation channel. The census (`WORKER_TRACE_PROPAGATION`) says WHETHER a backend propagates;
+ * this maps the non-propagating arms to WHY: `router`/`router-tools`/`provider` have no worker
+ * process to inherit an environment, `bridge`/`cli-worktree` have a worker but no environment
+ * channel through their transport.
+ */
+function workerTraceUnpropagatedDeclaration(
+  backend: ExecutorConfig['backend'],
+): { backend: string; reason: 'no-env-channel' | 'no-worker-process' } | undefined {
+  if (WORKER_TRACE_PROPAGATION[backend]) return undefined
+  const reason =
+    backend === 'router' || backend === 'router-tools' || backend === 'provider'
+      ? ('no-worker-process' as const)
+      : ('no-env-channel' as const)
+  return { backend, reason }
 }
 
 /**
@@ -715,7 +735,7 @@ export interface SuperviseOptions {
    *  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
    *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
    *  Omit/empty = status quo (no analyst feed). Requires `analysts`. */
-  readonly analyzeOnSettle?: ReadonlyArray<string>
+  readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /**
    * Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
    * moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
@@ -1362,6 +1382,14 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   // seam be built here while the recorder is built there.
   let spans: SupervisorSpanRecorder | undefined
 
+  // Classify the worker backend against the propagation census ONCE: a backend with no channel to
+  // carry the trace context makes every traced spawn a severed hop, journaled per spawn as
+  // `trace-unpropagated` (see `worker-trace.ts` for the census). A caller-owned `makeWorkerAgent`
+  // is unclassifiable — no claim is journaled rather than a guessed one.
+  const traceUnpropagated = options.backend
+    ? workerTraceUnpropagatedDeclaration(options.backend.backend)
+    : undefined
+
   let makeWorkerAgent = options.makeWorkerAgent
   if (!makeWorkerAgent) {
     if (!options.backend) {
@@ -1654,6 +1682,9 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       // Only a run that actually records spans hands trace context down to its workers; with no
       // recorder this key is absent and no spawned worker's environment is touched.
       ...(recorder ? { workerTrace: recorder.workerTrace } : {}),
+      // A traced run on a backend with NO propagation channel journals each severed hop
+      // (`trace-unpropagated`) instead of silently producing disconnected child traces.
+      ...(recorder && traceUnpropagated ? { workerTraceUnpropagated: traceUnpropagated } : {}),
     })
     if (!recorder) return run
     // The recorder closes the root span on BOTH exits and never rethrows, so tracing can neither

@@ -21,6 +21,9 @@ catalogs:
     '@tangle-network/agent-profile-materialize':
       specifier: 0.9.4
       version: 0.9.4
+    '@tangle-network/agent-trace-contract':
+      specifier: ^1.0.2
+      version: 1.0.2
     '@tangle-network/sandbox':
       specifier: 0.15.2
       version: 0.15.2
@@ -50,6 +53,9 @@ importers:
       '@tangle-network/agent-profile-materialize':
         specifier: 'catalog:'
         version: 0.9.4(@tangle-network/agent-interface@0.40.0)
+      '@tangle-network/agent-trace-contract':
+        specifier: 'catalog:'
+        version: 1.0.2
       tar-stream:
         specifier: 3.2.0
         version: 3.2.0
@@ -1125,6 +1131,9 @@ packages:
     resolution: {integrity: sha512-LCKfohFcjzeDz+WrPx6lXyZvn0CYyw0Y3/sBCaJ6fqj2Sgg7KwG178eg/LhlqNPz6xJzBh0g4iHxPge1kNn4nw==}
     peerDependencies:
       '@tangle-network/agent-interface': '>=0.38.0 <0.41.0'
+
+  '@tangle-network/agent-trace-contract@1.0.2':
+    resolution: {integrity: sha512-v7uMh56jkEp4vckevEU9xKsIatbs5dqzGPp69dFLSSXUVit0RP6VD6EANMXVlTCUk+6wVKBLHJx23XspVCEiIA==}
 
   '@tangle-network/sandbox@0.15.2':
     resolution: {integrity: sha512-haEdX9shY5jXQABwfipxmkrnz0Po42Dvtk41VTNCh88uw4iXcSgJdGBTBLYoriHZZZfJEenQPjlPjpgj8sm3NQ==}
@@ -2832,6 +2841,8 @@ snapshots:
   '@tangle-network/agent-profile-materialize@0.9.4(@tangle-network/agent-interface@0.40.0)':
     dependencies:
       '@tangle-network/agent-interface': 0.40.0
+
+  '@tangle-network/agent-trace-contract@1.0.2': {}
 
   '@tangle-network/sandbox@0.15.2(viem@2.54.6(typescript@6.0.3)(zod@4.4.3))':
     dependencies:

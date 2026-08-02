@@ -3,7 +3,7 @@
  *
  * A product's harness×model leaderboard is always the same assembly: expand a
  * base profile across the harness×model axes (`expandProfileAxes`), run every
- * (profile, case) cell as a driven loop (`loopDispatch` + `naiveDriver`), score
+ * (profile, case) cell as a driven loop (`loopDispatch` + the naive steering directive), score
  * with the domain's grader, and emit ONE `runProfileMatrix` call. Each product
  * hand-rolled that assembly (~650 lines each) and re-hit the same footguns:
  * stale cell-cache reuse, zero-token stub cells, missing model snapshots.
@@ -53,7 +53,7 @@ import { collectAgentResponseText, type SandboxEvent } from '@tangle-network/san
 import { leaderboard, renderLeaderboardMarkdown } from './benchmark-report'
 import { loopDispatch } from './loop-dispatch'
 import { resolveSandboxClient } from './resolve-sandbox-client'
-import { naiveDriver, type SteeringDecision } from './steering-drivers'
+import { type SteeringDecision, steeringDriver } from './steering-drivers'
 import type { LoopResult, SandboxClient } from './types'
 
 /** Structured per-case verdict a `score` function may return (a bare number is
@@ -220,7 +220,7 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
     ctx: LeaderboardRunContext,
   ) => Promise<void> | void
   /** LEVEL 2 — full dispatch replacement (in-process products bring their own).
-   *  The default is `loopDispatch` + `naiveDriver` over the resolved backend. */
+   *  The default is `loopDispatch` + the naive steering directive over the resolved backend. */
   dispatch?: ProfileDispatchFn<LeaderboardScenario<TCase>, TArtifact>
   /** LEVEL 2 — full judge replacement. Default: `score` wrapped as one judge. */
   judges?: JudgeConfig<TArtifact, LeaderboardScenario<TCase>>[]
@@ -514,13 +514,15 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           const axis = harnessAxisOf(cellProfile)
           const modelId = bareModel(axis?.model ?? models[0] ?? '')
           return {
-            // naiveDriver = the no-signal retry floor: re-run the same case as
-            // an independent attempt until one scores (>0) or the shot cap.
-            driver: naiveDriver<LeaderboardScenario<TCase>, TArtifact>({
-              continuation: '',
-              applyContinuation: (task) => task,
-              maxIterations: shots,
-            }),
+            // The naive steering directive = the no-signal retry floor: re-run the same case as
+            // an independent attempt until one scores (>0) or the shot cap. The policy is data
+            // (`SteeringDirectiveData`); the task is re-run verbatim, so the continuation text is
+            // never folded in (identity applyContinuation).
+            driver: steeringDriver<LeaderboardScenario<TCase>, TArtifact>(
+              { kind: 'naive', continuation: 'retry', maxTraversals: shots },
+              (task) => task,
+              'naive',
+            ),
             agentRun: {
               profile: cellProfile,
               taskToPrompt: (s) => `${promptOf(s)}\n\n<!-- independent-attempt:${shotNonce++} -->`,

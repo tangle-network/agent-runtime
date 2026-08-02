@@ -156,6 +156,18 @@ export interface ScopeArgs {
    * ⇒ no seam is seeded and no worker environment is touched.
    */
   readonly workerTrace?: WorkerTraceResolver
+  /**
+   * Present when this run RECORDS spans but the worker backend has NO channel to carry the trace
+   * context (`WORKER_TRACE_PROPAGATION[backend] === false` — bridge / cli-worktree have no env
+   * channel; router / router-tools / provider have no worker process). Each spawn then journals a
+   * `trace-unpropagated` event naming the severed hop, so a child whose trace shows up as a
+   * disconnected root is a recorded fact rather than a silent stranger. Absent ⇒ either the run
+   * is untraced or the backend propagates; nothing is journaled.
+   */
+  readonly workerTraceUnpropagated?: {
+    readonly backend: string
+    readonly reason: 'no-env-channel' | 'no-worker-process' | 'caller-omitted'
+  }
   /** @internal Trusted root-adapter publication channel. It is never exposed as a Scope method. */
   readonly ownerMaterialization?: {
     readonly runtime: NodeSnapshot['runtime']
@@ -364,6 +376,9 @@ function makeNestedScopeSeam(
         // The nested scope resolves the trace context against ITS OWN `parentId` (this driver
         // child), so a grandchild worker joins under the middle node's span, not the run root's.
         ...(args.workerTrace ? { workerTrace: args.workerTrace } : {}),
+        ...(args.workerTraceUnpropagated
+          ? { workerTraceUnpropagated: args.workerTraceUnpropagated }
+          : {}),
         ...(deferredOwner.ownerMaterialization === undefined
           ? {}
           : { ownerMaterialization: deferredOwner.ownerMaterialization }),
@@ -705,20 +720,37 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         })
       }
 
-      const spawnCommitted = args.journal.appendEvent(args.root, {
-        kind: 'spawned',
-        id,
-        parent: args.parentId,
-        label: opts.label,
-        ...(opts.key !== undefined ? { key: opts.key } : {}),
-        ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
-        budget: opts.budget,
-        runtime: executor.runtime,
-        ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
-        ...(identity ? { identity } : {}),
-        seq: ordinal,
-        at: new Date(now()).toISOString(),
-      })
+      const spawnCommitted = args.journal
+        .appendEvent(args.root, {
+          kind: 'spawned',
+          id,
+          parent: args.parentId,
+          label: opts.label,
+          ...(opts.key !== undefined ? { key: opts.key } : {}),
+          ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+          budget: opts.budget,
+          runtime: executor.runtime,
+          ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
+          ...(identity ? { identity } : {}),
+          seq: ordinal,
+          at: new Date(now()).toISOString(),
+        })
+        .then(async () => {
+          // The severed distributed-trace hop, journaled beside the spawn it annotates: this run
+          // records spans AND resolved a context for this child, but the backend has no channel to
+          // carry it — the child's own trace will surface as a disconnected root, and this record
+          // is what makes that a queryable fact instead of a silent stranger tree.
+          if (args.workerTraceUnpropagated === undefined || workerTrace === undefined) return
+          await args.journal.appendEvent(args.root, {
+            kind: 'trace-unpropagated',
+            id,
+            expectedTraceId: workerTrace.traceId,
+            backend: args.workerTraceUnpropagated.backend,
+            reason: args.workerTraceUnpropagated.reason,
+            seq: ordinal,
+            at: new Date(now()).toISOString(),
+          })
+        })
       const materializationCommitted = spawnCommitted.then(async () => {
         const profileDigest = identity?.profileDigest ?? authoredProfileDigest(spec.profile)
         let receipt: ProfileMaterializationReceipt

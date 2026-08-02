@@ -24,6 +24,7 @@ import { ConfigError } from '../../errors'
 import { createMcpServer, type McpToolDescriptor } from '../../mcp/server'
 import {
   type AnalystRegistry,
+  type AnalyzeOnSettleRoute,
   type AuthorizeDownMessage,
   type CoordinationEvent,
   type CoordinationTools,
@@ -101,7 +102,7 @@ export async function serveCoordinationMcp(opts: {
   /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
   analysts?: AnalystRegistry
   /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
-  analyzeOnSettle?: ReadonlyArray<string>
+  analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events). */
   watchWorkers?: WorkerWatchOptions
   /** Idle time after which `observe_agent` reports a worker as stalled. */

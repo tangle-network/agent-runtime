@@ -24,6 +24,7 @@ import { ConfigError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import type {
   AnalystRegistry,
+  AnalyzeOnSettleRoute,
   AuthorizeDownMessage,
   CoordinationEvent,
   MakeWorkerAgent,
@@ -41,6 +42,7 @@ import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
 import { createInbox } from './inbox'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
+import { supervisorPolicyPrompt } from './prompt-registry'
 import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
 import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
@@ -48,24 +50,13 @@ import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } fro
 /** The standing strategy a router-brained supervisor runs with when its profile names no
  *  `systemPrompt`. The brain's competence IS this prompt: without it the brain has the coordination
  *  verbs but no policy for WHEN to use them, and either over-spawns or stalls. A profile may override
- *  it for a specific topology. */
-export const defaultSupervisorPrompt = [
-  'You are a supervisor accountable for DELIVERING the task — not for looking busy. You succeed only',
-  'when the deliverable is actually produced and verified, never on a worker reporting "done".',
-  '',
-  'Spawning a worker spends the shared, conserved budget — so delegate with intent, not by reflex:',
-  '- Do small, sequential work YOURSELF when you have work tools; spawn a worker when a sub-task is',
-  '  large, independent (parallelizable), or needs a clean context the current one has filled.',
-  '- Prefer the FEWEST workers that deliver. Over-spawning burns the budget and rarely helps.',
-  '',
-  'Manage the context lifecycle on long work: give each spawned worker a BOUNDED brief — the specific',
-  'sub-task plus only the interfaces/state it needs — never your whole history. When one chapter is',
-  'done, distill what the next chapter needs and spawn fresh, rather than steering one worker until',
-  'its context fills and degrades.',
-  '',
-  'Wait on real signals (await a settle, answer a blocking question), integrate the result, and stop',
-  'as soon as the deliverable is met.',
-].join('\n')
+ *  it for a specific topology.
+ *
+ *  This is the registry's ONE supervisor policy (`supervisor/policy`), not this module's own text:
+ *  the delegate front door (`supervisorInstructions`) derives from the same entry, so which front
+ *  door built the supervisor no longer decides its work-vs-delegate policy — the package used to
+ *  ship two contradictory defaults selected by entry point. */
+export const defaultSupervisorPrompt = supervisorPolicyPrompt.text
 
 /**
  * The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
@@ -390,7 +381,7 @@ export interface SupervisorAgentDeps {
   readonly analysts?: AnalystRegistry
   /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
    *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
-  readonly analyzeOnSettle?: ReadonlyArray<string>
+  readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
    *  learns a worker is looping mid-run instead of at settle. Omit = no online watching. */
   readonly watchWorkers?: WorkerWatchOptions

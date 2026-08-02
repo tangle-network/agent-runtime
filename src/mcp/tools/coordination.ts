@@ -144,7 +144,67 @@ export interface AnalystRegistry {
 export interface AnalystFindingEvent {
   readonly fromWorker: string
   readonly analyst: string
-  readonly findings: unknown
+  /** The analyst's result. ABSENT when the analyst returned `undefined` (no findings); any other
+   *  value is canonicalized to finite RFC 8785 JSON at publish (`canonicalFindingEvent`), so
+   *  digesting subscribers (the coordination-event id) never throw on analyst-shaped data. */
+  readonly findings?: unknown
+}
+
+/** Producer-side cleanliness for the `finding` event. The findings payload is arbitrary analyst
+ *  output, the digest a subscriber computes (RFC 8785) throws on ANY `undefined` value — nested
+ *  included — and a throwing subscriber leaves the event invisible to EVERY subscriber. The
+ *  producer, not the digest, owns keeping the event canonical: an `undefined` payload is stripped
+ *  to key-absence, everything else is JSON round-tripped (nested `undefined` object values drop,
+ *  `undefined` array slots become `null`), and a payload JSON cannot represent at all (cycle,
+ *  BigInt, bare function) becomes a record OF that fact — degraded findings beat a vanished
+ *  event. */
+function canonicalFindingEvent(finding: AnalystFindingEvent): AnalystFindingEvent {
+  if (finding.findings === undefined) {
+    const { findings: _absent, ...present } = finding
+    return present
+  }
+  try {
+    // JSON.stringify returns undefined (not a string) for a bare function/symbol payload;
+    // JSON.parse then throws, landing in the same non-canonical fallback as cycles and BigInt.
+    return { ...finding, findings: JSON.parse(JSON.stringify(finding.findings)) as unknown }
+  } catch (error) {
+    return {
+      ...finding,
+      findings: { nonCanonicalFindings: error instanceof Error ? error.message : String(error) },
+    }
+  }
+}
+
+/**
+ * One analyst-on-settle ROUTE: which lens runs (`kind`), over WHICH settled workers (`over`),
+ * delivered to WHOM (`to`), wrapped in WHAT standing instruction (`directive`). The generalized
+ * form of the bare-string entry — a string `k` is exactly `{ kind: k }`: every settle feeds the
+ * lens and the findings go to the driver via the bus. This is the analyzes-edge of an agent
+ * graph expressed at the coordination layer; the finding is ALWAYS also published on the bus
+ * (the audit trail), routing adds delivery, never replaces the record.
+ */
+export interface AnalyzeOnSettleRoute {
+  /** The analyst lens id (resolved against the `analysts` registry). */
+  readonly kind: string
+  /** Deliver the findings to this live worker, named by its PROFILE NAME (the stable node
+   *  identity a graph pins) or its spawn label. Omit = the driver (bus only). Delivery goes
+   *  through the same authorization + steer machinery a driver-authored steer uses and is
+   *  recorded as a `steer` event carrying `analyst`, so a routed delivery is observable and a
+   *  failed one (`delivered: false`) is a recorded outcome, never a silent drop. */
+  readonly to?: string
+  /** Standing instruction wrapped around the findings on a routed delivery — what the recipient
+   *  should DO with the analysis. Omit = the bare findings JSON. */
+  readonly directive?: string
+  /** Restrict which settled workers feed this lens, by profile name or spawn label. Omit =
+   *  every settled `done` worker. */
+  readonly over?: ReadonlyArray<string>
+}
+
+/** Normalize the two spellings of an analyst-on-settle entry to the route form. */
+export function normalizeAnalyzeOnSettle(
+  entry: string | AnalyzeOnSettleRoute,
+): AnalyzeOnSettleRoute {
+  return typeof entry === 'string' ? { kind: entry } : entry
 }
 
 /** The exact result of one parent→child delivery attempt. */
@@ -221,7 +281,13 @@ export type CoordinationEvent =
   | { readonly type: 'question'; readonly question: QuestionRecord }
   | { readonly type: 'settled'; readonly worker: SettledWorker }
   | { readonly type: 'finding'; readonly finding: AnalystFindingEvent }
-  | { readonly type: 'steer'; readonly down: DownMessageEvent }
+  | {
+      readonly type: 'steer'
+      readonly down: DownMessageEvent
+      /** Present when this steer DELIVERED an analyst's routed findings (an analyzes-edge
+       *  traversal), naming the lens — absent on an ordinary driver-authored steer. */
+      readonly analyst?: string
+    }
   | { readonly type: 'answer'; readonly down: DownMessageEvent; readonly questionId: string }
   | { readonly type: 'instruction'; readonly instruction: ContinuationInstruction }
   | { readonly type: 'delivery-attempt'; readonly attempt: DownMessageDeliveryAttempt }
@@ -276,11 +342,15 @@ export interface CoordinationToolsOptions {
    * detached, recorded durably through `onEvent`, and only then delivered. */
   readonly authorizeDownMessage?: AuthorizeDownMessage
   readonly questionPolicy?: QuestionPolicy
-  /** Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle
-   *  hook). Each result is published as a `finding` event on the bus — pass-through to subscribers
-   *  and queued for the driver to pull via `await_event`. Omit/empty = no auto-analysis (default;
-   *  the driver can still run lenses on demand via `run_analyst`). Requires `analysts`. */
-  readonly analyzeOnSettle?: ReadonlyArray<string>
+  /** Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle hook).
+   *  A bare string names a lens whose findings go to THE DRIVER: published as a `finding` event on
+   *  the bus — pass-through to subscribers and queued for `await_event`. An
+   *  {@link AnalyzeOnSettleRoute} generalizes the DESTINATION: findings can be delivered to a
+   *  named live WORKER (wrapped in the route's directive, through the same authorized steer
+   *  machinery a driver steer uses) instead of being hardwired to the spawning driver, and `over`
+   *  restricts which settled workers feed the lens. Omit/empty = no auto-analysis (default; the
+   *  driver can still run lenses on demand via `run_analyst`). Requires `analysts`. */
+  readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_agent`
    *  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
    *  reserving from the pool when the cap is already met — a concurrency fence on top of the
@@ -630,6 +700,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // slot, so the fence must not hold it back. `keyByWorker` is what lets a settlement find its key.
   const completedKeys = new Set<string>()
   const keyByWorker = new Map<string, string>()
+  // Worker id → the AUTHORED profile name it was spawned from. The stable identity an
+  // `AnalyzeOnSettleRoute` names (`to`/`over`): labels are the driver's free-text choice, while
+  // the profile name is what a graph pins a node by. Recorded at spawn, dropped never (a settled
+  // source can still be matched by `over` after it is gone).
+  const profileNameByWorker = new Map<string, string>()
   // `Scope` advances its node/cursor ordinals on resume, but assignment identity belongs to this
   // manager. Seed it independently from durable evidence so a restarted manager never calls new
   // work `ordinal:0` when a prior process already used that assignment. Use the maximum rather
@@ -807,6 +882,77 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       }
     | undefined
 
+  // The names an analyst route may know a worker by: its authored profile name (the stable node
+  // identity) and its spawn label (the driver's free-text choice).
+  const workerRouteNames = (workerId: string): Set<string> => {
+    const names = new Set<string>()
+    const profileName = profileNameByWorker.get(workerId)
+    if (profileName !== undefined) names.add(profileName)
+    const label = nodeForWorker(workerId)?.label
+    if (label !== undefined) names.add(label)
+    return names
+  }
+
+  /** The LIVE worker a route destination names, by profile name first, label second. */
+  const liveWorkerIdNamed = (destination: string): string | undefined => {
+    const live = opts.scope.view.nodes.filter((node) => isLive(node.status))
+    return (
+      live.find((node) => profileNameByWorker.get(node.id) === destination)?.id ??
+      live.find((node) => node.label === destination)?.id
+    )
+  }
+
+  /**
+   * Deliver one routed analyst finding to its destination worker through the SAME authorized
+   * steer machinery a driver steer uses, so the delivery is recorded (`steer` event carrying
+   * `analyst`) and its outcome is a fact. No live destination ⇒ a record-only failed steer —
+   * observable, never a silent drop. A throw here must not kill the settle path: the failure is
+   * already on the bus.
+   */
+  const deliverRoutedFinding = async (
+    route: AnalyzeOnSettleRoute,
+    findings: unknown,
+  ): Promise<void> => {
+    const destination = route.to as string
+    const text =
+      route.directive === undefined || route.directive.length === 0
+        ? safeJsonText(findings)
+        : `${route.directive}\n\n${safeJsonText(findings)}`
+    const targetId = liveWorkerIdNamed(destination)
+    if (targetId === undefined) {
+      await bus.publish(
+        {
+          type: 'steer',
+          down: deepFreezeDetached({
+            receiptId: randomUUID(),
+            toWorker: destination,
+            instruction: text,
+            instructionDigest: canonicalCandidateDigest(text),
+            delivered: false,
+            outcome: 'unknown-worker' as const,
+          }),
+          analyst: route.kind,
+        },
+        { queue: false },
+      )
+      return
+    }
+    try {
+      const instruction = authorizeInstruction('steer', targetId, text, false)
+      await recordInstruction(instruction)
+      await attemptDelivery(
+        instruction,
+        { steer: instruction.instruction, interrupt: false },
+        {
+          analyst: route.kind,
+        },
+      )
+    } catch {
+      // The failed delivery is already recorded on the bus (a `steer` with delivered:false or an
+      // authorization refusal); a routed finding must never take down the settlement path.
+    }
+  }
+
   const flushPendingSettlement = async (): Promise<boolean> => {
     const pending = pendingSettlement
     if (!pending) return false
@@ -820,13 +966,27 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       opts.analysts &&
       opts.analyzeOnSettle?.length
     ) {
-      const trace = await workerTraceAnalysisStore(pending.worker.trace, opts.blobs)
-      for (const analyst of opts.analyzeOnSettle) {
-        const findings = await opts.analysts.run(analyst, trace)
-        await bus.publish({
-          type: 'finding',
-          finding: { fromWorker: pending.worker.id, analyst, findings },
-        })
+      const routes = opts.analyzeOnSettle.map(normalizeAnalyzeOnSettle)
+      const sourceNames = workerRouteNames(pending.worker.id)
+      const applicable = routes.filter(
+        (route) => route.over === undefined || route.over.some((name) => sourceNames.has(name)),
+      )
+      if (applicable.length > 0) {
+        const trace = await workerTraceAnalysisStore(pending.worker.trace, opts.blobs)
+        for (const route of applicable) {
+          const findings = await opts.analysts.run(route.kind, trace)
+          // The finding ALWAYS lands on the bus — the audit trail and the driver's pullable copy —
+          // whether or not the route also delivers it to a named worker.
+          await bus.publish({
+            type: 'finding',
+            finding: canonicalFindingEvent({
+              fromWorker: pending.worker.id,
+              analyst: route.kind,
+              findings,
+            }),
+          })
+          if (route.to !== undefined) await deliverRoutedFinding(route, findings)
+        }
       }
     }
     return true
@@ -876,17 +1036,19 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // The down-leg: record a parent→child message on the bus for the audit trail (history +
   // subscribers) WITHOUT enqueuing it — the parent must never pull its own outbound message back.
   // Overloaded so the `answer` kind REQUIRES a questionId (no silent `?? ''` fallback to mask a bug).
-  function sendDown(type: 'steer', down: DownMessageEvent): Promise<void>
+  function sendDown(type: 'steer', down: DownMessageEvent, analyst?: string): Promise<void>
   function sendDown(type: 'answer', down: DownMessageEvent, questionId: string): Promise<void>
   async function sendDown(
     type: 'steer' | 'answer',
     down: DownMessageEvent,
-    questionId?: string,
+    questionIdOrAnalyst?: string,
   ): Promise<void> {
     await bus.publish(
       type === 'answer'
-        ? { type, down, questionId: str(questionId, 'questionId') }
-        : { type, down },
+        ? { type, down, questionId: str(questionIdOrAnalyst, 'questionId') }
+        : questionIdOrAnalyst !== undefined
+          ? { type, down, analyst: questionIdOrAnalyst }
+          : { type, down },
       { queue: false },
     )
   }
@@ -976,6 +1138,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   const attemptDelivery = async (
     instruction: ContinuationInstruction,
     message: unknown,
+    origin?: { readonly analyst?: string },
   ): Promise<DownMessageEvent> => {
     await recordDeliveryAttempt(instruction)
     let delivered = false
@@ -1000,7 +1163,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     if (instruction.kind === 'answer') {
       await sendDown('answer', down, str(instruction.questionId, 'questionId'))
     } else {
-      await sendDown('steer', down)
+      await sendDown('steer', down, origin?.analyst)
     }
     if (error !== undefined) throw new Error(`coordination tools: delivery failed: ${error}`)
     return down
@@ -1202,7 +1365,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         raised += 1
         await bus.publish({
           type: 'finding',
-          finding: {
+          // canonicalFindingEvent: `span.toolName` is optional — an undefined value anywhere in
+          // the payload would throw in the digesting subscriber and vanish the event.
+          finding: canonicalFindingEvent({
             fromWorker: id,
             analyst: `online:${signal.detector}`,
             findings: {
@@ -1215,7 +1380,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               at: span.endedAt,
               progress: readProgress(id),
             },
-          },
+          }),
         })
       },
     })
@@ -1384,6 +1549,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           watchWorker(res.handle.id)
           // Bind the new worker to its key so its settlement can mark the key complete.
           if (key !== undefined) keyByWorker.set(res.handle.id, key)
+          if (typeof profile.name === 'string' && profile.name.length > 0) {
+            profileNameByWorker.set(res.handle.id, profile.name)
+          }
         }
         // A `completed` key returned above, so any prior still attached here is a real re-run:
         // `retried` (the prior attempt failed) or `lost` (it died in flight with its process).
@@ -1834,7 +2002,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     tools,
     ready,
     history: () => bus.history(),
-    raiseFinding: (finding) => bus.publish({ type: 'finding', finding }).then(() => undefined),
+    raiseFinding: (finding) =>
+      bus
+        .publish({ type: 'finding', finding: canonicalFindingEvent(finding) })
+        .then(() => undefined),
     stats: () => bus.stats(),
     isStopped: () => stopped,
     stopReason: () => reason,
@@ -1870,6 +2041,17 @@ function nextUnkeyedAssignmentOrdinal(scope: Scope<unknown>): number {
 
 function deepFreezeDetached<T>(value: T): T {
   return deepFreeze(structuredClone(value))
+}
+
+/** Stringify a findings payload for a routed delivery; never throws (a cyclic payload degrades to
+ *  its String form rather than killing the settle path). */
+function safeJsonText(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
 }
 
 function deepFreeze<T>(value: T, seen = new Set<object>()): T {

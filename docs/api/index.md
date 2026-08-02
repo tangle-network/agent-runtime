@@ -11157,12 +11157,69 @@ Mode → configured runner. Partial: only register the modes a
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
  as evidence. DOWN (parent→child): steer / answer — record-only (history + subscribers), routed
  to the child inbox. Receipts are never auto-delivered on restart. New kinds are additive.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `analyst?`: `string`; \}
+
+###### type
+
+> `readonly` **type**: `"steer"`
+
+###### down
+
+> `readonly` **down**: [`DownMessageEvent`](runtime.md#downmessageevent)
+
+###### analyst?
+
+> `readonly` `optional` **analyst?**: `string`
+
+Present when this steer DELIVERED an analyst's routed findings (an analyzes-edge
+ traversal), naming the lens — absent on an ordinary driver-authored steer.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \}
 
 ***
 

@@ -665,6 +665,59 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 [`CoordinationLog`](#coordinationlog).[`load`](#load)
 
+***
+
+### GraphEdgeCapError
+
+A delegates edge exhausted its traversal cap and the run produced no winner: the cap, not the
+ task, ended it. Carries the full evidence so failing loud loses nothing.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new GraphEdgeCapError**(`exhaustedEdges`, `ledger`, `result`): [`GraphEdgeCapError`](#graphedgecaperror)
+
+###### Parameters
+
+###### exhaustedEdges
+
+readonly `string`[]
+
+###### ledger
+
+readonly [`EdgeTraversal`](#edgetraversal)[]
+
+###### result
+
+[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>
+
+###### Returns
+
+[`GraphEdgeCapError`](#graphedgecaperror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### exhaustedEdges
+
+> `readonly` **exhaustedEdges**: readonly `string`[]
+
+##### ledger
+
+> `readonly` **ledger**: readonly [`EdgeTraversal`](#edgetraversal)[]
+
+##### result
+
+> `readonly` **result**: [`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>
+
 ## Interfaces
 
 ### SpawnForestTree
@@ -735,7 +788,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-18)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-19)
 
 ##### parent?
 
@@ -775,7 +828,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`budget`](#budget-17)
+[`NodeSnapshot`](#nodesnapshot).[`budget`](#budget-18)
 
 ##### ownedTreeRoot?
 
@@ -958,9 +1011,56 @@ A trace-analyst result re-entered as a message on the bus (the `finding` event k
 
 > `readonly` **analyst**: `string`
 
-##### findings
+##### findings?
 
-> `readonly` **findings**: `unknown`
+> `readonly` `optional` **findings?**: `unknown`
+
+The analyst's result. ABSENT when the analyst returned `undefined` (no findings); any other
+ value is canonicalized to finite RFC 8785 JSON at publish (`canonicalFindingEvent`), so
+ digesting subscribers (the coordination-event id) never throw on analyst-shaped data.
+
+***
+
+### AnalyzeOnSettleRoute
+
+One analyst-on-settle ROUTE: which lens runs (`kind`), over WHICH settled workers (`over`),
+delivered to WHOM (`to`), wrapped in WHAT standing instruction (`directive`). The generalized
+form of the bare-string entry — a string `k` is exactly `{ kind: k }`: every settle feeds the
+lens and the findings go to the driver via the bus. This is the analyzes-edge of an agent
+graph expressed at the coordination layer; the finding is ALWAYS also published on the bus
+(the audit trail), routing adds delivery, never replaces the record.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `string`
+
+The analyst lens id (resolved against the `analysts` registry).
+
+##### to?
+
+> `readonly` `optional` **to?**: `string`
+
+Deliver the findings to this live worker, named by its PROFILE NAME (the stable node
+ identity a graph pins) or its spawn label. Omit = the driver (bus only). Delivery goes
+ through the same authorization + steer machinery a driver-authored steer uses and is
+ recorded as a `steer` event carrying `analyst`, so a routed delivery is observable and a
+ failed one (`delivered: false`) is a recorded outcome, never a silent drop.
+
+##### directive?
+
+> `readonly` `optional` **directive?**: `string`
+
+Standing instruction wrapped around the findings on a routed delivery — what the recipient
+ should DO with the analysis. Omit = the bare findings JSON.
+
+##### over?
+
+> `readonly` `optional` **over?**: readonly `string`[]
+
+Restrict which settled workers feed this lens, by profile name or spawn label. Omit =
+ every settled `done` worker.
 
 ***
 
@@ -2640,7 +2740,7 @@ Result export. Default: write `matrix-result.json` under the run dir and
 > `optional` **dispatch?**: `ProfileDispatchFn`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `TArtifact`\>
 
 LEVEL 2 — full dispatch replacement (in-process products bring their own).
- The default is `loopDispatch` + `naiveDriver` over the resolved backend.
+ The default is `loopDispatch` + the naive steering directive over the resolved backend.
 
 ##### judges?
 
@@ -9825,7 +9925,7 @@ The analyst lenses available to the driver. Required for `analyzeOnSettle` (and 
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
@@ -10740,6 +10840,255 @@ One DELIVERED child, materialized: settled `done`, oracle-passed, output rehydra
 
 ***
 
+### GraphNode
+
+A graph node: an id and a canonical `AgentProfile`. The profile is the ONLY way a node is
+ described — its `prompt.systemPrompt` is the standing role (the 0.117 canonical resolution;
+ never a legacy top-level-only reduction), its tools/mcp/resources are its capabilities.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+***
+
+### AgentGraph
+
+#### Properties
+
+##### nodes
+
+> `readonly` **nodes**: readonly [`GraphNode`](#graphnode)[]
+
+##### edges
+
+> `readonly` **edges**: readonly [`GraphEdge`](#graphedge)[]
+
+##### deliverable
+
+> `readonly` **deliverable**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+Termination is mandatory, not optional: the independent completion oracle.
+
+##### budget
+
+> `readonly` **budget**: [`Budget`](index.md#budget-4)
+
+One conserved pool across the whole graph — cycles without conservation never terminate.
+
+***
+
+### EdgeTraversal
+
+One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent.
+
+#### Properties
+
+##### edge
+
+> `readonly` **edge**: `string`
+
+Stable edge id: `delegates:<from>-><to>` or `analyzes:<analyst>:<over…>-><to>`.
+
+##### kind
+
+> `readonly` **kind**: `"delegates"` \| `"analyzes"`
+
+##### from
+
+> `readonly` **from**: `string`
+
+##### to
+
+> `readonly` **to**: `string`
+
+##### directive
+
+> `readonly` **directive**: `string`
+
+The resolved directive reference (`<surface>/v<n>`).
+
+##### traversal
+
+> `readonly` **traversal**: `number`
+
+1-based per-edge ordinal.
+
+##### outcome
+
+> `readonly` **outcome**: [`EdgeDeliveryOutcome`](#edgedeliveryoutcome)
+
+##### bytes
+
+> `readonly` **bytes**: `number`
+
+Bytes of directive + payload that actually crossed the edge.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### workerId?
+
+> `readonly` `optional` **workerId?**: `string`
+
+The concrete worker node id, once known.
+
+***
+
+### RunGraphOptions
+
+#### Properties
+
+##### backend?
+
+> `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
+
+WHERE worker nodes run — the executor backend. Provide this OR `makeWorkerAgent`.
+
+##### makeWorkerAgent?
+
+> `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](#makeworkeragent)
+
+Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
+ directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours.
+
+##### router?
+
+> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+
+The driver brain's router substrate (`profile.harness` omitted or `cli-base`).
+
+##### brain?
+
+> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
+
+Inject the driver brain directly (offline tests / advanced).
+
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
+
+The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT, not nodes.
+
+##### registry?
+
+> `readonly` `optional` **registry?**: [`PromptRegistry`](#promptregistry)
+
+Directive registry. Default: the seeded kernel registry (`kernelPromptRegistry()`).
+
+##### journal?
+
+> `readonly` `optional` **journal?**: [`SpawnJournal`](#spawnjournal)
+
+The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
+
+##### blobs?
+
+> `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
+##### perWorker?
+
+> `readonly` `optional` **perWorker?**: [`Budget`](index.md#budget-4)
+
+Per-child budget reserved from the conserved pool on each spawn.
+
+##### maxTurns?
+
+> `readonly` `optional` **maxTurns?**: `number`
+
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+##### authorizeMessage?
+
+> `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](#authorizeddownmessage)
+
+Product authority over every steer/answer instruction (the filter seam). `runGraph` observes
+ what it CHANGES: a narrowed instruction ledgers its steer traversal as `stripped`.
+
+###### Parameters
+
+###### input
+
+[`DownMessageAuthorizationInput`](#downmessageauthorizationinput) & `object`
+
+###### Returns
+
+[`AuthorizedDownMessage`](#authorizeddownmessage)
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+##### otel?
+
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](#supervisorspanoptions), `"runId"` \| `"now"`\>
+
+##### stallAfterMs?
+
+> `readonly` `optional` **stallAfterMs?**: `number`
+
+##### allowedModels?
+
+> `readonly` `optional` **allowedModels?**: readonly `string`[]
+
+***
+
+### GraphResult
+
+#### Type Parameters
+
+##### Out
+
+`Out` = `unknown`
+
+#### Properties
+
+##### result
+
+> `readonly` **result**: [`SupervisedResult`](index.md#supervisedresult)\<`Out`\>
+
+##### ledger
+
+> `readonly` **ledger**: readonly [`EdgeTraversal`](#edgetraversal)[]
+
+Every edge traversal, in occurrence order — the observable-edge contract.
+
+##### exhaustedEdges
+
+> `readonly` **exhaustedEdges**: readonly `string`[]
+
+Edge ids whose traversal cap was hit — analyzes exhaustion included (observable here, never
+ a refusal). A DELEGATES cap paired with a `no-winner` result THROWS
+ ([GraphEdgeCapError](#graphedgecaperror)) instead of returning: only delegates caps refuse spawns, so only
+ they can have ended the run.
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+***
+
 ### InboxMessage
 
 **`Experimental`**
@@ -11333,6 +11682,96 @@ The scope-side facts about a child, independent of whether its executor cooperat
 ##### usdKnown?
 
 > `readonly` `optional` **usdKnown?**: `boolean`
+
+***
+
+### PromptHandle
+
+A versioned reference into a prompt registry: `surface` names the role/edge the text serves,
+ `version` pins the exact text. The string form is `<surface>/v<n>` (e.g. `delegates/worker-brief/v1`).
+
+#### Properties
+
+##### surface
+
+> `readonly` **surface**: `string`
+
+##### version
+
+> `readonly` **version**: `number`
+
+***
+
+### RegisteredPrompt
+
+One registry entry: the handle plus the text it pins.
+
+#### Properties
+
+##### surface
+
+> `readonly` **surface**: `string`
+
+##### version
+
+> `readonly` **version**: `number`
+
+##### text
+
+> `readonly` **text**: `string`
+
+##### description?
+
+> `readonly` `optional` **description?**: `string`
+
+What the surface is FOR — shown by `list()`, never sent to a model.
+
+***
+
+### PromptRegistry
+
+Versioned prompt store. `resolve` fails loud on an unknown handle: a directive that silently
+ resolved to nothing is the unobservable-edge failure this whole design exists to end.
+
+#### Methods
+
+##### resolve()
+
+> **resolve**(`handle`): [`RegisteredPrompt`](#registeredprompt)
+
+###### Parameters
+
+###### handle
+
+[`PromptHandle`](#prompthandle)
+
+###### Returns
+
+[`RegisteredPrompt`](#registeredprompt)
+
+##### register()
+
+> **register**(`entry`): `void`
+
+Register a new entry; a duplicate (surface, version) fails loud — versions are immutable.
+
+###### Parameters
+
+###### entry
+
+[`RegisteredPrompt`](#registeredprompt)
+
+###### Returns
+
+`void`
+
+##### list()
+
+> **list**(): readonly [`RegisteredPrompt`](#registeredprompt)[]
+
+###### Returns
+
+readonly [`RegisteredPrompt`](#registeredprompt)[]
 
 ***
 
@@ -12218,6 +12657,25 @@ THIS scope's own `parentId` — the node doing the spawning — and the resolved
 onto each child's `ExecutorContext` under `workerTraceSeamKey`. Absent (the untraced default)
 ⇒ no seam is seeded and no worker environment is touched.
 
+##### workerTraceUnpropagated?
+
+> `readonly` `optional` **workerTraceUnpropagated?**: `object`
+
+Present when this run RECORDS spans but the worker backend has NO channel to carry the trace
+context (`WORKER_TRACE_PROPAGATION[backend] === false` — bridge / cli-worktree have no env
+channel; router / router-tools / provider have no worker process). Each spawn then journals a
+`trace-unpropagated` event naming the severed hop, so a child whose trace shows up as a
+disconnected root is a recorded fact rather than a silent stranger. Absent ⇒ either the run
+is untraced or the backend propagates; nothing is journaled.
+
+###### backend
+
+> `readonly` **backend**: `string`
+
+###### reason
+
+> `readonly` **reason**: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`
+
 ##### resumeFrom?
 
 > `readonly` `optional` **resumeFrom?**: `object`
@@ -12967,7 +13425,7 @@ Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset �
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
 
 Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
@@ -13417,7 +13875,7 @@ breaker, or a recursive parent.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-13)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-15)
 
 ##### runNamespace
 
@@ -13481,7 +13939,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-5)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-6)
 
 ##### task
 
@@ -13751,7 +14209,7 @@ Analyst lenses available to the driver (both arms). Required for `analyzeOnSettl
 
 ##### analyzeOnSettle?
 
-> `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
+> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
 
 Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`.
@@ -14921,8 +15379,27 @@ Trace context to hand DOWN to each spawned worker, so a worker in another proces
 machine emits spans that join THIS run's trace instead of opening its own root. Supply
 `SupervisorSpanRecorder.workerTrace`; the `Scope` seeds the resolved context onto every child's
 `ExecutorContext` and the backends with an environment channel stamp it as
-`TRACE_ID` / `PARENT_SPAN_ID` (see `worker-trace.ts` for the precedence rule and for which
-backends propagate). Omit and no worker environment is touched at all.
+`TRACEPARENT` plus the legacy `TRACE_ID` / `PARENT_SPAN_ID` pair (see `worker-trace.ts` for
+the precedence rule and for which backends propagate). Omit and no worker environment is
+touched at all.
+
+##### workerTraceUnpropagated?
+
+> `readonly` `optional` **workerTraceUnpropagated?**: `object`
+
+Declare that this run's worker backend CANNOT carry the trace context
+(`WORKER_TRACE_PROPAGATION[backend] === false`). With `workerTrace` also set, every spawn then
+journals a `trace-unpropagated` event naming the severed hop — the host-side record of a
+distributed trace that will surface disconnected. `supervise()` derives this from its backend;
+a direct `createSupervisor()` caller may set it for a caller-owned executor registry.
+
+###### backend
+
+> `readonly` **backend**: `string`
+
+###### reason
+
+> `readonly` **reason**: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`
 
 ***
 
@@ -15088,7 +15565,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-1).[`signal`](#signal-16)
+[`RootHandle`](#roothandle-1).[`signal`](#signal-17)
 
 ##### abort()
 
@@ -18214,6 +18691,66 @@ for another round). Identical to the reference refine driver's decision set.
 
 ***
 
+### SteeringDirectiveData
+
+> **SteeringDirectiveData** = \{ `kind`: `"naive"`; `continuation`: `string`; `maxTraversals`: `number`; \} \| \{ `kind`: `"dumb"`; `onPass`: `string`; `onFail`: `string`; `maxTraversals`: `number`; \}
+
+A steering POLICY as plain data — the delegates-edge directive form of the two control
+drivers. `kind` names how much of the verdict the policy may read (the experimental axis);
+the continuation strings are the payload. Because this is JSON-able data, it is versionable
+in a prompt registry and attachable to a graph edge — the same policy that used to exist
+only as a builder FUNCTION, which made it invisible to any optimizer. Default texts are
+seeded in the kernel prompt registry (`delegates/naive-continuation`,
+`delegates/dumb-continuation-pass` / `-fail`); a caller may carry its own.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"naive"`; `continuation`: `string`; `maxTraversals`: `number`; \}
+
+###### kind
+
+> `readonly` **kind**: `"naive"`
+
+Reads NOTHING from the verdict: one fixed continuation every round.
+
+###### continuation
+
+> `readonly` **continuation**: `string`
+
+###### maxTraversals
+
+> `readonly` **maxTraversals**: `number`
+
+Hard traversal cap: the loop stops refining once history reaches this length.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"dumb"`; `onPass`: `string`; `onFail`: `string`; `maxTraversals`: `number`; \}
+
+###### kind
+
+> `readonly` **kind**: `"dumb"`
+
+Reads ONLY `verdict.valid` (the boolean): one of two fixed continuations.
+
+###### onPass
+
+> `readonly` **onPass**: `string`
+
+###### onFail
+
+> `readonly` **onFail**: `string`
+
+###### maxTraversals
+
+> `readonly` **maxTraversals**: `number`
+
+***
+
 ### ApplyContinuation
 
 > **ApplyContinuation**\<`Task`\> = (`task`, `continuation`) => `Task`
@@ -18434,6 +18971,90 @@ the same `receiptId` has an unknown outcome after a crash and is never replayed.
 Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end);
  `not-admitted` = the conserved pool or the depth ceiling refused a spawn; `stopped` = the
  caller's `shouldStop` returned true; `aborted` = the scope's signal fired.
+
+***
+
+### GraphEdge
+
+> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-5); `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-5); `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+
+Work flows down. The delegation directive is DATA → versionable, sweepable, optimizable.
+ Each spawn of `to` by `from` — and each mid-run steer from `from` to a live `to` worker —
+ is one traversal.
+
+###### kind
+
+> `readonly` **kind**: `"delegates"`
+
+###### from
+
+> `readonly` **from**: [`NodeId`](#nodeid-5)
+
+###### to
+
+> `readonly` **to**: [`NodeId`](#nodeid-5)
+
+###### directive
+
+> `readonly` **directive**: [`PromptHandle`](#prompthandle)
+
+###### maxTraversals?
+
+> `readonly` `optional` **maxTraversals?**: `number`
+
+Cyclic-graph backstop: traversals beyond this REFUSE (fail loud). Default
+ [defaultEdgeTraversalCap](#defaultedgetraversalcap).
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+
+Findings flow anywhere: an analyst LENS (environment, never a node) over N nodes' settled
+ traces, delivered to ONE node wrapped in a directive telling the recipient what to do with
+ the analysis.
+
+###### kind
+
+> `readonly` **kind**: `"analyzes"`
+
+###### analyst
+
+> `readonly` **analyst**: `string`
+
+The analyst lens id, resolved against `RunGraphOptions.analysts`. NOT a node id.
+
+###### over
+
+> `readonly` **over**: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>
+
+###### to
+
+> `readonly` **to**: [`NodeId`](#nodeid-5)
+
+###### directive
+
+> `readonly` **directive**: [`PromptHandle`](#prompthandle)
+
+###### maxTraversals?
+
+> `readonly` `optional` **maxTraversals?**: `number`
+
+Observability cap: traversals beyond this are LEDGERED as exhausted (`unpropagated`).
+ Only delegates caps refuse traversal — they are what close the spawn cycle.
+
+***
+
+### EdgeDeliveryOutcome
+
+> **EdgeDeliveryOutcome** = `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`
 
 ***
 
@@ -18811,7 +19432,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -19104,6 +19725,125 @@ A driver's OWN inference spend, journaled separately from spawned-child work —
 ###### spend
 
 > **spend**: [`Spend`](index.md#spend)
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"edge"`
+
+One GRAPH-EDGE traversal (`runGraph`): what the runtime actually DELIVERED across a
+ delegates/analyzes edge, with byte counts — the observability that makes an edge's
+ directive trustable and therefore optimizable. Informational: replay,
+ `materializeTreeView`, and cost readers skip it; its `seq` is the per-run edge-ledger
+ ordinal, outside the cursor-uniqueness namespace.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-5)
+
+The destination node when known (a spawned worker's id), else `graph:<node>`.
+
+###### edge
+
+> **edge**: `object`
+
+###### edge.kind
+
+> **kind**: `"delegates"` \| `"analyzes"`
+
+###### edge.from
+
+> **from**: `string`
+
+###### edge.to
+
+> **to**: `string`
+
+###### edge.directive
+
+> **directive**: `string`
+
+The resolved directive reference (`<surface>/v<n>`), never the directive bytes.
+
+###### traversal
+
+> **traversal**: `number`
+
+1-based traversal ordinal for THIS edge within the run.
+
+###### outcome
+
+> **outcome**: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`
+
+###### bytes
+
+> **bytes**: `number`
+
+Bytes of directive + payload that actually crossed the edge (0 for `empty`).
+
+###### reason?
+
+> `optional` **reason?**: `string`
+
+Why a non-`delivered` outcome happened, when the runtime knows.
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"trace-unpropagated"`
+
+A spawned worker ran WITHOUT the run's trace context because its backend has no channel
+ to carry one — the severed distributed-trace hop, journaled so a disconnected child trace
+ is a queryable fact instead of a silent stranger tree. The child-side twin is the
+ `tangle.trace.unpropagated=true` span attribute a fallback-minted root stamps.
+ Informational: replay, `materializeTreeView`, and cost readers skip it; `seq` shares the
+ spawn-ordinal namespace of the `spawned` event it annotates.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-5)
+
+###### expectedTraceId
+
+> **expectedTraceId**: `string`
+
+The trace id the worker SHOULD have inherited.
+
+###### backend
+
+> **backend**: `string`
+
+The worker-execution backend that has no propagation channel.
+
+###### reason
+
+> **reason**: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`
 
 ###### seq
 
@@ -19558,6 +20298,14 @@ an empty collection is a no-winner, not a winner wrapping `[]`.
 
 ***
 
+### defaultEdgeTraversalCap
+
+> `const` **defaultEdgeTraversalCap**: `32` = `32`
+
+Default per-edge traversal cap — the cyclic-graph backstop when an edge names none.
+
+***
+
 ### DEFAULT\_STALL\_AFTER\_MS
 
 > `const` **DEFAULT\_STALL\_AFTER\_MS**: `180000` = `180_000`
@@ -19565,6 +20313,62 @@ an empty collection is a no-winner, not a winner wrapping `[]`.
 How long a worker may produce no metered activity before a `progress()` read calls it stalled.
  Deliberately generous: a coding harness routinely spends minutes inside one tool call, and a
  false stall that provokes a steer is worse than a late one.
+
+***
+
+### supervisorPolicyPrompt
+
+> `const` **supervisorPolicyPrompt**: [`RegisteredPrompt`](#registeredprompt)
+
+THE supervisor policy — one stance, both front doors. The work-vs-delegate rule is conditional
+on capability (work tools present or not), which is what dissolves the old contradiction: "do
+small work yourself" was written for a supervisor WITH work tools, "you do not do the work" for
+one WITHOUT — one policy states both branches explicitly.
+
+***
+
+### delegatesWorkerBriefPrompt
+
+> `const` **delegatesWorkerBriefPrompt**: [`RegisteredPrompt`](#registeredprompt)
+
+Default DELEGATES-edge directive: the standing instruction a worker receives with every
+traversal of a delegates edge that names this surface. Seeded from the bounded-brief knowledge
+in the supervisor policy, phrased for the RECEIVING side of the edge.
+
+***
+
+### analyzesFindingsReportPrompt
+
+> `const` **analyzesFindingsReportPrompt**: [`RegisteredPrompt`](#registeredprompt)
+
+Default ANALYZES-edge directive: what the RECEIVING node should do with an analyst's findings.
+Wrapped around the findings payload on every traversal of an analyzes edge naming this surface.
+
+***
+
+### naiveContinuationPrompt
+
+> `const` **naiveContinuationPrompt**: [`RegisteredPrompt`](#registeredprompt)
+
+Default NAIVE steering continuation — the no-signal control re-expressed as data: the same
+fixed continuation every round, reading nothing from any verdict.
+
+***
+
+### dumbContinuationFailPrompt
+
+> `const` **dumbContinuationFailPrompt**: [`RegisteredPrompt`](#registeredprompt)
+
+Default DUMB steering continuations — the pass/fail-only control re-expressed as data: two
+fixed texts keyed on the verdict's boolean and nothing else.
+
+***
+
+### dumbContinuationPassPrompt
+
+> `const` **dumbContinuationPassPrompt**: [`RegisteredPrompt`](#registeredprompt)
+
+The pass branch of the dumb steering control — see [dumbContinuationFailPrompt](#dumbcontinuationfailprompt).
 
 ***
 
@@ -19764,6 +20568,24 @@ what makes "SIGKILL a waiting tree, a new process keeps waiting to the same inst
 #### Returns
 
 [`PendingWait`](#pendingwait)[]
+
+***
+
+### normalizeAnalyzeOnSettle()
+
+> **normalizeAnalyzeOnSettle**(`entry`): [`AnalyzeOnSettleRoute`](#analyzeonsettleroute)
+
+Normalize the two spellings of an analyst-on-settle entry to the route form.
+
+#### Parameters
+
+##### entry
+
+`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute)
+
+#### Returns
+
+[`AnalyzeOnSettleRoute`](#analyzeonsettleroute)
 
 ***
 
@@ -21864,19 +22686,49 @@ refuses local processes. A profile with no MCP surface returns zero tools.
 
 ***
 
-### naiveDriver()
+### steeringDriver()
+
+> **steeringDriver**\<`Task`, `Output`\>(`directive`, `applyContinuation`, `name?`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+
+Interpret a [SteeringDirectiveData](#steeringdirectivedata) as a loop `Driver` — the ONE interpreter both
+control policies share. The directive is data; only `applyContinuation` (how the caller's
+opaque Task carries a steering string) remains code, exactly as `taskToPrompt` does.
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+##### Output
+
+`Output`
+
+#### Parameters
+
+##### directive
+
+[`SteeringDirectiveData`](#steeringdirectivedata)
+
+##### applyContinuation
+
+[`ApplyContinuation`](#applycontinuation)\<`Task`\>
+
+##### name?
+
+`string`
+
+#### Returns
+
+[`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+
+***
+
+### ~~naiveDriver()~~
 
 > **naiveDriver**\<`Task`, `Output`\>(`options`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
-`naiveDriver` — the no-signal steering control.
-
-`plan()` runs the initial `task` at shot 0, then issues the SAME fixed
-`continuation` every subsequent round until a shot is valid or the cap is
-hit. It reads NOTHING from `history[last].verdict` — not `.valid`, not
-`.notes`, not `.scores`. It is the floor a coached loop must beat to earn its
-coaching: any lift over naive that is not also present in `dumb` is
-attributable to the pass/fail bit, and any lift of `refine` over `dumb` is
-attributable to the grader's findings.
+Thin compatibility wrapper over [steeringDriver](#steeringdriver) for the naive (no-signal) control.
 
 #### Type Parameters
 
@@ -21898,24 +22750,19 @@ attributable to the grader's findings.
 
 [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
+#### Deprecated
+
+The policy is DATA now — build the directive and interpret it:
+ `steeringDriver({ kind: 'naive', continuation, maxTraversals }, applyContinuation)`. This
+ wrapper survives for existing callers and will be removed in the next major.
+
 ***
 
-### dumbDriver()
+### ~~dumbDriver()~~
 
 > **dumbDriver**\<`Task`, `Output`\>(`options`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
-`dumbDriver` — the pass/fail-only steering control.
-
-`plan()` runs the initial `task` at shot 0, then reads ONLY
-`history[last].verdict.valid` (the boolean) and issues `onPass` or `onFail`
-accordingly. It MUST NOT read `.notes` or `.scores` — that boundary is the
-leak-free firewall. A `verdict` with no `valid` set (or no verdict) is
-treated as not-valid, so the driver is total and never throws on a
-grader/transport gap.
-
-The `dumb → refine` gap is the headline measurement: refine reads the
-grader's `notes`, dumb reads only the pass/fail bit, so the difference is
-exactly the value the findings add over a bare boolean.
+Thin compatibility wrapper over [steeringDriver](#steeringdriver) for the dumb (pass/fail-only) control.
 
 #### Type Parameters
 
@@ -21936,6 +22783,12 @@ exactly the value the findings add over a bare boolean.
 #### Returns
 
 [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+
+#### Deprecated
+
+The policy is DATA now — build the directive and interpret it:
+ `steeringDriver({ kind: 'dumb', onPass, onFail, maxTraversals }, applyContinuation)`. This
+ wrapper survives for existing callers and will be removed in the next major.
 
 ***
 
@@ -22636,6 +23489,11 @@ DIFFERENT text, is a contradiction with no safe reading — it fails loud, match
 The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable
  surface: editing this changes how the supervisor designs every agent it spawns.
 
+ The POLICY paragraph is the registry's one `supervisor/policy` entry — the same stance
+ `defaultSupervisorPrompt` carries — so both front doors run the same work-vs-delegate rule;
+ this function ADDS the profile-authoring skill (how to WRITE the workers it spawns), which is
+ additive craft, not a different policy.
+
 #### Parameters
 
 ##### opts?
@@ -22954,7 +23812,7 @@ Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle.
 
 ###### analyzeOnSettle?
 
-readonly `string`[]
+readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
 
 Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus.
 
@@ -23305,6 +24163,33 @@ readonly [`FinalizerSettled`](#finalizersettled)[]
 
 ***
 
+### runGraph()
+
+> **runGraph**(`graph`, `opts`): `Promise`\<[`GraphResult`](#graphresult)\<`unknown`\>\>
+
+Execute an [AgentGraph](#agentgraph). The root node becomes the supervisor (`supervise()` — the
+execution core), each worker node is spawnable BY NODE ID (`spawn_agent` with
+`profile: { name: '<node id>' }`; the node's canonical profile is pinned by the graph), each
+delegates directive is appended to the worker profile's `prompt.instructions` per traversal,
+and each analyzes edge becomes an analyst-on-settle route with a real DESTINATION. Every
+traversal is ledgered and journaled.
+
+#### Parameters
+
+##### graph
+
+[`AgentGraph`](#agentgraph)
+
+##### opts
+
+[`RunGraphOptions`](#rungraphoptions)
+
+#### Returns
+
+`Promise`\<[`GraphResult`](#graphresult)\<`unknown`\>\>
+
+***
+
 ### createInbox()
 
 > **createInbox**(): [`Inbox`](#inbox-1)
@@ -23453,6 +24338,74 @@ Fold the scope-derived facts and the executor's optional enrichment into one rea
 #### Returns
 
 [`WorkerProgress`](#workerprogress)
+
+***
+
+### promptHandle()
+
+> **promptHandle**(`ref`): [`PromptHandle`](#prompthandle)
+
+Parse `'<surface>/v<n>'` into a [PromptHandle](#prompthandle). The shorthand for authoring a graph edge:
+`directive: promptHandle('delegates/worker-brief/v1')`.
+
+#### Parameters
+
+##### ref
+
+`string`
+
+#### Returns
+
+[`PromptHandle`](#prompthandle)
+
+***
+
+### formatPromptHandle()
+
+> **formatPromptHandle**(`handle`): `string`
+
+The string form of a handle: `<surface>/v<n>`.
+
+#### Parameters
+
+##### handle
+
+[`PromptHandle`](#prompthandle)
+
+#### Returns
+
+`string`
+
+***
+
+### createPromptRegistry()
+
+> **createPromptRegistry**(`seed?`): [`PromptRegistry`](#promptregistry)
+
+Create a registry, optionally seeded. Entries are copied; the registry never aliases caller state.
+
+#### Parameters
+
+##### seed?
+
+readonly [`RegisteredPrompt`](#registeredprompt)[]
+
+#### Returns
+
+[`PromptRegistry`](#promptregistry)
+
+***
+
+### kernelPromptRegistry()
+
+> **kernelPromptRegistry**(): [`PromptRegistry`](#promptregistry)
+
+The kernel's seeded registry: every surface the runtime's own builders derive from. A caller
+ may register additional surfaces/versions on the returned registry.
+
+#### Returns
+
+[`PromptRegistry`](#promptregistry)
 
 ***
 
@@ -24710,7 +25663,8 @@ half-formed id that would produce an unjoinable orphan span downstream.
 
 > **workerTraceEnv**(`ctx`): `Record`\<`string`, `string`\>
 
-The `TRACE_ID` / `PARENT_SPAN_ID` pair to merge into a worker's environment — EMPTY when the run
+The trace env to merge into a worker's environment — `TRACEPARENT` plus the legacy
+`TRACE_ID` / `PARENT_SPAN_ID` pair (dual-written for one release) — EMPTY when the run
 records no spans, which is what keeps the untraced path byte-identical. Merge it BELOW the
 caller's own seam env so a deliberately-set id wins (see the precedence note above).
 

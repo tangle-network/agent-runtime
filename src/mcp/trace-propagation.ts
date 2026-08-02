@@ -1,23 +1,27 @@
 /**
  *
- * Trace context propagation for MCP subprocess.
+ * Trace context propagation across process-spawn boundaries.
  *
- * When the MCP server is launched as a child process by a sandbox harness,
- * the parent passes trace context via environment variables:
+ * CANONICAL WIRE: the W3C `TRACEPARENT` environment variable
+ * (`00-<32 hex trace id>-<16 hex span id>-<2 hex flags>`), the convention the wider ecosystem —
+ * OTel SDKs, collectors, the Claude Code harness binary — already reads at spawn. The bespoke
+ * `TRACE_ID` / `PARENT_SPAN_ID` pair this package shipped first is the FORK, not the standard:
+ * it is still read as a fallback and still written alongside `TRACEPARENT` for one release, so
+ * a child running either version of this package joins the same trace. The legacy pair is
+ * scheduled for removal in the next major.
  *
- *   TRACE_ID=<current-run-trace-id>
- *   PARENT_SPAN_ID=<span-that-dispatched-the-delegation>
+ *   read:  TRACEPARENT first, then TRACE_ID / PARENT_SPAN_ID, else a fresh root.
+ *   write: BOTH — TRACEPARENT (+ TRACESTATE untouched) and TRACE_ID / PARENT_SPAN_ID.
  *
- * The MCP server reads these at startup and uses them as the root of its
- * internal trace tree. All spans emitted by `runAgentRounds` invocations inside
- * the MCP are children of the parent's delegation span.
- *
- * When these env vars are absent, the MCP generates a fresh trace root —
- * the server operates standalone without trace joining.
+ * A fresh root minted because NO context reached this process is a severed hop, not a normal
+ * start: it is marked `unpropagated: true` and every span tree it emits carries
+ * `tangle.trace.unpropagated=true`, so a disconnected trace is a queryable fact instead of a
+ * silent stranger.
  *
  * @experimental
  */
 
+import { deriveHexId, isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
 import type { OtelExporter } from '../otel-export'
 import { buildLoopOtelSpans, createOtelExporter } from '../otel-export'
 import type { LoopTraceEmitter, LoopTraceEvent } from '../runtime/types'
@@ -27,21 +31,49 @@ export interface TraceContext {
   traceId: string
   /** Parent span id from the delegation that launched this MCP server. */
   parentSpanId?: string
+  /** True when NO context reached this process and the trace id is a fallback mint — the hop
+   *  above this process is severed. Span trees emitted under this context are stamped
+   *  `tangle.trace.unpropagated=true` so the severed hop is queryable. */
+  unpropagated?: boolean
 }
 
-/**
- * Read trace context from the process environment.
- * Returns a context with inherited ids or a freshly generated root.
- */
-export function readTraceContextFromEnv(): TraceContext {
-  const traceId = process.env.TRACE_ID || generateTraceId()
-  const parentSpanId = process.env.PARENT_SPAN_ID || undefined
+/** `00-<traceId>-<spanId>-<flags>`, any version prefix, case-insensitive per the W3C grammar. */
+const TRACEPARENT_PATTERN = /^[0-9a-f]{2}-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/i
+
+/** Parse a W3C `traceparent` header/env value, or `undefined` when malformed. Fails closed: a
+ *  half-formed value yields no context rather than an unjoinable id. */
+export function parseTraceparent(value: unknown): TraceContext | undefined {
+  if (typeof value !== 'string') return undefined
+  const match = TRACEPARENT_PATTERN.exec(value.trim())
+  if (!match) return undefined
+  const traceId = (match[1] as string).toLowerCase()
+  const parentSpanId = (match[2] as string).toLowerCase()
+  if (!isW3CTraceId(traceId) || !isW3CSpanId(parentSpanId)) return undefined
   return { traceId, parentSpanId }
 }
 
 /**
+ * Read trace context from a process environment (defaults to `process.env`).
+ * `TRACEPARENT` wins; the legacy `TRACE_ID` / `PARENT_SPAN_ID` pair is the fallback; with
+ * neither present a fresh root is generated AND marked `unpropagated` — see {@link TraceContext}.
+ */
+export function readTraceContextFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): TraceContext {
+  const fromTraceparent = parseTraceparent(env.TRACEPARENT)
+  if (fromTraceparent) return fromTraceparent
+  if (env.TRACE_ID) {
+    return {
+      traceId: env.TRACE_ID,
+      ...(env.PARENT_SPAN_ID ? { parentSpanId: env.PARENT_SPAN_ID } : {}),
+    }
+  }
+  return { traceId: generateTraceId(), unpropagated: true }
+}
+
+/**
  * Create a LoopTraceEmitter that:
- *   1. Parents all spans under the inherited PARENT_SPAN_ID.
+ *   1. Parents all spans under the inherited parent span id.
  *   2. Exports spans to OTEL when OTEL_EXPORTER_OTLP_ENDPOINT is set.
  *
  * Returns both the emitter and the optional exporter handle for shutdown.
@@ -70,7 +102,20 @@ export function createPropagatingTraceEmitter(ctx: TraceContext): {
         const events = buffers.get(event.runId) ?? [event]
         buffers.delete(event.runId)
         for (const span of buildLoopOtelSpans(events, ctx.traceId, ctx.parentSpanId)) {
-          exporter.exportSpan(span)
+          // The child-side severed-hop marker: a fallback-minted root stamps every span it emits,
+          // so a trace with no inbound link SAYS so instead of appearing as a stranger tree. The
+          // human run id stays in `loop.run_id` / `tangle.run.id` where it was already searchable.
+          exporter.exportSpan(
+            ctx.unpropagated === true
+              ? {
+                  ...span,
+                  attributes: [
+                    ...(span.attributes ?? []),
+                    { key: 'tangle.trace.unpropagated', value: { boolValue: true } },
+                  ],
+                }
+              : span,
+          )
         }
       }
     },
@@ -80,12 +125,24 @@ export function createPropagatingTraceEmitter(ctx: TraceContext): {
 }
 
 /**
- * Build env vars to pass to a child MCP subprocess so it inherits the
- * current trace context.
+ * Build env vars to pass to a child subprocess so it inherits the current trace context.
+ *
+ * Writes BOTH conventions (see the module doc): `TRACEPARENT` carries the W3C-hex ids — a human
+ * id is derived through the contract's `deriveHexId`, the same derivation every emitter uses, so
+ * both spellings name the SAME trace — and the legacy pair carries the caller's ids verbatim.
+ * `TRACEPARENT` needs a parent span id by grammar; when the context has none, the legacy pair
+ * still propagates the trace id alone.
  */
 export function traceContextToEnv(ctx: TraceContext): Record<string, string> {
   const env: Record<string, string> = { TRACE_ID: ctx.traceId }
   if (ctx.parentSpanId) env.PARENT_SPAN_ID = ctx.parentSpanId
+  if (ctx.parentSpanId) {
+    const traceId = isW3CTraceId(ctx.traceId) ? ctx.traceId : deriveHexId(ctx.traceId, 16)
+    const spanId = isW3CSpanId(ctx.parentSpanId)
+      ? ctx.parentSpanId
+      : deriveHexId(ctx.parentSpanId, 8)
+    env.TRACEPARENT = `00-${traceId}-${spanId}-01`
+  }
   return env
 }
 

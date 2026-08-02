@@ -47,14 +47,16 @@ import { scriptedBrain } from './scripted-brain'
 interface InheritedEnv {
   TRACE_ID: string | null
   PARENT_SPAN_ID: string | null
+  TRACEPARENT: string | null
 }
 
-/** A real child process that prints exactly the two env vars this feature is about. */
+/** A real child process that prints exactly the env vars this feature is about. */
 const PRINT_TRACE_ENV = [
   '-e',
   'process.stdout.write(JSON.stringify({' +
     'TRACE_ID: process.env.TRACE_ID ?? null,' +
-    'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null}))',
+    'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null,' +
+    'TRACEPARENT: process.env.TRACEPARENT ?? null}))',
 ]
 
 /** Read the worker's printed environment back off the supervised run's output. */
@@ -125,6 +127,9 @@ function supervisorOpts(over: Partial<SupervisorOpts>): SupervisorOpts {
     now: over.now ?? (() => 1_000),
     ...(over.hooks ? { hooks: over.hooks } : {}),
     ...(over.workerTrace ? { workerTrace: over.workerTrace } : {}),
+    ...(over.workerTraceUnpropagated
+      ? { workerTraceUnpropagated: over.workerTraceUnpropagated }
+      : {}),
   }
 }
 
@@ -215,6 +220,9 @@ describe('a spawned worker inherits the run trace and the spawning node span', (
     expect(env.PARENT_SPAN_ID).toBe(recorder.rootSpanId)
     // …and the span the child names as its parent is a span this run actually emitted.
     expect(spans.some((s) => s.spanId === env.PARENT_SPAN_ID)).toBe(true)
+    // Dual-write (B4): the SAME spawn env carries the W3C wire alongside the legacy pair, so a
+    // standard reader (an OTel SDK, the Claude Code harness) joins the same trace with no shim.
+    expect(env.TRACEPARENT).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
   })
 
   it('stamps the MIDDLE node span on a depth-2 worker, never the run root', async () => {
@@ -290,7 +298,11 @@ describe('a run that records no spans stamps nothing', () => {
       supervisorOpts({ executors: registryOf(printerFactory()) }),
     )
     if (untraced.kind !== 'winner') throw new Error('expected a winner')
-    expect(inherited(untraced.out)).toEqual({ TRACE_ID: null, PARENT_SPAN_ID: null })
+    expect(inherited(untraced.out)).toEqual({
+      TRACE_ID: null,
+      PARENT_SPAN_ID: null,
+      TRACEPARENT: null,
+    })
 
     // Recording ON but `workerTrace` NOT threaded is also silent: the seam, not the hook, is what
     // stamps — so an observer alone can never perturb a worker's environment.
@@ -303,9 +315,63 @@ describe('a run that records no spans stamps nothing', () => {
     )
     await recorder.finish({ result: observedOnly })
     if (observedOnly.kind !== 'winner') throw new Error('expected a winner')
-    expect(inherited(observedOnly.out)).toEqual({ TRACE_ID: null, PARENT_SPAN_ID: null })
+    expect(inherited(observedOnly.out)).toEqual({
+      TRACE_ID: null,
+      PARENT_SPAN_ID: null,
+      TRACEPARENT: null,
+    })
     // …and that run really did trace, so the equality above is not vacuous.
     expect(spans.length).toBeGreaterThan(0)
+  })
+})
+
+// ── The severed hop is a journaled fact ───────────────────────────────────────
+
+describe('a traced run on a channel-less backend journals each severed hop', () => {
+  it('appends a trace-unpropagated event per spawn, naming backend + reason + expected trace id', async () => {
+    const { exporter } = recordingExporter()
+    const recorder = recorderWith(exporter)
+    const journal = new InMemorySpawnJournal()
+    const result = await createSupervisor<unknown, unknown>().run(
+      scriptedDriver('root', () => [{ label: 'w', agent: resolvedLeaf('w') }]),
+      'task',
+      supervisorOpts({
+        journal,
+        executors: registryOf(printerFactory()),
+        hooks: recorder.hooks,
+        workerTrace: recorder.workerTrace,
+        // The declaration `supervise()` derives from WORKER_TRACE_PROPAGATION for a bridge run:
+        // the transport exposes no environment channel, so the context CANNOT reach the worker.
+        workerTraceUnpropagated: { backend: 'bridge', reason: 'no-env-channel' },
+      }),
+    )
+    await recorder.finish({ result })
+    expect(result.kind).toBe('winner')
+    const events = (await journal.loadTree('run')) ?? []
+    const severed = events.filter((ev) => ev.kind === 'trace-unpropagated')
+    expect(severed).toHaveLength(1)
+    expect(severed[0]).toMatchObject({
+      id: 'run:s0',
+      expectedTraceId: recorder.traceId,
+      backend: 'bridge',
+      reason: 'no-env-channel',
+    })
+  })
+
+  it('journals nothing when the run is untraced — the declaration alone claims no severed hop', async () => {
+    const journal = new InMemorySpawnJournal()
+    const result = await createSupervisor<unknown, unknown>().run(
+      scriptedDriver('root', () => [{ label: 'w', agent: resolvedLeaf('w') }]),
+      'task',
+      supervisorOpts({
+        journal,
+        executors: registryOf(printerFactory()),
+        workerTraceUnpropagated: { backend: 'bridge', reason: 'no-env-channel' },
+      }),
+    )
+    expect(result.kind).toBe('winner')
+    const events = (await journal.loadTree('run')) ?? []
+    expect(events.filter((ev) => ev.kind === 'trace-unpropagated')).toHaveLength(0)
   })
 })
 
