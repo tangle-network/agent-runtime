@@ -351,8 +351,9 @@ function contentRef(prefix: string, value: unknown): string {
  * whole documented contract is that such a worker settles OUT of the conserved pool rather than
  * against it (`scope.ts`) — a worker the kernel already agreed not to budget would start failing
  * after its work had burned, which is a policy change about which configurations are allowed, not a
- * fix to how honestly spend is reported. The token marker already taints the readout, so no caller
- * can read the surviving `usd: 0` as a measured total.
+ * fix to how honestly spend is reported. The token marker taints only token accounting. Under the
+ * current `budgetExempt` policy the surviving `usd: 0` remains dollar-known; callers that require
+ * dollar accounting must use a backend that returns priced usage.
  */
 function unmeteredSpend(ms: number): Spend {
   return { iterations: 0, tokens: zeroTokenUsage(), tokensKnown: false, usd: 0, ms }
