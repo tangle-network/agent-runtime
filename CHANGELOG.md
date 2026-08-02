@@ -4,6 +4,21 @@
 
 - `pnpm run check:version-bump` (new, in the `ci` job) fails any change that alters a consumer-visible package surface without raising that package's version. Compared: every field npm copies into the published manifest — `exports`, `files`, `bin`, `directories`, `engines`, `typesVersions`, `dependencies`, `peerDependencies`, install-lifecycle `scripts`, `private` — plus the `pnpm-workspace.yaml` catalog pins those resolve through. A `catalog:` specifier is compared by what it RESOLVES to, because a byte-identical `"catalog:"` hiding a moved version is exactly how 0.119.0 shipped its peer range twice. Packages are keyed by name, not path, so relocating one still compares against what that name already published.
 
+## 0.121.0
+
+### Agent graphs: loops as data, edges you can audit
+
+`runGraph` (new, `src/runtime/supervise/graph.ts`) runs a typed agent graph — nodes are AgentProfiles, edges are `delegates`/`analyzes` data rows — by composing `supervise()`; there is no second scheduler.
+Every traversal lands in an EDGE LEDGER (`delivered | stripped | empty | unpropagated`, with byte counts) on the result and as `edge` events in the run journal, so a directive that never reached its target is an artifact, not a mystery.
+Node pinning means a driver cannot smuggle capabilities into a worker it did not define; termination is enforced by a conserved budget plus a mandatory deliverable; delegates caps fail loud via `GraphEdgeCapError` while analyzes caps stay observability-only.
+Edge directives resolve through a new versioned prompt registry (`prompts/<surface>/v<n>`, immutable versions, no silent fallback), making every edge a prompt-optimization target.
+
+Consumer-visible changes that pay for this version:
+
+- New dependency `@tangle-network/agent-trace-contract` — `deriveHexId` is now the only trace-id derivation in OTLP export (replaces the internal `padTraceId`).
+- Trace propagation reads W3C `TRACEPARENT` first and dual-writes the legacy `TRACE_ID`/`PARENT_SPAN_ID` pair during migration.
+- `finding` coordination events are producer-canonicalized to finite RFC 8785 JSON (nested `undefined` stripped; a non-serializable payload becomes a record of that fact), so a digesting subscriber can never make an event vanish.
+
 ## 0.120.0
 
 ### The runtime's own supervision journal is readable again
