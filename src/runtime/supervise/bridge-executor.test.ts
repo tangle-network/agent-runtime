@@ -594,3 +594,89 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
   })
 })
+
+/**
+ * The harness-control channel. There is no argv field on `BridgeSeam` on purpose (see its doc):
+ * a worker isolates its harness by DECLARING it on the `AgentProfile`, and cli-bridge maps that
+ * declaration onto each harness's native flags.
+ *
+ * These pin the half of that contract this package owns — the declaration reaching the wire
+ * unmodified. It is worth pinning because the failure is SILENT: a body-shaping change that drops
+ * or filters `agent_profile.extensions` does not fail a request, it just starts the harness with
+ * its ambient extensions loaded. For a paired experiment whose arms must not share state, that is
+ * a state leak between arms that no assertion downstream can see.
+ */
+describe('bridgeExecutor harness control rides the profile, not argv', () => {
+  let server: Server | undefined
+  afterEach(async () => {
+    if (server) await new Promise((resolve) => server?.close(resolve))
+    server = undefined
+  })
+
+  const okFrame = `data: ${JSON.stringify({
+    choices: [{ delta: { content: 'done' } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  })}\n\ndata: [DONE]\n\n`
+
+  it('forwards the spawn profile’s per-harness extension controls verbatim', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const stub = await startBridgeStub(okFrame, { onRequest: (body) => bodies.push(body) })
+    server = stub.server
+    // `extensions: { pi: { load: [] } }` is how a caller says "load NO ambient extensions" —
+    // the declarative form of pi's `--no-extensions`, and the reason a rig that must not carry
+    // state between arms does not need its own executor.
+    const profile: AgentProfile = {
+      name: 'isolated-worker',
+      extensions: { pi: { load: [] } },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer', model: 'pi/glm-5.2' },
+        },
+      },
+    )
+    await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]?.agent_profile).toMatchObject({
+      name: 'isolated-worker',
+      extensions: { pi: { load: [] } },
+    })
+    // And no argv channel was invented alongside it.
+    expect(Object.keys(bodies[0] ?? {})).not.toContain('args')
+  })
+
+  it('forwards the seam overlay’s extension controls after the profile merge', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const stub = await startBridgeStub(okFrame, { onRequest: (body) => bodies.push(body) })
+    server = stub.server
+    const executor = bridgeExecutor(
+      { profile: { name: 'worker', prompt: { systemPrompt: 'be exact' } }, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: {
+            bridgeUrl: stub.url,
+            bridgeBearer: 'test-bearer',
+            model: 'pi/glm-5.2',
+            agentProfile: { name: 'worker', extensions: { pi: { load: ['pi-zai-glm'] } } },
+          },
+        },
+      },
+    )
+    await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    // The merge must not drop either side: the spawn profile's prompt AND the overlay's controls.
+    expect(bodies[0]?.agent_profile).toMatchObject({
+      prompt: { systemPrompt: 'be exact' },
+      extensions: { pi: { load: ['pi-zai-glm'] } },
+    })
+  })
+})

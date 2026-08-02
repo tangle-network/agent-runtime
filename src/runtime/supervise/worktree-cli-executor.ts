@@ -12,10 +12,11 @@
  * result onto the `Executor` port (artifact + spend) and owns the teardown point. The complete
  * profile delivery — direct prompt/model plus materialized file-backed resources — lives there.
  *
- * Token accounting: ordinary harness CLI runs remain `budgetExempt`. Reproducible Codex mode
+ * Token accounting: ordinary harness CLI runs remain `budgetExempt`, and their `Spend` marks
+ * `tokensKnown: false` — the `{0,0}` is a floor, never a measured-free run. Reproducible Codex mode
  * parses the CLI's terminal JSONL usage and is metered by default; an absent usage event fails the
  * run instead of recording fabricated zero tokens. Codex does not report dollar cost, so that
- * channel is explicitly marked unknown on the resulting `Spend`.
+ * channel is explicitly marked unknown on the metered path.
  *
  * @experimental
  */
@@ -195,11 +196,18 @@ export function createWorktreeCliExecutor(
             'createWorktreeCliExecutor: metered harness run returned no token usage',
           )
         }
+        // A budget-exempt run has no usage receipt, so its `{0,0}` is a FLOOR, not a measurement.
+        // Left unmarked it is byte-identical to a run that truly cost nothing, and a token-priced
+        // ceiling over this leaf then reads as enforced while enforcing nothing. `tokensKnown`
+        // is the marker; the dollar channel is left alone because `usdKnown: false` under a
+        // dollar-capped root is a reconcile REFUSAL in `budget.ts`, which would contradict the
+        // exemption this leaf was granted (see `unmeteredSpend` in ./runtime).
         const spent: Spend = {
           iterations: 1,
           tokens: usage
             ? { input: usage.inputTokens, output: usage.outputTokens }
             : { input: 0, output: 0 },
+          ...(usage ? {} : { tokensKnown: false }),
           usd: 0,
           ...(usage ? { usdKnown: false } : {}),
           ms: Date.now() - started,

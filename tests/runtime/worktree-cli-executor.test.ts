@@ -267,6 +267,37 @@ describe('createWorktreeCliExecutor', () => {
     expect(exec.budgetExempt).toBe(true)
   })
 
+  it('a budgetExempt run reports its tokens as UNKNOWN, not as a measured zero', async () => {
+    // The trap this closes: `{ tokens: {0,0} }` with no unknown marker is what a run that truly
+    // cost nothing looks like, so a caller enforcing a token-priced ceiling over this leaf holds
+    // a ceiling that can never fire while believing it is protected.
+    const exec = createWorktreeCliExecutor({
+      repoRoot: '/workspace',
+      profile: authoredProfile,
+      harness: 'claude-code',
+      taskPrompt: 'x',
+      runGit: makeFakeGit(freshGitState()),
+      runHarness: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: 'done',
+        stderr: '',
+        killedBySignal: null,
+        durationMs: 3,
+        timedOut: false,
+      })),
+    })
+
+    const result = await exec.execute(undefined, new AbortController().signal)
+    expect(result.spent).toMatchObject({
+      tokens: { input: 0, output: 0 },
+      tokensKnown: false,
+      usd: 0,
+    })
+    // The dollar channel is deliberately NOT marked here: `usdKnown: false` under a dollar-capped
+    // root is a reconcile refusal in `budget.ts`, which would contradict this leaf's exemption.
+    expect(result.spent.usdKnown).toBeUndefined()
+  })
+
   it('rejects caller read-denial paths outside reproducible Codex mode', () => {
     expect(() =>
       createWorktreeCliExecutor({
