@@ -41,7 +41,10 @@
  *   2. the trace context stamped here,
  *   3. the caller's own seam env (`CliSeam.env`).
  * A caller who sets `TRACE_ID` / `PARENT_SPAN_ID` on a seam wins — theirs is a deliberate
- * declaration about the worker. Ambient `process.env` does NOT win: when the supervisor process was
+ * declaration about the worker — and the W3C wire follows: a seam that overrides the legacy pair
+ * without its own `TRACEPARENT` gets `TRACEPARENT` rebuilt from ITS ids (`mergeTraceEnv` performs
+ * the dual-write on the caller's behalf), never left as the recorder's, so both spellings always
+ * name the same trace. Ambient `process.env` does NOT win: when the supervisor process was
  * itself launched as someone's worker, its inherited ids describe the SUPERVISOR's place in an
  * outer trace, and reusing them for a child would file the child's spans under the wrong parent.
  * The supported way to join that outer trace is `SupervisorSpanOptions.traceId` / `parentSpanId`

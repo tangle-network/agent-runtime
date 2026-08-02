@@ -205,7 +205,9 @@ export interface GraphResult<Out = unknown> {
   /** Edge ids whose traversal cap was hit — analyzes exhaustion included (observable here, never
    *  a refusal). A DELEGATES cap paired with a `no-winner` result THROWS
    *  ({@link GraphEdgeCapError}) instead of returning: only delegates caps refuse spawns, so only
-   *  they can have ended the run. */
+   *  they can have ended the run. A LIFECYCLE no-winner (`aborted` / `budget-exhausted`) returns
+   *  normally even with an exhausted delegates cap — the abort or the pool, not the cap, ended
+   *  that run, and the exhaustion stays observable here. */
   readonly exhaustedEdges: ReadonlyArray<string>
   readonly runId: string
 }
@@ -254,6 +256,17 @@ function validateGraph(
     if (!parsed.success) {
       throw new ValidationError(
         `runGraph: node '${node.id}' has an invalid AgentProfile: ${parsed.error.message}`,
+      )
+    }
+    // The profile NAME is the node identity everywhere downstream: node pinning resolves a
+    // spawn's `profile.name` against node ids, and the coordination layer matches analyst
+    // routes (`over`/`to`) against the settled worker's PROFILE NAME. A divergent name would
+    // make every analyzes edge touching this node silently never match — refuse it up front.
+    if (node.profile.name !== node.id) {
+      throw new ValidationError(
+        `runGraph: node '${node.id}' has profile.name ${JSON.stringify(node.profile.name)} — ` +
+          'profile.name IS the node identity (node pinning and analyst routing match on it) and ' +
+          'must equal the node id',
       )
     }
     byId.set(node.id, node)
@@ -305,7 +318,20 @@ function validateGraph(
       )
     }
   }
+  const analystIds = new Set<string>()
   for (const edge of analyzes) {
+    // The runner's traversal ledger resolves a finding/steer back to its edge BY ANALYST ID
+    // alone, so a second edge sharing an analyst would silently absorb the first edge's
+    // traversals (last-registered wins). Multi-edge-per-analyst is not yet supported; refuse it
+    // rather than mis-ledger it.
+    if (analystIds.has(edge.analyst)) {
+      throw new ValidationError(
+        `runGraph: two analyzes edges share analyst '${edge.analyst}' — one analyzes edge per ` +
+          'analyst lens (traversals are ledgered by analyst id; a second edge would silently ' +
+          "absorb the first's). Register the lens under a second id for a second edge.",
+      )
+    }
+    analystIds.add(edge.analyst)
     if (byId.has(edge.analyst)) {
       throw new ValidationError(
         `runGraph: ${edgeId(edge)} names node '${edge.analyst}' as its analyst — oracles and ` +
@@ -765,7 +791,14 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
 
     const exhaustedEdges = Object.freeze([...exhausted])
     const frozenLedger = Object.freeze(ledger.map((row) => Object.freeze({ ...row })))
-    if (result.kind !== 'winner' && exhaustedDelegates.size > 0) {
+    // A LIFECYCLE ending (caller abort, exhausted budget) is its own complete explanation: the
+    // cap did not end that run even when it was exhausted along the way, and blaming it would
+    // misattribute the ending (and turn a caller-initiated abort into a throw). The exhaustion
+    // stays observable in `exhaustedEdges` either way.
+    const lifecycleEnded =
+      result.kind === 'no-winner' &&
+      (result.reason === 'aborted' || result.reason === 'budget-exhausted')
+    if (result.kind !== 'winner' && !lifecycleEnded && exhaustedDelegates.size > 0) {
       // Fail LOUD: the backstop, not the task, ended this run. The evidence rides on the error.
       // Only DELEGATES caps refuse spawns, so only they can be the cause named here.
       throw new GraphEdgeCapError(Object.freeze([...exhaustedDelegates]), frozenLedger, result)

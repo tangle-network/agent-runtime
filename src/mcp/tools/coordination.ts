@@ -158,7 +158,7 @@ export interface AnalystFindingEvent {
  *  `undefined` array slots become `null`), and a payload JSON cannot represent at all (cycle,
  *  BigInt, bare function) becomes a record OF that fact — degraded findings beat a vanished
  *  event. */
-function canonicalFindingEvent(finding: AnalystFindingEvent): AnalystFindingEvent {
+export function canonicalFindingEvent(finding: AnalystFindingEvent): AnalystFindingEvent {
   if (finding.findings === undefined) {
     const { findings: _absent, ...present } = finding
     return present
@@ -906,8 +906,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
    * Deliver one routed analyst finding to its destination worker through the SAME authorized
    * steer machinery a driver steer uses, so the delivery is recorded (`steer` event carrying
    * `analyst`) and its outcome is a fact. No live destination ⇒ a record-only failed steer —
-   * observable, never a silent drop. A throw here must not kill the settle path: the failure is
-   * already on the bus.
+   * observable, never a silent drop. A throw here must not kill the settle path: failures are
+   * recorded on the bus (a `steer` with `delivered: false`) before being swallowed, with ONE
+   * narrow exception — a bus that refuses the `delivery-attempt` record itself leaves only the
+   * `instruction` receipt (an attempt with no outcome = explicitly unknown, per
+   * recordDeliveryAttempt's own contract).
    */
   const deliverRoutedFinding = async (
     route: AnalyzeOnSettleRoute,
@@ -937,9 +940,36 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       )
       return
     }
+    let instruction: ContinuationInstruction
     try {
-      const instruction = authorizeInstruction('steer', targetId, text, false)
+      instruction = authorizeInstruction('steer', targetId, text, false)
       await recordInstruction(instruction)
+    } catch (cause) {
+      // NOTHING reached the bus for this failure (an authorization refusal, a target without
+      // durable identity, a durable subscriber rejecting the instruction record) — record the
+      // failed delivery now, in the same `steer` shape a failed attempt publishes, so a routed
+      // finding is observable on EVERY failure path, never a silent drop.
+      try {
+        await sendDown(
+          'steer',
+          deepFreezeDetached({
+            receiptId: randomUUID(),
+            toWorker: targetId,
+            instruction: text,
+            instructionDigest: canonicalCandidateDigest(text),
+            delivered: false,
+            outcome: 'runtime-error' as const,
+            error: cause instanceof Error ? cause.message : String(cause),
+          }),
+          route.kind,
+        )
+      } catch {
+        // The bus itself refused the failure record — there is nothing left to record ON, and a
+        // routed finding must never take down the settlement path.
+      }
+      return
+    }
+    try {
       await attemptDelivery(
         instruction,
         { steer: instruction.instruction, interrupt: false },
@@ -948,8 +978,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         },
       )
     } catch {
-      // The failed delivery is already recorded on the bus (a `steer` with delivered:false or an
-      // authorization refusal); a routed finding must never take down the settlement path.
+      // `attemptDelivery` publishes the failed `steer` (delivered:false + outcome) BEFORE
+      // rethrowing, so the failure is already on the bus — except when the bus refused the
+      // `delivery-attempt` record itself, where only the `instruction` receipt lands (see the
+      // docstring). A routed finding must never take down the settlement path.
     }
   }
 

@@ -11089,7 +11089,9 @@ Every edge traversal, in occurrence order — the observable-edge contract.
 Edge ids whose traversal cap was hit — analyzes exhaustion included (observable here, never
  a refusal). A DELEGATES cap paired with a `no-winner` result THROWS
  ([GraphEdgeCapError](#graphedgecaperror)) instead of returning: only delegates caps refuse spawns, so only
- they can have ended the run.
+ they can have ended the run. A LIFECYCLE no-winner (`aborted` / `budget-exhausted`) returns
+ normally even with an exhausted delegates cap — the abort or the pool, not the cap, ended
+ that run, and the exhaustion stays observable here.
 
 ##### runId
 
@@ -20576,6 +20578,31 @@ what makes "SIGKILL a waiting tree, a new process keeps waiting to the same inst
 #### Returns
 
 [`PendingWait`](#pendingwait)[]
+
+***
+
+### canonicalFindingEvent()
+
+> **canonicalFindingEvent**(`finding`): [`AnalystFindingEvent`](#analystfindingevent)
+
+Producer-side cleanliness for the `finding` event. The findings payload is arbitrary analyst
+ output, the digest a subscriber computes (RFC 8785) throws on ANY `undefined` value — nested
+ included — and a throwing subscriber leaves the event invisible to EVERY subscriber. The
+ producer, not the digest, owns keeping the event canonical: an `undefined` payload is stripped
+ to key-absence, everything else is JSON round-tripped (nested `undefined` object values drop,
+ `undefined` array slots become `null`), and a payload JSON cannot represent at all (cycle,
+ BigInt, bare function) becomes a record OF that fact — degraded findings beat a vanished
+ event.
+
+#### Parameters
+
+##### finding
+
+[`AnalystFindingEvent`](#analystfindingevent)
+
+#### Returns
+
+[`AnalystFindingEvent`](#analystfindingevent)
 
 ***
 

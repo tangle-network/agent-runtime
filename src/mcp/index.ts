@@ -224,6 +224,7 @@ export {
 export type { TraceContext } from './trace-propagation'
 export {
   createPropagatingTraceEmitter,
+  mergeTraceEnv,
   readTraceContextFromEnv,
   traceContextToEnv,
 } from './trace-propagation'

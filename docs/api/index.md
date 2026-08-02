@@ -14382,6 +14382,53 @@ the way every span in this file does, rather than re-deriving the encoding.
 
 ***
 
+### padSpanId()
+
+> **padSpanId**(`id`): `string`
+
+Map a caller-supplied span id onto the 16-hex OTLP encoding. An id that is already a valid W3C
+span id passes through UNCHANGED — that is what lets an inherited `PARENT_SPAN_ID`/`TRACEPARENT`
+id keep parenting the same trace. A DASHED hex id (a UUID-form id) passes through dash-stripped:
+that is the exact wire id every earlier release exported for it, so cross-version joins survive
+the strict-W3C upgrade. Anything else (a human run id) is DERIVED via the zero-dep contract's
+`deriveHexId`, the one legal derivation: the old slice-and-pad produced ids that embedded the
+raw input in the wire id and were not even valid hex (the contract's own `non-hex-id` validator
+rejected what this module exported). Exported as the ONE wire-id normalization every writer
+shares — `traceContextToEnv` builds the child's `TRACEPARENT` through these same functions, so
+a parent's exported spans and the context it hands its children always name the same trace.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### padTraceId()
+
+> **padTraceId**(`id`): `string`
+
+Trace-id counterpart of [padSpanId](#padspanid): valid W3C trace ids pass through (dash-stripped when
+ UUID-form, preserving the pre-strict-W3C wire id), everything else is derived with
+ `deriveHexId(id, 16)` so every process derives the SAME wire id for the same run.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### generateSpanId()
 
 > **generateSpanId**(): `string`

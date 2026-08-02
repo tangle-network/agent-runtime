@@ -21,9 +21,9 @@
  * @experimental
  */
 
-import { deriveHexId, isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
+import { isW3CSpanId, isW3CTraceId } from '@tangle-network/agent-trace-contract'
 import type { OtelExporter } from '../otel-export'
-import { buildLoopOtelSpans, createOtelExporter } from '../otel-export'
+import { buildLoopOtelSpans, createOtelExporter, padSpanId, padTraceId } from '../otel-export'
 import type { LoopTraceEmitter, LoopTraceEvent } from '../runtime/types'
 
 export interface TraceContext {
@@ -127,23 +127,57 @@ export function createPropagatingTraceEmitter(ctx: TraceContext): {
 /**
  * Build env vars to pass to a child subprocess so it inherits the current trace context.
  *
- * Writes BOTH conventions (see the module doc): `TRACEPARENT` carries the W3C-hex ids — a human
- * id is derived through the contract's `deriveHexId`, the same derivation every emitter uses, so
- * both spellings name the SAME trace — and the legacy pair carries the caller's ids verbatim.
- * `TRACEPARENT` needs a parent span id by grammar; when the context has none, the legacy pair
- * still propagates the trace id alone.
+ * Writes BOTH conventions (see the module doc): `TRACEPARENT` carries the W3C-hex ids — mapped
+ * through the exporter's own `padTraceId`/`padSpanId` (dashed hex passes through dash-stripped, a
+ * human id is derived through the contract's `deriveHexId`), the SAME normalization every emitted
+ * span uses, so both spellings and the parent's own spans all name ONE trace — and the legacy
+ * pair carries the caller's ids verbatim. `TRACEPARENT` needs a parent span id by grammar; when
+ * the context has none, the legacy pair still propagates the trace id alone.
  */
 export function traceContextToEnv(ctx: TraceContext): Record<string, string> {
   const env: Record<string, string> = { TRACE_ID: ctx.traceId }
   if (ctx.parentSpanId) env.PARENT_SPAN_ID = ctx.parentSpanId
   if (ctx.parentSpanId) {
-    const traceId = isW3CTraceId(ctx.traceId) ? ctx.traceId : deriveHexId(ctx.traceId, 16)
-    const spanId = isW3CSpanId(ctx.parentSpanId)
-      ? ctx.parentSpanId
-      : deriveHexId(ctx.parentSpanId, 8)
-    env.TRACEPARENT = `00-${traceId}-${spanId}-01`
+    env.TRACEPARENT = `00-${padTraceId(ctx.traceId)}-${padSpanId(ctx.parentSpanId)}-01`
   }
   return env
+}
+
+/**
+ * Merge a spawned child's environment from lowest to highest precedence — ambient env, the
+ * recorder's stamped trace env, the caller's own overrides — while keeping the ONE cross-key
+ * invariant a plain spread cannot: `TRACEPARENT` and the legacy pair must name the SAME trace.
+ * A caller override that declares `TRACE_ID` / `PARENT_SPAN_ID` without its own `TRACEPARENT`
+ * would otherwise keep the recorder's W3C wire — the child would join the caller's trace on the
+ * legacy pair and the RECORDER's on the standard one. The dual-write is performed on the
+ * caller's behalf: the merged `TRACEPARENT` is rebuilt from the merged legacy pair through the
+ * same {@link traceContextToEnv} derivation (`deriveHexId` for human ids), or dropped when no
+ * parent span id survives the merge (the W3C grammar requires one).
+ */
+export function mergeTraceEnv(
+  ambient: Record<string, string | undefined>,
+  traceEnv: Record<string, string>,
+  overrides?: Record<string, string>,
+): Record<string, string | undefined> {
+  const merged: Record<string, string | undefined> = {
+    ...ambient,
+    ...traceEnv,
+    ...(overrides ?? {}),
+  }
+  const overridesIdentity =
+    overrides !== undefined &&
+    overrides.TRACEPARENT === undefined &&
+    (overrides.TRACE_ID !== undefined || overrides.PARENT_SPAN_ID !== undefined)
+  if (!overridesIdentity) return merged
+  delete merged.TRACEPARENT
+  if (merged.TRACE_ID !== undefined) {
+    const rewritten = traceContextToEnv({
+      traceId: merged.TRACE_ID,
+      ...(merged.PARENT_SPAN_ID !== undefined ? { parentSpanId: merged.PARENT_SPAN_ID } : {}),
+    })
+    if (rewritten.TRACEPARENT !== undefined) merged.TRACEPARENT = rewritten.TRACEPARENT
+  }
+  return merged
 }
 
 function generateTraceId(): string {

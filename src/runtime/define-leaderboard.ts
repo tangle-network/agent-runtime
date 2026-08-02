@@ -516,10 +516,11 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           return {
             // The naive steering directive = the no-signal retry floor: re-run the same case as
             // an independent attempt until one scores (>0) or the shot cap. The policy is data
-            // (`SteeringDirectiveData`); the task is re-run verbatim, so the continuation text is
-            // never folded in (identity applyContinuation).
+            // (`SteeringDirectiveData`); the task is re-run verbatim (identity applyContinuation),
+            // and the continuation is EMPTY so the no-op stays a no-op even if a future
+            // applyContinuation ever folds the text in.
             driver: steeringDriver<LeaderboardScenario<TCase>, TArtifact>(
-              { kind: 'naive', continuation: 'retry', maxTraversals: shots },
+              { kind: 'naive', continuation: '', maxTraversals: shots },
               (task) => task,
               'naive',
             ),

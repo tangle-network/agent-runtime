@@ -44,6 +44,7 @@ import type {
   ExecutorResult,
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
+import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { scriptedBrain } from './scripted-brain'
 
 // ── Leaf fixtures (the offline execution seam; the graph machinery around them is real) ────────
@@ -361,6 +362,53 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
       expect(capError.result.kind).not.toBe('winner')
       return true
     })
+  })
+
+  it('a caller ABORT with an already-exhausted delegates cap RETURNS the lifecycle result — the cap did not end that run', async () => {
+    // The misattribution probe: the cap is exhausted mid-run (a refused re-spawn), then the
+    // CALLER aborts. The abort, not the backstop, ended the run — throwing GraphEdgeCapError
+    // here would blame the cap for an ending it did not cause and turn a deliberate abort into
+    // an exception. The exhaustion must stay observable in `exhaustedEdges` instead.
+    const graph = twoNodeGraph({
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+          maxTraversals: 1,
+        },
+      ],
+    })
+    const controller = new AbortController()
+    const spawnTurn = {
+      toolCalls: [
+        { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+      ],
+    }
+    const inner = scriptedBrain([
+      spawnTurn,
+      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      spawnTurn, // the cycle: re-spawn after failure — refused by the cap, exhausting the edge
+      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+    ])
+    let turn = 0
+    const brain: ToolLoopChat = async (messages) => {
+      turn += 1
+      // After the cap-refused re-spawn the CALLER ends the run.
+      if (turn === 4) controller.abort()
+      return inner(messages)
+    }
+    const res = await runGraph(graph, {
+      makeWorkerAgent: leafSeam([], { fail: true }),
+      brain,
+      signal: controller.signal,
+    })
+    expect(res.result.kind).toBe('no-winner')
+    if (res.result.kind === 'no-winner') expect(res.result.reason).toBe('aborted')
+    expect(res.exhaustedEdges).toContain('delegates:driver->worker')
+    // The ledger still tells the cap story — delivered, then refused — without blaming the cap.
+    expect(res.ledger.map((row) => row.outcome)).toEqual(['delivered', 'unpropagated'])
   })
 
   it('a spawn refused AFTER the worker factory ran is never ledgered `delivered`', async () => {
@@ -769,6 +817,76 @@ describe('runGraph — validation fails loud before any compute', () => {
     })
     expect(() => runGraph(graph, { makeWorkerAgent: seam, brain })).toThrow(
       /no entry for delegates\/no-such-surface\/v9/,
+    )
+  })
+
+  it('requires profile.name to equal the node id — the profile name IS the node identity', () => {
+    // Node pinning resolves a spawn's `profile.name` against node ids, and the coordination
+    // layer matches analyst routes against the settled worker's PROFILE NAME. A divergent name
+    // would make every analyzes edge over/to this node silently never match.
+    const graph = twoNodeGraph({
+      nodes: [
+        { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive.' } } },
+        { id: 'worker', profile: { name: 'builder', prompt: { systemPrompt: 'Build.' } } },
+      ],
+    })
+    expect(() => runGraph(graph, { makeWorkerAgent: seam, brain })).toThrow(
+      /profile\.name "builder"[\s\S]*must equal the node id/,
+    )
+    // An ABSENT profile name diverges the same way (undefined ≠ the node id) and fails the same.
+    const unnamed = twoNodeGraph({
+      nodes: [
+        { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive.' } } },
+        { id: 'worker', profile: { prompt: { systemPrompt: 'Build.' } } },
+      ],
+    })
+    expect(() => runGraph(unnamed, { makeWorkerAgent: seam, brain })).toThrow(
+      /must equal the node id/,
+    )
+  })
+
+  it('refuses two analyzes edges sharing one analyst id — traversals are ledgered by analyst', () => {
+    const analysts = {
+      kinds: [{ id: 'convergence', description: 'is the worker converging', area: 'progress' }],
+      run: async () => [],
+    }
+    const graph = twoNodeGraph({
+      nodes: [
+        { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive.' } } },
+        { id: 'builder', profile: { name: 'builder', prompt: { systemPrompt: 'Build.' } } },
+        { id: 'fixer', profile: { name: 'fixer', prompt: { systemPrompt: 'Fix.' } } },
+      ],
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'builder',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'fixer',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+        {
+          kind: 'analyzes',
+          analyst: 'convergence',
+          over: ['builder'],
+          to: 'fixer',
+          directive: promptHandle('analyzes/findings-report/v1'),
+        },
+        {
+          kind: 'analyzes',
+          analyst: 'convergence',
+          over: ['fixer'],
+          to: 'driver',
+          directive: promptHandle('analyzes/findings-report/v1'),
+        },
+      ],
+    })
+    expect(() => runGraph(graph, { analysts, makeWorkerAgent: seam, brain })).toThrow(
+      /two analyzes edges share analyst 'convergence'/,
     )
   })
 

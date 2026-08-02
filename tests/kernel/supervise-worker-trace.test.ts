@@ -19,6 +19,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { deriveHexId } from '@tangle-network/agent-trace-contract'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
@@ -182,17 +183,25 @@ function printerFactory(env?: Record<string, string>): ExecutorFactory<unknown> 
 }
 
 // The supervisor process's OWN ambient ids must not leak into these assertions: the whole point of
-// the precedence rule is that they are NOT what a child inherits.
-const saved = { trace: process.env.TRACE_ID, parent: process.env.PARENT_SPAN_ID }
+// the precedence rule is that they are NOT what a child inherits. TRACEPARENT included — an
+// ambient W3C wire from the shell/CI that launched vitest would leak into every untraced child.
+const saved = {
+  trace: process.env.TRACE_ID,
+  parent: process.env.PARENT_SPAN_ID,
+  traceparent: process.env.TRACEPARENT,
+}
 beforeEach(() => {
   delete process.env.TRACE_ID
   delete process.env.PARENT_SPAN_ID
+  delete process.env.TRACEPARENT
 })
 afterEach(() => {
   if (saved.trace === undefined) delete process.env.TRACE_ID
   else process.env.TRACE_ID = saved.trace
   if (saved.parent === undefined) delete process.env.PARENT_SPAN_ID
   else process.env.PARENT_SPAN_ID = saved.parent
+  if (saved.traceparent === undefined) delete process.env.TRACEPARENT
+  else process.env.TRACEPARENT = saved.traceparent
 })
 
 // ── The wire ──────────────────────────────────────────────────────────────────
@@ -283,6 +292,14 @@ describe('a spawned worker inherits the run trace and the spawning node span', (
     expect(env.TRACE_ID).toBe('caller-owned-trace')
     expect(env.PARENT_SPAN_ID).toBe('caller-owned-span')
     expect(env.TRACE_ID).not.toBe(recorder.traceId)
+    // The W3C wire follows the caller too: the merged TRACEPARENT is rebuilt from the CALLER's
+    // ids (the same deriveHexId dual-write every emitter uses), never left as the recorder's —
+    // or a standard reader would join the recorder's trace while the legacy pair names the
+    // caller's.
+    expect(env.TRACEPARENT).toBe(
+      `00-${deriveHexId('caller-owned-trace', 16)}-${deriveHexId('caller-owned-span', 8)}-01`,
+    )
+    expect(env.TRACEPARENT).not.toContain(recorder.traceId)
   })
 })
 
@@ -474,7 +491,8 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
       '-e',
       'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({' +
         'TRACE_ID: process.env.TRACE_ID ?? null,' +
-        'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null}))',
+        'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null,' +
+        'TRACEPARENT: process.env.TRACEPARENT ?? null}))',
       outPath,
     ]
   }
@@ -511,6 +529,9 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
     expect(root).toBeDefined()
     expect(env.TRACE_ID).toBe(root?.traceId)
     expect(env.PARENT_SPAN_ID).toBe(root?.spanId)
+    // The dual-write reaches the front-door wire too: the W3C TRACEPARENT the ecosystem reads
+    // carries the SAME run trace id and root span id, not just the legacy pair.
+    expect(env.TRACEPARENT).toBe(`00-${root?.traceId}-${root?.spanId}-01`)
   })
 
   it('stamps nothing when the front door configures no telemetry', async () => {
@@ -519,6 +540,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
     expect(JSON.parse(await readFile(outPath, 'utf8'))).toEqual({
       TRACE_ID: null,
       PARENT_SPAN_ID: null,
+      TRACEPARENT: null,
     })
   })
 })

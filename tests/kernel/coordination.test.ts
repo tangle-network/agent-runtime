@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { createMcpServer } from '../../src/mcp/server'
 import {
   type CoordinationEvent,
+  canonicalFindingEvent,
   createCoordinationTools,
   deriveSpawnProfileArg,
   spawnProfileFieldNames,
@@ -1176,6 +1177,75 @@ describe('coordination tools', () => {
     expect(emitted).toEqual(['settled', 'finding'])
   })
 
+  it('a routed finding whose authorization THROWS is recorded on the bus — never a silent drop', async () => {
+    // The authorize/record leg of `deliverRoutedFinding` throws BEFORE anything reaches the bus
+    // (here: `authorizeDownMessage` is configured but the live target has no durable identity).
+    // The docstring's "never a silent drop" must hold on this path too: the catch publishes the
+    // same failed-`steer` shape a failed delivery attempt publishes.
+    const { scope } = mockScope()
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w7', label: 'w', status: 'done' as const, abort() {} },
+        out: { diff: '...' },
+        outRef: 'blob:w7',
+        verdict: { valid: true, score: 1 },
+        spent: zeroSpend(),
+        trace: availableTrace,
+        seq: 0,
+      },
+    ]
+    const drainScope = {
+      ...scope,
+      next: () => Promise.resolve(settlements.shift() ?? null),
+      // One LIVE worker the route can name (by label) — deliberately WITHOUT durable identity.
+      view: {
+        root: 'root',
+        nodes: [
+          {
+            id: 'w0',
+            label: 'worker',
+            status: 'running' as const,
+            runtime: 'router',
+            budget: { maxIterations: 1, maxTokens: 10 },
+            spent: zeroSpend(),
+          },
+        ],
+        inFlight: 1,
+      },
+    } as typeof scope
+    const emitted: CoordinationEvent[] = []
+    const tb = createCoordinationTools({
+      scope: drainScope,
+      blobs: traceBlobStore('blob:w7', { messages: ['done'] }),
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      analysts: {
+        kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+        run: async () => [{ claim: 'stub left in place' }],
+      },
+      analyzeOnSettle: [{ kind: 'completeness', to: 'worker', directive: 'Fix these findings.' }],
+      authorizeDownMessage: () => ({ instruction: 'filtered' }),
+      onEvent: (e) => emitted.push(e),
+    })
+
+    expect(await tool(tb, 'await_event').handler({})).toMatchObject({ type: 'settled' })
+    // The settle path SURVIVED the throw, and the failure is a recorded fact, not a silent drop.
+    expect(emitted.map((e) => e.type)).toEqual(['settled', 'finding', 'steer'])
+    const steer = emitted.find((e) => e.type === 'steer') as Extract<
+      CoordinationEvent,
+      { type: 'steer' }
+    >
+    expect(steer.analyst).toBe('completeness')
+    expect(steer.down.delivered).toBe(false)
+    expect(steer.down.outcome).toBe('runtime-error')
+    expect(steer.down.toWorker).toBe('w0')
+    expect(steer.down.error).toMatch(/durable identity/)
+    // The record carries the exact bytes that failed to cross: directive + findings JSON.
+    expect(steer.down.instruction).toContain('Fix these findings.')
+    expect(steer.down.instruction).toContain('stub left in place')
+  })
+
   it('retains a settlement when an awaited observer loses its acknowledgement', async () => {
     const { scope } = mockScope()
     const settlements = [
@@ -1550,5 +1620,35 @@ describe("spawn_agent's published child-profile schema", () => {
     )
     expect(published).toBeGreaterThan(1024)
     expect(published).toBeLessThan(canonicalWhole)
+  })
+})
+
+describe('canonicalFindingEvent — producer-side canonicalization of analyst findings', () => {
+  it('strips an undefined payload to key-absence', () => {
+    const event = canonicalFindingEvent({ fromWorker: 'w', analyst: 'a', findings: undefined })
+    expect('findings' in event).toBe(false)
+    expect(event).toEqual({ fromWorker: 'w', analyst: 'a' })
+  })
+
+  it('JSON round-trips a representable payload — nested undefined drops, array slots become null', () => {
+    const event = canonicalFindingEvent({
+      fromWorker: 'w',
+      analyst: 'a',
+      findings: { claim: 'x', detail: undefined, list: ['keep', undefined] },
+    })
+    expect(event.findings).toEqual({ claim: 'x', list: ['keep', null] })
+    expect(event.fromWorker).toBe('w')
+    expect(event.analyst).toBe('a')
+  })
+
+  it('degrades an unrepresentable payload (cycle, BigInt, bare function) to a record OF that fact', () => {
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    for (const findings of [cyclic, { n: BigInt(1) }, () => 0]) {
+      const event = canonicalFindingEvent({ fromWorker: 'w', analyst: 'a', findings })
+      const degraded = event.findings as { nonCanonicalFindings?: unknown }
+      expect(typeof degraded.nonCanonicalFindings).toBe('string')
+      expect((degraded.nonCanonicalFindings as string).length).toBeGreaterThan(0)
+    }
   })
 })

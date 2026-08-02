@@ -74,6 +74,7 @@ export type {
   WorkerSpawnContext,
 } from './../mcp/tools/coordination'
 export {
+  canonicalFindingEvent,
   DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
   normalizeAnalyzeOnSettle,
 } from './../mcp/tools/coordination'

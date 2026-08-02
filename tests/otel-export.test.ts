@@ -584,6 +584,23 @@ describe('otel-export', () => {
     expect(span.parentSpanId).toBe(parentSpanId)
   })
 
+  it('passes a UUID-form id through DASH-STRIPPED — the exact wire id earlier releases exported', () => {
+    // Cross-version join guard: the old padTraceId/padSpanId stripped dashes, so a UUID produced
+    // a valid, joinable hex id. Deriving it instead would silently break every join against
+    // spans the previous release (or an external system feeding UUIDs) already exported.
+    const uuid = 'a3ce929d-0e0e-4736-a3ce-929d0e0e4736'
+    const dashedSpan = 'a3ce929d-0e0e4736'
+    const span = loopEventToOtelSpan(
+      { kind: 'loop.started', runId: 'run-1', timestamp: 1, payload: {} },
+      uuid,
+      dashedSpan,
+    )
+    expect(span.traceId).toBe('a3ce929d0e0e4736a3ce929d0e0e4736')
+    expect(span.parentSpanId).toBe('a3ce929d0e0e4736')
+    expect(isW3CTraceId(span.traceId)).toBe(true)
+    expect(span.traceId).not.toBe(deriveHexId(uuid, 16))
+  })
+
   it('derives the same wire id for the same run id in every process (deterministic derivation)', () => {
     // The issue's executed proof: the retired slice-and-pad produced
     // 'vbwebgrounded20260801cella000000' — invalid hex, leaking the raw run id.

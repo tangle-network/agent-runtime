@@ -7660,11 +7660,12 @@ Returns both the emitter and the optional exporter handle for shutdown.
 
 Build env vars to pass to a child subprocess so it inherits the current trace context.
 
-Writes BOTH conventions (see the module doc): `TRACEPARENT` carries the W3C-hex ids — a human
-id is derived through the contract's `deriveHexId`, the same derivation every emitter uses, so
-both spellings name the SAME trace — and the legacy pair carries the caller's ids verbatim.
-`TRACEPARENT` needs a parent span id by grammar; when the context has none, the legacy pair
-still propagates the trace id alone.
+Writes BOTH conventions (see the module doc): `TRACEPARENT` carries the W3C-hex ids — mapped
+through the exporter's own `padTraceId`/`padSpanId` (dashed hex passes through dash-stripped, a
+human id is derived through the contract's `deriveHexId`), the SAME normalization every emitted
+span uses, so both spellings and the parent's own spans all name ONE trace — and the legacy
+pair carries the caller's ids verbatim. `TRACEPARENT` needs a parent span id by grammar; when
+the context has none, the legacy pair still propagates the trace id alone.
 
 #### Parameters
 
@@ -7675,6 +7676,40 @@ still propagates the trace id alone.
 #### Returns
 
 `Record`\<`string`, `string`\>
+
+***
+
+### mergeTraceEnv()
+
+> **mergeTraceEnv**(`ambient`, `traceEnv`, `overrides?`): `Record`\<`string`, `string` \| `undefined`\>
+
+Merge a spawned child's environment from lowest to highest precedence — ambient env, the
+recorder's stamped trace env, the caller's own overrides — while keeping the ONE cross-key
+invariant a plain spread cannot: `TRACEPARENT` and the legacy pair must name the SAME trace.
+A caller override that declares `TRACE_ID` / `PARENT_SPAN_ID` without its own `TRACEPARENT`
+would otherwise keep the recorder's W3C wire — the child would join the caller's trace on the
+legacy pair and the RECORDER's on the standard one. The dual-write is performed on the
+caller's behalf: the merged `TRACEPARENT` is rebuilt from the merged legacy pair through the
+same [traceContextToEnv](#tracecontexttoenv) derivation (`deriveHexId` for human ids), or dropped when no
+parent span id survives the merge (the W3C grammar requires one).
+
+#### Parameters
+
+##### ambient
+
+`Record`\<`string`, `string` \| `undefined`\>
+
+##### traceEnv
+
+`Record`\<`string`, `string`\>
+
+##### overrides?
+
+`Record`\<`string`, `string`\>
+
+#### Returns
+
+`Record`\<`string`, `string` \| `undefined`\>
 
 ***
 

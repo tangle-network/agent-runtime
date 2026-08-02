@@ -188,6 +188,8 @@ export {
   generateSpanId,
   INTELLIGENCE_WIRE_VERSION,
   loopEventToOtelSpan,
+  padSpanId,
+  padTraceId,
   toOtelAttributes,
 } from './otel-export'
 // ── Readiness ─────────────────────────────────────────────────────────

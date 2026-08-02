@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 410 exports.
+Import from `@tangle-network/agent-runtime` — 412 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -84,6 +84,8 @@ Import from `@tangle-network/agent-runtime` — 410 exports.
 | `officialGepa` | function | Build a complete method backed by GEPA's official Optimize Anything API. |
 | `officialSkillOpt` | function | Build a complete method backed by Microsoft's official SkillOpt trainer. |
 | `omitUndefinedObjectFields` | function | Recursively remove undefined object fields while refusing undefined array entries. |
+| `padSpanId` | function | Map a caller-supplied span id onto the 16-hex OTLP encoding. An id that is already a valid W3C |
+| `padTraceId` | function | Trace-id counterpart of {@link padSpanId}: valid W3C trace ids pass through (dash-stripped when |
 | `parseExactAgentProfile` | function | Parse a complete profile without silently discarding unsupported fields. |
 | `parseExactAgentProfileDiff` | function | Parse a profile diff without silently discarding unsupported fields. |
 | `parseExactCandidateProfile` | function | Parse a candidate profile without silently discarding unsupported or non-canonical fields. |
@@ -508,7 +510,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 715 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 716 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -532,6 +534,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 715 exports.
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
+| `canonicalFindingEvent` | function | Producer-side cleanliness for the `finding` event. The findings payload is arbitrary analyst |
 | `canonicalizeAuthoredProfile` | function | Lift a profile the supervisor AUTHORED into the canonical shape every executor reads. |
 | `captureWorkerTraceEvidence` | function | Collect and persist one executor's structured tool trace without changing its task outcome. |
 | `closingWorkerNote` | function | The worker's closing commentary off a local harness run: the TAIL of its |
@@ -1304,7 +1307,7 @@ Import from `@tangle-network/agent-runtime/testing` — 4 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 211 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 212 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1341,6 +1344,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 211 exports.
 | `localHarnessExecutable` | function | The CLI binary a harness id runs. The two are NOT the same string (`claude-code` runs `claude`), |
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
+| `mergeTraceEnv` | function | Merge a spawned child's environment from lowest to highest precedence — ambient env, the |
 | `parseCodexTokenUsage` | function | Parse and validate the one terminal usage event emitted by `codex exec --json`. |
 | `parseDetachedSessionRef` | function | Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input. |
 | `parseMemoryItems` | function | Coerce an untrusted JSON array into validated `MemoryItem` rows. |
