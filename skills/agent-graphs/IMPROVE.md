@@ -35,6 +35,14 @@ Holdout discipline: at least 3 of the 8 held out, never trained on; `runImprovem
 - No new optimizer, campaign runner, judge plumbing, or ledger — all named above.
 - No live-backend scoring in the loop. Live runs are pursuit work, not skill-improvement work; the loop stays offline and free.
 
+## Orchestration layering (doctrine, gates gen4)
+
+Two layers, different jobs.
+Foundation harnesses ship trained orchestration — Claude Code subagents, codex goal-mode, pi extensions — and prose is that layer's native API: instructing a claude-code node to "fan out subagents over these files" invokes an in-distribution capability, not vibes.
+The graph/script layer exists for what no single harness provides: cross-harness composition, one conserved budget across the whole tree, durable ledger evidence, resume, and heterogeneous model placement.
+Rule: outer layer coarse, inner layer maximal — one harness-sized node told to use its native fan-out beats N externally-choreographed thin nodes that each pay the harness floor while suppressing the orchestration the model was trained for.
+Which harnesses qualify for native fan-out is a supervisor-lab harness-KB row, not a guess.
+
 ## Version history
 
 The live tree carries only the current `SKILL.md`; every prior surface text is recoverable from git history via the pinned sha256s below, and each generation's full measurement record lives in `generations/`.
