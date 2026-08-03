@@ -37,7 +37,6 @@ import {
   type AgentProfile,
   CODING_HARNESSES,
   expandProfileAxes,
-  HARNESS_NATIVE_MODEL,
   type HarnessType,
   harnessAxisOf,
   type MaximumCharge,
@@ -55,6 +54,7 @@ import { leaderboard, renderLeaderboardMarkdown } from './benchmark-report'
 import { loopDispatch } from './loop-dispatch'
 import { resolveSandboxClient } from './resolve-sandbox-client'
 import { type SteeringDecision, steeringDriver } from './steering-drivers'
+import { isHarnessNativeModel } from './supervise/model-policy'
 import type { LoopResult, SandboxClient } from './types'
 
 /** Structured per-case verdict a `score` function may return (a bare number is
@@ -516,7 +516,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           const modelId = bareModel(axis?.model ?? models[0] ?? '')
           const backendModel = {
             ...spec.modelBackend,
-            ...(modelId !== HARNESS_NATIVE_MODEL || backendName === 'cli-bridge'
+            ...(!isHarnessNativeModel(modelId) || backendName === 'cli-bridge'
               ? { model: modelId }
               : {}),
           }
