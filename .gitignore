@@ -18,3 +18,5 @@ corpus/
 test_repo/
 .sic-run-*/
 .swe-run-*/
+.gen2-runs/
+.gen3-runs/
