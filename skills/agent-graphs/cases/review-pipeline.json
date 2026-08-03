@@ -1,0 +1,14 @@
+{
+  "id": "review-pipeline",
+  "brief": "I want code changes reviewed by two different perspectives before anything merges, and someone neutral deciding.",
+  "expect": {
+    "nodes": 3,
+    "analyzesWarranted": true,
+    "floorTrap": false,
+    "edges": [
+      "delegates to each reviewer",
+      "analyzes routing findings to root"
+    ],
+    "wrongIfAnalystIsNode": true
+  }
+}
