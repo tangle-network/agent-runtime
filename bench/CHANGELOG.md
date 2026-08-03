@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+
+- Consume Runtime 0.126.0 with Eval 0.143.0 and Knowledge 7.0.8, so campaign cost remains observed, estimated, or explicitly uncaptured across the complete benchmark dependency tree.
+
 ## 0.7.0
 
 - Consume Runtime 0.123.0 with Eval 0.142.2, Interface 0.43.0, Knowledge 7.0.7, and Sandbox 0.17.2 as one compatible dependency set.
