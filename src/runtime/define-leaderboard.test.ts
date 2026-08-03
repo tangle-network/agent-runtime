@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
+import { type DefaultVerdict, HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
@@ -9,8 +9,11 @@ import {
   defineLeaderboard,
   type LeaderboardIterationInfo,
   type LeaderboardRunContext,
+  type LeaderboardScenario,
+  naiveRetryDriver,
 } from './define-leaderboard'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
+import type { Iteration } from './types'
 
 interface FakeCase {
   id: string
@@ -313,5 +316,73 @@ describe('defineLeaderboard', () => {
       score: () => 0,
     }).toBenchmarkAdapter()
     await expect(dup.preflight()).rejects.toThrow(/duplicate case id/)
+  })
+})
+
+// Successor coverage for the retired steering-drivers module: the naive retry driver is the one
+// surviving loop-kernel steering control, and these tests hold the same observable contract its
+// predecessor's suite held — shot-0 plan, verbatim re-run, the leak-free firewall (reads only
+// `verdict.valid`), stop-on-valid, stop-at-cap, and the refine/pick-winner/fail decision set.
+describe('naiveRetryDriver — the no-signal retry floor', () => {
+  type Case = { id: string; answer: string }
+  type Task = LeaderboardScenario<Case>
+  const task: Task = { id: 't', kind: 'leaderboard-case', case: { id: 't', answer: 'A' } }
+  const driver = naiveRetryDriver<Case, string>(3)
+
+  function iter(verdict: DefaultVerdict | undefined, index = 0): Iteration<Task, string> {
+    return {
+      index,
+      task,
+      agentRunName: 'agent',
+      output: 'out',
+      verdict,
+      events: [],
+      startedAt: 0,
+      endedAt: 1,
+      costUsd: 0,
+      tokenUsage: { input: 0, output: 0 },
+    }
+  }
+
+  it('runs the original task at shot 0', async () => {
+    expect(await driver.plan(task, [])).toEqual([task])
+  })
+
+  it('re-runs the SAME task verbatim, reading only verdict.valid (leak-free firewall)', async () => {
+    // Tripwire: getters on `notes`/`scores` throw if the driver reads grader findings.
+    const trapVerdict = { valid: false, score: 0 } as { valid: boolean; score: number }
+    Object.defineProperty(trapVerdict, 'notes', {
+      get() {
+        throw new Error('naiveRetryDriver read verdict.notes — firewall breached')
+      },
+    })
+    Object.defineProperty(trapVerdict, 'scores', {
+      get() {
+        throw new Error('naiveRetryDriver read verdict.scores — firewall breached')
+      },
+    })
+    const planned = await driver.plan(task, [iter(trapVerdict)])
+    expect(planned).toEqual([task])
+    expect(planned[0]).toBe(task)
+    // A verdict-free history plans identically: a missing verdict is not-valid, never a throw.
+    expect(await driver.plan(task, [iter(undefined)])).toEqual([task])
+  })
+
+  it('stops on a valid shot and at the shot cap', async () => {
+    expect(await driver.plan(task, [iter({ valid: true, score: 1 })])).toEqual([])
+    const capped = [iter(undefined, 0), iter(undefined, 1), iter(undefined, 2)]
+    expect(await driver.plan(task, capped)).toEqual([])
+  })
+
+  it('decides pick-winner when any shot is valid', () => {
+    expect(
+      driver.decide([iter({ valid: false, score: 0 }), iter({ valid: true, score: 1 }, 1)]),
+    ).toBe('pick-winner')
+  })
+
+  it('decides refine while under the cap, fail at the cap', () => {
+    expect(driver.decide([iter({ valid: false, score: 0 })])).toBe('refine')
+    const capped = [iter(undefined, 0), iter(undefined, 1), iter(undefined, 2)]
+    expect(driver.decide(capped)).toBe('fail')
   })
 })

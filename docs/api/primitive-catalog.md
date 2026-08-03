@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.124.0` and `@tangle-network/agent-eval@0.142.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.125.0` and `@tangle-network/agent-eval@0.142.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -510,7 +510,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 717 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 709 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -588,7 +588,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 717 exports.
 | `deterministicCompletion` | function | Completion for a DETERMINISTIC check (build/test/lint/citation/proof): done iff the check |
 | `discriminatingMeans` | function | Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field |
 | `driverAgent` | function | Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a |
-| `dumbDriver` | function | Thin compatibility wrapper over {@link steeringDriver} for the dumb (pass/fail-only) control. |
 | `effectiveConcurrency` | function | The ONE honest effective limit on simultaneous workers: the minimum of the caps that actually |
 | `envKeyProvider` | function | The env-backed provider: reads the (dotenvx-loaded) process env. Empty / |
 | `equalKOnCost` | function | Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration |
@@ -623,7 +622,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 717 exports.
 | `materializeLocalMcp` | function | Spawn every explicitly trusted stdio server in `profile.mcp` as a same-host |
 | `materializeTreeView` | function | Materialize a recorded `TreeView` from a journaled event list for inspection. Folds |
 | `modelAuthoredChecks` | function | Default authored-check source: one metered LLM call per task, before sampling, |
-| `naiveDriver` | function | Thin compatibility wrapper over {@link steeringDriver} for the naive (no-signal) control. |
 | `noProgressFor` | function | "Nothing new has happened." Fires when the run has produced no new settled work for `ms`, or no |
 | `normalizeAnalyzeOnSettle` | function | Normalize the two spellings of an analyst-on-settle entry to the route form. |
 | `observe` | function | The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus. |
@@ -696,7 +694,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 717 exports.
 | `settledToIteration` | function | The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's |
 | `settledWorkerOut` | function | What a settled worker exposes as its output artifact (the blob the brain's |
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
-| `steeringDriver` | function | Interpret a {@link SteeringDirectiveData} as a loop `Driver` — the ONE interpreter both |
 | `stopSentinel` | function | A unique, attributable stop sentinel for a node (ralph-loop style). Deterministic from the |
 | `streamAgentTurn` | function | Run ONE agent turn on any backend kind and stream its events. Yields the |
 | `streamRouterChatWithTools` | function | The SAME completion as `routerChatWithTools`, taken over SSE (`stream: true`) and reassembled |
@@ -826,7 +823,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 717 exports.
 | `DownMessageDeliveryAttempt` | interface | A durable marker written after authorization and immediately before Runtime calls `Scope.send`. |
 | `DownMessageEvent` | interface | A parent→child delivery result (the down-leg): recorded for observability, never pulled back by |
 | `DriveHarness` | interface | How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate |
-| `DumbDriverOptions` | interface | Options for {@link dumbDriver}. |
 | `EdgeTraversal` | interface | One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent. |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
 | `EqualKOnCostOptions` | interface | `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST |
@@ -876,7 +872,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 717 exports.
 | `MaterializedExecutionIdentity` | interface | External execution identity that operators can use to join this node to its backend. |
 | `McpEndpoint` | interface | Where a handle's MCP server lives; headers carry per-artifact scoping. |
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
-| `NaiveDriverOptions` | interface | Options for {@link naiveDriver}. |
 | `NodeExecutionIdentity` | interface | Durable identity of one realized node. Missing digests mean the input was not canonical JSON. |
 | `NoWinnerError` | interface | A driver's `act()` rejection, normalized to a serializable triple so it survives the typed |
 | `OpenSandboxRunBeforeStartContext` | interface | Context available after the box/session exists and before the first prompt is |
@@ -992,7 +987,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 717 exports.
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
 | `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
 | `AgentTurnBackend` | type | The execution substrate one turn runs on — a closed discriminated union over |
-| `ApplyContinuation` | type | Fold a steering string into the caller's Task shape, producing the Task for |
 | `AssertTraceDerivedFindings` | type | The firewall assertion contract, re-stated for the reactive seam (PORT of |
 | `AuthoredProfile` | type | What the supervisor AUTHORS per sub-task: one complete canonical profile whose name and |
 | `AuthorizeDownMessage` | type | Product decision over an exact continuation before it is durably recorded or delivered. |
@@ -1049,8 +1043,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 717 exports.
 | `SpawnEvent` | type | Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO |
 | `SpawnPrior` | type | What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on |
 | `SpawnRejection` | type | Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets |
-| `SteeringDecision` | type | Terminal-or-continue decision shared by all three steering drivers. The |
-| `SteeringDirectiveData` | type | A steering POLICY as plain data — the delegates-edge directive form of the two control |
 | `StopDecision` | type | A stop rule's answer. `reason` is required when stopping — a run that ends must be able to say |
 | `StopRule` | type | Evaluated from the progress feed, never from the budget. Pure and synchronous: it is called on |
 | `StrategyMessage` | type | One provider-neutral conversation record carried between strategy shots. |
