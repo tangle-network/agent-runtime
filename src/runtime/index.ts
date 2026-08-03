@@ -529,6 +529,21 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
+// The chat-transport leaf (#721): a worker that IS a model conversation on a bare
+// OpenAI-compatible /v1/chat/completions endpoint — no sandbox. Ships with its session store and
+// the continuity-honoring `makeWorkerAgent` seam (the resume consumer `workerFromBackend`
+// refuses to be), so conversation graphs and chat-shot loops compose from data.
+export {
+  type ChatCompletionsTransport,
+  type ChatSessionStore,
+  type ChatTransportExecutorOptions,
+  type ChatTransportTool,
+  type ChatWorkerSeamOptions,
+  chatCompletionsTransport,
+  chatTransportExecutor,
+  chatWorkerSeam,
+  createChatSessionStore,
+} from './supervise/chat-transport-executor'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-gate'

@@ -3,19 +3,35 @@
  * print paired records.
  *
  *   pnpm tsx examples/p1-parity/run-parity.ts --backend offline --cells 2 --shots 3
+ *
+ *   VB_CLI_BRIDGE_URL=http://127.0.0.1:3344/v1 VB_CLI_BRIDGE_BEARER=... \
+ *   VB_PARITY_MODEL=pi/deepseek \
+ *   VB_PARITY_ROUTER_URL=https://router.example/v1 VB_PARITY_ROUTER_KEY=... \
+ *   VB_PARITY_DRIVER_MODEL=deepseek/deepseek-chat \
  *   pnpm tsx examples/p1-parity/run-parity.ts --backend cli-bridge --cells 1 --shots 3
  *
  * offline    — scripted seams (mirrors examples/graphs/shared.ts): zero network, zero env, $0.
  *              Shot script per cell: fail × (shots−1), then pass — so the graph arm settles on
  *              the final shot while the multishot arm burns its whole budget, and the paired records
  *              show exactly that. This mode is CI-safe and is what the vitest suite exercises.
- * cli-bridge — the LIVE one-command entry for later: wires the real cli-bridge backend from
- *              VB_CLI_BRIDGE_URL / VB_CLI_BRIDGE_BEARER (+ VB_PARITY_MODEL for the coder's
- *              bridge wire id). Nothing in this repo's gates ever executes it.
+ * cli-bridge — the LIVE entry. Nothing in this repo's gates ever executes it.
+ *
+ * LIVE SUBSTRATE SYMMETRY (the validity invariant, per #710/#721). Both arms' coders are a conversation
+ * on the SAME bare OpenAI-compatible `/v1/chat/completions` endpoint (`VB_CLI_BRIDGE_URL`) with
+ * the SAME wire model (`VB_PARITY_MODEL`): the multishot arm posts through `runMultishot`'s
+ * transport seam, the graph arm runs `chatTransportExecutor` via `chatWorkerSeam` — with the
+ * delegates edge's `continuity: 'resume'` continuing ONE session across shots exactly as
+ * `runMultishot`'s single transcript does. Both arms' REVIEWERS likewise share a substrate: the
+ * multishot driver leg posts to the router endpoint (`VB_PARITY_ROUTER_URL`) with
+ * `VB_PARITY_DRIVER_MODEL`, and the graph arm's driver brain is `runGraph`'s router brain on the
+ * same config. What remains different is exactly the treatment P1 measures: the orchestration
+ * form (transcript loop vs supervised graph with edge ledger + conserved pool). Every model is
+ * explicit — a missing env var fails loud; there is no silent fallback id.
  */
 
 import { parseArgs } from 'node:util'
 import type { MultishotTransport } from '@tangle-network/agent-eval/multishot'
+import { chatCompletionsTransport } from '@tangle-network/agent-runtime/kernel'
 import type { CellSpec, GraphArmBackend, MultishotArmBackend, ParityRecord } from './arms'
 import { runGraphArm, runMultishotArm } from './arms'
 import { offlineGraphBackend, offlineMultishotBackend } from './offline'
@@ -51,22 +67,30 @@ function parseCli(argv: string[]): CliOptions {
 function parityCell(index: number, shots: number): CellSpec {
   return {
     task: `parity cell ${index + 1}: make the failing test suite pass`,
-    coderProfile: { name: 'coder', prompt: { systemPrompt: 'Make tests pass.' } },
+    // The coder model is PINNED on its profile (the arms refuse a model-less coder — a silent
+    // fallback could let the two arms drift apart); offline it names the scripted transport.
+    // The reviewer profile stays model-less: as the graph ROOT it is materialized by the driver
+    // brain, and the driver model is substrate config (multishot backend / graph RouterConfig).
+    coderProfile: {
+      name: 'coder',
+      model: { default: 'scripted/parity-coder' },
+      prompt: { systemPrompt: 'Make tests pass.' },
+    },
     reviewerProfile: { name: 'reviewer', prompt: { systemPrompt: 'Verify.' } },
     shots,
     budget: { maxIterations: 30, maxTokens: 100_000 },
   }
 }
 
-/** The live cell: same shape, plus the coder's bridge wire id and the marker contract the live
- *  completion check reads (see {@link LIVE_PASS_MARKER}). */
-function liveParityCell(index: number, shots: number, model: string): CellSpec {
+/** The live cell: same shape, with BOTH models from the environment and the marker contract the
+ *  live completion check reads (see {@link LIVE_PASS_MARKER}). */
+function liveParityCell(index: number, shots: number, env: LiveEnv): CellSpec {
   const base = parityCell(index, shots)
   return {
     ...base,
     coderProfile: {
       ...base.coderProfile,
-      model: { default: model },
+      model: { default: env.coderModel },
       prompt: {
         systemPrompt:
           'Make tests pass. Print the exact line ' +
@@ -76,55 +100,92 @@ function liveParityCell(index: number, shots: number, model: string): CellSpec {
   }
 }
 
-// ── Live cli-bridge wiring (NOT executed by any gate — the later live entry) ───
+// ── Live wiring (NOT executed by any gate — the live entry) ────────────────────
 
-interface BridgeEnv {
+interface LiveEnv {
+  /** The bare chat-completions endpoint BOTH arms' coders speak. */
   url: string
   bearer: string
-  model: string
+  /** The coder wire model id, identical in both arms. */
+  coderModel: string
+  /** The router substrate BOTH arms' reviewers run on. */
+  routerUrl: string
+  routerKey: string
+  driverModel: string
 }
 
-function requireBridgeEnv(): BridgeEnv {
-  const url = process.env.VB_CLI_BRIDGE_URL
-  const bearer = process.env.VB_CLI_BRIDGE_BEARER
-  const model = process.env.VB_PARITY_MODEL
-  if (!url || !bearer || !model) {
+function requireLiveEnv(): LiveEnv {
+  const read = {
+    VB_CLI_BRIDGE_URL: process.env.VB_CLI_BRIDGE_URL,
+    VB_CLI_BRIDGE_BEARER: process.env.VB_CLI_BRIDGE_BEARER,
+    VB_PARITY_MODEL: process.env.VB_PARITY_MODEL,
+    VB_PARITY_ROUTER_URL: process.env.VB_PARITY_ROUTER_URL,
+    VB_PARITY_ROUTER_KEY: process.env.VB_PARITY_ROUTER_KEY,
+    VB_PARITY_DRIVER_MODEL: process.env.VB_PARITY_DRIVER_MODEL,
+  }
+  const missing = Object.entries(read)
+    .filter(([, value]) => !value)
+    .map(([key]) => key)
+  if (missing.length > 0) {
     throw new Error(
-      'cli-bridge backend needs VB_CLI_BRIDGE_URL, VB_CLI_BRIDGE_BEARER and VB_PARITY_MODEL ' +
-        '(the coder bridge wire id, e.g. pi/deepseek) in the environment',
+      `cli-bridge backend: missing ${missing.join(', ')} — the coder endpoint/bearer/model ` +
+        '(VB_CLI_BRIDGE_URL, VB_CLI_BRIDGE_BEARER, VB_PARITY_MODEL) and the reviewer router ' +
+        'substrate (VB_PARITY_ROUTER_URL, VB_PARITY_ROUTER_KEY, VB_PARITY_DRIVER_MODEL) are all ' +
+        'required; no model has a fallback',
     )
   }
-  return { url, bearer, model }
+  return {
+    url: read.VB_CLI_BRIDGE_URL as string,
+    bearer: read.VB_CLI_BRIDGE_BEARER as string,
+    coderModel: read.VB_PARITY_MODEL as string,
+    routerUrl: read.VB_PARITY_ROUTER_URL as string,
+    routerKey: read.VB_PARITY_ROUTER_KEY as string,
+    driverModel: read.VB_PARITY_DRIVER_MODEL as string,
+  }
 }
 
-/** A multishot transport over cli-bridge's OpenAI-compatible chat-completions surface. */
-function bridgeTransport(env: BridgeEnv): MultishotTransport {
+/** A multishot transport over an OpenAI-compatible chat-completions surface — built on the SAME
+ *  wire function (`chatCompletionsTransport`) the graph arm's `chatTransportExecutor` uses, so
+ *  the two arms' substrate symmetry is by construction, not by parallel implementations. The
+ *  response's own cost field (`usage.cost` / `usage.cost_usd`, the cli-bridge and OpenRouter
+ *  conventions — the same read order `chatTransportExecutor` uses) maps to the result's
+ *  `costUsd`, so `runMultishot` meters the MEASURED dollars instead of firing its price-table
+ *  estimator on every live turn; a turn genuinely without one stays estimator-visible and the
+ *  row states it (`ParityRecord.usdSource`). */
+function completionsTransport(url: string, bearer: string): MultishotTransport {
+  const post = chatCompletionsTransport({ url, bearer })
   return async (req) => {
-    const res = await fetch(`${env.url.replace(/\/$/, '')}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${env.bearer}`,
-      },
-      body: JSON.stringify({
+    const body = (await post(
+      {
         model: req.model,
         messages: req.messages,
         ...(req.tools !== undefined && req.tools.length > 0 ? { tools: req.tools } : {}),
         ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
         ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
-      }),
-      ...(req.signal !== undefined ? { signal: req.signal } : {}),
-    })
-    if (!res.ok) {
-      throw new Error(`cli-bridge completion failed: ${res.status} ${await res.text()}`)
-    }
-    const body = (await res.json()) as {
+      },
+      req.signal,
+    )) as {
       choices?: Array<{ message?: { content?: string | null; tool_calls?: never[] } }>
-      usage?: { prompt_tokens?: number; completion_tokens?: number }
+      usage?: {
+        prompt_tokens?: number
+        completion_tokens?: number
+        cost?: number
+        cost_usd?: number
+      }
     }
     const message = body.choices?.[0]?.message
-    if (message === undefined) throw new Error('cli-bridge completion returned no message')
-    return { message, ...(body.usage !== undefined ? { usage: body.usage } : {}) }
+    if (message === undefined) throw new Error('chat completion returned no message')
+    const costUsd =
+      typeof body.usage?.cost === 'number'
+        ? body.usage.cost
+        : typeof body.usage?.cost_usd === 'number'
+          ? body.usage.cost_usd
+          : undefined
+    return {
+      message,
+      ...(body.usage !== undefined ? { usage: body.usage } : {}),
+      ...(costUsd !== undefined ? { costUsd } : {}),
+    }
   }
 }
 
@@ -133,24 +194,27 @@ function bridgeTransport(env: BridgeEnv): MultishotTransport {
 const LIVE_PASS_MARKER = 'ALL TESTS PASS'
 const livePassed = (text: string): boolean => text.includes(LIVE_PASS_MARKER)
 
-function liveBackends(env: BridgeEnv): {
+function liveBackends(env: LiveEnv): {
   multishot: MultishotArmBackend
   graph: GraphArmBackend
 } {
-  const transport = bridgeTransport(env)
   return {
     multishot: {
-      agentTransport: transport,
-      driverTransport: transport,
+      // Coder leg on the shared coder endpoint; reviewer (driver) leg on the shared router
+      // substrate — each leg matching its graph-arm counterpart, including the driver model.
+      agentTransport: completionsTransport(env.url, env.bearer),
+      driverTransport: completionsTransport(env.routerUrl, env.routerKey),
+      driverModel: env.driverModel,
       shotPassed: livePassed,
       apiKey: env.bearer,
       baseUrl: env.url,
     },
     graph: {
-      kind: 'bridge',
-      bridgeUrl: env.url,
-      bridgeBearer: env.bearer,
-      model: env.model,
+      kind: 'chat',
+      url: env.url,
+      bearer: env.bearer,
+      model: env.coderModel,
+      router: { routerBaseUrl: env.routerUrl, routerKey: env.routerKey, model: env.driverModel },
       shotPassed: livePassed,
     },
   }
@@ -168,15 +232,19 @@ function printRecord(row: PairedRow): void {
   const r = row.record
   console.log(
     `cell ${row.cell} ${row.arm.padEnd(5)} converged=${r.converged} shotsUsed=${r.shotsUsed} ` +
-      `tokens=${r.spend.tokens.input}/${r.spend.tokens.output} usd=${r.spend.usd} ` +
-      `wallMs=${r.wallMs} steering=${r.steeringDelivered.count}×/${r.steeringDelivered.bytes}B ` +
+      `infraShots=${r.infraShots} tokens=${r.spend.tokens.input}/${r.spend.tokens.output} ` +
+      `tokensKnown=${r.tokensKnown} usd=${r.spend.usd} usdSource=${r.usdSource} ` +
+      `usdKnown=${r.usdKnown} wallMs=${r.wallMs} ` +
+      `steering=${r.steeringDelivered.count}×/${r.steeringDelivered.bytes}B ` +
       `ledger=${r.ledger === undefined ? 'none (runMultishot has no edge ledger)' : `${r.ledger.length} rows`}`,
   )
   if (r.ledger !== undefined) {
     for (const t of r.ledger) {
       const worker = t.workerId !== undefined ? ` -> ${t.workerId}` : ''
       const reason = t.reason !== undefined ? `  (${t.reason})` : ''
-      console.log(`    #${t.traversal} ${t.edge} [${t.outcome}] ${t.bytes}B${worker}${reason}`)
+      console.log(
+        `    #${t.traversal} ${t.edge} [${t.outcome}|${t.continuity}] ${t.bytes}B${worker}${reason}`,
+      )
     }
   }
 }
@@ -195,9 +263,9 @@ export async function main(): Promise<void> {
       multishotBackend = offlineMultishotBackend(script).backend
       graphBackend = offlineGraphBackend(cell, script).backend
     } else {
-      const env = requireBridgeEnv()
+      const env = requireLiveEnv()
       const backends = liveBackends(env)
-      cell = liveParityCell(i, cli.shots, env.model)
+      cell = liveParityCell(i, cli.shots, env)
       multishotBackend = backends.multishot
       graphBackend = backends.graph
     }
