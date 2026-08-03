@@ -43,7 +43,7 @@ The live tree carries only the current `SKILL.md`; every prior surface text is r
 | --- | --- | --- | --- | --- |
 | 1 | 2026-08-03 | `582429a1` | 0.444 (k=3 re-measure in `generations/gen2.json`, n=9 holdout cells) | baseline |
 | 2 | 2026-08-03 | `4c6615b6` | 0.611 (k=3, n=9 holdout cells); 0.600 at the gen3 k=5 re-measure | SHIP (#722) |
-| 3 | 2026-08-03 | `54e7b38b` | 0.900 (k=5, n=15 holdout cells) | SHIP |
+| 3 | 2026-08-03 | `54e7b38b` (not promoted; v2 stays live) | 0.900 — invalidated | **HOLD**: verifier found case-design contamination and scorer leniency; reasons + gen4 requirements in `generations/gen3.json` `verifierHold` |
 
 ## Known upstream gap this loop will hit
 
