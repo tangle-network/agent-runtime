@@ -26,6 +26,7 @@ import type {
   AnalystRegistry,
   AnalyzeOnSettleRoute,
   AuthorizeDownMessage,
+  ContinuityMode,
   CoordinationEvent,
   MakeWorkerAgent,
   WorkerWatchOptions,
@@ -387,6 +388,10 @@ export interface SupervisorAgentDeps {
   readonly watchWorkers?: WorkerWatchOptions
   /** Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default. */
   readonly stallAfterMs?: number
+  /** Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attaches spawns of
+   *  that name to the node's latest settled worker; `spawn_agent`'s per-call `continuity`
+   *  overrides. Omit = every spawn fresh (status quo). */
+  readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
   /** PROGRESS-derived stop rule (router arm). Ends a run that has stopped learning BEFORE it
    *  exhausts a ceiling; it can never keep a run alive past one. Build it with `plateau` /
    *  `noProgressFor` / `allWorkersStalled` from `supervise/stop-rules` — the thresholds are the
@@ -501,6 +506,7 @@ export function supervisorAgent(
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
+        ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
         ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
         ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
@@ -583,6 +589,7 @@ export function supervisorAgent(
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
+        ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(onEvent ? { onEvent } : {}),
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
         ...(priorCoordination?.questions.length

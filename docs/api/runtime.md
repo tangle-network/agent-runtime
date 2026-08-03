@@ -1085,6 +1085,30 @@ Restrict which settled workers feed this lens, by profile name or spawn label. O
 
 ***
 
+### WorkerResumeContext
+
+The resume lineage a `'resume'` spawn hands the executor seam
+ ([WorkerSpawnContext.resume](#resume)). The kernel owns identity, ordering, ledger truth, and
+ spend continuity (the resumed worker reserves from the same conserved pool); the seam owns the
+ re-attachment itself — e.g. mapping `ofWorker` to a backend session id.
+
+#### Properties
+
+##### ofWorker
+
+> `readonly` **ofWorker**: `string`
+
+The prior SETTLED worker whose session the new worker continues.
+
+##### sequence
+
+> `readonly` **sequence**: `number`
+
+1-based position of the NEW worker in the node's continuity chain: a node spawned once and
+ resumed once hands the resumed worker `sequence: 2`.
+
+***
+
 ### DownMessageDeliveryAttempt
 
 A durable marker written after authorization and immediately before Runtime calls `Scope.send`.
@@ -1302,6 +1326,21 @@ Present (as the analyst id) ONLY when this spawn is an analyst-AGENT run initiat
  runtime's analyst-on-settle hook ([AnalyzeOnSettleRoute.agent](#agent)) — authored by the
  runtime, never accepted from a driver's tool arguments. A node-pinning `makeWorkerAgent`
  reads it to admit the analyst node it would refuse as a driver-authored spawn.
+
+##### continuity?
+
+> `readonly` `optional` **continuity?**: [`ContinuityMode`](#continuitymode)
+
+The EFFECTIVE continuity mode of this spawn — the spawn tool's per-call argument when given,
+ else the profile name's declared default ([CoordinationToolsOptions.continuityByProfile](mcp.md#continuitybyprofile)),
+ else `'fresh'`. Absent only from producers that predate continuity — read absence as
+ `'fresh'`.
+
+##### resume?
+
+> `readonly` `optional` **resume?**: [`WorkerResumeContext`](#workerresumecontext)
+
+Present iff `continuity === 'resume'`: the lineage the executor seam re-attaches with.
 
 ***
 
@@ -9909,6 +9948,15 @@ Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `fi
 Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
  killed). Omit = the runtime default.
 
+##### continuityByProfile?
+
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
+
+Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
+ to the node's latest settled worker (see
+ `CoordinationToolsOptions.continuityByProfile`); `spawn_agent`'s per-call `continuity`
+ argument overrides. Omit = every spawn fresh (status quo).
+
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
@@ -10886,6 +10934,12 @@ The resolved directive reference (`<surface>/v<n>`).
 ##### outcome
 
 > `readonly` **outcome**: [`EdgeDeliveryOutcome`](#edgedeliveryoutcome)
+
+##### continuity
+
+> `readonly` **continuity**: [`TraversalContinuity`](#traversalcontinuity)
+
+How this hop continued — see [TraversalContinuity](#traversalcontinuity).
 
 ##### bytes
 
@@ -13506,6 +13560,18 @@ Omit = off (status quo — no online watching, no extra events).
 Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
  at observation time — nothing is killed or retried. Omit = the runtime default.
 
+##### continuityByProfile?
+
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
+
+Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
+ the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
+ context carries the prior worker's identity (`WorkerSpawnContext.resume`), which the executor
+ seam re-attaches with. `spawn_agent`'s per-call `continuity` argument overrides in either
+ direction; `runGraph` derives this from delegates-edge `continuity`. Omit = every spawn is
+ `'fresh'` (status quo). See `CoordinationToolsOptions.continuityByProfile` for the
+ refusal semantics (no-prior / while-live / with-key) and the process-local resume boundary.
+
 ##### blobs?
 
 > `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
@@ -14281,6 +14347,14 @@ Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so 
 > `readonly` `optional` **stallAfterMs?**: `number`
 
 Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default.
+
+##### continuityByProfile?
+
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
+
+Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attaches spawns of
+ that name to the node's latest settled worker; `spawn_agent`'s per-call `continuity`
+ overrides. Omit = every spawn fresh (status quo).
 
 ##### stopRule?
 
@@ -18011,6 +18085,18 @@ Present when a commit was attempted (valid, or `commitOnInvalid`).
 
 ## Type Aliases
 
+### ContinuityMode
+
+> **ContinuityMode** = `"fresh"` \| `"resume"`
+
+How a spawn CONTINUES a node's prior work: `'fresh'` starts a brand-new session (the default,
+ and the only pre-continuity behavior); `'resume'` re-attaches to the node's most recent
+ SETTLED worker — a NEW live worker is spawned whose spawn context carries the prior worker's
+ identity ([WorkerResumeContext](#workerresumecontext)), and the executor seam owns the actual session
+ re-attachment.
+
+***
+
 ### DownMessageDeliveryOutcome
 
 > **DownMessageDeliveryOutcome** = `"delivered"` \| `"unknown-worker"` \| `"already-settled"` \| `"runtime-has-no-inbox"` \| `"scope-stopped"` \| `"runtime-error"`
@@ -18901,13 +18987,13 @@ Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the or
 
 ### GraphEdge
 
-> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-5); `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+> **GraphEdge** = \{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-5); `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \} \| \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-5); `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
+\{ `kind`: `"delegates"`; `from`: [`NodeId`](#nodeid-5); `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; `continuity?`: [`ContinuityMode`](#continuitymode); \}
 
 Work flows down. The delegation directive is DATA → versionable, sweepable, optimizable.
  Each spawn of `to` by `from` — and each mid-run steer from `from` to a live `to` worker —
@@ -18935,6 +19021,19 @@ Work flows down. The delegation directive is DATA → versionable, sweepable, op
 
 Cyclic-graph backstop: traversals beyond this REFUSE (fail loud). Default
  [defaultEdgeTraversalCap](#defaultedgetraversalcap).
+
+###### continuity?
+
+> `readonly` `optional` **continuity?**: [`ContinuityMode`](#continuitymode)
+
+Default continuity for this edge's SPAWN traversals. `'resume'` makes every spawn after
+ the node's first re-attach to its most recent SETTLED worker: a NEW live worker whose
+ spawn context carries `resume: { ofWorker, sequence }` for the executor seam, spending
+ from the same conserved pool — the node's first spawn is effectively `'fresh'`, and a
+ spawn while a prior worker is still live refuses loudly (steer is the live channel).
+ The driver's per-call `spawn_agent` `continuity` argument overrides either way. Omit =
+ `'fresh'` (today's behavior, byte-identical). Caps count resumes exactly like fresh
+ spawns.
 
 ***
 
@@ -18985,6 +19084,17 @@ Observability cap: traversals beyond this are LEDGERED as exhausted (`unpropagat
 ### EdgeDeliveryOutcome
 
 > **EdgeDeliveryOutcome** = `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`
+
+***
+
+### TraversalContinuity
+
+> **TraversalContinuity** = [`ContinuityMode`](#continuitymode) \| `"steer"`
+
+How one ledgered hop CONTINUED: a spawn traversal stamps its effective spawn mode
+ (`'fresh'` | `'resume'`), and every mid-run delivery into an already-live recipient — a
+ driver steer leg and every analyzes delivery (routed steer or driver-destined finding) —
+ stamps `'steer'`. Zero ambiguity: every row carries exactly one of the three.
 
 ***
 
@@ -19362,7 +19472,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -19668,7 +19778,7 @@ A driver's OWN inference spend, journaled separately from spawned-child work —
 
 ##### Type Literal
 
-\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -19717,6 +19827,16 @@ The resolved directive reference (`<surface>/v<n>`), never the directive bytes.
 ###### outcome
 
 > **outcome**: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`
+
+###### continuity?
+
+> `optional` **continuity?**: `"fresh"` \| `"resume"` \| `"steer"`
+
+How the hop CONTINUED the node's work: spawn traversals stamp their effective mode
+ (`'fresh'` = new session, `'resume'` = re-attached to the node's prior settled session),
+ and every mid-run delivery into an already-live recipient — a driver steer leg and every
+ analyzes delivery — stamps `'steer'`. Optional only so journals written before
+ continuity stamping remain replayable; every new event carries it.
 
 ###### bytes
 
@@ -23623,6 +23743,13 @@ Run the ONLINE detector panel over each worker's live tool trace (raises `findin
 `number`
 
 Idle time after which `observe_agent` reports a worker as stalled.
+
+###### continuityByProfile?
+
+`Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
+
+Default continuity per worker profile name — `'resume'` re-attaches spawns of that name to
+ the node's latest settled worker; the tool's per-call `continuity` overrides.
 
 ###### onEvent?
 
