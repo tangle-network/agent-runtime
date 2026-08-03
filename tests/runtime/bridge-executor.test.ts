@@ -793,7 +793,7 @@ describe('profile-selected model keeps its provider', () => {
     ).toBe('pi/seam-default')
   })
 
-  it('keeps the configured model when a real per-create override delegates selection', async () => {
+  it('uses the harness configured model when a real per-create override delegates selection', async () => {
     const seen: Array<Record<string, unknown>> = []
     bridgeHttpHandler = (payload) => {
       seen.push(payload)
@@ -805,6 +805,6 @@ describe('profile-selected model keeps its provider', () => {
       model: { model: HARNESS_NATIVE_MODEL },
     })
 
-    expect(seen[0]?.model).toBe('pi/seam-default')
+    expect(seen[0]?.model).toBe('pi')
   })
 })

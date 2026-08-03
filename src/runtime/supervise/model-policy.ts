@@ -18,7 +18,12 @@ import { ConfigError } from '../../errors'
 export function concreteModelId(model: string | undefined): string | undefined {
   if (model === undefined) return undefined
   const id = model.trim()
-  return id.length > 0 && id !== HARNESS_NATIVE_MODEL ? id : undefined
+  return id.length > 0 && !isHarnessNativeModel(id) ? id : undefined
+}
+
+/** Whether a model value delegates selection to the chosen execution system. */
+export function isHarnessNativeModel(model: string | undefined): boolean {
+  return model?.trim() === HARNESS_NATIVE_MODEL
 }
 
 /** Return a profile's explicitly selected provider model, if it has one. */
@@ -32,8 +37,9 @@ export function concreteProfileModel(profile: Pick<AgentProfile, 'model'>): stri
  * preferences. The input profile is never mutated.
  */
 export function profileForExecution(profile: AgentProfile): AgentProfile {
-  if (profile.model?.default !== HARNESS_NATIVE_MODEL) return profile
-  const { default: _runtimeSelected, ...remainingModel } = profile.model
+  const model = profile.model
+  if (!isHarnessNativeModel(model?.default) || model === undefined) return profile
+  const { default: _runtimeSelected, ...remainingModel } = model
   const { model: _model, ...remainingProfile } = profile
   return Object.keys(remainingModel).length > 0
     ? { ...remainingProfile, model: remainingModel }

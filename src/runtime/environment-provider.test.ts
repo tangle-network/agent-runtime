@@ -1,3 +1,4 @@
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
   BackendType,
@@ -1083,6 +1084,53 @@ describe('environment provider adapters', () => {
     await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
 
     expect(executor.resultArtifact().out).toMatchObject({ content: 'from-package' })
+  })
+
+  it('keeps the runtime-selected model marker out of provider.create', async () => {
+    let createdProfile: AgentProfile | string | undefined
+    let taskProfile: AgentProfile | undefined
+    const provider: AgentEnvironmentProvider = {
+      name: 'runtime-model-provider',
+      capabilities: () => fakeCapabilities(),
+      async create(input) {
+        createdProfile = input.profile
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'result', data: { finalText: 'provider-selected-model' } }
+          },
+        })
+      },
+    }
+    const factory = createExecutor({
+      backend: 'provider',
+      provider,
+      profileForCreate: (profile) => ({ ...profile, description: 'create-only transform' }),
+      taskToTurn: (task, profile) => {
+        taskProfile = profile
+        return { prompt: String(task) }
+      },
+    })
+    const profile: AgentProfile = {
+      name: 'runtime-model-worker',
+      model: {
+        provider: 'tangle-router',
+        default: ` ${HARNESS_NATIVE_MODEL} `,
+        reasoningEffort: 'high',
+      },
+    }
+    const spec: AgentSpec = { profile, harness: null }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const executor = factory(spec, ctx)
+
+    await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
+
+    expect(createdProfile).toMatchObject({
+      name: 'runtime-model-worker',
+      description: 'create-only transform',
+      model: { provider: 'tangle-router', reasoningEffort: 'high' },
+    })
+    expect((createdProfile as AgentProfile).model?.default).toBeUndefined()
+    expect(taskProfile).toBe(profile)
   })
 
   it('resolves a named provider through the runtime registry', async () => {

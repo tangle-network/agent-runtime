@@ -516,7 +516,9 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           const modelId = bareModel(axis?.model ?? models[0] ?? '')
           const backendModel = {
             ...spec.modelBackend,
-            ...(modelId !== HARNESS_NATIVE_MODEL ? { model: modelId } : {}),
+            ...(modelId !== HARNESS_NATIVE_MODEL || backendName === 'cli-bridge'
+              ? { model: modelId }
+              : {}),
           }
           return {
             // The naive steering directive = the no-signal retry floor: re-run the same case as

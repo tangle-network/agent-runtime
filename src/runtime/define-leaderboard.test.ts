@@ -207,6 +207,38 @@ describe('defineLeaderboard', () => {
     expect(executionProfile.model?.default).not.toBe(HARNESS_NATIVE_MODEL)
   })
 
+  it('sends the runtime-selected marker only to cli-bridge cells', async () => {
+    const creates: CreateSandboxOptions[] = []
+    const inner = fakeBackend()
+    const result = await board({
+      backends: {
+        'cli-bridge': () => ({
+          ...inner,
+          async create(options?: CreateSandboxOptions) {
+            creates.push(options ?? {})
+            return inner.create(options)
+          },
+        }),
+      },
+      resolveModel: () => 'kimi-k2@2026-01-01',
+    }).run([
+      '--backend',
+      'cli-bridge',
+      '--harnesses',
+      'claude-code',
+      '--models',
+      'moonshot/kimi-k2@2026-01-01',
+      '--cases',
+      'case-alpha',
+    ])
+
+    expect(result.records[0]?.model).toBe('kimi-k2@2026-01-01')
+    expect(creates).toHaveLength(1)
+    expect(creates[0]?.backend?.model?.model).toBe(HARNESS_NATIVE_MODEL)
+    const executionProfile = creates[0]?.backend?.profile as AgentProfile
+    expect(executionProfile.model?.default).toBeUndefined()
+  })
+
   it('flows a structured TArtifact through parseOutput → score → records natively', async () => {
     interface Structured {
       answer: string

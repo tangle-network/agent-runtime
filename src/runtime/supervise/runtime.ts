@@ -74,7 +74,12 @@ import type {
 import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
-import { concreteModelId, concreteProfileModel } from './model-policy'
+import {
+  concreteModelId,
+  concreteProfileModel,
+  isHarnessNativeModel,
+  profileForExecution,
+} from './model-policy'
 import {
   type ActivityLog,
   createActivityLog,
@@ -1273,11 +1278,18 @@ function bridgeCellModel(
   //
   // A concrete per-cell `backend.model.model` override is left exactly as supplied: it is a
   // caller-authored wire id, not a profile hint, and qualifying it would rewrite what the caller
-  // asked for. Eval's runtime-selected marker is the one exception: it selects the configured
-  // bridge fallback and must never cross the wire as a provider model id.
-  const hasBackendModel = backend?.model?.model !== undefined
+  // asked for. Eval's runtime-selected marker is the one exception: it selects the harness's
+  // configured model and must never cross the wire as a provider model id.
+  const backendModel = backend?.model?.model
+  const hasBackendModel = backendModel !== undefined
+  // cli-bridge already treats a bare harness id (`pi`, `codex`, …) as "use that
+  // harness's configured model". Translate Eval's marker into that existing
+  // wire form rather than leaking `default` or substituting an unrelated fallback.
+  if (hasBackendModel && isHarnessNativeModel(backendModel)) {
+    return harness ?? concreteModelId(seamModel)
+  }
   const model = hasBackendModel
-    ? concreteModelId(backend.model?.model)
+    ? concreteModelId(backendModel)
     : qualifyProviderModel(profile.model)
   const fallback = concreteModelId(seamModel)
   if (!harness && !model) return fallback
@@ -2695,7 +2707,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       })
     }
     case 'provider': {
-      const { provider, registry, taskToTurn, ...decisionData } = config
+      const { provider, registry, profileForCreate, taskToTurn, ...decisionData } = config
       const snapshot = detachedSnapshot(decisionData, 'createExecutor provider config')
       // A registry is a live service. Resolve its mutable name mapping exactly once at intake and
       // retain the resulting provider instance, never the registry lookup for later execution.
@@ -2703,6 +2715,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       return Object.freeze({
         ...snapshot,
         provider: resolvedProvider,
+        ...(profileForCreate === undefined ? {} : { profileForCreate }),
         ...(taskToTurn === undefined ? {} : { taskToTurn }),
       })
     }
@@ -2868,7 +2881,12 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             runtime: providerSeam.runtime ?? (provider.name as Runtime),
           }
         }
-        return providerAsExecutor(provider, providerSeam)(spec, seamed)
+        const profileForCreate = providerSeam.profileForCreate
+        return providerAsExecutor(provider, {
+          ...providerSeam,
+          profileForCreate: (profile) =>
+            profileForExecution(profileForCreate?.(profile) ?? profile),
+        })(spec, seamed)
       }
       case 'sandbox': {
         // The sandbox executor requires a concrete harness; a spec-level harness
