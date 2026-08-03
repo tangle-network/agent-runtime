@@ -36,6 +36,7 @@ Do not move product storage transactions into a provider-neutral package.
 | One normalized streamed agent turn | `streamAgentTurn(...)` and `collectAgentTurn(...)` |
 | One task or multi-turn loop | `runAgentTask(...)`, `runAgentTaskStream(...)`, or `runAgentRounds(...)` |
 | Supervisor and workers | `supervise(...)` or `superviseSurface(...)` |
+| Static roles with versioned delegation and analysis directives | `runGraph(...)` |
 | Parallel work with a shared budget | `fanout(...)` |
 | Fixed composition | `pipeline(...)`, `panel(...)`, or `verify(...)` |
 | Product benchmark | `defineLeaderboard(...)` |

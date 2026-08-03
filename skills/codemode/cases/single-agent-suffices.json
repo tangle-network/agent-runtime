@@ -1,7 +1,0 @@
-{
-  "id": "single-agent-suffices",
-  "brief": "Summarize this document into five bullets.",
-  "expect": {
-    "correctAnswerIsNoGraph": true
-  }
-}
