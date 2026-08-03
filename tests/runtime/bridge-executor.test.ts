@@ -718,7 +718,10 @@ describe('profile-selected model keeps its provider', () => {
   // pi fell back to its own default provider and died with "No API key found for opencode" — a
   // credential error naming a provider nobody chose. Measured live against a real cli-bridge:
   // `pi/tangle-router/glm-5.2` returns 200, `pi/glm-5.2` does not.
-  async function wireModelFor(profile: Record<string, unknown>): Promise<unknown> {
+  async function wireModelFor(
+    profile: Record<string, unknown>,
+    seamModel = 'pi/seam-default',
+  ): Promise<unknown> {
     const seen: Array<Record<string, unknown>> = []
     bridgeHttpHandler = (payload) => {
       seen.push(payload)
@@ -728,7 +731,7 @@ describe('profile-selected model keeps its provider', () => {
       backend: 'bridge',
       bridgeUrl: 'http://bridge.test',
       bridgeBearer: 'secret',
-      model: 'pi/seam-default',
+      model: seamModel,
     })({ profile, harness: null } as unknown as AgentSpec, {
       signal: new AbortController().signal,
       seams: {},
@@ -775,5 +778,33 @@ describe('profile-selected model keeps its provider', () => {
         model: { provider: 'tangle-router', default: HARNESS_NATIVE_MODEL },
       }),
     ).toBe('pi/seam-default')
+  })
+
+  it('qualifies a bare configured bridge model with the selected harness', async () => {
+    expect(
+      await wireModelFor(
+        {
+          name: 'w',
+          harness: 'pi',
+          model: { provider: 'tangle-router', default: HARNESS_NATIVE_MODEL },
+        },
+        'seam-default',
+      ),
+    ).toBe('pi/seam-default')
+  })
+
+  it('keeps the configured model when a real per-create override delegates selection', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('ok', 1, 2)
+    }
+
+    await runOnce(bridgeClient('seam-default'), 'go', {
+      type: 'pi',
+      model: { model: HARNESS_NATIVE_MODEL },
+    })
+
+    expect(seen[0]?.model).toBe('pi/seam-default')
   })
 })

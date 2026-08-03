@@ -42,6 +42,7 @@ import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
 import { createInbox } from './inbox'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
+import { concreteModelId } from './model-policy'
 import { supervisorPolicyPrompt } from './prompt-registry'
 import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
@@ -196,9 +197,8 @@ function resolveSupervisorSystemPrompt(
  * applies, exactly as when `model` is absent.
  */
 export function resolveSupervisorModelId(profile: SupervisorProfile): string | undefined {
-  if (typeof profile.model === 'string') return profile.model
-  const fromHints = profile.model?.default
-  return typeof fromHints === 'string' && fromHints.length > 0 ? fromHints : undefined
+  if (typeof profile.model === 'string') return concreteModelId(profile.model)
+  return concreteModelId(profile.model?.default)
 }
 
 /**

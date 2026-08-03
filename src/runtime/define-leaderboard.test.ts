@@ -1,7 +1,9 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CreateSandboxOptions, SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   defineLeaderboard,
@@ -176,7 +178,20 @@ describe('defineLeaderboard', () => {
       /paid-call receipt/,
     )
 
+    const creates: CreateSandboxOptions[] = []
     const result = await board({
+      backends: {
+        inproc: () => {
+          const inner = fakeBackend()
+          return {
+            ...inner,
+            async create(options?: CreateSandboxOptions) {
+              creates.push(options ?? {})
+              return inner.create(options)
+            },
+          }
+        },
+      },
       resolveModel: (events) => {
         // The served model rides the backend's own usage events — here the fake
         // backend's llm_call stands in for the harness's terminal event.
@@ -185,6 +200,11 @@ describe('defineLeaderboard', () => {
       },
     }).run([...snappedAxis, '--cases', 'case-alpha'])
     expect(result.records[0]?.model).toBe('kimi-k2@2026-01-01')
+    expect(creates).toHaveLength(1)
+    expect(creates[0]?.backend?.model).toBeUndefined()
+    const executionProfile = creates[0]?.backend?.profile as AgentProfile
+    expect(executionProfile.model?.default).toBeUndefined()
+    expect(executionProfile.model?.default).not.toBe(HARNESS_NATIVE_MODEL)
   })
 
   it('flows a structured TArtifact through parseOutput → score → records natively', async () => {

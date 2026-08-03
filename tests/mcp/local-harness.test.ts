@@ -13,6 +13,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -1175,6 +1176,14 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     }
   })
 
+  it('omits the model flag when Eval delegates model selection to the harness', () => {
+    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
+      const inv = harnessInvocation(harness, profileWith(undefined, HARNESS_NATIVE_MODEL), 'go')
+      expect(inv.args).not.toContain('-m')
+      expect(inv.args).not.toContain(HARNESS_NATIVE_MODEL)
+    }
+  })
+
   it('threads BOTH systemPrompt and model together', () => {
     const inv = harnessInvocation('claude-code', profileWith('SYS', 'kimi-k2.7'), 'task')
     expect(inv.command).toBe('claude')
@@ -1307,6 +1316,14 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
         codexReproducible: true,
       }),
     ).toThrow(/requires profile\.model\.reasoningEffort/)
+    expect(() =>
+      harnessInvocation(
+        'codex',
+        { model: { default: HARNESS_NATIVE_MODEL, reasoningEffort: 'high' } },
+        'task',
+        { codexReproducible: true },
+      ),
+    ).toThrow(/requires profile\.model\.default/)
     expect(() =>
       harnessInvocation(
         'claude-code',

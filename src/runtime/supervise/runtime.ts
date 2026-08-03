@@ -29,7 +29,7 @@ import { randomUUID } from 'node:crypto'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
-import { estimateCost, HARNESS_NATIVE_MODEL, isModelPriced } from '@tangle-network/agent-eval'
+import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   agentProfileSchema,
@@ -74,6 +74,7 @@ import type {
 import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
+import { concreteModelId, concreteProfileModel } from './model-policy'
 import {
   type ActivityLog,
   createActivityLog,
@@ -375,7 +376,7 @@ function unmeteredSpend(ms: number): Spend {
  */
 export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterSeam>(ctx, routerSeamKey, 'router/inline')
-  const model = spec.profile.model?.default ?? seam.model
+  const model = concreteProfileModel(spec.profile) ?? concreteModelId(seam.model)
   if (!model) {
     throw new ValidationError(
       'routerInlineExecutor: no model — set RouterSeam.model or AgentProfile.model.default',
@@ -510,7 +511,7 @@ interface RouterToolsResponse {
  */
 export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterToolsSeam>(ctx, routerToolsSeamKey, 'router-tools')
-  const model = spec.profile.model?.default ?? seam.model
+  const model = concreteProfileModel(spec.profile) ?? concreteModelId(seam.model)
   if (!model) {
     throw new ValidationError(
       'routerToolsInlineExecutor: no model — set RouterToolsSeam.model or AgentProfile.model.default',
@@ -785,11 +786,12 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   let artifact: ExecutorResult<unknown> | undefined
   const executionId = ctx.node?.nodeId ?? `sandbox-run-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
+  const profileModel = concreteProfileModel(spec.profile)
   const sandboxMaterialization = {
     effectiveProfile: spec.profile,
     backend: harness,
-    model: spec.profile.model?.default
-      ? ({ status: 'known', id: spec.profile.model.default } as const)
+    model: profileModel
+      ? ({ status: 'known', id: profileModel } as const)
       : ({ status: 'unknown', reason: 'sandbox harness selected its default model' } as const),
     execution: {
       kind: 'run',
@@ -808,7 +810,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     binding: {
       executionId,
       harness,
-      model: spec.profile.model?.default ?? null,
+      model: profileModel ?? null,
     },
     descriptor: { kind: 'sandbox-run', transport: 'sandbox', backend: harness },
   }
@@ -1244,11 +1246,8 @@ function killWithGrace(
  * IS the caller's declared intent rather than a gap to fill.
  */
 function qualifyProviderModel(model: AgentProfile['model']): string | undefined {
-  const id = model?.default
-  // Eval uses this sentinel when the profile intentionally delegates model
-  // selection to the configured runtime. It is provenance metadata, not a
-  // provider model id and must never cross the bridge wire literally.
-  if (!id || id === HARNESS_NATIVE_MODEL) return undefined
+  const id = concreteModelId(model?.default)
+  if (!id) return undefined
   const provider = model?.provider
   if (!provider || id.includes('/')) return id
   return `${provider}/${id}`
@@ -1272,13 +1271,20 @@ function bridgeCellModel(
   // <that provider>" — a credential error naming a provider the caller never chose. Measured live;
   // the same request with `pi/tangle-router/glm-5.2` returns 200.
   //
-  // A per-cell `backend.model.model` override is left exactly as supplied: it is a caller-authored
-  // wire id, not a profile hint, and qualifying it would rewrite what the caller asked for.
-  const model = backend?.model?.model ?? qualifyProviderModel(profile.model)
-  if (!harness && !model) return seamModel
+  // A concrete per-cell `backend.model.model` override is left exactly as supplied: it is a
+  // caller-authored wire id, not a profile hint, and qualifying it would rewrite what the caller
+  // asked for. Eval's runtime-selected marker is the one exception: it selects the configured
+  // bridge fallback and must never cross the wire as a provider model id.
+  const hasBackendModel = backend?.model?.model !== undefined
+  const model = hasBackendModel
+    ? concreteModelId(backend.model?.model)
+    : qualifyProviderModel(profile.model)
+  const fallback = concreteModelId(seamModel)
+  if (!harness && !model) return fallback
   if (!harness) return model
   if (model) return model.startsWith(`${harness}/`) ? model : `${harness}/${model}`
-  return seamModel?.startsWith(`${harness}/`) ? seamModel : undefined
+  if (!fallback) return undefined
+  return fallback.startsWith(`${harness}/`) ? fallback : `${harness}/${fallback}`
 }
 
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {

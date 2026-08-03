@@ -25,6 +25,7 @@ import { ValidationError } from '../../errors'
 import { type RouterConfig, routerChatWithUsage } from '../router-client'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
+import { concreteProfileModel } from './model-policy'
 import { supervisorPolicyPrompt } from './prompt-registry'
 import type { Agent, AgentSpec, Executor, ExecutorResult } from './types'
 
@@ -138,7 +139,7 @@ export function authoredWorker(
     temperature?: number
   },
 ): Agent<unknown, unknown> {
-  const model = profile.model?.default ?? opts.cfg.model
+  const model = concreteProfileModel(profile) ?? opts.cfg.model
   const executorFactory: NonNullable<AgentSpec['executorFactory']> = (spec, ctx) => {
     let artifact: ExecutorResult<unknown> | undefined
     const executionId = ctx.node?.nodeId ?? `authored-router-${profile.name}`

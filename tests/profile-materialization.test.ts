@@ -1,3 +1,4 @@
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   AGENT_PROFILE_MATERIALIZATION_AXES as CANONICAL_AXES,
@@ -363,6 +364,22 @@ describe('profile materialization contracts', () => {
       ).backend?.type,
     ).toBe('amp')
     expect(buildBackendOptions({ name: 'a' }, undefined).backend?.type).toBe('opencode')
+  })
+
+  it('keeps the runtime-selected model marker out of sandbox execution profiles', () => {
+    const profile: AgentProfile = {
+      name: 'runtime-selected',
+      model: {
+        default: HARNESS_NATIVE_MODEL,
+        provider: 'tangle-router',
+        reasoningEffort: 'high',
+      },
+    }
+
+    const executable = buildBackendOptions(profile, undefined).backend?.profile as AgentProfile
+    expect(executable).not.toBe(profile)
+    expect(executable.model).toEqual({ provider: 'tangle-router', reasoningEffort: 'high' })
+    expect(profile.model?.default).toBe(HARNESS_NATIVE_MODEL)
   })
 
   it('refuses a declared harness the sandbox cannot run', () => {

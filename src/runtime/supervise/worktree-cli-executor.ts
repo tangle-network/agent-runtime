@@ -37,6 +37,7 @@ import {
   worktreeProfileExecutionPlan,
 } from '../../mcp/worktree-harness'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
+import { concreteProfileModel } from './model-policy'
 import type { Executor, ExecutorResult, Spend } from './types'
 
 export type { WorktreeCommandResult, WorktreeProfileMaterializationReceipt }
@@ -150,6 +151,7 @@ export function createWorktreeCliExecutor(
   let artifact: ExecutorResult<WorktreePatchArtifact> | undefined
 
   const profilePlan = worktreeProfileExecutionPlan(options.profile, options.harness)
+  const profileModel = concreteProfileModel(options.profile)
   return attestRuntimeOwnedExecutor(
     {
       runtime: 'cli',
@@ -238,8 +240,8 @@ export function createWorktreeCliExecutor(
     {
       effectiveProfile: options.profile,
       backend: `cli-worktree:${options.harness}`,
-      model: options.profile.model?.default
-        ? { status: 'known', id: options.profile.model.default }
+      model: profileModel
+        ? { status: 'known', id: profileModel }
         : { status: 'unknown', reason: `${options.harness} selected its configured default model` },
       execution: { kind: 'worktree-run', id: runId },
       materializer: 'agent-profile-worktree-plan',
@@ -263,7 +265,7 @@ export function createWorktreeCliExecutor(
         repoRoot: options.repoRoot,
         runId,
         harness: options.harness,
-        model: options.profile.model?.default ?? null,
+        model: profileModel ?? null,
         baseRef: options.baseRef ?? 'HEAD',
       },
       descriptor: {

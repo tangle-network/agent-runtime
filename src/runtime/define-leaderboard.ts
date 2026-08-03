@@ -37,6 +37,7 @@ import {
   type AgentProfile,
   CODING_HARNESSES,
   expandProfileAxes,
+  HARNESS_NATIVE_MODEL,
   type HarnessType,
   harnessAxisOf,
   type MaximumCharge,
@@ -513,6 +514,10 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           // whichever backend client runs the cell.
           const axis = harnessAxisOf(cellProfile)
           const modelId = bareModel(axis?.model ?? models[0] ?? '')
+          const backendModel = {
+            ...spec.modelBackend,
+            ...(modelId !== HARNESS_NATIVE_MODEL ? { model: modelId } : {}),
+          }
           return {
             // The naive steering directive = the no-signal retry floor: re-run the same case as
             // an independent attempt until one scores (>0) or the shot cap. The policy is data
@@ -532,7 +537,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
                     sandboxOverrides: {
                       backend: {
                         type: axis.harness,
-                        model: { ...spec.modelBackend, model: modelId },
+                        ...(Object.keys(backendModel).length > 0 ? { model: backendModel } : {}),
                       },
                     } as never,
                   }

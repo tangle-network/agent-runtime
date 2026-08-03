@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type AgentSpec, createExecutor } from '../../src/runtime'
@@ -80,4 +81,35 @@ describe('router executor model precedence', () => {
 
     expect(request?.model).toBe('profile-selected-model')
   })
+
+  it.each(['router', 'router-tools'] as const)(
+    'uses the %s configured model when Eval delegates model selection',
+    async (backend) => {
+      let request: Record<string, unknown> | undefined
+      const routerBaseUrl = await startRouter((body) => {
+        request = body
+      })
+      const factory = createExecutor({
+        backend,
+        routerBaseUrl,
+        routerKey: 'key',
+        model: 'backend-fallback-model',
+        ...(backend === 'router-tools' ? { tools: [], executeToolCall: async () => '' } : {}),
+      })
+      const executor = factory(
+        {
+          profile: {
+            name: 'runtime-selected-model',
+            model: { default: HARNESS_NATIVE_MODEL },
+          },
+          harness: null,
+        },
+        { signal: new AbortController().signal, seams: {} },
+      )
+
+      await executor.execute('do the task', new AbortController().signal)
+
+      expect(request?.model).toBe('backend-fallback-model')
+    },
+  )
 })
