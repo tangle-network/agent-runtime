@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.123.0
+
+### Current shared contracts and honest CLI accounting
+
+- Runtime now develops and publishes against Agent Eval 0.142.2, Agent Interface 0.43.0, Agent Knowledge 7.0.7, the profile materializer 0.10.2, and Sandbox 0.17.2.
+- Runtime requires Agent Interface 0.43.x so every package in this release set uses the same profile contract.
+- Runtime passes the canonical Agent Interface profile directly through Sandbox now that both packages share the same contract.
+- A CLI worker that reports no usage now leaves token and dollar cost unknown instead of recording a measured zero.
+- The 0.122.0 agent-graph API, which reached `main` without a published tag, ships in this release.
+
 ## 0.122.0
 
 ### Agent graphs: loops as data, edges you can audit
