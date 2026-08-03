@@ -32,6 +32,7 @@ import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
   type AuthorizeDownMessage,
+  type ContinuityMode,
   type CoordinationEvent,
   coordinationVerbNames,
   createCoordinationTools,
@@ -108,6 +109,11 @@ export interface DriverAgentOptions {
   /** Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
    *  killed). Omit = the runtime default. */
   readonly stallAfterMs?: number
+  /** Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
+   *  to the node's latest settled worker (see
+   *  `CoordinationToolsOptions.continuityByProfile`); `spawn_agent`'s per-call `continuity`
+   *  argument overrides. Omit = every spawn fresh (status quo). */
+  readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -358,6 +364,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+        ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
         ...(opts.replaySettlements ? { replaySettlements: true } : {}),
         ...(opts.priorCoordination?.questions.length

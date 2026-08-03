@@ -28,6 +28,13 @@
  *   9. watchWorkers passthrough: RunGraphOptions forwards the online detector panel to
  *      supervise(), so a live worker's stuck-loop finding reaches the driver on the bus with no
  *      leaf-seam wiring; omitted = off.
+ *  10. Continuity as data: a delegates edge's `continuity: 'resume'` makes every spawn after the
+ *      node's first a RESUME of its latest settled session (lineage handed to the executor seam,
+ *      spend still in the one conserved pool), every ledger row and journal twin stamps how its
+ *      hop continued ('fresh' | 'resume' | 'steer'), the per-call override wins in both
+ *      directions, and the refusals fail loud: resume-with-no-prior, resume-while-live (steer is
+ *      the live channel), resume-under-a-key, and nonsense values or analyzes edges carrying
+ *      continuity refused at validation.
  */
 
 import type { ToolSpan } from '@tangle-network/agent-eval'
@@ -1163,6 +1170,347 @@ describe('runGraph — caller hooks compose onto the same event stream', () => {
     // The caller saw the same stream the graph used for ledger binding — neither starved the other.
     expect(seen).toContain('spawn:after')
     expect(res.ledger.filter((row) => row.kind === 'delegates')[0]!.workerId).toBe('gh1:s0')
+  })
+})
+
+describe('runGraph — continuity (fresh | resume | steer as ledgered data)', () => {
+  /** driver ↔ worker with the delegates edge declaring resume as its default spawn mode. */
+  const resumeGraph = (over?: Partial<AgentGraph>): AgentGraph =>
+    twoNodeGraph({
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+          maxTraversals: 3,
+          continuity: 'resume',
+        },
+      ],
+      ...over,
+    })
+  const spawnTurn = (task: string, extra: Record<string, unknown> = {}) => ({
+    toolCalls: [
+      { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task, ...extra } },
+    ],
+  })
+  const awaitTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
+
+  it("a resume edge: spawn 1 'fresh', spawn 2 'resume' with lineage at the executor seam, spend in ONE pool", async () => {
+    const contexts: Array<WorkerSpawnContext | undefined> = []
+    const journal = new InMemorySpawnJournal()
+    const res = await runGraph(resumeGraph(), {
+      runId: 'gc1',
+      journal,
+      makeWorkerAgent: leafSeam([], {}, contexts),
+      brain: scriptedBrain([
+        spawnTurn('shot 1'),
+        awaitTurn,
+        spawnTurn('shot 2'),
+        awaitTurn,
+        { content: 'done' },
+      ]),
+    })
+    expect(res.result.kind).toBe('winner')
+
+    // The executor seam received the kernel-authored continuity facts: the node's FIRST spawn is
+    // effectively fresh (nothing to resume), the second re-attaches to shot 1's worker.
+    expect(contexts).toHaveLength(2)
+    expect(contexts[0]?.continuity).toBe('fresh')
+    expect(contexts[0]?.resume).toBeUndefined()
+    expect(contexts[1]?.continuity).toBe('resume')
+    expect(contexts[1]?.resume).toEqual({ ofWorker: 'gc1:s0', sequence: 2 })
+
+    // The ledger stamps how each hop continued — zero ambiguity, and the row's workerId is the
+    // NEW live worker (the resume lineage lives in the spawn context and the journal twin).
+    const rows = res.ledger.filter((row) => row.kind === 'delegates')
+    expect(rows.map((row) => [row.traversal, row.outcome, row.continuity, row.workerId])).toEqual([
+      [1, 'delivered', 'fresh', 'gc1:s0'],
+      [2, 'delivered', 'resume', 'gc1:s1'],
+    ])
+
+    // The journal twin carries the same stamps.
+    const events = (await journal.loadTree('gc1')) ?? []
+    const edgeEvents = events.filter(
+      (ev): ev is Extract<SpawnEvent, { kind: 'edge' }> => ev.kind === 'edge',
+    )
+    expect(edgeEvents.map((ev) => [ev.traversal, ev.continuity])).toEqual([
+      [1, 'fresh'],
+      [2, 'resume'],
+    ])
+
+    // Spend continuity: both legs of the resumed session drew from the SAME conserved pool —
+    // worker (5/5) + resumed worker (5/5) in one Spend.
+    if (res.result.kind === 'winner') {
+      expect(res.result.spentTotal.tokens.input).toBe(10)
+      expect(res.result.spentTotal.tokens.output).toBe(10)
+    }
+  })
+
+  it('the per-call override wins in BOTH directions', async () => {
+    // Direction 1: a resume edge, but the driver demands a FRESH second spawn.
+    const freshOverride: Array<WorkerSpawnContext | undefined> = []
+    const res1 = await runGraph(resumeGraph(), {
+      runId: 'gc2a',
+      makeWorkerAgent: leafSeam([], {}, freshOverride),
+      brain: scriptedBrain([
+        spawnTurn('shot 1'),
+        awaitTurn,
+        spawnTurn('shot 2', { continuity: 'fresh' }),
+        awaitTurn,
+        { content: 'done' },
+      ]),
+    })
+    expect(res1.result.kind).toBe('winner')
+    expect(freshOverride[1]?.continuity).toBe('fresh')
+    expect(freshOverride[1]?.resume).toBeUndefined()
+    expect(res1.ledger.map((row) => row.continuity)).toEqual(['fresh', 'fresh'])
+
+    // Direction 2: a continuity-free edge (today's default), but the driver demands a resume.
+    const resumeOverride: Array<WorkerSpawnContext | undefined> = []
+    const res2 = await runGraph(twoNodeGraph(), {
+      runId: 'gc2b',
+      makeWorkerAgent: leafSeam([], {}, resumeOverride),
+      brain: scriptedBrain([
+        spawnTurn('shot 1'),
+        awaitTurn,
+        spawnTurn('shot 2', { continuity: 'resume' }),
+        awaitTurn,
+        { content: 'done' },
+      ]),
+    })
+    expect(res2.result.kind).toBe('winner')
+    expect(resumeOverride[1]?.continuity).toBe('resume')
+    expect(resumeOverride[1]?.resume).toEqual({ ofWorker: 'gc2b:s0', sequence: 2 })
+    expect(res2.ledger.map((row) => row.continuity)).toEqual(['fresh', 'resume'])
+  })
+
+  it('an EXPLICIT resume with no prior settled worker fails loud at the tool — nothing spawns, nothing is ledgered', async () => {
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gc3',
+      makeWorkerAgent: leafSeam([]),
+      brain: scriptedBrain(
+        [spawnTurn('shot 1', { continuity: 'resume' }), { content: 'give up' }],
+        seen,
+      ),
+    })
+    // The refusal happened BEFORE the factory: no worker, no traversal, an honest no-winner.
+    expect(res.result.kind).not.toBe('winner')
+    expect(res.ledger).toHaveLength(0)
+    const transcript = JSON.stringify(seen)
+    expect(transcript).toContain('resume-no-prior')
+    expect(transcript).toContain('no settled prior worker')
+  })
+
+  it('resume while the prior worker is STILL LIVE fails loud and names steer as the live channel', async () => {
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const res = await runGraph(resumeGraph(), {
+      runId: 'gc4',
+      makeWorkerAgent: leafSeam([], { awaitSteer: true }),
+      brain: scriptedBrain(
+        [
+          spawnTurn('shot 1'),
+          spawnTurn('shot 2 while shot 1 is live'), // the edge default asks resume → refused
+          {
+            toolCalls: [
+              { name: 'steer_agent', arguments: { workerId: 'gc4:s0', instruction: 'deliver' } },
+            ],
+          },
+          awaitTurn,
+          { content: 'done' },
+        ],
+        seen,
+      ),
+    })
+    expect(res.result.kind).toBe('winner')
+    const transcript = JSON.stringify(seen)
+    expect(transcript).toContain('resume-while-live')
+    expect(transcript).toContain('steer_agent')
+    // The refused resume never traversed; the ledger holds the fresh spawn + the steer leg only.
+    expect(res.ledger.map((row) => [row.outcome, row.continuity])).toEqual([
+      ['delivered', 'fresh'],
+      ['delivered', 'steer'],
+    ])
+  })
+
+  it('resume after a FAILED prior worker is allowed — the seam decides if the session is salvageable', async () => {
+    const seen: Array<{ continuity?: string; resumeOf?: string }> = []
+    const res = await runGraph(
+      twoNodeGraph({
+        edges: [
+          {
+            kind: 'delegates',
+            from: 'driver',
+            to: 'worker',
+            directive: promptHandle('delegates/worker-brief/v1'),
+            continuity: 'resume',
+          },
+        ],
+      }),
+      {
+        runId: 'grf',
+        makeWorkerAgent: (profile, ctx) => {
+          seen.push({ continuity: ctx?.continuity, resumeOf: ctx?.resume?.ofWorker })
+          // First spawn fails; second must still receive the failed worker's lineage.
+          return leafSeam([], seen.length === 1 ? { fail: true } : {})(profile, ctx)
+        },
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          {
+            toolCalls: [
+              {
+                name: 'spawn_agent',
+                arguments: { profile: { name: 'worker' }, task: 'again', continuity: 'resume' },
+              },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'done' },
+        ]),
+      },
+    )
+    expect(res.result.kind).toBe('winner')
+    expect(seen[1]!.continuity).toBe('resume')
+    expect(seen[1]!.resumeOf).toBe('grf:s0')
+    const rows = res.ledger.filter((r) => r.kind === 'delegates' && r.continuity === 'resume')
+    expect(rows).toHaveLength(1)
+  })
+
+  it('resume cannot ride a semantic key — keys are run-once, resume runs again', async () => {
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gc5',
+      makeWorkerAgent: leafSeam([]),
+      brain: scriptedBrain(
+        [
+          spawnTurn('shot 1', { key: 'build' }),
+          awaitTurn,
+          spawnTurn('shot 2', { key: 'build', continuity: 'resume' }),
+          { content: 'done' },
+        ],
+        seen,
+      ),
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(JSON.stringify(seen)).toContain('resume-with-key')
+    // Only the keyed fresh spawn traversed.
+    expect(res.ledger.map((row) => row.continuity)).toEqual(['fresh'])
+  })
+
+  it('a continuity-free graph stamps fresh spawns and steer legs — the back-compat truth', async () => {
+    const journal = new InMemorySpawnJournal()
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gc6',
+      journal,
+      makeWorkerAgent: leafSeam([], { awaitSteer: true }),
+      brain: scriptedBrain([
+        spawnTurn('build it'),
+        {
+          toolCalls: [
+            { name: 'steer_agent', arguments: { workerId: 'gc6:s0', instruction: 'deliver now' } },
+          ],
+        },
+        awaitTurn,
+        { content: 'done' },
+      ]),
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(res.ledger.map((row) => [row.traversal, row.continuity])).toEqual([
+      [1, 'fresh'],
+      [2, 'steer'],
+    ])
+    const events = (await journal.loadTree('gc6')) ?? []
+    const edgeEvents = events.filter(
+      (ev): ev is Extract<SpawnEvent, { kind: 'edge' }> => ev.kind === 'edge',
+    )
+    expect(edgeEvents.map((ev) => ev.continuity)).toEqual(['fresh', 'steer'])
+  })
+
+  it('analyzes traversals stamp steer — a delivery into a live recipient, never a spawn', async () => {
+    const analysts = {
+      kinds: [{ id: 'convergence', description: 'is the worker converging', area: 'progress' }],
+      run: async () => [{ claim: 'ok' }],
+    }
+    const res = await runGraph(
+      twoNodeGraph({
+        edges: [
+          {
+            kind: 'delegates',
+            from: 'driver',
+            to: 'worker',
+            directive: promptHandle('delegates/worker-brief/v1'),
+          },
+          {
+            kind: 'analyzes',
+            analyst: 'convergence',
+            over: ['worker'],
+            to: 'driver',
+            directive: promptHandle('analyzes/findings-report/v1'),
+          },
+        ],
+      }),
+      {
+        runId: 'gc7',
+        analysts,
+        makeWorkerAgent: leafSeam([], { withTrace: true }),
+        brain: scriptedBrain([spawnTurn('build it'), awaitTurn, awaitTurn, { content: 'done' }]),
+      },
+    )
+    expect(res.result.kind).toBe('winner')
+    const analyzed = res.ledger.filter((row) => row.kind === 'analyzes')
+    expect(analyzed).toHaveLength(1)
+    expect(analyzed[0]!.continuity).toBe('steer')
+  })
+
+  it('refuses a nonsense continuity value on a delegates edge at validation', () => {
+    const graph = twoNodeGraph({
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+          continuity: 'warm' as never,
+        },
+      ],
+    })
+    expect(() =>
+      runGraph(graph, { makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+    ).toThrow(/invalid continuity "warm"/)
+  })
+
+  it('refuses continuity on an analyzes edge — analysts are spawned by the analyst machinery', () => {
+    const analysts = {
+      kinds: [{ id: 'convergence', description: 'x', area: 'progress' }],
+      run: async () => [],
+    }
+    const graph = twoNodeGraph({
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+        {
+          kind: 'analyzes',
+          analyst: 'convergence',
+          over: ['worker'],
+          to: 'driver',
+          directive: promptHandle('analyzes/findings-report/v1'),
+          continuity: 'resume',
+        } as never,
+      ],
+    })
+    expect(() =>
+      runGraph(graph, { analysts, makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+    ).toThrow(/continuity is a delegates-edge axis only/)
   })
 })
 

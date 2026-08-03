@@ -936,6 +936,12 @@ export type SpawnEvent =
       /** 1-based traversal ordinal for THIS edge within the run. */
       traversal: number
       outcome: 'delivered' | 'stripped' | 'empty' | 'unpropagated'
+      /** How the hop CONTINUED the node's work: spawn traversals stamp their effective mode
+       *  (`'fresh'` = new session, `'resume'` = re-attached to the node's prior settled session),
+       *  and every mid-run delivery into an already-live recipient — a driver steer leg and every
+       *  analyzes delivery — stamps `'steer'`. Optional only so journals written before
+       *  continuity stamping remain replayable; every new event carries it. */
+      continuity?: 'fresh' | 'resume' | 'steer'
       /** Bytes of directive + payload that actually crossed the edge (0 for `empty`). */
       bytes: number
       /** Why a non-`delivered` outcome happened, when the runtime knows. */

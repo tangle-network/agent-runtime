@@ -35,6 +35,7 @@ import type {
   AnalyzeOnSettleRoute,
   AuthorizeDownMessage,
   AuthorizedDownMessage,
+  ContinuityMode,
   CoordinationEvent,
   DownMessageAuthorizationInput,
   MakeWorkerAgent,
@@ -138,6 +139,17 @@ export function workerFromBackend(
     }
     const profile = parsed.data
     assertBackendProfileMaterialization(profile, capturedBackend, 'workerFromBackend')
+    // Fail closed on a resume this seam cannot honor: workerFromBackend creates a NEW executor
+    // per spawn and has no session re-attachment, so accepting a 'resume' spawn would ledger
+    // `continuity: 'resume'` over a brand-new session — a stamp asserting something that never
+    // happened. Custom makeWorkerAgent seams that re-attach sessions are the resume consumers.
+    if (spawnContext?.continuity === 'resume') {
+      throw new ValidationError(
+        'workerFromBackend: this backend seam does not re-attach sessions and cannot honor ' +
+          "continuity: 'resume' — provide a makeWorkerAgent that resumes (it receives " +
+          "spawnContext.resume.ofWorker), or use continuity: 'fresh'",
+      )
+    }
     const name = profile.name ?? 'worker'
     // A Scope assignment is stable across reconstruction. Direct callers that omit that context
     // still get isolation, but only Scope-backed calls claim durable external-session recovery.
@@ -749,6 +761,14 @@ export interface SuperviseOptions {
   /** Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
    *  at observation time — nothing is killed or retried. Omit = the runtime default. */
   readonly stallAfterMs?: number
+  /** Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
+   *  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
+   *  context carries the prior worker's identity (`WorkerSpawnContext.resume`), which the executor
+   *  seam re-attaches with. `spawn_agent`'s per-call `continuity` argument overrides in either
+   *  direction; `runGraph` derives this from delegates-edge `continuity`. Omit = every spawn is
+   *  `'fresh'` (status quo). See `CoordinationToolsOptions.continuityByProfile` for the
+   *  refusal semantics (no-prior / while-live / with-key) and the process-local resume boundary. */
+  readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
   /** Worker output store. Defaults to in-memory. */
   readonly blobs?: ResultBlobStore
   /**
@@ -1564,6 +1584,9 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
           ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
           ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
           ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
+          ...(options.continuityByProfile
+            ? { continuityByProfile: options.continuityByProfile }
+            : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
           ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
@@ -1642,6 +1665,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(options.analyzeOnSettle ? { analyzeOnSettle: options.analyzeOnSettle } : {}),
       ...(options.watchWorkers ? { watchWorkers: options.watchWorkers } : {}),
       ...(options.stallAfterMs !== undefined ? { stallAfterMs: options.stallAfterMs } : {}),
+      ...(options.continuityByProfile ? { continuityByProfile: options.continuityByProfile } : {}),
       ...(options.stopRule ? { stopRule: options.stopRule } : {}),
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
       ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),

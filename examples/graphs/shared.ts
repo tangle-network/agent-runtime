@@ -25,6 +25,7 @@ import {
   type MakeWorkerAgent,
   type ToolLoopChat,
   type TraceSource,
+  type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
 
 // ── The scripted driver brain ──────────────────────────────────────────────────
@@ -81,6 +82,10 @@ export interface LeafSeamHooks {
   /** Called with each spawned node's live trace source (when `withTrace`), so an example can
    *  wire `watchTrace` over it — the online-watchdog seam. */
   onTraceSource?: (nodeId: string, source: TraceSource) => void
+  /** Called with each spawn's `WorkerSpawnContext` — the kernel-authored facts the executor seam
+   *  receives (continuity mode, `resume` lineage, the analyst marker), so an example can PROVE
+   *  what actually crossed the seam. */
+  onSpawnContext?: (nodeId: string, context: WorkerSpawnContext | undefined) => void
 }
 
 /** A leaf-agent factory keyed by node name. Every spawned profile (what the graph pinned + the
@@ -91,8 +96,9 @@ export function leafSeam(
   hooks: LeafSeamHooks = {},
 ): MakeWorkerAgent {
   const attempts = new Map<string, number>()
-  return (profile) => {
+  return (profile, context) => {
     received.push(profile)
+    hooks.onSpawnContext?.(profile.name ?? 'leaf', context)
     const name = profile.name ?? 'leaf'
     const opts = optsByNode[name] ?? {}
     const attempt = (attempts.get(name) ?? 0) + 1
@@ -166,7 +172,9 @@ export function printLedger(tag: string, res: GraphResult): void {
   for (const row of res.ledger) {
     const worker = row.workerId !== undefined ? ` -> ${row.workerId}` : ''
     const reason = row.reason !== undefined ? `  (${row.reason})` : ''
-    console.log(`  #${row.traversal} ${row.edge} [${row.outcome}] ${row.bytes}B${worker}${reason}`)
+    console.log(
+      `  #${row.traversal} ${row.edge} [${row.outcome}|${row.continuity}] ${row.bytes}B${worker}${reason}`,
+    )
   }
   if (res.exhaustedEdges.length > 0) {
     console.log(`exhausted edges: ${res.exhaustedEdges.join(', ')}`)

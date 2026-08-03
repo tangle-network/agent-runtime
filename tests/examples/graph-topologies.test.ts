@@ -1,5 +1,5 @@
 /**
- * The five example graph topologies (`examples/graphs/`) run offline end-to-end, and each one's
+ * The six example graph topologies (`examples/graphs/`) run offline end-to-end, and each one's
  * DECISIVE ledger facts hold — the counts, outcomes, and destinations that make the example's
  * claim true, not just "it ran":
  *
@@ -19,6 +19,10 @@
  *   5. analyst-agent-review — the analyzes analyst is a NODE: the reviewer agent is spawned on
  *      the implementer's settle and its settle output arrives as the driver's finding, one
  *      delivered analyzes traversal from the implementer's worker id.
+ *   6. shot-loop-resumed — continuity as data: the delegates edge's `continuity: 'resume'` makes
+ *      shot 1 spawn `fresh` and shots 2-3 RESUME the coder's prior settled session (the executor
+ *      seam receives `resume: { ofWorker, sequence }`), with every hop's continuity stamped in
+ *      the ledger and all three shots' spend in the one conserved pool.
  */
 
 import { runGraph } from '@tangle-network/agent-runtime/kernel'
@@ -27,9 +31,10 @@ import { analystAgentReview } from '../../examples/graphs/analyst-agent-review'
 import { bestOfN } from '../../examples/graphs/best-of-n'
 import { collaboratesReviewLoop } from '../../examples/graphs/collaborates-review-loop'
 import { shotLoop } from '../../examples/graphs/shot-loop'
+import { shotLoopResumed } from '../../examples/graphs/shot-loop-resumed'
 import { watchdogSteer } from '../../examples/graphs/watchdog-steer'
 
-describe('examples/graphs — the five topologies run offline with truthful ledgers', () => {
+describe('examples/graphs — the six topologies run offline with truthful ledgers', () => {
   it('collaborates-review-loop: every peer hop is mediated, ledgered, and addressed', async () => {
     const { graph, opts } = collaboratesReviewLoop()
     const res = await runGraph(graph, opts)
@@ -110,6 +115,39 @@ describe('examples/graphs — the five topologies run offline with truthful ledg
     ])
     // The shot budget lives on the edge: 2 of 3 traversals used, nothing exhausted.
     expect(res.exhaustedEdges).toEqual([])
+  })
+
+  it('shot-loop-resumed: shot 1 fresh, shots 2-3 resume the prior settled session, one conserved pool', async () => {
+    const { graph, opts, contexts } = shotLoopResumed()
+    const res = await runGraph(graph, opts)
+
+    expect(res.result.kind).toBe('winner')
+    if (res.result.kind === 'winner') expect(res.result.out).toEqual({ tests: 'pass' })
+
+    // The ledger states how every hop continued: the effective first spawn is fresh, each later
+    // shot re-attaches — and the shot budget (the cap) counts resumes exactly like fresh spawns.
+    expect(
+      res.ledger.map((row) => [row.edge, row.traversal, row.outcome, row.continuity, row.workerId]),
+    ).toEqual([
+      ['delegates:reviewer->coder', 1, 'delivered', 'fresh', 'rshots:s0'],
+      ['delegates:reviewer->coder', 2, 'delivered', 'resume', 'rshots:s1'],
+      ['delegates:reviewer->coder', 3, 'delivered', 'resume', 'rshots:s2'],
+    ])
+    expect(res.exhaustedEdges).toEqual([])
+
+    // The executor seam received the resume lineage the kernel authored: shot 2 continues shot
+    // 1's worker, shot 3 continues shot 2's — a session chain, in plain data.
+    expect(contexts.map((c) => [c?.continuity, c?.resume?.ofWorker, c?.resume?.sequence])).toEqual([
+      ['fresh', undefined, undefined],
+      ['resume', 'rshots:s0', 2],
+      ['resume', 'rshots:s1', 3],
+    ])
+
+    // Spend continuity: all three shots drew from the graph's ONE conserved Spend (5/5 each).
+    if (res.result.kind === 'winner') {
+      expect(res.result.spentTotal.tokens.input).toBe(15)
+      expect(res.result.spentTotal.tokens.output).toBe(15)
+    }
   })
 
   it('analyst-agent-review: the reviewer NODE runs as the analyst and its output is the finding', async () => {

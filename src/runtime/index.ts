@@ -65,12 +65,14 @@ export type {
   AuthorizeDownMessage,
   AuthorizedDownMessage,
   ContinuationInstruction,
+  ContinuityMode,
   CoordinationEvent,
   DownMessageAuthorizationInput,
   DownMessageDeliveryAttempt,
   DownMessageDeliveryOutcome,
   DownMessageEvent,
   MakeWorkerAgent,
+  WorkerResumeContext,
   WorkerSpawnContext,
   WorkerWatchOptions,
 } from './../mcp/tools/coordination'
@@ -621,6 +623,7 @@ export {
   type GraphResult,
   type RunGraphOptions,
   runGraph,
+  type TraversalContinuity,
 } from './supervise/graph'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).

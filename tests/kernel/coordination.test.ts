@@ -210,6 +210,7 @@ describe('coordination tools', () => {
     expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w0',
       assignmentId: 'ordinal:0',
+      continuity: 'fresh',
       live: 1,
       freeSlots: null,
     })
@@ -323,12 +324,14 @@ describe('coordination tools', () => {
     expect(await spawn()).toEqual({
       workerId: 'w0',
       assignmentId: 'ordinal:0',
+      continuity: 'fresh',
       live: 1,
       freeSlots: 1,
     })
     expect(await spawn()).toEqual({
       workerId: 'w1',
       assignmentId: 'ordinal:1',
+      continuity: 'fresh',
       live: 2,
       freeSlots: 0,
     })
@@ -340,6 +343,7 @@ describe('coordination tools', () => {
     expect(await spawn()).toEqual({
       workerId: 'w2',
       assignmentId: 'ordinal:2',
+      continuity: 'fresh',
       live: 2,
       freeSlots: 0,
     })
@@ -354,6 +358,7 @@ describe('coordination tools', () => {
     expect(await tool(uncapped, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w3',
       assignmentId: 'ordinal:0',
+      continuity: 'fresh',
       live: 3,
       freeSlots: null,
     })
@@ -424,6 +429,7 @@ describe('coordination tools', () => {
     expect(await spawnKeyed('a')).toEqual({
       workerId: 'w0',
       assignmentId: 'key:a',
+      continuity: 'fresh',
       live: 1,
       freeSlots: 0,
     })
@@ -438,6 +444,7 @@ describe('coordination tools', () => {
     expect(await spawnKeyed('b')).toEqual({
       workerId: 'w1',
       assignmentId: 'key:b',
+      continuity: 'fresh',
       live: 1,
       freeSlots: 0,
     })
@@ -490,6 +497,7 @@ describe('coordination tools', () => {
     ).toEqual({
       workerId: 'w0',
       assignmentId: 'ordinal:0',
+      continuity: 'fresh',
       live: 1,
       freeSlots: null,
     })

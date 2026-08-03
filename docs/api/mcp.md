@@ -4166,6 +4166,19 @@ resuming caller replays). Seeded into the question ledger verbatim — `list_que
 them, the stop policy counts the still-blocking ones, and `answer_question` can decide them.
 Omit/empty = fresh ledger (every run that is not a resume).
 
+##### continuityByProfile?
+
+> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
+
+Default continuity per PROFILE NAME (the stable node identity a graph pins). A name mapping
+to `'resume'` makes its spawns re-attach to the node's most recent settled worker whenever
+one exists — the node's FIRST spawn is effectively `'fresh'`, and a spawn while a prior
+worker of the node is still LIVE fails closed (`resume-while-live`; steer is the live-worker
+channel). The spawn tool's per-call `continuity` argument overrides the declared default in
+either direction. Omit = every spawn is `'fresh'` (status quo). Resume lineage is
+PROCESS-LOCAL (the same boundary as the analyst-run marker): workers settled by a prior
+process of a durable run are not resume targets.
+
 ***
 
 ### CoordinationTools
