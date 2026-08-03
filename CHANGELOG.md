@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Python bridge install hints match the required Eval substrate
+
+The documented `agent-eval-rpc` install commands — the `OfficialOptimizerUnavailableError` hint, the README's `officialGepa`/`officialSkillOpt` sections, and the bench GEPA seat hint — now pin `0.143.0`, the Python client published in lockstep with the `@tangle-network/agent-eval` range this package requires.
+The previous hints pinned `0.131.0`/`0.133.0`, so following them installed a bridge older than the wire protocol the installed Eval package speaks.
+
 ## 0.126.0
 
 ### Runtime, Eval, and Knowledge use one truthful cost contract
