@@ -14,28 +14,6 @@ import type { CreateSandboxOptions } from '@tangle-network/sandbox'
 type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
 type BackendOverride = NonNullable<CreateSandboxOptions['backend']>
 
-/** The AgentProfile type as @tangle-network/sandbox declares it — compiled
- *  against agent-interface 0.38, not this package's 0.40. */
-export type SandboxAgentProfile = NonNullable<BackendOverride['profile']>
-
-/**
- * Version-skew boundary: sandbox 0.16.0 types profiles against interface 0.38
- * (MCP `args`/`env`/`headers` as plain strings), while this runtime is on 0.40
- * (`AgentProfileConfigValue` objects). No published sandbox release is typed
- * against 0.40 yet, and the profile crosses this boundary as data — the values
- * are forwarded, not reinterpreted — so the only conversion is the nominal type
- * hop. This is the ONE sanctioned cast for that skew; remove both adapters when
- * sandbox releases against interface 0.40.
- */
-export function profileAsSandboxProfile(profile: AgentProfile): SandboxAgentProfile {
-  return profile as unknown as SandboxAgentProfile
-}
-
-/** Reverse hop of the same skew boundary — see `profileAsSandboxProfile`. */
-export function sandboxProfileAsProfile(profile: SandboxAgentProfile): AgentProfile {
-  return profile as unknown as AgentProfile
-}
-
 /**
  * Harnesses the sandbox accepts as a `backend.type`. `gemini` is a
  * `HarnessType` with no sandbox backend, so it is absent here and a profile
@@ -110,7 +88,7 @@ export function buildBackendOptions(
     ...base,
     backend: {
       type: resolveBackendType(profile, overrideBackend),
-      profile: profileAsSandboxProfile(profile),
+      profile,
       ...(overrideBackend?.model ? { model: overrideBackend.model } : {}),
       ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
     },
