@@ -2,10 +2,8 @@
   "id": "floor-trap-pi",
   "brief": "Cheap little task: have a pi agent write a one-line file. Keep the budget tight, like a few thousand tokens.",
   "expect": {
-    "nodes": 1,
+    "delegatedWorkers": 1,
     "analyzesWarranted": false,
-    "floorTrap": true,
-    "mustBudgetAtLeast": 31211,
-    "correctAuthorOverridesBrief": true
+    "mustBudgetAtLeast": 31211
   }
 }

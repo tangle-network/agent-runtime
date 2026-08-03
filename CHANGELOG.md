@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.127.0
+
+### One canonical loop API
+
+BREAKING. The superseded `runLoop`, `RunLoopOptions`, and `StdioToolDescriptor` exports are removed.
+Callers use `runAgentRounds`, `RunAgentRoundsOptions`, and `McpToolDescriptor`, which were already the canonical generalized names for the same behavior.
+The benchmark arm formerly named `loop` is now named `multishot`, which describes the compared method without referring to the deleted alias.
+
+### Agent graphs fail before spend and reuse the existing Eval path
+
+- Graph validation now refuses an `analyzes` edge over the root because that edge can never fire.
+- The `agent-graphs` skill turns a loose task into either a single-agent run, a fixed graph, or a dynamic `supervise()` workflow according to what the task actually requires.
+- The accompanying benchmark executable supplies Agent Eval's caller-owned authoring and deterministic scoring functions and records a baseline without adding a second optimization system.
+- The author is one canonical, overridable `AgentProfile`, executed through Runtime and Pi; it defaults to Tangle Router's DeepSeek V4 Flash and carries the skill as an inline profile resource.
+- A complete candidate-generation and held-out promotion run remains to be wired through Agent Eval's existing `skillOptOptimizationMethod` and `runImprovementLoop`; this release does not claim that cycle ran.
+
 ## 0.126.0
 
 ### Runtime, Eval, and Knowledge use one truthful cost contract

@@ -1,5 +1,5 @@
 /**
- * codemode-skill improvement harness — the BASELINE half of skills/agent-graphs/IMPROVE.md.
+ * Agent-graphs skill improvement runner — the baseline half of skills/agent-graphs/IMPROVE.md.
  *
  * The improving artifact is the skill TEXT (`skills/agent-graphs/SKILL.md`), a `MutableSurface`
  * string. This file owns exactly the two slots the agent-eval machinery leaves to the caller:
@@ -15,18 +15,25 @@
  * Baseline run:  pnpm tsx src/agent-graphs-improve.mts        (from bench/)
  * Writes skills/agent-graphs/baseline-v1.json and prints the per-case table.
  *
- * Author model: tangle-router glm-5.2, temperature 0.2, one retry on unparseable JSON.
+ * Author execution: one canonical AgentProfile through the Runtime bridge executor.
+ * Defaults to pi + Tangle Router + DeepSeek V4 Flash; every choice and retry count is overridable.
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  defineInlineResource,
+  harnessTypeSchema,
+  reasoningEffortSchema,
+  type AgentProfile,
+} from '@tangle-network/agent-interface'
 import {
   type AgentGraph,
   type AnalystRegistry,
+  collectAgentTurn,
+  createExecutor,
   defaultEdgeTraversalCap,
   type EdgeTraversal,
   GraphEdgeCapError,
@@ -34,18 +41,18 @@ import {
   promptHandle,
   type RunGraphOptions,
   runGraph,
+  streamAgentTurn,
 } from '../../src/runtime/index.ts'
 import { leafSeam, scriptedBrain, type ScriptedTurn } from './agent-graphs-improve/offline-seams.mts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = join(HERE, '..', '..')
-const SKILL_PATH = join(REPO, 'skills', 'codemode', 'SKILL.md')
-const CASES_DIR = join(REPO, 'skills', 'codemode', 'cases')
-const OUT_PATH = join(REPO, 'skills', 'codemode', 'baseline-v1.json')
-// The v1 surface + cases were removed from the working tree by 5b8d4da5 ("replace codemode plan
-// with current graph guide"); the baseline still measures the v1 text, pinned in git history.
-// Override with SKILL_REF to measure another committed version.
-const SKILL_REF = process.env.SKILL_REF ?? 'afb40bc1'
+const SKILL_PATH = join(REPO, 'skills', 'agent-graphs', 'SKILL.md')
+const CASES_DIR = join(REPO, 'skills', 'agent-graphs', 'cases')
+const OUT_PATH = join(REPO, 'skills', 'agent-graphs', 'baseline-v1.json')
+// Set SKILL_REF to measure an exact committed agent-graphs surface and case set.
+// With no ref, read the working tree and fail if its canonical files are absent.
+const SKILL_REF = process.env.SKILL_REF
 
 function gitShow(ref: string, path: string): string {
   return execFileSync('git', ['show', `${ref}:${path}`], { cwd: REPO, encoding: 'utf8' })
@@ -60,48 +67,40 @@ function gitLs(ref: string, path: string): string[] {
     .filter((l) => l.endsWith('.json'))
 }
 
-/** The surface + cases: from the working tree when present, else pinned from git history. */
+/** Load either one explicit commit or the canonical working-tree files, never a legacy alias. */
 function loadInputs(): { surface: string; cases: CaseSpec[]; source: string } {
-  if (existsSync(SKILL_PATH)) {
-    const surface = readFileSync(SKILL_PATH, 'utf8')
-    const cases = readdirSync(CASES_DIR)
-      .filter((f) => f.endsWith('.json'))
+  if (SKILL_REF !== undefined) {
+    const surface = gitShow(SKILL_REF, 'skills/agent-graphs/SKILL.md')
+    const cases = gitLs(SKILL_REF, 'skills/agent-graphs/cases')
       .sort()
-      .map((f) => JSON.parse(readFileSync(join(CASES_DIR, f), 'utf8')) as CaseSpec)
-    return { surface, cases, source: 'working-tree' }
+      .map((p) => parseCase(gitShow(SKILL_REF, p), `${SKILL_REF}:${p}`))
+    return { surface, cases, source: `git:${SKILL_REF}` }
   }
-  const surface = gitShow(SKILL_REF, 'skills/agent-graphs/SKILL.md')
-  const cases = gitLs(SKILL_REF, 'skills/agent-graphs/cases')
+
+  const surface = readFileSync(SKILL_PATH, 'utf8')
+  const cases = readdirSync(CASES_DIR)
+    .filter((f) => f.endsWith('.json'))
     .sort()
-    .map((p) => JSON.parse(gitShow(SKILL_REF, p)) as CaseSpec)
-  return { surface, cases, source: `git:${SKILL_REF}` }
+    .map((f) => parseCase(readFileSync(join(CASES_DIR, f), 'utf8'), join(CASES_DIR, f)))
+  return { surface, cases, source: 'working-tree' }
 }
 
 // The measured pi floor the floor-trap case scores against (src/runtime/supervise/budget-floor.ts).
 const PI_TOKEN_FLOOR = 31_211
-// "Budget generously" proxy for unmeasured harnesses: floor-unknown means per-child headroom
-// well above the one measured floor; 50k is the scorer's line, documented not tuned.
-const GENEROUS_PER_CHILD_TOKENS = 50_000
-
 // ── Case + artifact shapes ─────────────────────────────────────────────────────
 
 interface CaseExpect {
   correctAnswerIsNoGraph?: boolean
   correctAnswerIsDynamicWorkflow?: boolean
-  nodes?: number
+  delegatedWorkers?: number
   analyzesWarranted?: boolean
-  floorTrap?: boolean
   mustBudgetAtLeast?: number
-  correctAuthorOverridesBrief?: boolean
   maxTraversalsAtLeast?: number
   deliverableDescribeCarriesMission?: boolean
-  checkIsMechanical?: boolean
   trapIsAnalyzesCapAsStop?: boolean
   correctStopIsDelegatesCapOrDeliverable?: boolean
-  wrongIfAnalystIsNode?: boolean
-  generousBudgetsBecauseFloorUnknown?: boolean
+  reasonMentionsUnknownBudget?: boolean
   edges?: string[]
-  reason?: string
 }
 
 interface CaseSpec {
@@ -110,11 +109,42 @@ interface CaseSpec {
   expect: CaseExpect
 }
 
-type AuthoredEdge =
+const SCORED_EXPECTATION_KEYS = new Set<keyof CaseExpect>([
+  'correctAnswerIsNoGraph',
+  'correctAnswerIsDynamicWorkflow',
+  'delegatedWorkers',
+  'analyzesWarranted',
+  'mustBudgetAtLeast',
+  'maxTraversalsAtLeast',
+  'deliverableDescribeCarriesMission',
+  'trapIsAnalyzesCapAsStop',
+  'correctStopIsDelegatesCapOrDeliverable',
+  'reasonMentionsUnknownBudget',
+  'edges',
+])
+
+function parseCase(text: string, source: string): CaseSpec {
+  const value = JSON.parse(text) as Partial<CaseSpec>
+  if (!value.expect || typeof value.expect !== 'object' || Array.isArray(value.expect)) {
+    throw new Error(`${source}: expect must be an object`)
+  }
+  const unknown = Object.keys(value.expect).filter(
+    (key) => !SCORED_EXPECTATION_KEYS.has(key as keyof CaseExpect),
+  )
+  if (unknown.length > 0) {
+    throw new Error(`${source}: unscored expectation keys: ${unknown.join(', ')}`)
+  }
+  if (typeof value.id !== 'string' || typeof value.brief !== 'string') {
+    throw new Error(`${source}: id and brief must be strings`)
+  }
+  return value as CaseSpec
+}
+
+export type AuthoredEdge =
   | { kind: 'delegates'; from: string; to: string; maxTraversals?: number }
   | { kind: 'analyzes'; analyst: string; over: string[]; to: string; maxTraversals?: number }
 
-interface AuthoredGraphSpec {
+export interface AuthoredGraphSpec {
   nodes: Array<{ id: string; systemPrompt: string }>
   edges: AuthoredEdge[]
   budget: { maxIterations: number; maxTokens: number }
@@ -124,7 +154,7 @@ interface AuthoredGraphSpec {
 
 type Decision = 'graph' | 'single-agent' | 'dynamic-workflow'
 
-interface OfflineRunSummary {
+export interface OfflineRunSummary {
   resultKind: string
   ledger: ReadonlyArray<EdgeTraversal>
   exhaustedEdges: ReadonlyArray<string>
@@ -140,43 +170,81 @@ interface AuthoredArtifact {
   validationError?: string
   /** The author model's raw reply, retained for audit. */
   raw: string
+  /** Every paid attempt, including parse failures and retries. */
+  authorAttempts: AuthorAttemptEvidence[]
 }
 
 // ── The author model call ──────────────────────────────────────────────────────
 
-const ROUTER_URL = 'https://router.tangle.tools/v1/chat/completions'
-const AUTHOR_MODEL = 'glm-5.2'
+const DEFAULT_AUTHOR_SYSTEM_PROMPT = [
+  'You are an agent-graph author.',
+  'Follow the attached agent-graphs skill exactly; it is your only workflow doctrine.',
+  'Decide whether the task needs one agent, a fixed AgentGraph, or a dynamic supervise workflow.',
+  'Reply with JSON only: no markdown fences and no prose outside the JSON.',
+  '{"decision":"graph"|"single-agent"|"dynamic-workflow","reason":string,"graph"?:{...}}',
+  'Include "graph" if and only if decision is "graph", with this exact shape:',
+  '{"nodes":[{"id":string,"systemPrompt":string}, ...],',
+  ' "edges":[{"kind":"delegates","from":string,"to":string,"maxTraversals"?:number}',
+  '        | {"kind":"analyzes","analyst":string,"over":[string,...],"to":string,"maxTraversals"?:number}, ...],',
+  ' "budget":{"maxIterations":number,"maxTokens":number},',
+  ' "perWorker"?:{"maxIterations"?:number,"maxTokens"?:number},',
+  ' "deliverableDescribe":string}',
+  'The root node must be first; every delegates edge starts at the root.',
+  'An analyst is either a registered lens id or a graph node with no incoming delegation edge.',
+  'The deliverable description is the driver mission, not a generic completion phrase.',
+].join('\n')
 
-function routerToken(): string {
-  const raw = readFileSync(join(homedir(), '.config', 'tangle', 'router-token.json'), 'utf8')
-  return (JSON.parse(raw) as { token: string }).token
+function positiveInteger(name: string, raw: string | undefined, fallback: number): number {
+  const value = raw === undefined ? fallback : Number(raw)
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`)
+  }
+  return value
 }
 
-function authorPrompt(surface: string, kase: CaseSpec): string {
+function optionalPositiveInteger(name: string, raw: string | undefined): number | undefined {
+  return raw === undefined ? undefined : positiveInteger(name, raw, 1)
+}
+
+/** The exact portable author definition; the skill under test remains a first-class resource. */
+export function buildAgentGraphsAuthorProfile(
+  surface: string,
+  env: NodeJS.ProcessEnv = process.env,
+): AgentProfile {
+  const harness = harnessTypeSchema.parse(env.AGENT_GRAPHS_AUTHOR_HARNESS ?? 'pi')
+  const reasoningEffort = reasoningEffortSchema.parse(
+    env.AGENT_GRAPHS_AUTHOR_REASONING_EFFORT ?? 'ultracode',
+  )
+  return {
+    name: env.AGENT_GRAPHS_AUTHOR_PROFILE_NAME ?? 'agent-graphs-author',
+    harness,
+    model: {
+      provider: env.AGENT_GRAPHS_AUTHOR_PROVIDER ?? 'tangle-router',
+      default: env.AGENT_GRAPHS_AUTHOR_MODEL ?? 'deepseek-v4-flash',
+      reasoningEffort,
+    },
+    prompt: {
+      systemPrompt: env.AGENT_GRAPHS_AUTHOR_SYSTEM_PROMPT ?? DEFAULT_AUTHOR_SYSTEM_PROMPT,
+    },
+    resources: {
+      failOnError: true,
+      skills: [defineInlineResource('agent-graphs', surface)],
+    },
+  }
+}
+
+function authorProfileLabel(profile: AgentProfile): string {
+  return [profile.harness, profile.model?.provider, profile.model?.default]
+    .filter((part): part is string => typeof part === 'string' && part.length > 0)
+    .join('/')
+}
+
+function authorPrompt(kase: CaseSpec): string {
   return [
-    'You are an agent-graph author. Follow the skill below EXACTLY — it is your only doctrine.',
-    '',
-    '<skill>',
-    surface,
-    '</skill>',
-    '',
     `<case-brief id="${kase.id}">`,
     kase.brief,
     '</case-brief>',
-    '',
-    'First decide the dialect per the skill. Then reply with JSON ONLY — no markdown fences, no prose outside the JSON:',
-    '{"decision":"graph"|"single-agent"|"dynamic-workflow","reason":string,"graph"?:{...}}',
-    '',
-    'Include "graph" if and only if decision is "graph", with this exact shape:',
-    '{"nodes":[{"id":string,"systemPrompt":string}, ...],',
-    ' "edges":[{"kind":"delegates","from":string,"to":string,"maxTraversals"?:number}',
-    '        | {"kind":"analyzes","analyst":string,"over":[string,...],"to":string,"maxTraversals"?:number}, ...],',
-    ' "budget":{"maxIterations":number,"maxTokens":number},',
-    ' "perWorker"?:{"maxIterations"?:number,"maxTokens"?:number},',
-    ' "deliverableDescribe":string}',
-    '',
-    'Rules: the root node must be listed first in "nodes"; every delegates edge originates at the root;',
-    'analysts are registry lens ids, never node ids; "deliverableDescribe" is the driver\'s real mission text.',
+    'Apply the attached skill to this case and return the required JSON object.',
   ].join('\n')
 }
 
@@ -188,25 +256,64 @@ function extractJson(text: string): string {
   return stripped.slice(start, end + 1)
 }
 
-async function callAuthor(prompt: string): Promise<string> {
-  const res = await fetch(ROUTER_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${routerToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: AUTHOR_MODEL,
-      temperature: 0.2,
-      max_tokens: 6000,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-    signal: AbortSignal.timeout(240_000),
-  })
-  if (!res.ok) throw new Error(`router HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  const content = data.choices?.[0]?.message?.content
-  if (typeof content !== 'string' || content.trim().length === 0) {
-    throw new Error('router returned empty content')
+interface AuthorAttemptEvidence {
+  status: string
+  usage?: { input: number; output: number; costUsd?: number; model?: string }
+  raw?: string
+  error?: string
+}
+
+class AuthoringFailedError extends Error {
+  constructor(
+    message: string,
+    readonly attempts: AuthorAttemptEvidence[],
+  ) {
+    super(message)
+    this.name = 'AuthoringFailedError'
   }
-  return content
+}
+
+async function callAuthor(
+  profile: AgentProfile,
+  prompt: string,
+): Promise<{
+  finalText: string
+  status: string
+  usage: { input: number; output: number; costUsd?: number; model?: string }
+  error?: { message: string }
+}> {
+  const bridgeBearer =
+    process.env.AGENT_GRAPHS_BRIDGE_BEARER ?? process.env.BRIDGE_BEARER
+  if (!bridgeBearer) {
+    throw new Error('AGENT_GRAPHS_BRIDGE_BEARER or BRIDGE_BEARER is required')
+  }
+  const bridgeUrl =
+    process.env.AGENT_GRAPHS_BRIDGE_URL ??
+    process.env.BRIDGE_URL ??
+    'http://127.0.0.1:3355'
+  const timeoutMs = optionalPositiveInteger(
+    'AGENT_GRAPHS_AUTHOR_TIMEOUT_MS',
+    process.env.AGENT_GRAPHS_AUTHOR_TIMEOUT_MS,
+  )
+  const factory = createExecutor({
+    backend: 'bridge',
+    bridgeUrl,
+    bridgeBearer,
+    agentProfile: profile,
+  })
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', factory, agentRunName: profile.name ?? 'agent-graphs-author' },
+      prompt,
+      timeoutMs === undefined ? {} : { timeoutMs },
+    ),
+  )
+  return {
+    finalText: turn.finalText,
+    status: turn.status,
+    usage: turn.usage,
+    ...(turn.error ? { error: { message: turn.error.message } } : {}),
+  }
 }
 
 interface AuthoredReply {
@@ -214,15 +321,35 @@ interface AuthoredReply {
   reason: string
   graph?: AuthoredGraphSpec
   raw: string
+  authorAttempts: AuthorAttemptEvidence[]
 }
 
-/** Prompt the author; one retry on unparseable JSON (or a transport fault). */
+/** Prompt the profile; every attempt is retained and the caller controls the retry count. */
 async function authorOnce(surface: string, kase: CaseSpec): Promise<AuthoredReply> {
-  const prompt = authorPrompt(surface, kase)
+  const prompt = authorPrompt(kase)
+  const profile = buildAgentGraphsAuthorProfile(surface)
+  const attemptLimit = positiveInteger(
+    'AGENT_GRAPHS_AUTHOR_ATTEMPTS',
+    process.env.AGENT_GRAPHS_AUTHOR_ATTEMPTS,
+    2,
+  )
+  const attempts: AuthorAttemptEvidence[] = []
   let lastErr: unknown
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
+    let evidence: AuthorAttemptEvidence | undefined
     try {
-      const raw = await callAuthor(prompt)
+      const turn = await callAuthor(profile, prompt)
+      evidence = {
+        status: turn.status,
+        usage: turn.usage,
+        raw: turn.finalText,
+        ...(turn.error ? { error: turn.error.message } : {}),
+      }
+      attempts.push(evidence)
+      if (turn.status !== 'completed') {
+        throw new Error(turn.error?.message ?? `author turn ended with status ${turn.status}`)
+      }
+      const raw = turn.finalText
       const parsed = JSON.parse(extractJson(raw)) as {
         decision?: string
         reason?: string
@@ -237,12 +364,24 @@ async function authorOnce(surface: string, kase: CaseSpec): Promise<AuthoredRepl
         reason: typeof parsed.reason === 'string' ? parsed.reason : '',
         ...(parsed.graph !== undefined ? { graph: parsed.graph } : {}),
         raw,
+        authorAttempts: attempts,
       }
     } catch (err) {
+      if (evidence === undefined) {
+        attempts.push({
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        })
+      } else if (evidence.error === undefined) {
+        evidence.error = err instanceof Error ? err.message : String(err)
+      }
       lastErr = err
     }
   }
-  throw new Error(`author failed after retry: ${String((lastErr as Error)?.message ?? lastErr)}`)
+  throw new AuthoringFailedError(
+    `author failed after ${attemptLimit} attempt${attemptLimit === 1 ? '' : 's'}: ${String((lastErr as Error)?.message ?? lastErr)}`,
+    attempts,
+  )
 }
 
 // ── Lowering an authored spec to a real AgentGraph + offline execution ─────────
@@ -262,9 +401,28 @@ function findRootId(spec: AuthoredGraphSpec): string {
 
 /** Execute the authored graph offline: scripted driver (spawn each worker once, await each
  *  settle, then finish) + stub leaves + in-memory journal/blobs. */
-async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promise<OfflineRunSummary> {
+export async function runAuthoredOffline(
+  spec: AuthoredGraphSpec,
+  runId: string,
+): Promise<OfflineRunSummary> {
   const rootId = findRootId(spec)
-  const workerIds = spec.nodes.map((n) => n.id).filter((id) => id !== rootId)
+  const nodeIds = new Set(spec.nodes.map((node) => node.id))
+  const workerIds = [
+    ...new Set(
+      spec.edges
+        .filter((edge): edge is Extract<AuthoredEdge, { kind: 'delegates' }> =>
+          edge.kind === 'delegates')
+        .map((edge) => edge.to),
+    ),
+  ]
+  const analystNodeIds = [
+    ...new Set(
+      spec.edges
+        .filter((edge): edge is Extract<AuthoredEdge, { kind: 'analyzes' }> =>
+          edge.kind === 'analyzes' && nodeIds.has(edge.analyst))
+        .map((edge) => edge.analyst),
+    ),
+  ]
 
   const graph: AgentGraph = {
     nodes: spec.nodes.map((n) => ({
@@ -294,10 +452,14 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
     budget: spec.budget,
   }
 
-  // Lenses for whatever analyst ids the author named: ENVIRONMENT, never nodes.
+  // Only non-node analyst ids are registry lenses. A node id runs through the same
+  // makeWorkerAgent path as every other graph node and must not also enter the registry.
   const analystIds = [
     ...new Set(
-      spec.edges.filter((e) => e.kind === 'analyzes').map((e) => (e as { analyst: string }).analyst),
+      spec.edges
+        .filter((edge): edge is Extract<AuthoredEdge, { kind: 'analyzes' }> =>
+          edge.kind === 'analyzes' && !nodeIds.has(edge.analyst))
+        .map((edge) => edge.analyst),
     ),
   ]
   const analysts: AnalystRegistry | undefined =
@@ -313,6 +475,10 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
       : undefined
 
   const received: AgentProfile[] = []
+  const analystNodeRuns = spec.edges
+    .filter((edge): edge is Extract<AuthoredEdge, { kind: 'analyzes' }> =>
+      edge.kind === 'analyzes' && nodeIds.has(edge.analyst))
+    .reduce((sum, edge) => sum + edge.over.length, 0)
   const turns: ScriptedTurn[] = [
     {
       toolCalls: workerIds.map((id) => ({
@@ -320,7 +486,9 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
         arguments: { profile: { name: id }, task: `work the '${id}' role` },
       })),
     },
-    ...workerIds.map(() => ({ toolCalls: [{ name: 'await_event', arguments: {} }] })),
+    ...Array.from({ length: workerIds.length + analystNodeRuns }, () => ({
+      toolCalls: [{ name: 'await_event', arguments: {} }],
+    })),
     { content: 'done' },
   ]
 
@@ -329,10 +497,10 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
     maxLiveWorkers: Math.max(workerIds.length, 1),
     ...(spec.perWorker !== undefined ? { perWorker: spec.perWorker } : {}),
     ...(analysts !== undefined ? { analysts } : {}),
-    makeWorkerAgent: leafSeam(
-      received,
-      Object.fromEntries(workerIds.map((id) => [id, { withTrace: true }])),
-    ),
+    makeWorkerAgent: leafSeam(received, {
+      ...Object.fromEntries(workerIds.map((id) => [id, { withTrace: true }])),
+      ...Object.fromEntries(analystNodeIds.map((id) => [id, {}])),
+    }),
     brain: scriptedBrain(turns),
   }
 
@@ -353,10 +521,11 @@ async function dispatchWithSurface(surface: string, scenario: CaseSpec): Promise
     reason: reply.reason,
     ...(reply.graph !== undefined ? { graph: reply.graph } : {}),
     raw: reply.raw,
+    authorAttempts: reply.authorAttempts,
   }
   if (reply.decision !== 'graph' || reply.graph === undefined) return artifact
   try {
-    artifact.run = await runAuthoredOffline(reply.graph, `codemode-${scenario.id}`)
+    artifact.run = await runAuthoredOffline(reply.graph, `agent-graphs-${scenario.id}`)
   } catch (err) {
     if (err instanceof GraphEdgeCapError) {
       // Cap exhaustion still carries the full ledger — keep the evidence AND the refusal.
@@ -448,14 +617,14 @@ function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { score: num
         : `no graph authored (decision=${artifact.decision})`,
     })
   }
-  if (e.nodes !== undefined) {
-    const total = graphOk ? g.nodes.length : 0
-    const workers = graphOk ? Math.max(total - 1, 0) : 0
+  if (e.delegatedWorkers !== undefined) {
+    const workers = graphOk ? delegatesEdges(g).length : 0
     checks.push({
-      key: 'nodes',
-      // The case files don't say whether the count includes the root; accept either reading.
-      pass: graphOk && (workers === e.nodes || total === e.nodes),
-      note: graphOk ? `workers=${workers} total=${total} expected=${e.nodes}` : 'no graph authored',
+      key: 'delegatedWorkers',
+      pass: graphOk && workers === e.delegatedWorkers,
+      note: graphOk
+        ? `delegated workers=${workers} expected=${e.delegatedWorkers}`
+        : 'no graph authored',
     })
   }
   if (e.maxTraversalsAtLeast !== undefined) {
@@ -515,34 +684,21 @@ function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { score: num
       note: graphOk ? `analyzes edges=${analyzesEdges(g).length} warranted=${e.analyzesWarranted}` : 'no graph authored',
     })
   }
-  if (e.wrongIfAnalystIsNode !== undefined) {
-    const nodeIds = graphOk ? new Set(g.nodes.map((n) => n.id)) : new Set<string>()
-    const offenders = graphOk ? analyzesEdges(g).filter((a) => nodeIds.has(a.analyst)) : []
+  if (e.reasonMentionsUnknownBudget !== undefined) {
+    const namesUncertainty = /unknown|unmeasured|measure|not (?:yet )?(?:known|established)/i.test(
+      artifact.reason,
+    )
     checks.push({
-      key: 'wrongIfAnalystIsNode',
-      pass: graphOk && offenders.length === 0,
-      note: graphOk
-        ? offenders.length === 0
-          ? 'no analyst id collides with a node id'
-          : `analyst ids that are nodes: ${offenders.map((o) => o.analyst).join(', ')}`
-        : 'no graph authored',
-    })
-  }
-  if (e.generousBudgetsBecauseFloorUnknown !== undefined) {
-    const perChild = graphOk ? perChildTokens(g) : 0
-    checks.push({
-      key: 'generousBudgetsBecauseFloorUnknown',
-      pass: graphOk && perChild >= GENEROUS_PER_CHILD_TOKENS,
-      note: graphOk
-        ? `per-child tokens ${perChild} vs generous line ${GENEROUS_PER_CHILD_TOKENS}`
-        : 'no graph authored',
+      key: 'reasonMentionsUnknownBudget',
+      pass: namesUncertainty === e.reasonMentionsUnknownBudget,
+      note: `reason names unmeasured budget=${namesUncertainty}`,
     })
   }
   if (e.edges !== undefined) {
     for (const want of e.edges) {
       if (/delegates/i.test(want)) {
         const rootId = graphOk ? findRootId(g) : ''
-        const workers = graphOk ? g.nodes.map((n) => n.id).filter((id) => id !== rootId) : []
+        const workers = graphOk ? delegatesEdges(g).map((edge) => edge.to) : []
         const covered = graphOk
           ? workers.every(
               (id) =>
@@ -597,6 +753,15 @@ interface CaseResult {
   runResultKind?: string
   ledgerRows?: number
   exhaustedEdges?: ReadonlyArray<string>
+  authorAttempts: AuthorAttemptEvidence[]
+  authorFailed?: true
+}
+
+export function baselineIsPublishable(
+  only: string | undefined,
+  results: ReadonlyArray<{ authorFailed?: true }>,
+): boolean {
+  return only === undefined && results.length > 0 && results.every((result) => !result.authorFailed)
 }
 
 async function main(): Promise<void> {
@@ -605,9 +770,10 @@ async function main(): Promise<void> {
   // CASE=<id> runs a subset — the smoke lever; the baseline artifact is only written on a full run.
   const only = process.env.CASE
   const cases: CaseSpec[] = inputs.cases.filter((c) => only === undefined || c.id === only)
+  const authorProfile = buildAgentGraphsAuthorProfile(surface)
 
   console.log(
-    `codemode baseline: skill v1 (${surface.length} chars, source=${inputs.source}), ${cases.length} cases, author=${AUTHOR_MODEL}`,
+    `agent-graphs baseline: skill v1 (${surface.length} chars, source=${inputs.source}), ${cases.length} cases, author=${authorProfileLabel(authorProfile)}`,
   )
 
   const results: CaseResult[] = []
@@ -632,6 +798,7 @@ async function main(): Promise<void> {
               exhaustedEdges: artifact.run.exhaustedEdges,
             }
           : {}),
+        authorAttempts: artifact.authorAttempts,
       })
       console.log(`${artifact.decision} score=${score.toFixed(2)} (${Math.round((Date.now() - t0) / 1000)}s)`)
       for (const line of reasons.filter((x) => !x.startsWith('PASS'))) console.log(`      ${line}`)
@@ -645,6 +812,8 @@ async function main(): Promise<void> {
         reasons: [`AUTHOR-FAILED: ${message}`],
         validationError: message,
         reason: '',
+        authorAttempts: err instanceof AuthoringFailedError ? err.attempts : [],
+        authorFailed: true,
       })
       console.log(`AUTHOR-FAILED (${message.slice(0, 80)})`)
     }
@@ -662,17 +831,37 @@ async function main(): Promise<void> {
     : scores.length % 2 === 1 ? (scores[mid] ?? 0)
     : ((scores[mid - 1] ?? 0) + (scores[mid] ?? 0)) / 2
 
+  const authorAttempts = results.flatMap((result) => result.authorAttempts)
+  const usageReceipts = authorAttempts.flatMap((attempt) =>
+    attempt.usage === undefined ? [] : [attempt.usage],
+  )
+  const costAccountingComplete =
+    authorAttempts.length > 0 &&
+    authorAttempts.every((attempt) => attempt.usage?.costUsd !== undefined)
+  const authorUsage = {
+    attempts: authorAttempts.length,
+    usageReceipts: usageReceipts.length,
+    input: usageReceipts.reduce((sum, usage) => sum + usage.input, 0),
+    output: usageReceipts.reduce((sum, usage) => sum + usage.output, 0),
+    costUsd: costAccountingComplete
+      ? usageReceipts.reduce((sum, usage) => sum + (usage.costUsd ?? 0), 0)
+      : null,
+    costAccountingComplete,
+  }
+
   const out = {
     skillVersion: 'v1',
     surfaceSource: inputs.source,
-    authorModel: AUTHOR_MODEL,
-    temperature: 0.2,
+    authorProfile,
+    authorModel: authorProfileLabel(authorProfile),
+    temperature: null,
     date: new Date().toISOString(),
     n: results.length,
     aggregate: { mean, median, min: scores[0] ?? 0, max: scores[scores.length - 1] ?? 0 },
+    authorUsage,
     cases: results,
   }
-  const wrote = only === undefined
+  const wrote = baselineIsPublishable(only, results)
   if (wrote) {
     mkdirSync(dirname(OUT_PATH), { recursive: true })
     writeFileSync(OUT_PATH, `${JSON.stringify(out, null, 2)}\n`)
@@ -689,10 +878,21 @@ async function main(): Promise<void> {
   }
   console.log('─'.repeat(96))
   console.log(`mean=${mean.toFixed(3)} median=${median.toFixed(3)} min=${(scores[0] ?? 0).toFixed(2)} max=${(scores[scores.length - 1] ?? 0).toFixed(2)} n=${results.length}`)
-  console.log(wrote ? `written: ${OUT_PATH}` : 'subset run (CASE set) — baseline artifact NOT written')
+  if (wrote) {
+    console.log(`written: ${OUT_PATH}`)
+  } else if (only !== undefined) {
+    console.log('subset run (CASE set) — baseline artifact NOT written')
+  } else {
+    throw new Error(
+      `baseline artifact NOT written: ${results.filter((result) => result.authorFailed).length}/${results.length} cases lacked a scorable author result`,
+    )
+  }
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? (err.stack ?? err.message) : String(err))
-  process.exit(1)
-})
+const invokedPath = process.argv[1]
+if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err))
+    process.exit(1)
+  })
+}

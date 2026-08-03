@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const benchDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const sourceDir = path.join(benchDir, 'src')
+const fixtureEnv = { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1' }
 
 async function collectTests(dir) {
   const files = []
@@ -61,17 +62,25 @@ if (nodeTests.length > 0) {
     process.execPath,
     ['--test', '--import', 'tsx', ...nodeTests.map((file) => path.relative(benchDir, file))],
     {
-      ...process.env,
+      ...fixtureEnv,
       TSX_TSCONFIG_PATH: 'tsconfig.public.json',
     },
   )
 }
 
 if (vitestTests.length > 0) {
-  await run('npx', ['vitest', 'run', ...vitestTests.map((file) => path.relative(benchDir, file))])
+  await run(
+    'npx',
+    ['vitest', 'run', ...vitestTests.map((file) => path.relative(benchDir, file))],
+    fixtureEnv,
+  )
 }
 
-await run(python, ['-m', 'unittest', 'discover', '-s', 'pier_agents', '-p', '*_test.py'])
+await run(
+  python,
+  ['-m', 'unittest', 'discover', '-s', 'pier_agents', '-p', '*_test.py'],
+  fixtureEnv,
+)
 
 console.log(
   `package tests passed: ${tests.length}/${tests.length} TypeScript files (${nodeTests.length} node:test + ${vitestTests.length} vitest) + Pier bridge`,

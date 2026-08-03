@@ -1,5 +1,5 @@
 /**
- * OFFLINE seams for the codemode-skill improvement harness — copied from
+ * Offline execution inputs for the agent-graphs skill improvement runner, copied from
  * `examples/graphs/shared.ts` (the same two seams the kernel's own graph tests use), with the
  * imports rewritten to the worktree's own src so the bench runs against the in-repo kernel
  * without a dist build:

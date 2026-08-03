@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+
+- Add the executable `agent-graphs` baseline run with eight authoring cases and deterministic scoring over the graph edge record.
+- Add offline execution inputs so the authoring and scoring path can be tested without model spend.
+- Define the author as an overridable `AgentProfile` and run it through Runtime and Pi, defaulting to Tangle Router's DeepSeek V4 Flash; remove the old direct HTTP call, fixed token cap, fixed timeout, and deleted `codemode` file fallback.
+- Record one result per case and keep that small-sample limit explicit rather than treating it as a stable comparison.
+- Consume Runtime 0.127.0 and its canonical `runAgentRounds` and `McpToolDescriptor` names.
+
 ## 0.7.1
 
 - Consume Runtime 0.126.0 with Eval 0.143.0 and Knowledge 7.0.8, so campaign cost remains observed, estimated, or explicitly uncaptured across the complete benchmark dependency tree.
