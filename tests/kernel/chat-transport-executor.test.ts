@@ -4,6 +4,8 @@
  *
  *   1. One fresh shot: system + task seed the conversation, the loop settles with the final
  *      assistant text as `out`, and spend is metered from the transport's OWN usage/cost fields.
+ *      Sampling honesty: `temperature`/`maxTokens` reach the wire on EVERY request when set (one
+ *      request class), and neither field appears when unset.
  *   2. Continuity: the conversation is recorded under the session key, and a `resume` shot
  *      CONTINUES that exact message list (the resumed-history chain, asserted at the transport).
  *   3. Resume fails loud BEFORE any spend when the store has no recorded conversation.
@@ -90,15 +92,70 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     // Both channels measured — neither honesty marker is set.
     expect(result.spent.tokensKnown).toBeUndefined()
     expect(result.spent.usdKnown).toBeUndefined()
-    // The wire body: system seed + the task as the user message, model verbatim, no tools field.
+    // The wire body: system seed + the task as the user message, model verbatim, no tools field,
+    // and no sampling fields the caller never set (the endpoint's own defaults govern).
     expect(requests).toHaveLength(1)
     expect(requests[0]?.model).toBe('test/model')
     expect(requests[0]?.tools).toBeUndefined()
+    expect(requests[0]?.temperature).toBeUndefined()
+    expect(requests[0]?.max_tokens).toBeUndefined()
     expect(requests[0]?.messages).toEqual([
       { role: 'system', content: 'Be terse.' },
       { role: 'user', content: 'what is 2+2?' },
     ])
     expect(ex.resultArtifact().out).toBe('the answer')
+  })
+
+  it('sends the configured temperature + maxTokens as sampling fields on EVERY request', async () => {
+    const { transport, requests } = scriptedTransport([
+      {
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [{ id: 'c1', function: { name: 'step', arguments: '{}' } }],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0 },
+      },
+      reply('done', { prompt_tokens: 1, completion_tokens: 1, cost: 0 }),
+    ])
+    await (chatTransportExecutor({
+      url: 'http://unused.invalid',
+      model: 'test/model',
+      complete: transport,
+      temperature: 0.7,
+      maxTokens: 2500,
+      tools: [
+        {
+          spec: { type: 'function', function: { name: 'step', parameters: {} } },
+          execute: async () => 'ok',
+        },
+      ],
+    }).execute('go', never) as Promise<unknown>)
+    // Both the turn-initial and the tool-follow-up completion carry the SAME pinned sampling —
+    // this executor has exactly one request class (the P1 parity contract).
+    expect(requests).toHaveLength(2)
+    for (const req of requests) {
+      expect(req.temperature).toBe(0.7)
+      expect(req.max_tokens).toBe(2500)
+    }
+  })
+
+  it('rejects a non-positive or fractional maxTokens before any transport call', () => {
+    const { transport, requests } = scriptedTransport([reply('never')])
+    for (const maxTokens of [0, -1, 1.5]) {
+      expect(() =>
+        chatTransportExecutor({
+          url: 'http://unused.invalid',
+          model: 'test/model',
+          complete: transport,
+          maxTokens,
+        }),
+      ).toThrow(/maxTokens must be a positive integer/)
+    }
+    expect(requests).toHaveLength(0)
   })
 
   it('records the conversation and a resume shot continues the exact message list', async () => {
@@ -332,6 +389,8 @@ describe('chatWorkerSeam — the continuity-honoring makeWorkerAgent over the ex
       model: 'seam/fallback',
       complete: transport,
       sessions,
+      temperature: 0.7,
+      maxTokens: 2500,
     })
     const agent = seam(
       {
@@ -348,6 +407,9 @@ describe('chatWorkerSeam — the continuity-honoring makeWorkerAgent over the ex
     const result = await (ex.execute('opening message', never) as Promise<ExecutorResult<string>>)
     expect(result.out).toBe('hi there')
     expect(requests[0]?.model).toBe('profile/model')
+    // The seam's sampling options thread through to the executor's wire body.
+    expect(requests[0]?.temperature).toBe(0.7)
+    expect(requests[0]?.max_tokens).toBe(2500)
     expect(requests[0]?.messages).toEqual([
       { role: 'system', content: 'Sell.\ndirective: be helpful' },
       { role: 'user', content: 'opening message' },

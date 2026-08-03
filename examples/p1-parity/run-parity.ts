@@ -146,7 +146,12 @@ function requireLiveEnv(): LiveEnv {
 
 /** A multishot transport over an OpenAI-compatible chat-completions surface — built on the SAME
  *  wire function (`chatCompletionsTransport`) the graph arm's `chatTransportExecutor` uses, so
- *  the two arms' substrate symmetry is by construction, not by parallel implementations. */
+ *  the two arms' substrate symmetry is by construction, not by parallel implementations. The
+ *  response's own cost field (`usage.cost` / `usage.cost_usd`, the cli-bridge and OpenRouter
+ *  conventions — the same read order `chatTransportExecutor` uses) maps to the result's
+ *  `costUsd`, so `runMultishot` meters the MEASURED dollars instead of firing its price-table
+ *  estimator on every live turn; a turn genuinely without one stays estimator-visible and the
+ *  row states it (`ParityRecord.usdSource`). */
 function completionsTransport(url: string, bearer: string): MultishotTransport {
   const post = chatCompletionsTransport({ url, bearer })
   return async (req) => {
@@ -161,11 +166,26 @@ function completionsTransport(url: string, bearer: string): MultishotTransport {
       req.signal,
     )) as {
       choices?: Array<{ message?: { content?: string | null; tool_calls?: never[] } }>
-      usage?: { prompt_tokens?: number; completion_tokens?: number }
+      usage?: {
+        prompt_tokens?: number
+        completion_tokens?: number
+        cost?: number
+        cost_usd?: number
+      }
     }
     const message = body.choices?.[0]?.message
     if (message === undefined) throw new Error('chat completion returned no message')
-    return { message, ...(body.usage !== undefined ? { usage: body.usage } : {}) }
+    const costUsd =
+      typeof body.usage?.cost === 'number'
+        ? body.usage.cost
+        : typeof body.usage?.cost_usd === 'number'
+          ? body.usage.cost_usd
+          : undefined
+    return {
+      message,
+      ...(body.usage !== undefined ? { usage: body.usage } : {}),
+      ...(costUsd !== undefined ? { costUsd } : {}),
+    }
   }
 }
 
@@ -212,8 +232,10 @@ function printRecord(row: PairedRow): void {
   const r = row.record
   console.log(
     `cell ${row.cell} ${row.arm.padEnd(5)} converged=${r.converged} shotsUsed=${r.shotsUsed} ` +
-      `tokens=${r.spend.tokens.input}/${r.spend.tokens.output} usd=${r.spend.usd} ` +
-      `wallMs=${r.wallMs} steering=${r.steeringDelivered.count}×/${r.steeringDelivered.bytes}B ` +
+      `infraShots=${r.infraShots} tokens=${r.spend.tokens.input}/${r.spend.tokens.output} ` +
+      `tokensKnown=${r.tokensKnown} usd=${r.spend.usd} usdSource=${r.usdSource} ` +
+      `usdKnown=${r.usdKnown} wallMs=${r.wallMs} ` +
+      `steering=${r.steeringDelivered.count}×/${r.steeringDelivered.bytes}B ` +
       `ledger=${r.ledger === undefined ? 'none (runMultishot has no edge ledger)' : `${r.ledger.length} rows`}`,
   )
   if (r.ledger !== undefined) {

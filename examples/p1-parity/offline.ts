@@ -7,10 +7,13 @@
  *
  * Synthetic accounting: every scripted completion reports `usage {5,5}` and `$0`, mirroring the
  * leaf seam's per-shot spend, so the two arms' metering pipelines carry comparable numbers
- * offline. The multishot arm additionally meters its scripted DRIVER completions (`runMultishot`'s
- * driver is an inference leg); the graph arm's scripted brain meters nothing (a live graph
- * driver would meter through `spentBreakdown.driverInference`). Real numbers arrive only with
- * the live backend.
+ * offline. BOTH driver legs are metered: the multishot arm meters its scripted DRIVER
+ * completions at the transport seam (`runMultishot`'s driver is an inference leg), and the graph
+ * arm's scripted brain reports the same synthetic usage per turn ({@link meteredScriptedBrain}),
+ * metering through `spentBreakdown.driverInference` exactly as a live router brain would — so a
+ * completed offline run's conserved pool stays fully KNOWN (`tokensKnown` / `usdKnown` true) and
+ * the validity channel on a `ParityRecord` is exercised, not skipped. Real numbers arrive only
+ * with the live backend.
  */
 
 import type {
@@ -18,7 +21,7 @@ import type {
   MultishotTransportRequest,
 } from '@tangle-network/agent-eval/multishot'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { MakeWorkerAgent } from '@tangle-network/agent-runtime/kernel'
+import type { MakeWorkerAgent, ToolLoopChat } from '@tangle-network/agent-runtime/kernel'
 import { type LeafShot, leafSeam, type ScriptedTurn, scriptedBrain } from '../graphs/shared'
 import type { CellSpec, GraphArmBackend, MultishotArmBackend } from './arms'
 
@@ -89,6 +92,20 @@ export function offlineMultishotBackend(script: ShotScript): {
 
 // ── Graph arm: scripted brain + leaf seam ──────────────────────────────────────
 
+/** A `scriptedBrain` whose every turn reports the synthetic usage (`{5,5}` tokens, $0): the
+ *  driver-inference meter records a KNOWN turn instead of a `tokensKnown: false` taint, matching
+ *  how the multishot arm's scripted driver leg is metered. An unmetered brain is still expressible
+ *  (use `scriptedBrain` directly) — that models a driver whose inference channel reports nothing,
+ *  which honestly taints the pool. */
+export function meteredScriptedBrain(turns: ScriptedTurn[]): ToolLoopChat {
+  const brain = scriptedBrain(turns)
+  return async (messages, tools) => ({
+    ...(await brain(messages, tools)),
+    usage: { input: 5, output: 5 },
+    costUsd: 0,
+  })
+}
+
 export interface GraphCapture {
   /** Every profile the leaf factory received (the graph-pinned coder profile, with the
    *  delegates directive appended to its instructions), in spawn order. */
@@ -145,7 +162,7 @@ export function offlineGraphBackend(
     backend: {
       kind: 'seam',
       makeWorkerAgent,
-      brain: scriptedBrain(turns),
+      brain: meteredScriptedBrain(turns),
       shotPassed: offlineShotPassed,
     },
     capture: { spawnedProfiles, spawnedTasks },

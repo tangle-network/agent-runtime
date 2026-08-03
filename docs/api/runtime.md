@@ -9946,6 +9946,14 @@ Tool table. Omitted = a pure conversation (no `tools` field on the wire).
 
 > `optional` **temperature?**: `number`
 
+##### maxTokens?
+
+> `optional` **maxTokens?**: `number`
+
+Output-token ceiling for ONE completion, sent as `max_tokens` on every request when set.
+ Omitted = no field on the wire, so the endpoint's own default governs. A harness pairing
+ this executor against another sampling path (P1 parity) pins BOTH arms to one value.
+
 ##### maxTurnsPerShot?
 
 > `optional` **maxTurnsPerShot?**: `number`
@@ -10025,6 +10033,13 @@ Fallback wire model when a spawned profile carries none (`profile.model.default`
 ##### temperature?
 
 > `optional` **temperature?**: `number`
+
+##### maxTokens?
+
+> `optional` **maxTokens?**: `number`
+
+Per-completion `max_tokens` for every spawned worker (see
+ [ChatTransportExecutorOptions.maxTokens](#maxtokens-6)).
 
 ##### maxTurnsPerShot?
 

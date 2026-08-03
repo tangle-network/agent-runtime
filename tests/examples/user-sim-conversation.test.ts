@@ -66,10 +66,13 @@ describe('examples/graphs/user-sim-conversation — turns are traversals, the se
         { role: 'user', content: USER_TURNS[turn] },
       ])
     }
-    // Every wire call carried the worker's model and NO tools field (a pure conversation).
+    // Every wire call carried the worker's model, NO tools field (a pure conversation), and NO
+    // sampling fields the seam never configured (nothing is silently injected).
     for (const req of requests) {
       expect(req.model).toBe('scripted/product-agent')
       expect(req.tools).toBeUndefined()
+      expect(req.temperature).toBeUndefined()
+      expect(req.max_tokens).toBeUndefined()
     }
 
     // ── 4. Spend continuity: 3 turns × {12, 9} tokens and $0.25, all in the one pool ──

@@ -134,6 +134,10 @@ export interface ChatTransportExecutorOptions {
   /** Tool table. Omitted = a pure conversation (no `tools` field on the wire). */
   tools?: ReadonlyArray<ChatTransportTool>
   temperature?: number
+  /** Output-token ceiling for ONE completion, sent as `max_tokens` on every request when set.
+   *  Omitted = no field on the wire, so the endpoint's own default governs. A harness pairing
+   *  this executor against another sampling path (P1 parity) pins BOTH arms to one value. */
+  maxTokens?: number
   /** Inference-turn cap for ONE shot (one `execute`). Default 200 — a runaway backstop, not a
    *  workflow limit (mirrors `routerToolsInlineExecutor.maxTurns`). */
   maxTurnsPerShot?: number
@@ -204,6 +208,9 @@ export function chatTransportExecutor(opts: ChatTransportExecutorOptions): Execu
   if (!Number.isInteger(maxTurns) || maxTurns < 1) {
     throw new ValidationError('chatTransportExecutor: maxTurnsPerShot must be a positive integer')
   }
+  if (opts.maxTokens !== undefined && (!Number.isInteger(opts.maxTokens) || opts.maxTokens < 1)) {
+    throw new ValidationError('chatTransportExecutor: maxTokens must be a positive integer')
+  }
   // Resolve the seed BEFORE any spend: a resume that cannot re-attach is a configuration fault.
   let seed: Array<Record<string, unknown>>
   if (opts.resume) {
@@ -266,6 +273,7 @@ export function chatTransportExecutor(opts: ChatTransportExecutorOptions): Execu
             messages,
             ...(toolSpecs.length > 0 ? { tools: toolSpecs, tool_choice: 'auto' } : {}),
             ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+            ...(opts.maxTokens !== undefined ? { max_tokens: opts.maxTokens } : {}),
           }
           let raw: unknown
           try {
@@ -437,6 +445,9 @@ export interface ChatWorkerSeamOptions {
   model?: string
   tools?: ReadonlyArray<ChatTransportTool>
   temperature?: number
+  /** Per-completion `max_tokens` for every spawned worker (see
+   *  {@link ChatTransportExecutorOptions.maxTokens}). */
+  maxTokens?: number
   maxTurnsPerShot?: number
   /** Injected buffered transport — the offline seam; no network is touched when set. */
   complete?: ChatCompletionsTransport
@@ -494,6 +505,7 @@ export function chatWorkerSeam(opts: ChatWorkerSeamOptions): MakeWorkerAgent {
           ...(system.length > 0 ? { system } : {}),
           ...(opts.tools !== undefined ? { tools: opts.tools } : {}),
           ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+          ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
           ...(opts.maxTurnsPerShot !== undefined ? { maxTurnsPerShot: opts.maxTurnsPerShot } : {}),
           ...(opts.complete !== undefined ? { complete: opts.complete } : {}),
           sessions,

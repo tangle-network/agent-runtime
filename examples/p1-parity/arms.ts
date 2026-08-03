@@ -23,12 +23,19 @@
  * that shape is not expressible here: the ONLY difference between the arms is the thing P1
  * exists to measure — the orchestration form (transcript loop vs supervised graph with ledger +
  * conserved pool). Models are likewise explicit everywhere; a silent fallback id could let the
- * two arms drift to different models unnoticed, so a missing model always fails loud.
+ * two arms drift to different models unnoticed, so a missing model always fails loud. Sampling
+ * is part of the substrate too: both arms pin the coder's temperature + max_tokens to
+ * {@link PARITY_CODER_SAMPLING} (residual documented on {@link ParityRecord}).
  */
 
-import type { MultishotMessage, MultishotTransport } from '@tangle-network/agent-eval/multishot'
+import type {
+  MultishotMessage,
+  MultishotResult,
+  MultishotTransport,
+} from '@tangle-network/agent-eval/multishot'
 import { runMultishot } from '@tangle-network/agent-eval/multishot'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { RuntimeHooks } from '@tangle-network/agent-runtime'
 import {
   type AgentGraph,
   type AnalystRegistry,
@@ -44,6 +51,20 @@ import {
   type Spend,
   type ToolLoopChat,
 } from '@tangle-network/agent-runtime/kernel'
+
+// ── The shared coder sampling (the F1 parity pin) ──────────────────────────────
+
+/**
+ * The ONE sampling configuration BOTH arms' coder completions use. The arms must sample
+ * identically or a paired row measures a sampling difference and calls it an orchestration
+ * effect. `runMultishot` hardcodes agent temperature 0.7 and defaults its turn-initial
+ * `max_tokens` to 2500; the graph arm pins the SAME two values through `chatWorkerSeam` →
+ * `chatTransportExecutor`, and the multishot arm pins `agentMaxTokens` explicitly so an upstream
+ * default change cannot silently split the arms. (Temperature has no `runMultishot` option — the
+ * offline suite asserts the captured agent requests carry this constant, so upstream drift fails
+ * a test instead of skewing live rows.)
+ */
+export const PARITY_CODER_SAMPLING = { temperature: 0.7, maxTokens: 2500 } as const
 
 // ── The shared cell ────────────────────────────────────────────────────────────
 
@@ -82,6 +103,12 @@ export interface CellSpec {
  *  - Multishot `spend.tokens` is metered at the transport seam (the sum of `usage` on every agent and
  *    driver completion); graph `spend` is the run's reconciled `spentTotal` from the conserved
  *    pool's journal. Both are that form's honest total, measured by different machinery.
+ *  - Coder sampling is pinned identically in both arms ({@link PARITY_CODER_SAMPLING}), with ONE
+ *    residual: `runMultishot` lowers `max_tokens` to 2000 for tool-FOLLOW-UP completions — a
+ *    second request class the graph arm does not have (`chatTransportExecutor` sends one pinned
+ *    `max_tokens` on every request). This harness advertises no tools, so the follow-up class
+ *    never fires here; a future tool-carrying cell would reintroduce the asymmetry. Documented,
+ *    never silent.
  */
 export interface ParityRecord {
   /** Did any shot satisfy the completion check? Graph arm: the run settled a winner (the
@@ -92,6 +119,31 @@ export interface ParityRecord {
   shotsUsed: number
   /** Total measured resource spend for the arm's whole run (driver + coder legs). */
   spend: { tokens: { input: number; output: number }; usd: number }
+  /** Where `spend.usd` came from. `'measured'` = every counted completion carried the provider's
+   *  own cost field (`usage.cost` / `usage.cost_usd` → the transport's `costUsd`). `'estimated'`
+   *  = at least one completion lacked it and `runMultishot`'s price-table fallback
+   *  (`estimateRouterCost`) filled the gap — only the multishot arm's completed runs can produce
+   *  this. `'unknown'` = at least one completion lacked it and NOTHING estimated it: the graph
+   *  arm never estimates (the chat executor's no-fabricated-measurement rule), and neither does
+   *  the multishot arm's infra-death path (the loop died before its estimator could run). */
+  usdSource: 'measured' | 'estimated' | 'unknown'
+  /** Coder shots that died to TRANSPORT/INFRA faults, not to the task. Graph arm: infra-flagged
+   *  `down` settles of delegates-spawned workers (`Settled.down.infra`, observed on the run's own
+   *  hook stream). Multishot arm: transport throws counted at the arm's metering seam — either
+   *  leg, because `runMultishot` has no infra channel and dies on the FIRST one, so a nonzero
+   *  count also means the loop ended early and the row is an infra casualty, never an ordinary
+   *  non-convergence. (The graph arm's driver-brain death surfaces as the run's no-winner
+   *  reason, not here.) */
+  infraShots: number
+  /** False when ANY counted completion lacked provider token usage — `spend.tokens` is then a
+   *  known subtotal, not the measured total. Graph arm: the conserved pool's own taint flag
+   *  (`spentTotal.tokensKnown`). Multishot arm: metered per response at the transport seam; a
+   *  transport throw counts as an unreported turn (work may have burned tokens the provider
+   *  never got to report — mirroring the kernel's never-reinterpret-as-zero rule). */
+  tokensKnown: boolean
+  /** The dollar twin of `tokensKnown`: false when ANY counted completion lacked a provider cost
+   *  field (equivalently, `usdSource !== 'measured'`). */
+  usdKnown: boolean
   /** Wall-clock duration of the arm call, measured identically around both arms. */
   wallMs: number
   /** Corrective direction DELIVERED to the coder after the initial brief. Multishot arm: driver (user)
@@ -214,50 +266,131 @@ export function buildParityGraph(
 
 // ── Arm A: agent-eval multishot ────────────────────────────────────────────────
 
+/** Marker for a transport throw inside `runMultishot`: the loop has no infra channel and dies on
+ *  the first one, so the metering seam wraps the fault and the arm settles an honest infra row
+ *  (`infraShots > 0`) instead of crashing the whole cell run. Any OTHER `runMultishot` rejection
+ *  (e.g. an empty-driver authoring fault) still fails loud. */
+class LoopTransportFailure extends Error {
+  readonly fault: unknown
+  constructor(fault: unknown) {
+    super(
+      `p1-parity multishot transport failed: ${fault instanceof Error ? fault.message : String(fault)}`,
+    )
+    this.name = 'LoopTransportFailure'
+    this.fault = fault
+  }
+}
+
 export async function runMultishotArm(
   cell: CellSpec,
   backend: MultishotArmBackend,
 ): Promise<ParityRecord> {
   validateCell(cell)
-  const tokens = { input: 0, output: 0 }
-  // Meter tokens at the transport seam — the usage channel `runMultishot` exposes.
+  // The arm's OWN meter at the transport seam — the one channel `runMultishot` exposes. Beyond
+  // tokens it records the validity facts the record must state: completions that lacked usage or
+  // a cost field, transport deaths, and (for the infra-abort path, where the loop returns no
+  // transcript) each leg's successful replies. With `tools: []` every agent completion IS one
+  // turn-initial shot reply, so the abort-path tallies match the transcript-derived ones exactly.
+  const meter = {
+    tokens: { input: 0, output: 0 },
+    usdMeasured: 0,
+    turnsMissingUsage: 0,
+    turnsMissingCost: 0,
+    infraShots: 0,
+    agentReplies: [] as string[],
+    driverReplies: [] as string[],
+  }
   const metered =
-    (transport: MultishotTransport): MultishotTransport =>
+    (transport: MultishotTransport, leg: 'agent' | 'driver'): MultishotTransport =>
     async (req) => {
-      const res = await transport(req)
-      tokens.input += res.usage?.prompt_tokens ?? 0
-      tokens.output += res.usage?.completion_tokens ?? 0
+      let res: Awaited<ReturnType<MultishotTransport>>
+      try {
+        res = await transport(req)
+      } catch (fault) {
+        // The dead turn's spend is UNREPORTED, not zero: mark both channels unknown, exactly as
+        // the kernel marks an infra-thrown executor's spend.
+        meter.infraShots += 1
+        meter.turnsMissingUsage += 1
+        meter.turnsMissingCost += 1
+        throw new LoopTransportFailure(fault)
+      }
+      const usage = res.usage
+      if (
+        typeof usage?.prompt_tokens === 'number' &&
+        typeof usage?.completion_tokens === 'number'
+      ) {
+        meter.tokens.input += usage.prompt_tokens
+        meter.tokens.output += usage.completion_tokens
+      } else {
+        meter.turnsMissingUsage += 1
+      }
+      // A completion without a provider cost field makes `runMultishot` substitute its
+      // price-table estimate — recorded so the row states `usdSource: 'estimated'`, never
+      // presenting an estimate as a measurement.
+      if (typeof res.costUsd === 'number') meter.usdMeasured += res.costUsd
+      else meter.turnsMissingCost += 1
+      const content = (res.message.content ?? '').trim()
+      if (leg === 'agent') meter.agentReplies.push(content)
+      else if (content.length > 0) meter.driverReplies.push(content) // empty ⇒ retried, never delivered
       return res
     }
   const startedAt = Date.now()
-  const sim = await runMultishot({
-    profile: cell.coderProfile,
-    persona: { id: 'parity-cell' },
-    shape: {
-      buildOpener: () => cell.task,
-      buildDriverSystemPrompt: () => cell.reviewerProfile.prompt?.systemPrompt ?? '',
-    },
-    tools: [],
-    toolExecutors: {},
-    maxTurns: cell.shots,
-    agentModel: requireProfileModel(cell.coderProfile, 'coderProfile'),
-    driverModel: requireModel(backend.driverModel, 'MultishotArmBackend.driverModel'),
-    agentTransport: metered(backend.agentTransport),
-    driverTransport: metered(backend.driverTransport),
-    apiKey: backend.apiKey ?? 'unused',
-    baseUrl: backend.baseUrl ?? 'http://unused.invalid',
-  })
+  let sim: MultishotResult | undefined
+  try {
+    sim = await runMultishot({
+      profile: cell.coderProfile,
+      persona: { id: 'parity-cell' },
+      shape: {
+        buildOpener: () => cell.task,
+        buildDriverSystemPrompt: () => cell.reviewerProfile.prompt?.systemPrompt ?? '',
+      },
+      tools: [],
+      toolExecutors: {},
+      maxTurns: cell.shots,
+      agentModel: requireProfileModel(cell.coderProfile, 'coderProfile'),
+      driverModel: requireModel(backend.driverModel, 'MultishotArmBackend.driverModel'),
+      // Coder sampling parity (F1): pin the turn-initial ceiling to the shared constant; the
+      // agent leg's temperature 0.7 is hardcoded inside `runMultishot` and asserted by test.
+      agentMaxTokens: PARITY_CODER_SAMPLING.maxTokens,
+      agentTransport: metered(backend.agentTransport, 'agent'),
+      driverTransport: metered(backend.driverTransport, 'driver'),
+      apiKey: backend.apiKey ?? 'unused',
+      baseUrl: backend.baseUrl ?? 'http://unused.invalid',
+    })
+  } catch (err) {
+    if (!(err instanceof LoopTransportFailure)) throw err
+  }
   const wallMs = Date.now() - startedAt
-  const shotReplies = turnInitialAssistantReplies(sim.transcript)
-  const steering = sim.transcript.slice(1).filter((msg) => msg.role === 'user')
+  // Completed run: shots/steering read off the loop's own transcript; the infra-abort path reads
+  // the meter (the transcript died with the loop). The two agree by construction — see the meter
+  // note above.
+  const shotReplies = sim !== undefined ? turnInitialAssistantReplies(sim.transcript) : []
+  const steering =
+    sim !== undefined
+      ? sim.transcript
+          .slice(1)
+          .filter((msg) => msg.role === 'user')
+          .map((msg) => msg.content)
+      : meter.driverReplies
+  const replies = sim !== undefined ? shotReplies : meter.agentReplies
   return {
-    converged: shotReplies.some((text) => backend.shotPassed(text)),
-    shotsUsed: shotReplies.length,
-    spend: { tokens: { ...tokens }, usd: sim.costUsd },
+    converged: replies.some((text) => backend.shotPassed(text)),
+    shotsUsed: replies.length,
+    // A completed run's usd is the loop's own honest total (which may CONTAIN estimates — stated
+    // by `usdSource`); an infra-aborted run reports only what was measured, never re-estimating.
+    spend: {
+      tokens: { ...meter.tokens },
+      usd: sim !== undefined ? sim.costUsd : meter.usdMeasured,
+    },
+    usdSource:
+      meter.turnsMissingCost === 0 ? 'measured' : sim !== undefined ? 'estimated' : 'unknown',
+    infraShots: meter.infraShots,
+    tokensKnown: meter.turnsMissingUsage === 0,
+    usdKnown: meter.turnsMissingCost === 0,
     wallMs,
     steeringDelivered: {
       count: steering.length,
-      bytes: steering.reduce((sum, msg) => sum + Buffer.byteLength(msg.content, 'utf8'), 0),
+      bytes: steering.reduce((sum, text) => sum + Buffer.byteLength(text, 'utf8'), 0),
     },
     // No `ledger`: `runMultishot` has no edge instrumentation, and the runner never fakes one.
   }
@@ -281,12 +414,33 @@ function turnInitialAssistantReplies(transcript: ReadonlyArray<MultishotMessage>
 export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Promise<ParityRecord> {
   validateCell(cell)
   const graph = buildParityGraph(cell, backend.shotPassed)
+  // The infra channel: `runGraph` composes caller hooks onto the run's own event stream, and an
+  // infra-flagged `down` settle rides `agent.child` with its `infra` marker. Collected here, then
+  // intersected with the ledger's delegates-bound worker ids so ONLY coder shots count (the
+  // driver brain's own death surfaces as the run's no-winner reason instead).
+  const downInfraWorkers = new Set<string>()
+  const infraHooks: RuntimeHooks = {
+    onEvent: (event) => {
+      if (event.target !== 'agent.child' || event.phase !== 'after') return
+      const payload = event.payload as
+        | { childId?: unknown; status?: unknown; infra?: unknown }
+        | undefined
+      if (
+        typeof payload?.childId === 'string' &&
+        payload.status === 'down' &&
+        payload.infra === true
+      ) {
+        downInfraWorkers.add(payload.childId)
+      }
+    },
+  }
   const opts: RunGraphOptions =
     backend.kind === 'seam'
       ? {
           makeWorkerAgent: backend.makeWorkerAgent,
           brain: backend.brain,
           analysts: backend.analysts ?? parityAnalysts(),
+          hooks: infraHooks,
         }
       : {
           // The coder on the SAME bare chat transport the multishot arm posts to, with the
@@ -296,10 +450,15 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
             url: backend.url,
             ...(backend.bearer !== undefined ? { bearer: backend.bearer } : {}),
             model: backend.model,
+            // Coder sampling parity (F1): the same pinned temperature + max_tokens the multishot
+            // arm's coder leg sends, from the one shared constant — never a per-arm choice.
+            temperature: PARITY_CODER_SAMPLING.temperature,
+            maxTokens: PARITY_CODER_SAMPLING.maxTokens,
             deliverable: graph.deliverable,
           }),
           router: backend.router,
           analysts: parityAnalysts(),
+          hooks: infraHooks,
         }
   const startedAt = Date.now()
   try {
@@ -309,12 +468,19 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
       res.result.spentTotal,
       res.ledger,
       Date.now() - startedAt,
+      downInfraWorkers,
     )
   } catch (err) {
     if (err instanceof GraphEdgeCapError) {
       // The cap (the cyclic-graph backstop), not the task, ended the run: an honest
       // non-convergence row, with the full evidence the error carries.
-      return graphRecord(false, err.result.spentTotal, err.ledger, Date.now() - startedAt)
+      return graphRecord(
+        false,
+        err.result.spentTotal,
+        err.ledger,
+        Date.now() - startedAt,
+        downInfraWorkers,
+      )
     }
     throw err
   }
@@ -325,21 +491,30 @@ function graphRecord(
   spentTotal: Spend,
   ledger: ReadonlyArray<EdgeTraversal>,
   wallMs: number,
+  downInfraWorkers: ReadonlySet<string>,
 ): ParityRecord {
   const delegates = ledger.filter((row) => row.kind === 'delegates')
   // Each live coder worker is one shot; steers re-use an existing worker id, refused rows have
   // none — so distinct bound worker ids count executed shots exactly.
-  const shotsUsed = new Set(
-    delegates.filter((row) => row.workerId !== undefined).map((row) => row.workerId),
-  ).size
+  const workerIds = new Set(
+    delegates
+      .map((row) => row.workerId)
+      .filter((workerId): workerId is string => workerId !== undefined),
+  )
   const steering = delegates.filter((row) => row.outcome === 'delivered' && row.traversal > 1)
   return {
     converged,
-    shotsUsed,
+    shotsUsed: workerIds.size,
     spend: {
       tokens: { input: spentTotal.tokens.input, output: spentTotal.tokens.output },
       usd: spentTotal.usd,
     },
+    // The graph arm NEVER estimates: dollars come only from provider cost fields, so the pool's
+    // taint flag decides between fully-measured and known-subtotal — 'estimated' is unreachable.
+    usdSource: spentTotal.usdKnown !== false ? 'measured' : 'unknown',
+    infraShots: [...downInfraWorkers].filter((workerId) => workerIds.has(workerId)).length,
+    tokensKnown: spentTotal.tokensKnown !== false,
+    usdKnown: spentTotal.usdKnown !== false,
     wallMs,
     steeringDelivered: {
       count: steering.length,
