@@ -1,0 +1,8 @@
+{
+  "id": "mission-in-deliverable",
+  "brief": "Produce a CHANGELOG entry for last week that passes our format check.",
+  "expect": {
+    "deliverableDescribeCarriesMission": true,
+    "checkIsMechanical": true
+  }
+}
