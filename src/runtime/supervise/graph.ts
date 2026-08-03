@@ -397,7 +397,18 @@ function validateGraph(
     if (edge.over.length === 0) {
       throw new ValidationError(`runGraph: ${edgeId(edge)} must analyze at least one node`)
     }
-    for (const over of edge.over) requireNode(over, edgeId(edge))
+    for (const over of edge.over) {
+      requireNode(over, edgeId(edge))
+      // Analysts observe SETTLED WORKERS, matched by profile name — the root drives and never
+      // settles as a worker, so an edge over the root would silently never fire; refuse it.
+      if (over === root.id) {
+        throw new ValidationError(
+          `runGraph: ${edgeId(edge)} analyzes the ROOT — analysts observe settled workers, and ` +
+            'the root never settles as one, so this edge would silently never fire; list ' +
+            'delegates-target nodes only',
+        )
+      }
+    }
     requireNode(edge.to, edgeId(edge))
   }
   // Second pass, once every analyst NODE is known: an analyst run's settlement is a FINDING,
