@@ -9,6 +9,7 @@ bench/data/
 bench/experiments/
 bench/runs/
 bench/ab-runs/
+.gen2-runs/
 **/__pycache__/
 .claude/
 bench/scripts/__pycache__/

@@ -68,7 +68,7 @@ function gitLs(ref: string, path: string): string[] {
 }
 
 /** Load either one explicit commit or the canonical working-tree files, never a legacy alias. */
-function loadInputs(): { surface: string; cases: CaseSpec[]; source: string } {
+export function loadInputs(): { surface: string; cases: CaseSpec[]; source: string } {
   if (SKILL_REF !== undefined) {
     const surface = gitShow(SKILL_REF, 'skills/agent-graphs/SKILL.md')
     const cases = gitLs(SKILL_REF, 'skills/agent-graphs/cases')
@@ -89,7 +89,7 @@ function loadInputs(): { surface: string; cases: CaseSpec[]; source: string } {
 const PI_TOKEN_FLOOR = 31_211
 // ── Case + artifact shapes ─────────────────────────────────────────────────────
 
-interface CaseExpect {
+export interface CaseExpect {
   correctAnswerIsNoGraph?: boolean
   correctAnswerIsDynamicWorkflow?: boolean
   delegatedWorkers?: number
@@ -103,7 +103,7 @@ interface CaseExpect {
   edges?: string[]
 }
 
-interface CaseSpec {
+export interface CaseSpec {
   id: string
   brief: string
   expect: CaseExpect
@@ -152,7 +152,7 @@ export interface AuthoredGraphSpec {
   deliverableDescribe: string
 }
 
-type Decision = 'graph' | 'single-agent' | 'dynamic-workflow'
+export type Decision = 'graph' | 'single-agent' | 'dynamic-workflow'
 
 export interface OfflineRunSummary {
   resultKind: string
@@ -161,7 +161,7 @@ export interface OfflineRunSummary {
 }
 
 /** Closure A's output: the authored artifact, plus the offline run evidence when one ran. */
-interface AuthoredArtifact {
+export interface AuthoredArtifact {
   decision: Decision
   reason: string
   graph?: AuthoredGraphSpec
@@ -233,7 +233,7 @@ export function buildAgentGraphsAuthorProfile(
   }
 }
 
-function authorProfileLabel(profile: AgentProfile): string {
+export function authorProfileLabel(profile: AgentProfile): string {
   return [profile.harness, profile.model?.provider, profile.model?.default]
     .filter((part): part is string => typeof part === 'string' && part.length > 0)
     .join('/')
@@ -256,7 +256,7 @@ function extractJson(text: string): string {
   return stripped.slice(start, end + 1)
 }
 
-interface AuthorAttemptEvidence {
+export interface AuthorAttemptEvidence {
   status: string
   usage?: { input: number; output: number; costUsd?: number; model?: string }
   raw?: string
@@ -273,27 +273,24 @@ class AuthoringFailedError extends Error {
   }
 }
 
-async function callAuthor(
+export async function callAuthor(
   profile: AgentProfile,
   prompt: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<{
   finalText: string
   status: string
   usage: { input: number; output: number; costUsd?: number; model?: string }
   error?: { message: string }
 }> {
-  const bridgeBearer =
-    process.env.AGENT_GRAPHS_BRIDGE_BEARER ?? process.env.BRIDGE_BEARER
+  const bridgeBearer = env.AGENT_GRAPHS_BRIDGE_BEARER ?? env.BRIDGE_BEARER
   if (!bridgeBearer) {
     throw new Error('AGENT_GRAPHS_BRIDGE_BEARER or BRIDGE_BEARER is required')
   }
-  const bridgeUrl =
-    process.env.AGENT_GRAPHS_BRIDGE_URL ??
-    process.env.BRIDGE_URL ??
-    'http://127.0.0.1:3355'
+  const bridgeUrl = env.AGENT_GRAPHS_BRIDGE_URL ?? env.BRIDGE_URL ?? 'http://127.0.0.1:3355'
   const timeoutMs = optionalPositiveInteger(
     'AGENT_GRAPHS_AUTHOR_TIMEOUT_MS',
-    process.env.AGENT_GRAPHS_AUTHOR_TIMEOUT_MS,
+    env.AGENT_GRAPHS_AUTHOR_TIMEOUT_MS,
   )
   const factory = createExecutor({
     backend: 'bridge',
@@ -325,12 +322,16 @@ interface AuthoredReply {
 }
 
 /** Prompt the profile; every attempt is retained and the caller controls the retry count. */
-async function authorOnce(surface: string, kase: CaseSpec): Promise<AuthoredReply> {
+async function authorOnce(
+  surface: string,
+  kase: CaseSpec,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<AuthoredReply> {
   const prompt = authorPrompt(kase)
-  const profile = buildAgentGraphsAuthorProfile(surface)
+  const profile = buildAgentGraphsAuthorProfile(surface, env)
   const attemptLimit = positiveInteger(
     'AGENT_GRAPHS_AUTHOR_ATTEMPTS',
-    process.env.AGENT_GRAPHS_AUTHOR_ATTEMPTS,
+    env.AGENT_GRAPHS_AUTHOR_ATTEMPTS,
     2,
   )
   const attempts: AuthorAttemptEvidence[] = []
@@ -338,7 +339,7 @@ async function authorOnce(surface: string, kase: CaseSpec): Promise<AuthoredRepl
   for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
     let evidence: AuthorAttemptEvidence | undefined
     try {
-      const turn = await callAuthor(profile, prompt)
+      const turn = await callAuthor(profile, prompt, env)
       evidence = {
         status: turn.status,
         usage: turn.usage,
@@ -514,8 +515,12 @@ export async function runAuthoredOffline(
 
 /** CLOSURE A — `dispatchWithSurface(surface, scenario)`: author from the skill text, lower,
  *  execute offline. A refusal is data (`validationError`), never a crash. */
-async function dispatchWithSurface(surface: string, scenario: CaseSpec): Promise<AuthoredArtifact> {
-  const reply = await authorOnce(surface, scenario)
+export async function dispatchWithSurface(
+  surface: string,
+  scenario: CaseSpec,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<AuthoredArtifact> {
+  const reply = await authorOnce(surface, scenario, env)
   const artifact: AuthoredArtifact = {
     decision: reply.decision,
     reason: reply.reason,
@@ -587,7 +592,7 @@ function ledgerTraversals(run: OfflineRunSummary | undefined, edgePrefix: string
 
 /** CLOSURE B — deterministic `JudgeConfig`-style scorer: each `expect` entry becomes one
  *  mechanical check; score = satisfied / total, equal weights. */
-function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { score: number; reasons: string[] } {
+export function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { score: number; reasons: string[] } {
   const e = kase.expect
   const g = artifact.graph
   const checks: Check[] = []
@@ -889,6 +894,7 @@ async function main(): Promise<void> {
   }
 }
 
+// Run the baseline only when executed directly; the improvement runner imports its closures.
 const invokedPath = process.argv[1]
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
   main().catch((err) => {

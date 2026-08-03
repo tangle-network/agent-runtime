@@ -12,11 +12,19 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url))
 const runner = join(here, 'agent-graphs-improve.mts')
+const improvementRunner = join(here, 'agent-graphs-gen2.mts')
 
 test('agent-graphs runner loads only its canonical working-tree inputs', () => {
   const source = readFileSync(runner, 'utf8')
   assert.doesNotMatch(source, /skills['"], ['"]codemode|codemode-/)
-  assert.doesNotMatch(source, /\bfetch\(|max_tokens|AbortSignal\.timeout/)
+  for (const path of [runner, improvementRunner]) {
+    const modelSource = readFileSync(path, 'utf8')
+    assert.doesNotMatch(modelSource, /\bfetch\(|chat\/completions|max_tokens|AbortSignal\.timeout/)
+  }
+  const improvementSource = readFileSync(improvementRunner, 'utf8')
+  assert.match(improvementSource, /buildAgentGraphsAuthorProfile/)
+  assert.match(improvementSource, /dispatchWithSurface\(surface, scenario, AUTHOR_ENV\)/)
+  assert.match(improvementSource, /callAuthor\(proposerProfile, prompt, PROPOSER_ENV\)/)
 
   const stdout = execFileSync(process.execPath, ['--import', 'tsx', runner], {
     cwd: join(here, '..'),

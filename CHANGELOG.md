@@ -16,7 +16,16 @@ The benchmark arm formerly named `loop` is now named `multishot`, which describe
 - The `agent-graphs` skill turns a loose task into either a single-agent run, a fixed graph, or a dynamic `supervise()` workflow according to what the task actually requires.
 - The accompanying benchmark executable supplies Agent Eval's caller-owned authoring and deterministic scoring functions and records a baseline without adding a second optimization system.
 - The author is one canonical, overridable `AgentProfile`, executed through Runtime and Pi; it defaults to Tangle Router's DeepSeek V4 Flash and carries the skill as an inline profile resource.
-- A complete candidate-generation and held-out promotion run remains to be wired through Agent Eval's existing `skillOptOptimizationMethod` and `runImprovementLoop`; this release does not claim that cycle ran.
+- The first complete skill-improvement generation ran through Agent Eval's existing `runImprovementLoop`: 5 development cases and 3 final-test cases at 3 repetitions each.
+  The revised skill improved the development mean from 0.507 to 0.960 and the final-test mean from 0.444 to 0.611, so the declared rule promoted it.
+  One of 33 requested cells was lost to an HTTP 503; the checked-in record includes that asymmetry and the supplementary final-test measurement.
+- Future baseline and improvement runs author through canonical, overridable `AgentProfile` values executed by Runtime and Pi.
+  The default is Tangle Router's DeepSeek V4 Flash; the historical promoted generation used GLM-5.2.
+
+### Python bridge install hints match the required Eval substrate
+
+The documented `agent-eval-rpc` install commands — the `OfficialOptimizerUnavailableError` hint, the README's `officialGepa`/`officialSkillOpt` sections, and the bench GEPA seat hint — now pin `0.143.0`, the Python client published in lockstep with the `@tangle-network/agent-eval` range this package requires.
+The previous hints pinned `0.131.0`/`0.133.0`, so following them installed a bridge older than the wire protocol the installed Eval package speaks.
 
 ## 0.126.0
 
