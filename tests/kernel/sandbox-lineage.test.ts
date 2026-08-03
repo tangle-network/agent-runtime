@@ -5,7 +5,7 @@ import {
   type Driver,
   type Iteration,
   type OutputAdapter,
-  runLoop,
+  runAgentRounds,
 } from '../../src/runtime'
 import { type ScriptedMove, type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
@@ -136,7 +136,7 @@ function scriptedPlanner(moves: ScriptedMove<Task>[]): ScriptedPlanner<Task, Out
   return () => moves[i++]!
 }
 
-describe('runLoop lineage — sessionContinuity OFF (the independence invariant)', () => {
+describe('runAgentRounds lineage — sessionContinuity OFF (the independence invariant)', () => {
   it('is fresh-box-per-iteration with no sessionId reuse when the flag is off', async () => {
     const { client, streamCalls, created } = createFakeClient({ criuAvailable: true })
     // refine, refine, stop — three single-task rounds.
@@ -145,7 +145,7 @@ describe('runLoop lineage — sessionContinuity OFF (the independence invariant)
       { kind: 'refine', task: { goal: 'b' } },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
@@ -161,7 +161,7 @@ describe('runLoop lineage — sessionContinuity OFF (the independence invariant)
   })
 })
 
-describe('runLoop — streaming: poll (drop-resilient batch path)', () => {
+describe('runAgentRounds — streaming: poll (drop-resilient batch path)', () => {
   it('fire-and-detaches via dispatchPrompt + drains the terminal result, never holding a live stream', async () => {
     const calls = { stream: 0, dispatch: 0, result: 0 }
     const client = {
@@ -203,7 +203,7 @@ describe('runLoop — streaming: poll (drop-resilient batch path)', () => {
     let i = 0
     const planner: ScriptedPlanner<Task, string> = () => moves[i++]!
 
-    await runLoop<Task, string, 'continue' | 'done'>({
+    await runAgentRounds<Task, string, 'continue' | 'done'>({
       driver: scriptedDriver<Task, string>({ planner }),
       agentRun: spec('w'),
       output: pollOutput,
@@ -218,7 +218,7 @@ describe('runLoop — streaming: poll (drop-resilient batch path)', () => {
   })
 })
 
-describe('runLoop lineage — sessionContinuity ON', () => {
+describe('runAgentRounds lineage — sessionContinuity ON', () => {
   it('a refine continues the parent on the SAME box with the SAME session id', async () => {
     const { client, streamCalls, created } = createFakeClient({ criuAvailable: false })
     const planner = scriptedPlanner([
@@ -226,7 +226,7 @@ describe('runLoop lineage — sessionContinuity ON', () => {
       { kind: 'refine', task: { goal: 'b' } },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
@@ -244,7 +244,7 @@ describe('runLoop lineage — sessionContinuity ON', () => {
   })
 })
 
-describe('runLoop lineage — forkFanout', () => {
+describe('runAgentRounds lineage — forkFanout', () => {
   it('forks the parent checkpoint when criuStatus.available', async () => {
     const { client, streamCalls, created, forked } = createFakeClient({ criuAvailable: true })
     // refine (seed a parent), then a 3-way fanout descending from it, then stop.
@@ -253,7 +253,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }, { goal: 'c' }] },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
@@ -279,7 +279,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }, { goal: 'c' }] },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
@@ -303,7 +303,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }] },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner, maxFanout: 2 }),
       agentRuns: [spec('a'), spec('b')],
       output,
@@ -317,12 +317,12 @@ describe('runLoop lineage — forkFanout', () => {
   })
 })
 
-describe('runLoop lineage — guardrails', () => {
+describe('runAgentRounds lineage — guardrails', () => {
   it('rejects lineage + onWorkerBox (both own worker boxes)', async () => {
     const { client } = createFakeClient({ criuAvailable: true })
     const planner = scriptedPlanner([{ kind: 'stop' }])
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
@@ -341,7 +341,7 @@ describe('runLoop lineage — guardrails', () => {
       { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }] },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner, maxFanout: 2 }),
       agentRuns: [spec('a'), spec('b')],
       output,
@@ -354,7 +354,7 @@ describe('runLoop lineage — guardrails', () => {
   })
 })
 
-describe('runLoop lineage — continue asserts session liveness (fail-loud)', () => {
+describe('runAgentRounds lineage — continue asserts session liveness (fail-loud)', () => {
   it('throws when the platform reports the continued session is unknown', async () => {
     const { client } = createFakeClient({ criuAvailable: false, sessionState: 'dead' })
     const planner = scriptedPlanner([
@@ -363,7 +363,7 @@ describe('runLoop lineage — continue asserts session liveness (fail-loud)', ()
       { kind: 'stop' },
     ])
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
@@ -381,7 +381,7 @@ describe('runLoop lineage — continue asserts session liveness (fail-loud)', ()
       { kind: 'refine', task: { goal: 'b' } },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
@@ -396,7 +396,7 @@ describe('runLoop lineage — continue asserts session liveness (fail-loud)', ()
   })
 })
 
-describe('runLoop lineage — fork creation respects the concurrency bound', () => {
+describe('runAgentRounds lineage — fork creation respects the concurrency bound', () => {
   it('never has more than maxConcurrency forks in flight at once', async () => {
     const { client, peakFork, forked } = createFakeClient({ criuAvailable: true })
     // refine seed, then a 6-way fanout descending from it, under maxConcurrency 2.
@@ -415,7 +415,7 @@ describe('runLoop lineage — fork creation respects the concurrency bound', () 
       },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner, maxFanout: 6 }),
       agentRuns: [spec('w')],
       output,
@@ -449,12 +449,12 @@ function noDescribePlanDriver(plans: Task[][]): Driver<Task, Out, string> {
   }
 }
 
-describe('runLoop lineage — prune frees non-frontier boxes mid-loop', () => {
+describe('runAgentRounds lineage — prune frees non-frontier boxes mid-loop', () => {
   it('reaps boxes no future round can descend from before loop end', async () => {
     const { client, streamCalls, deleted } = createFakeClient({ criuAvailable: true })
     // round 0: refine seed (box-0); round 1: fork 3 from seed (fork-0/1/2);
     // round 2: refine continuing the branch point; then stop.
-    await runLoop({
+    await runAgentRounds({
       driver: noDescribePlanDriver([
         [{ goal: 'seed' }],
         [{ goal: 'a' }, { goal: 'b' }, { goal: 'c' }],
@@ -489,7 +489,7 @@ describe('runLoop lineage — prune frees non-frontier boxes mid-loop', () => {
       { kind: 'refine', task: { goal: 'final' } },
       { kind: 'stop' },
     ])
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('w')],
       output,
@@ -501,7 +501,7 @@ describe('runLoop lineage — prune frees non-frontier boxes mid-loop', () => {
   })
 })
 
-describe('runLoop lineage — abort during a lineage run', () => {
+describe('runAgentRounds lineage — abort during a lineage run', () => {
   it('rejects and tears down every owned box (no leak)', async () => {
     const controller = new AbortController()
     const { client, deleted } = createFakeClient({
@@ -517,7 +517,7 @@ describe('runLoop lineage — abort during a lineage run', () => {
       { kind: 'stop' },
     ])
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,

@@ -162,7 +162,7 @@ The capability must be reported before the driver chooses a policy that depends 
 
 `runPersonified` and `runAgentic` build policies over `Supervisor`.
 
-`runLoop` is a sandbox-specific round engine.
+`runAgentRounds` is a sandbox-specific round engine.
 
 `supervise` is the dynamic driver path.
 

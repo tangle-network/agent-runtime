@@ -41,9 +41,9 @@ const RUNS_DIR = join(BENCH_ROOT, 'runs')
 const REFINE_IMPORT = 'tb_agents.opencode_refine_agent:OpenCodeRefineAgent'
 // The durable learning-flywheel corpus (docs/learning-flywheel.md). terminal-bench
 // is bench-orchestrated (tb owns the containers) so it cannot use buildRunRecord,
-// which consumes runLoop Iterations; instead each task's per-round tb artifacts are
+// which consumes runAgentRounds Iterations; instead each task's per-round tb artifacts are
 // folded into one RunRecord here so the corpus is genuinely cross-benchmark
-// (finsearch-loop.ts writes the same store from the runLoop path).
+// (finsearch-loop.ts writes the same store from the runAgentRounds path).
 const CORPUS = process.env.CORPUS ?? join(BENCH_ROOT, 'corpus', 'terminal.jsonl')
 
 const DATASET = process.env.TB_DATASET ?? 'terminal-bench-core==0.1.1'
@@ -307,8 +307,8 @@ function informativeFailureMode(mode: string | undefined): string | undefined {
 
 /**
  * Build and persist one flywheel RunRecord per task from terminal-compare's own
- * round data — no buildRunRecord (that consumes runLoop Iterations; tb is not
- * runLoop-shaped). condition = 'refine@k' when a refine budget was available,
+ * round data — no buildRunRecord (that consumes runAgentRounds Iterations; tb is not
+ * runAgentRounds-shaped). condition = 'refine@k' when a refine budget was available,
  * 'blind' when only the single blind round can run (ROUNDS===1). Appended once
  * per task; never throws into the run (corpus capture must not fail the bench).
  */

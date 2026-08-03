@@ -225,7 +225,7 @@ A separate final-test partition is required because source labels alone cannot p
   spent once per *locked* candidate; this is what `compareOptimizationMethods` enforces by keeping
   the final-test partition out of the optimization method (memorization read as generalization is the default failure otherwise).
 - **"Validates the concept" ≠ "validates the product."** A hand-rolled refine loop proves
-  refinement helps, NOT that `runLoop`/the controller does. Route through the real kernel.
+  refinement helps, NOT that `runAgentRounds`/the controller does. Route through the real kernel.
 - **Eval economics is the moonshot bottleneck, not controller cleverness.** Build the offline
   corpus/replay so search is affordable. Don't build the optimizer cathedral over a metric
   you can only sample a few hundred times with overlapping CIs.
@@ -237,7 +237,7 @@ A separate final-test partition is required because source labels alone cannot p
 
 - **Stateful agentic (EnterpriseOps-Gym itsm, 2026-06-09): Gate A POSITIVE.** On the
   canonical loop — `Scope`/`Supervisor` + the `observe()` analyst + `defineStrategy`
-  (`src/runtime/strategy.ts`), not the `runLoop` path — depth-steered continuation beats
+  (`src/runtime/strategy.ts`), not the `runAgentRounds` path — depth-steered continuation beats
   breadth (blind best-of-K) at equal compute under keep-best checkpoint scoring:
   **+16.4pp CI [+5.3, +29.8]**, 6 wins / 0 losses, n=16, deepseek-v4-pro; replicated
   **+8.3pp** on a disjoint task slice.
@@ -267,7 +267,7 @@ A separate final-test partition is required because source labels alone cannot p
   correctable middle band, and there was no `random@k` control. SWE-bench is a weak instrument
   here.
 - **Research (FinSearchComp): rung-0 settled, and the answer is NO.** The first
-  adequately-powered, confound-controlled, judge-verified 3-way through the real `runLoop`
+  adequately-powered, confound-controlled, judge-verified 3-way through the real `runAgentRounds`
   (n=40, 20 T2 + 20 T3, gpt-5 worker + verified-deterministic judge, 0 infra-excluded):
   - blind 37.5% → random@3 **60.0%** → refineHand@3 50.0% → refineGepa@3 45.0%.
   - **more-compute** (random − blind) = **+22.5pp**, 95% CI [+7.5, +40.0], p=0.008 (13/40
@@ -288,7 +288,7 @@ A separate final-test partition is required because source labels alone cannot p
     alone (CI [−5, +35]). T2 mirrors the aggregate (more-compute +30pp sig; steering ≤0).
 - **Terminal-Bench:** adapter+judge + blind-vs-refine wired (reuses tb's open-source opencode
   agent + verifier). Bench-orchestrated (tb owns containers) — the exception that does NOT
-  route through `runLoop`.
+  route through `runAgentRounds`.
 - **Net:** the first clean rung-0 measurement **contradicts** the flywheel's core premise on
   this domain — a within-run steer does NOT beat compute-matched random; compute does. This is
   one benchmark, one worker, two directives (incl. a GEPA-learned one that also fails), so it
@@ -310,7 +310,7 @@ A separate final-test partition is required because source labels alone cannot p
 
 ## Where the pieces live
 
-- Kernel + controller seam: `src/runtime/` — the `runLoop` kernel (`run-loop.ts`, one
+- Kernel + controller seam: `src/runtime/` — the `runAgentRounds` kernel (`run-loop.ts`, one
   leaf execution backend) and the canonical agent-driver:
   `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`
   substrate (`src/runtime/supervise/`), with `runAgentic`/`defineStrategy`/`runPersonified`.

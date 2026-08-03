@@ -129,8 +129,6 @@ export type {
   McpToolDescriptor,
   McpTransport,
 } from './protocol'
-/** @deprecated Use `McpToolDescriptor`; both names are the same protocol contract. */
-export type StdioToolDescriptor = import('./protocol').McpToolDescriptor
 export type { McpServer, McpServerOptions } from './server'
 export { createInProcessTransport, createMcpServer } from './server'
 export type {

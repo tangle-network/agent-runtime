@@ -89,7 +89,7 @@ export async function solveShot(
 
   // Cold-start-resilient via the shared lineage layer (a gateway-timed-out create is
   // recovered by name lookup). The inline profile + backend override is the same
-  // generic AgentRunSpec the runLoop kernel boots against the real sandbox.
+  // generic AgentRunSpec the runAgentRounds kernel boots against the real sandbox.
   const controller = new AbortController()
   const timer = cfg.timeoutMs ? setTimeout(() => controller.abort(), cfg.timeoutMs) : undefined
   const agentRun: AgentRunSpec<string> = {

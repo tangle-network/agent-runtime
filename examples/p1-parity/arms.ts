@@ -1,7 +1,7 @@
 /**
- * P1 parity arms — the SAME coding cell replayed through the two loop forms, under measurement.
+ * P1 parity arms — the SAME coding cell replayed through two execution forms, under measurement.
  *
- *   A. `runLoopArm` — the LEGACY loop: agent-eval's multishot loop (`runMultishot`), with the
+ *   A. `runMultishotArm` — agent-eval's multishot runner (`runMultishot`), with the
  *      reviewer profile as the simulated-user driver leg and the coder profile as the agent leg.
  *      Each driver→agent turn is one SHOT; `maxTurns` is the shot budget.
  *   B. `runGraphArm` — the graph form: `runGraph` over the two-node reviewer→coder topology
@@ -37,19 +37,19 @@ import {
 
 /** One coding cell, fed VERBATIM to both arms — the input-equivalence contract of the harness. */
 export interface CellSpec {
-  /** The coding task text. Shot 1's brief in both arms: the multishot opener (loop) and the
+  /** The coding task text. Shot 1's brief in both arms: the multishot opener and the
    *  first spawn's task payload + the root task (graph). */
   readonly task: string
-  /** The coder under test. Loop arm: the agent leg's profile. Graph arm: the pinned worker node
+  /** The coder under test. Multishot arm: the agent leg's profile. Graph arm: the pinned worker node
    *  (`profile.name` is the node id, so it must be non-empty and differ from the reviewer's). */
   readonly coderProfile: AgentProfile
-  /** The reviewer driving the shots. Loop arm: the driver leg (its `prompt.systemPrompt` is the
+  /** The reviewer driving the shots. Multishot arm: the driver leg (its `prompt.systemPrompt` is the
    *  driver system prompt). Graph arm: the root node. */
   readonly reviewerProfile: AgentProfile
-  /** The shot budget. Loop arm: `maxTurns`. Graph arm: the delegates edge's `maxTraversals`. */
+  /** The shot budget. Multishot arm: `maxTurns`. Graph arm: the delegates edge's `maxTraversals`. */
   readonly shots: number
   /** The conserved resource pool. ENFORCED BY THE GRAPH ARM ONLY: `runGraph` reserves against it
-   *  for every spawn. The legacy loop has no conserved-pool concept — its only enforceable limit
+   *  for every spawn. `runMultishot` has no conserved-pool concept — its only enforceable limit
    *  is `shots` — so this field cannot reach it. That gap is a P1 finding, not a harness bug. */
   readonly budget: Budget
 }
@@ -62,42 +62,42 @@ export interface CellSpec {
  * exact thing P1 exists to measure:
  *
  *  - `ledger` exists ONLY for the graph arm (the edge ledger is what the graph form adds). The
- *    loop arm's instrumentation is a transcript, not an edge ledger; its `ledger` is ALWAYS
+ *    multishot arm's instrumentation is a transcript, not an edge ledger; its `ledger` is ALWAYS
  *    `undefined` and must never be synthesized from the transcript.
- *  - The loop arm cannot stop early: `runMultishot` has no deliverable gate, so it burns the full
+ *  - The multishot arm cannot stop early: `runMultishot` has no deliverable check, so it burns the full
  *    shot budget even when an early shot converges. The graph arm settles at the first shot whose
  *    output passes the deliverable. Expect `shotsUsed` to differ on early-convergence cells.
- *  - Loop `spend.tokens` is metered at the transport seam (the sum of `usage` on every agent and
+ *  - Multishot `spend.tokens` is metered at the transport seam (the sum of `usage` on every agent and
  *    driver completion); graph `spend` is the run's reconciled `spentTotal` from the conserved
  *    pool's journal. Both are that form's honest total, measured by different machinery.
  */
 export interface ParityRecord {
   /** Did any shot satisfy the completion check? Graph arm: the run settled a winner (the
-   *  deliverable passed). Loop arm: some turn-initial coder reply passed `shotPassed`. */
+   *  deliverable passed). Multishot arm: some turn-initial coder reply passed `shotPassed`. */
   converged: boolean
   /** Coder shots actually executed. Graph arm: distinct live coder workers spawned (from the
-   *  ledger). Loop arm: turn-initial agent replies in the transcript. */
+   *  ledger). Multishot arm: turn-initial agent replies in the transcript. */
   shotsUsed: number
   /** Total measured resource spend for the arm's whole run (driver + coder legs). */
   spend: { tokens: { input: number; output: number }; usd: number }
   /** Wall-clock duration of the arm call, measured identically around both arms. */
   wallMs: number
-  /** Corrective direction DELIVERED to the coder after the initial brief. Loop arm: driver (user)
+  /** Corrective direction DELIVERED to the coder after the initial brief. Multishot arm: driver (user)
    *  messages after the opener, counted with their UTF-8 bytes. Graph arm: delegates-edge
    *  traversals beyond the first with outcome `delivered` — re-brief spawns AND mid-run steers,
    *  with the bytes that actually crossed the edge. Graph bytes include the versioned edge
-   *  directive text; loop bytes are the raw message only (the loop has no directive layer). */
+   *  directive text; multishot bytes are the raw message only (`runMultishot` has no directive layer). */
   steeringDelivered: { count: number; bytes: number }
-  /** The graph arm's edge ledger — every traversal, outcome, and byte count. ABSENT for the loop
-   *  arm, honestly: the legacy loop has no observable edges (that is the migration's point). */
+  /** The graph arm's edge ledger — every traversal, outcome, and byte count. ABSENT for the
+   *  multishot arm: `runMultishot` has no observable edges. */
   ledger?: ReadonlyArray<EdgeTraversal>
 }
 
 // ── Backends ───────────────────────────────────────────────────────────────────
 
-/** Execution seams for the loop arm. Offline: scripted transports (see ./offline.ts).
+/** Execution seams for the multishot arm. Offline: scripted transports (see ./offline.ts).
  *  Live: transports posting to a cli-bridge OpenAI-compatible endpoint (see ./run-parity.ts). */
-export interface LoopArmBackend {
+export interface MultishotArmBackend {
   readonly agentTransport: MultishotTransport
   readonly driverTransport: MultishotTransport
   /** The shared completion check, applied to each turn-initial coder reply. MUST be the same
@@ -116,7 +116,7 @@ export type GraphArmBackend =
       readonly makeWorkerAgent: MakeWorkerAgent
       readonly brain: ToolLoopChat
       readonly analysts?: AnalystRegistry
-      /** Same predicate as the paired loop arm — becomes the graph's deliverable check. */
+      /** Same predicate as the paired multishot arm — becomes the graph's deliverable check. */
       readonly shotPassed: (workerOutText: string) => boolean
     }
   | {
@@ -187,12 +187,15 @@ export function buildParityGraph(
   }
 }
 
-// ── Arm A: the legacy multishot loop ───────────────────────────────────────────
+// ── Arm A: agent-eval multishot ────────────────────────────────────────────────
 
-export async function runLoopArm(cell: CellSpec, backend: LoopArmBackend): Promise<ParityRecord> {
+export async function runMultishotArm(
+  cell: CellSpec,
+  backend: MultishotArmBackend,
+): Promise<ParityRecord> {
   validateCell(cell)
   const tokens = { input: 0, output: 0 }
-  // Meter tokens at the transport seam — the only usage channel the legacy loop exposes.
+  // Meter tokens at the transport seam — the usage channel `runMultishot` exposes.
   const metered =
     (transport: MultishotTransport): MultishotTransport =>
     async (req) => {
@@ -231,7 +234,7 @@ export async function runLoopArm(cell: CellSpec, backend: LoopArmBackend): Promi
       count: steering.length,
       bytes: steering.reduce((sum, msg) => sum + Buffer.byteLength(msg.content, 'utf8'), 0),
     },
-    // No `ledger`: the legacy loop has no edge instrumentation, and the harness never fakes one.
+    // No `ledger`: `runMultishot` has no edge instrumentation, and the runner never fakes one.
   }
 }
 

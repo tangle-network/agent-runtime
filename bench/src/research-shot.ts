@@ -8,7 +8,7 @@
  * Shared by the off-sandbox RAG leaderboard (`research-gate.mts`) and the router-backed
  * loop executor (`router-executor.ts`), so both score the identical retrieve→answer body
  * — the only difference is who drives the rounds (a flat best-of-k pool vs the real
- * `runLoop` kernel with analyst steering).
+ * `runAgentRounds` kernel with analyst steering).
  */
 import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
 

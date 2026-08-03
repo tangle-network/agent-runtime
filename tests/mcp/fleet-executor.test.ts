@@ -11,7 +11,7 @@ import {
   type AgentRunSpec,
   type LoopTraceEvent,
   type OutputAdapter,
-  runLoop,
+  runAgentRounds,
 } from '../../src/runtime'
 
 const profile: AgentProfile = { name: 'stub' }
@@ -98,7 +98,7 @@ describe('createSiblingSandboxExecutor', () => {
       },
     })
 
-    await runLoop<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
+    await runAgentRounds<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
       driver: {
         name: 'one-shot',
         async plan(t, history) {
@@ -153,7 +153,7 @@ describe('createFleetWorkspaceExecutor', () => {
     })
     const events: LoopTraceEvent[] = []
 
-    await runLoop<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
+    await runAgentRounds<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
       driver: {
         name: 'fanout-3',
         async plan(t, history) {
@@ -273,7 +273,7 @@ describe('SandboxClient placement default', () => {
       },
     } as unknown as SandboxInstance
 
-    await runLoop<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
+    await runAgentRounds<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
       driver: {
         name: 'one-shot',
         async plan(t, history) {
@@ -314,7 +314,7 @@ describe('SandboxClient placement default', () => {
       },
     } as unknown as SandboxInstance
 
-    await runLoop<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
+    await runAgentRounds<SimpleTask, SimpleOutput, 'pick-winner' | 'fail'>({
       driver: {
         name: 'one-shot',
         async plan(t, history) {

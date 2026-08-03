@@ -5,7 +5,7 @@ import {
   type AgentRunSpec,
   type Driver,
   type OutputAdapter,
-  runLoop,
+  runAgentRounds,
   type Validator,
 } from '../../src/runtime'
 import { fanoutDriver, refineDriver } from './refine-driver'
@@ -64,7 +64,7 @@ function counterClient() {
   }
 }
 
-describe('runLoop composition — a Driver that nests runLoop inside plan()', () => {
+describe('runAgentRounds composition — a Driver that nests runAgentRounds inside plan()', () => {
   it('wraps an inner refine loop and the outer driver gates on the inner winner', async () => {
     const innerClient = counterClient()
 
@@ -78,7 +78,7 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
       name: 'outer',
       async plan(task, history) {
         if (history.length >= 2) return []
-        const innerResult = await runLoop({
+        const innerResult = await runAgentRounds({
           driver: refineDriver<Task, Inner>(),
           agentRun: innerSpec,
           output: innerOutput,
@@ -117,7 +117,7 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
       },
     }
 
-    const result = await runLoop({
+    const result = await runAgentRounds({
       driver: outerDriver,
       agentRun: {
         profile,
@@ -139,12 +139,12 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
     expect(result.decision).toBe('stop')
   })
 
-  it('static type check: a driver may compose multiple runLoops sequentially', () => {
-    // Compile-time proof that nested runLoop calls return well-typed results.
+  it('static type check: a driver may compose multiple runAgentRounds calls sequentially', () => {
+    // Compile-time proof that nested runAgentRounds calls return well-typed results.
     // The body is intentionally unreachable; the assertion is the type
     // signature itself.
     async function _typecheckOnly() {
-      const r1 = await runLoop({
+      const r1 = await runAgentRounds({
         driver: refineDriver<Task, Inner>(),
         agentRun: innerSpec,
         output: innerOutput,
@@ -158,7 +158,7 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
           },
         },
       })
-      const r2 = await runLoop({
+      const r2 = await runAgentRounds({
         driver: fanoutDriver<Task, Inner>(2),
         agentRun: innerSpec,
         output: innerOutput,

@@ -114,7 +114,7 @@ The same run can support different policies without creating different execution
 | Round robin | N actors take turns in a fixed schedule | `runConversation` |
 | Refine until accepted | One or more workers improve an artifact across rounds | `runAgentic` |
 | Fixed fanout or pipeline | A declared interaction shape runs over a `Supervisor` | `runPersonified` |
-| Sandbox batch | A driver plans a batch of isolated sandbox attempts | `runLoop` |
+| Sandbox batch | A driver plans a batch of isolated sandbox attempts | `runAgentRounds` |
 
 The target public API is:
 
@@ -147,7 +147,7 @@ improve(profile, {
 
 `runAgentic` and `runPersonified` become policy helpers or compatibility wrappers.
 
-`runLoop` becomes an internal sandbox batch implementation.
+`runAgentRounds` becomes an internal sandbox batch implementation.
 
 The cleanup must preserve behavior before removing old exports.
 

@@ -5,7 +5,7 @@
 **Track:** reference · **Role:** canonical (terms). One definition per concept, grounded to `file:line`. When a term has drifted into synonyms, the **canonical** word is marked and the synonyms are listed as "avoid / say X instead". If code and this file disagree, the code wins — fix this file the same turn (the anti-staleness law, `CLAUDE.md`).
 
 Two substrates run the same "recursive agent decision" atom — the round-synchronous `runAgentRounds` and the reactive `Scope`/`Supervisor`. Terms below note which substrate they belong to; several are shared.
-`runAgentRounds` was named `runLoop`; that name is still exported from `/kernel` as a deprecated alias. Neither is `runToolLoop`/`streamToolLoop` from `/tool-loop`, which run ONE chat turn and fold its tool calls back in.
+`runAgentRounds` is distinct from `runToolLoop`/`streamToolLoop` in `/tool-loop`, which run ONE chat turn and fold its tool calls back in.
 
 ## The execution units (most-confused — read first)
 

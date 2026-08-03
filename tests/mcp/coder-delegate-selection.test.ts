@@ -138,7 +138,7 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
 import type { LoopTraceEmitter, LoopTraceEvent } from '../../src/runtime'
 
 describe('detachedSessionDelegate — trace emitter wiring (MCP → OTEL sink)', () => {
-  it('forwards the trace emitter into the delegated runLoop (loop.* spans emitted)', async () => {
+  it('forwards the trace emitter into the delegated runAgentRounds (loop.* spans emitted)', async () => {
     const events: LoopTraceEvent[] = []
     const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
     const delegate = detachedSessionDelegate({

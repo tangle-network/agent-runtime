@@ -34,7 +34,7 @@ probe (`bench/src/humaneval-gate.mts`) uses exactly that degenerate shape — it
 directly and does **not** route through `AgentProfile` / the sandbox / the keystone — so its numbers
 are the **no-self-correction lower bound** on the selector, distinct from the rollout-based keystone
 gate above. Bridge it to the product by running the same arms with real rollouts (an `AgentProfile`
-through `runLoop`), dialing `maxTurns`.
+through `runAgentRounds`), dialing `maxTurns`.
 
 Two things to keep straight: today's judges grade a single
 *correctness* scalar (the multi-objective vector is the open contract, architecture.md §6), and every

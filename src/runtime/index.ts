@@ -367,14 +367,7 @@ export {
 // `runAgentRounds` is the multi-agent fanout/vote/refine kernel (many sandbox sessions per
 // call). It is NOT `runToolLoop`/`streamToolLoop` (`/tool-loop`: one chat turn, tool calls
 // folded back in) and NOT `routerToolLoop` (also on this subpath — router chat + tools).
-// `runLoop`/`RunLoopOptions` are the pre-rename names, kept as deprecated aliases.
-export {
-  defaultSelectWinner,
-  type RunAgentRoundsOptions,
-  type RunLoopOptions,
-  runAgentRounds,
-  runLoop,
-} from './run-loop'
+export { defaultSelectWinner, type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,

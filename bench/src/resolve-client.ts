@@ -1,6 +1,6 @@
 /**
  * The ONE harness → worker-client mapping for the bench layer. Every bench entrypoint
- * (rsi.ts, run.ts, …) derives the `SandboxClient` the kernel's `runLoop` drives from a single
+ * (rsi.ts, run.ts, …) derives the `SandboxClient` the kernel's `runAgentRounds` drives from a single
  * selector instead of hand-rolling the branch:
  *
  *   - `router`               → OFF-BOX: a router chat-completion as the leaf executor, presented
@@ -14,7 +14,7 @@
  *                              bridge `model` id (`${harness}/${model}`).
  *   - anything else (`sandbox`/a BackendType) → IN-BOX: a real `Sandbox`. The in-box backend
  *                              TYPE (opencode/codex/…) is set separately on the `AgentRunSpec`;
- *                              this only decides off-box-vs-in-box transport for `runLoop`.
+ *                              this only decides off-box-vs-in-box transport for `runAgentRounds`.
  *
  * Centralizing it here means a new entrypoint gets the full off-box/in-box matrix for free and
  * the mapping can't drift between callers.

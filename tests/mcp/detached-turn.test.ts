@@ -627,7 +627,7 @@ describe('detachedSessionDelegate detached path', () => {
     expect(queue.history().find((e) => e.taskId === taskId)?.hasTrace).toBe(true)
   })
 
-  it('stays on the streaming runLoop path when no ref is present', async () => {
+  it('stays on the streaming runAgentRounds path when no ref is present', async () => {
     const fake = fakeDriveTurnBox({ ticks: [{ state: 'running' }] })
     const streamPrompt = vi.fn(async function* () {
       yield {

@@ -7,7 +7,7 @@
  * Why off-sandbox: research is retrieval, not in-box code execution — it never
  * needed a box, and a real sandbox box reaches only the router (egress allowlist,
  * ops-board #976), so it cannot web-search natively anyway. Driving the loop with
- * this executor instead of a box gives the REAL `runLoop` kernel full `rounds` +
+ * this executor instead of a box gives the REAL `runAgentRounds` kernel full `rounds` +
  * analyst steering (the depth regime), search working, no sandbox dependency.
  *
  * This is a BYO `Executor` over `runResearchShot`; `inlineSandboxClient` supplies

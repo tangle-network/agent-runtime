@@ -190,7 +190,7 @@ The SDK is a thin layer over shipped primitives:
 | manifest and mutable surfaces | `defineAgent` |
 | trace-to-finding loop | `runAnalystLoop` |
 | code/tool/MCP candidate generation | `improve({ surface: 'code' })`, `CandidateGenerator`, `agenticGenerator`, verifiers |
-| loop execution | `runLoop` (kernel), `runAgentic` / `defineStrategy` (Supervisor), `createCoordinationTools` (agent-driver) |
+| loop execution | `runAgentRounds` (kernel), `runAgentic` / `defineStrategy` (Supervisor), `createCoordinationTools` (agent-driver) |
 | promotion | `promotionGate`, held-out gates in `@tangle-network/agent-eval` |
 
 The wrapper lives at the `/intelligence` subpath:
@@ -227,5 +227,5 @@ What exists underneath each verb today:
 
 - **flushRecommendations** — the substrate is `client.recordTrace(...)` → trace analysts → `improve()`, proven offline in `examples/intelligence-recommend`. Missing: the hosted verb that runs it as a service.
 - **runImprovementCycle** — the readiness half ships as `IntelligenceClient.doctor()` (checks + surfaces + repo); the loop half ships as `improve()`, complete methods for profile fields, Runtime's code worktree path, and `promotionGate`. Missing: the client verb plus the repo plumbing (isolated branch/worktree, check runner, PR open).
-- **configureLoop** — the loop grammar ships as `runLoop`, `runAgentic` / `defineStrategy`, and the held-out gates in `@tangle-network/agent-eval`. Missing: the config-object verb that maps a declarative gate/matrix onto them.
+- **configureLoop** — the loop grammar ships as `runAgentRounds`, `runAgentic` / `defineStrategy`, and the held-out gates in `@tangle-network/agent-eval`. Missing: the config-object verb that maps a declarative gate/matrix onto them.
 - **defineImprovementSurface** — mutable surfaces are declared today as the `surfaces` field of `IntelligenceConfig` (a readiness input only). Missing: a first-class registration a PR mode consumes.

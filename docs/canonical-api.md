@@ -37,7 +37,6 @@ Two standing rules: the model that picks the best attempt is never the model tha
 Two substrates implement the same recursive-atom over the one `Executor` port and share `defaultSelectWinner`: a deliberate pair, **do not invent a third**.
 The reactive `Supervisor`/`Scope` plus personify combinators drive dynamic agent trees; the round-synchronous `runAgentRounds` kernel is one leaf backend.
 `inlineSandboxClient` adapts any non-box `Executor` into a `SandboxClient` for `runAgentRounds`, and `settledToIteration` bridges reactive `Settled` results into the kernel's `Iteration`.
-`runAgentRounds` was named `runLoop`, which remains a deprecated `/kernel` alias.
 It is separate from `runToolLoop` and `streamToolLoop` in `/tool-loop`, which run one chat turn and fold tool calls back into it.
 
 ## 1.5 The AgentProfile rule: author the profile, the substrate materializes it

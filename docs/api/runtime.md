@@ -14002,7 +14002,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-22)
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-21)
 
 ##### signal
 
@@ -18675,32 +18675,6 @@ A checkable task domain — implement these 5 hooks and the suite does the rest.
 
 ***
 
-### ~~RunLoopOptions~~
-
-> **RunLoopOptions**\<`Task`, `Output`, `Decision`\> = [`RunAgentRoundsOptions`](#runagentroundsoptions)\<`Task`, `Output`, `Decision`\>
-
-Pre-rename name for [RunAgentRoundsOptions](#runagentroundsoptions).
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-##### Decision
-
-`Decision`
-
-#### Deprecated
-
-Use [RunAgentRoundsOptions](#runagentroundsoptions). Removed in the next major.
-
-***
-
 ### Deliverable
 
 > **Deliverable**\<`Out`\> = \{ `kind`: `"events"`; `fromEvents`: (`events`) => `Out`; \} \| \{ `kind`: `"artifact"`; `path`: `string`; `fromArtifact`: (`raw`, `events`) => `Out`; \}
@@ -20104,59 +20078,6 @@ Reject analyst findings derived from evaluation scores instead of execution trac
 
 The default registry `runPersonified` resolves a shape name against. Empty by construction —
  a caller registers its own composed shapes; the engine ships no domain shape.
-
-***
-
-### ~~runLoop~~
-
-> `const` **runLoop**: \<`Task`, `Output`, `Decision`\>(`options`) => `Promise`\<[`LoopResult`](index.md#loopresult)\<`Task`, `Output`, `Decision`\>\> = `runAgentRounds`
-
-Pre-rename name for [runAgentRounds](#runagentrounds); identical function, kept so existing
-call sites keep working.
-
-**`Experimental`**
-
-The round-synchronous MULTI-AGENT kernel: each round `driver.plan()` fans N tasks
-out to N sandboxes (bounded concurrency), parses + validates each output, and folds
-the round's results through `driver.decide` — fanout → validate → vote/select →
-refine, repeated until the driver says stop. One call spans many agent sessions.
-
-Not to be confused with `runToolLoop` / `streamToolLoop` (`/tool-loop`): those
-run ONE chat turn against ONE model, dispatching the tool calls that turn emits and
-folding the results back in until the model stops calling tools. No sandboxes, no
-rounds, no winner selection.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-##### Decision
-
-`Decision`
-
-#### Parameters
-
-##### options
-
-[`RunAgentRoundsOptions`](#runagentroundsoptions)\<`Task`, `Output`, `Decision`\>
-
-#### Returns
-
-`Promise`\<[`LoopResult`](index.md#loopresult)\<`Task`, `Output`, `Decision`\>\>
-
-#### Deprecated
-
-Use [runAgentRounds](#runagentrounds). The clearer name says what it is: the
-multi-agent fanout/vote/refine kernel over sandboxes, NOT the one-turn tool loop
-(`runToolLoop` / `streamToolLoop`, `/tool-loop`). `runLoop` shipped on `/kernel`
-next to `routerToolLoop`, which made the two read as variants of one thing. The alias
-is removed in the next major.
 
 ***
 
