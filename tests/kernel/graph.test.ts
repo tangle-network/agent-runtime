@@ -1263,6 +1263,36 @@ describe('runGraph — validation fails loud before any compute', () => {
     )
   })
 
+  it('refuses an analyzes edge OVER the root — the root never settles as a worker', () => {
+    // Analysts observe SETTLED WORKERS matched by profile name; the root drives and never
+    // settles as one, so `over: ['driver']` would validate and then produce zero traversals
+    // forever — a silent zero in a fail-loud layer.
+    const analysts = {
+      kinds: [{ id: 'convergence', description: 'is the worker converging', area: 'progress' }],
+      run: async () => [],
+    }
+    const graph = twoNodeGraph({
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+        {
+          kind: 'analyzes',
+          analyst: 'convergence',
+          over: ['driver'],
+          to: 'driver',
+          directive: promptHandle('analyzes/findings-report/v1'),
+        },
+      ],
+    })
+    expect(() => runGraph(graph, { analysts, makeWorkerAgent: seam, brain })).toThrow(
+      /analyzes the ROOT[\s\S]*never settles as one/,
+    )
+  })
+
   it('requires exactly one root', () => {
     const graph = twoNodeGraph({
       nodes: [
