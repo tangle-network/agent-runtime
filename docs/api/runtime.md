@@ -12274,6 +12274,28 @@ Generic environment provider executor config. External packages implement
 
 [`ProviderExecutorOptions`](runtime/environment-provider.md#providerexecutoroptions).[`requireTerminalEvent`](runtime/environment-provider.md#requireterminalevent-1)
 
+##### profileForCreate?
+
+> `optional` **profileForCreate?**: (`profile`) => `AgentProfile`
+
+Transform only the profile sent to `provider.create`. The original profile
+remains the input to `taskToTurn`, so execution-only normalization cannot
+rewrite the caller's task mapping.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`AgentProfile`
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](runtime/environment-provider.md#providerexecutoroptions).[`profileForCreate`](runtime/environment-provider.md#profileforcreate)
+
 ##### taskToTurn?
 
 > `optional` **taskToTurn?**: (`task`, `specProfile`) => `AgentTurnInput`
