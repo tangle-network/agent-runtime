@@ -256,7 +256,7 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
     ctx: LeaderboardRunContext,
   ) => Promise<void> | void
   /** LEVEL 2 — full dispatch replacement (in-process products bring their own).
-   *  The default is `loopDispatch` + the naive steering directive over the resolved backend. */
+   *  The default is `loopDispatch` + the naive retry driver over the resolved backend. */
   dispatch?: ProfileDispatchFn<LeaderboardScenario<TCase>, TArtifact>
   /** LEVEL 2 — full judge replacement. Default: `score` wrapped as one judge. */
   judges?: JudgeConfig<TArtifact, LeaderboardScenario<TCase>>[]

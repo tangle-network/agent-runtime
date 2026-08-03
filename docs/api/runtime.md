@@ -2791,7 +2791,7 @@ Result export. Default: write `matrix-result.json` under the run dir and
 > `optional` **dispatch?**: `ProfileDispatchFn`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `TArtifact`\>
 
 LEVEL 2 — full dispatch replacement (in-process products bring their own).
- The default is `loopDispatch` + the naive steering directive over the resolved backend.
+ The default is `loopDispatch` + the naive retry driver over the resolved backend.
 
 ##### judges?
 

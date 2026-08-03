@@ -319,7 +319,7 @@ describe('defineLeaderboard', () => {
   })
 })
 
-// Successor coverage for the retired steering-drivers module: the naive retry driver is the one
+// The no-signal retry floor: shot-0 plan, verbatim re-run, leak-free firewall.
 // surviving loop-kernel steering control, and these tests hold the same observable contract its
 // predecessor's suite held — shot-0 plan, verbatim re-run, the leak-free firewall (reads only
 // `verdict.valid`), stop-on-valid, stop-at-cap, and the refine/pick-winner/fail decision set.
