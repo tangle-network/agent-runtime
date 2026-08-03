@@ -10,6 +10,7 @@
 
 import type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions } from '@tangle-network/sandbox'
+import { profileForExecution } from './supervise/model-policy'
 
 type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
 type BackendOverride = NonNullable<CreateSandboxOptions['backend']>
@@ -88,7 +89,7 @@ export function buildBackendOptions(
     ...base,
     backend: {
       type: resolveBackendType(profile, overrideBackend),
-      profile,
+      profile: profileForExecution(profile),
       ...(overrideBackend?.model ? { model: overrideBackend.model } : {}),
       ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
     },

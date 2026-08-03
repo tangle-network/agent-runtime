@@ -54,6 +54,7 @@ import { leaderboard, renderLeaderboardMarkdown } from './benchmark-report'
 import { loopDispatch } from './loop-dispatch'
 import { resolveSandboxClient } from './resolve-sandbox-client'
 import { type SteeringDecision, steeringDriver } from './steering-drivers'
+import { isHarnessNativeModel } from './supervise/model-policy'
 import type { LoopResult, SandboxClient } from './types'
 
 /** Structured per-case verdict a `score` function may return (a bare number is
@@ -513,6 +514,12 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           // whichever backend client runs the cell.
           const axis = harnessAxisOf(cellProfile)
           const modelId = bareModel(axis?.model ?? models[0] ?? '')
+          const backendModel = {
+            ...spec.modelBackend,
+            ...(!isHarnessNativeModel(modelId) || backendName === 'cli-bridge'
+              ? { model: modelId }
+              : {}),
+          }
           return {
             // The naive steering directive = the no-signal retry floor: re-run the same case as
             // an independent attempt until one scores (>0) or the shot cap. The policy is data
@@ -532,7 +539,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
                     sandboxOverrides: {
                       backend: {
                         type: axis.harness,
-                        model: { ...spec.modelBackend, model: modelId },
+                        ...(Object.keys(backendModel).length > 0 ? { model: backendModel } : {}),
                       },
                     } as never,
                   }

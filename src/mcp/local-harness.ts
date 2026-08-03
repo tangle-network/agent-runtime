@@ -36,6 +36,7 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentProfile, HarnessType, ReasoningEffort } from '@tangle-network/agent-interface'
+import { concreteProfileModel } from '../runtime/supervise/model-policy'
 import {
   codexSensitiveEnvironmentName,
   collectCodexDiagnosticRedactionValues,
@@ -308,8 +309,8 @@ export function harnessInvocation(
   }
 
   if (options.codexReproducible) {
-    const model = profile.model?.default
-    if (typeof model !== 'string' || model.trim().length === 0) {
+    const model = concreteProfileModel(profile)
+    if (!model) {
       throw new Error('harnessInvocation: codexReproducible requires profile.model.default')
     }
     if (profile.model?.reasoningEffort === undefined) {
@@ -335,8 +336,8 @@ export function harnessInvocation(
 
   const args = buildHarnessArgs(harness, composedPrompt, options)
 
-  const model = profile.model?.default
-  if (typeof model === 'string' && model.length > 0) {
+  const model = concreteProfileModel(profile)
+  if (model) {
     args.push(...invocation.modelArgs(model))
   }
 

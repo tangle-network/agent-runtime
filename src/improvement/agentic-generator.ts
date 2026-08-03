@@ -59,6 +59,7 @@ import {
   runLocalHarness,
 } from '../mcp/local-harness'
 import { runSettledCommand } from '../mcp/worktree-harness'
+import { concreteProfileModel } from '../runtime/supervise/model-policy'
 import type { CandidateGenerator } from './improvement-driver'
 import { optimizerMethod } from './optimizer-prompt'
 
@@ -325,7 +326,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
           }
 
           if (reproducibleCostLedger) {
-            const model = opts.profile?.model?.default
+            const model = opts.profile ? concreteProfileModel(opts.profile) : undefined
             if (!model) {
               throw new Error('agenticGenerator: reproducible Codex requires profile.model.default')
             }
@@ -702,7 +703,7 @@ function shotReceipt(input: {
     shot: input.shot + 1,
     maxShots: input.maxShots,
     harness: input.harness,
-    model: input.profile?.model?.default ?? null,
+    model: input.profile ? (concreteProfileModel(input.profile) ?? null) : null,
     reasoningEffort: input.profile?.model?.reasoningEffort ?? null,
     promptSha256: sha256(input.prompt),
     startedAt: input.startedAt.toISOString(),

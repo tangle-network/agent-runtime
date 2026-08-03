@@ -75,6 +75,12 @@ import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import {
+  concreteModelId,
+  concreteProfileModel,
+  isHarnessNativeModel,
+  profileForExecution,
+} from './model-policy'
+import {
   type ActivityLog,
   createActivityLog,
   describeToolArgs,
@@ -375,7 +381,7 @@ function unmeteredSpend(ms: number): Spend {
  */
 export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterSeam>(ctx, routerSeamKey, 'router/inline')
-  const model = spec.profile.model?.default ?? seam.model
+  const model = concreteProfileModel(spec.profile) ?? concreteModelId(seam.model)
   if (!model) {
     throw new ValidationError(
       'routerInlineExecutor: no model — set RouterSeam.model or AgentProfile.model.default',
@@ -510,7 +516,7 @@ interface RouterToolsResponse {
  */
 export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterToolsSeam>(ctx, routerToolsSeamKey, 'router-tools')
-  const model = spec.profile.model?.default ?? seam.model
+  const model = concreteProfileModel(spec.profile) ?? concreteModelId(seam.model)
   if (!model) {
     throw new ValidationError(
       'routerToolsInlineExecutor: no model — set RouterToolsSeam.model or AgentProfile.model.default',
@@ -785,11 +791,12 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   let artifact: ExecutorResult<unknown> | undefined
   const executionId = ctx.node?.nodeId ?? `sandbox-run-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
+  const profileModel = concreteProfileModel(spec.profile)
   const sandboxMaterialization = {
     effectiveProfile: spec.profile,
     backend: harness,
-    model: spec.profile.model?.default
-      ? ({ status: 'known', id: spec.profile.model.default } as const)
+    model: profileModel
+      ? ({ status: 'known', id: profileModel } as const)
       : ({ status: 'unknown', reason: 'sandbox harness selected its default model' } as const),
     execution: {
       kind: 'run',
@@ -808,7 +815,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     binding: {
       executionId,
       harness,
-      model: spec.profile.model?.default ?? null,
+      model: profileModel ?? null,
     },
     descriptor: { kind: 'sandbox-run', transport: 'sandbox', backend: harness },
   }
@@ -1244,7 +1251,7 @@ function killWithGrace(
  * IS the caller's declared intent rather than a gap to fill.
  */
 function qualifyProviderModel(model: AgentProfile['model']): string | undefined {
-  const id = model?.default
+  const id = concreteModelId(model?.default)
   if (!id) return undefined
   const provider = model?.provider
   if (!provider || id.includes('/')) return id
@@ -1269,13 +1276,27 @@ function bridgeCellModel(
   // <that provider>" — a credential error naming a provider the caller never chose. Measured live;
   // the same request with `pi/tangle-router/glm-5.2` returns 200.
   //
-  // A per-cell `backend.model.model` override is left exactly as supplied: it is a caller-authored
-  // wire id, not a profile hint, and qualifying it would rewrite what the caller asked for.
-  const model = backend?.model?.model ?? qualifyProviderModel(profile.model)
-  if (!harness && !model) return seamModel
+  // A concrete per-cell `backend.model.model` override is left exactly as supplied: it is a
+  // caller-authored wire id, not a profile hint, and qualifying it would rewrite what the caller
+  // asked for. Eval's runtime-selected marker is the one exception: it selects the harness's
+  // configured model and must never cross the wire as a provider model id.
+  const backendModel = backend?.model?.model
+  const hasBackendModel = backendModel !== undefined
+  // cli-bridge already treats a bare harness id (`pi`, `codex`, …) as "use that
+  // harness's configured model". Translate Eval's marker into that existing
+  // wire form rather than leaking `default` or substituting an unrelated fallback.
+  if (hasBackendModel && isHarnessNativeModel(backendModel)) {
+    return harness ?? concreteModelId(seamModel)
+  }
+  const model = hasBackendModel
+    ? concreteModelId(backendModel)
+    : qualifyProviderModel(profile.model)
+  const fallback = concreteModelId(seamModel)
+  if (!harness && !model) return fallback
   if (!harness) return model
   if (model) return model.startsWith(`${harness}/`) ? model : `${harness}/${model}`
-  return seamModel?.startsWith(`${harness}/`) ? seamModel : undefined
+  if (!fallback) return undefined
+  return fallback.startsWith(`${harness}/`) ? fallback : `${harness}/${fallback}`
 }
 
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
@@ -2686,7 +2707,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       })
     }
     case 'provider': {
-      const { provider, registry, taskToTurn, ...decisionData } = config
+      const { provider, registry, profileForCreate, taskToTurn, ...decisionData } = config
       const snapshot = detachedSnapshot(decisionData, 'createExecutor provider config')
       // A registry is a live service. Resolve its mutable name mapping exactly once at intake and
       // retain the resulting provider instance, never the registry lookup for later execution.
@@ -2694,6 +2715,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       return Object.freeze({
         ...snapshot,
         provider: resolvedProvider,
+        ...(profileForCreate === undefined ? {} : { profileForCreate }),
         ...(taskToTurn === undefined ? {} : { taskToTurn }),
       })
     }
@@ -2859,7 +2881,12 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             runtime: providerSeam.runtime ?? (provider.name as Runtime),
           }
         }
-        return providerAsExecutor(provider, providerSeam)(spec, seamed)
+        const profileForCreate = providerSeam.profileForCreate
+        return providerAsExecutor(provider, {
+          ...providerSeam,
+          profileForCreate: (profile) =>
+            profileForExecution(profileForCreate?.(profile) ?? profile),
+        })(spec, seamed)
       }
       case 'sandbox': {
         // The sandbox executor requires a concrete harness; a spec-level harness

@@ -1,3 +1,4 @@
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
@@ -655,6 +656,9 @@ describe('resolveSupervisorProfile — a canonical AgentProfile IS a supervisor 
     })
     expect(resolveSupervisorProfile({ model: { provider: 'anthropic' } }).modelId).toBeUndefined()
     expect(resolveSupervisorProfile({ model: { default: '' } }).modelId).toBeUndefined()
+    expect(
+      resolveSupervisorProfile({ model: { default: HARNESS_NATIVE_MODEL } }).modelId,
+    ).toBeUndefined()
   })
 
   it('appends prompt.instructions and resources.instructions to the system prompt, in that order', () => {

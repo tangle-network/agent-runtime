@@ -309,6 +309,10 @@ export interface ProviderExecutorOptions {
   runtime?: Runtime
   destroyOnSettle?: boolean
   requireTerminalEvent?: boolean
+  /** Transform only the profile sent to `provider.create`. The original profile
+   * remains the input to `taskToTurn`, so execution-only normalization cannot
+   * rewrite the caller's task mapping. */
+  profileForCreate?: (profile: AgentProfile) => AgentProfile
   taskToTurn?: (task: unknown, specProfile: AgentProfile) => AgentTurnInput
 }
 
@@ -387,9 +391,10 @@ async function* streamProviderExecutor(
 ): AsyncIterable<UsageEvent> {
   const started = Date.now()
   const linked = mergeAbortSignals(args.signal, args.controller.signal)
+  const createProfile = args.options.profileForCreate?.(args.profile) ?? args.profile
   const environment = await args.provider.create({
     ...(args.options.defaults ?? {}),
-    profile: args.profile,
+    profile: createProfile,
     signal: linked,
   })
   args.onEnvironment(environment)

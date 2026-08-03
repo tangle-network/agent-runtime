@@ -4,8 +4,47 @@
  * model at resolve time, so a run that names a model outside the allowed set throws before
  * any compute is spent — never silently swapped or silently allowed.
  */
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../../errors'
+
+/**
+ * Return the model id an executor may send to a provider.
+ *
+ * Eval stamps {@link HARNESS_NATIVE_MODEL} into a profile when model selection is deliberately
+ * delegated to the configured runtime. That marker belongs in experiment identity and cost
+ * admission; it is not a provider model id.
+ */
+export function concreteModelId(model: string | undefined): string | undefined {
+  if (model === undefined) return undefined
+  const id = model.trim()
+  return id.length > 0 && !isHarnessNativeModel(id) ? id : undefined
+}
+
+/** Whether a model value delegates selection to the chosen execution system. */
+export function isHarnessNativeModel(model: string | undefined): boolean {
+  return model?.trim() === HARNESS_NATIVE_MODEL
+}
+
+/** Return a profile's explicitly selected provider model, if it has one. */
+export function concreteProfileModel(profile: Pick<AgentProfile, 'model'>): string | undefined {
+  return concreteModelId(profile.model?.default)
+}
+
+/**
+ * Remove only Eval's runtime-selected model marker before a profile crosses an execution boundary.
+ * Every other model hint remains intact, including provider, reasoning effort, and small-model
+ * preferences. The input profile is never mutated.
+ */
+export function profileForExecution(profile: AgentProfile): AgentProfile {
+  const model = profile.model
+  if (!isHarnessNativeModel(model?.default) || model === undefined) return profile
+  const { default: _runtimeSelected, ...remainingModel } = model
+  const { model: _model, ...remainingProfile } = profile
+  return Object.keys(remainingModel).length > 0
+    ? { ...remainingProfile, model: remainingModel }
+    : remainingProfile
+}
 
 /**
  * Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a

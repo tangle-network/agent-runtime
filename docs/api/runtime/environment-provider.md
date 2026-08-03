@@ -284,6 +284,26 @@ Options for running a provider as a supervise-mode executor.
 
 **`Experimental`**
 
+##### profileForCreate?
+
+> `optional` **profileForCreate?**: (`profile`) => `AgentProfile`
+
+**`Experimental`**
+
+Transform only the profile sent to `provider.create`. The original profile
+remains the input to `taskToTurn`, so execution-only normalization cannot
+rewrite the caller's task mapping.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`AgentProfile`
+
 ##### taskToTurn?
 
 > `optional` **taskToTurn?**: (`task`, `specProfile`) => `AgentTurnInput`
