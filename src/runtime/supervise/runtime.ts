@@ -29,7 +29,7 @@ import { randomUUID } from 'node:crypto'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
-import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
+import { estimateCost, HARNESS_NATIVE_MODEL, isModelPriced } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   agentProfileSchema,
@@ -1245,7 +1245,10 @@ function killWithGrace(
  */
 function qualifyProviderModel(model: AgentProfile['model']): string | undefined {
   const id = model?.default
-  if (!id) return undefined
+  // Eval uses this sentinel when the profile intentionally delegates model
+  // selection to the configured runtime. It is provenance metadata, not a
+  // provider model id and must never cross the bridge wire literally.
+  if (!id || id === HARNESS_NATIVE_MODEL) return undefined
   const provider = model?.provider
   if (!provider || id.includes('/')) return id
   return `${provider}/${id}`

@@ -1,4 +1,5 @@
 import { PassThrough, type Readable } from 'node:stream'
+import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createExecutor, type ExecutorConfig, inlineSandboxClient } from '../../src/runtime'
@@ -764,5 +765,15 @@ describe('profile-selected model keeps its provider', () => {
         model: { provider: 'tangle-router', default: 'tangle-router/glm-5.2' },
       }),
     ).toBe('pi/tangle-router/glm-5.2')
+  })
+
+  it('keeps the configured bridge model when Eval delegates model selection to runtime', async () => {
+    expect(
+      await wireModelFor({
+        name: 'w',
+        harness: 'pi',
+        model: { provider: 'tangle-router', default: HARNESS_NATIVE_MODEL },
+      }),
+    ).toBe('pi/seam-default')
   })
 })
