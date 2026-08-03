@@ -47,6 +47,7 @@ TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # 3. one function 
 | 5 | [`supervise/`](./supervise/) | The one-call headline: `supervise(profile, goal)` runs a full supervisor with everything defaulted. Needs `TANGLE_API_KEY`. |
 | 6 | [`supervisor-loop/`](./supervisor-loop/) | The same supervisor over a real worker backend — cloud sandbox, local coding-CLI, or an MCP server — with the backend as the only knob you change. |
 | 7 | [`delegate/`](./delegate/) | `delegate(intent)`: the supervisor writes and spawns a worker that does real work on disk, and the run only settles once the file it was asked to create actually exists. Needs `TANGLE_API_KEY`. |
+| 7b | [`graphs/`](./graphs/) | **Agent graphs**: four topologies (peer review loop, best-of-N, watchdog steer, shot loop) each authored as ≤25 lines of plain data and run through `runGraph`, printing the edge ledger — every traversal, delivered or not — as the proof. Offline. |
 
 ## Benchmarking — score agents against a check
 
