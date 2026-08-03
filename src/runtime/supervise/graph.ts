@@ -28,10 +28,13 @@
  *  4. **Per-edge traversal caps** — the cyclic-graph backstop. A delegates edge whose cap is
  *     exhausted REFUSES further traversals (fail loud), so a cycle cannot spin the pool dry.
  *
- * ORACLES ARE ENVIRONMENT, NEVER NODES. Graders/verifiers must not be addressable in the graph —
- * an edge to them leaks the rubric. Analysts (`analyzes` edges) are LENSES from the environment's
- * registry reading trace evidence; they are not nodes either, and a graph that names a node id as
- * its analyst is refused.
+ * ORACLES ARE ENVIRONMENT, NEVER WORKERS. Graders/verifiers must not be spawnable in the graph —
+ * a delegates edge to them leaks the rubric. An `analyzes` edge names its analyst in one of two
+ * forms: a LENS id from the environment's registry (a pure function over trace evidence), or the
+ * id of a graph NODE — a tool-equipped analyst AGENT spawned on each matching settle with the
+ * node's pinned profile, whose settle output IS the findings. Either way the oracle doctrine
+ * holds: an analyst node can never be a delegates target (refused loudly), so no driver can hand
+ * it work, and an id living in both the registry and the nodes is refused as ambiguous.
  *
  * @experimental
  */
@@ -48,6 +51,7 @@ import type {
   AnalyzeOnSettleRoute,
   CoordinationEvent,
   MakeWorkerAgent,
+  WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import type { RouterConfig } from '../router-client'
@@ -86,12 +90,17 @@ export type GraphEdge =
        *  {@link defaultEdgeTraversalCap}. */
       readonly maxTraversals?: number
     }
-  /** Findings flow anywhere: an analyst LENS (environment, never a node) over N nodes' settled
-   *  traces, delivered to ONE node wrapped in a directive telling the recipient what to do with
-   *  the analysis. */
+  /** Findings flow anywhere: an analyst over N nodes' settled traces, delivered to ONE node.
+   *  With a LENS analyst the directive wraps the findings for the recipient; with a NODE analyst
+   *  the directive is the analyst agent's task and the findings are its settle output. */
   | {
       readonly kind: 'analyzes'
-      /** The analyst lens id, resolved against `RunGraphOptions.analysts`. NOT a node id. */
+      /** The analyst REFERENCE, in one of two forms: a lens id resolved against
+       *  `RunGraphOptions.analysts` (environment), or the id of a graph NODE with no delegates
+       *  edge pointing at it — then each matching settle spawns that node's pinned profile as a
+       *  tool-equipped analyst WORKER (same spawn machinery, conserved budget, trace join) whose
+       *  task is this edge's directive plus the settled worker's trace evidence and whose settle
+       *  output is the findings. An id that is both a node and a registry lens is refused. */
       readonly analyst: string
       readonly over: ReadonlyArray<NodeId>
       readonly to: NodeId
@@ -176,8 +185,15 @@ export interface RunGraphOptions {
   readonly hooks?: RuntimeHooks
   /** Inject the driver brain directly (offline tests / advanced). */
   readonly brain?: ToolLoopChat
-  /** The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT, not nodes. */
+  /** The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — needed only for
+   *  lens analysts; an analyzes edge naming a graph NODE as its analyst needs no registry. */
   readonly analysts?: AnalystRegistry
+  /** Watch every worker's LIVE tool trace with the online detector panel and raise a `finding`
+   *  on the bus the moment one loops or error-storms — forwarded to `supervise()` verbatim (see
+   *  `SuperviseOptions.watchWorkers`). Online findings (`analyst: 'online:<detector>'`) are bus
+   *  events for the driver, not graph edges, so they are never ledgered as traversals. Omit =
+   *  off (no online watching, no extra events). */
+  readonly watchWorkers?: WorkerWatchOptions
   /** Directive registry. Default: the seeded kernel registry (`kernelPromptRegistry()`). */
   readonly registry?: PromptRegistry
   /** The run journal the edge ledger and every spawn/settle ride. Default: in-memory. */
@@ -219,6 +235,9 @@ interface ValidatedGraph {
   readonly workers: ReadonlyMap<NodeId, GraphNode>
   readonly delegatesByWorker: ReadonlyMap<NodeId, Extract<GraphEdge, { kind: 'delegates' }>>
   readonly analyzes: ReadonlyArray<Extract<GraphEdge, { kind: 'analyzes' }>>
+  /** Nodes referenced as an analyzes edge's ANALYST (the analyst-agent form): reachable through
+   *  their analyzes edge (spawned on settle), never through a delegates edge. */
+  readonly analystNodes: ReadonlyMap<NodeId, GraphNode>
 }
 
 function edgeId(edge: GraphEdge): string {
@@ -319,6 +338,7 @@ function validateGraph(
     }
   }
   const analystIds = new Set<string>()
+  const analystNodes = new Map<NodeId, GraphNode>()
   for (const edge of analyzes) {
     // The runner's traversal ledger resolves a finding/steer back to its edge BY ANALYST ID
     // alone, so a second edge sharing an analyst would silently absorb the first edge's
@@ -332,21 +352,46 @@ function validateGraph(
       )
     }
     analystIds.add(edge.analyst)
-    if (byId.has(edge.analyst)) {
+    // The analyst REFERENCE has two forms — a registry lens id or a graph node id — and the id
+    // itself is what distinguishes them, so an id living in both is refused as ambiguous rather
+    // than silently resolved by precedence.
+    const analystNode = byId.get(edge.analyst)
+    const inRegistry = analysts?.kinds.some((kind) => kind.id === edge.analyst) === true
+    if (analystNode !== undefined && inRegistry) {
       throw new ValidationError(
-        `runGraph: ${edgeId(edge)} names node '${edge.analyst}' as its analyst — oracles and ` +
-          'analysts are ENVIRONMENT, never nodes; pass a lens id from RunGraphOptions.analysts',
+        `runGraph: ${edgeId(edge)} analyst '${edge.analyst}' is BOTH a graph node and a lens in ` +
+          'the analysts registry — the id alone distinguishes the two analyst forms, so this is ' +
+          'ambiguous; rename the node or register the lens under another id',
       )
     }
-    if (!analysts) {
+    if (analystNode !== undefined) {
+      // The analyst-AGENT form. Oracle doctrine holds structurally: the analyst node can never
+      // receive work — not from the root (a delegates edge to it is refused) and not by being
+      // the root (the root delegates by definition).
+      if (analystNode.id === root.id) {
+        throw new ValidationError(
+          `runGraph: ${edgeId(edge)} names the ROOT as its analyst — the root is the driver; ` +
+            'give the analyst its own node with no delegates edge pointing at it',
+        )
+      }
+      if (delegatedTo.has(analystNode.id)) {
+        throw new ValidationError(
+          `runGraph: ${edgeId(edge)} names node '${edge.analyst}' as its analyst, but that node ` +
+            'is a delegates target — oracle doctrine: an analyst is never delegated to. An ' +
+            'analyst NODE is legal only with NO delegates edge pointing at it; give the analyst ' +
+            'its own delegates-free node or pass a lens id from RunGraphOptions.analysts.',
+        )
+      }
+      analystNodes.set(analystNode.id, analystNode)
+    } else if (!analysts) {
       throw new ValidationError(
-        `runGraph: ${edgeId(edge)} needs RunGraphOptions.analysts (the lens registry its analyst resolves against)`,
+        `runGraph: ${edgeId(edge)} analyst '${edge.analyst}' is not a graph node, and no ` +
+          'RunGraphOptions.analysts registry was provided to resolve it as a lens',
       )
-    }
-    if (!analysts.kinds.some((kind) => kind.id === edge.analyst)) {
+    } else if (!inRegistry) {
       throw new ValidationError(
-        `runGraph: ${edgeId(edge)} analyst '${edge.analyst}' is not in the analysts registry ` +
-          `(known: ${analysts.kinds.map((kind) => kind.id).join(', ') || 'none'})`,
+        `runGraph: ${edgeId(edge)} analyst '${edge.analyst}' is neither a graph node nor in the ` +
+          `analysts registry (known lenses: ${analysts.kinds.map((kind) => kind.id).join(', ') || 'none'})`,
       )
     }
     if (edge.over.length === 0) {
@@ -354,6 +399,20 @@ function validateGraph(
     }
     for (const over of edge.over) requireNode(over, edgeId(edge))
     requireNode(edge.to, edgeId(edge))
+  }
+  // Second pass, once every analyst NODE is known: an analyst run's settlement is a FINDING,
+  // never a worker settle, so an analyzes edge OVER an analyst node would silently never fire —
+  // refuse it rather than let it rot unobserved.
+  for (const edge of analyzes) {
+    for (const over of edge.over) {
+      if (analystNodes.has(over)) {
+        throw new ValidationError(
+          `runGraph: ${edgeId(edge)} analyzes '${over}', which is an analyst node — an analyst ` +
+            'run settles as a finding, never as a worker, so this edge would silently never ' +
+            'fire; analyst nodes are not analyzable',
+        )
+      }
+    }
   }
   const workers = new Map<NodeId, GraphNode>()
   const delegatesByWorker = new Map<NodeId, Extract<GraphEdge, { kind: 'delegates' }>>()
@@ -367,15 +426,16 @@ function validateGraph(
     delegatesByWorker.set(edge.to, edge)
     workers.set(edge.to, requireNode(edge.to, edgeId(edge)))
   }
-  // Every non-root node must be reachable by a delegates edge, or it can never run.
+  // Every non-root node must be reachable by SOME edge, or it can never run. A worker node is
+  // reached by its delegates edge; an analyst node by its analyzes edge (spawned on settle).
   for (const node of graph.nodes) {
-    if (node.id !== root.id && !workers.has(node.id)) {
+    if (node.id !== root.id && !workers.has(node.id) && !analystNodes.has(node.id)) {
       throw new ValidationError(
         `runGraph: node '${node.id}' has no delegates edge to it — an unreachable node never runs`,
       )
     }
   }
-  return { root, workers, delegatesByWorker, analyzes }
+  return { root, workers, delegatesByWorker, analyzes, analystNodes }
 }
 
 // ── The runner ─────────────────────────────────────────────────────────────────
@@ -401,7 +461,7 @@ function stringifyPayload(payload: unknown): string {
  */
 export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<GraphResult> {
   const registry = opts.registry ?? kernelPromptRegistry()
-  const { root, workers, delegatesByWorker, analyzes } = validateGraph(
+  const { root, workers, delegatesByWorker, analyzes, analystNodes } = validateGraph(
     graph,
     registry,
     opts.analysts,
@@ -464,6 +524,22 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
       typeof (authoredProfile as { name?: unknown } | undefined)?.name === 'string'
         ? (authoredProfile as { name: string }).name
         : undefined
+    // An analyst-AGENT run: the coordination settle hook — never the driver; the marker is
+    // authored by the runtime, not accepted from model arguments — spawns the analyst NODE.
+    // Pin the node's canonical profile; the analysis directive travels as the TASK (composed by
+    // the coordination layer with the settled worker's trace evidence), so nothing is appended
+    // to the profile's instructions here. Its traversal is ledgered on the finding/steer it
+    // produces, exactly like a registry analyst's.
+    if (spawnContext?.analyst !== undefined) {
+      const analystNode = analystNodes.get(spawnContext.analyst)
+      if (!analystNode || requested !== analystNode.id) {
+        throw new ValidationError(
+          `runGraph: analyst run for ${JSON.stringify(spawnContext.analyst)} does not name an ` +
+            `analyst node of this graph (analyst nodes: ${[...analystNodes.keys()].join(', ') || 'none'})`,
+        )
+      }
+      return makeLeaf(analystNode.profile, spawnContext)
+    }
     const node = requested !== undefined ? workers.get(requested) : undefined
     if (!node) {
       throw new ValidationError(
@@ -538,24 +614,40 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
   }
 
   // ── Analyzes edges → analyst-on-settle routes with destinations ──
-  const routes: Array<string | AnalyzeOnSettleRoute> = analyzes.map((edge) =>
-    edge.to === root.id
+  // A LENS edge's directive wraps the findings for the recipient (so a driver-destined lens
+  // route carries no directive — it becomes the driver brief below). A NODE edge's directive is
+  // the analyst AGENT's task, so it always rides the route, wherever the findings go.
+  const routes: Array<string | AnalyzeOnSettleRoute> = analyzes.map((edge) => {
+    const analystNode = analystNodes.get(edge.analyst)
+    if (analystNode) {
+      return {
+        kind: edge.analyst,
+        over: edge.over,
+        agent: analystNode.profile,
+        directive: registry.resolve(edge.directive).text,
+        ...(edge.to === root.id ? {} : { to: edge.to }),
+      }
+    }
+    return edge.to === root.id
       ? { kind: edge.analyst, over: edge.over }
       : {
           kind: edge.analyst,
           over: edge.over,
           to: edge.to,
           directive: registry.resolve(edge.directive).text,
-        },
-  )
-  // Driver-destined analyzes directives are standing instructions for the ROOT: the findings
-  // arrive as bus events; the directive tells the driver what to do with them.
+        }
+  })
+  // Driver-destined analyzes findings are standing knowledge for the ROOT: the findings arrive
+  // as bus events. For a lens edge the directive tells the driver what to do with them; for a
+  // node edge the directive already went to the analyst agent as its task.
   const driverAnalyzesBriefs = analyzes
     .filter((edge) => edge.to === root.id)
-    .map(
-      (edge) =>
-        `Findings from analyst '${edge.analyst}' (over: ${edge.over.join(', ')}) will arrive as ` +
-        `finding events.\n${registry.resolve(edge.directive).text}`,
+    .map((edge) =>
+      analystNodes.has(edge.analyst)
+        ? `Findings from analyst '${edge.analyst}' (a tool-equipped analyst agent node, over: ` +
+          `${edge.over.join(', ')}) will arrive as finding events.`
+        : `Findings from analyst '${edge.analyst}' (over: ${edge.over.join(', ')}) will arrive as ` +
+          `finding events.\n${registry.resolve(edge.directive).text}`,
     )
 
   // ── The driver graph brief: which nodes it may spawn, by exact name ──
@@ -753,9 +845,12 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
       runId,
       hooks,
       onCoordinationEvent,
-      ...(routes.length > 0 && opts.analysts
-        ? { analysts: opts.analysts, analyzeOnSettle: routes }
+      // Lens routes resolve against the registry; agent routes carry their own analyst profile,
+      // so a graph whose only analysts are nodes needs no registry at all.
+      ...(routes.length > 0
+        ? { analyzeOnSettle: routes, ...(opts.analysts ? { analysts: opts.analysts } : {}) }
         : {}),
+      ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
       ...(opts.router ? { router: opts.router } : {}),
       ...(opts.brain ? { brain: opts.brain } : {}),
       ...(authorizeMessage ? { authorizeMessage } : {}),

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.124.0
+
+### The analyst can be a tool-equipped agent, and graphs watch their workers
+
+An `analyzes` edge may now name a graph NODE as its analyst (`analyst: '<node-id>'`).
+On each matching settle, `runGraph` spawns that node's pinned profile as a real WORKER through the same spawn machinery every worker uses (`Scope.spawn` + the `makeWorkerAgent` seam): its task is the edge's registry directive plus the settled worker's tool-trace evidence, its spend reserves from the graph's one conserved budget, its node is journaled and traced like any worker, and its settle OUTPUT is the findings — published and routed per `to` exactly like registry-analyst findings, with the same ledger rows and canonicalization.
+Oracle doctrine holds structurally: an analyst node with a delegates edge pointing at it is refused, the driver cannot spawn it (`spawn_agent` still rejects non-worker nodes), an id living in both the registry and the nodes is refused as ambiguous, and an analyzes edge OVER an analyst node is refused because it would silently never fire.
+
+- `AnalyzeOnSettleRoute` gains `agent?: AgentProfile` — the coordination-layer form of the node analyst, usable by direct `supervise()` callers; lens routes still require the `analysts` registry, agent routes do not.
+- `WorkerSpawnContext` gains `analyst?: string`, the runtime-authored marker a node-pinning `makeWorkerAgent` reads to admit an analyst run it would refuse as a driver-authored spawn.
+- An analyst run's settlement never enters the settled-worker ledger or the finalizer and never re-fires the analyst hook, so an analyst cannot cascade onto itself; a refused analyst spawn publishes `{ analystSpawnRefused }` and a failed run `{ analystRunFailed }` as findings — observable, never silent.
+
+`RunGraphOptions` gains `watchWorkers` (mirroring `SuperviseOptions.watchWorkers`): the online detector panel now runs under `runGraph` with no leaf-seam wiring, raising `finding` events on the coordination bus the moment a live worker loops or error-storms.
+`examples/graphs/watchdog-steer.ts` now uses the passthrough, and the new `examples/graphs/analyst-agent-review.ts` shows a tool-equipped reviewer node analyzing an implementer.
+The kernel entry additionally exports the `WorkerWatchOptions` type.
+
 ## 0.123.0
 
 ### Current shared contracts and honest CLI accounting

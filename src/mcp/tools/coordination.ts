@@ -35,7 +35,10 @@ import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/dete
 import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import type { WorkerProgress } from '../../runtime/supervise/progress'
-import { workerTraceAnalysisStore } from '../../runtime/supervise/trace-evidence'
+import {
+  parseWorkerToolTraceArtifact,
+  workerTraceAnalysisStore,
+} from '../../runtime/supervise/trace-evidence'
 import type { McpToolDescriptor } from '../server'
 
 // The floors a root must know BEFORE it authors a child budget, generated from the measured
@@ -184,8 +187,24 @@ export function canonicalFindingEvent(finding: AnalystFindingEvent): AnalystFind
  * (the audit trail), routing adds delivery, never replaces the record.
  */
 export interface AnalyzeOnSettleRoute {
-  /** The analyst lens id (resolved against the `analysts` registry). */
+  /** The analyst id: a lens id resolved against the `analysts` registry, or — when `agent` is
+   *  present — the AGENT analyst's stable identity carried on its finding/steer events (it need
+   *  not exist in any registry). */
   readonly kind: string
+  /**
+   * Make this analyst a tool-equipped AGENT instead of a registry lens: on each matching settle
+   * the runtime spawns this profile as a WORKER through the SAME spawn machinery a driver spawn
+   * uses (`Scope.spawn` + the run's `makeWorkerAgent` seam) — so its spend reserves from the
+   * conserved pool, its node is journaled and traced like any worker, and a node-pinning seam
+   * sees the spawn context marker (`WorkerSpawnContext.analyst`). Its task is `directive` plus
+   * the settled worker's tool-trace evidence; its settle OUTPUT is the findings, published as a
+   * `finding` event (same canonicalization) and delivered per `to` exactly like registry-analyst
+   * findings. A settle that failed publishes `{ analystRunFailed }`; a spawn the pool or fences
+   * refuse publishes `{ analystSpawnRefused }` — observable, never a silent drop. An agent
+   * analyst's settlement never enters the settled-worker ledger, never feeds the finalizer, and
+   * never re-fires the analyst-on-settle hook (no analyst-on-analyst cascade by construction).
+   */
+  readonly agent?: AgentProfile
   /** Deliver the findings to this live worker, named by its PROFILE NAME (the stable node
    *  identity a graph pins) or its spawn label. Omit = the driver (bus only). Delivery goes
    *  through the same authorization + steer machinery a driver-authored steer uses and is
@@ -193,7 +212,10 @@ export interface AnalyzeOnSettleRoute {
    *  failed one (`delivered: false`) is a recorded outcome, never a silent drop. */
   readonly to?: string
   /** Standing instruction wrapped around the findings on a routed delivery — what the recipient
-   *  should DO with the analysis. Omit = the bare findings JSON. */
+   *  should DO with the analysis. For an AGENT analyst (`agent` set) it is instead the analysis
+   *  directive handed to the agent as its task; the routed delivery then carries the bare
+   *  findings, because the directive was already consumed upstream. Omit = the bare findings
+   *  JSON (and, for an agent analyst, a task of evidence only). */
   readonly directive?: string
   /** Restrict which settled workers feed this lens, by profile name or spawn label. Omit =
    *  every settled `done` worker. */
@@ -311,6 +333,11 @@ export interface WorkerSpawnContext {
   readonly key?: string
   /** Trusted candidate/campaign attribution attached by product authorization. */
   readonly execution?: AgentExecutionRef
+  /** Present (as the analyst id) ONLY when this spawn is an analyst-AGENT run initiated by the
+   *  runtime's analyst-on-settle hook ({@link AnalyzeOnSettleRoute.agent}) — authored by the
+   *  runtime, never accepted from a driver's tool arguments. A node-pinning `makeWorkerAgent`
+   *  reads it to admit the analyst node it would refuse as a driver-authored spawn. */
+  readonly analyst?: string
 }
 
 export type MakeWorkerAgent = (
@@ -348,8 +375,11 @@ export interface CoordinationToolsOptions {
    *  {@link AnalyzeOnSettleRoute} generalizes the DESTINATION: findings can be delivered to a
    *  named live WORKER (wrapped in the route's directive, through the same authorized steer
    *  machinery a driver steer uses) instead of being hardwired to the spawning driver, and `over`
-   *  restricts which settled workers feed the lens. Omit/empty = no auto-analysis (default; the
-   *  driver can still run lenses on demand via `run_analyst`). Requires `analysts`. */
+   *  restricts which settled workers feed the lens. A route carrying `agent` generalizes the
+   *  ANALYST itself: a tool-equipped agent spawned as a worker whose settle output is the
+   *  findings (see {@link AnalyzeOnSettleRoute.agent}). Omit/empty = no auto-analysis (default;
+   *  the driver can still run lenses on demand via `run_analyst`). Lens routes require
+   *  `analysts`; agent routes do not. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
   /** Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_agent`
    *  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
@@ -872,15 +902,110 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   // `Scope.next()` is once-only, while an awaited observer may commit and lose its acknowledgement.
   // Retain the exact event until publication succeeds so the next await retries rather than losing
-  // the settlement between the spawn journal and the product transaction.
+  // the settlement between the spawn journal and the product transaction. `analystRun` marks a
+  // settlement that IS an analyst-agent's findings (see `analystRuns`), whose event is a `finding`.
   let pendingSettlement:
     | {
         readonly settled: Settled<unknown>
         readonly worker: SettledWorker
         readonly event: CoordinationEvent
         readonly analyze: boolean
+        readonly analystRun?: AnalystRunInFlight
       }
     | undefined
+
+  // Analyst-AGENT runs in flight (`AnalyzeOnSettleRoute.agent`): worker id → the route that
+  // spawned it + the settled source worker whose evidence it analyzes. A member's settlement is a
+  // FINDING, not a worker settle: it never enters the settled ledger, never feeds the finalizer,
+  // and never re-fires the analyst-on-settle hook — so an analyst cannot cascade onto itself.
+  interface AnalystRunInFlight {
+    readonly route: AnalyzeOnSettleRoute
+    readonly sourceWorker: string
+  }
+  const analystRuns = new Map<string, AnalystRunInFlight>()
+  let analystRunOrdinal = 0
+
+  /** The `finding` event an analyst-agent settlement becomes: its settle OUTPUT is the findings
+   *  (a failed run publishes the failure as findings — degraded beats vanished). */
+  const analystRunFinding = (
+    run: AnalystRunInFlight,
+    settled: Settled<unknown>,
+  ): CoordinationEvent =>
+    deepFreezeDetached<CoordinationEvent>({
+      type: 'finding',
+      finding: canonicalFindingEvent({
+        fromWorker: run.sourceWorker,
+        analyst: run.route.kind,
+        findings: settled.kind === 'done' ? settled.out : { analystRunFailed: settled.reason },
+      }),
+    })
+
+  /**
+   * Spawn one analyst-AGENT run over a settled worker's evidence, through the SAME spawn
+   * machinery a driver spawn uses (`scope.spawn` + `makeWorkerAgent`): the analyst's spend
+   * reserves from the conserved pool, its node is journaled/traced like any worker, and a
+   * node-pinning seam sees `context.analyst`. Its task is the route directive plus the settled
+   * worker's persisted tool-trace spans. A refused spawn publishes a finding RECORDING the
+   * refusal — observable, never silent — and must never take down the settlement path.
+   */
+  const spawnAnalystRun = async (
+    route: AnalyzeOnSettleRoute,
+    worker: SettledWorker,
+  ): Promise<void> => {
+    let spansText = ''
+    let spanCount = 0
+    if (worker.trace.status === 'available') {
+      try {
+        const raw = await opts.blobs.get(worker.trace.traceRef)
+        const artifact = parseWorkerToolTraceArtifact(raw, worker.trace.traceRef)
+        spanCount = artifact.spans.length
+        spansText = safeJsonText(artifact.spans)
+      } catch {
+        spansText = '' // degraded evidence is stated below, never a thrown settle path
+      }
+    }
+    const task = [
+      ...(route.directive === undefined || route.directive.length === 0 ? [] : [route.directive]),
+      `Evidence — settled worker '${worker.id}' tool trace (${spanCount} spans):`,
+      spansText.length === 0 ? '(no tool spans available)' : spansText,
+    ].join('\n\n')
+    const assignmentId = `analyst:${route.kind}:o${analystRunOrdinal++}`
+    const label = `analyst:${route.kind}`
+    const context: WorkerSpawnContext = Object.freeze({
+      assignmentId,
+      parentNodeId: opts.scope.view.root,
+      budget: opts.perWorker,
+      task,
+      label,
+      analyst: route.kind,
+    })
+    let refusal: string | undefined
+    let spawnedId: string | undefined
+    try {
+      const res = opts.scope.spawn(
+        () => opts.makeWorkerAgent(route.agent as AgentProfile, context),
+        task,
+        { budget: opts.perWorker, label, assignmentId },
+      )
+      if (res.ok) spawnedId = res.handle.id
+      else refusal = String(res.reason)
+    } catch (cause) {
+      refusal = cause instanceof Error ? cause.message : String(cause)
+    }
+    if (spawnedId === undefined) {
+      await bus.publish({
+        type: 'finding',
+        finding: canonicalFindingEvent({
+          fromWorker: worker.id,
+          analyst: route.kind,
+          findings: { analystSpawnRefused: refusal ?? 'unknown' },
+        }),
+      })
+      return
+    }
+    analystRuns.set(spawnedId, { route, sourceWorker: worker.id })
+    watchWorker(spawnedId)
+  }
 
   // The names an analyst route may know a worker by: its authored profile name (the stable node
   // identity) and its spawn label (the driver's free-text choice).
@@ -989,13 +1114,29 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     const pending = pendingSettlement
     if (!pending) return false
     await bus.publish(pending.event)
+    // An analyst-AGENT settlement IS its finding (just published): it never enters the settled
+    // ledger or the finalizer, and it re-fires no analyst hook. Its routed delivery goes through
+    // the exact machinery a registry-analyst finding uses — with no wrap directive, because the
+    // route's directive was already consumed as the analyst's task.
+    if (pending.analystRun) {
+      analystRuns.delete(pending.worker.id)
+      unwatchWorker(pending.worker.id)
+      pendingSettlement = undefined
+      const { route } = pending.analystRun
+      if (route.to !== undefined && pending.event.type === 'finding') {
+        await deliverRoutedFinding(
+          { kind: route.kind, to: route.to },
+          pending.event.finding.findings,
+        )
+      }
+      return true
+    }
     commitSettled(pending.settled, pending.worker)
     pendingSettlement = undefined
     if (
       pending.analyze &&
       pending.worker.status === 'done' &&
       pending.worker.trace.status === 'available' &&
-      opts.analysts &&
       opts.analyzeOnSettle?.length
     ) {
       const routes = opts.analyzeOnSettle.map(normalizeAnalyzeOnSettle)
@@ -1003,9 +1144,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       const applicable = routes.filter(
         (route) => route.over === undefined || route.over.some((name) => sourceNames.has(name)),
       )
-      if (applicable.length > 0) {
+      // Registry lenses run in-process over the trace store; agent analysts spawn as workers.
+      const lensRoutes = applicable.filter((route) => route.agent === undefined)
+      const agentRoutes = applicable.filter((route) => route.agent !== undefined)
+      if (lensRoutes.length > 0 && opts.analysts) {
         const trace = await workerTraceAnalysisStore(pending.worker.trace, opts.blobs)
-        for (const route of applicable) {
+        for (const route of lensRoutes) {
           const findings = await opts.analysts.run(route.kind, trace)
           // The finding ALWAYS lands on the bus — the audit trail and the driver's pullable copy —
           // whether or not the route also delivers it to a named worker.
@@ -1020,6 +1164,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           if (route.to !== undefined) await deliverRoutedFinding(route, findings)
         }
       }
+      for (const route of agentRoutes) await spawnAnalystRun(route, pending.worker)
     }
     return true
   }
@@ -1033,19 +1178,30 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       const settled = await opts.scope.next()
       if (!settled) return false
       const worker = projectSettled(settled)
-      pendingSettlement = {
-        settled,
-        worker,
-        event: deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
-        analyze: true,
-      }
+      const run = analystRuns.get(settled.handle.id)
+      pendingSettlement = run
+        ? {
+            settled,
+            worker,
+            event: analystRunFinding(run, settled),
+            analyze: false,
+            analystRun: run,
+          }
+        : {
+            settled,
+            worker,
+            event: deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
+            analyze: true,
+          }
     }
     return flushPendingSettlement()
   }
 
   // Post-loop drain: every ALREADY-settled, unpulled child enters the ledger + audit trail. No
   // analyst-on-settle here — the driver has stopped, so a finding has no reader and an analyst
-  // spawn would spend real compute for nothing.
+  // spawn would spend real compute for nothing. An analyst-agent run ALREADY in flight is not a
+  // new spawn: its settlement still becomes its finding (the audit trail must not lose paid-for
+  // findings), though a routed delivery will usually record `delivered:false` this late.
   const drainResolved = async (): Promise<number> => {
     let drained = 0
     for (;;) {
@@ -1053,12 +1209,21 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const settled = await opts.scope.nextResolved()
         if (!settled) return drained
         const worker = projectSettled(settled)
-        pendingSettlement = {
-          settled,
-          worker,
-          event: deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
-          analyze: false,
-        }
+        const run = analystRuns.get(settled.handle.id)
+        pendingSettlement = run
+          ? {
+              settled,
+              worker,
+              event: analystRunFinding(run, settled),
+              analyze: false,
+              analystRun: run,
+            }
+          : {
+              settled,
+              worker,
+              event: deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
+              analyze: false,
+            }
       }
       await flushPendingSettlement()
       drained += 1
