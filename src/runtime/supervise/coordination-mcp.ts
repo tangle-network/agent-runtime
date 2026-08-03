@@ -26,6 +26,7 @@ import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
   type AuthorizeDownMessage,
+  type ContinuityMode,
   type CoordinationEvent,
   type CoordinationTools,
   createCoordinationTools,
@@ -107,6 +108,9 @@ export async function serveCoordinationMcp(opts: {
   watchWorkers?: WorkerWatchOptions
   /** Idle time after which `observe_agent` reports a worker as stalled. */
   stallAfterMs?: number
+  /** Default continuity per worker profile name — `'resume'` re-attaches spawns of that name to
+   *  the node's latest settled worker; the tool's per-call `continuity` overrides. */
+  continuityByProfile?: Readonly<Record<string, ContinuityMode>>
   /** Pass-through subscriber for every bus event, including pre-delivery instruction receipts and
    * steer/answer delivery outcomes. */
   onEvent?: (event: CoordinationEvent, record: BusRecord<CoordinationEvent>) => void | Promise<void>
@@ -149,6 +153,7 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
     ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
     ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
+    ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
     ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
     ...(opts.replaySettlements ? { replaySettlements: true } : {}),
     ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),

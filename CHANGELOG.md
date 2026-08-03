@@ -1,6 +1,29 @@
 # Changelog
 
-## Unreleased
+## 0.127.0
+
+### Continuity is a first-class axis of delegates traversals
+
+Fresh respawns, session RESUMES, and live steers are now all expressible as plain data, each a ledgered fact.
+
+A `delegates` edge may declare `continuity: 'fresh' | 'resume'` — the default mode for that edge's spawn traversals (`'fresh'` is today's behavior; an edge without the field behaves byte-identically).
+With `'resume'`, every spawn after the node's first re-attaches to the node's most recent SETTLED worker: the kernel spawns a NEW live worker bound to the SAME node whose spawn context carries `resume: { ofWorker, sequence }` (`WorkerSpawnContext.resume`, typed `WorkerResumeContext`), and the executor seam (`makeWorkerAgent`) owns the actual session re-attachment — e.g. mapping `ofWorker` to a backend session id.
+The kernel keeps identity, ordering, ledger truth, and spend continuity: the resumed worker reserves from the same conserved pool, the ledger row's `workerId` is the NEW live worker, and the lineage rides the spawn context and the journal.
+Traversal caps count resumes exactly like fresh spawns.
+
+`spawn_agent` accepts a per-call `continuity` override that wins over the edge default in either direction, and resume fails closed with an actionable error at the tool:
+
+- `resume-no-prior` — an explicit resume of a node with no settled prior worker (spawn it fresh first; the DECLARED edge default instead degrades to `'fresh'` on the node's first spawn).
+- `resume-while-live` — a prior worker of the node is still live; steer is the live-worker channel, and the error says so.
+- `resume-with-key` — a semantic key makes an assignment run-once; resume explicitly runs the node again.
+
+`EdgeTraversal` and the journal `edge` event gain `continuity: 'fresh' | 'resume' | 'steer'` — spawn traversals stamp their effective mode, and every mid-run delivery into an already-live recipient (a driver steer leg, every analyzes delivery) stamps `'steer'` — zero ambiguity in the ledger about how each hop continued.
+`validateGraph` refuses nonsense continuity values and analyzes edges carrying the field (analysts are spawned by the analyst machinery; every analyst run is a fresh session over settled evidence).
+
+Threading: `SuperviseOptions` / `SupervisorAgentDeps` / `DriverAgentOptions` / `serveCoordinationMcp` / `CoordinationToolsOptions` gain `continuityByProfile?: Readonly<Record<string, ContinuityMode>>` (the per-profile-name default `runGraph` derives from delegates edges), and the kernel entry exports `ContinuityMode`, `WorkerResumeContext`, and `TraversalContinuity`.
+Known limit, stated where it lives: resume lineage is PROCESS-LOCAL (the same boundary as the analyst-run marker) — workers settled by a prior process of a durable run are not resume targets. The built-in backend seam (`workerFromBackend`) cannot re-attach sessions and FAILS LOUD on a `'resume'` spawn rather than ledgering a resume that never happened; session-resuming `makeWorkerAgent` seams are the resume consumers. Resume after a FAILED prior worker is deliberately allowed — a crashed session may still be resumable, and the executor seam decides.
+
+New example: `examples/graphs/shot-loop-resumed.ts` — the VB shot shape as data (reviewer root, coder node, `continuity: 'resume'`, `maxTraversals: 3`): shot 1 spawns `fresh`, shots 2–3 resume the prior settled session, proven offline in `tests/examples/graph-topologies.test.ts`.
 
 ### Python bridge install hints match the required Eval substrate
 

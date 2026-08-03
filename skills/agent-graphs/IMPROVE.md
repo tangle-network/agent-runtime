@@ -35,6 +35,16 @@ Holdout discipline: at least 3 of the 8 held out, never trained on; `runImprovem
 - No new optimizer, campaign runner, judge plumbing, or ledger — all named above.
 - No live-backend scoring in the loop. Live runs are pursuit work, not skill-improvement work; the loop stays offline and free.
 
+## Version history
+
+The live tree carries only the current `SKILL.md`; every prior surface text is recoverable from git history via the pinned sha256s below, and each generation's full measurement record lives in `generations/`.
+
+| gen | date | surface sha256 (short) | holdout mean | verdict |
+| --- | --- | --- | --- | --- |
+| 1 | 2026-08-03 | `582429a1` | 0.444 (k=3 re-measure in `generations/gen2.json`, n=9 holdout cells) | baseline |
+| 2 | 2026-08-03 | `4c6615b6` | 0.611 (k=3, n=9 holdout cells); 0.600 at the gen3 k=5 re-measure | SHIP (#722) |
+| 3 | 2026-08-03 | `54e7b38b` (not promoted; v2 stays live) | 0.900 — invalidated | **HOLD**: verifier found case-design contamination and scorer leniency; reasons + gen4 requirements in `generations/gen3.json` `verifierHold` |
+
 ## Known upstream gap this loop will hit
 
 `OptimizationMethodResult` returns `winnerSurface` only — full candidate history is an owed upstream extension (recorded in discovery docs 22/25). Workaround needing no code: `runOptimization` already retains every generation's surfaces.

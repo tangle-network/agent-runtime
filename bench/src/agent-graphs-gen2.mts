@@ -24,7 +24,7 @@
  * Smoke: GEN2_SMOKE=1 pnpm tsx src/agent-graphs-gen2.mts   — stubs both LLM calls,
  *        exercises the full loop wiring + gate + report at zero cost.
  *
- * Writes skills/agent-graphs/gen2.json; on ship, replaces SKILL.md with v2.
+ * Writes skills/agent-graphs/generations/gen2.json; on ship, replaces SKILL.md with v2.
  */
 
 import { createHash } from 'node:crypto'
@@ -57,7 +57,7 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = join(HERE, '..', '..')
 const SKILL_PATH = join(REPO, 'skills', 'agent-graphs', 'SKILL.md')
-const OUT_PATH = join(REPO, 'skills', 'agent-graphs', 'gen2.json')
+const OUT_PATH = join(REPO, 'skills', 'agent-graphs', 'generations', 'gen2.json')
 const RUNS_ROOT = join(REPO, '.gen2-runs')
 const SMOKE = process.env.GEN2_SMOKE === '1'
 

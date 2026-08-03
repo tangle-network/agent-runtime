@@ -127,6 +127,48 @@ describe('bridgeExecutor over node:http', () => {
     expect(lastBridgeUrl?.host).toBe('bridge.test')
   })
 
+  it('carries the caller-owned turn timeout in the structured execution request', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('done', 1, 1)
+    }
+    const client = inlineSandboxClient(
+      createExecutor({
+        backend: 'bridge',
+        bridgeUrl: 'http://bridge.test',
+        bridgeBearer: 'secret',
+        model: 'pi/tangle-router/deepseek-v4-flash',
+        timeoutMs: 14_400_000,
+      }),
+    )
+
+    await runOnce(client, 'work until the task is complete')
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.execution).toEqual({ kind: 'host', timeoutMs: 14_400_000 })
+  })
+
+  it.each([0, -1, 1.5, 2_147_483_648])(
+    'rejects unsupported caller timeout %s before dispatch',
+    async (timeoutMs) => {
+      const client = inlineSandboxClient(
+        createExecutor({
+          backend: 'bridge',
+          bridgeUrl: 'http://bridge.test',
+          bridgeBearer: 'secret',
+          model: 'pi/tangle-router/deepseek-v4-flash',
+          timeoutMs,
+        }),
+      )
+
+      await expect(runOnce(client, 'do not dispatch')).rejects.toThrow(
+        /timeoutMs must be an integer/,
+      )
+      expect(lastBridgeUrl).toBeNull()
+    },
+  )
+
   it('a per-create backend override targets the cell model as harness/model', async () => {
     const seen: Array<Record<string, unknown>> = []
     bridgeHttpHandler = (payload) => {

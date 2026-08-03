@@ -27,6 +27,12 @@
  *     edge is a versioned optimization target, never prose hardcoded in a builder function.
  *  4. **Per-edge traversal caps** — the cyclic-graph backstop. A delegates edge whose cap is
  *     exhausted REFUSES further traversals (fail loud), so a cycle cannot spin the pool dry.
+ *  5. **Continuity as data** — a delegates edge may declare `continuity: 'resume'`, so each spawn
+ *     after the node's first re-attaches to its latest SETTLED session (the spawn context hands
+ *     the executor seam `resume: { ofWorker, sequence }`; the kernel keeps identity, ordering,
+ *     ledger truth, and the one conserved pool). Every ledger row states how its hop continued:
+ *     `'fresh' | 'resume'` for spawns, `'steer'` for mid-run deliveries — fresh respawns, session
+ *     resumes, and live steers are all plain data, each a ledgered fact.
  *
  * ORACLES ARE ENVIRONMENT, NEVER WORKERS. Graders/verifiers must not be spawnable in the graph —
  * a delegates edge to them leaks the rubric. An `analyzes` edge names its analyst in one of two
@@ -49,6 +55,7 @@ import { ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   AnalyzeOnSettleRoute,
+  ContinuityMode,
   CoordinationEvent,
   MakeWorkerAgent,
   WorkerWatchOptions,
@@ -89,6 +96,15 @@ export type GraphEdge =
       /** Cyclic-graph backstop: traversals beyond this REFUSE (fail loud). Default
        *  {@link defaultEdgeTraversalCap}. */
       readonly maxTraversals?: number
+      /** Default continuity for this edge's SPAWN traversals. `'resume'` makes every spawn after
+       *  the node's first re-attach to its most recent SETTLED worker: a NEW live worker whose
+       *  spawn context carries `resume: { ofWorker, sequence }` for the executor seam, spending
+       *  from the same conserved pool — the node's first spawn is effectively `'fresh'`, and a
+       *  spawn while a prior worker is still live refuses loudly (steer is the live channel).
+       *  The driver's per-call `spawn_agent` `continuity` argument overrides either way. Omit =
+       *  `'fresh'` (today's behavior, byte-identical). Caps count resumes exactly like fresh
+       *  spawns. */
+      readonly continuity?: ContinuityMode
     }
   /** Findings flow anywhere: an analyst over N nodes' settled traces, delivered to ONE node.
    *  With a LENS analyst the directive wraps the findings for the recipient; with a NODE analyst
@@ -123,6 +139,12 @@ export interface AgentGraph {
 
 export type EdgeDeliveryOutcome = 'delivered' | 'stripped' | 'empty' | 'unpropagated'
 
+/** How one ledgered hop CONTINUED: a spawn traversal stamps its effective spawn mode
+ *  (`'fresh'` | `'resume'`), and every mid-run delivery into an already-live recipient — a
+ *  driver steer leg and every analyzes delivery (routed steer or driver-destined finding) —
+ *  stamps `'steer'`. Zero ambiguity: every row carries exactly one of the three. */
+export type TraversalContinuity = ContinuityMode | 'steer'
+
 /** One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent. */
 export interface EdgeTraversal {
   /** Stable edge id: `delegates:<from>-><to>` or `analyzes:<analyst>:<over…>-><to>`. */
@@ -135,6 +157,8 @@ export interface EdgeTraversal {
   /** 1-based per-edge ordinal. */
   readonly traversal: number
   readonly outcome: EdgeDeliveryOutcome
+  /** How this hop continued — see {@link TraversalContinuity}. */
+  readonly continuity: TraversalContinuity
   /** Bytes of directive + payload that actually crossed the edge. */
   readonly bytes: number
   readonly reason?: string
@@ -314,6 +338,18 @@ function validateGraph(
           'settle-return loop, not a self-edge',
       )
     }
+    // The type admits only 'fresh' | 'resume', but a graph is plain data that often arrives
+    // through JSON — refuse a nonsense mode here, never let it reach the spawn tool as a string.
+    if (
+      edge.continuity !== undefined &&
+      edge.continuity !== 'fresh' &&
+      edge.continuity !== 'resume'
+    ) {
+      throw new ValidationError(
+        `runGraph: ${edgeId(edge)} has invalid continuity ${JSON.stringify(edge.continuity)} — ` +
+          "a delegates edge's continuity is 'fresh' or 'resume'",
+      )
+    }
   }
   // Root: the one node that delegates and is never delegated TO. P0 executes the star/2-node
   // cyclic family (one driver, N workers); nested driver graphs are the recorded P3 absorption.
@@ -340,6 +376,16 @@ function validateGraph(
   const analystIds = new Set<string>()
   const analystNodes = new Map<NodeId, GraphNode>()
   for (const edge of analyzes) {
+    // Continuity is a delegates-edge axis ONLY: analysts (lens or node) are spawned by the
+    // analyst-on-settle machinery, each run a fresh session over settled evidence — an analyzes
+    // edge carrying continuity would silently mean nothing, so it is refused as data.
+    if ((edge as { continuity?: unknown }).continuity !== undefined) {
+      throw new ValidationError(
+        `runGraph: ${edgeId(edge)} carries continuity — analysts are spawned by the analyst ` +
+          'machinery (every analyst run is a fresh session over settled evidence), so ' +
+          'continuity is a delegates-edge axis only',
+      )
+    }
     // The runner's traversal ledger resolves a finding/steer back to its edge BY ANALYST ID
     // alone, so a second edge sharing an analyst would silently absorb the first edge's
     // traversals (last-registered wins). Multi-edge-per-analyst is not yet supported; refuse it
@@ -508,6 +554,7 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
       edge: { kind: entry.kind, from: entry.from, to: entry.to, directive: entry.directive },
       traversal: entry.traversal,
       outcome: entry.outcome,
+      continuity: entry.continuity,
       bytes: entry.bytes,
       ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
       seq: ledgerSeq++,
@@ -563,6 +610,10 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
     const id = edgeId(edge)
     const cap = edge.maxTraversals ?? defaultEdgeTraversalCap
     const used = traversalCounts.get(id) ?? 0
+    // The EFFECTIVE spawn mode the coordination layer resolved (per-call override, else this
+    // edge's declared default, else fresh) — stamped on the row so the ledger states how each
+    // hop continued, never how it was merely configured to.
+    const spawnContinuity = spawnContext?.continuity ?? 'fresh'
     if (used >= cap) {
       exhausted.add(id)
       exhaustedDelegates.add(id)
@@ -574,6 +625,7 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
           to: edge.to,
           directive: formatPromptHandle(edge.directive),
           outcome: 'unpropagated',
+          continuity: spawnContinuity,
           bytes: 0,
           reason: `traversal-cap-exhausted (max ${cap})`,
         },
@@ -595,6 +647,7 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
         to: edge.to,
         directive: formatPromptHandle(edge.directive),
         outcome: bytes === 0 ? 'empty' : 'delivered',
+        continuity: spawnContinuity,
         bytes,
         ...(bytes === 0 ? { reason: 'no directive text and no task payload' } : {}),
       },
@@ -661,6 +714,12 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
           `finding events.\n${registry.resolve(edge.directive).text}`,
     )
 
+  // ── Edge continuity defaults, threaded to the spawn tool by node id (= profile name) ──
+  const continuityByProfile: Record<string, ContinuityMode> = {}
+  for (const [nodeId, edge] of delegatesByWorker) {
+    if (edge.continuity !== undefined) continuityByProfile[nodeId] = edge.continuity
+  }
+
   // ── The driver graph brief: which nodes it may spawn, by exact name ──
   const workerLines = [...workers.values()].map((node) => {
     const edge = delegatesByWorker.get(node.id) as Extract<GraphEdge, { kind: 'delegates' }>
@@ -669,7 +728,12 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
       typeof node.profile.description === 'string' && node.profile.description.length > 0
         ? ` — ${node.profile.description}`
         : ''
-    return `- '${node.id}'${description} (delegation cap: ${cap} traversals)`
+    const continuityNote =
+      edge.continuity === 'resume'
+        ? "; continuity: resume — each spawn after the first re-attaches to this node's latest " +
+          'settled session (spawn again to continue it; steer while it is live)'
+        : ''
+    return `- '${node.id}'${description} (delegation cap: ${cap} traversals${continuityNote})`
   })
   const graphBrief = [
     'AGENT GRAPH: you are the driver node of a fixed topology. You may spawn ONLY these worker',
@@ -739,6 +803,9 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
         to: edge.to,
         directive: formatPromptHandle(edge.directive),
         outcome: capped ? 'unpropagated' : outcome,
+        // Every analyzes traversal is a mid-run delivery into an already-live recipient (a
+        // routed steer leg, or the finding reaching the live driver) — never a spawn.
+        continuity: 'steer',
         bytes,
         ...(capped
           ? {
@@ -810,6 +877,8 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
           to: edge.to,
           directive: formatPromptHandle(edge.directive),
           outcome: !down.delivered ? 'unpropagated' : stripped ? 'stripped' : 'delivered',
+          // The mid-run leg of the edge: a delivery into the LIVE worker, never a spawn.
+          continuity: 'steer',
           bytes: byteLength(down.instruction),
           ...(!down.delivered
             ? { reason: down.outcome }
@@ -861,6 +930,7 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
       ...(routes.length > 0
         ? { analyzeOnSettle: routes, ...(opts.analysts ? { analysts: opts.analysts } : {}) }
         : {}),
+      ...(Object.keys(continuityByProfile).length > 0 ? { continuityByProfile } : {}),
       ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
       ...(opts.router ? { router: opts.router } : {}),
       ...(opts.brain ? { brain: opts.brain } : {}),

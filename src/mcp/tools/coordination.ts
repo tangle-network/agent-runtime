@@ -229,6 +229,25 @@ export function normalizeAnalyzeOnSettle(
   return typeof entry === 'string' ? { kind: entry } : entry
 }
 
+/** How a spawn CONTINUES a node's prior work: `'fresh'` starts a brand-new session (the default,
+ *  and the only pre-continuity behavior); `'resume'` re-attaches to the node's most recent
+ *  SETTLED worker — a NEW live worker is spawned whose spawn context carries the prior worker's
+ *  identity ({@link WorkerResumeContext}), and the executor seam owns the actual session
+ *  re-attachment. */
+export type ContinuityMode = 'fresh' | 'resume'
+
+/** The resume lineage a `'resume'` spawn hands the executor seam
+ *  ({@link WorkerSpawnContext.resume}). The kernel owns identity, ordering, ledger truth, and
+ *  spend continuity (the resumed worker reserves from the same conserved pool); the seam owns the
+ *  re-attachment itself — e.g. mapping `ofWorker` to a backend session id. */
+export interface WorkerResumeContext {
+  /** The prior SETTLED worker whose session the new worker continues. */
+  readonly ofWorker: string
+  /** 1-based position of the NEW worker in the node's continuity chain: a node spawned once and
+   *  resumed once hands the resumed worker `sequence: 2`. */
+  readonly sequence: number
+}
+
 /** The exact result of one parent→child delivery attempt. */
 export type DownMessageDeliveryOutcome =
   | 'delivered'
@@ -338,6 +357,13 @@ export interface WorkerSpawnContext {
    *  runtime, never accepted from a driver's tool arguments. A node-pinning `makeWorkerAgent`
    *  reads it to admit the analyst node it would refuse as a driver-authored spawn. */
   readonly analyst?: string
+  /** The EFFECTIVE continuity mode of this spawn — the spawn tool's per-call argument when given,
+   *  else the profile name's declared default ({@link CoordinationToolsOptions.continuityByProfile}),
+   *  else `'fresh'`. Absent only from producers that predate continuity — read absence as
+   *  `'fresh'`. */
+  readonly continuity?: ContinuityMode
+  /** Present iff `continuity === 'resume'`: the lineage the executor seam re-attaches with. */
+  readonly resume?: WorkerResumeContext
 }
 
 export type MakeWorkerAgent = (
@@ -424,6 +450,17 @@ export interface CoordinationToolsOptions {
    * Omit/empty = fresh ledger (every run that is not a resume).
    */
   readonly priorQuestions?: ReadonlyArray<QuestionRecord>
+  /**
+   * Default continuity per PROFILE NAME (the stable node identity a graph pins). A name mapping
+   * to `'resume'` makes its spawns re-attach to the node's most recent settled worker whenever
+   * one exists — the node's FIRST spawn is effectively `'fresh'`, and a spawn while a prior
+   * worker of the node is still LIVE fails closed (`resume-while-live`; steer is the live-worker
+   * channel). The spawn tool's per-call `continuity` argument overrides the declared default in
+   * either direction. Omit = every spawn is `'fresh'` (status quo). Resume lineage is
+   * PROCESS-LOCAL (the same boundary as the analyst-run marker): workers settled by a prior
+   * process of a durable run are not resume targets.
+   */
+  readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
 }
 
 /** Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). */
@@ -982,6 +1019,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       task,
       label,
       analyst: route.kind,
+      // An analyst run is always a brand-new session over settled evidence — never a resume.
+      continuity: 'fresh' as const,
     })
     let refusal: string | undefined
     let spawnedId: string | undefined
@@ -1029,6 +1068,102 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       live.find((node) => profileNameByWorker.get(node.id) === destination)?.id ??
       live.find((node) => node.label === destination)?.id
     )
+  }
+
+  // ── Continuity: how a spawn continues a node's prior work ──
+  // Node identity is the PROFILE NAME only (never the label): resume re-attaches to a specific
+  // prior session, and the label is the driver's free-text choice. All three reads are
+  // process-local by construction — `profileNameByWorker` records only this process's spawns —
+  // which is the documented resume boundary (a prior process's workers are not resume targets).
+  const liveWorkerForNode = (name: string): string | undefined =>
+    opts.scope.view.nodes.find(
+      (node) => isLive(node.status) && profileNameByWorker.get(node.id) === name,
+    )?.id
+  const latestSettledWorkerForNode = (name: string): string | undefined => {
+    for (let i = ledger.length - 1; i >= 0; i -= 1) {
+      const worker = ledger[i] as SettledWorker
+      if (profileNameByWorker.get(worker.id) === name) return worker.id
+    }
+    return undefined
+  }
+  const nodeSpawnCount = (name: string): number => {
+    let count = 0
+    for (const profileName of profileNameByWorker.values()) if (profileName === name) count += 1
+    return count
+  }
+  const parseContinuity = (v: unknown): ContinuityMode | undefined => {
+    if (v === undefined) return undefined
+    if (v === 'fresh' || v === 'resume') return v
+    throw new Error('coordination tools: "continuity" must be "fresh" or "resume"')
+  }
+  type ResolvedContinuity =
+    | { readonly continuity: 'fresh' }
+    | { readonly continuity: 'resume'; readonly resume: WorkerResumeContext }
+    | { readonly error: string; readonly hint: string }
+  /**
+   * Resolve the EFFECTIVE continuity of one spawn: the per-call request wins, else the profile
+   * name's declared default, else `'fresh'`. Every refusal is loud and actionable:
+   *   - an EXPLICIT `'resume'` with no settled prior worker refuses (`resume-no-prior`) — the
+   *     DECLARED default degrades to `'fresh'` instead, so a resume edge's first traversal is
+   *     simply the first spawn;
+   *   - resume while a prior worker of the node is still LIVE refuses (`resume-while-live`) —
+   *     that is what steer is for, and the error says so;
+   *   - resume under a semantic `key` refuses (`resume-with-key`) — a key makes an assignment
+   *     run-once, resume explicitly runs the node again.
+   */
+  const resolveContinuity = (
+    requested: ContinuityMode | undefined,
+    profileName: string | undefined,
+    key: string | undefined,
+  ): ResolvedContinuity => {
+    const declared =
+      profileName === undefined ? 'fresh' : (opts.continuityByProfile?.[profileName] ?? 'fresh')
+    const wantsResume = requested === 'resume' || (requested === undefined && declared === 'resume')
+    if (!wantsResume) return { continuity: 'fresh' }
+    if (profileName === undefined || profileName.length === 0) {
+      return {
+        error: 'resume-unnamed-profile',
+        hint:
+          'Resume targets a node by profile.name — the stable node identity — and this profile ' +
+          'has none. Name the profile, or spawn fresh.',
+      }
+    }
+    if (key !== undefined) {
+      return {
+        error: 'resume-with-key',
+        hint:
+          'A semantic key makes an assignment run-once (a completed key returns its committed ' +
+          'result instead of running again); resume explicitly runs the node AGAIN. Drop the ' +
+          'key to resume, or keep the key and spawn fresh.',
+      }
+    }
+    const live = liveWorkerForNode(profileName)
+    if (live !== undefined) {
+      return {
+        error: 'resume-while-live',
+        hint:
+          `Worker '${live}' on node '${profileName}' is still LIVE — resume re-attaches to a ` +
+          'SETTLED session. To redirect the live worker, use steer_agent (that is the ' +
+          "live-worker channel); to run a parallel sibling instead, pass continuity: 'fresh'.",
+      }
+    }
+    const prior = latestSettledWorkerForNode(profileName)
+    if (prior === undefined) {
+      // The DECLARED default asked for resume-when-possible; with nothing to resume this is the
+      // node's effective first spawn. Only an explicit per-call demand fails loud here.
+      if (requested === undefined) return { continuity: 'fresh' }
+      return {
+        error: 'resume-no-prior',
+        hint:
+          `Node '${profileName}' has no settled prior worker in this process to resume — ` +
+          'resume continues a FINISHED session. Spawn the node fresh first (omit continuity or ' +
+          "pass 'fresh').",
+      }
+    }
+    return {
+      continuity: 'resume',
+      resume: { ofWorker: prior, sequence: nodeSpawnCount(profileName) + 1 },
+    }
   }
 
   /**
@@ -1661,6 +1796,21 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               'never runs twice: completed keys return their committed result, even after a ' +
               'coordinator restart.',
           },
+          continuity: {
+            type: 'string',
+            enum: ['fresh', 'resume'],
+            description:
+              'How this spawn continues the node\'s prior work. "fresh" (the default) starts a ' +
+              'brand-new session. "resume" re-attaches to the node\'s most recent SETTLED ' +
+              'worker: a NEW live worker is spawned whose session continues where that worker ' +
+              'stopped (the backend receives the prior workerId and the resume sequence). ' +
+              'Resume fails closed when the node has no settled prior worker ' +
+              '(`error: "resume-no-prior"` — spawn it fresh first), while a prior worker of the ' +
+              'node is still live (`error: "resume-while-live"` — steer_agent is the ' +
+              'live-worker channel), and under a `key` (`error: "resume-with-key"` — keys are ' +
+              "run-once, resume runs again). Omit to use the run's declared default for this " +
+              'profile name.',
+          },
           budget: {
             type: 'object',
             description:
@@ -1709,6 +1859,17 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           })
         }
         const profile = deepFreezeDetached(parsedProfile.data)
+        // Continuity resolves BEFORE any assignment is minted or budget reserved, so a refused
+        // resume touches nothing — same fail-closed discipline as the fences above.
+        const continuity = resolveContinuity(parseContinuity(a.continuity), profile.name, key)
+        if ('error' in continuity) {
+          return Promise.resolve({
+            error: continuity.error,
+            hint: continuity.hint,
+            live: liveWorkerCount(),
+            freeSlots: freeWorkerSlots(),
+          })
+        }
         const task = deepFreezeDetached(a.task)
         const label = typeof a.label === 'string' ? a.label : 'worker'
         const budget = Object.freeze(
@@ -1723,6 +1884,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           task,
           label,
           ...(key !== undefined ? { key } : {}),
+          continuity: continuity.continuity,
+          ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
         })
         const res = opts.scope.spawn(() => opts.makeWorkerAgent(profile, context), task, {
           budget,
@@ -1781,6 +1944,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 ...(res.handle.executionBindings === undefined
                   ? {}
                   : { executionBindings: res.handle.executionBindings }),
+                // The EFFECTIVE continuity of this spawn, with the resume lineage when it
+                // re-attached — so the driver's transcript states how the node continued.
+                continuity: continuity.continuity,
+                ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
                 live: liveWorkerCount(),
                 freeSlots: freeWorkerSlots(),
                 ...priorHistory,
