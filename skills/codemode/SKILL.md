@@ -1,6 +1,6 @@
 ---
 name: codemode
-description: "Convert an idea, workflow, or loose context into a runnable agent graph. Use for: author a graph, runGraph, orchestrate agents as code, turn this workflow into agents, multi-agent pipeline with an audit trail."
+description: "Author agent graphs from ideas or loose context — runGraph, orchestration, workflows-as-code."
 ---
 
 # Codemode: ideas into agent graphs
