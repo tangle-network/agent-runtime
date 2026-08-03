@@ -1,0 +1,9 @@
+{
+  "id": "audited-single-writer",
+  "brief": "Have a separate worker write the summary document so I can audit exactly what it did afterwards.",
+  "expect": {
+    "correctAnswerIsGraph": true,
+    "nodes": 1,
+    "reason": "auditability warrants delegation despite a cheap-sounding task"
+  }
+}

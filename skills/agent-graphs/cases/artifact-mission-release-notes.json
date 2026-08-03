@@ -1,0 +1,10 @@
+{
+  "id": "artifact-mission-release-notes",
+  "brief": "Produce a release-notes file for version 2.0 that passes our repo format checker.",
+  "expect": {
+    "correctAnswerIsGraph": true,
+    "nodes": 1,
+    "deliverableDescribeCarriesMission": true,
+    "checkIsMechanical": true
+  }
+}

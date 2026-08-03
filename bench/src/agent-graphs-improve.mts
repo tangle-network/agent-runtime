@@ -13,7 +13,7 @@
  *     per satisfied expectation, equal weights.
  *
  * Baseline run:  pnpm tsx src/agent-graphs-improve.mts        (from bench/)
- * Writes skills/agent-graphs/baseline-v1.json and prints the per-case table.
+ * Writes skills/agent-graphs/generations/gen1-baseline.json and prints the per-case table.
  *
  * Author model: tangle-router glm-5.2, temperature 0.2, one retry on unparseable JSON.
  */
@@ -42,7 +42,7 @@ const REPO = join(HERE, '..', '..')
 // The skill was re-homed skills/codemode → skills/agent-graphs (925460fe); these paths follow it.
 const SKILL_PATH = join(REPO, 'skills', 'agent-graphs', 'SKILL.md')
 const CASES_DIR = join(REPO, 'skills', 'agent-graphs', 'cases')
-const OUT_PATH = join(REPO, 'skills', 'agent-graphs', 'baseline-v1.json')
+const OUT_PATH = join(REPO, 'skills', 'agent-graphs', 'generations', 'gen1-baseline.json')
 // The v1 surface + cases were removed from the working tree by 5b8d4da5 ("replace codemode plan
 // with current graph guide"); the baseline still measures the v1 text, pinned in git history.
 // Override with SKILL_REF to measure another committed version.
@@ -89,6 +89,7 @@ const GENEROUS_PER_CHILD_TOKENS = 50_000
 export interface CaseExpect {
   correctAnswerIsNoGraph?: boolean
   correctAnswerIsDynamicWorkflow?: boolean
+  correctAnswerIsGraph?: boolean
   nodes?: number
   analyzesWarranted?: boolean
   floorTrap?: boolean
@@ -437,6 +438,15 @@ export function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { sco
       key: 'correctAnswerIsDynamicWorkflow',
       pass: artifact.decision === 'dynamic-workflow',
       note: `decision=${artifact.decision}`,
+    })
+  }
+  if (e.correctAnswerIsGraph !== undefined) {
+    // Explicit dialect check for cases whose whole point is that a cheap-sounding brief
+    // still warrants a graph; requires an authored graph, not just the word "graph".
+    checks.push({
+      key: 'correctAnswerIsGraph',
+      pass: graphOk,
+      note: `decision=${artifact.decision}${artifact.decision === 'graph' && g === undefined ? ' (no graph payload)' : ''}`,
     })
   }
   if (e.mustBudgetAtLeast !== undefined) {
