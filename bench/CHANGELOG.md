@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0
+
+- Consume Runtime 0.123.0 with Eval 0.142.2, Interface 0.43.0, Knowledge 7.0.7, and Sandbox 0.17.2 as one compatible dependency set.
+- Release under a new minor because Interface and Sandbox are pre-1.0 dependencies moving across minor boundaries.
+
 ## 0.6.0
 
 - Consume Runtime 0.121.0 with Sandbox 0.16.0 so a clean install no longer requires the superseded Sandbox 0.15 line.
