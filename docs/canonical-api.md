@@ -6,7 +6,7 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.123.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.142.1 <0.143.0`.
+> `agent-eval` must satisfy `>=0.142.2 <0.143.0`.
 > `sandbox` must satisfy `>=0.17.2 <0.18.0`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.42.1 <0.44.0`.
 >
