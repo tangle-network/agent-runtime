@@ -1,8 +1,0 @@
-{
-  "id": "cap-as-stop-mistake",
-  "brief": "Have an analyst watch the worker and stop the whole thing after three findings.",
-  "expect": {
-    "trapIsAnalyzesCapAsStop": true,
-    "correctStopIsDelegatesCapOrDeliverable": true
-  }
-}
