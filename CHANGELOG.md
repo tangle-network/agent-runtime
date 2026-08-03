@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.125.0
+
+### Steering policy is registry data; the loop-kernel steering-driver module is deleted
+
+BREAKING. `src/runtime/steering-drivers.ts` is deleted, and with it the kernel exports `steeringDriver`, `naiveDriver`, `dumbDriver`, `SteeringDirectiveData`, `SteeringDecision`, `ApplyContinuation`, `NaiveDriverOptions`, and `DumbDriverOptions`.
+The steering POLICY texts stay where the graph reads them — registry data (`delegates/naive-continuation`, `delegates/dumb-continuation-pass` / `-fail` in the kernel prompt registry) a `delegates` edge attaches as versioned directives — so the naive/dumb control policies remain optimizable data rows; only the loop-kernel interpreter function is gone.
+`defineLeaderboard`'s per-cell retry — the module's one consumer — is now `naiveRetryDriver` in `define-leaderboard.ts` with identical observable behavior: the same `'naive'` trace name, the same plan/decide semantics (re-run the same case verbatim until a shot is `valid` or the shot cap; `pick-winner` on any valid shot, else `refine` under the cap, `fail` at it), and the same leak-free firewall (reads only `verdict.valid`, never `notes`/`scores`).
+
+Callers to update: anything importing `steeringDriver` / `naiveDriver` / `dumbDriver` from the kernel entry writes the equivalent bare `Driver` literal at its call site (plan: re-issue the task with the continuation folded in until valid or cap; decide: `pick-winner` on any valid shot, else `refine` under the cap, `fail` at it), carrying its continuation texts as its own data or as prompt-registry entries.
+
 ## 0.124.0
 
 ### The analyst can be a tool-equipped agent, and graphs watch their workers

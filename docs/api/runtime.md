@@ -2791,7 +2791,7 @@ Result export. Default: write `matrix-result.json` under the run dir and
 > `optional` **dispatch?**: `ProfileDispatchFn`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `TArtifact`\>
 
 LEVEL 2 — full dispatch replacement (in-process products bring their own).
- The default is `loopDispatch` + the naive steering directive over the resolved backend.
+ The default is `loopDispatch` + the naive retry driver over the resolved backend.
 
 ##### judges?
 
@@ -7348,94 +7348,6 @@ Kill every spawned server. Idempotent.
 ###### Returns
 
 `Promise`\<`void`\>
-
-***
-
-### NaiveDriverOptions
-
-Options for [naiveDriver](#naivedriver).
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-#### Properties
-
-##### continuation
-
-> **continuation**: `string`
-
-The fixed continuation issued every round after shot 0. The same string is
-sent whether the prior shot passed inspection or not — the naive driver
-reads no part of the verdict. Domain text is the caller's; the substrate
-supplies none.
-
-##### applyContinuation
-
-> **applyContinuation**: [`ApplyContinuation`](#applycontinuation)\<`Task`\>
-
-Folds `continuation` into the caller's Task shape for the next shot.
-
-##### maxIterations
-
-> **maxIterations**: `number`
-
-Hard shot cap. The loop stops refining once history reaches this length.
-
-##### name?
-
-> `optional` **name?**: `string`
-
-Trace-event identifier. Default `'naive'`.
-
-***
-
-### DumbDriverOptions
-
-Options for [dumbDriver](#dumbdriver).
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-#### Properties
-
-##### onPass
-
-> **onPass**: `string`
-
-Continuation issued when the prior shot's verdict is valid. In a
-stop-on-pass loop this is rarely reached (a valid shot ends the loop), but
-it is required so the driver is total over the pass/fail bit; pass a
-confirmation/keep-going string.
-
-##### onFail
-
-> **onFail**: `string`
-
-Continuation issued when the prior shot's verdict is NOT valid.
-
-##### applyContinuation
-
-> **applyContinuation**: [`ApplyContinuation`](#applycontinuation)\<`Task`\>
-
-Folds the chosen continuation into the caller's Task shape.
-
-##### maxIterations
-
-> **maxIterations**: `number`
-
-Hard shot cap. The loop stops refining once history reaches this length.
-
-##### name?
-
-> `optional` **name?**: `string`
-
-Trace-event identifier. Default `'dumb'`.
 
 ***
 
@@ -14090,7 +14002,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-25)
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-22)
 
 ##### signal
 
@@ -18822,110 +18734,6 @@ controls such as `timeoutMs`.
 
 ***
 
-### SteeringDecision
-
-> **SteeringDecision** = `"refine"` \| `"pick-winner"` \| `"fail"`
-
-Terminal-or-continue decision shared by all three steering drivers. The
-non-terminal `'refine'` keeps the loop running another shot; the terminal
-`'pick-winner'`/`'fail'` stop it (`isTerminalDecision` in run-loop.ts treats
-`'pick-winner'` and `'fail'` as terminal and any other string as a request
-for another round). Identical to the reference refine driver's decision set.
-
-***
-
-### SteeringDirectiveData
-
-> **SteeringDirectiveData** = \{ `kind`: `"naive"`; `continuation`: `string`; `maxTraversals`: `number`; \} \| \{ `kind`: `"dumb"`; `onPass`: `string`; `onFail`: `string`; `maxTraversals`: `number`; \}
-
-A steering POLICY as plain data — the delegates-edge directive form of the two control
-drivers. `kind` names how much of the verdict the policy may read (the experimental axis);
-the continuation strings are the payload. Because this is JSON-able data, it is versionable
-in a prompt registry and attachable to a graph edge — the same policy that used to exist
-only as a builder FUNCTION, which made it invisible to any optimizer. Default texts are
-seeded in the kernel prompt registry (`delegates/naive-continuation`,
-`delegates/dumb-continuation-pass` / `-fail`); a caller may carry its own.
-
-#### Union Members
-
-##### Type Literal
-
-\{ `kind`: `"naive"`; `continuation`: `string`; `maxTraversals`: `number`; \}
-
-###### kind
-
-> `readonly` **kind**: `"naive"`
-
-Reads NOTHING from the verdict: one fixed continuation every round.
-
-###### continuation
-
-> `readonly` **continuation**: `string`
-
-###### maxTraversals
-
-> `readonly` **maxTraversals**: `number`
-
-Hard traversal cap: the loop stops refining once history reaches this length.
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"dumb"`; `onPass`: `string`; `onFail`: `string`; `maxTraversals`: `number`; \}
-
-###### kind
-
-> `readonly` **kind**: `"dumb"`
-
-Reads ONLY `verdict.valid` (the boolean): one of two fixed continuations.
-
-###### onPass
-
-> `readonly` **onPass**: `string`
-
-###### onFail
-
-> `readonly` **onFail**: `string`
-
-###### maxTraversals
-
-> `readonly` **maxTraversals**: `number`
-
-***
-
-### ApplyContinuation
-
-> **ApplyContinuation**\<`Task`\> = (`task`, `continuation`) => `Task`
-
-Fold a steering string into the caller's Task shape, producing the Task for
-the next shot. The substrate never assumes how a Task carries its prompt, so
-the caller supplies this — the same way it supplies `taskToPrompt`. The
-original `task` is passed so the fold can preserve task-level fields (ids,
-fixtures, feature names) and replace only the instruction.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-#### Parameters
-
-##### task
-
-`Task`
-
-##### continuation
-
-`string`
-
-#### Returns
-
-`Task`
-
-***
-
 ### ChampionPolicy
 
 > **ChampionPolicy** = `"score"` \| `"costAware"`
@@ -22856,112 +22664,6 @@ refuses local processes. A profile with no MCP surface returns zero tools.
 #### Returns
 
 `Promise`\<[`LocalMcpMaterialization`](#localmcpmaterialization)\>
-
-***
-
-### steeringDriver()
-
-> **steeringDriver**\<`Task`, `Output`\>(`directive`, `applyContinuation`, `name?`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-Interpret a [SteeringDirectiveData](#steeringdirectivedata) as a loop `Driver` — the ONE interpreter both
-control policies share. The directive is data; only `applyContinuation` (how the caller's
-opaque Task carries a steering string) remains code, exactly as `taskToPrompt` does.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-#### Parameters
-
-##### directive
-
-[`SteeringDirectiveData`](#steeringdirectivedata)
-
-##### applyContinuation
-
-[`ApplyContinuation`](#applycontinuation)\<`Task`\>
-
-##### name?
-
-`string`
-
-#### Returns
-
-[`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-***
-
-### ~~naiveDriver()~~
-
-> **naiveDriver**\<`Task`, `Output`\>(`options`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-Thin compatibility wrapper over [steeringDriver](#steeringdriver) for the naive (no-signal) control.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-#### Parameters
-
-##### options
-
-[`NaiveDriverOptions`](#naivedriveroptions)\<`Task`\>
-
-#### Returns
-
-[`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-#### Deprecated
-
-The policy is DATA now — build the directive and interpret it:
- `steeringDriver({ kind: 'naive', continuation, maxTraversals }, applyContinuation)`. This
- wrapper survives for existing callers and will be removed in the next major.
-
-***
-
-### ~~dumbDriver()~~
-
-> **dumbDriver**\<`Task`, `Output`\>(`options`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-Thin compatibility wrapper over [steeringDriver](#steeringdriver) for the dumb (pass/fail-only) control.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-#### Parameters
-
-##### options
-
-[`DumbDriverOptions`](#dumbdriveroptions)\<`Task`\>
-
-#### Returns
-
-[`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-#### Deprecated
-
-The policy is DATA now — build the directive and interpret it:
- `steeringDriver({ kind: 'dumb', onPass, onFail, maxTraversals }, applyContinuation)`. This
- wrapper survives for existing callers and will be removed in the next major.
 
 ***
 
