@@ -23,10 +23,9 @@ Do not use a graph when a smaller shipped primitive already expresses the work.
 ### Strict authoring decisions (Do not under-graph)
 
 - **Cheapness is not the dialect test:** Do not bail to `single-agent` just because a brief sounds trivial (e.g., "write a one-line file"). If the brief implies roles, observers, or a specific tight budget, author the graph.
-- **Independent Checkers:** If a brief requires an artifact to pass an independent check, format checker, or validator (e.g., "passes our repo format checker"), you MUST author a graph with an analyst node equipped to perform the check. Do not bail to `single-agent` by assuming it is a trivial file write.
 - **Budget Floor Traps:** If a brief demands an impossibly "tight" budget (e.g., a few thousand tokens), do not dodge it by dropping to `single-agent`. Author the graph and explicitly set `budget` to the valid measured executor floor.
-- **Distinct Perspectives and Parallelism:** If a brief requests N parallel instances of the same role, you MUST create N distinct worker nodes and N `delegates` edges. If a brief requests different perspectives (e.g., "reviewed by two different perspectives") or a neutral decider, create a distinct node for EACH requested perspective. Do not collapse multiple requested reviewers or distinct roles into a single node.
-- **Mandatory Analysts:** If a brief requires independent observation, review, or post-settle findings (e.g., "neutral decider", "watch the worker", "passes format checker"), you MUST author `analyzes` edges. Do not omit analysts and attempt to merge their logic into the root's prompt.
+- **Identical-Role Parallelism:** If a brief requests N parallel instances of the same role, you MUST create N distinct worker nodes and N `delegates` edges. Do not collapse identical parallel workers into a single node.
+- **Mandatory Analysts:** If a brief requires independent observation, review, or post-settle findings (e.g., "neutral decider", "review by two perspectives", "watch the worker"), you MUST author `analyzes` edges. Do not omit analysts and attempt to merge their logic into the root's prompt.
 - **Caps are not stops:** Do not use an analysis edge `maxTraversals` cap as a global stop condition. To stop after N findings, use `deliverable.check` or `maxTraversals` on a `delegates` edge.
 
 ## Author the complete contract
@@ -75,21 +74,20 @@ Put the concrete mission in `deliverable.describe`; Runtime uses that text as th
 
 `budget` is one conserved pool for the full graph.
 Set `options.perWorker` explicitly from the actual executor cost.
-**Do not mix `runGraph` options with other entry points.** Never emit `supervise`-specific fields like `perWorker.maxIterations` in a `runGraph` graph spec; `runGraph` strictly expects `budget`, `perWorker` token allocations, and traversal caps.
 For Pi, `WORKER_TOKEN_FLOOR.pi` is 31,211 input tokens before useful work, so a worker allocation below that value is refused. If a brief asks for a budget lower than the floor, do not switch to `single-agent`; output the graph with the floor allocation.
 Treat an unmeasured executor floor as unknown rather than zero.
 Analyst nodes spend from the same pool and need the same honest accounting as ordinary workers.
 
 ## Authoring procedure
 
-1. **Classify correctly:** Verify if this needs `single-agent`, `dynamic-workflow`, or a static `runGraph`. If independent review, parallel workers, or independent validation (e.g. format checkers) are requested, use `runGraph`.
+1. **Classify correctly:** Verify if this needs `single-agent`, `dynamic-workflow`, or a static `runGraph`. If independent review or parallel workers are requested, use `runGraph`.
 2. **Define completion first:** Write the completion test and its description.
 3. **Select entry point:** Choose the smallest shipped entry point from the table above.
-4. **Define Roles:** Give every distinct role one complete `AgentProfile`. If N parallel instances or distinct perspectives (e.g., two different reviewers) are requested, create N nodes. Merge roles only if their standing prompts and capabilities are identical.
+4. **Define Roles:** Give every distinct role one complete `AgentProfile`. If N parallel instances of a role are requested, create N nodes. Merge roles only if their standing prompts and capabilities are identical.
 5. **Register directives:** Register a versioned directive for every edge.
 6. **Delegate work:** Add one delegation edge per ordinary worker from the root.
-7. **Attach analysts:** Add `analyzes` edges only when findings must be produced independently after a worker settles. Do not skip this if the brief asked for a watcher/reviewer, a neutral decider, or an independent format checker.
-8. **Size the pool:** Set budget, per-worker allocation, traversal caps, time, and concurrency from measured executor behavior. Ensure budgets meet the executor floor. Do not mix `runGraph` options with `supervise` options.
+7. **Attach analysts:** Add `analyzes` edges only when findings must be produced independently after a worker settles. Do not skip this if the brief asked for a watcher/reviewer.
+8. **Size the pool:** Set budget, per-worker allocation, traversal caps, time, and concurrency from measured executor behavior. Ensure budgets meet the executor floor.
 9. **Prove and inspect:** Run the structure offline, then run the real backend and inspect its result.
 
 ## Prove the graph before spending
@@ -117,10 +115,9 @@ A passing completion test proves only what that test checks.
 
 ## Common mistakes
 
-- Bailing to `single-agent` because a brief sounds trivial or assumes a file write is simple, instead of respecting requested independent checkers (e.g., "passes format checker"), roles, or budget floors.
-- Mixing `runGraph` options with `supervise` options (e.g., emitting `perWorker.maxIterations` in a `runGraph` spec).
-- Collapsing multiple requested reviewers or distinct perspectives into a single worker node.
-- Skipping `analyzes` edges when an observer, reviewer, independent check, or neutral decider is explicitly requested.
+- Bailing to `single-agent` because a brief sounds trivial, instead of respecting requested roles or applying budget floors.
+- Collapsing N requested parallel identical roles into a single worker node.
+- Skipping `analyzes` edges when an observer or reviewer is explicitly requested.
 - Putting the task only in a spawn prompt instead of `deliverable.describe`.
 - Giving a node a `profile.name` different from its id.
 - Delegating ordinary work to an analyst node.
