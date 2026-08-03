@@ -12136,6 +12136,9 @@ Canonical profile overlay merged over the spawned profile.
 
 > `optional` **timeoutMs?**: `number`
 
+Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
+ same value in `execution.timeoutMs` so cli-bridge cannot substitute its own cutoff.
+
 ##### sessionId?
 
 > `optional` **sessionId?**: `string`
@@ -12227,6 +12230,9 @@ Canonical profile overlay merged over the spawned profile.
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
+
+Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
+ same value in `execution.timeoutMs` so the bridge-owned process follows the same policy.
 
 ##### sessionId?
 

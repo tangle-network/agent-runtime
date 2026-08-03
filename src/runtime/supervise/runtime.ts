@@ -221,6 +221,8 @@ export interface CliWorktreeBridgeSeam {
   model?: string
   /** Canonical profile overlay merged over the spawned profile. */
   agentProfile?: AgentProfile
+  /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
+   *  same value in `execution.timeoutMs` so cli-bridge cannot substitute its own cutoff. */
   timeoutMs?: number
   /** Stable cli-bridge session id. Defaults to `bridge-worktree-${runId}`. */
   sessionId?: string
@@ -283,6 +285,8 @@ export interface BridgeSeam {
   cwd?: string
   /** Canonical profile overlay merged over the spawned profile. */
   agentProfile?: AgentProfile
+  /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
+   *  same value in `execution.timeoutMs` so the bridge-owned process follows the same policy. */
   timeoutMs?: number
   /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
    *  to a freshly minted per-spawn id so each worker is its own resumable session. */
@@ -313,6 +317,7 @@ const routerSeamKey = 'router'
 const sandboxSeamKey = 'sandbox'
 const cliSeamKey = 'cli'
 const bridgeSeamKey = 'bridge'
+const maxBridgeTimeoutMs = 2_147_483_647
 const cliWorktreeSeamKey = 'cli-worktree'
 const providerSeamKey = 'provider'
 
@@ -1316,6 +1321,16 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       'bridgeExecutor: bridgeUrl + bridgeBearer and a profile or bridge model are required',
     )
   }
+  if (
+    seam.timeoutMs !== undefined &&
+    (!Number.isSafeInteger(seam.timeoutMs) ||
+      seam.timeoutMs < 1 ||
+      seam.timeoutMs > maxBridgeTimeoutMs)
+  ) {
+    throw new ValidationError(
+      `bridgeExecutor: timeoutMs must be an integer from 1 to ${maxBridgeTimeoutMs}`,
+    )
+  }
   const maxTurns = seam.maxTurns ?? 200
   // A stable per-spawn session id (caller can pin one) — cli-bridge keys harness
   // resume off this exactly as a box id keys a sandbox session.
@@ -1696,12 +1711,13 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     else external.addEventListener('abort', abortTurn)
     interruptSig.addEventListener('abort', abortTurn, { once: true })
     let timedOut = false
-    const timer = seam.timeoutMs
-      ? setTimeout(() => {
-          timedOut = true
-          abortTurn()
-        }, seam.timeoutMs)
-      : undefined
+    const timer =
+      seam.timeoutMs !== undefined
+        ? setTimeout(() => {
+            timedOut = true
+            abortTurn()
+          }, seam.timeoutMs)
+        : undefined
     const cleanup = () => {
       external.removeEventListener('abort', abortTurn)
       if (timer) clearTimeout(timer)
@@ -1719,6 +1735,10 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       run_id: activeRun.id,
       session_id: args.sessionId,
       ...(seam.cwd ? { cwd: seam.cwd } : {}),
+      execution: {
+        kind: 'host' as const,
+        ...(seam.timeoutMs !== undefined ? { timeoutMs: seam.timeoutMs } : {}),
+      },
       agent_profile: args.profile,
       messages,
     }
