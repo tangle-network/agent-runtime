@@ -2990,8 +2990,10 @@ function readSeam<T>(ctx: ExecutorContext, key: string, who: string): T {
 }
 
 /** A leaf task is opaque (`unknown`). A string is the prompt verbatim; an object
- *  with a `prompt`/`content`/`task` string field uses it; otherwise it serializes. */
-function taskToPrompt(task: unknown): string {
+ *  with a `prompt`/`content`/`task` string field uses it; otherwise it serializes.
+ *  Module-exported (not package surface) so sibling leaf executors read a task
+ *  identically instead of re-deriving the rule. */
+export function taskToPrompt(task: unknown): string {
   if (typeof task === 'string') return task
   if (task && typeof task === 'object') {
     const obj = task as Record<string, unknown>
@@ -3045,8 +3047,9 @@ function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
 }
 
 /** Combine N abort signals into one that fires when ANY does. Node-portable (no `AbortSignal.any`,
- *  which needs >=20.3 — the package floor is >=20). */
-function mergeAbortSignals(...signals: AbortSignal[]): AbortSignal {
+ *  which needs >=20.3 — the package floor is >=20). Module-exported (not package surface) so
+ *  sibling leaf executors share the one portable implementation. */
+export function mergeAbortSignals(...signals: AbortSignal[]): AbortSignal {
   const c = new AbortController()
   const onAbort = () => c.abort()
   for (const s of signals) {

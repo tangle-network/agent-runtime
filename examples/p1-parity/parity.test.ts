@@ -25,7 +25,13 @@ import { offlineGraphBackend, offlineMultishotBackend, offlineShotPassed } from 
 
 const parityCell = (shots: number): CellSpec => ({
   task: 'make the failing test suite pass',
-  coderProfile: { name: 'coder', prompt: { systemPrompt: 'Make tests pass.' } },
+  // The coder model is mandatory and pinned (the arms refuse a silent fallback); the reviewer
+  // profile stays model-less — the driver model is each arm's substrate config.
+  coderProfile: {
+    name: 'coder',
+    model: { default: 'scripted/parity-coder' },
+    prompt: { systemPrompt: 'Make tests pass.' },
+  },
   reviewerProfile: { name: 'reviewer', prompt: { systemPrompt: 'Verify.' } },
   shots,
   budget: { maxIterations: 30, maxTokens: 100_000 },

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.128.0
+
+### chat-transport executor: workers on a bare chat-completions transport
+
+A first-class `Executor` whose runtime is a plain OpenAI-compatible `/v1/chat/completions` transport — the worker IS a model conversation, not a sandboxed process (#721).
+What every offline test faked through `AgentSpec.executor` is now a shipped, supported leaf: node pinning, conserved spend, settle/verdict, and the journal + edge ledger all apply to a chat worker.
+
+New kernel exports (`src/runtime/supervise/chat-transport-executor.ts`):
+
+- `chatTransportExecutor(options): Executor<string>` — one `execute` is one conversation SHOT: seed (fresh system prompt, or a resumed session's recorded history) + the task as the next user message, then completion → host tool calls → tool messages until the model answers without a tool call (or `maxTurnsPerShot`, default 200). Settles with the final assistant text as `out`. NON-streaming by design: the streaming `UsageEvent` channel cannot mark an unmetered turn (`tokens` has no `tokensKnown: false` twin — the documented limitation in `supervise/types`), while the one-shot `Spend` carries both honesty markers.
+- Metering honesty: tokens from the transport's `usage` fields (`tokensKnown: false` when a turn omits them); dollars ONLY from the response's own cost fields (`usage.cost` / `usage.cost_usd` — `usdKnown: false` when absent). Never estimated from a local price table: this executor speaks to arbitrary endpoints whose models no local table can price.
+- Fail-loud: transport failures (non-2xx, network faults, malformed completions) throw `ValidationError` — the scope's INFRA settle class — never a fake success. The turns that DID run are still recorded first, because resume-after-failure is a kernel-supported path.
+- `ChatTransportTool` — the optional tool table: the OpenAI function spec the model sees plus the host-side `execute`; unknown tools and malformed arguments are fed back to the model as tool messages, never thrown.
+- `chatCompletionsTransport({ url, bearer })` — the one buffered wire function (also the executor's default transport), exported so a paired harness can drive two arms through the SAME instance; `ChatTransportExecutorOptions.complete` injects a scripted transport for fully-offline runs (mirrors `RouterConfig.complete`).
+- **Session continuity** — the executor is the resume consumer the kernel's `continuity: 'resume'` contract calls for: `createChatSessionStore()` keeps conversation histories keyed by settled worker id, `resume: WorkerResumeContext` continues `ofWorker`'s exact recorded message list (fails loud before any spend when the store has none — the same process-local resume boundary the kernel documents), and the finished conversation is recorded under `sessionKey` for the next resume.
+- `chatWorkerSeam(options): MakeWorkerAgent` — the session-owning worker seam `workerFromBackend` refuses to be: profile model/prompt (including a graph's appended delegates directive) drive each spawn, `WorkerSpawnContext.resume` re-attaches through the seam's store keyed by kernel node ids, and an optional `deliverable` gates each settle through the existing `gateOnDeliverable` (settled ⟺ delivered).
+
+New example + proof: `examples/graphs/user-sim-conversation.ts` — a CONVERSATION as a graph: a simulated user is a NODE (persona profile as the root), the product agent is a chat-transport worker, each dialogue turn is one ledgered `delegates` traversal with `continuity: 'resume'`, and the offline test (`tests/examples/user-sim-conversation.test.ts`) asserts the resumed message-history chain on the requests CAPTURED at the wire (turn k = turn k−1's whole message list + the prior assistant reply + the new user turn), the `fresh`/`resume`/`resume` ledger stamps, the executor-seam lineage, and the metered spend in the one conserved pool.
+
+P1 parity live path fixed (the three audited #710 gaps, `examples/p1-parity`):
+
+- Both arms' coders now share ONE substrate: the multishot arm's transport and the graph arm's `chatTransportExecutor` speak the same bare chat-completions endpoint with the same wire model, and the parity delegates edge declares `continuity: 'resume'` so the graph arm's shots continue one session exactly as `runMultishot`'s single transcript does. As previously wired the graph arm spawned a full cli-bridge harness worker against the multishot arm's bare chat calls — a substrate gap that invalidated any live parity number.
+- The live graph arm now HAS a driver: the `'chat'` graph backend requires the reviewer brain's `RouterConfig` (previously the live arm shipped with neither `brain` nor `router` and could not run).
+- No silent model fallback anywhere: the coder model rides its profile, the driver model is explicit per-arm substrate config (`MultishotArmBackend.driverModel` / `RouterConfig.model`), and the live entry requires `VB_CLI_BRIDGE_URL`, `VB_CLI_BRIDGE_BEARER`, `VB_PARITY_MODEL`, `VB_PARITY_ROUTER_URL`, `VB_PARITY_ROUTER_KEY`, `VB_PARITY_DRIVER_MODEL` — a missing variable fails loud; `'parity/unspecified'` is gone.
+
 ## 0.127.0
 
 ### Continuity is a first-class axis of delegates traversals

@@ -77,7 +77,12 @@ export function offlineMultishotBackend(script: ShotScript): {
     }
   }
   return {
-    backend: { agentTransport, driverTransport, shotPassed: offlineShotPassed },
+    backend: {
+      agentTransport,
+      driverTransport,
+      driverModel: 'scripted/parity-reviewer',
+      shotPassed: offlineShotPassed,
+    },
     capture: { agentRequests, driverRequests },
   }
 }

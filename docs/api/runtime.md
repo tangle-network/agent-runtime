@@ -663,7 +663,7 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ###### Implementation of
 
-[`CoordinationLog`](#coordinationlog).[`load`](#load)
+[`CoordinationLog`](#coordinationlog).[`load`](#load-1)
 
 ***
 
@@ -9827,6 +9827,233 @@ Fail loud if any reservation is still open — the conserved-pool leak detector.
 
 ***
 
+### ChatSessionStore
+
+Conversation history keyed by the settled worker id — the resume substrate. The kernel owns
+ identity, ordering, ledger truth, and spend continuity; this store owns only the message
+ lists a `'resume'` spawn continues (`WorkerSpawnContext.resume.ofWorker` is the load key).
+ PROCESS-LOCAL by the same boundary the kernel documents for resume itself: a prior process's
+ workers are not resume targets.
+
+#### Methods
+
+##### load()
+
+> **load**(`workerId`): readonly `Record`\<`string`, `unknown`\>[] \| `undefined`
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### Returns
+
+readonly `Record`\<`string`, `unknown`\>[] \| `undefined`
+
+##### save()
+
+> **save**(`workerId`, `messages`): `void`
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### messages
+
+readonly `Record`\<`string`, `unknown`\>[]
+
+###### Returns
+
+`void`
+
+***
+
+### ChatTransportTool
+
+One entry of the caller-provided tool table: the OpenAI function spec the model sees, and the
+ host-side implementation run when the model calls it.
+
+#### Properties
+
+##### spec
+
+> `readonly` **spec**: [`ToolSpec`](#toolspec)
+
+##### execute
+
+> `readonly` **execute**: (`args`, `task`) => `Promise`\<`string`\>
+
+Runs ON THIS HOST; the returned string folds back as the `tool` message. A throw is fed
+ back as an error message for the model to correct — a bad tool call is a real outcome, not
+ an infra fault.
+
+###### Parameters
+
+###### args
+
+`Record`\<`string`, `unknown`\>
+
+###### task
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`string`\>
+
+***
+
+### ChatTransportExecutorOptions
+
+#### Properties
+
+##### url
+
+> **url**: `string`
+
+OpenAI-compatible base URL (with or without `/v1`); the executor POSTs to
+ `${url}/chat/completions`. Ignored when `complete` is injected.
+
+##### bearer?
+
+> `optional` **bearer?**: `string`
+
+Bearer token for the default transport. Omit for an unauthenticated endpoint.
+
+##### model
+
+> **model**: `string`
+
+The wire model id sent on every completion.
+
+##### system?
+
+> `optional` **system?**: `string`
+
+System prompt seeding a FRESH conversation. A resumed conversation keeps the system message
+ it was recorded with — a session continues; it is not re-primed.
+
+##### tools?
+
+> `optional` **tools?**: readonly [`ChatTransportTool`](#chattransporttool)[]
+
+Tool table. Omitted = a pure conversation (no `tools` field on the wire).
+
+##### temperature?
+
+> `optional` **temperature?**: `number`
+
+##### maxTurnsPerShot?
+
+> `optional` **maxTurnsPerShot?**: `number`
+
+Inference-turn cap for ONE shot (one `execute`). Default 200 — a runaway backstop, not a
+ workflow limit (mirrors `routerToolsInlineExecutor.maxTurns`).
+
+##### complete?
+
+> `optional` **complete?**: [`ChatCompletionsTransport`](#chatcompletionstransport)
+
+Injected buffered transport — the offline seam (mirrors `RouterConfig.complete`). When set,
+ `url`/`bearer` are unused and NO network is touched.
+
+##### sessions?
+
+> `optional` **sessions?**: [`ChatSessionStore`](#chatsessionstore)
+
+Session store backing continuity. Required to record this conversation (with `sessionKey`)
+ or to continue a prior one (with `resume`).
+
+##### sessionKey?
+
+> `optional` **sessionKey?**: `string`
+
+The id this worker's conversation is recorded under at settle — the kernel node id when
+ spawned through a scope, so a later `'resume'` spawn's `resume.ofWorker` finds it.
+
+##### resume?
+
+> `optional` **resume?**: [`WorkerResumeContext`](#workerresumecontext)
+
+The resume lineage from `WorkerSpawnContext.resume`: this shot continues `ofWorker`'s
+ recorded message list. Requires `sessions` holding that conversation — fails loud before
+ any spend when it does not.
+
+##### profile?
+
+> `optional` **profile?**: `AgentProfile`
+
+Profile this executor materializes, for the kernel's materialization receipt. Omitted =
+ the node's receipt reads `executor-did-not-report` (a direct, unsupervised use).
+
+##### attemptId?
+
+> `optional` **attemptId?**: `string`
+
+Kernel-minted attempt id (`ExecutorNodeContext.attemptId`) binding the receipt to this
+ exact spawn.
+
+***
+
+### ChatWorkerSeamOptions
+
+#### Properties
+
+##### url
+
+> **url**: `string`
+
+OpenAI-compatible base URL every spawned worker speaks. Unused when `complete` is set.
+
+##### bearer?
+
+> `optional` **bearer?**: `string`
+
+##### model?
+
+> `optional` **model?**: `string`
+
+Fallback wire model when a spawned profile carries none (`profile.model.default` wins).
+
+##### tools?
+
+> `optional` **tools?**: readonly [`ChatTransportTool`](#chattransporttool)[]
+
+##### temperature?
+
+> `optional` **temperature?**: `number`
+
+##### maxTurnsPerShot?
+
+> `optional` **maxTurnsPerShot?**: `number`
+
+##### complete?
+
+> `optional` **complete?**: [`ChatCompletionsTransport`](#chatcompletionstransport)
+
+Injected buffered transport — the offline seam; no network is touched when set.
+
+##### sessions?
+
+> `optional` **sessions?**: [`ChatSessionStore`](#chatsessionstore)
+
+Session store backing continuity. Default: one fresh in-memory store PER SEAM, matching the
+ kernel's process-local resume boundary (one seam = one run's sessions).
+
+##### deliverable?
+
+> `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+The completion oracle: each worker settles `valid` ⟺ this check passes on its final
+ assistant text (`gateOnDeliverable` — settled ⟺ DELIVERED, exactly how `workerFromBackend`
+ composes it). Pass the graph's deliverable so a keep-best driver can pick a winner; omitted,
+ workers settle unverdicted and only a driver `submit_result` can win.
+
+***
+
 ### DeliverableSpec
 
 The deployable completion oracle passed to [gateOnDeliverable](#gateondeliverable): a `check` that
@@ -14060,7 +14287,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-6)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-7)
 
 ##### task
 
@@ -18957,6 +19184,31 @@ Why a reservation was refused. `budget-exhausted` means the pool ran out of a ch
 
 ***
 
+### ChatCompletionsTransport
+
+> **ChatCompletionsTransport** = (`body`, `signal?`) => `Promise`\<`unknown`\>
+
+One buffered chat-completions call: the OpenAI-shape request body in, the parsed completion
+ JSON out. The ONE wire function of this module — the executor's default transport is built
+ from it, and a harness that must prove two arms share a substrate (P1 parity) drives BOTH
+ through the same instance.
+
+#### Parameters
+
+##### body
+
+`Record`\<`string`, `unknown`\>
+
+##### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
 ### CoordinationOwnerId
 
 > **CoordinationOwnerId** = `string`
@@ -23567,6 +23819,94 @@ wall-clock limit. The readout is an absolute instant, not a shrinking remainder.
 #### Returns
 
 [`BudgetPool`](#budgetpool)
+
+***
+
+### chatCompletionsTransport()
+
+> **chatCompletionsTransport**(`opts`): [`ChatCompletionsTransport`](#chatcompletionstransport)
+
+The default transport: POST `${url}/chat/completions` with an optional bearer. Fail-loud on
+ any non-2xx — the status and body head become the settle reason.
+
+#### Parameters
+
+##### opts
+
+###### url
+
+`string`
+
+###### bearer?
+
+`string`
+
+#### Returns
+
+[`ChatCompletionsTransport`](#chatcompletionstransport)
+
+***
+
+### createChatSessionStore()
+
+> **createChatSessionStore**(): [`ChatSessionStore`](#chatsessionstore)
+
+In-memory `ChatSessionStore`. Entries are detached copies — a caller mutating a saved array
+ cannot corrupt a recorded session.
+
+#### Returns
+
+[`ChatSessionStore`](#chatsessionstore)
+
+***
+
+### chatTransportExecutor()
+
+> **chatTransportExecutor**(`opts`): [`Executor`](index.md#executor-2)\<`string`\>
+
+Build the chat-transport `Executor`: one `execute` = one conversation SHOT — seed (fresh system
+prompt, or the resumed session's recorded history) + the task as the next user message, then
+loop completion → host tool calls → tool messages until the model answers without a tool call
+(or the turn cap). Settles with the final assistant text as `out`.
+
+Fail-loud contract: transport failures (non-2xx, network faults, malformed completions) throw
+`ValidationError`, which the scope settles as an INFRA failure (`Settled.down.infra`) — never a
+fake success. The accumulated conversation is still recorded before the throw when a store is
+configured, because the inference HAPPENED and a resume may continue a failed session (the
+kernel deliberately allows resume-after-failure; the seam decides).
+
+#### Parameters
+
+##### opts
+
+[`ChatTransportExecutorOptions`](#chattransportexecutoroptions)
+
+#### Returns
+
+[`Executor`](index.md#executor-2)\<`string`\>
+
+***
+
+### chatWorkerSeam()
+
+> **chatWorkerSeam**(`opts`): [`MakeWorkerAgent`](#makeworkeragent)
+
+The `makeWorkerAgent` seam over [chatTransportExecutor](#chattransportexecutor) — the continuity consumer
+`workerFromBackend` refuses to be. Every spawn becomes one conversation shot: the spawned
+profile's system prompt + instructions (which is where a graph's delegates directive lands)
+seed a fresh session, and a `'resume'` spawn re-attaches by loading `resume.ofWorker`'s
+recorded message list from the seam's session store. Conversations are recorded under the
+kernel node id, which is exactly what a later `resume.ofWorker` names.
+
+#### Parameters
+
+##### opts
+
+[`ChatWorkerSeamOptions`](#chatworkerseamoptions)
+
+#### Returns
+
+[`MakeWorkerAgent`](#makeworkeragent)
 
 ***
 

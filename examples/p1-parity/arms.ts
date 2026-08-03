@@ -13,6 +13,17 @@
  * The record maps each arm's OWN instrumentation onto shared field names; where the two forms
  * genuinely differ (edge ledger, conserved pool, early stop) the difference is documented on the
  * field and left visible in the data, never papered over.
+ *
+ * SUBSTRATE SYMMETRY (the validity invariant, per #710/#721): live, BOTH arms' coders are a
+ * conversation on the SAME bare OpenAI-compatible `/v1/chat/completions` endpoint — the multishot
+ * arm through `runMultishot`'s transport seam, the graph arm through `chatTransportExecutor`
+ * (whose delegates edge declares `continuity: 'resume'`, so its shots continue ONE session
+ * exactly as `runMultishot`'s single transcript does). Pairing a full harness-worker coder
+ * against a bare-chat coder would measure the substrate gap, not the orchestration layer, so
+ * that shape is not expressible here: the ONLY difference between the arms is the thing P1
+ * exists to measure — the orchestration form (transcript loop vs supervised graph with ledger +
+ * conserved pool). Models are likewise explicit everywhere; a silent fallback id could let the
+ * two arms drift to different models unnoticed, so a missing model always fails loud.
  */
 
 import type { MultishotMessage, MultishotTransport } from '@tangle-network/agent-eval/multishot'
@@ -22,6 +33,7 @@ import {
   type AgentGraph,
   type AnalystRegistry,
   type Budget,
+  chatWorkerSeam,
   type EdgeTraversal,
   GraphEdgeCapError,
   type MakeWorkerAgent,
@@ -100,6 +112,12 @@ export interface ParityRecord {
 export interface MultishotArmBackend {
   readonly agentTransport: MultishotTransport
   readonly driverTransport: MultishotTransport
+  /** The reviewer (driver) leg's wire model — REQUIRED, no fallback. Substrate config of this
+   *  arm, exactly as the paired graph arm declares its driver model on `RouterConfig.model`
+   *  (the reviewer PROFILE stays model-less: as the graph ROOT it is materialized by the driver
+   *  brain, whose model axis lives in that substrate config). Live runs feed BOTH arms the same
+   *  env value; the offline backend pins a scripted id. */
+  readonly driverModel: string
   /** The shared completion check, applied to each turn-initial coder reply. MUST be the same
    *  predicate the paired graph arm's deliverable uses, or the comparison is invalid. */
   readonly shotPassed: (assistantText: string) => boolean
@@ -109,7 +127,7 @@ export interface MultishotArmBackend {
   readonly baseUrl?: string
 }
 
-/** Execution seams for the graph arm: fully-scripted (offline/CI) or the live cli-bridge. */
+/** Execution seams for the graph arm: fully-scripted (offline/CI) or the live chat transport. */
 export type GraphArmBackend =
   | {
       readonly kind: 'seam'
@@ -120,14 +138,17 @@ export type GraphArmBackend =
       readonly shotPassed: (workerOutText: string) => boolean
     }
   | {
-      readonly kind: 'bridge'
-      readonly bridgeUrl: string
-      readonly bridgeBearer: string
-      /** Fallback bridge wire id (e.g. `pi/deepseek`); the spawned profile may select its own. */
-      readonly model?: string
-      readonly cwd?: string
-      /** Router substrate for the reviewer (driver) brain. */
-      readonly router?: RouterConfig
+      /** LIVE: the coder runs on `chatTransportExecutor` against the SAME bare chat-completions
+       *  endpoint the multishot arm's transport posts to — the substrate-symmetry contract. */
+      readonly kind: 'chat'
+      /** OpenAI-compatible base URL both arms' coders speak (e.g. a cli-bridge `/v1`). */
+      readonly url: string
+      readonly bearer?: string
+      /** The coder wire model id — the same id the paired multishot arm sends. */
+      readonly model: string
+      /** Router substrate for the reviewer (driver) brain. REQUIRED: a live graph driver with
+       *  neither `brain` nor `router` cannot run at all. */
+      readonly router: RouterConfig
       readonly shotPassed: (workerOutText: string) => boolean
     }
 
@@ -151,7 +172,10 @@ export function parityAnalysts(): AnalystRegistry {
 
 /** The two-node reviewer→coder topology for one cell — plain data, the shot budget on the edge.
  *  The cell's profiles are used AS-IS (node id = `profile.name`), the task is the root task
- *  (`deliverable.describe`) and each spawn's payload, and `shotPassed` is the deliverable. */
+ *  (`deliverable.describe`) and each spawn's payload, and `shotPassed` is the deliverable.
+ *  The delegates edge declares `continuity: 'resume'` — every shot after the first CONTINUES the
+ *  coder's session, mirroring `runMultishot`'s one persistent transcript, so the two arms share
+ *  the conversation shape and differ only in orchestration. */
 export function buildParityGraph(
   cell: CellSpec,
   shotPassed: (workerOutText: string) => boolean,
@@ -170,6 +194,7 @@ export function buildParityGraph(
         to: coder,
         directive: promptHandle('delegates/worker-brief/v1'),
         maxTraversals: cell.shots,
+        continuity: 'resume',
       },
       {
         kind: 'analyzes',
@@ -215,8 +240,8 @@ export async function runMultishotArm(
     tools: [],
     toolExecutors: {},
     maxTurns: cell.shots,
-    agentModel: cell.coderProfile.model?.default ?? 'parity/unspecified',
-    driverModel: cell.reviewerProfile.model?.default ?? 'parity/unspecified',
+    agentModel: requireProfileModel(cell.coderProfile, 'coderProfile'),
+    driverModel: requireModel(backend.driverModel, 'MultishotArmBackend.driverModel'),
     agentTransport: metered(backend.agentTransport),
     driverTransport: metered(backend.driverTransport),
     apiKey: backend.apiKey ?? 'unused',
@@ -264,14 +289,16 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
           analysts: backend.analysts ?? parityAnalysts(),
         }
       : {
-          backend: {
-            backend: 'bridge',
-            bridgeUrl: backend.bridgeUrl,
-            bridgeBearer: backend.bridgeBearer,
-            ...(backend.model !== undefined ? { model: backend.model } : {}),
-            ...(backend.cwd !== undefined ? { cwd: backend.cwd } : {}),
-          },
-          ...(backend.router !== undefined ? { router: backend.router } : {}),
+          // The coder on the SAME bare chat transport the multishot arm posts to, with the
+          // session-owning seam honoring the edge's `continuity: 'resume'`, and the graph's own
+          // deliverable as the settle gate. The reviewer brain runs on the router substrate.
+          makeWorkerAgent: chatWorkerSeam({
+            url: backend.url,
+            ...(backend.bearer !== undefined ? { bearer: backend.bearer } : {}),
+            model: backend.model,
+            deliverable: graph.deliverable,
+          }),
+          router: backend.router,
           analysts: parityAnalysts(),
         }
   const startedAt = Date.now()
@@ -333,6 +360,24 @@ function requireProfileName(profile: AgentProfile, field: string): string {
     )
   }
   return name
+}
+
+/** Fail loud on a missing model: a silent fallback id would let the two arms drift to different
+ *  models — the exact class of hidden asymmetry this harness exists to rule out. */
+function requireModel(model: string | undefined, field: string): string {
+  if (typeof model !== 'string' || model.length === 0) {
+    throw new Error(
+      `p1-parity: ${field} must name the model — no 'parity/unspecified' fallback; live runs ` +
+        'take it from the environment (see run-parity.ts), offline backends pin a scripted id',
+    )
+  }
+  return model
+}
+
+/** The coder's model rides its PROFILE (both arms consume it: `agentModel` here, the chat seam in
+ *  the graph arm) — required, same no-fallback rule. */
+function requireProfileModel(profile: AgentProfile, field: string): string {
+  return requireModel(profile.model?.default, `${field}.model.default`)
 }
 
 function validateCell(cell: CellSpec): void {
