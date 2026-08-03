@@ -1,71 +1,66 @@
 {
   "skillVersion": "v1",
   "surfaceSource": "working-tree",
-  "authorModel": "glm-5.2",
-  "temperature": 0.2,
-  "date": "2026-08-03T17:42:45.828Z",
+  "authorProfile": {
+    "name": "agent-graphs-author",
+    "harness": "pi",
+    "model": {
+      "provider": "tangle-router",
+      "default": "deepseek-v4-flash",
+      "reasoningEffort": "ultracode"
+    },
+    "prompt": {
+      "systemPrompt": "You are an agent-graph author.\nFollow the attached agent-graphs skill exactly; it is your only workflow doctrine.\nDecide whether the task needs one agent, a fixed AgentGraph, or a dynamic supervise workflow.\nReply with JSON only: no markdown fences and no prose outside the JSON.\n{\"decision\":\"graph\"|\"single-agent\"|\"dynamic-workflow\",\"reason\":string,\"graph\"?:{...}}\nInclude \"graph\" if and only if decision is \"graph\", with this exact shape:\n{\"nodes\":[{\"id\":string,\"systemPrompt\":string}, ...],\n \"edges\":[{\"kind\":\"delegates\",\"from\":string,\"to\":string,\"maxTraversals\"?:number}\n        | {\"kind\":\"analyzes\",\"analyst\":string,\"over\":[string,...],\"to\":string,\"maxTraversals\"?:number}, ...],\n \"budget\":{\"maxIterations\":number,\"maxTokens\":number},\n \"perWorker\"?:{\"maxIterations\"?:number,\"maxTokens\"?:number},\n \"deliverableDescribe\":string}\nThe root node must be first; every delegates edge starts at the root.\nAn analyst is either a registered lens id or a graph node with no incoming delegation edge.\nThe deliverable description is the driver mission, not a generic completion phrase."
+    },
+    "resources": {
+      "failOnError": true,
+      "skills": [
+        {
+          "kind": "inline",
+          "name": "agent-graphs",
+          "content": "---\nname: agent-graphs\ndescription: Author runGraph programs from AgentProfiles and versioned prompt directives.\n---\n\n# Agent graphs\n\nUse this skill when every role is known before execution and the relationship between roles must be reviewable as data.\nThe output is an `AgentGraph` executed by `runGraph`, not a new coordinator or workflow framework.\n\n## Choose the existing entry point\n\n| Need | Use |\n| --- | --- |\n| Known roles with versioned work and analysis instructions | `runGraph` |\n| A standard fixed shape such as parallel attempts, a chain, or a review panel | `fanout`, `pipeline`, `verify`, or `panel` |\n| A model decides which workers to create while it works | `supervise` |\n| One profile can complete the task directly | Run that profile without composition |\n\nDo not force a dynamic task into a static graph.\nDo not use a graph when a smaller shipped primitive already expresses the work.\n\n## Author the complete contract\n\nAn `AgentGraph` has four required fields: `nodes`, `edges`, `deliverable`, and `budget`.\n`runGraph(graph, options)` validates graph structure and prompt references before it spends compute.\n\n### Nodes\n\nEach node is `{ id, profile }`, where `profile` is a complete canonical `AgentProfile`.\nSet `profile.name` equal to `id` because Runtime uses that value to select and route the node.\nPut the standing role in `profile.prompt.systemPrompt` and capabilities in the profile's tools, MCP, resources, hooks, and subagents.\nDo not rebuild profile materialization in graph code.\n\n### Delegation edges\n\nA delegation edge is `{ kind: 'delegates', from, to, directive, maxTraversals? }`.\nThe directive is a registered, versioned `PromptHandle`, such as `promptHandle('delegates/research-brief/v1')`.\nEach spawn and each later steer over the same edge consumes one traversal.\nThe default cap is `defaultEdgeTraversalCap`; exhaustion refuses further delegation.\n\nThe current graph form has one root and a static set of worker nodes.\nEvery delegation edge starts at the root, and each worker has exactly one incoming delegation edge.\nUse a new directive version to change a brief instead of adding a second edge to the same worker.\n\n### Analysis edges\n\nAn analysis edge is `{ kind: 'analyzes', analyst, over, to, directive, maxTraversals? }`.\nIt runs after a listed worker settles and routes findings to one node.\n\n`analyst` has two supported forms:\n\n- A lens id from `options.analysts` runs a caller-supplied analysis function.\n- A graph node id runs that node's pinned `AgentProfile` as a tool-equipped analyst.\n\nAn analyst node has no incoming delegation edge, so the root cannot hand it ordinary work.\nAn id cannot be both a registered lens and an analyst node.\n`over` lists delegated worker nodes only; Runtime refuses the root and analyst nodes because neither settles as an ordinary worker.\nAn analysis traversal cap records excess findings as `unpropagated`; it does not stop the run.\n\n### Completion and budget\n\n`deliverable.check(output)` is the independent completion test.\nIt must accept a genuinely complete result and reject junk.\nPut the concrete mission in `deliverable.describe`; Runtime uses that text as the root's task.\n\n`budget` is one conserved pool for the full graph.\nSet `options.perWorker` explicitly from the actual executor cost.\nFor Pi, `WORKER_TOKEN_FLOOR.pi` is 31,211 input tokens before useful work, so a worker allocation below that value is refused.\nTreat an unmeasured executor floor as unknown rather than zero.\nAnalyst nodes spend from the same pool and need the same honest accounting as ordinary workers.\n\n## Authoring procedure\n\n1. Write the completion test and its description first.\n2. Choose the smallest shipped entry point from the table above.\n3. Give every distinct role one complete `AgentProfile`; merge roles whose standing prompts and capabilities are identical.\n4. Register a versioned directive for every edge.\n5. Add one delegation edge per ordinary worker.\n6. Add analysis only when findings must be produced independently after a worker settles.\n7. Size the shared pool, per-worker allocation, traversal caps, time, and concurrency from measured executor behavior.\n8. Run the structure offline, then run the real backend and inspect its result.\n\n## Prove the graph before spending\n\nUse an injected `brain` plus `makeWorkerAgent` to exercise graph structure without a network call.\nCover invalid profiles, unknown directives, impossible analysis routes, traversal exhaustion, successful completion, and rejected junk.\nStart from the runnable programs in `examples/graphs/` rather than creating a second graph runner.\n\nOffline execution proves control flow only.\nA real task must still use the intended backend, profiles, tools, completion test, and budget before claiming the graph solves that task.\n\n## Read the complete result\n\n| Field | Meaning |\n| --- | --- |\n| `result.result.kind` and `reason` | Whether a result won and why execution ended |\n| `result.result.spentTotal` | Tokens and money, including whether each total is known |\n| `result.ledger` | Every delivered, stripped, empty, or unpropagated edge traversal with byte counts |\n| `result.exhaustedEdges` | Every edge whose cap was reached, including normal lifecycle endings |\n| Journal `edge` events | Durable copies of traversal evidence |\n\nZero traversals on an expected edge means the graph did not exercise that relationship.\n`usdKnown: false` means cost is missing, not free.\nA passing completion test proves only what that test checks.\n\n## Common mistakes\n\n- Putting the task only in a spawn prompt instead of `deliverable.describe`.\n- Giving a node a `profile.name` different from its id.\n- Delegating ordinary work to an analyst node.\n- Listing the root or an analyst node in `analyzes.over`.\n- Using an analysis cap as a stop condition.\n- Allowing a driver-authored spawn profile to add capabilities instead of defining them on the pinned node profile.\n- Reading only thrown cap errors and missing `result.exhaustedEdges` on budget or cancellation endings.\n- Treating unknown spend as zero.\n- Claiming recursive or runtime-discovered structure when the current graph is a static root with workers and analysts.\n\n## Improve only after measurement\n\nRuntime already optimizes one inline skill through `improve(profile, { surface: 'skills', skills: { resourceName }, ... })`.\nPut the exact skill bytes in `profile.resources.skills`, set `profile.resources.failOnError: true`, supply disjoint development and final-test tasks, and pass a complete Agent Eval optimization method.\nDo not create a graph-specific optimizer, campaign runner, candidate store, or promotion path.\n\n## Then consider\n\n- `loop-writer` when the required dynamic structure still cannot be expressed by `supervise` or another shipped primitive; pass the exact missing behavior and the completion test.\n- `verify` before publishing a graph consumer; pass the real backend command, expected result fields, and failure cases.\n"
+        }
+      ]
+    }
+  },
+  "authorModel": "pi/tangle-router/deepseek-v4-flash",
+  "temperature": null,
+  "date": "2026-08-03T19:11:53.577Z",
   "n": 8,
   "aggregate": {
-    "mean": 0.6375,
-    "median": 0.8,
+    "mean": 0.6875,
+    "median": 1,
     "min": 0,
-    "max": 1,
-    "n": 8,
-    "correction": "first publication reported median 1.0 from an upper-middle indexing bug; corrected to the interpolated median",
-    "samplePerCase": 1,
-    "varianceNote": "decision-level variance observed at temp 0.2 (cap-as-stop-mistake flipped graph->single-agent on rerun); treat per-case scores as n=1 draws, not stable properties. Reps belong to the v2 gate round."
+    "max": 1
+  },
+  "authorUsage": {
+    "attempts": 8,
+    "usageReceipts": 8,
+    "input": 159370,
+    "output": 32135,
+    "costUsd": null,
+    "costAccountingComplete": false
   },
   "cases": [
     {
       "id": "cap-as-stop-mistake",
-      "decision": "graph",
-      "score": 1,
+      "decision": "dynamic-workflow",
+      "score": 0,
       "reasons": [
-        "PASS trapIsAnalyzesCapAsStop: analyzes caps=true delegates caps=true",
-        "PASS correctStopIsDelegatesCapOrDeliverable: delegates caps=true, reason mentions deliverable=true"
+        "FAIL trapIsAnalyzesCapAsStop: no graph authored",
+        "FAIL correctStopIsDelegatesCapOrDeliverable: no graph authored"
       ],
-      "reason": "The brief asks for an analyst to watch a worker \u2014 a legitimate unaddressable observation lens \u2014 so a static graph is the right dialect. But the brief's stated stop mechanism is the textbook pothole: an analyzes edge's maxTraversals is observability-only; on exhaustion the traversal is ledgered 'unpropagated' and it never refuses, so it cannot terminate a run. Only a delegates cap or the deliverable check can. I therefore encode 'three findings' in the deliverable (the real termination oracle) and let the worker settle once three findings exist; the findings-lens analyst observes and routes to the root with maxTraversals=3 as the intended observation budget, but it is NOT load-bearing for termination. If the brief truly needs hard termination at exactly three analyst findings regardless of worker output, that is not expressible in the current P0 topology and must be re-scoped before running.",
-      "authoredGraph": {
-        "nodes": [
-          {
-            "id": "root",
-            "systemPrompt": "You are the root orchestrator. Hold the mission: produce at least three distinct findings on the delegated subject. Delegate to the worker, accept the findings-lens observations routed back to you, and stop spawning the moment the worker's settled output contains three findings. Do not delegate further once three are present."
+      "reason": "This case is the 'cap-as-stop mistake' from the agent-graphs skill: the requested behavior is to stop the whole run after three findings, but an analysis edge's maxTraversals is not a stop condition — the skill explicitly lists 'using an analysis cap as a stop condition' as a common mistake and states that an analysis traversal cap records excess findings as unpropagated and does not stop the run. A static graph with an analyst watching a worker therefore cannot express 'halt everything at three findings.' Stopping after accumulating three findings is a runtime supervision decision about whether work should continue, which matches the `supervise` entry point (a supervising agent watches the worker and decides when to end the run), not a fixed root-with-workers-and-analyst graph. The cap-as-stop mistake is avoided by delegating this to supervise rather than encoding the limit as an analysis cap.",
+      "authorAttempts": [
+        {
+          "status": "completed",
+          "usage": {
+            "input": 8029,
+            "output": 1151
           },
-          {
-            "id": "worker",
-            "systemPrompt": "You are the findings worker. Investigate the delegated brief and emit discrete, numbered findings, one paragraph each. Continue until you have produced at least three distinct findings, then settle. Do not pad or repeat."
-          }
-        ],
-        "edges": [
-          {
-            "kind": "delegates",
-            "from": "root",
-            "to": "worker",
-            "maxTraversals": 6
-          },
-          {
-            "kind": "analyzes",
-            "analyst": "findings-lens",
-            "over": [
-              "worker"
-            ],
-            "to": "root",
-            "maxTraversals": 3
-          }
-        ],
-        "budget": {
-          "maxIterations": 8,
-          "maxTokens": 240000
-        },
-        "perWorker": {
-          "maxIterations": 4,
-          "maxTokens": 80000
-        },
-        "deliverableDescribe": "Investigate the delegated subject and report at least three distinct, numbered findings. The run terminates when the worker's settled output contains three findings; the findings-lens analyst observes the worker and routes its observations to the root (observation only \u2014 it does not stop the run)."
-      },
-      "runResultKind": "winner",
-      "ledgerRows": 2,
-      "exhaustedEdges": []
+          "raw": "{\"decision\":\"dynamic-workflow\",\"reason\":\"This case is the 'cap-as-stop mistake' from the agent-graphs skill: the requested behavior is to stop the whole run after three findings, but an analysis edge's maxTraversals is not a stop condition — the skill explicitly lists 'using an analysis cap as a stop condition' as a common mistake and states that an analysis traversal cap records excess findings as unpropagated and does not stop the run. A static graph with an analyst watching a worker therefore cannot express 'halt everything at three findings.' Stopping after accumulating three findings is a runtime supervision decision about whether work should continue, which matches the `supervise` entry point (a supervising agent watches the worker and decides when to end the run), not a fixed root-with-workers-and-analyst graph. The cap-as-stop mistake is avoided by delegating this to supervise rather than encoding the limit as an analysis cap.\"}"
+        }
+      ]
     },
     {
       "id": "floor-trap-pi",
@@ -73,74 +68,162 @@
       "score": 0,
       "reasons": [
         "FAIL mustBudgetAtLeast: no graph authored (decision=single-agent)",
-        "FAIL nodes: no graph authored",
+        "FAIL delegatedWorkers: no graph authored",
         "FAIL analyzesWarranted: no graph authored"
       ],
-      "reason": "The task is trivially one-shot-able by a single pi agent (writing a one-line file) without requiring parallel fan-out or independent verification. Furthermore, the brief's tight budget constraint of a few thousand tokens falls drastically below the measured 31,211 input token floor (`WORKER_TOKEN_FLOOR`) required for a `runGraph` spawn, meaning any graph attempt would fail with a `below-runtime-floor` refusal."
+      "reason": "Writing a one-line file is a direct task one profile can complete without composition; the skill's entry-point table says to run that profile without a graph when a single profile can complete the task directly. A static graph would also be wasteful here: Pi workers carry a WORKER_TOKEN_FLOOR of ~31k input tokens before useful work, so a 'few thousand token' budget cannot be expressed as a graph worker allocation anyway. No analysis, no supervision, no multi-role structure is needed.",
+      "authorAttempts": [
+        {
+          "status": "completed",
+          "usage": {
+            "input": 9212,
+            "output": 503
+          },
+          "raw": "{\"decision\":\"single-agent\",\"reason\":\"Writing a one-line file is a direct task one profile can complete without composition; the skill's entry-point table says to run that profile without a graph when a single profile can complete the task directly. A static graph would also be wasteful here: Pi workers carry a WORKER_TOKEN_FLOOR of ~31k input tokens before useful work, so a 'few thousand token' budget cannot be expressed as a graph worker allocation anyway. No analysis, no supervision, no multi-role structure is needed.\"}"
+        }
+      ]
     },
     {
       "id": "mission-in-deliverable",
-      "decision": "single-agent",
-      "score": 0,
-      "reasons": [
-        "FAIL deliverableDescribeCarriesMission: no graph authored"
-      ],
-      "reason": "A single agent can author a CHANGELOG entry that satisfies a format check in a single pass, requiring no topology, parallelism, or independent verification."
-    },
-    {
-      "id": "review-pipeline",
       "decision": "graph",
-      "score": 0.6,
+      "score": 1,
       "reasons": [
-        "PASS nodes: workers=2 total=3 expected=3",
-        "FAIL analyzesWarranted: analyzes edges=0 warranted=true",
-        "PASS wrongIfAnalystIsNode: no analyst id collides with a node id",
-        "PASS edge:delegates to each reviewer: workers [security-reviewer, maintainability-reviewer] each delegated-to with >0 ledger traversals: true",
-        "FAIL edge:analyzes routing findings to root: analyzes\u2192root edges=0, fired with >0 traversals=false"
+        "PASS deliverableDescribeCarriesMission: describe 69 chars, domain words hit: [changelog, format] of [changelog, format]"
       ],
-      "reason": "The case calls for two genuinely distinct review perspectives (security/correctness vs maintainability) that must settle independently, then a neutral arbiter synthesizing both \u2014 a fixed topology with independent verification that earns composition. One agent cannot maintain two addressable, independently-settled roles plus a neutral third.",
+      "reason": "This is a known-shape task with two reviewable roles: a writer that produces the CHANGELOG entry and an independent format-check analyst that verifies it after the writer settles, with findings routed back to the root so the root can steer fixes until the check passes. That matches the runGraph entry point (static root + workers + analysts), not supervise or a single profile. Critically, the concrete mission (\"Produce a CHANGELOG entry for last week that passes our format check\") is placed in deliverableDescribe — the driver mission — rather than only in a spawn directive, per the skill's completion/describe guidance.",
       "authoredGraph": {
         "nodes": [
           {
-            "id": "merge-arbiter",
-            "systemPrompt": "You are the neutral merge arbiter. You delegate code changes to two independent reviewers \u2014 one for security/correctness, one for maintainability \u2014 then collect both reviews and render a final merge decision: APPROVE, REQUEST-CHANGES, or REJECT. You must cite specific findings from each reviewer in your decision rationale. You do not review code yourself; you synthesize and decide."
+            "id": "root",
+            "systemPrompt": "Driver for the changelog task. You receive the mission from the graph's driver task (deliverable.describe). Delegate the changelog writing to the writer, then review the format-check analyst's findings about the writer's entry and decide whether the deliverable is complete. If the format check reports violations, steer the writer to fix them and iterate until the entry passes. Your standing role is orchestration and final accept/reject of the deliverable."
           },
           {
-            "id": "security-reviewer",
-            "systemPrompt": "You are a security and correctness reviewer. Examine code changes for vulnerabilities, input-validation gaps, race conditions, data-integrity risks, logic errors, and unhandled edge cases. Report each finding with a severity rating (critical, high, medium, low) and a concrete location in the diff. Do not comment on style or naming unless it introduces a correctness risk."
+            "id": "writer",
+            "systemPrompt": "Changelog writer. Produce a CHANGELOG entry covering last week's changes in the project's required changelog format. Follow any steering directives from the root exactly, revising only the entry, and settle once the entry is written."
           },
           {
-            "id": "maintainability-reviewer",
-            "systemPrompt": "You are a maintainability and clarity reviewer. Examine code changes for naming quality, structural clarity, test coverage, documentation gaps, convention adherence, and future changeability. Report each finding with a priority rating (blocker, important, minor) and a concrete location in the diff. Do not comment on security unless a pattern directly blocks maintainability."
+            "id": "format-checker",
+            "systemPrompt": "Format-check analyst. Inspect the writer's CHANGELOG entry and verify it against the project's changelog format check. Report concrete violations with line-level detail and the exact rule broken; do not edit the entry yourself. Confirm explicitly when the entry passes the format check."
           }
         ],
         "edges": [
           {
             "kind": "delegates",
-            "from": "merge-arbiter",
-            "to": "security-reviewer",
-            "maxTraversals": 2
+            "from": "root",
+            "to": "writer",
+            "maxTraversals": 4
           },
           {
-            "kind": "delegates",
-            "from": "merge-arbiter",
-            "to": "maintainability-reviewer",
-            "maxTraversals": 2
+            "kind": "analyzes",
+            "analyst": "format-checker",
+            "over": [
+              "writer"
+            ],
+            "to": "root",
+            "maxTraversals": 4
           }
         ],
         "budget": {
           "maxIterations": 6,
-          "maxTokens": 300000
+          "maxTokens": 200000
         },
         "perWorker": {
-          "maxIterations": 3,
-          "maxTokens": 80000
+          "maxIterations": 2,
+          "maxTokens": 50000
         },
-        "deliverableDescribe": "Review the provided code change from two independent perspectives \u2014 security/correctness and maintainability \u2014 then produce a merge decision (APPROVE, REQUEST-CHANGES, or REJECT) with a rationale that cites specific findings from each reviewer."
+        "deliverableDescribe": "Produce a CHANGELOG entry for last week that passes our format check."
       },
       "runResultKind": "winner",
       "ledgerRows": 2,
-      "exhaustedEdges": []
+      "exhaustedEdges": [],
+      "authorAttempts": [
+        {
+          "status": "completed",
+          "usage": {
+            "input": 9806,
+            "output": 2241
+          },
+          "raw": "{\"decision\":\"graph\",\"reason\":\"This is a known-shape task with two reviewable roles: a writer that produces the CHANGELOG entry and an independent format-check analyst that verifies it after the writer settles, with findings routed back to the root so the root can steer fixes until the check passes. That matches the runGraph entry point (static root + workers + analysts), not supervise or a single profile. Critically, the concrete mission (\\\"Produce a CHANGELOG entry for last week that passes our format check\\\") is placed in deliverableDescribe — the driver mission — rather than only in a spawn directive, per the skill's completion/describe guidance.\",\"graph\":{\"nodes\":[{\"id\":\"root\",\"systemPrompt\":\"Driver for the changelog task. You receive the mission from the graph's driver task (deliverable.describe). Delegate the changelog writing to the writer, then review the format-check analyst's findings about the writer's entry and decide whether the deliverable is complete. If the format check reports violations, steer the writer to fix them and iterate until the entry passes. Your standing role is orchestration and final accept/reject of the deliverable.\"},{\"id\":\"writer\",\"systemPrompt\":\"Changelog writer. Produce a CHANGELOG entry covering last week's changes in the project's required changelog format. Follow any steering directives from the root exactly, revising only the entry, and settle once the entry is written.\"},{\"id\":\"format-checker\",\"systemPrompt\":\"Format-check analyst. Inspect the writer's CHANGELOG entry and verify it against the project's changelog format check. Report concrete violations with line-level detail and the exact rule broken; do not edit the entry yourself. Confirm explicitly when the entry passes the format check.\"}],\"edges\":[{\"kind\":\"delegates\",\"from\":\"root\",\"to\":\"writer\",\"maxTraversals\":4},{\"kind\":\"analyzes\",\"analyst\":\"format-checker\",\"over\":[\"writer\"],\"to\":\"root\",\"maxTraversals\":4}],\"budget\":{\"maxIterations\":6,\"maxTokens\":200000},\"perWorker\":{\"maxIterations\":2,\"maxTokens\":50000},\"deliverableDescribe\":\"Produce a CHANGELOG entry for last week that passes our format check.\"}}"
+        }
+      ]
+    },
+    {
+      "id": "review-pipeline",
+      "decision": "graph",
+      "score": 1,
+      "reasons": [
+        "PASS delegatedWorkers: delegated workers=2 expected=2",
+        "PASS analyzesWarranted: analyzes edges=1 warranted=true",
+        "PASS edge:delegates to each reviewer: workers [reviewer-correctness, reviewer-performance] each delegated-to with >0 ledger traversals: true",
+        "PASS edge:analyzes routing findings to root: analyzes→root edges=1, fired with >0 traversals=true"
+      ],
+      "reason": "The case is a merge-gate review with all roles known before execution: two reviewers with distinct standing perspectives plus a neutral decider who must rule only after both reviews settle. That is a fixed, known-role shape whose relationships need to be reviewable as data, so it fits runGraph (per the skill's entry table, known roles with versioned work/analysis instructions), not single-agent (three distinct roles) and not supervise (no runtime worker discovery — nothing decides which workers to create while working). The two reviewers are ordinary delegated workers (one delegation edge each from the root, each with a different standing prompt), and the neutral decider is an analyst node with no incoming delegation edge that analyzes over the two reviewers and routes its verdict to the root; the root drives the pipeline and emits the final merge decision. The mission (produce a reviewable approve-or-request-changes verdict from two independent perspectives before anything merges) lives in deliverableDescribe, and perWorker.maxTokens is sized above the Pi worker token floor (~31,211) so the allocation is not refused.",
+      "authoredGraph": {
+        "nodes": [
+          {
+            "id": "root",
+            "systemPrompt": "You are the merge-gate driver for this code change. Delegate the same diff to two independent reviewers, each with a distinct standing perspective; collect both settled reviews plus the neutral decider's verdict; then produce the final deliverable: a single merge decision (approve or request-changes) with a concise rationale that accounts for both perspectives, plus a pointer to each reviewer's findings. Do not let either review's conclusions bias the other before they are produced — they must stay independent."
+          },
+          {
+            "id": "reviewer-correctness",
+            "systemPrompt": "You are the correctness and security reviewer. Review the code change strictly from the correctness/security perspective: logic errors, race conditions, unsafe patterns, input validation, and vulnerability exposure. Produce concrete findings with file/line references and severity. Do not editorialize on style, performance, or architecture beyond what affects correctness or security."
+          },
+          {
+            "id": "reviewer-performance",
+            "systemPrompt": "You are the performance and maintainability reviewer. Review the code change strictly from the performance/maintainability perspective: algorithmic complexity, hot-path cost, resource usage, API stability, and readability debt. Produce concrete findings with file/line references and severity. Do not editorialize on correctness or security beyond what affects performance or maintainability."
+          },
+          {
+            "id": "neutral-decider",
+            "systemPrompt": "You are the neutral decider for this merge gate. You have no stake in either review and did not produce them. Weigh both settled reviews independently and impartially: resolve conflicts between them, judge whether the change is safe to merge as-is, and issue one final verdict: APPROVE, REQUEST-CHANGES, or BLOCK, with a short rationale naming the decisive findings. Your verdict is final for this gate."
+          }
+        ],
+        "edges": [
+          {
+            "kind": "delegates",
+            "from": "root",
+            "to": "reviewer-correctness",
+            "maxTraversals": 3
+          },
+          {
+            "kind": "delegates",
+            "from": "root",
+            "to": "reviewer-performance",
+            "maxTraversals": 3
+          },
+          {
+            "kind": "analyzes",
+            "analyst": "neutral-decider",
+            "over": [
+              "reviewer-correctness",
+              "reviewer-performance"
+            ],
+            "to": "root",
+            "maxTraversals": 3
+          }
+        ],
+        "budget": {
+          "maxIterations": 6,
+          "maxTokens": 200000
+        },
+        "perWorker": {
+          "maxIterations": 2,
+          "maxTokens": 50000
+        },
+        "deliverableDescribe": "Produce the merge-gate verdict for the pending code change: two independent perspectives (correctness/security and performance/maintainability) each review the diff, and a neutral decider who did not produce either review issues one final APPROVE / REQUEST-CHANGES / BLOCK decision with rationale — recorded as a reviewable artifact before anything merges."
+      },
+      "runResultKind": "winner",
+      "ledgerRows": 4,
+      "exhaustedEdges": [],
+      "authorAttempts": [
+        {
+          "status": "completed",
+          "usage": {
+            "input": 71826,
+            "output": 14352
+          },
+          "raw": "{\"decision\":\"graph\",\"reason\":\"The case is a merge-gate review with all roles known before execution: two reviewers with distinct standing perspectives plus a neutral decider who must rule only after both reviews settle. That is a fixed, known-role shape whose relationships need to be reviewable as data, so it fits runGraph (per the skill's entry table, known roles with versioned work/analysis instructions), not single-agent (three distinct roles) and not supervise (no runtime worker discovery — nothing decides which workers to create while working). The two reviewers are ordinary delegated workers (one delegation edge each from the root, each with a different standing prompt), and the neutral decider is an analyst node with no incoming delegation edge that analyzes over the two reviewers and routes its verdict to the root; the root drives the pipeline and emits the final merge decision. The mission (produce a reviewable approve-or-request-changes verdict from two independent perspectives before anything merges) lives in deliverableDescribe, and perWorker.maxTokens is sized above the Pi worker token floor (~31,211) so the allocation is not refused.\",\"graph\":{\"nodes\":[{\"id\":\"root\",\"systemPrompt\":\"You are the merge-gate driver for this code change. Delegate the same diff to two independent reviewers, each with a distinct standing perspective; collect both settled reviews plus the neutral decider's verdict; then produce the final deliverable: a single merge decision (approve or request-changes) with a concise rationale that accounts for both perspectives, plus a pointer to each reviewer's findings. Do not let either review's conclusions bias the other before they are produced — they must stay independent.\"},{\"id\":\"reviewer-correctness\",\"systemPrompt\":\"You are the correctness and security reviewer. Review the code change strictly from the correctness/security perspective: logic errors, race conditions, unsafe patterns, input validation, and vulnerability exposure. Produce concrete findings with file/line references and severity. Do not editorialize on style, performance, or architecture beyond what affects correctness or security.\"},{\"id\":\"reviewer-performance\",\"systemPrompt\":\"You are the performance and maintainability reviewer. Review the code change strictly from the performance/maintainability perspective: algorithmic complexity, hot-path cost, resource usage, API stability, and readability debt. Produce concrete findings with file/line references and severity. Do not editorialize on correctness or security beyond what affects performance or maintainability.\"},{\"id\":\"neutral-decider\",\"systemPrompt\":\"You are the neutral decider for this merge gate. You have no stake in either review and did not produce them. Weigh both settled reviews independently and impartially: resolve conflicts between them, judge whether the change is safe to merge as-is, and issue one final verdict: APPROVE, REQUEST-CHANGES, or BLOCK, with a short rationale naming the decisive findings. Your verdict is final for this gate.\"}],\"edges\":[{\"kind\":\"delegates\",\"from\":\"root\",\"to\":\"reviewer-correctness\",\"maxTraversals\":3},{\"kind\":\"delegates\",\"from\":\"root\",\"to\":\"reviewer-performance\",\"maxTraversals\":3},{\"kind\":\"analyzes\",\"analyst\":\"neutral-decider\",\"over\":[\"reviewer-correctness\",\"reviewer-performance\"],\"to\":\"root\",\"maxTraversals\":3}],\"budget\":{\"maxIterations\":6,\"maxTokens\":200000},\"perWorker\":{\"maxIterations\":2,\"maxTokens\":50000},\"deliverableDescribe\":\"Produce the merge-gate verdict for the pending code change: two independent perspectives (correctness/security and performance/maintainability) each review the diff, and a neutral decider who did not produce either review issues one final APPROVE / REQUEST-CHANGES / BLOCK decision with rationale — recorded as a reviewable artifact before anything merges.\"}}"
+        }
+      ]
     },
     {
       "id": "runtime-discovered-fanout",
@@ -149,7 +232,17 @@
       "reasons": [
         "PASS correctAnswerIsDynamicWorkflow: decision=dynamic-workflow"
       ],
-      "reason": "The task requires identifying an unknown number of failing tests at runtime and fixing them in parallel, which means the topology is discovered while working. A static runGraph cannot add nodes at runtime."
+      "reason": "The set of failing tests is unknown before execution: discovery ('find every failing test') happens at runtime, and the number and shape of the parallel fix workers depend entirely on what is found. The static AgentGraph form (root + static workers + analysts) cannot express runtime-discovered structure — the skill's common-mistakes list explicitly forbids claiming runtime-discovered fanout for that shape — and `fanout` requires a fixed parallel shape known up front. This matches the `supervise` entry point: a model discovers the failing tests and decides which workers to create while it works.",
+      "authorAttempts": [
+        {
+          "status": "completed",
+          "usage": {
+            "input": 9909,
+            "output": 1131
+          },
+          "raw": "{\"decision\":\"dynamic-workflow\",\"reason\":\"The set of failing tests is unknown before execution: discovery ('find every failing test') happens at runtime, and the number and shape of the parallel fix workers depend entirely on what is found. The static AgentGraph form (root + static workers + analysts) cannot express runtime-discovered structure — the skill's common-mistakes list explicitly forbids claiming runtime-discovered fanout for that shape — and `fanout` requires a fixed parallel shape known up front. This matches the `supervise` entry point: a model discovers the failing tests and decides which workers to create while it works.\"}"
+        }
+      ]
     },
     {
       "id": "single-agent-suffices",
@@ -158,26 +251,36 @@
       "reasons": [
         "PASS correctAnswerIsNoGraph: decision=single-agent"
       ],
-      "reason": "Summarizing a document into five bullets is a one-shot task that a single strong agent can fully complete. There is no parallelism, no independent verification, and no topology to express \u2014 the deliverable check (five bullet points) is trivially satisfiable by one pass. Per the skill, if one agent could produce bytes that pass the check, you do not need a graph; a harness-driven root costs ~11\u00d7 a plain router loop, so composition does not earn its cost here."
+      "reason": "Summarizing a document into five bullets is one self-contained task that a single profile can complete directly. The skill's entry-point table says to run that profile without composition when one profile suffices, and the case-brief id itself signals the intended pattern. No multiple roles, versioned directives, analysis edges, or runtime-discovered workers are involved, so neither a static AgentGraph nor a supervise workflow applies.",
+      "authorAttempts": [
+        {
+          "status": "completed",
+          "usage": {
+            "input": 9978,
+            "output": 424
+          },
+          "raw": "{\"decision\":\"single-agent\",\"reason\":\"Summarizing a document into five bullets is one self-contained task that a single profile can complete directly. The skill's entry-point table says to run that profile without composition when one profile suffices, and the case-brief id itself signals the intended pattern. No multiple roles, versioned directives, analysis edges, or runtime-discovered workers are involved, so neither a static AgentGraph nor a supervise workflow applies.\"}"
+        }
+      ]
     },
     {
       "id": "steer-heavy-drafting",
       "decision": "graph",
       "score": 1,
       "reasons": [
-        "PASS nodes: workers=1 total=2 expected=1",
-        "PASS maxTraversalsAtLeast: effective delegates cap 6 (default 32 when unset) vs \u22656"
+        "PASS delegatedWorkers: delegated workers=1 expected=1",
+        "PASS maxTraversalsAtLeast: effective delegates cap 6 (default 32 when unset) vs ≥6"
       ],
-      "reason": "Topology is fully known before running: one coordinator root delegates to one writer worker in a cyclic steer loop. The requirement is an explicit five-redirect cap with a ledgered audit trail \u2014 exactly what a static runGraph provides. This is not a single-agent case (the coordinator and writer have distinct, differentiable standing prompts and the coordinator must independently verify the writer's output) and not a dynamic-workflow case (no fan-out is discovered mid-run; the topology is fixed at author time).",
+      "reason": "The role set is fully known at authoring time (one coordinator root, one writer worker), so the static graph form fits; no runtime worker discovery is involved, so supervise is not needed. 'Redirect it up to five times based on how the draft evolves' maps exactly onto the single delegation edge from the coordinator to the writer with maxTraversals: 6, because each spawn and each later steer over the same edge consumes one traversal (1 initial draft + up to 5 redirects). The coordinator's evaluation of each evolving draft is the root's own steering job, so no independent analyst node or analysis edge is required.",
       "authoredGraph": {
         "nodes": [
           {
             "id": "coordinator",
-            "systemPrompt": "You are the coordinator supervising a single writer. On each cycle you receive the writer's latest draft, evaluate it against the mission, and either accept the draft as final or issue a single concise redirect directive that names exactly what the writer must change and why. You may redirect at most five times \u2014 every redirect consumes one of those five, so be specific and decisive. Declare the draft done only when it satisfies the mission; never accept a draft that still misses a stated requirement. A vague or incomplete redirect wastes a traversal you cannot get back."
+            "systemPrompt": "You are the coordinator. You own the concrete mission in the deliverable description. Issue the initial drafting brief to the writer, then review each returned draft as it evolves. Decide whether the current draft satisfies the deliverable acceptance bar. If it does not, redirect the writer with concrete, actionable revision guidance (what is missing, what to change, what to preserve) — you may steer the writer up to five times. Do not rewrite the draft yourself; the writer produces and revises it. When the draft passes the acceptance bar (or the redirect budget is exhausted), settle with the final draft as your deliverable."
           },
           {
             "id": "writer",
-            "systemPrompt": "You are the writer. On first contact produce a full draft from the mission. On every subsequent contact revise the existing draft to address the coordinator's redirect directive precisely, then return the complete updated draft. Never return a diff, a summary, or a placeholder \u2014 always the full text."
+            "systemPrompt": "You are the writer. Produce and revise a draft in response to the coordinator's current brief and any redirect directives you receive. Each time you run, return an updated draft that incorporates the latest guidance while preserving what already works. Do not invent scope beyond the brief; if a directive is ambiguous, state your assumption in the draft and proceed."
           }
         ],
         "edges": [
@@ -189,60 +292,48 @@
           }
         ],
         "budget": {
-          "maxIterations": 12,
-          "maxTokens": 600000
+          "maxIterations": 20,
+          "maxTokens": 500000
         },
         "perWorker": {
-          "maxIterations": 8,
-          "maxTokens": 400000
+          "maxIterations": 6,
+          "maxTokens": 60000
         },
-        "deliverableDescribe": "Supervise the writer to produce a finished draft that fully satisfies the mission. After each draft the writer returns, evaluate it and, if it falls short, redirect the writer with a specific change directive. You may redirect up to five times \u2014 each redirect must state concrete, actionable changes, not vague preferences. Declare the draft done only when every mission requirement is met. The deliverable is the accepted final draft text."
+        "deliverableDescribe": "Produce the final accepted draft: the coordinator issues the drafting brief to the writer, reviews each draft as it evolves, and when it falls short of the acceptance bar, redirects the writer with concrete revision guidance up to five times; the run completes when the draft passes the acceptance bar or the redirect budget is exhausted, and the coordinator returns the final draft."
       },
       "runResultKind": "winner",
       "ledgerRows": 1,
-      "exhaustedEdges": []
+      "exhaustedEdges": [],
+      "authorAttempts": [
+        {
+          "status": "completed",
+          "usage": {
+            "input": 20743,
+            "output": 4647
+          },
+          "raw": "{\"decision\":\"graph\",\"reason\":\"The role set is fully known at authoring time (one coordinator root, one writer worker), so the static graph form fits; no runtime worker discovery is involved, so supervise is not needed. 'Redirect it up to five times based on how the draft evolves' maps exactly onto the single delegation edge from the coordinator to the writer with maxTraversals: 6, because each spawn and each later steer over the same edge consumes one traversal (1 initial draft + up to 5 redirects). The coordinator's evaluation of each evolving draft is the root's own steering job, so no independent analyst node or analysis edge is required.\",\"graph\":{\"nodes\":[{\"id\":\"coordinator\",\"systemPrompt\":\"You are the coordinator. You own the concrete mission in the deliverable description. Issue the initial drafting brief to the writer, then review each returned draft as it evolves. Decide whether the current draft satisfies the deliverable acceptance bar. If it does not, redirect the writer with concrete, actionable revision guidance (what is missing, what to change, what to preserve) — you may steer the writer up to five times. Do not rewrite the draft yourself; the writer produces and revises it. When the draft passes the acceptance bar (or the redirect budget is exhausted), settle with the final draft as your deliverable.\"},{\"id\":\"writer\",\"systemPrompt\":\"You are the writer. Produce and revise a draft in response to the coordinator's current brief and any redirect directives you receive. Each time you run, return an updated draft that incorporates the latest guidance while preserving what already works. Do not invent scope beyond the brief; if a directive is ambiguous, state your assumption in the draft and proceed.\"}],\"edges\":[{\"kind\":\"delegates\",\"from\":\"coordinator\",\"to\":\"writer\",\"maxTraversals\":6}],\"budget\":{\"maxIterations\":20,\"maxTokens\":500000},\"perWorker\":{\"maxIterations\":6,\"maxTokens\":60000},\"deliverableDescribe\":\"Produce the final accepted draft: the coordinator issues the drafting brief to the writer, reviews each draft as it evolves, and when it falls short of the acceptance bar, redirects the writer with concrete revision guidance up to five times; the run completes when the draft passes the acceptance bar or the redirect budget is exhausted, and the coordinator returns the final draft.\"}}"
+        }
+      ]
     },
     {
       "id": "unmeasured-harness",
-      "decision": "graph",
+      "decision": "single-agent",
       "score": 0.5,
       "reasons": [
-        "FAIL nodes: workers=1 total=2 expected=3",
-        "PASS generousBudgetsBecauseFloorUnknown: per-child tokens 150000 vs generous line 50000"
+        "FAIL delegatedWorkers: no graph authored",
+        "PASS reasonMentionsUnknownBudget: reason names unmeasured budget=true"
       ],
-      "reason": "The topology is known ahead of time (root executing three probes via a worker) and needs an audit trail with strict budget caps, especially given the unmeasured harness. A single worker node represents the probe role, and capping its traversals enforces exactly three probe executions.",
-      "authoredGraph": {
-        "nodes": [
-          {
-            "id": "root",
-            "systemPrompt": "You are the root orchestrator. Your role is to coordinate the execution of distinct probes and aggregate their outputs."
+      "reason": "Running three fixed probes on claude-code workers and collecting their outputs is a standard parallel shape (fanout-style parallel attempts) that a smaller shipped primitive already expresses — it is not a custom AgentGraph, and since the three probes are known up front with no runtime worker discovery, supervise/dynamic-workflow is also wrong. The decisive signal is the unmeasured harness: claude-code's per-worker token floor is unknown (only Pi's floor of ~31,211 is documented), so a static graph's required perWorker allocations and shared budget cannot be sized honestly — the skill says to treat an unmeasured executor floor as unknown rather than zero and to size budgets only from measured executor behavior, improving only after measurement. The right move is to run the harness directly with a single driver profile that launches the three probes and collects their outputs, measure actual costs, and only then consider composing a graph.",
+      "authorAttempts": [
+        {
+          "status": "completed",
+          "usage": {
+            "input": 19867,
+            "output": 7686
           },
-          {
-            "id": "probe-worker",
-            "systemPrompt": "You are a probe worker running on an unmeasured harness. Execute the specific probe you are assigned and return the raw output."
-          }
-        ],
-        "edges": [
-          {
-            "kind": "delegates",
-            "from": "root",
-            "to": "probe-worker",
-            "maxTraversals": 3
-          }
-        ],
-        "budget": {
-          "maxIterations": 10,
-          "maxTokens": 600000
-        },
-        "perWorker": {
-          "maxIterations": 5,
-          "maxTokens": 150000
-        },
-        "deliverableDescribe": "Run three probes on claude-code workers and collect what they output."
-      },
-      "runResultKind": "winner",
-      "ledgerRows": 1,
-      "exhaustedEdges": []
+          "raw": "{\"decision\":\"single-agent\",\"reason\":\"Running three fixed probes on claude-code workers and collecting their outputs is a standard parallel shape (fanout-style parallel attempts) that a smaller shipped primitive already expresses — it is not a custom AgentGraph, and since the three probes are known up front with no runtime worker discovery, supervise/dynamic-workflow is also wrong. The decisive signal is the unmeasured harness: claude-code's per-worker token floor is unknown (only Pi's floor of ~31,211 is documented), so a static graph's required perWorker allocations and shared budget cannot be sized honestly — the skill says to treat an unmeasured executor floor as unknown rather than zero and to size budgets only from measured executor behavior, improving only after measurement. The right move is to run the harness directly with a single driver profile that launches the three probes and collects their outputs, measure actual costs, and only then consider composing a graph.\"}"
+        }
+      ]
     }
   ]
 }
