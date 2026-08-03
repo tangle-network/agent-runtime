@@ -18,6 +18,8 @@ Oracle doctrine holds structurally: an analyst node with a delegates edge pointi
 `examples/graphs/watchdog-steer.ts` now uses the passthrough, and the new `examples/graphs/analyst-agent-review.ts` shows a tool-equipped reviewer node analyzing an implementer.
 The kernel entry additionally exports the `WorkerWatchOptions` type.
 
+Known limit: durable-run resume does not yet compose with analyst-node graphs — an analyst spawned by a prior process settles as an ordinary worker on resume (documented at the in-flight map in `coordination.ts`).
+
 ## 0.123.0
 
 ### Current shared contracts and honest CLI accounting

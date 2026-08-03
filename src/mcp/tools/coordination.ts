@@ -922,6 +922,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     readonly route: AnalyzeOnSettleRoute
     readonly sourceWorker: string
   }
+  // PROCESS-LOCAL by design: a durable-run RESUME does not repopulate this map, so an
+  // analyst spawn from a PRIOR process settles as an ordinary worker on resume (it re-enters
+  // the settled ledger instead of being intercepted as a finding). Journal-level marking of
+  // analyst assignments is the fix; until then resume + analyst-node graphs do not compose.
   const analystRuns = new Map<string, AnalystRunInFlight>()
   let analystRunOrdinal = 0
 

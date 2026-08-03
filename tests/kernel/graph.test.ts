@@ -985,6 +985,29 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
     ).toThrow(/'inspector' is BOTH a graph node and a lens/)
   })
 
+  it('refuses the ROOT as an analyst — the root is the driver, not a lens', () => {
+    const graph = twoNodeGraph({
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+        {
+          kind: 'analyzes',
+          analyst: 'driver',
+          over: ['worker'],
+          to: 'driver',
+          directive: promptHandle('analyzes/findings-report/v1'),
+        },
+      ],
+    })
+    expect(() =>
+      runGraph(graph, { makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+    ).toThrow(/names the ROOT as its analyst/)
+  })
+
   it('refuses an analyzes edge OVER an analyst node — it would silently never fire', () => {
     const graph = inspectorGraph('driver')
     const overAnalyst: AgentGraph = {
