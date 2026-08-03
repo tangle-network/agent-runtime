@@ -2,36 +2,50 @@
  * watchdog-steer — the mid-run intervention loop: detect a stuck worker WHILE it runs, correct
  * it BEFORE it settles.
  *
- * The builder node exposes a live tool-trace source. The shipped online detector panel
- * (`watchTrace` + `defaultToolDetectors` — the same streaming stuck-loop/error-streak kernel
- * agent-eval ships) watches that trace and fires the moment the builder starts hammering the
- * same failing command. The driver waits on that signal, composes a corrective instruction FROM
- * it, and steers the still-live builder; the steer is the mid-run leg of the delegates edge and
- * lands in the ledger like every other traversal.
- *
- * Wiring note, stated plainly: `supervise()` accepts `watchWorkers` to run this exact panel and
- * raise bus `finding`s itself, but `RunGraphOptions` does not forward it — so this example wires
- * the SAME shipped panel directly over the worker's trace source at the leaf seam and hands the
- * signal to the driver brain. The corrective steer still flows driver → worker over the
- * delegates edge, authorized and ledgered.
+ * The builder node exposes a live tool-trace source. `RunGraphOptions.watchWorkers` forwards to
+ * `supervise()`'s online detector panel (`watchTrace` + `defaultToolDetectors` — the same
+ * streaming stuck-loop/error-streak kernel agent-eval ships), which watches every worker's live
+ * trace and raises a `finding` on the coordination bus the moment the builder starts hammering
+ * the same failing command. The driver pulls that finding from `await_event`, composes a
+ * corrective instruction FROM it, and steers the still-live builder; the steer is the mid-run
+ * leg of the delegates edge and lands in the ledger like every other traversal.
  *
  * Fully offline (reactive brain + leaf seam). Run:  pnpm tsx examples/graphs/watchdog-steer.ts
  */
 
-import type { DetectorSignal } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgentGraph,
-  defaultToolDetectors,
   promptHandle,
   type RunGraphOptions,
   runGraph,
   type ToolLoopChat,
-  watchTrace,
 } from '@tangle-network/agent-runtime/kernel'
 import { leafSeam, printLedger } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
+
+/** The online finding the watchdog raised, read back out of the driver's own transcript. */
+function onlineFinding(
+  messages: ReadonlyArray<Record<string, unknown>>,
+): { detector: string; reason: string; streak: number } | undefined {
+  for (const message of messages) {
+    const content = typeof message.content === 'string' ? message.content : undefined
+    if (content === undefined || !content.includes('"analyst":"online:')) continue
+    try {
+      const event = JSON.parse(content) as {
+        findings?: { detector?: string; reason?: string; streak?: number }
+      }
+      const f = event.findings
+      if (f?.detector !== undefined) {
+        return { detector: f.detector, reason: f.reason ?? '', streak: f.streak ?? 0 }
+      }
+    } catch {
+      // a non-JSON tool message is simply not the finding
+    }
+  }
+  return undefined
+}
 
 export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphOptions } {
   // ── The topology: plain data ──
@@ -45,32 +59,17 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphOptions } {
     budget: { maxIterations: 20, maxTokens: 50_000 },
   }
 
-  // ── The watchdog: the online detector panel over the builder's LIVE trace ──
-  let fireSignal: (signal: DetectorSignal) => void
-  const firstSignal = new Promise<DetectorSignal>((resolve) => {
-    fireSignal = resolve
-  })
+  // The builder blocks until a steer arrives, and its trace replays a stuck loop: the same
+  // failing `pnpm test` five times — the storm the repeated-action/error-streak panel catches.
   const received: AgentProfile[] = []
-  const seam = leafSeam(
-    received,
-    // The builder blocks until a steer arrives, and its trace replays a stuck loop: the same
-    // failing `pnpm test` five times — the storm the repeated-action/error-streak panel catches.
-    { builder: { awaitSteer: true, withTrace: true, storm: 5 } },
-    {
-      onTraceSource: (_nodeId, source) => {
-        watchTrace(source, {
-          detectors: defaultToolDetectors(),
-          onSignal: (signal) => fireSignal(signal),
-        })
-      },
-    },
-  )
+  const seam = leafSeam(received, { builder: { awaitSteer: true, withTrace: true, storm: 5 } })
 
-  // ── The driver: spawn, WAIT for the watchdog, steer with the evidence, settle ──
-  let turn = 0
-  const brain: ToolLoopChat = async () => {
-    turn += 1
-    if (turn === 1) {
+  // ── The driver: spawn, PULL the watchdog finding, steer with the evidence, settle ──
+  let spawned = false
+  let steered = false
+  const brain: ToolLoopChat = async (messages) => {
+    if (!spawned) {
+      spawned = true
       return {
         toolCalls: [
           {
@@ -81,8 +80,20 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphOptions } {
         ],
       }
     }
-    if (turn === 2) {
-      const signal = await firstSignal
+    const finding = onlineFinding(messages)
+    if (finding === undefined) {
+      // Yield one macrotask so the freshly-spawned builder's executor starts and the detector's
+      // finding reaches the bus BEFORE this pull — otherwise the pull races the spawn by a few
+      // microtasks and the driver burns a full await fence learning nothing.
+      await new Promise((resolve) => setImmediate(resolve))
+      return {
+        toolCalls: [
+          { id: 'cw', name: 'await_event', arguments: JSON.stringify({ kinds: ['finding'] }) },
+        ],
+      }
+    }
+    if (!steered) {
+      steered = true
       return {
         toolCalls: [
           {
@@ -91,20 +102,29 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphOptions } {
             arguments: JSON.stringify({
               workerId: 'wd:s0',
               instruction:
-                `Watchdog: ${signal.detector} fired (streak ${signal.streak}) — ${signal.reason}. ` +
+                `Watchdog: ${finding.detector} fired (streak ${finding.streak}) — ${finding.reason}. ` +
                 'Stop repeating the failing command and deliver what you have.',
             }),
           },
         ],
       }
     }
-    if (turn === 3) {
+    const settled = messages.some(
+      (message) =>
+        typeof message.content === 'string' && message.content.includes('"type":"settled"'),
+    )
+    if (!settled) {
       return { toolCalls: [{ id: 'c3', name: 'await_event', arguments: JSON.stringify({}) }] }
     }
     return { content: 'done', toolCalls: [] }
   }
 
-  const opts: RunGraphOptions = { runId: 'wd', makeWorkerAgent: seam, brain }
+  const opts: RunGraphOptions = {
+    runId: 'wd',
+    makeWorkerAgent: seam,
+    brain,
+    watchWorkers: { maxFindingsPerWorker: 1 },
+  }
   return { graph, opts }
 }
 

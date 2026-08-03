@@ -36,6 +36,7 @@ import {
   coordinationVerbNames,
   createCoordinationTools,
   type MakeWorkerAgent,
+  normalizeAnalyzeOnSettle,
   type SettledWorker,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
@@ -293,7 +294,13 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   }
   // Fail loud on a half-wired analyst seam (matches the extraTools pattern): analyze-on-settle with no
   // lens registry is a silent no-op the house rules forbid — the driver would get no findings, no error.
-  if ((opts.analyzeOnSettle?.length ?? 0) > 0 && !opts.analysts) {
+  // Only LENS routes resolve against the registry; an agent route carries its own analyst profile.
+  if (
+    (opts.analyzeOnSettle ?? [])
+      .map(normalizeAnalyzeOnSettle)
+      .some((route) => route.agent === undefined) &&
+    !opts.analysts
+  ) {
     throw new ValidationError(
       'driverAgent: analyzeOnSettle requires analysts (the lens registry the kinds resolve against)',
     )

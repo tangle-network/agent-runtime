@@ -14,12 +14,20 @@
  *      it, and a cap-killed no-winner run throws `GraphEdgeCapError` with the evidence attached.
  *   5. Analyzes edges route findings to a real DESTINATION (driver via the bus, a live worker via
  *      an authorized steer carrying `analyst`), each traversal ledgered.
- *   6. Oracles/analysts are ENVIRONMENT: a graph naming a node as its analyst is refused.
+ *   6. Oracle doctrine: an analyst that is a delegates TARGET is refused — a node that receives
+ *      work can never also be the lens over it.
  *   7. The ledger never lies by omission or mislabel — the three truthfulness probes:
  *      an undefined-findings analyst is ledgered `empty` (the event publishes; it cannot vanish
  *      in the digest), an exhausted ANALYZES cap is observable but never GraphEdgeCapError (only
  *      delegates caps refuse), and a spawn refused AFTER the factory ran is rewritten
  *      `unpropagated`, never left `delivered`.
+ *   8. Analyst NODES: an analyzes edge naming a graph node spawns that node's pinned profile as
+ *      a tool-equipped analyst WORKER on each matching settle — directive+evidence as its task,
+ *      settle output as the findings, spend in the one conserved pool, same ledger rows — and
+ *      validateGraph refuses the delegates-target, unknown, ambiguous, and analyzed-analyst forms.
+ *   9. watchWorkers passthrough: RunGraphOptions forwards the online detector panel to
+ *      supervise(), so a live worker's stuck-loop finding reaches the driver on the bus with no
+ *      leaf-seam wiring; omitted = off.
  */
 
 import type { ToolSpan } from '@tangle-network/agent-eval'
@@ -27,7 +35,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
-import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
+import type { MakeWorkerAgent, WorkerSpawnContext } from '../../src/mcp/tools/coordination'
 import { type AgentGraph, GraphEdgeCapError, runGraph } from '../../src/runtime/supervise/graph'
 import {
   analyzesFindingsReportPrompt,
@@ -37,6 +45,7 @@ import {
   kernelPromptRegistry,
   promptHandle,
 } from '../../src/runtime/supervise/prompt-registry'
+import { createPushTraceSource } from '../../src/runtime/supervise/trace-source'
 import type {
   Agent,
   AgentSpec,
@@ -66,6 +75,9 @@ interface LeafOptions {
   awaitSteer?: boolean
   /** Expose a tool-trace source so settle-time analysts have evidence to read. */
   withTrace?: boolean
+  /** Record this many IDENTICAL failing tool calls into a LIVE (push) trace at execute start —
+   *  the stuck-loop storm the online detector panel fires on. Implies a live trace source. */
+  storm?: number
   /** Settle by throwing instead of delivering. */
   fail?: boolean
   /** Settle `done` with an INVALID verdict — a completed worker that delivered nothing usable. */
@@ -73,20 +85,24 @@ interface LeafOptions {
 }
 
 /** A leaf agent whose PROFILE (what the graph pinned + the directive) is captured for assertion.
- *  `opts` may be one option set for every node, or per-node-name option sets. */
+ *  `opts` may be one option set for every node, or per-node-name option sets. `contexts` captures
+ *  each spawn's `WorkerSpawnContext` (the analyst marker + composed task assertions read it). */
 function leafSeam(
   received: AgentProfile[],
   optsByNode: LeafOptions | Record<string, LeafOptions> = {},
+  contexts?: Array<WorkerSpawnContext | undefined>,
 ): MakeWorkerAgent {
   const optionsFor = (name: string): LeafOptions =>
     'awaitSteer' in optsByNode ||
     'withTrace' in optsByNode ||
+    'storm' in optsByNode ||
     'fail' in optsByNode ||
     'invalid' in optsByNode
       ? (optsByNode as LeafOptions)
       : ((optsByNode as Record<string, LeafOptions>)[name] ?? {})
-  return (profile) => {
+  return (profile, context) => {
     received.push(profile)
+    contexts?.push(context)
     const name = profile.name ?? 'leaf'
     const opts = optionsFor(name)
     let release: (() => void) | undefined
@@ -95,6 +111,8 @@ function leafSeam(
           release = resolve
         })
       : undefined
+    const pushed =
+      opts.storm !== undefined ? createPushTraceSource({ runId: `leaf-${name}` }) : undefined
     let artifact: ExecutorResult<unknown> | undefined
     const ex: Executor<unknown> = {
       runtime: 'router',
@@ -106,15 +124,25 @@ function leafSeam(
             },
           }
         : {}),
-      ...(opts.withTrace
-        ? {
-            traceSource: () => ({
-              onSpan: () => () => {},
-              collect: async () => [toolSpan(`leaf-${name}`)],
-            }),
-          }
-        : {}),
+      ...(pushed
+        ? { traceSource: () => pushed.source }
+        : opts.withTrace
+          ? {
+              traceSource: () => ({
+                onSpan: () => () => {},
+                collect: async () => [toolSpan(`leaf-${name}`)],
+              }),
+            }
+          : {}),
       async execute() {
+        for (let i = 0; i < (opts.storm ?? 0); i += 1) {
+          pushed?.record({
+            toolName: 'bash',
+            args: { cmd: 'pnpm test' },
+            status: 'error',
+            error: '1 failing',
+          })
+        }
         if (gate) await gate
         if (opts.fail) throw new Error(`${name}: deliberate failure`)
         artifact = {
@@ -741,7 +769,9 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     expect(analyzed[0]!.reason).toContain('traversal-cap-exhausted (max 0)')
   })
 
-  it('refuses a graph whose analyst is a NODE — oracles/analysts are environment', () => {
+  it('refuses an analyst node that is a delegates TARGET — oracle doctrine holds structurally', () => {
+    // 'worker' receives work from the driver, so it can never also be the lens over that work —
+    // an analyst NODE is legal only with no delegates edge pointing at it.
     const graph = twoNodeGraph({
       edges: [
         {
@@ -761,7 +791,350 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     })
     expect(() =>
       runGraph(graph, { analysts, makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
-    ).toThrow(/analysts are ENVIRONMENT, never nodes/)
+    ).toThrow(/oracle doctrine: an analyst is never delegated to/)
+  })
+})
+
+describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent)', () => {
+  /** driver → worker, with an 'inspector' NODE as the analyzes analyst. The inspector has no
+   *  delegates edge — it is spawned by the settle hook, with its own pinned profile. */
+  const inspectorGraph = (to: 'driver' | 'fixer'): AgentGraph => ({
+    nodes: [
+      { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive.' } } },
+      { id: 'worker', profile: { name: 'worker', prompt: { systemPrompt: 'Build.' } } },
+      ...(to === 'fixer'
+        ? [{ id: 'fixer', profile: { name: 'fixer', prompt: { systemPrompt: 'Fix.' } } }]
+        : []),
+      { id: 'inspector', profile: { name: 'inspector', prompt: { systemPrompt: 'Inspect.' } } },
+    ],
+    edges: [
+      {
+        kind: 'delegates',
+        from: 'driver',
+        to: 'worker',
+        directive: promptHandle('delegates/worker-brief/v1'),
+      },
+      ...(to === 'fixer'
+        ? [
+            {
+              kind: 'delegates',
+              from: 'driver',
+              to: 'fixer',
+              directive: promptHandle('delegates/worker-brief/v1'),
+            } as const,
+          ]
+        : []),
+      {
+        kind: 'analyzes',
+        analyst: 'inspector',
+        over: ['worker'],
+        to,
+        directive: promptHandle('analyzes/findings-report/v1'),
+      },
+    ],
+    deliverable: { describe: 'the built artifact', check: (out) => out !== undefined },
+    budget: { maxIterations: 20, maxTokens: 50_000 },
+  })
+
+  it('spawns the analyst node on settle: pinned profile, directive+evidence task, settle output as findings, spend conserved', async () => {
+    const received: AgentProfile[] = []
+    const contexts: Array<WorkerSpawnContext | undefined> = []
+    const journal = new InMemorySpawnJournal()
+    const res = await runGraph(inspectorGraph('driver'), {
+      runId: 'gan',
+      journal,
+      makeWorkerAgent: leafSeam(received, { worker: { withTrace: true }, inspector: {} }, contexts),
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // settled(worker)
+        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // finding(inspector output)
+        { content: 'done' },
+      ]),
+    })
+    expect(res.result.kind).toBe('winner')
+
+    // Node pinning holds for the analyst too: the inspector ran under ITS canonical profile,
+    // spawned by the settle hook (context.analyst), never by a driver tool call.
+    expect(received.map((p) => p.name)).toEqual(['worker', 'inspector'])
+    expect(received[1]!.prompt?.systemPrompt).toBe('Inspect.')
+    const inspectorContext = contexts[1]
+    expect(inspectorContext?.analyst).toBe('inspector')
+    expect(inspectorContext?.label).toBe('analyst:inspector')
+    // The task is the analyzes directive PLUS the settled worker's trace evidence.
+    const task = String(inspectorContext?.task)
+    expect(task).toContain(analyzesFindingsReportPrompt.text)
+    expect(task).toContain('write_file') // the worker's recorded tool span crossed as evidence
+    expect(task).toContain("settled worker 'gan:s0'")
+
+    // The analyzes traversal is ledgered exactly like a registry analyst's: driver-destined
+    // finding, source worker as the workerId, directive + findings bytes.
+    const analyzed = res.ledger.filter((row) => row.kind === 'analyzes')
+    expect(analyzed).toHaveLength(1)
+    expect(analyzed[0]!.edge).toBe('analyzes:inspector:worker->driver')
+    expect(analyzed[0]!.outcome).toBe('delivered')
+    expect(analyzed[0]!.workerId).toBe('gan:s0')
+    expect(analyzed[0]!.bytes).toBe(
+      Buffer.byteLength(analyzesFindingsReportPrompt.text, 'utf8') +
+        Buffer.byteLength(JSON.stringify({ built: 'inspector' }), 'utf8'),
+    )
+    // The journal twin exists — same observable-edge contract as every traversal.
+    const events = (await journal.loadTree('gan')) ?? []
+    const edgeEvents = events.filter(
+      (ev): ev is Extract<SpawnEvent, { kind: 'edge' }> =>
+        ev.kind === 'edge' && ev.edge.kind === 'analyzes',
+    )
+    expect(edgeEvents).toHaveLength(1)
+    expect(edgeEvents[0]).toMatchObject({ outcome: 'delivered', traversal: 1 })
+
+    // Budget accounting: the analyst run's spend lands in the graph's ONE conserved Spend —
+    // worker (5/5) + inspector (5/5).
+    if (res.result.kind === 'winner') {
+      expect(res.result.spentTotal.tokens.input).toBe(10)
+      expect(res.result.spentTotal.tokens.output).toBe(10)
+    }
+  })
+
+  it("routes an analyst node's findings to a live WORKER through the same authorized steer machinery", async () => {
+    const received: AgentProfile[] = []
+    const res = await runGraph(inspectorGraph('fixer'), {
+      runId: 'gar',
+      makeWorkerAgent: leafSeam(received, {
+        worker: { withTrace: true },
+        fixer: { awaitSteer: true },
+        inspector: {},
+      }),
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build' } },
+          ],
+        },
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'fixer' }, task: 'stand by' } },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // settled(worker)
+        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // finding (audit copy)
+        { toolCalls: [{ name: 'await_event', arguments: {} }] }, // settled(fixer, released by the steer)
+        { content: 'done' },
+      ]),
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(received.map((p) => p.name)).toEqual(['worker', 'fixer', 'inspector'])
+    const analyzed = res.ledger.filter((row) => row.kind === 'analyzes')
+    expect(analyzed).toHaveLength(1)
+    expect(analyzed[0]!.edge).toBe('analyzes:inspector:worker->fixer')
+    expect(analyzed[0]!.outcome).toBe('delivered')
+    // The routed delivery reached the DESTINATION worker (the steer leg), releasing it.
+    expect(analyzed[0]!.workerId).toBe('gar:s1')
+    // The steered instruction is the BARE findings — the directive was the analyst's task.
+    expect(analyzed[0]!.bytes).toBe(
+      Buffer.byteLength(JSON.stringify({ built: 'inspector' }), 'utf8'),
+    )
+  })
+
+  it('refuses an UNKNOWN analyst reference — neither node nor registry lens', () => {
+    const withRegistry = twoNodeGraph({
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+        {
+          kind: 'analyzes',
+          analyst: 'ghost',
+          over: ['worker'],
+          to: 'driver',
+          directive: promptHandle('analyzes/findings-report/v1'),
+        },
+      ],
+    })
+    expect(() =>
+      runGraph(withRegistry, {
+        analysts: {
+          kinds: [{ id: 'convergence', description: 'x', area: 'progress' }],
+          run: async () => [],
+        },
+        makeWorkerAgent: leafSeam([]),
+        brain: scriptedBrain([]),
+      }),
+    ).toThrow(/analyst 'ghost' is neither a graph node nor in the analysts registry/)
+    // Without a registry the refusal names the missing registry, not a phantom lens.
+    expect(() =>
+      runGraph(withRegistry, { makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+    ).toThrow(/analyst 'ghost' is not a graph node, and no RunGraphOptions.analysts registry/)
+  })
+
+  it('refuses an AMBIGUOUS analyst id — both a graph node and a registry lens', () => {
+    expect(() =>
+      runGraph(inspectorGraph('driver'), {
+        analysts: {
+          kinds: [{ id: 'inspector', description: 'the same id as the node', area: 'review' }],
+          run: async () => [],
+        },
+        makeWorkerAgent: leafSeam([]),
+        brain: scriptedBrain([]),
+      }),
+    ).toThrow(/'inspector' is BOTH a graph node and a lens/)
+  })
+
+  it('refuses the ROOT as an analyst — the root is the driver, not a lens', () => {
+    const graph = twoNodeGraph({
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+        {
+          kind: 'analyzes',
+          analyst: 'driver',
+          over: ['worker'],
+          to: 'driver',
+          directive: promptHandle('analyzes/findings-report/v1'),
+        },
+      ],
+    })
+    expect(() =>
+      runGraph(graph, { makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+    ).toThrow(/names the ROOT as its analyst/)
+  })
+
+  it('refuses an analyzes edge OVER an analyst node — it would silently never fire', () => {
+    const graph = inspectorGraph('driver')
+    const overAnalyst: AgentGraph = {
+      ...graph,
+      edges: [
+        ...graph.edges,
+        {
+          kind: 'analyzes',
+          analyst: 'convergence',
+          over: ['inspector'],
+          to: 'driver',
+          directive: promptHandle('analyzes/findings-report/v1'),
+        },
+      ],
+    }
+    expect(() =>
+      runGraph(overAnalyst, {
+        analysts: {
+          kinds: [{ id: 'convergence', description: 'x', area: 'progress' }],
+          run: async () => [],
+        },
+        makeWorkerAgent: leafSeam([]),
+        brain: scriptedBrain([]),
+      }),
+    ).toThrow(/analyst nodes are not analyzable/)
+  })
+})
+
+describe('runGraph — watchWorkers passthrough (the online detector panel over live workers)', () => {
+  it('forwards watchWorkers to supervise(): a detector finding reaches the driver on the bus, no leaf-seam wiring', async () => {
+    // The builder blocks until a steer arrives while its live trace replays the same failing
+    // command — the storm the shipped repeated-action/error-streak panel fires on. NOTHING here
+    // wires watchTrace at the leaf seam: the passthrough is the whole test.
+    let sawOnlineFinding = false
+    let spawned = false
+    let steered = false
+    const brain: ToolLoopChat = async (messages) => {
+      if (
+        messages.some(
+          (m) => typeof m.content === 'string' && m.content.includes('"analyst":"online:'),
+        )
+      ) {
+        sawOnlineFinding = true
+      }
+      if (!spawned) {
+        spawned = true
+        return {
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'spawn_agent',
+              arguments: JSON.stringify({ profile: { name: 'worker' }, task: 'build it' }),
+            },
+          ],
+        }
+      }
+      if (!sawOnlineFinding) {
+        // Yield one macrotask so the spawned executor starts and the detector publishes before
+        // this pull — the deterministic offline ordering, not a sleep.
+        await new Promise((resolve) => setImmediate(resolve))
+        return {
+          toolCalls: [
+            { id: 'cw', name: 'await_event', arguments: JSON.stringify({ kinds: ['finding'] }) },
+          ],
+        }
+      }
+      if (!steered) {
+        steered = true
+        return {
+          toolCalls: [
+            {
+              id: 'c2',
+              name: 'steer_agent',
+              arguments: JSON.stringify({
+                workerId: 'gw:s0',
+                instruction: 'Watchdog fired: stop repeating the failing command and deliver.',
+              }),
+            },
+          ],
+        }
+      }
+      const settled = messages.some(
+        (m) => typeof m.content === 'string' && m.content.includes('"type":"settled"'),
+      )
+      if (!settled) {
+        return { toolCalls: [{ id: 'c3', name: 'await_event', arguments: JSON.stringify({}) }] }
+      }
+      return { content: 'done', toolCalls: [] }
+    }
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gw',
+      makeWorkerAgent: leafSeam([], { worker: { awaitSteer: true, storm: 5 } }),
+      watchWorkers: { maxFindingsPerWorker: 1 },
+      brain,
+    })
+    expect(res.result.kind).toBe('winner')
+    // The detector finding crossed the bus TO THE DRIVER under runGraph — the passthrough works.
+    expect(sawOnlineFinding).toBe(true)
+    // The corrective steer is the mid-run leg of the delegates edge, on the same live worker.
+    expect(res.ledger.map((row) => [row.traversal, row.outcome, row.workerId])).toEqual([
+      [1, 'delivered', 'gw:s0'],
+      [2, 'delivered', 'gw:s0'],
+    ])
+  })
+
+  it('stays OFF when omitted — no online findings without watchWorkers', async () => {
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gw0',
+      makeWorkerAgent: leafSeam([], { worker: { storm: 5 } }),
+      brain: scriptedBrain(
+        [
+          {
+            toolCalls: [
+              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build' } },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'done' },
+        ],
+        seen,
+      ),
+    })
+    expect(res.result.kind).toBe('winner')
+    // No turn's transcript ever carried an online finding: the panel is opt-in, off by default.
+    const transcript = JSON.stringify(seen)
+    expect(transcript).not.toContain('online:')
   })
 })
 

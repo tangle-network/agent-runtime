@@ -72,6 +72,7 @@ export type {
   DownMessageEvent,
   MakeWorkerAgent,
   WorkerSpawnContext,
+  WorkerWatchOptions,
 } from './../mcp/tools/coordination'
 export {
   canonicalFindingEvent,
