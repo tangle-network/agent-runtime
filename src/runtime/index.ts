@@ -72,6 +72,7 @@ export type {
   DownMessageEvent,
   MakeWorkerAgent,
   WorkerSpawnContext,
+  WorkerWatchOptions,
 } from './../mcp/tools/coordination'
 export {
   canonicalFindingEvent,
@@ -135,7 +136,7 @@ export {
   stopSentinel,
 } from './completion'
 // The declarative eval-leaderboard facade: cases + prompt + score → one
-// runProfileMatrix call (expandProfileAxes × loopDispatch × naiveDriver),
+// runProfileMatrix call (expandProfileAxes × loopDispatch × the naive retry driver),
 // with a structural BenchmarkAdapter view via toBenchmarkAdapter().
 export {
   type DefinedLeaderboard,
@@ -418,16 +419,6 @@ export {
   type StdioMcpConnection,
   type StdioMcpServerSpec,
 } from './stdio-mcp-client'
-export {
-  type ApplyContinuation,
-  type DumbDriverOptions,
-  dumbDriver,
-  type NaiveDriverOptions,
-  naiveDriver,
-  type SteeringDecision,
-  type SteeringDirectiveData,
-  steeringDriver,
-} from './steering-drivers'
 // The optimization suite: a domain = an Environment (5 hooks); a Strategy = how the
 // budget is spent to beat its check. Built-ins `sample`/`refine`; author your own with
 // `defineStrategy` (compose shot() + critique(), zero Supervisor ceremony); compare

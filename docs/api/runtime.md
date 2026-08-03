@@ -1036,7 +1036,25 @@ graph expressed at the coordination layer; the finding is ALWAYS also published 
 
 > `readonly` **kind**: `string`
 
-The analyst lens id (resolved against the `analysts` registry).
+The analyst id: a lens id resolved against the `analysts` registry, or — when `agent` is
+ present — the AGENT analyst's stable identity carried on its finding/steer events (it need
+ not exist in any registry).
+
+##### agent?
+
+> `readonly` `optional` **agent?**: `AgentProfile`
+
+Make this analyst a tool-equipped AGENT instead of a registry lens: on each matching settle
+the runtime spawns this profile as a WORKER through the SAME spawn machinery a driver spawn
+uses (`Scope.spawn` + the run's `makeWorkerAgent` seam) — so its spend reserves from the
+conserved pool, its node is journaled and traced like any worker, and a node-pinning seam
+sees the spawn context marker (`WorkerSpawnContext.analyst`). Its task is `directive` plus
+the settled worker's tool-trace evidence; its settle OUTPUT is the findings, published as a
+`finding` event (same canonicalization) and delivered per `to` exactly like registry-analyst
+findings. A settle that failed publishes `{ analystRunFailed }`; a spawn the pool or fences
+refuse publishes `{ analystSpawnRefused }` — observable, never a silent drop. An agent
+analyst's settlement never enters the settled-worker ledger, never feeds the finalizer, and
+never re-fires the analyst-on-settle hook (no analyst-on-analyst cascade by construction).
 
 ##### to?
 
@@ -1053,7 +1071,10 @@ Deliver the findings to this live worker, named by its PROFILE NAME (the stable 
 > `readonly` `optional` **directive?**: `string`
 
 Standing instruction wrapped around the findings on a routed delivery — what the recipient
- should DO with the analysis. Omit = the bare findings JSON.
+ should DO with the analysis. For an AGENT analyst (`agent` set) it is instead the analysis
+ directive handed to the agent as its task; the routed delivery then carries the bare
+ findings, because the directive was already consumed upstream. Omit = the bare findings
+ JSON (and, for an agent analyst, a task of evidence only).
 
 ##### over?
 
@@ -1272,6 +1293,36 @@ Semantic restart key, when the manager supplied one.
 > `readonly` `optional` **execution?**: [`AgentExecutionRef`](#agentexecutionref)
 
 Trusted candidate/campaign attribution attached by product authorization.
+
+##### analyst?
+
+> `readonly` `optional` **analyst?**: `string`
+
+Present (as the analyst id) ONLY when this spawn is an analyst-AGENT run initiated by the
+ runtime's analyst-on-settle hook ([AnalyzeOnSettleRoute.agent](#agent)) — authored by the
+ runtime, never accepted from a driver's tool arguments. A node-pinning `makeWorkerAgent`
+ reads it to admit the analyst node it would refuse as a driver-authored spawn.
+
+***
+
+### WorkerWatchOptions
+
+Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`).
+
+#### Properties
+
+##### detectors?
+
+> `readonly` `optional` **detectors?**: readonly `StreamingDetector`[]
+
+Detector panel; omit for the default stuck-loop + error-streak pair.
+
+##### maxFindingsPerWorker?
+
+> `readonly` `optional` **maxFindingsPerWorker?**: `number`
+
+Raise at most this many findings per worker, so one pathological worker cannot flood the
+ driver's inbox with the same signal every span. Default 3; `<= 0` = unlimited.
 
 ***
 
@@ -2740,7 +2791,7 @@ Result export. Default: write `matrix-result.json` under the run dir and
 > `optional` **dispatch?**: `ProfileDispatchFn`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `TArtifact`\>
 
 LEVEL 2 — full dispatch replacement (in-process products bring their own).
- The default is `loopDispatch` + the naive steering directive over the resolved backend.
+ The default is `loopDispatch` + the naive retry driver over the resolved backend.
 
 ##### judges?
 
@@ -3562,7 +3613,7 @@ firewall is enforced afterwards by `createScopeAnalyst`, not by the analyst itse
 
 ##### analyst
 
-> `readonly` **analyst**: [`Agent`](#agent-1)\<`unknown`, readonly `AnalystFinding`[]\>
+> `readonly` **analyst**: [`Agent`](#agent-2)\<`unknown`, readonly `AnalystFinding`[]\>
 
 The analyst agent the combinator spawns over the trace. `harness` is the persona's choice
  (`null` for an inline router analyst, a `BackendType` for a sandboxed one). Its `act` returns
@@ -3867,7 +3918,7 @@ The scope analyst (selector≠judge firewall) the combinator steers from. Absent
 
 ##### spawnChild()
 
-> **spawnChild**(`name`, `spec`): [`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-2)\<`D`\>\>
+> **spawnChild**(`name`, `spec`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`D`\>\>
 
 Wrap an `AgentSpec` into a leaf `Agent` carrying it as `executorSpec`, so the shape can
 `scope.spawn(spawnChild(spec), task, opts)`. `name` labels the child for traces. The
@@ -3886,7 +3937,7 @@ spec drives the resolved `Executor`; `act` exists only to satisfy the `Agent` sh
 
 ###### Returns
 
-[`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-2)\<`D`\>\>
+[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`D`\>\>
 
 ##### childSpec()
 
@@ -7300,94 +7351,6 @@ Kill every spawned server. Idempotent.
 
 ***
 
-### NaiveDriverOptions
-
-Options for [naiveDriver](#naivedriver).
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-#### Properties
-
-##### continuation
-
-> **continuation**: `string`
-
-The fixed continuation issued every round after shot 0. The same string is
-sent whether the prior shot passed inspection or not — the naive driver
-reads no part of the verdict. Domain text is the caller's; the substrate
-supplies none.
-
-##### applyContinuation
-
-> **applyContinuation**: [`ApplyContinuation`](#applycontinuation)\<`Task`\>
-
-Folds `continuation` into the caller's Task shape for the next shot.
-
-##### maxIterations
-
-> **maxIterations**: `number`
-
-Hard shot cap. The loop stops refining once history reaches this length.
-
-##### name?
-
-> `optional` **name?**: `string`
-
-Trace-event identifier. Default `'naive'`.
-
-***
-
-### DumbDriverOptions
-
-Options for [dumbDriver](#dumbdriver).
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-#### Properties
-
-##### onPass
-
-> **onPass**: `string`
-
-Continuation issued when the prior shot's verdict is valid. In a
-stop-on-pass loop this is rarely reached (a valid shot ends the loop), but
-it is required so the driver is total over the pass/fail bit; pass a
-confirmation/keep-going string.
-
-##### onFail
-
-> **onFail**: `string`
-
-Continuation issued when the prior shot's verdict is NOT valid.
-
-##### applyContinuation
-
-> **applyContinuation**: [`ApplyContinuation`](#applycontinuation)\<`Task`\>
-
-Folds the chosen continuation into the caller's Task shape.
-
-##### maxIterations
-
-> **maxIterations**: `number`
-
-Hard shot cap. The loop stops refining once history reaches this length.
-
-##### name?
-
-> `optional` **name?**: `string`
-
-Trace-event identifier. Default `'dumb'`.
-
-***
-
 ### AuthorStrategyOptions
 
 #### Properties
@@ -8445,7 +8408,7 @@ The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: r
 
 ##### driver()
 
-> **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+> **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
 
 ###### Parameters
 
@@ -8467,7 +8430,7 @@ The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: r
 
 ###### Returns
 
-[`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
 
 ***
 
@@ -9933,7 +9896,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result 
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](mcp.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
 
 Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
  moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
@@ -10457,7 +10420,7 @@ One unit of queued work: the agent to run, its task, and the spawn options (budg
 
 ##### agent
 
-> `readonly` **agent**: [`Agent`](#agent-1)\<`unknown`, `Out`\>
+> `readonly` **agent**: [`Agent`](#agent-2)\<`unknown`, `Out`\>
 
 ##### task
 
@@ -10983,7 +10946,18 @@ Inject the driver brain directly (offline tests / advanced).
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
 
-The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT, not nodes.
+The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — needed only for
+ lens analysts; an analyzes edge naming a graph NODE as its analyst needs no registry.
+
+##### watchWorkers?
+
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
+
+Watch every worker's LIVE tool trace with the online detector panel and raise a `finding`
+ on the bus the moment one loops or error-storms — forwarded to `supervise()` verbatim (see
+ `SuperviseOptions.watchWorkers`). Online findings (`analyst: 'online:<detector>'`) are bus
+ events for the driver, not graph edges, so they are never ledgered as traversals. Omit =
+ off (no online watching, no extra events).
 
 ##### registry?
 
@@ -13515,7 +13489,7 @@ Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-ente
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](mcp.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
 
 Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
 moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
@@ -14028,7 +14002,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-25)
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-22)
 
 ##### signal
 
@@ -14297,7 +14271,7 @@ Analyst kinds run on each worker-settle → a `finding` the driver composes its 
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](mcp.md#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
 
 Run the ONLINE detector panel over each worker's LIVE tool trace (both arms) so the driver
  learns a worker is looping mid-run instead of at settle. Omit = no online watching.
@@ -18065,7 +18039,7 @@ Product decision over an exact continuation before it is durably recorded or del
 
 ### MakeWorkerAgent
 
-> **MakeWorkerAgent** = (`profile`, `context?`) => [`Agent`](#agent-1)\<`unknown`, `unknown`\>
+> **MakeWorkerAgent** = (`profile`, `context?`) => [`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 #### Parameters
 
@@ -18079,7 +18053,7 @@ Product decision over an exact continuation before it is durably recorded or del
 
 #### Returns
 
-[`Agent`](#agent-1)\<`unknown`, `unknown`\>
+[`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 ***
 
@@ -18252,7 +18226,7 @@ Builds a frozen `Persona`, failing loud on the executors-supplied invariant (nei
 
 ### LoopShape
 
-> **LoopShape**\<`Task`, `D`\> = (`ctx`) => [`Agent`](#agent-1)\<`Task`, [`Outcome`](#outcome-2)\<`D`\>\>
+> **LoopShape**\<`Task`, `D`\> = (`ctx`) => [`Agent`](#agent-2)\<`Task`, [`Outcome`](#outcome-2)\<`D`\>\>
 
 A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it
 returns the root `Agent<Task, Outcome<D>>` whose `act` decomposes the task, fans out
@@ -18278,7 +18252,7 @@ synthesizes the terminal `Outcome<D>`. The shape is STRUCTURE; the persona is CO
 
 #### Returns
 
-[`Agent`](#agent-1)\<`Task`, [`Outcome`](#outcome-2)\<`D`\>\>
+[`Agent`](#agent-2)\<`Task`, [`Outcome`](#outcome-2)\<`D`\>\>
 
 ***
 
@@ -18760,110 +18734,6 @@ controls such as `timeoutMs`.
 
 ***
 
-### SteeringDecision
-
-> **SteeringDecision** = `"refine"` \| `"pick-winner"` \| `"fail"`
-
-Terminal-or-continue decision shared by all three steering drivers. The
-non-terminal `'refine'` keeps the loop running another shot; the terminal
-`'pick-winner'`/`'fail'` stop it (`isTerminalDecision` in run-loop.ts treats
-`'pick-winner'` and `'fail'` as terminal and any other string as a request
-for another round). Identical to the reference refine driver's decision set.
-
-***
-
-### SteeringDirectiveData
-
-> **SteeringDirectiveData** = \{ `kind`: `"naive"`; `continuation`: `string`; `maxTraversals`: `number`; \} \| \{ `kind`: `"dumb"`; `onPass`: `string`; `onFail`: `string`; `maxTraversals`: `number`; \}
-
-A steering POLICY as plain data — the delegates-edge directive form of the two control
-drivers. `kind` names how much of the verdict the policy may read (the experimental axis);
-the continuation strings are the payload. Because this is JSON-able data, it is versionable
-in a prompt registry and attachable to a graph edge — the same policy that used to exist
-only as a builder FUNCTION, which made it invisible to any optimizer. Default texts are
-seeded in the kernel prompt registry (`delegates/naive-continuation`,
-`delegates/dumb-continuation-pass` / `-fail`); a caller may carry its own.
-
-#### Union Members
-
-##### Type Literal
-
-\{ `kind`: `"naive"`; `continuation`: `string`; `maxTraversals`: `number`; \}
-
-###### kind
-
-> `readonly` **kind**: `"naive"`
-
-Reads NOTHING from the verdict: one fixed continuation every round.
-
-###### continuation
-
-> `readonly` **continuation**: `string`
-
-###### maxTraversals
-
-> `readonly` **maxTraversals**: `number`
-
-Hard traversal cap: the loop stops refining once history reaches this length.
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"dumb"`; `onPass`: `string`; `onFail`: `string`; `maxTraversals`: `number`; \}
-
-###### kind
-
-> `readonly` **kind**: `"dumb"`
-
-Reads ONLY `verdict.valid` (the boolean): one of two fixed continuations.
-
-###### onPass
-
-> `readonly` **onPass**: `string`
-
-###### onFail
-
-> `readonly` **onFail**: `string`
-
-###### maxTraversals
-
-> `readonly` **maxTraversals**: `number`
-
-***
-
-### ApplyContinuation
-
-> **ApplyContinuation**\<`Task`\> = (`task`, `continuation`) => `Task`
-
-Fold a steering string into the caller's Task shape, producing the Task for
-the next shot. The substrate never assumes how a Task carries its prompt, so
-the caller supplies this — the same way it supplies `taskToPrompt`. The
-original `task` is passed so the fold can preserve task-level fields (ids,
-fixtures, feature names) and replace only the instruction.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-#### Parameters
-
-##### task
-
-`Task`
-
-##### continuation
-
-`string`
-
-#### Returns
-
-`Task`
-
-***
-
 ### ChampionPolicy
 
 > **ChampionPolicy** = `"score"` \| `"costAware"`
@@ -19098,9 +18968,9 @@ Cyclic-graph backstop: traversals beyond this REFUSE (fail loud). Default
 
 \{ `kind`: `"analyzes"`; `analyst`: `string`; `over`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `to`: [`NodeId`](#nodeid-5); `directive`: [`PromptHandle`](#prompthandle); `maxTraversals?`: `number`; \}
 
-Findings flow anywhere: an analyst LENS (environment, never a node) over N nodes' settled
- traces, delivered to ONE node wrapped in a directive telling the recipient what to do with
- the analysis.
+Findings flow anywhere: an analyst over N nodes' settled traces, delivered to ONE node.
+ With a LENS analyst the directive wraps the findings for the recipient; with a NODE analyst
+ the directive is the analyst agent's task and the findings are its settle output.
 
 ###### kind
 
@@ -19110,7 +18980,12 @@ Findings flow anywhere: an analyst LENS (environment, never a node) over N nodes
 
 > `readonly` **analyst**: `string`
 
-The analyst lens id, resolved against `RunGraphOptions.analysts`. NOT a node id.
+The analyst REFERENCE, in one of two forms: a lens id resolved against
+ `RunGraphOptions.analysts` (environment), or the id of a graph NODE with no delegates
+ edge pointing at it — then each matching settle spawns that node's pinned profile as a
+ tool-equipped analyst WORKER (same spawn machinery, conserved budget, trace join) whose
+ task is this edge's directive plus the settled worker's trace evidence and whose settle
+ output is the findings. An id that is both a node and a registry lens is refused.
 
 ###### over
 
@@ -22792,112 +22667,6 @@ refuses local processes. A profile with no MCP surface returns zero tools.
 
 ***
 
-### steeringDriver()
-
-> **steeringDriver**\<`Task`, `Output`\>(`directive`, `applyContinuation`, `name?`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-Interpret a [SteeringDirectiveData](#steeringdirectivedata) as a loop `Driver` — the ONE interpreter both
-control policies share. The directive is data; only `applyContinuation` (how the caller's
-opaque Task carries a steering string) remains code, exactly as `taskToPrompt` does.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-#### Parameters
-
-##### directive
-
-[`SteeringDirectiveData`](#steeringdirectivedata)
-
-##### applyContinuation
-
-[`ApplyContinuation`](#applycontinuation)\<`Task`\>
-
-##### name?
-
-`string`
-
-#### Returns
-
-[`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-***
-
-### ~~naiveDriver()~~
-
-> **naiveDriver**\<`Task`, `Output`\>(`options`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-Thin compatibility wrapper over [steeringDriver](#steeringdriver) for the naive (no-signal) control.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-#### Parameters
-
-##### options
-
-[`NaiveDriverOptions`](#naivedriveroptions)\<`Task`\>
-
-#### Returns
-
-[`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-#### Deprecated
-
-The policy is DATA now — build the directive and interpret it:
- `steeringDriver({ kind: 'naive', continuation, maxTraversals }, applyContinuation)`. This
- wrapper survives for existing callers and will be removed in the next major.
-
-***
-
-### ~~dumbDriver()~~
-
-> **dumbDriver**\<`Task`, `Output`\>(`options`): [`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-Thin compatibility wrapper over [steeringDriver](#steeringdriver) for the dumb (pass/fail-only) control.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-#### Parameters
-
-##### options
-
-[`DumbDriverOptions`](#dumbdriveroptions)\<`Task`\>
-
-#### Returns
-
-[`Driver`](index.md#driver)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
-
-#### Deprecated
-
-The policy is DATA now — build the directive and interpret it:
- `steeringDriver({ kind: 'dumb', onPass, onFail, maxTraversals }, applyContinuation)`. This
- wrapper survives for existing callers and will be removed in the next major.
-
-***
-
 ### assertStrategyContract()
 
 > **assertStrategyContract**(`code`): `void`
@@ -23051,7 +22820,7 @@ Multi-generation strategy search: author candidates from tournament losses, play
 
 ### depthStrategy()
 
-> **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+> **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
 
 DEPTH: one persistent artifact, carried across analyst-steered shots.
 
@@ -23077,13 +22846,13 @@ DEPTH: one persistent artifact, carried across analyst-steered shots.
 
 #### Returns
 
-[`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
 
 ***
 
 ### breadthStrategy()
 
-> **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+> **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
 
 BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
@@ -23109,7 +22878,7 @@ BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
 #### Returns
 
-[`Agent`](#agent-1)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
+[`Agent`](#agent-2)\<`unknown`, [`Outcome`](#outcome-2)\<`unknown`\>\>
 
 ***
 
@@ -23616,7 +23385,7 @@ The supervisor SKILL — the how-to the supervisor reads (its system prompt). TH
 
 ### authoredWorker()
 
-> **authoredWorker**(`profile`, `opts`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
+> **authoredWorker**(`profile`, `opts`): [`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 Build a router-only worker from an authored profile. This helper executes the prompt/model axes;
  use `workerFromBackend` for full materialization of tools, MCP, resources, hooks, and subagents.
@@ -23647,7 +23416,7 @@ Build a router-only worker from an authored profile. This helper executes the pr
 
 #### Returns
 
-[`Agent`](#agent-1)\<`unknown`, `unknown`\>
+[`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 ***
 
@@ -23793,7 +23562,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 ### driverAgent()
 
-> **driverAgent**(`opts`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
+> **driverAgent**(`opts`): [`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -23806,7 +23575,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 #### Returns
 
-[`Agent`](#agent-1)\<`unknown`, `unknown`\>
+[`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 ***
 
@@ -23924,7 +23693,7 @@ Analyst kinds to auto-run when a worker settles `done` — findings flow up the 
 
 ###### watchWorkers?
 
-[`WorkerWatchOptions`](mcp.md#workerwatchoptions)
+[`WorkerWatchOptions`](#workerwatchoptions)
 
 Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events).
 
@@ -25206,7 +24975,7 @@ explicit, recorded acknowledgment — never a silent bind.
 
 ### supervisorAgent()
 
-> **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent-1)\<`unknown`, `unknown`\>
+> **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker.
 
@@ -25222,7 +24991,7 @@ Build a supervisor `Agent` from its profile: the brain resolves from `profile.ha
 
 #### Returns
 
-[`Agent`](#agent-1)\<`unknown`, `unknown`\>
+[`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 ***
 

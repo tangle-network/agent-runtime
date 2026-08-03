@@ -4103,8 +4103,11 @@ Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-se
  [AnalyzeOnSettleRoute](runtime.md#analyzeonsettleroute) generalizes the DESTINATION: findings can be delivered to a
  named live WORKER (wrapped in the route's directive, through the same authorized steer
  machinery a driver steer uses) instead of being hardwired to the spawning driver, and `over`
- restricts which settled workers feed the lens. Omit/empty = no auto-analysis (default; the
- driver can still run lenses on demand via `run_analyst`). Requires `analysts`.
+ restricts which settled workers feed the lens. A route carrying `agent` generalizes the
+ ANALYST itself: a tool-equipped agent spawned as a worker whose settle output is the
+ findings (see [AnalyzeOnSettleRoute.agent](runtime.md#agent)). Omit/empty = no auto-analysis (default;
+ the driver can still run lenses on demand via `run_analyst`). Lens routes require
+ `analysts`; agent routes do not.
 
 ##### maxLiveWorkers?
 
@@ -4133,7 +4136,7 @@ Max wall-clock ms a single `await_event` call may block waiting on a live worker
 
 ##### watchWorkers?
 
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
 
 OPT-IN: run the ONLINE detector panel over each spawned worker's live tool trace and raise a
 `finding` on the bus the moment a detector fires — so the driver learns "this worker is
@@ -4162,27 +4165,6 @@ Questions carried over from a prior process of the SAME run (a durable coordinat
 resuming caller replays). Seeded into the question ledger verbatim — `list_questions` shows
 them, the stop policy counts the still-blocking ones, and `answer_question` can decide them.
 Omit/empty = fresh ledger (every run that is not a resume).
-
-***
-
-### WorkerWatchOptions
-
-Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`).
-
-#### Properties
-
-##### detectors?
-
-> `readonly` `optional` **detectors?**: readonly `StreamingDetector`[]
-
-Detector panel; omit for the default stuck-loop + error-streak pair.
-
-##### maxFindingsPerWorker?
-
-> `readonly` `optional` **maxFindingsPerWorker?**: `number`
-
-Raise at most this many findings per worker, so one pathological worker cannot flood the
- driver's inbox with the same signal every span. Default 3; `<= 0` = unlimited.
 
 ***
 
@@ -7861,3 +7843,9 @@ Re-exports [MakeWorkerAgent](runtime.md#makeworkeragent)
 ### WorkerSpawnContext
 
 Re-exports [WorkerSpawnContext](runtime.md#workerspawncontext)
+
+***
+
+### WorkerWatchOptions
+
+Re-exports [WorkerWatchOptions](runtime.md#workerwatchoptions)

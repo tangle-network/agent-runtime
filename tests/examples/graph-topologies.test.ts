@@ -1,5 +1,5 @@
 /**
- * The four example graph topologies (`examples/graphs/`) run offline end-to-end, and each one's
+ * The five example graph topologies (`examples/graphs/`) run offline end-to-end, and each one's
  * DECISIVE ledger facts hold — the counts, outcomes, and destinations that make the example's
  * claim true, not just "it ran":
  *
@@ -10,21 +10,26 @@
  *      silently dropped.
  *   2. best-of-n — exactly two delivered spawn traversals, one per candidate edge, and the winner
  *      is the candidate whose settle passed the deliverable.
- *   3. watchdog-steer — the corrective steer lands as the delegates edge's SECOND delivered
- *      traversal on the SAME live worker, before settle, carrying the detector's evidence.
+ *   3. watchdog-steer — the online finding arrives over the `watchWorkers` passthrough and the
+ *      corrective steer lands as the delegates edge's SECOND delivered traversal on the SAME
+ *      live worker, before settle, carrying the detector's evidence.
  *   4. shot-loop — two delivered shots under a 3-traversal cap (no exhaustion), each shot
  *      followed by a delivered verify traversal to the reviewer root; the winner is the shot
  *      whose tests pass.
+ *   5. analyst-agent-review — the analyzes analyst is a NODE: the reviewer agent is spawned on
+ *      the implementer's settle and its settle output arrives as the driver's finding, one
+ *      delivered analyzes traversal from the implementer's worker id.
  */
 
 import { runGraph } from '@tangle-network/agent-runtime/kernel'
 import { describe, expect, it } from 'vitest'
+import { analystAgentReview } from '../../examples/graphs/analyst-agent-review'
 import { bestOfN } from '../../examples/graphs/best-of-n'
 import { collaboratesReviewLoop } from '../../examples/graphs/collaborates-review-loop'
 import { shotLoop } from '../../examples/graphs/shot-loop'
 import { watchdogSteer } from '../../examples/graphs/watchdog-steer'
 
-describe('examples/graphs — the four topologies run offline with truthful ledgers', () => {
+describe('examples/graphs — the five topologies run offline with truthful ledgers', () => {
   it('collaborates-review-loop: every peer hop is mediated, ledgered, and addressed', async () => {
     const { graph, opts } = collaboratesReviewLoop()
     const res = await runGraph(graph, opts)
@@ -104,6 +109,28 @@ describe('examples/graphs — the four topologies run offline with truthful ledg
       ['analyzes:verify:coder->reviewer', 2, 'delivered', 'shots:s1'],
     ])
     // The shot budget lives on the edge: 2 of 3 traversals used, nothing exhausted.
+    expect(res.exhaustedEdges).toEqual([])
+  })
+
+  it('analyst-agent-review: the reviewer NODE runs as the analyst and its output is the finding', async () => {
+    const { graph, opts } = analystAgentReview()
+    const res = await runGraph(graph, opts)
+
+    expect(res.result.kind).toBe('winner')
+    if (res.result.kind === 'winner') {
+      expect(res.result.out).toEqual({ built: 'implementer', attempt: 1 })
+    }
+
+    // One delivered spawn traversal (the implementer), one delivered analyzes traversal whose
+    // workerId is the SOURCE worker (driver-destined finding rows carry the analyzed worker).
+    expect(res.ledger.map((row) => [row.edge, row.outcome, row.workerId])).toEqual([
+      ['delegates:driver->implementer', 'delivered', 'rev:s0'],
+      ['analyzes:reviewer:implementer->driver', 'delivered', 'rev:s0'],
+    ])
+    // The finding carried the reviewer AGENT's settle output — real findings bytes, not a ping.
+    expect(res.ledger[1]!.bytes).toBeGreaterThan(
+      JSON.stringify({ verdict: 'needs-changes', defects: ['no tests'] }).length,
+    )
     expect(res.exhaustedEdges).toEqual([])
   })
 })

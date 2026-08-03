@@ -8403,7 +8403,7 @@ work: it returns the committed result on `prior` (see `SpawnOpts.key`).
 
 ###### agent
 
-[`Agent`](runtime.md#agent-1)\<`unknown`, `C`\> \| (() => [`Agent`](runtime.md#agent-1)\<`unknown`, `C`\>)
+[`Agent`](runtime.md#agent-2)\<`unknown`, `C`\> \| (() => [`Agent`](runtime.md#agent-2)\<`unknown`, `C`\>)
 
 ###### task
 
@@ -8608,7 +8608,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ###### root
 
-[`Agent`](runtime.md#agent-1)\<`Task`, `Out`\>
+[`Agent`](runtime.md#agent-2)\<`Task`, `Out`\>
 
 ###### task
 

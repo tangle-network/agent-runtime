@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## 0.126.0
+
+### Runtime, Eval, and Knowledge use one truthful cost contract
+
+- Runtime now requires `@tangle-network/agent-eval` `>=0.143.0 <0.144.0` and ships with `@tangle-network/agent-knowledge` `7.0.8`, so the installed stack records observed, estimated, and uncaptured campaign cost without a nested older Eval copy.
+- Campaign caches written before Eval 0.143.0 without complete cost provenance stop default reuse.
+  Callers may explicitly rerun only invalid cached cells or rerun the full campaign; Runtime does not guess that missing cost is zero.
+
+### Steering policy is registry data; the loop-kernel steering-driver module is deleted
+
+BREAKING. `src/runtime/steering-drivers.ts` is deleted, and with it the kernel exports `steeringDriver`, `naiveDriver`, `dumbDriver`, `SteeringDirectiveData`, `SteeringDecision`, `ApplyContinuation`, `NaiveDriverOptions`, and `DumbDriverOptions`.
+The steering POLICY texts stay where the graph reads them — registry data (`delegates/naive-continuation`, `delegates/dumb-continuation-pass` / `-fail` in the kernel prompt registry) a `delegates` edge attaches as versioned directives — so the naive/dumb control policies remain optimizable data rows; only the loop-kernel interpreter function is gone.
+`defineLeaderboard`'s per-cell retry — the module's one consumer — is now `naiveRetryDriver` in `define-leaderboard.ts` with identical observable behavior: the same `'naive'` trace name, the same plan/decide semantics (re-run the same case verbatim until a shot is `valid` or the shot cap; `pick-winner` on any valid shot, else `refine` under the cap, `fail` at it), and the same leak-free firewall (reads only `verdict.valid`, never `notes`/`scores`).
+
+Callers to update: anything importing `steeringDriver` / `naiveDriver` / `dumbDriver` from the kernel entry writes the equivalent bare `Driver` literal at its call site (plan: re-issue the task with the continuation folded in until valid or cap; decide: `pick-winner` on any valid shot, else `refine` under the cap, `fail` at it), carrying its continuation texts as its own data or as prompt-registry entries.
+
+### The analyst can be a tool-equipped agent, and graphs watch their workers
+
+An `analyzes` edge may now name a graph NODE as its analyst (`analyst: '<node-id>'`).
+On each matching settle, `runGraph` spawns that node's pinned profile as a real WORKER through the same spawn machinery every worker uses (`Scope.spawn` + the `makeWorkerAgent` seam): its task is the edge's registry directive plus the settled worker's tool-trace evidence, its spend reserves from the graph's one conserved budget, its node is journaled and traced like any worker, and its settle OUTPUT is the findings — published and routed per `to` exactly like registry-analyst findings, with the same ledger rows and canonicalization.
+Oracle doctrine holds structurally: an analyst node with a delegates edge pointing at it is refused, the driver cannot spawn it (`spawn_agent` still rejects non-worker nodes), an id living in both the registry and the nodes is refused as ambiguous, and an analyzes edge OVER an analyst node is refused because it would silently never fire.
+
+- `AnalyzeOnSettleRoute` gains `agent?: AgentProfile` — the coordination-layer form of the node analyst, usable by direct `supervise()` callers; lens routes still require the `analysts` registry, agent routes do not.
+- `WorkerSpawnContext` gains `analyst?: string`, the runtime-authored marker a node-pinning `makeWorkerAgent` reads to admit an analyst run it would refuse as a driver-authored spawn.
+- An analyst run's settlement never enters the settled-worker ledger or the finalizer and never re-fires the analyst hook, so an analyst cannot cascade onto itself; a refused analyst spawn publishes `{ analystSpawnRefused }` and a failed run `{ analystRunFailed }` as findings — observable, never silent.
+
+`RunGraphOptions` gains `watchWorkers` (mirroring `SuperviseOptions.watchWorkers`): the online detector panel now runs under `runGraph` with no leaf-seam wiring, raising `finding` events on the coordination bus the moment a live worker loops or error-storms.
+`examples/graphs/watchdog-steer.ts` now uses the passthrough, and the new `examples/graphs/analyst-agent-review.ts` shows a tool-equipped reviewer node analyzing an implementer.
+The kernel entry additionally exports the `WorkerWatchOptions` type.
+
+Known limit: durable-run resume does not yet compose with analyst-node graphs — an analyst spawned by a prior process settles as an ordinary worker on resume (documented at the in-flight map in `coordination.ts`).
+
 ## 0.123.0
 
 ### Current shared contracts and honest CLI accounting
