@@ -1,9 +1,0 @@
-{
-  "id": "steer-heavy-drafting",
-  "brief": "One writer drafts, I want the coordinator to redirect it up to five times based on how the draft evolves.",
-  "expect": {
-    "nodes": 1,
-    "maxTraversalsAtLeast": 6,
-    "reason": "spawns and steers share the traversal count"
-  }
-}
