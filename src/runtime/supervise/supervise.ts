@@ -139,6 +139,17 @@ export function workerFromBackend(
     }
     const profile = parsed.data
     assertBackendProfileMaterialization(profile, capturedBackend, 'workerFromBackend')
+    // Fail closed on a resume this seam cannot honor: workerFromBackend creates a NEW executor
+    // per spawn and has no session re-attachment, so accepting a 'resume' spawn would ledger
+    // `continuity: 'resume'` over a brand-new session — a stamp asserting something that never
+    // happened. Custom makeWorkerAgent seams that re-attach sessions are the resume consumers.
+    if (spawnContext?.continuity === 'resume') {
+      throw new ValidationError(
+        'workerFromBackend: this backend seam does not re-attach sessions and cannot honor ' +
+          "continuity: 'resume' — provide a makeWorkerAgent that resumes (it receives " +
+          "spawnContext.resume.ofWorker), or use continuity: 'fresh'",
+      )
+    }
     const name = profile.name ?? 'worker'
     // A Scope assignment is stable across reconstruction. Direct callers that omit that context
     // still get isolation, but only Scope-backed calls claim durable external-session recovery.

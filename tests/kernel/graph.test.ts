@@ -1334,6 +1334,54 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     ])
   })
 
+  it('resume after a FAILED prior worker is allowed — the seam decides if the session is salvageable', async () => {
+    const seen: Array<{ continuity?: string; resumeOf?: string }> = []
+    const res = await runGraph(
+      twoNodeGraph({
+        edges: [
+          {
+            kind: 'delegates',
+            from: 'driver',
+            to: 'worker',
+            directive: promptHandle('delegates/worker-brief/v1'),
+            continuity: 'resume',
+          },
+        ],
+      }),
+      {
+        runId: 'grf',
+        makeWorkerAgent: (profile, ctx) => {
+          seen.push({ continuity: ctx?.continuity, resumeOf: ctx?.resume?.ofWorker })
+          // First spawn fails; second must still receive the failed worker's lineage.
+          return leafSeam([], seen.length === 1 ? { fail: true } : {})(profile, ctx)
+        },
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          {
+            toolCalls: [
+              {
+                name: 'spawn_agent',
+                arguments: { profile: { name: 'worker' }, task: 'again', continuity: 'resume' },
+              },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          { content: 'done' },
+        ]),
+      },
+    )
+    expect(res.result.kind).toBe('winner')
+    expect(seen[1]!.continuity).toBe('resume')
+    expect(seen[1]!.resumeOf).toBe('grf:s0')
+    const rows = res.ledger.filter((r) => r.kind === 'delegates' && r.continuity === 'resume')
+    expect(rows).toHaveLength(1)
+  })
+
   it('resume cannot ride a semantic key — keys are run-once, resume runs again', async () => {
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     const res = await runGraph(twoNodeGraph(), {

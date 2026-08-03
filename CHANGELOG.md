@@ -21,7 +21,7 @@ Traversal caps count resumes exactly like fresh spawns.
 `validateGraph` refuses nonsense continuity values and analyzes edges carrying the field (analysts are spawned by the analyst machinery; every analyst run is a fresh session over settled evidence).
 
 Threading: `SuperviseOptions` / `SupervisorAgentDeps` / `DriverAgentOptions` / `serveCoordinationMcp` / `CoordinationToolsOptions` gain `continuityByProfile?: Readonly<Record<string, ContinuityMode>>` (the per-profile-name default `runGraph` derives from delegates edges), and the kernel entry exports `ContinuityMode`, `WorkerResumeContext`, and `TraversalContinuity`.
-Known limit, stated where it lives: resume lineage is PROCESS-LOCAL (the same boundary as the analyst-run marker) — workers settled by a prior process of a durable run are not resume targets, and the built-in backend seam (`workerFromBackend`) forwards the lineage without re-attaching sessions itself.
+Known limit, stated where it lives: resume lineage is PROCESS-LOCAL (the same boundary as the analyst-run marker) — workers settled by a prior process of a durable run are not resume targets. The built-in backend seam (`workerFromBackend`) cannot re-attach sessions and FAILS LOUD on a `'resume'` spawn rather than ledgering a resume that never happened; session-resuming `makeWorkerAgent` seams are the resume consumers. Resume after a FAILED prior worker is deliberately allowed — a crashed session may still be resumable, and the executor seam decides.
 
 New example: `examples/graphs/shot-loop-resumed.ts` — the VB shot shape as data (reviewer root, coder node, `continuity: 'resume'`, `maxTraversals: 3`): shot 1 spawns `fresh`, shots 2–3 resume the prior settled session, proven offline in `tests/examples/graph-topologies.test.ts`.
 
