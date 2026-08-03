@@ -21,7 +21,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
@@ -39,9 +39,10 @@ import { leafSeam, scriptedBrain, type ScriptedTurn } from './agent-graphs-impro
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = join(HERE, '..', '..')
-const SKILL_PATH = join(REPO, 'skills', 'codemode', 'SKILL.md')
-const CASES_DIR = join(REPO, 'skills', 'codemode', 'cases')
-const OUT_PATH = join(REPO, 'skills', 'codemode', 'baseline-v1.json')
+// The skill was re-homed skills/codemode → skills/agent-graphs (925460fe); these paths follow it.
+const SKILL_PATH = join(REPO, 'skills', 'agent-graphs', 'SKILL.md')
+const CASES_DIR = join(REPO, 'skills', 'agent-graphs', 'cases')
+const OUT_PATH = join(REPO, 'skills', 'agent-graphs', 'baseline-v1.json')
 // The v1 surface + cases were removed from the working tree by 5b8d4da5 ("replace codemode plan
 // with current graph guide"); the baseline still measures the v1 text, pinned in git history.
 // Override with SKILL_REF to measure another committed version.
@@ -61,7 +62,7 @@ function gitLs(ref: string, path: string): string[] {
 }
 
 /** The surface + cases: from the working tree when present, else pinned from git history. */
-function loadInputs(): { surface: string; cases: CaseSpec[]; source: string } {
+export function loadInputs(): { surface: string; cases: CaseSpec[]; source: string } {
   if (existsSync(SKILL_PATH)) {
     const surface = readFileSync(SKILL_PATH, 'utf8')
     const cases = readdirSync(CASES_DIR)
@@ -85,7 +86,7 @@ const GENEROUS_PER_CHILD_TOKENS = 50_000
 
 // ── Case + artifact shapes ─────────────────────────────────────────────────────
 
-interface CaseExpect {
+export interface CaseExpect {
   correctAnswerIsNoGraph?: boolean
   correctAnswerIsDynamicWorkflow?: boolean
   nodes?: number
@@ -104,17 +105,17 @@ interface CaseExpect {
   reason?: string
 }
 
-interface CaseSpec {
+export interface CaseSpec {
   id: string
   brief: string
   expect: CaseExpect
 }
 
-type AuthoredEdge =
+export type AuthoredEdge =
   | { kind: 'delegates'; from: string; to: string; maxTraversals?: number }
   | { kind: 'analyzes'; analyst: string; over: string[]; to: string; maxTraversals?: number }
 
-interface AuthoredGraphSpec {
+export interface AuthoredGraphSpec {
   nodes: Array<{ id: string; systemPrompt: string }>
   edges: AuthoredEdge[]
   budget: { maxIterations: number; maxTokens: number }
@@ -122,16 +123,16 @@ interface AuthoredGraphSpec {
   deliverableDescribe: string
 }
 
-type Decision = 'graph' | 'single-agent' | 'dynamic-workflow'
+export type Decision = 'graph' | 'single-agent' | 'dynamic-workflow'
 
-interface OfflineRunSummary {
+export interface OfflineRunSummary {
   resultKind: string
   ledger: ReadonlyArray<EdgeTraversal>
   exhaustedEdges: ReadonlyArray<string>
 }
 
 /** Closure A's output: the authored artifact, plus the offline run evidence when one ran. */
-interface AuthoredArtifact {
+export interface AuthoredArtifact {
   decision: Decision
   reason: string
   graph?: AuthoredGraphSpec
@@ -188,14 +189,14 @@ function extractJson(text: string): string {
   return stripped.slice(start, end + 1)
 }
 
-async function callAuthor(prompt: string): Promise<string> {
+export async function callAuthor(prompt: string, temperature = 0.2, maxTokens = 6000): Promise<string> {
   const res = await fetch(ROUTER_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${routerToken()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: AUTHOR_MODEL,
-      temperature: 0.2,
-      max_tokens: 6000,
+      temperature,
+      max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
     signal: AbortSignal.timeout(240_000),
@@ -346,7 +347,7 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
 
 /** CLOSURE A — `dispatchWithSurface(surface, scenario)`: author from the skill text, lower,
  *  execute offline. A refusal is data (`validationError`), never a crash. */
-async function dispatchWithSurface(surface: string, scenario: CaseSpec): Promise<AuthoredArtifact> {
+export async function dispatchWithSurface(surface: string, scenario: CaseSpec): Promise<AuthoredArtifact> {
   const reply = await authorOnce(surface, scenario)
   const artifact: AuthoredArtifact = {
     decision: reply.decision,
@@ -418,7 +419,7 @@ function ledgerTraversals(run: OfflineRunSummary | undefined, edgePrefix: string
 
 /** CLOSURE B — deterministic `JudgeConfig`-style scorer: each `expect` entry becomes one
  *  mechanical check; score = satisfied / total, equal weights. */
-function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { score: number; reasons: string[] } {
+export function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { score: number; reasons: string[] } {
   const e = kase.expect
   const g = artifact.graph
   const checks: Check[] = []
@@ -692,7 +693,12 @@ async function main(): Promise<void> {
   console.log(wrote ? `written: ${OUT_PATH}` : 'subset run (CASE set) — baseline artifact NOT written')
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? (err.stack ?? err.message) : String(err))
-  process.exit(1)
-})
+// Run the baseline only when executed directly; gen2 imports this module for its closures.
+const invokedDirectly =
+  process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolvePath(process.argv[1])
+if (invokedDirectly) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err))
+    process.exit(1)
+  })
+}

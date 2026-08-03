@@ -1,0 +1,375 @@
+{
+  "generation": 2,
+  "date": "2026-08-03T18:30:56.917Z",
+  "smoke": false,
+  "authorModel": "glm-5.2",
+  "authorTemperature": 0.2,
+  "proposerModel": "glm-5.2",
+  "proposerTemperature": 0.7,
+  "split": {
+    "train": [
+      "floor-trap-pi",
+      "review-pipeline",
+      "single-agent-suffices",
+      "cap-as-stop-mistake",
+      "runtime-discovered-fanout"
+    ],
+    "holdout": [
+      "mission-in-deliverable",
+      "steer-heavy-drafting",
+      "unmeasured-harness"
+    ]
+  },
+  "k": 3,
+  "seed": 42,
+  "surfaces": {
+    "v1Sha256": "582429a1ac2e488489e6096f2d0459f83d126316eb451bb4c3c079306be97a36",
+    "v2Sha256": "4c6615b6164f6c5a86efb2596556bdf325d33f08a4e1715cae9d71cb28b6255e",
+    "v2Label": "gen2-revision"
+  },
+  "perCase": {
+    "v1": {
+      "train": {
+        "floor-trap-pi": [
+          {
+            "rep": 0,
+            "score": 0,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 1,
+            "score": 0,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 2,
+            "score": 0,
+            "decision": "single-agent"
+          }
+        ],
+        "review-pipeline": [
+          {
+            "rep": 0,
+            "score": 0.6,
+            "decision": "graph"
+          },
+          {
+            "rep": 1,
+            "score": 0,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "graph"
+          }
+        ],
+        "single-agent-suffices": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 1,
+            "score": 1,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "single-agent"
+          }
+        ],
+        "cap-as-stop-mistake": [
+          {
+            "rep": 0,
+            "score": 0,
+            "decision": "dynamic-workflow"
+          },
+          {
+            "rep": 1,
+            "score": 0,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 2,
+            "score": 0,
+            "decision": "dynamic-workflow"
+          }
+        ],
+        "runtime-discovered-fanout": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "dynamic-workflow"
+          },
+          {
+            "rep": 1,
+            "score": 1,
+            "decision": "dynamic-workflow"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "dynamic-workflow"
+          }
+        ]
+      },
+      "holdout": {
+        "mission-in-deliverable": [
+          {
+            "rep": 0,
+            "score": 0,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 1,
+            "score": 0,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 2,
+            "score": 0,
+            "decision": "single-agent"
+          }
+        ],
+        "steer-heavy-drafting": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 1,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "graph"
+          }
+        ],
+        "unmeasured-harness": [
+          {
+            "rep": 0,
+            "score": 0,
+            "decision": "graph"
+          },
+          {
+            "rep": 1,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 2,
+            "score": 0,
+            "decision": "single-agent"
+          }
+        ]
+      }
+    },
+    "v2": {
+      "train": {
+        "floor-trap-pi": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 1,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "graph"
+          }
+        ],
+        "review-pipeline": [
+          {
+            "rep": 0,
+            "score": 0.8,
+            "decision": "graph"
+          },
+          {
+            "rep": 1,
+            "score": 0.8,
+            "decision": "graph"
+          },
+          {
+            "rep": 2,
+            "score": 0.8,
+            "decision": "graph"
+          }
+        ],
+        "single-agent-suffices": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 1,
+            "score": 1,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "single-agent"
+          }
+        ],
+        "cap-as-stop-mistake": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "graph"
+          }
+        ],
+        "runtime-discovered-fanout": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "dynamic-workflow"
+          },
+          {
+            "rep": 1,
+            "score": 1,
+            "decision": "dynamic-workflow"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "dynamic-workflow"
+          }
+        ]
+      },
+      "holdout": {
+        "mission-in-deliverable": [
+          {
+            "rep": 0,
+            "score": 0,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 1,
+            "score": 0,
+            "decision": "single-agent"
+          },
+          {
+            "rep": 2,
+            "score": 0,
+            "decision": "single-agent"
+          }
+        ],
+        "steer-heavy-drafting": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 1,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "graph"
+          }
+        ],
+        "unmeasured-harness": [
+          {
+            "rep": 0,
+            "score": 1,
+            "decision": "graph"
+          },
+          {
+            "rep": 1,
+            "score": 0.5,
+            "decision": "graph"
+          },
+          {
+            "rep": 2,
+            "score": 1,
+            "decision": "graph"
+          }
+        ]
+      }
+    }
+  },
+  "aggregates": {
+    "v1": {
+      "trainMean": 0.5066666666666666,
+      "holdoutMean": 0.4444444444444444
+    },
+    "v2": {
+      "trainMean": 0.9600000000000002,
+      "holdoutMean": 0.6111111111111112
+    }
+  },
+  "degenerateCheck": {
+    "single-agent-suffices": {
+      "v1": 1,
+      "v2": 1
+    },
+    "runtime-discovered-fanout": {
+      "v1": 1,
+      "v2": 1
+    }
+  },
+  "upstreamGate": {
+    "decision": "hold",
+    "reasons": [
+      "no candidate beat the training baseline \u2014 winner == baseline (empty diff); nothing to promote"
+    ],
+    "contributingGates": [
+      {
+        "name": "no-op-guard",
+        "status": "fail",
+        "detail": {
+          "winnerIsBaseline": true
+        }
+      }
+    ],
+    "delta": 0
+  },
+  "upstreamWinnerWasCandidate": false,
+  "gateVerdict": "ship",
+  "promoted": true,
+  "revisionPromptSha256": "1458f9af4bf0252afc5fbe764c998c6b08f8c994673b5f0b7909701b983ee4ec",
+  "v2Surface": "---\nname: agent-graphs\ndescription: Author runGraph programs from AgentProfiles and versioned prompt directives.\n---\n\n# Agent graphs\n\nUse this skill when every role is known before execution and the relationship between roles must be reviewable as data.\nThe output is an `AgentGraph` executed by `runGraph`, not a new coordinator or workflow framework.\n\n## Choose the existing entry point\n\n| Need | Use |\n| --- | --- |\n| Known roles with versioned work and analysis instructions | `runGraph` |\n| A standard fixed shape such as parallel attempts, a chain, or a review panel | `fanout`, `pipeline`, `verify`, or `panel` |\n| A model decides which workers to create while it works | `supervise` |\n| One profile can complete the task directly | Run that profile without composition |\n\nDo not force a dynamic task into a static graph.\nDo not use a graph when a smaller shipped primitive already expresses the work.\n\n### Strict authoring decisions (Do not under-graph)\n\n- **Cheapness is not the dialect test:** Do not bail to `single-agent` just because a brief sounds trivial (e.g., \"write a one-line file\"). If the brief implies roles, observers, or a specific tight budget, author the graph.\n- **Budget Floor Traps:** If a brief demands an impossibly \"tight\" budget (e.g., a few thousand tokens), do not dodge it by dropping to `single-agent`. Author the graph and explicitly set `budget` to the valid measured executor floor.\n- **Identical-Role Parallelism:** If a brief requests N parallel instances of the same role, you MUST create N distinct worker nodes and N `delegates` edges. Do not collapse identical parallel workers into a single node.\n- **Mandatory Analysts:** If a brief requires independent observation, review, or post-settle findings (e.g., \"neutral decider\", \"review by two perspectives\", \"watch the worker\"), you MUST author `analyzes` edges. Do not omit analysts and attempt to merge their logic into the root's prompt.\n- **Caps are not stops:** Do not use an analysis edge `maxTraversals` cap as a global stop condition. To stop after N findings, use `deliverable.check` or `maxTraversals` on a `delegates` edge.\n\n## Author the complete contract\n\nAn `AgentGraph` has four required fields: `nodes`, `edges`, `deliverable`, and `budget`.\n`runGraph(graph, options)` validates graph structure and prompt references before it spends compute.\n\n### Nodes\n\nEach node is `{ id, profile }`, where `profile` is a complete canonical `AgentProfile`.\nSet `profile.name` equal to `id` because Runtime uses that value to select and route the node.\nPut the standing role in `profile.prompt.systemPrompt` and capabilities in the profile's tools, MCP, resources, hooks, and subagents.\nDo not rebuild profile materialization in graph code.\n\n### Delegation edges\n\nA delegation edge is `{ kind: 'delegates', from, to, directive, maxTraversals? }`.\nThe directive is a registered, versioned `PromptHandle`, such as `promptHandle('delegates/research-brief/v1')`.\nEach spawn and each later steer over the same edge consumes one traversal.\nThe default cap is `defaultEdgeTraversalCap`; exhaustion refuses further delegation.\n\nThe current graph form has one root and a static set of worker nodes.\nEvery delegation edge starts at the root, and each worker has exactly one incoming delegation edge.\nUse a new directive version to change a brief instead of adding a second edge to the same worker.\n\n### Analysis edges\n\nAn analysis edge is `{ kind: 'analyzes', analyst, over, to, directive, maxTraversals? }`.\nIt runs after a listed worker settles and routes findings to one node.\n\n`analyst` has two supported forms:\n\n- A lens id from `options.analysts` runs a caller-supplied analysis function.\n- A graph node id runs that node's pinned `AgentProfile` as a tool-equipped analyst.\n\nAn analyst node has no incoming delegation edge, so the root cannot hand it ordinary work.\nAn id cannot be both a registered lens and an analyst node.\n`over` lists delegated worker nodes only; Runtime refuses the root and analyst nodes because neither settles as an ordinary worker.\nAn analysis traversal cap records excess findings as `unpropagated`; it does not stop the run.\n\n### Completion and budget\n\n`deliverable.check(output)` is the independent completion test.\nIt must accept a genuinely complete result and reject junk.\nPut the concrete mission in `deliverable.describe`; Runtime uses that text as the root's task.\n\n`budget` is one conserved pool for the full graph.\nSet `options.perWorker` explicitly from the actual executor cost.\nFor Pi, `WORKER_TOKEN_FLOOR.pi` is 31,211 input tokens before useful work, so a worker allocation below that value is refused. If a brief asks for a budget lower than the floor, do not switch to `single-agent`; output the graph with the floor allocation.\nTreat an unmeasured executor floor as unknown rather than zero.\nAnalyst nodes spend from the same pool and need the same honest accounting as ordinary workers.\n\n## Authoring procedure\n\n1. **Classify correctly:** Verify if this needs `single-agent`, `dynamic-workflow`, or a static `runGraph`. If independent review or parallel workers are requested, use `runGraph`.\n2. **Define completion first:** Write the completion test and its description.\n3. **Select entry point:** Choose the smallest shipped entry point from the table above.\n4. **Define Roles:** Give every distinct role one complete `AgentProfile`. If N parallel instances of a role are requested, create N nodes. Merge roles only if their standing prompts and capabilities are identical.\n5. **Register directives:** Register a versioned directive for every edge.\n6. **Delegate work:** Add one delegation edge per ordinary worker from the root.\n7. **Attach analysts:** Add `analyzes` edges only when findings must be produced independently after a worker settles. Do not skip this if the brief asked for a watcher/reviewer.\n8. **Size the pool:** Set budget, per-worker allocation, traversal caps, time, and concurrency from measured executor behavior. Ensure budgets meet the executor floor.\n9. **Prove and inspect:** Run the structure offline, then run the real backend and inspect its result.\n\n## Prove the graph before spending\n\nUse an injected `brain` plus `makeWorkerAgent` to exercise graph structure without a network call.\nCover invalid profiles, unknown directives, impossible analysis routes, traversal exhaustion, successful completion, and rejected junk.\nStart from the runnable programs in `examples/graphs/` rather than creating a second graph runner.\n\nOffline execution proves control flow only.\nA real task must still use the intended backend, profiles, tools, completion test, and budget before claiming the graph solves that task.\n\n## Read the complete result\n\n| Field | Meaning |\n| --- | --- |\n| `result.result.kind` and `reason` | Whether a result won and why execution ended |\n| `result.result.spentTotal` | Tokens and money, including whether each total is known |\n| `result.ledger` | Every delivered, stripped, empty, or unpropagated edge traversal with byte counts |\n| `result.exhaustedEdges` | Every edge whose cap was reached, including normal lifecycle endings |\n| Journal `edge` events | Durable copies of traversal evidence |\n\nZero traversals on an expected edge means the graph did not exercise that relationship.\n`usdKnown: false` means cost is missing, not free.\nA passing completion test proves only what that test checks.\n\n## Common mistakes\n\n- Bailing to `single-agent` because a brief sounds trivial, instead of respecting requested roles or applying budget floors.\n- Collapsing N requested parallel identical roles into a single worker node.\n- Skipping `analyzes` edges when an observer or reviewer is explicitly requested.\n- Putting the task only in a spawn prompt instead of `deliverable.describe`.\n- Giving a node a `profile.name` different from its id.\n- Delegating ordinary work to an analyst node.\n- Listing the root or an analyst node in `analyzes.over`.\n- Using an analysis cap as a stop condition.\n- Allowing a driver-authored spawn profile to add capabilities instead of defining them on the pinned node profile.\n- Reading only thrown cap errors and missing `result.exhaustedEdges` on budget or cancellation endings.\n- Treating unknown spend as zero.\n- Claiming recursive or runtime-discovered structure when the current graph is a static root with workers and analysts.\n\n## Improve only after measurement\n\nRuntime already optimizes one inline skill through `improve(profile, { surface: 'skills', skills: { resourceName }, ... })`.\nPut the exact skill bytes in `profile.resources.skills`, set `profile.resources.failOnError: true`, supply disjoint development and final-test tasks, and pass a complete Agent Eval optimization method.\nDo not create a graph-specific optimizer, campaign runner, candidate store, or promotion path.\n\n## Then consider\n\n- `loop-writer` when the required dynamic structure still cannot be expressed by `supervise` or another shipped primitive; pass the exact missing behavior and the completion test.\n- `verify` before publishing a graph consumer; pass the real backend command, expected result fields, and failure cases.\n",
+  "cellFailures": [
+    {
+      "arm": "v2-train",
+      "case": "cap-as-stop-mistake",
+      "rep": 1,
+      "stage": "dispatch",
+      "error": "router HTTP 503 platform_unreachable on both attempts (transient)",
+      "consequence": "upstream runImprovementLoop marked the candidate coverage-incomplete and kept the baseline as winner; v2-on-holdout was therefore measured by a supplementary runEval with identical judge, reps, and seed"
+    }
+  ],
+  "gapFill": {
+    "case": "cap-as-stop-mistake",
+    "arm": "v2-train",
+    "method": "single direct re-dispatch of the identical v2 surface + judge after the campaign",
+    "score": 1.0,
+    "decision": "graph",
+    "note": "with this rep, cap-as-stop v2 mean = 1.0 and v2 train mean = 0.96; official aggregates keep the campaign-measured cells only (n disclosed)"
+  },
+  "worstCaseImputation": {
+    "v2TrainMeanWithMissingRepAsZero": 0.8933,
+    "gateInvariant": true,
+    "note": "ship verdict unchanged even scoring the failed cell as 0"
+  }
+}
