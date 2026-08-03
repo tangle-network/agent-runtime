@@ -30,6 +30,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { runBenchRouterTurn } from '../router-turn'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -195,23 +196,20 @@ async function gradeAnswer(
   predicted: string,
   router: GraderRouter,
 ): Promise<Grade> {
-  const res = await fetch(`${router.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${router.key}` },
-    body: JSON.stringify({
-      model: router.model,
+  const turn = await runBenchRouterTurn(
+    {
+      routerBaseUrl: router.baseUrl,
+      routerKey: router.key,
+      profile: {
+        name: 'simpleqa-grader',
+        model: { provider: 'tangle-router', default: router.model },
+      },
       temperature: 0,
-      messages: [{ role: 'user', content: GRADER_PROMPT(question, gold, predicted) }],
-    }),
-  })
-  if (!res.ok) {
-    throw new Error(`SimpleQA grader HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  }
-  const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  const content = body.choices?.[0]?.message?.content
-  if (typeof content !== 'string') {
-    throw new Error(`SimpleQA grader returned no message content: ${JSON.stringify(body).slice(0, 300)}`)
-  }
+    },
+    GRADER_PROMPT(question, gold, predicted),
+  )
+  const content = turn.finalText
+  if (!content) throw new Error('SimpleQA grader returned no message content')
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/)
   const raw = (fenced ? fenced[1] : content)?.trim() ?? ''
   let parsed: { grade?: unknown }

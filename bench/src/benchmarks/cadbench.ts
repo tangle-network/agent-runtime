@@ -14,6 +14,7 @@
 import { readFile } from 'node:fs/promises'
 import type { BenchScore, BenchTask, BenchmarkAdapter, LoadOptions } from './types'
 import { renderBpy } from '../worker-blender'
+import { runBenchRouterTurn } from '../router-turn'
 
 interface CadBenchMeta {
   name: string
@@ -48,14 +49,20 @@ async function judgeCriteria(
     `Return ONLY a JSON array of exactly ${criteria.length} booleans (true=satisfied, false=not), in order, no prose.\n\nCRITERIA:\n${numbered}\n\nSCRIPT:\n\`\`\`python\n${script.slice(0, 6000)}\n\`\`\``
   const content: unknown[] = [{ type: 'text', text }]
   for (const url of renders) content.push({ type: 'image_url', image_url: { url } })
-  const res = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, max_tokens: 1500, temperature: 0, messages: [{ role: 'user', content }] }),
-  })
-  if (!res.ok) throw new Error(`judge ${model} ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  const raw = data.choices?.[0]?.message?.content ?? ''
+  const turn = await runBenchRouterTurn(
+    {
+      routerBaseUrl: base,
+      routerKey: key,
+      profile: {
+        name: 'cadbench-vision-judge',
+        model: { provider: 'tangle-router', default: model },
+      },
+      temperature: 0,
+      maxTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 1500),
+    },
+    { messages: [{ role: 'user', content }] },
+  )
+  const raw = turn.finalText
   const m = /\[\s*(?:true|false)[\s\S]*?\]/i.exec(raw)
   if (!m) return { passed: criteria.map(() => false), note: `judge returned no parseable verdict: ${raw.slice(0, 80)}` }
   let arr: unknown

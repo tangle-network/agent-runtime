@@ -141,6 +141,68 @@ export function gateOnDeliverable<Out>(
   return inheritRuntimeOwnedExecutorAttestation(inner, wrapped)
 }
 
+export interface ExecutorResultMapping<Out> {
+  outRef: string
+  out: Out
+  verdict?: DefaultVerdict
+}
+
+/**
+ * Transform a Runtime executor's terminal artifact without losing its private
+ * profile-materialization attestation or altering its measured spend. This is
+ * the composition point for deterministic post-processing and grading; callers
+ * must not rebuild an Executor around a model transport merely to change `out`.
+ */
+export function mapExecutorResult<In, Out>(
+  inner: Executor<In>,
+  map: (
+    result: ExecutorResult<In>,
+    task: unknown,
+  ) => ExecutorResultMapping<Out> | Promise<ExecutorResultMapping<Out>>,
+): Executor<Out> {
+  let mapped: ExecutorResult<Out> | undefined
+
+  const settle = async (
+    result: ExecutorResult<In>,
+    task: unknown,
+  ): Promise<ExecutorResult<Out>> => {
+    const transformed = await map(result, task)
+    mapped = {
+      outRef: transformed.outRef,
+      out: transformed.out,
+      ...(transformed.verdict ? { verdict: transformed.verdict } : {}),
+      spent: result.spent,
+    }
+    return mapped
+  }
+
+  const wrapped: Executor<Out> = {
+    runtime: inner.runtime,
+    ...(inner.budgetExempt !== undefined ? { budgetExempt: inner.budgetExempt } : {}),
+    ...(inner.deliver ? { deliver: (message: unknown) => inner.deliver?.(message) } : {}),
+    ...(inner.progress ? { progress: () => inner.progress?.() } : {}),
+    ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
+    ...(inner.accounting ? { accounting: () => inner.accounting?.() } : {}),
+    ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
+    execute(task, signal) {
+      const execution = inner.execute(task, signal)
+      if (isAsyncIterable(execution)) {
+        return (async function* () {
+          for await (const event of execution) yield event
+          await settle(inner.resultArtifact(), task)
+        })()
+      }
+      return (async () => settle(await execution, task))()
+    },
+    teardown: (grace) => inner.teardown(grace),
+    resultArtifact() {
+      if (!mapped) throw new Error('mapExecutorResult: resultArtifact() read before execute()')
+      return mapped
+    },
+  }
+  return inheritRuntimeOwnedExecutorAttestation(inner, wrapped)
+}
+
 function isAsyncIterable(v: unknown): v is AsyncIterable<UsageEvent> {
   return (
     v != null &&

@@ -12,12 +12,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { ToolSpec } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from './router-turn'
 
 const exec = promisify(execFile)
 
 export const tail = (s: string, n: number): string => (s.length > n ? `…${s.slice(s.length - n)}` : s)
 
-// ---------- zai chat client (plain fetch; patient 429 ladder) ----------
+// ---------- zai chat client (Runtime transport; patient 429 ladder) ----------
 
 export interface ZaiCfg {
   base: string
@@ -30,9 +33,9 @@ export interface ZaiCfg {
 }
 
 export interface ZaiRaw {
-  /** The parsed /chat/completions JSON, verbatim. */
+  /** The OpenAI-compatible message and usage fields expected by existing SWE callers. */
   json: Record<string, unknown>
-  /** HTTP attempts spent (retries included). */
+  /** Runtime completion attempts spent (retries included). */
   attempts: number
 }
 
@@ -44,7 +47,29 @@ export interface ZaiRaw {
  * tool_calls — is the glm reasoning path starving `content` when reasoning eats max_tokens, and is
  * retried too (a tool_calls turn with empty content is a NORMAL tool-loop turn, not starvation).
  */
-export async function zaiChatRaw(cfg: ZaiCfg, body: Record<string, unknown>): Promise<ZaiRaw> {
+export async function zaiChatRaw(
+  cfg: ZaiCfg,
+  body: Record<string, unknown>,
+  profile: AgentProfile,
+): Promise<ZaiRaw> {
+  const {
+    model,
+    messages,
+    tools,
+    temperature,
+    max_tokens: maxTokens,
+    tool_choice: toolChoice,
+    ...extraBody
+  } = body
+  if (typeof model !== 'string' || model.length === 0) {
+    throw new Error('completion body.model must be a non-empty string')
+  }
+  if (!Array.isArray(messages)) throw new Error('completion body.messages must be an array')
+  const typedTools = Array.isArray(tools) ? (tools as ToolSpec[]) : []
+  const typedToolChoice =
+    toolChoice === 'auto' || toolChoice === 'required' || toolChoice === 'none'
+      ? toolChoice
+      : undefined
   let lastErr = ''
   let delayBase = 2_000
   for (let attempt = 1; attempt <= 7; attempt += 1) {
@@ -63,30 +88,70 @@ export async function zaiChatRaw(cfg: ZaiCfg, body: Record<string, unknown>): Pr
     const ctl = new AbortController()
     const timer = setTimeout(() => ctl.abort(), perCallTimeout)
     try {
-      const res = await fetch(`${cfg.base}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: ctl.signal,
-      })
-      if (!res.ok) {
-        lastErr = `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`
-        delayBase = res.status === 429 ? 60_000 : 2_000
-        continue
+      const result = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.base,
+          routerKey: cfg.key,
+          profile,
+          ...(typeof temperature === 'number' ? { temperature } : {}),
+          ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
+          ...(typedToolChoice ? { toolChoice: typedToolChoice } : {}),
+          tools: typedTools,
+          extraBody,
+          signal: ctl.signal,
+        },
+        { messages: messages as Array<Record<string, unknown>> },
+      )
+      const toolCalls = result.toolCalls.map((call, index) => ({
+        id: call.id ?? `call_${index}`,
+        name: call.name,
+        arguments: call.arguments,
+      }))
+      const message = {
+        role: 'assistant',
+        content: toolCalls.length > 0 && result.finalText === '' ? null : result.finalText,
+        ...(toolCalls.length > 0
+          ? {
+              tool_calls: toolCalls.map((call) => ({
+                id: call.id,
+                type: 'function',
+                function: { name: call.name, arguments: call.arguments },
+              })),
+            }
+          : {}),
       }
-      const json = (await res.json()) as Record<string, unknown>
-      const msg = ((json.choices as Array<{ message?: Record<string, unknown> }> | undefined)?.[0]?.message ?? {}) as {
-        content?: string
-        tool_calls?: unknown[]
-      }
-      const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0
-      if (!hasToolCalls && String(msg.content ?? '').trim() === '') {
+      if (toolCalls.length === 0 && result.finalText.trim() === '') {
         lastErr = 'empty content'
         continue
+      }
+      const finalEvent = result.events.at(-1)
+      const finishReason =
+        finalEvent?.type === 'final'
+          ? finalEvent.reason
+          : toolCalls.length > 0
+            ? 'tool_calls'
+            : 'stop'
+      const json: Record<string, unknown> = {
+        choices: [
+          {
+            message,
+            finish_reason: finishReason,
+          },
+        ],
+        ...(result.usage.tokensKnown !== false
+          ? {
+              usage: {
+                prompt_tokens: result.usage.input,
+                completion_tokens: result.usage.output,
+              },
+            }
+          : {}),
       }
       return { json, attempts: attempt }
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e)
+      const status = Number(/router (\d+)/.exec(lastErr)?.[1])
+      delayBase = status === 429 ? 60_000 : 2_000
     } finally {
       clearTimeout(timer)
     }

@@ -12,7 +12,10 @@
  * `answerOutput`/the kernel's cost ledger already parse — no sessions, no fs,
  * no fork (those degrade gracefully via the optional `SandboxClient` methods).
  */
+
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { ValidationError } from '../errors'
 import type { AgentSpec, Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
 import type { SandboxClient } from './types'
 
@@ -41,7 +44,10 @@ async function settle(
  * instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
  * run once on the prompt, emit the terminal result event, tear down.
  */
-export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxClient {
+export function inlineSandboxClient(
+  factory: ExecutorFactory<unknown>,
+  defaults: { profile?: AgentProfile } = {},
+): SandboxClient {
   let seq = 0
   return {
     async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
@@ -70,10 +76,26 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
             if (callerSignal.aborted) onAbort()
             else callerSignal.addEventListener('abort', onAbort, { once: true })
           }
-          const spec: AgentSpec = { profile: { name: id }, harness: null }
+          const requestedProfile =
+            defaults.profile ??
+            (options?.backend && typeof options.backend === 'object'
+              ? (options.backend as { profile?: unknown }).profile
+              : undefined)
+          const parsedProfile = agentProfileSchema.safeParse(requestedProfile)
+          if (!parsedProfile.success) {
+            throw new Error(
+              'inlineSandboxClient: an exact AgentProfile is required; pass defaults.profile or create({ backend: { profile } })',
+            )
+          }
+          const spec: AgentSpec = { profile: parsedProfile.data, harness: null }
           const exec = factory(spec, { signal: controller.signal, seams: { createOptions } })
           try {
             const artifact = await settle(exec, message, controller.signal)
+            if (artifact.spent.tokensKnown === false || artifact.spent.usdKnown === false) {
+              throw new ValidationError(
+                'inlineSandboxClient: cannot project unknown executor usage through SandboxEvent without turning unknown into zero',
+              )
+            }
             const out = artifact.out as { content?: string } | undefined
             // Speak the runtime's metering protocol: `extractLlmCallEvent` reads
             // flat `llm_call` events, not the nested result payload — without

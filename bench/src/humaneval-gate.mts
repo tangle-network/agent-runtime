@@ -43,7 +43,8 @@
 
 import { composeStrategies } from './directives'
 import { basePrompt, type CheckResult, extractCode, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
-import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import type { RouterConfig } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from './router-turn'
 import { selfConsistencySelect, verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 
@@ -110,10 +111,19 @@ async function main(): Promise<void> {
   console.log(`\n▶ solving ${units.length} attempts (${tasks.length} tasks × ${k} shots × 2 arms) via router, conc=${solveConcurrency}`)
 
   const codes = await pool(units, solveConcurrency, async (u) => {
-    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: u.prompt }], {
-      temperature: Number(process.env.TEMPERATURE ?? '0.8'),
-    })
-    return extractCode(typeof res.content === 'string' ? res.content : '')
+    const res = await runBenchRouterTurn(
+      {
+        routerBaseUrl: cfg.routerBaseUrl,
+        routerKey: cfg.routerKey,
+        profile: {
+          name: 'humaneval-gate-worker',
+          model: { provider: 'tangle-router', default: cfg.model },
+        },
+        temperature: Number(process.env.TEMPERATURE ?? '0.8'),
+      },
+      u.prompt,
+    )
+    return extractCode(res.finalText)
   })
 
   console.log(`▶ running ${codes.length} candidates through the Docker deployable checker, conc=${dockerConcurrency}`)

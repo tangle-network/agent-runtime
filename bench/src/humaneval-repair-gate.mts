@@ -20,9 +20,16 @@
  *     tsx src/humaneval-repair-gate.mts
  */
 import { type HumanEvalTask, basePrompt, extractCode, loadHumanEval, runChecker } from './benchmarks/humaneval'
-import { type RouterConfig, type ToolSpec, routerChatWithUsage, routerToolLoop } from '@tangle-network/agent-runtime/kernel'
+import {
+  collectAgentTurn,
+  createExecutor,
+  streamAgentTurn,
+  type RouterConfig,
+  type ToolSpec,
+} from '@tangle-network/agent-runtime/kernel'
 import { verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
+import { runBenchRouterTurn } from './router-turn'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -53,12 +60,19 @@ const repairSystem = [
 /** repair@K: one worker, up to K inference turns, steering on real test failures. */
 async function repairAttempt(cfg: RouterConfig, task: HumanEvalTask, k: number): Promise<number> {
   let lastTested = ''
-  const r = await routerToolLoop(
-    cfg,
-    repairSystem,
-    basePrompt(task),
-    [runTestsTool],
-    async (name, args) => {
+  const profile = {
+    name: 'humaneval-repair-worker',
+    model: { provider: 'tangle-router', default: cfg.model },
+    prompt: { systemPrompt: repairSystem },
+    tools: { run_tests: true },
+  }
+  const factory = createExecutor({
+    backend: 'router-tools',
+    routerBaseUrl: cfg.routerBaseUrl,
+    routerKey: cfg.routerKey,
+    model: cfg.model,
+    tools: [runTestsTool],
+    executeToolCall: async (name, args) => {
       if (name !== 'run_tests') return `error: unknown tool ${name}`
       const code = extractCode(String(args.code ?? ''))
       lastTested = code
@@ -67,11 +81,18 @@ async function repairAttempt(cfg: RouterConfig, task: HumanEvalTask, k: number):
         ? 'ALL TESTS PASSED. Reply with the final function now; do not call run_tests again.'
         : `TESTS FAILED:\n${res.detail ?? 'no output'}\n\nFix the function and call run_tests again.`
     },
-    { maxTurns: k, temperature: 0.3 },
+    maxTurns: k,
+    temperature: 0.3,
+  })
+  const r = await collectAgentTurn(
+    streamAgentTurn({ kind: 'executor', factory, profile }, basePrompt(task)),
   )
+  if (r.status !== 'completed') {
+    throw new Error(r.error?.message ?? `repair turn ended with status ${r.status}`)
+  }
   // Judge the model's final answer; fall back to the last code it tested (it may
   // report "done" without re-pasting the passing function).
-  const finalCode = extractCode(r.final) || lastTested
+  const finalCode = extractCode(r.finalText) || lastTested
   if (!finalCode) return 0
   return (await runChecker(task, finalCode)).pass
 }
@@ -81,8 +102,19 @@ async function blindAttempts(cfg: RouterConfig, task: HumanEvalTask, k: number):
   const base = basePrompt(task)
   const passes: number[] = []
   for (let i = 0; i < k; i += 1) {
-    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: base }], { temperature: 0.8 })
-    passes.push((await runChecker(task, extractCode(res.content))).pass)
+    const res = await runBenchRouterTurn(
+      {
+        routerBaseUrl: cfg.routerBaseUrl,
+        routerKey: cfg.routerKey,
+        profile: {
+          name: 'humaneval-blind-worker',
+          model: { provider: 'tangle-router', default: cfg.model },
+        },
+        temperature: 0.8,
+      },
+      base,
+    )
+    passes.push((await runChecker(task, extractCode(res.finalText))).pass)
   }
   return passes
 }

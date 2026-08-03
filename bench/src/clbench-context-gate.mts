@@ -36,7 +36,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { composeStrategies } from './directives'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
-import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import type { RouterConfig } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from './router-turn'
 import { selfConsistencySelect, verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 
@@ -162,8 +163,19 @@ async function judgeRubrics(cfg: RouterConfig, task: CtxTask, output: string): P
   // NOT throw — one bad grade would otherwise crash the whole N×K×2 run. graded=0
   // marks it as judge-failed so it's distinguishable from a real 0/N rubric pass.
   try {
-    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: judgePrompt(rubricsText, output) }], { temperature: 0 })
-    return parseJudge(typeof res.content === 'string' ? res.content : '', task.rubrics.length)
+    const res = await runBenchRouterTurn(
+      {
+        routerBaseUrl: cfg.routerBaseUrl,
+        routerKey: cfg.routerKey,
+        profile: {
+          name: 'clbench-rubric-judge',
+          model: { provider: 'tangle-router', default: cfg.model },
+        },
+        temperature: 0,
+      },
+      judgePrompt(rubricsText, output),
+    )
+    return parseJudge(res.finalText, task.rubrics.length)
   } catch {
     return { fraction: 0, allPass: false, graded: 0 }
   }
@@ -213,8 +225,21 @@ async function main(): Promise<void> {
   }
   console.log(`\n▶ solving ${units.length} attempts (${tasks.length} tasks × ${k} shots × 2 arms) via router, conc=${solveConcurrency}`)
   const outputs = await pool(units, solveConcurrency, async (u) => {
-    const res = await routerChatWithUsage(workerCfg, u.messages, { temperature: Number(process.env.TEMPERATURE ?? '0.8') })
-    return typeof res.content === 'string' ? res.content : ''
+    const system = u.messages.find((message) => message.role === 'system')?.content
+    const res = await runBenchRouterTurn(
+      {
+        routerBaseUrl: workerCfg.routerBaseUrl,
+        routerKey: workerCfg.routerKey,
+        profile: {
+          name: 'clbench-context-worker',
+          model: { provider: 'tangle-router', default: workerCfg.model },
+          ...(system ? { prompt: { systemPrompt: system } } : {}),
+        },
+        temperature: Number(process.env.TEMPERATURE ?? '0.8'),
+      },
+      { messages: u.messages.filter((message) => message.role !== 'system') },
+    )
+    return res.finalText
   })
 
   console.log(`▶ grading ${outputs.length} completions with the rubric judge (${judgeModel}), conc=${solveConcurrency}`)

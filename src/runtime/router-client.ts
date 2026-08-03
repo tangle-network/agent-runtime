@@ -11,6 +11,7 @@
  */
 
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
+import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 
@@ -27,7 +28,7 @@ export interface RouterConfig {
    */
   complete?: (body: Record<string, unknown>) => Promise<unknown>
   /**
-   * Ceiling for one completion, forwarded as `max_tokens`. Defaults to 8192.
+   * Optional ceiling for one completion, forwarded as `max_tokens`.
    *
    * A REASONING model spends this budget on hidden thinking BEFORE it emits a visible token, so
    * the default can truncate one mid-thought and return no content at all — observed live with a
@@ -79,16 +80,25 @@ export interface RouterChatResult {
   usage?: { input: number; output: number }
   /** Derived from usage via `estimateCost` when the model is priced; else undefined. */
   costUsd?: number
+  /** Provider terminal reason (`stop`, `length`, ...), when reported. */
+  finishReason?: string
 }
 
 /** One OpenAI-compatible chat completion through the Tangle router, returning text + REAL token usage (`undefined` when the provider omits it — never a fabricated 0). */
 export async function routerChatWithUsage(
   cfg: RouterConfig,
-  messages: Array<{ role: string; content: string }>,
+  messages: ReadonlyArray<{ role: string; content: unknown }>,
   opts?: {
     temperature?: number
     signal?: AbortSignal
     maxTokens?: number
+    /** OpenAI-compatible deterministic seed. Omit when the provider does not support it. */
+    seed?: number
+    /**
+     * Provider-specific request fields such as Z.AI's `thinking` object.
+     * Canonical fields are written after these extras and cannot be overridden here.
+     */
+    extraBody?: Readonly<Record<string, unknown>>
     /**
      * Reasoning control for thinking models, forwarded as `reasoning_effort`.
      * 'none' is the load-bearing value: binary/single-token decisions (routing,
@@ -97,19 +107,29 @@ export async function routerChatWithUsage(
      * timeout, not just waste. Providers that ignore the field are handled by
      * the reasoning/content split in `parseChatResult`.
      */
-    reasoningEffort?: 'none' | 'low' | 'medium' | 'high'
+    reasoningEffort?: ReasoningEffort
   },
 ): Promise<RouterChatResult> {
   const url = `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` }
   let temperature = opts?.temperature ?? 0.2
-  // max_tokens default is generous: THINKING models (kimi-k2.6) spend the budget on
-  // reasoning_content first — a small router default yields EMPTY content.
+  const maxTokens = opts?.maxTokens ?? cfg.maxTokens
   const body = (): Record<string, unknown> => ({
+    ...providerRequestExtras(opts?.extraBody, [
+      'model',
+      'messages',
+      'temperature',
+      'max_tokens',
+      'seed',
+      'reasoning_effort',
+      'stream',
+      'stream_options',
+    ]),
     model: cfg.model,
     messages,
     temperature,
-    max_tokens: opts?.maxTokens ?? 8192,
+    ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
   })
   // Injected transport short-circuits the network: the offline benchmark seam. It owns its own
@@ -151,6 +171,7 @@ function parseChatResult(json: unknown, model: string): RouterChatResult {
   const data = json as {
     choices?: Array<{
       message?: { content?: string; reasoning?: string; reasoning_content?: string }
+      finish_reason?: string
     }>
     usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
@@ -171,6 +192,9 @@ function parseChatResult(json: unknown, model: string): RouterChatResult {
     ...(reasoning ? { reasoning } : {}),
     ...(usage ? { usage } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(typeof data.choices?.[0]?.finish_reason === 'string'
+      ? { finishReason: data.choices[0].finish_reason }
+      : {}),
   }
 }
 
@@ -255,6 +279,8 @@ export async function routerChatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    /** Provider-specific request fields; canonical fields cannot be overridden here. */
+    extraBody?: Readonly<Record<string, unknown>>
   },
 ): Promise<RouterChatToolsResult> {
   const body = toolCompletionBody(cfg, messages, tools, opts)
@@ -277,6 +303,7 @@ export async function routerChatWithTools(
         content?: string | null
         tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>
       }
+      finish_reason?: string
     }>
     usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
@@ -292,6 +319,9 @@ export async function routerChatWithTools(
     toolCalls,
     ...(usage ? { usage } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(typeof data.choices?.[0]?.finish_reason === 'string'
+      ? { finishReason: data.choices[0].finish_reason }
+      : {}),
   }
 }
 
@@ -301,16 +331,40 @@ function toolCompletionBody(
   cfg: RouterConfig,
   messages: ReadonlyArray<Record<string, unknown>>,
   tools: ReadonlyArray<ToolSpec>,
-  opts?: { temperature?: number; toolChoice?: 'auto' | 'required' | 'none'; maxTokens?: number },
+  opts?: {
+    temperature?: number
+    toolChoice?: 'auto' | 'required' | 'none'
+    maxTokens?: number
+    extraBody?: Readonly<Record<string, unknown>>
+  },
 ): Record<string, unknown> {
   return {
+    ...providerRequestExtras(opts?.extraBody, [
+      'model',
+      'messages',
+      'tools',
+      'tool_choice',
+      'temperature',
+      'max_tokens',
+      'stream',
+      'stream_options',
+    ]),
     model: cfg.model,
     messages,
-    tools,
-    tool_choice: opts?.toolChoice ?? 'auto',
+    ...(tools.length > 0 ? { tools, tool_choice: opts?.toolChoice ?? 'auto' } : {}),
     temperature: opts?.temperature ?? 0.3,
     ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
   }
+}
+
+function providerRequestExtras(
+  extraBody: Readonly<Record<string, unknown>> | undefined,
+  reservedFields: ReadonlyArray<string>,
+): Record<string, unknown> {
+  if (!extraBody) return {}
+  const extras = { ...extraBody }
+  for (const field of reservedFields) delete extras[field]
+  return extras
 }
 
 /**
@@ -442,6 +496,8 @@ export async function streamRouterChatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    /** Provider-specific request fields; canonical streaming fields cannot be overridden here. */
+    extraBody?: Readonly<Record<string, unknown>>
   },
 ): Promise<RouterChatToolsResult> {
   if (cfg.complete) {
@@ -661,6 +717,7 @@ function chatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    extraBody?: Readonly<Record<string, unknown>>
   },
 ): Promise<RouterChatToolsResult> {
   return cfg.stream === true
@@ -725,7 +782,7 @@ export async function routerToolLoop(
     chat: (messages, toolSpecs) =>
       chatWithTools(cfg, messages, toolSpecs, {
         ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
-        ...(opts?.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+        ...(opts?.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
         ...(opts?.signal ? { signal: opts.signal } : {}),
       }),
     tools,

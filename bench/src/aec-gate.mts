@@ -22,7 +22,8 @@ import { resolveAdapter } from './adapters'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
 import { composeStrategies } from './directives'
-import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import type { RouterConfig } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from './router-turn'
 import { pool } from './stats.mts'
 
 function must(name: string): string {
@@ -65,8 +66,18 @@ async function runAttempt(
   let lastErr: unknown
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const res = await routerChatWithUsage(cfg, [{ role: 'user', content: prompt }])
-      const content = typeof res.content === 'string' ? res.content : ''
+      const res = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.routerBaseUrl,
+          routerKey: cfg.routerKey,
+          profile: {
+            name: 'aec-worker',
+            model: { provider: 'tangle-router', default: cfg.model },
+          },
+        },
+        prompt,
+      )
+      const content = res.finalText
       const verdict = await adapter.judge(task, content)
       return {
         prompt,
@@ -74,8 +85,10 @@ async function runAttempt(
         score: verdict.score,
         resolved: verdict.resolved,
         wallMs: Date.now() - startedAt,
-        ...(res.costUsd !== undefined ? { costUsd: res.costUsd } : {}),
-        ...(res.usage ? { tokensIn: res.usage.input, tokensOut: res.usage.output } : {}),
+        ...(res.usage.costUsd !== undefined ? { costUsd: res.usage.costUsd } : {}),
+        ...(res.usage.tokensKnown === false
+          ? {}
+          : { tokensIn: res.usage.input, tokensOut: res.usage.output }),
       }
     } catch (err) {
       lastErr = err

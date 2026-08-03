@@ -15,6 +15,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       // The body is the OpenAI request the client built — assert it threaded the model + messages.
       expect(body.model).toBe('deepseek-v4-flash')
       expect(body.messages).toEqual([{ role: 'user', content: 'hi' }])
+      expect(body).not.toHaveProperty('max_tokens')
       return {
         choices: [{ message: { content: 'pong' } }],
         usage: { prompt_tokens: 7, completion_tokens: 3 },
@@ -85,6 +86,109 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     )
     expect(res.content).toBe('live')
     expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
+  it('uses the caller ceiling when set and otherwise leaves the provider default unrestricted', async () => {
+    const seen: Record<string, unknown>[] = []
+    const complete = async (body: Record<string, unknown>) => {
+      seen.push(body)
+      return { choices: [{ message: { content: 'done' } }] }
+    }
+    const config = {
+      routerBaseUrl: 'http://router.test/v1',
+      routerKey: 'k',
+      model: 'deepseek-v4-flash',
+      complete,
+    }
+    await routerChatWithUsage(config, [{ role: 'user', content: 'default' }])
+    await routerChatWithUsage({ ...config, maxTokens: 16_384 }, [
+      { role: 'user', content: 'configured' },
+    ])
+    await routerChatWithUsage(config, [{ role: 'user', content: 'per-call' }], {
+      maxTokens: 32_768,
+    })
+
+    expect(seen[0]).not.toHaveProperty('max_tokens')
+    expect(seen[1]?.max_tokens).toBe(16_384)
+    expect(seen[2]?.max_tokens).toBe(32_768)
+  })
+
+  it('accepts multimodal messages and provider fields without letting extras replace canonical fields', async () => {
+    const content = [
+      { type: 'text', text: 'describe this image' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
+    ]
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body).toMatchObject({
+        model: 'deepseek-v4-flash',
+        messages: [{ role: 'user', content }],
+        temperature: 0.4,
+        max_tokens: 32_768,
+        seed: 7,
+        thinking: { type: 'enabled' },
+      })
+      return { choices: [{ message: { content: 'image' } }] }
+    })
+
+    await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content }],
+      {
+        temperature: 0.4,
+        maxTokens: 32_768,
+        seed: 7,
+        extraBody: {
+          model: 'must-not-win',
+          messages: [],
+          temperature: 999,
+          max_tokens: 1,
+          thinking: { type: 'enabled' },
+        },
+      },
+    )
+    expect(complete).toHaveBeenCalledOnce()
+  })
+
+  it('omits tool fields for a no-tool request and protects canonical fields from provider extras', async () => {
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body).toMatchObject({
+        model: 'deepseek-v4-flash',
+        messages: [{ role: 'user', content: 'answer' }],
+        temperature: 0.1,
+        thinking: { type: 'enabled' },
+      })
+      expect(body).not.toHaveProperty('tools')
+      expect(body).not.toHaveProperty('tool_choice')
+      return { choices: [{ message: { content: 'done' } }] }
+    })
+
+    const result = await routerChatWithTools(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content: 'answer' }],
+      [],
+      {
+        temperature: 0.1,
+        extraBody: {
+          model: 'must-not-win',
+          messages: [],
+          tools: [{ type: 'function' }],
+          tool_choice: 'required',
+          thinking: { type: 'enabled' },
+        },
+      },
+    )
+    expect(result.content).toBe('done')
+    expect(complete).toHaveBeenCalledOnce()
   })
 })
 

@@ -60,6 +60,7 @@ import {
   officialOptimizerModel,
   requiredTokenPricing,
 } from './official-optimizer-config.mjs'
+import { runBenchRouterTurn } from './router-turn'
 
 interface TrataScenario extends Scenario {
   task: BenchTask
@@ -122,23 +123,28 @@ async function chatComplete(
   messages: Array<{ role: string; content: string }>,
   signal: AbortSignal,
 ): Promise<{ content: string; usage?: { input: number; output: number } }> {
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    signal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]),
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, temperature: 0, max_tokens: maxTokens, messages }),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  const j = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
+  const system = messages.find((message) => message.role === 'system')?.content
+  const result = await runBenchRouterTurn(
+    {
+      routerBaseUrl: baseUrl,
+      routerKey: key,
+      profile: {
+        name: 'trata-gepa-worker',
+        model: { provider: 'tangle-router', default: model },
+        ...(system ? { prompt: { systemPrompt: system } } : {}),
+      },
+      temperature: 0,
+      maxTokens,
+      signal,
+    },
+    { messages: messages.filter((message) => message.role !== 'system') },
+  )
+  return {
+    content: result.finalText,
+    ...(result.usage.tokensKnown === false
+      ? {}
+      : { usage: { input: result.usage.input, output: result.usage.output } }),
   }
-  const content = j.choices?.[0]?.message?.content ?? ''
-  const usage =
-    j.usage?.prompt_tokens != null
-      ? { input: j.usage.prompt_tokens, output: j.usage.completion_tokens ?? 0 }
-      : undefined
-  return { content, usage }
 }
 
 async function main(): Promise<void> {

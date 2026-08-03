@@ -21,20 +21,18 @@ import {
   type AgentProfile,
   type AgentSpec,
   contentAddress,
-  type DriverAgentOptions,
-  driverAgent,
+  createExecutor,
   createExecutorRegistry,
   createSupervisor,
-  type Executor,
-  type ExecutorResult,
   gateOnDeliverable,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  mapExecutorResult,
   type RouterConfig,
-  routerBrain,
-  routerChatWithUsage,
+  supervisorAgent,
 } from '../../src/runtime/index'
 import { basePrompt, extractCode, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
+import { runBenchRouterTurn } from './router-turn'
 
 function must(k: string): string {
   const v = process.env[k]
@@ -54,38 +52,31 @@ const cfg: RouterConfig = {
 }
 const driverCfg: RouterConfig = { ...cfg, model: process.env.DRIVER_MODEL ?? cfg.model }
 
-// The driver-LLM brain is the SHARED `routerBrain` (the canonical ToolLoopChat seam) — it forwards
-// usage/costUsd, so this bench's driver arms meter their own inference into the conserved pool.
-
 // ── A gated router worker: one router call → candidate code, settled valid ⟺ the tests pass ──
 function humanEvalWorker(task: HumanEvalTask, label: string): Agent<unknown, unknown> {
-  let artifact: ExecutorResult<unknown> | undefined
-  const inner: Executor<unknown> = {
-    runtime: 'router',
-    async execute(_t, signal) {
-      const res = await routerChatWithUsage(cfg, [{ role: 'user', content: basePrompt(task) }], {
-        temperature: WORKER_TEMP,
-        ...(signal ? { signal } : {}),
-      })
-      const code = extractCode(res.content)
-      artifact = {
-        outRef: contentAddress(code),
-        out: code,
-        spent: { iterations: 1, tokens: res.usage ?? { input: 0, output: 0 }, usd: res.costUsd ?? 0, ms: 0 },
-      }
-      return artifact
-    },
-    teardown: () => Promise.resolve({ destroyed: true }),
-    resultArtifact: () => {
-      if (!artifact) throw new Error('resultArtifact read before execute')
-      return artifact
-    },
+  const profile: AgentProfile = {
+    name: label,
+    model: { provider: 'tangle-router', default: cfg.model },
+    prompt: { systemPrompt: basePrompt(task) },
   }
-  const gated = gateOnDeliverable(inner, {
-    check: async (out) => (await runChecker(task, String(out))).pass === 1,
-    describe: `${task.taskId}: the provided test suite passes`,
+  const routerFactory = createExecutor({
+    backend: 'router',
+    ...cfg,
+    temperature: WORKER_TEMP,
   })
-  const spec: AgentSpec = { profile: { name: label } as AgentProfile, harness: null, executor: gated }
+  const executorFactory = (spec: AgentSpec, ctx: Parameters<typeof routerFactory>[1]) => {
+    const inner = routerFactory(spec, ctx)
+    const mapped = mapExecutorResult(inner, (result) => {
+      const raw = result.out as { content?: unknown }
+      const code = extractCode(typeof raw?.content === 'string' ? raw.content : '')
+      return { outRef: contentAddress(code), out: code }
+    })
+    return gateOnDeliverable(mapped, {
+      check: async (out) => (await runChecker(task, String(out))).pass === 1,
+      describe: `${task.taskId}: the provided test suite passes`,
+    })
+  }
+  const spec: AgentSpec = { profile, harness: null, executorFactory }
   return { name: label, act: async () => '', executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -113,16 +104,20 @@ async function driveTask(
     spawns += 1
     return w
   }
-  const opts: DriverAgentOptions = {
-    name: `drv-${task.taskId}`,
-    brain: routerBrain(driverCfg),
+  const root = supervisorAgent(
+    {
+      name: `drv-${task.taskId}`,
+      model: { provider: 'tangle-router', default: driverCfg.model },
+      prompt: { systemPrompt: driverSystem },
+    },
+    {
+      router: driverCfg,
     blobs,
     makeWorkerAgent: makeWorker,
     perWorker: { maxIterations: 2, maxTokens: 4000 },
-    systemPrompt: driverSystem,
     maxTurns: K + 4,
-  }
-  const root = driverAgent(opts)
+    },
+  )
   const runId = `he-${task.taskId.replace('/', '-')}`
   const result = await createSupervisor<unknown, unknown>().run(root, basePrompt(task), {
     budget: { maxIterations: 100, maxTokens: 400_000 },
@@ -145,15 +140,25 @@ async function blindTask(task: HumanEvalTask): Promise<boolean> {
   for (let i = 0; i < K; i += 1) {
     // A transient router error is a FAILED attempt, not a crash — the driver arm already types
     // an executor throw into a `down` settlement, so the blind arm must match (fair comparison).
-    let res: { content: string }
+    let content = ''
     try {
-      res = await routerChatWithUsage(cfg, [{ role: 'user', content: basePrompt(task) }], {
-        temperature: WORKER_TEMP,
-      })
+      const res = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.routerBaseUrl,
+          routerKey: cfg.routerKey,
+          profile: {
+            name: 'humaneval-blind-atom-worker',
+            model: { provider: 'tangle-router', default: cfg.model },
+          },
+          temperature: WORKER_TEMP,
+        },
+        basePrompt(task),
+      )
+      content = res.finalText
     } catch {
       continue
     }
-    if ((await runChecker(task, extractCode(res.content))).pass === 1) return true
+    if ((await runChecker(task, extractCode(content))).pass === 1) return true
   }
   return false
 }

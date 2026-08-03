@@ -91,8 +91,8 @@ export function attestRuntimeOwnedDeferredExecutor<Out>(
 }
 
 /** Preserve the runtime-owned attestation when a trusted wrapper changes result semantics only. */
-export function inheritRuntimeOwnedExecutorAttestation<Out>(
-  source: Executor<Out>,
+export function inheritRuntimeOwnedExecutorAttestation<In, Out>(
+  source: Executor<In>,
   wrapper: Executor<Out>,
 ): Executor<Out> {
   const attestation = runtimeOwnedExecutorMaterializations.get(source as object)

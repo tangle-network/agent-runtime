@@ -19,7 +19,7 @@
  * container with a hard timeout — seconds per task. Paired
  * McNemar over the per-task pass/fail difference gives the significance.
  *
- * Run from cwd=bench:  env WORKER_MODEL=google/gemini-2.5-flash-lite N=60 K=3 \
+ * Run from cwd=bench:  env WORKER_MODEL=deepseek-v4-flash N=60 K=3 \
  *   REPS=2 node_modules/.bin/tsx src/humaneval-object-ablation.mts
  */
 import {
@@ -28,11 +28,13 @@ import {
   runPythonProgram,
   type HumanEvalTask,
 } from './benchmarks/humaneval'
+import { runBenchRouterTurn } from './router-turn'
 
 const ROUTER = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
 const KEY = process.env.TANGLE_API_KEY
 if (!KEY) throw new Error('TANGLE_API_KEY required')
-const MODEL = process.env.WORKER_MODEL ?? 'google/gemini-2.5-flash-lite'
+const ROUTER_KEY = KEY
+const MODEL = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
 const N = Number(process.env.N ?? 60)
 const OFFSET = Number(process.env.OFFSET ?? 0)
 const K = Number(process.env.K ?? 3) // rounds/budget per task (equal for both arms)
@@ -40,23 +42,49 @@ const REPS = Number(process.env.REPS ?? 2)
 const CONC = Number(process.env.CONCURRENCY ?? 6)
 const EXEC_TIMEOUT = Number(process.env.EXEC_TIMEOUT_MS ?? 8000)
 
-interface ChatMsg { role: string; content: string; tool_calls?: unknown; tool_call_id?: string; name?: string }
+interface ChatMsg extends Record<string, unknown> { role: string; content: string; tool_calls?: unknown; tool_call_id?: string; name?: string }
 interface Tool { type: 'function'; function: { name: string; description: string; parameters: unknown } }
 
 async function router(messages: ChatMsg[], tools?: Tool[]): Promise<{ content: string; toolCalls: { id: string; name: string; args: Record<string, unknown> }[] }> {
-  const body: Record<string, unknown> = { model: MODEL, messages, temperature: 0.4 }
-  if (tools) { body.tools = tools; body.tool_choice = 'auto' }
   for (let attempt = 0; ; attempt++) {
-    let res: Response
     try {
-      res = await fetch(`${ROUTER}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${KEY}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(60_000) })
-    } catch (e) { if (attempt >= 5) throw e; await sleep(800 * 2 ** attempt); continue }
-    if ([408, 429, 500, 502, 503, 504, 520, 522, 524].includes(res.status)) { if (attempt >= 5) throw new Error(`router ${res.status} exhausted`); await sleep(800 * 2 ** attempt); continue }
-    if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-    const j = (await res.json()) as { choices?: { message?: { content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] } }[] }
-    const m = j.choices?.[0]?.message
-    const toolCalls = (m?.tool_calls ?? []).map((t) => { let args: Record<string, unknown> = {}; try { args = JSON.parse(t.function.arguments) } catch { /* keep {} */ } return { id: t.id, name: t.function.name, args } })
-    return { content: m?.content ?? '', toolCalls }
+      const system = messages.find((message) => message.role === 'system')?.content
+      const result = await runBenchRouterTurn(
+        {
+          routerBaseUrl: ROUTER,
+          routerKey: ROUTER_KEY,
+          profile: {
+            name: 'humaneval-object-ablation-worker',
+            model: { provider: 'tangle-router', default: MODEL },
+            ...(system ? { prompt: { systemPrompt: system } } : {}),
+            ...(tools
+              ? { tools: Object.fromEntries(tools.map((tool) => [tool.function.name, true])) }
+              : {}),
+          },
+          temperature: 0.4,
+          ...(tools ? { tools, toolChoice: 'auto' as const } : {}),
+          timeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 60_000),
+        },
+        { messages: messages.filter((message) => message.role !== 'system') },
+      )
+      const toolCalls = result.toolCalls.map((call) => {
+        let args: Record<string, unknown> = {}
+        try {
+          args = JSON.parse(call.arguments) as Record<string, unknown>
+        } catch {
+          // Keep the empty argument object; the tool returns a useful error.
+        }
+        return { id: call.id, name: call.name, args }
+      })
+      return { content: result.finalText, toolCalls }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const status = Number(/router (\d+)/.exec(message)?.[1])
+      const transient =
+        !Number.isFinite(status) || [408, 429, 500, 502, 503, 504, 520, 522, 524].includes(status)
+      if (!transient || attempt >= 5) throw error
+      await sleep(800 * 2 ** attempt)
+    }
   }
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

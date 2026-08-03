@@ -18,7 +18,7 @@ import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_BLENDER_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
-import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from './router-turn'
 
 export { DEFAULT_BLENDER_DIRECTIVE } from './directives'
 
@@ -177,17 +177,23 @@ export async function solveBlenderLocal(task: BenchTask, cfg: BlenderLocalConfig
     runShot: async (user, round, dir) => {
       const runnerPath = join(dir, 'runner.py')
       const scriptPath = join(dir, 'model.py')
-      const { content, usage: u } = await routerChatWithUsage(
-        cfg,
-        [
-          { role: 'system', content: directive },
-          { role: 'user', content: user },
-        ],
-        { temperature: 0.3 },
+      const turn = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.routerBaseUrl,
+          routerKey: cfg.routerKey,
+          profile: {
+            name: 'blender-worker',
+            model: { provider: 'tangle-router', default: cfg.model },
+            prompt: { systemPrompt: directive },
+          },
+          temperature: 0.3,
+        },
+        user,
       )
-      if (u) {
-        usage.input += u.input
-        usage.output += u.output
+      const content = turn.finalText
+      if (turn.usage.tokensKnown !== false) {
+        usage.input += turn.usage.input
+        usage.output += turn.usage.output
       }
       const script = extractPy(content)
       trace.push({ spanId: `s-author-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)

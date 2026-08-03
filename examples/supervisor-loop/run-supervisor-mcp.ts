@@ -31,13 +31,21 @@
  */
 
 import {
+  type AgentProfile,
+  harnessTypeSchema,
+  reasoningEffortSchema,
+} from '@tangle-network/agent-interface'
+import {
   type Agent,
+  collectAgentTurn,
+  createExecutor,
   createExecutorRegistry,
   createSupervisor,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   type Scope,
   serveCoordinationMcp,
+  streamAgentTurn,
   workerFromBackend,
 } from '@tangle-network/agent-runtime/kernel'
 import { buildWorkerBackend, demoCheck, expectedAnswer } from './shared'
@@ -58,20 +66,43 @@ async function supervisorBridgeChat(opts: { mcpUrl: string }): Promise<string> {
   const bridgeBearer = process.env.BRIDGE_BEARER ?? 'local'
   const model = process.env.SUPERVISOR_MODEL ?? process.env.WORKER_MODEL
   if (!model) throw new Error('supervisor needs SUPERVISOR_MODEL or WORKER_MODEL set')
-  const res = await fetch(`${bridgeUrl.replace(/\/$/, '')}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${bridgeBearer}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: supervisorTask }],
-      // Mount the coordination MCP — the supervisor harness calls spawn_agent through it.
-      mcp: { mcpServers: { coordination: { type: 'http', url: opts.mcpUrl } } },
-    }),
+  const profile: AgentProfile = {
+    name: 'supervisor',
+    harness: harnessTypeSchema.parse(process.env.SUPERVISOR_HARNESS ?? 'pi'),
+    model: {
+      provider: process.env.SUPERVISOR_PROVIDER ?? 'tangle-router',
+      default: model,
+      reasoningEffort: reasoningEffortSchema.parse(
+        process.env.SUPERVISOR_REASONING_EFFORT ?? 'ultracode',
+      ),
+    },
+    prompt: { systemPrompt: supervisorTask },
+    mcp: {
+      coordination: { transport: 'http', url: opts.mcpUrl, enabled: true },
+    },
+  }
+  const factory = createExecutor({
+    backend: 'bridge',
+    bridgeUrl,
+    bridgeBearer,
+    model,
   })
-  if (!res.ok)
-    throw new Error(`supervisor bridge ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return j.choices?.[0]?.message?.content ?? ''
+  const timeoutRaw = process.env.SUPERVISOR_TIMEOUT_MS
+  const timeoutMs = timeoutRaw === undefined ? undefined : Number(timeoutRaw)
+  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
+    throw new Error('SUPERVISOR_TIMEOUT_MS must be a positive integer')
+  }
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', factory, profile, agentRunName: profile.name },
+      supervisorTask,
+      timeoutMs === undefined ? {} : { timeoutMs },
+    ),
+  )
+  if (turn.status !== 'completed') {
+    throw new Error(turn.error?.message ?? `supervisor bridge ended with status ${turn.status}`)
+  }
+  return turn.finalText
 }
 
 async function main(): Promise<void> {

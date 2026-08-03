@@ -13,11 +13,11 @@ import {
   type AgentProfile,
   type AgentRunSpec,
   type OutputAdapter,
-  routerChatWithUsage,
 } from '@tangle-network/agent-runtime/kernel'
 // `BackendType` is the sandbox SDK's harness union and its canonical home. agent-runtime consumes
 // it from there too; it is not re-exported from the kernel barrel.
 import type { BackendType } from '@tangle-network/sandbox'
+import { runBenchRouterTurn } from './router-turn'
 
 /** Parse the agent's final answer from the event stream (harness-agnostic).
  *  The default deliverable; a benchmark whose artifact is a file overrides via
@@ -63,18 +63,21 @@ export const llmAnalyst = (cfg: { routerBaseUrl: string; routerKey: string; mode
       .map((e) => (typeof e === 'string' ? e : JSON.stringify(e)))
       .join('\n')
       .slice(-2000)
-    const { content } = await routerChatWithUsage(cfg, [
+    const systemPrompt =
+      "You review an AI agent's previous attempt at a task. From the task, the attempt's output, and its execution trace ALONE, judge whether it correctly and completely solved the task. If you find a specific fault — a wrong value, a guessed API signature, a missing step, a misread requirement — name it and give the concrete correction in 1-3 sentences. Reply exactly 'no change needed' if the attempt looks correct and complete."
+    const turn = await runBenchRouterTurn(
       {
-        role: 'system',
-        content:
-          "You review an AI agent's previous attempt at a task. From the task, the attempt's output, and its execution trace ALONE, judge whether it correctly and completely solved the task. If you find a specific fault — a wrong value, a guessed API signature, a missing step, a misread requirement — name it and give the concrete correction in 1-3 sentences. Reply exactly 'no change needed' if the attempt looks correct and complete.",
+        routerBaseUrl: cfg.routerBaseUrl,
+        routerKey: cfg.routerKey,
+        profile: {
+          name: 'sandbox-run-analyst',
+          model: { provider: 'tangle-router', default: cfg.model },
+          prompt: { systemPrompt },
+        },
       },
-      {
-        role: 'user',
-        content: `Task:\n${task ?? '(task unavailable)'}\n\nPrevious answer:\n${last?.output ?? '(none)'}\n\nTrace tail:\n${traceTail}`,
-      },
-    ])
-    return content
+      `Task:\n${task ?? '(task unavailable)'}\n\nPrevious answer:\n${last?.output ?? '(none)'}\n\nTrace tail:\n${traceTail}`,
+    )
+    return turn.finalText
   }
 
 /** Cost-dial backend = the SDK's canonical `BackendType` (single source of truth; no local

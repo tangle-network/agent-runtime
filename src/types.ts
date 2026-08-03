@@ -320,6 +320,10 @@ export type RuntimeStreamEvent =
       task: AgentTaskSpec
       session: RuntimeSession
       backend: string
+      /** Canonical execution identity and materialization evidence for this turn, when Runtime
+       *  owns the selected executor. Generic metadata keeps the event vocabulary open while the
+       *  values use Runtime's existing identity/materialization receipt shapes. */
+      metadata?: Record<string, unknown>
       timestamp: string
     }
   | {

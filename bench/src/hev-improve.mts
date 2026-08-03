@@ -27,6 +27,7 @@ import {
   officialOptimizerModel,
   requiredTokenPricing,
 } from './official-optimizer-config.mjs'
+import { runBenchRouterTurn } from './router-turn'
 
 // The SEED instruction GEPA evolves. Byte-identical to humaneval.ts basePrompt's
 // solveInstruction so the baseline arm reproduces the plain-prompt denominator.
@@ -39,21 +40,28 @@ interface Completion {
   tokOut: number
 }
 
-async function complete(base: string, key: string, model: string, prompt: string, maxTokens: number): Promise<Completion> {
-  const res = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: prompt }] }),
-  })
-  if (!res.ok) throw new Error(`completion HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const d = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
+async function complete(
+  base: string,
+  key: string,
+  profile: AgentProfile,
+  prompt: string,
+  maxTokens: number,
+): Promise<Completion> {
+  const result = await runBenchRouterTurn(
+    {
+      routerBaseUrl: base,
+      routerKey: key,
+      profile,
+      temperature: 0.2,
+      maxTokens,
+    },
+    prompt,
+  )
+  return {
+    text: result.finalText,
+    tokIn: result.usage.input,
+    tokOut: result.usage.output,
   }
-  const text = d.choices?.[0]?.message?.content ?? ''
-  const tokIn = d.usage?.prompt_tokens ?? 0
-  const tokOut = d.usage?.completion_tokens ?? 0
-  return { text, tokIn, tokOut }
 }
 
 async function main(): Promise<void> {
@@ -115,13 +123,18 @@ async function main(): Promise<void> {
     if (instr === undefined) throw new Error('agent: candidate profile has no system prompt')
     const t = byId.get(scenario.id)
     if (!t) throw new Error(`agent: unknown scenario ${scenario.id}`)
-    const prompt = `${instr}\n\n\`\`\`python\n${t.prompt}\`\`\``
+    const prompt = `\`\`\`python\n${t.prompt}\`\`\``
+    const executionProfile: AgentProfile = {
+      ...candidate,
+      name: candidate.name ?? 'humaneval-improvement-worker',
+      model: { ...candidate.model, provider: 'tangle-router', default: workerModel },
+    }
     const t0 = Date.now()
     const paid = await ctx.cost.runPaidCall({
       channel: 'agent',
       actor: 'humaneval-worker',
       model: workerModel,
-      execute: () => complete(base, key, workerModel, prompt, workerMaxTokens),
+      execute: () => complete(base, key, executionProfile, prompt, workerMaxTokens),
       receipt: (result) => {
         const usageUnknown = result.tokIn === 0 && result.tokOut === 0
         return {

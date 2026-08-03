@@ -37,6 +37,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type HumanEvalTask, basePrompt, extractCode, loadHumanEval } from './benchmarks/humaneval'
+import { runBenchRouterTurn } from './router-turn'
 import { pool } from './stats.mts'
 
 // ---------- pre-registered task sets (verbatim from the prereg; DO NOT EDIT) ----------
@@ -294,33 +295,37 @@ async function complete(cfg: ClientCfg, messages: Array<{ role: string; content:
   let lastErr = ''
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     if (attempt > 1) await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt))
-    const ctl = new AbortController()
-    const timer = setTimeout(() => ctl.abort(), Number(process.env.LLM_TIMEOUT_MS ?? 240_000))
     try {
-      const res = await fetch(`${cfg.base}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: cfg.model, max_tokens: cfg.maxTokens, temperature: cfg.temperature, messages }),
-        signal: ctl.signal,
-      })
-      if (!res.ok) {
-        lastErr = `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`
-        continue
-      }
-      const d = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>
-        usage?: { prompt_tokens?: number; completion_tokens?: number }
-      }
-      const content = d.choices?.[0]?.message?.content ?? ''
+      const system = messages.find((message) => message.role === 'system')?.content
+      const result = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.base,
+          routerKey: cfg.key,
+          profile: {
+            name: 'supervisor-arena-agent',
+            model: { provider: 'tangle-router', default: cfg.model },
+            ...(system ? { prompt: { systemPrompt: system } } : {}),
+          },
+          temperature: cfg.temperature,
+          maxTokens: cfg.maxTokens,
+          timeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 240_000),
+        },
+        { messages: messages.filter((message) => message.role !== 'system') },
+      )
+      if (result.usage.tokensKnown === false) throw new Error('provider omitted token usage')
+      const content = result.finalText
       if (content.trim() === '') {
         lastErr = 'empty content'
         continue
       }
-      return { content, attempts: attempt, tokensIn: d.usage?.prompt_tokens ?? 0, tokensOut: d.usage?.completion_tokens ?? 0 }
+      return {
+        content,
+        attempts: attempt,
+        tokensIn: result.usage.input,
+        tokensOut: result.usage.output,
+      }
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e)
-    } finally {
-      clearTimeout(timer)
     }
   }
   throw new Error(`completion failed after retries: ${lastErr}`)

@@ -26,6 +26,7 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { runBenchRouterTurn } from '../router-turn'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const DEFAULT_BENCH_ROOT = '/tmp/trata-hedge-bench'
@@ -191,25 +192,26 @@ function parseJsonFallback(raw: string): unknown {
 
 async function callJudge(router: JudgeRouter, prompt: string, maxAttempts = 2): Promise<unknown> {
   for (let i = 0; i < maxAttempts; i++) {
-    const res = await fetch(`${router.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${router.key}` },
-      body: JSON.stringify({
-        model: router.model,
-        temperature: 0,
-        max_tokens: 16384,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    })
-    if (!res.ok) {
-      if (i < maxAttempts - 1) continue
-      throw new Error(`Trata judge HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
+    try {
+      const turn = await runBenchRouterTurn(
+        {
+          routerBaseUrl: router.baseUrl,
+          routerKey: router.key,
+          profile: {
+            name: 'trata-hedge-judge',
+            model: { provider: 'tangle-router', default: router.model },
+          },
+          temperature: 0,
+          maxTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 16384),
+        },
+        prompt,
+      )
+      const content = turn.finalText
+      const parsed = parseJsonFallback(content)
+      if (parsed !== null) return parsed
+    } catch (error) {
+      if (i + 1 === maxAttempts) throw error
     }
-    const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-    const content = body.choices?.[0]?.message?.content
-    if (typeof content !== 'string') continue
-    const parsed = parseJsonFallback(content)
-    if (parsed !== null) return parsed
   }
   return null
 }

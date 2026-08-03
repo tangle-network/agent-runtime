@@ -21,7 +21,9 @@ import {
   type Agent,
   type AgentProfile,
   type AgentSpec,
+  collectAgentTurn,
   contentAddress,
+  createExecutor,
   createExecutorRegistry,
   createSupervisor,
   type Executor,
@@ -31,6 +33,7 @@ import {
   InMemorySpawnJournal,
   runInWorkspace,
   type Scope,
+  streamAgentTurn,
   type Workspace,
 } from '../../src/runtime/index'
 import { asAuthoredProfile } from '../../src/runtime/supervise/authoring'
@@ -83,19 +86,30 @@ async function bridgeChat(opts: {
   cwd?: string
   mcpUrl?: string
 }): Promise<string> {
-  const r = await fetch(`${BRIDGE}/chat/completions`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: opts.messages,
-      ...(opts.cwd ? { cwd: opts.cwd } : {}),
-      ...(opts.mcpUrl ? { mcp: { mcpServers: { coordination: { type: 'http', url: opts.mcpUrl } } } } : {}),
-    }),
+  if (!BEARER) throw new Error('TANGLE_API_KEY is required')
+  const profile: AgentProfile = {
+    name: opts.mcpUrl ? 'atom-mcp-supervisor-turn' : 'atom-mcp-worker-turn',
+    model: { default: MODEL },
+    ...(opts.mcpUrl
+      ? { mcp: { coordination: { transport: 'http', url: opts.mcpUrl } } }
+      : {}),
+  }
+  const factory = createExecutor({
+    backend: 'bridge',
+    bridgeUrl: BRIDGE.replace(/\/v1$/u, ''),
+    bridgeBearer: BEARER,
+    ...(opts.cwd ? { cwd: opts.cwd } : {}),
   })
-  if (!r.ok) return `(bridge HTTP ${r.status}: ${(await r.text()).slice(0, 200)})`
-  const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return j.choices?.[0]?.message?.content ?? ''
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', factory, profile },
+      opts.messages.map((message) => message.content).join('\n\n'),
+    ),
+  )
+  if (turn.status !== 'completed') {
+    throw new Error(turn.error?.message ?? `bridge turn ended with ${turn.status}`)
+  }
+  return turn.finalText
 }
 
 const transcripts: Array<{ who: string; said: string; delivered?: boolean }> = []

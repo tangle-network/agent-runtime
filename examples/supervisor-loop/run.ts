@@ -27,7 +27,7 @@ import { buildWorkerBackend, demoCheck, demoGoal, resolveSupervisorBrain } from 
 async function main(): Promise<void> {
   // THE ONE KNOB — bridge (local CLIs) or sandbox (real boxes). Everything below is identical.
   const backend = buildWorkerBackend()
-  const { brain, label } = resolveSupervisorBrain(1, `${backend.backend}-solver`)
+  const { brain, model, label } = resolveSupervisorBrain(1, `${backend.backend}-solver`)
 
   console.log(`supervisor-loop · ${backend.backend.toUpperCase()} · driver=${label}`)
 
@@ -40,12 +40,22 @@ async function main(): Promise<void> {
           'You are a supervisor. Spawn one worker session to produce the required line, await it ' +
           'with await_event, and stop once a worker delivered (valid). Do not answer yourself.',
       },
+      ...(model ? { model: { default: model } } : {}),
     },
     demoGoal,
     {
       backend,
       deliverable: { check: demoCheck, describe: 'worker delivers the goal' },
-      brain,
+      ...(brain ? { brain } : {}),
+      ...(model
+        ? {
+            router: {
+              routerBaseUrl: process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1',
+              routerKey: process.env.TANGLE_API_KEY!,
+              model,
+            },
+          }
+        : {}),
       budget: { maxIterations: 100, maxTokens: 2_000_000, maxUsd: 2 },
       perWorker: { maxIterations: 1, maxTokens: 200_000 },
       maxTurns: 12,

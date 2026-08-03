@@ -22,7 +22,13 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { type OutputAdapter, routerToolLoop, type ToolSpec } from '@tangle-network/agent-runtime/kernel'
+import {
+  collectAgentTurn,
+  createExecutor,
+  type OutputAdapter,
+  streamAgentTurn,
+  type ToolSpec,
+} from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPython } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
@@ -285,7 +291,7 @@ async function withWorldSession<T>(
   }
 }
 
-/** SandboxClient whose leaf is OUR routerToolLoop driving a persistent world session. */
+/** SandboxClient whose leaf is Runtime's profile-bound Router executor driving a world session. */
 export function appworldToolLoopClient(cfg: {
   model: string
   routerBaseUrl: string
@@ -310,30 +316,55 @@ export function appworldToolLoopClient(cfg: {
           const directive = prompt.replace(REACT_HEADER, '').trim()
           const out = await withWorldSession(taskId as string, split as string, async (call, instruction) => {
             const system = directive ? `${SESSION_SYSTEM}\n\n${directive}` : SESSION_SYSTEM
-            const loop = await routerToolLoop(
-              { routerBaseUrl: cfg.routerBaseUrl, routerKey: cfg.routerKey, model: cfg.model },
-              system,
-              `Task: ${instruction}`,
-              [EXECUTE_TOOL],
-              async (name, args) => {
+            const transcriptSteps: Array<{ args: string; result: string }> = []
+            const profile = {
+              name: 'appworld-react-worker',
+              model: { provider: 'tangle-router', default: cfg.model },
+              prompt: { systemPrompt: system },
+              tools: { execute_python: true },
+            }
+            const factory = createExecutor({
+              backend: 'router-tools',
+              routerBaseUrl: cfg.routerBaseUrl,
+              routerKey: cfg.routerKey,
+              model: cfg.model,
+              tools: [EXECUTE_TOOL],
+              maxTurns,
+              executeToolCall: async (name, args) => {
                 if (name !== 'execute_python') return `error: unknown tool ${name}`
                 const res = await call({ op: 'execute', code: String(args.code ?? '') })
                 const done = res.task_completed === true
-                return `${String(res.output ?? '')}${done ? '\n\n[TASK MARKED COMPLETE — reply with a final summary and do not call the tool again]' : ''}`
+                const result = `${String(res.output ?? '')}${done ? '\n\n[TASK MARKED COMPLETE — reply with a final summary and do not call the tool again]' : ''}`
+                transcriptSteps.push({ args: JSON.stringify(args), result })
+                return result
               },
-              { maxTurns },
+            })
+            const loop = await collectAgentTurn(
+              streamAgentTurn(
+                { kind: 'executor', factory, profile },
+                `Task: ${instruction}`,
+              ),
             )
+            if (loop.status !== 'completed') {
+              throw new Error(loop.error?.message ?? `AppWorld turn ended with ${loop.status}`)
+            }
             const verdict = (await call({ op: 'evaluate' })) as unknown as ReactResult
-            const transcript = loop.toolTrace
+            const transcript = transcriptSteps
               .slice(-3)
               .map((t) => `CODE:\n${t.args.slice(0, 600)}\nOUTPUT:\n${t.result.slice(0, 600)}`)
               .join('\n---\n')
               .slice(0, 1600)
+            const finalEvent = loop.events.at(-1)
+            const resultMetadata =
+              finalEvent?.type === 'final' && finalEvent.metadata?.result
+                ? (finalEvent.metadata.result as { spent?: { iterations?: number } })
+                : undefined
             return {
               ...verdict,
-              turns: loop.turns,
-              input_tokens: loop.usage.input,
-              output_tokens: loop.usage.output,
+              turns: resultMetadata?.spent?.iterations,
+              ...(loop.usage.tokensKnown === false
+                ? {}
+                : { input_tokens: loop.usage.input, output_tokens: loop.usage.output }),
               transcript,
             } satisfies ReactResult
           })

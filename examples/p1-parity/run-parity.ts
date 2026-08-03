@@ -16,6 +16,12 @@
 
 import { parseArgs } from 'node:util'
 import type { MultishotTransport } from '@tangle-network/agent-eval/multishot'
+import {
+  collectAgentTurn,
+  createExecutor,
+  streamAgentTurn,
+  type ToolSpec,
+} from '@tangle-network/agent-runtime/kernel'
 import type { CellSpec, GraphArmBackend, MultishotArmBackend, ParityRecord } from './arms'
 import { runGraphArm, runMultishotArm } from './arms'
 import { offlineGraphBackend, offlineMultishotBackend } from './offline'
@@ -100,31 +106,64 @@ function requireBridgeEnv(): BridgeEnv {
 /** A multishot transport over cli-bridge's OpenAI-compatible chat-completions surface. */
 function bridgeTransport(env: BridgeEnv): MultishotTransport {
   return async (req) => {
-    const res = await fetch(`${env.url.replace(/\/$/, '')}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${env.bearer}`,
-      },
-      body: JSON.stringify({
-        model: req.model,
-        messages: req.messages,
-        ...(req.tools !== undefined && req.tools.length > 0 ? { tools: req.tools } : {}),
-        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-        ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
-      }),
-      ...(req.signal !== undefined ? { signal: req.signal } : {}),
+    const messages = req.messages as Array<Record<string, unknown>>
+    const systemPrompt = messages.find((message) => message.role === 'system')?.content
+    const tools = (req.tools ?? []) as ToolSpec[]
+    const profile = {
+      name: 'p1-parity-bridge-turn',
+      model: { provider: 'cli-bridge', default: req.model },
+      ...(typeof systemPrompt === 'string' ? { prompt: { systemPrompt } } : {}),
+      ...(tools.length > 0
+        ? { tools: Object.fromEntries(tools.map((tool) => [tool.function.name, true])) }
+        : {}),
+    }
+    const factory = createExecutor({
+      backend: 'router',
+      routerBaseUrl: `${env.url.replace(/\/$/, '')}/v1`,
+      routerKey: env.bearer,
+      model: req.model,
+      tools,
+      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+      ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
     })
-    if (!res.ok) {
-      throw new Error(`cli-bridge completion failed: ${res.status} ${await res.text()}`)
+    const result = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory, profile },
+        { messages: messages.filter((message) => message.role !== 'system') },
+        req.signal === undefined ? {} : { signal: req.signal },
+      ),
+    )
+    if (result.status !== 'completed') {
+      throw new Error(result.error?.message ?? `bridge turn ended with status ${result.status}`)
     }
-    const body = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string | null; tool_calls?: never[] } }>
-      usage?: { prompt_tokens?: number; completion_tokens?: number }
+    const message = {
+      content: result.finalText,
+      ...(result.toolCalls.length > 0
+        ? {
+            tool_calls: result.toolCalls.map((call) => {
+              if (call.id === undefined) {
+                throw new Error('cli-bridge returned a tool call without its required id')
+              }
+              return {
+                id: call.id,
+                type: 'function' as const,
+                function: { name: call.name, arguments: call.arguments },
+              }
+            }),
+          }
+        : {}),
     }
-    const message = body.choices?.[0]?.message
-    if (message === undefined) throw new Error('cli-bridge completion returned no message')
-    return { message, ...(body.usage !== undefined ? { usage: body.usage } : {}) }
+    return {
+      message,
+      ...(result.usage.tokensKnown !== false
+        ? {
+            usage: {
+              prompt_tokens: result.usage.input,
+              completion_tokens: result.usage.output,
+            },
+          }
+        : {}),
+    }
   }
 }
 

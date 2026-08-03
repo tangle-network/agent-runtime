@@ -17,7 +17,7 @@
  * generator punch above its solo weight — the standing "verification is live" claim
  * at its most dramatic. Paired McNemar on per-task discordant pairs for significance.
  *
- * Run from cwd=bench:  env DAVID=groq/llama-3.1-8b-instant GOLIATH=anthropic/claude-haiku-4-5-20251001 \
+ * Run from cwd=bench:  env DAVID=glm-5.2 GOLIATH=deepseek-v4-flash \
  *   N=8 T=5 NTASKS=164 REPS=2 node_modules/.bin/tsx src/david-goliath.mts
  */
 import { execFile } from 'node:child_process'
@@ -25,18 +25,22 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadHumanEval, extractCode, type HumanEvalTask } from './benchmarks/humaneval'
+import { runBenchRouterTurn } from './router-turn'
 
 const KEY = process.env.TANGLE_API_KEY
 if (!KEY) throw new Error('TANGLE_API_KEY required')
+const ROUTER_KEY = KEY
 const ROUTER = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
 const DAVID = process.env.DAVID ?? 'groq/llama-3.1-8b-instant'
-const GOLIATH = process.env.GOLIATH ?? 'anthropic/claude-haiku-4-5-20251001'
+const GOLIATH = process.env.GOLIATH ?? 'deepseek-v4-flash'
 const N = Number(process.env.N ?? 8) // David candidate solutions
 const T = Number(process.env.T ?? 5) // David generated tests
 const NTASKS = Number(process.env.NTASKS ?? 164)
 const REPS = Number(process.env.REPS ?? 2)
 const CONC = Number(process.env.CONCURRENCY ?? 6)
 const EXEC_TIMEOUT = Number(process.env.EXEC_TIMEOUT_MS ?? 6000)
+const LLM_TIMEOUT = Number(process.env.LLM_TIMEOUT_MS ?? 60_000)
+const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 1000)
 
 // Approx $/1M tokens (in,out) for cost accounting — the router does not price
 // every model inline, so use public rates; a cheap/frontier gap of ~20-30x is the
@@ -56,18 +60,30 @@ const addU = (a: Usage, b: Usage) => { a.in += b.in; a.out += b.out }
 const usd = (m: string, u: Usage) => { const [pi, po] = priceOf(m); return (u.in * pi + u.out * po) / 1e6 }
 
 async function chat(model: string, messages: { role: string; content: string }[], temperature: number, usage: Usage): Promise<string> {
-  for (let a = 0; ; a++) {
-    try {
-      const r = await fetch(`${ROUTER}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${KEY}` }, body: JSON.stringify({ model, messages, temperature, max_tokens: 1000 }), signal: AbortSignal.timeout(60_000) })
-      if ([408, 429, 500, 502, 503, 504, 520, 522, 524].includes(r.status)) { if (a >= 5) return ''; await sleep(700 * 2 ** a); continue }
-      if (!r.ok) return ''
-      const j = (await r.json()) as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }
-      addU(usage, { in: j.usage?.prompt_tokens ?? 0, out: j.usage?.completion_tokens ?? 0 })
-      return j.choices?.[0]?.message?.content ?? ''
-    } catch { if (a >= 5) return ''; await sleep(700 * 2 ** a) }
+  try {
+    const system = messages.find((message) => message.role === 'system')?.content
+    const result = await runBenchRouterTurn(
+      {
+        routerBaseUrl: ROUTER,
+        routerKey: ROUTER_KEY,
+        profile: {
+          name: 'david-goliath-worker',
+          model: { provider: 'tangle-router', default: model },
+          ...(system ? { prompt: { systemPrompt: system } } : {}),
+        },
+        temperature,
+        maxTokens: MAX_TOKENS,
+        timeoutMs: LLM_TIMEOUT,
+      },
+      { messages: messages.filter((message) => message.role !== 'system') },
+    )
+    if (result.usage.tokensKnown === false) throw new Error('provider omitted token usage')
+    addU(usage, { in: result.usage.input, out: result.usage.output })
+    return result.finalText
+  } catch {
+    return ''
   }
 }
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const exec = (file: string, args: string[], o: object) => new Promise<{ code: number; stdout: string }>((res) => execFile(file, args, { ...o, maxBuffer: 8 * 1024 * 1024 }, (e, stdout) => res({ code: (e as { code?: number } | null)?.code ?? (e ? 1 : 0), stdout: String(stdout) })))
 async function runPy(program: string): Promise<{ ok: boolean }> {
   const d = mkdtempSync(join(tmpdir(), 'dg-'))

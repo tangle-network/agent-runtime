@@ -7,11 +7,10 @@
  * these are only the per-example task + the offline brain it can be driven with.
  */
 
-import {
-  type ExecutorConfig,
-  type SandboxClient as RuntimeSandboxClient,
-  routerBrain,
-  type ToolLoopChat,
+import type {
+  ExecutorConfig,
+  SandboxClient as RuntimeSandboxClient,
+  ToolLoopChat,
 } from '@tangle-network/agent-runtime/kernel'
 import type { BackendType } from '@tangle-network/sandbox'
 import { Sandbox } from '@tangle-network/sandbox'
@@ -144,16 +143,12 @@ export function buildWorkerBackend(): ExecutorConfig {
 export function resolveSupervisorBrain(
   workerCount: number,
   labelPrefix: string,
-): { brain: ToolLoopChat; label: string } {
+): { brain?: ToolLoopChat; model?: string; label: string } {
   const routerKey = process.env.TANGLE_API_KEY
   const driverModel = process.env.DRIVER_MODEL ?? process.env.LOOP_MODEL
   if (process.env.DRIVER !== 'scripted' && routerKey && driverModel) {
     return {
-      brain: routerBrain({
-        routerBaseUrl: process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1',
-        routerKey,
-        model: driverModel,
-      }),
+      model: driverModel,
       label: `router(${driverModel})`,
     }
   }

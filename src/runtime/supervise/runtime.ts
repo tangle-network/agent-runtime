@@ -32,10 +32,17 @@ import { Readable } from 'node:stream'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
+  type AgentProfileResourceRef,
   agentProfileSchema,
   mergeAgentProfiles,
+  profileMaterializationAxes,
+  type ReasoningEffort,
 } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
+import {
+  assertProfileMaterialization,
+  defineProfileMaterializationContract,
+} from '../../agent/profile-materialization'
 import { ValidationError } from '../../errors'
 import type { LocalHarness } from '../../mcp/local-harness'
 import { mergeTraceEnv } from '../../mcp/trace-propagation'
@@ -60,7 +67,7 @@ import {
   resolveAgentEnvironmentProvider,
 } from '../environment-provider'
 import { agentHarness } from '../harness-role'
-import { routerChatWithUsage, type ToolSpec } from '../router-client'
+import { routerChatWithTools, routerChatWithUsage, type ToolSpec } from '../router-client'
 import type { RunAgentRoundsOptions } from '../run-loop'
 import { runAgentRounds } from '../run-loop'
 import type {
@@ -113,14 +120,47 @@ import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
 /**
  * Router/inline connection seam. A direct OpenAI-compatible Router endpoint —
- * the cheapest leaf, no box, no tools. `model` overrides the profile's model
- * hint when present; otherwise the profile's `model.default` is required.
+ * the cheapest leaf, no box. `model` is a fallback when the profile delegates
+ * model selection; two different concrete model declarations are refused. Every
+ * generation control is optional so the provider default remains available.
  */
 export interface RouterSeam {
   routerBaseUrl: string
   routerKey: string
   model?: string
+  temperature?: number
+  maxTokens?: number
+  seed?: number
+  reasoningEffort?: ReasoningEffort
+  /** Provider-specific request fields. Canonical fields cannot be overridden. */
+  extraBody?: Readonly<Record<string, unknown>>
+  /** When present, return one turn's requested tool calls without executing them. */
+  tools?: ReadonlyArray<ToolSpec>
+  toolChoice?: 'auto' | 'required' | 'none'
 }
+
+const routerTurnProfileMaterialization = defineProfileMaterializationContract({
+  name: 'router-profile-turn',
+  axes: [
+    'name',
+    'description',
+    'version',
+    'tags',
+    'systemPrompt',
+    'instructions',
+    'modelDefault',
+    'modelProvider',
+    'modelReasoningEffort',
+    'tools',
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+    'metadata',
+  ],
+})
 
 /**
  * Sandbox executor seam. The `sandboxClient` the composed `runAgentRounds` creates
@@ -381,7 +421,7 @@ function unmeteredSpend(ms: number): Spend {
  */
 export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterSeam>(ctx, routerSeamKey, 'router/inline')
-  const model = concreteProfileModel(spec.profile) ?? concreteModelId(seam.model)
+  const model = exactRouterModel(spec.profile, seam.model, 'routerInlineExecutor')
   if (!model) {
     throw new ValidationError(
       'routerInlineExecutor: no model — set RouterSeam.model or AgentProfile.model.default',
@@ -390,6 +430,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   if (!seam.routerBaseUrl || !seam.routerKey) {
     throw new ValidationError('routerInlineExecutor: RouterSeam.routerBaseUrl + routerKey required')
   }
+  const profileExecution = routerProfileExecution(spec.profile, seam)
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -406,14 +447,43 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     {
       runtime: 'router' as Runtime,
       async execute(task, signal): Promise<ExecutorResult<unknown>> {
-        const messages = taskToMessages(task, spec)
+        const messages = taskToMessages(task, spec, profileExecution.systemPrompt)
         const started = Date.now()
         const linked = linkSignals(signal, controller.signal)
-        const r = await routerChatWithUsage(
-          { routerBaseUrl: seam.routerBaseUrl, routerKey: seam.routerKey, model },
-          messages,
-          linked ? { signal: linked } : {},
-        )
+        const extraBody = {
+          ...(seam.extraBody ?? {}),
+          ...(seam.seed !== undefined ? { seed: seam.seed } : {}),
+          ...(profileExecution.reasoningEffort
+            ? { reasoning_effort: profileExecution.reasoningEffort }
+            : {}),
+        }
+        const r = seam.tools
+          ? await routerChatWithTools(
+              { routerBaseUrl: seam.routerBaseUrl, routerKey: seam.routerKey, model },
+              messages,
+              seam.tools,
+              {
+                ...(seam.temperature !== undefined ? { temperature: seam.temperature } : {}),
+                ...(linked ? { signal: linked } : {}),
+                ...(seam.toolChoice ? { toolChoice: seam.toolChoice } : {}),
+                ...(seam.maxTokens !== undefined ? { maxTokens: seam.maxTokens } : {}),
+                ...(Object.keys(extraBody).length > 0 ? { extraBody } : {}),
+              },
+            )
+          : await routerChatWithUsage(
+              { routerBaseUrl: seam.routerBaseUrl, routerKey: seam.routerKey, model },
+              messages,
+              {
+                ...(seam.temperature !== undefined ? { temperature: seam.temperature } : {}),
+                ...(linked ? { signal: linked } : {}),
+                ...(seam.maxTokens !== undefined ? { maxTokens: seam.maxTokens } : {}),
+                ...(seam.seed !== undefined ? { seed: seam.seed } : {}),
+                ...(profileExecution.reasoningEffort
+                  ? { reasoningEffort: profileExecution.reasoningEffort }
+                  : {}),
+                ...(seam.extraBody ? { extraBody: seam.extraBody } : {}),
+              },
+            )
         const spent: Spend = {
           iterations: 1,
           tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : zeroTokenUsage(),
@@ -422,8 +492,18 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           ...(r.costUsd === undefined ? { usdKnown: false } : {}),
           ms: Date.now() - started,
         }
-        const out = { content: r.content } as unknown
-        artifact = { outRef: contentRef('router', { model, content: r.content }), out, spent }
+        const out = {
+          content: r.content ?? '',
+          model,
+          ...('toolCalls' in r ? { toolCalls: r.toolCalls } : {}),
+          ...(r.reasoning ? { reasoning: r.reasoning } : {}),
+          ...(r.finishReason
+            ? { finishReason: r.finishReason }
+            : 'toolCalls' in r && r.toolCalls.length > 0
+              ? { finishReason: 'tool_calls' }
+              : {}),
+        } as unknown
+        artifact = { outRef: contentRef('router', { model, out }), out, spent }
         return artifact
       },
       teardown(_grace): Promise<{ destroyed: boolean }> {
@@ -446,7 +526,19 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         id: executionId,
       },
       materializer: 'router-prompt-model',
-      plan: { kind: 'openai-chat-completion', model },
+      plan: {
+        kind: 'openai-chat-completion',
+        model,
+        provider: spec.profile.model?.provider ?? null,
+        temperature: seam.temperature ?? null,
+        maxTokens: seam.maxTokens ?? null,
+        seed: seam.seed ?? null,
+        reasoningEffort: profileExecution.reasoningEffort ?? null,
+        extraBody: seam.extraBody ?? null,
+        tools: seam.tools ?? null,
+        toolChoice: seam.toolChoice ?? null,
+        systemPrompt: profileExecution.systemPrompt || null,
+      },
     },
     {
       attemptId,
@@ -478,6 +570,11 @@ export interface RouterToolsSeam {
   model?: string
   tools: ReadonlyArray<ToolSpec>
   executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
+  temperature?: number
+  maxTokens?: number
+  toolChoice?: 'auto' | 'required' | 'none'
+  /** Provider-specific request fields. Canonical fields cannot be overridden. */
+  extraBody?: Readonly<Record<string, unknown>>
   /** Online observer of each tool step — the seam a `DetectorMonitor` taps to watch the live pipe
    *  (raise a `finding` when the worker loops/errors). Called after every tool call resolves, with
    *  real per-call wall-clock (`startedAt`/`endedAt`/`durationMs`) so a push `TraceSource` can carry
@@ -516,7 +613,7 @@ interface RouterToolsResponse {
  */
 export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterToolsSeam>(ctx, routerToolsSeamKey, 'router-tools')
-  const model = concreteProfileModel(spec.profile) ?? concreteModelId(seam.model)
+  const model = exactRouterModel(spec.profile, seam.model, 'routerToolsInlineExecutor')
   if (!model) {
     throw new ValidationError(
       'routerToolsInlineExecutor: no model — set RouterToolsSeam.model or AgentProfile.model.default',
@@ -527,6 +624,17 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
       'routerToolsInlineExecutor: RouterToolsSeam.routerBaseUrl + routerKey required',
     )
   }
+  const profileExecution = routerProfileExecution(spec.profile, {
+    routerBaseUrl: seam.routerBaseUrl,
+    routerKey: seam.routerKey,
+    model,
+    tools: seam.tools,
+    ...(seam.temperature !== undefined ? { temperature: seam.temperature } : {}),
+    ...(seam.maxTokens !== undefined ? { maxTokens: seam.maxTokens } : {}),
+    ...(seam.toolChoice ? { toolChoice: seam.toolChoice } : {}),
+    ...(seam.extraBody ? { extraBody: seam.extraBody } : {}),
+  })
+  const enabledToolNames = new Set(seam.tools.map((tool) => tool.function.name))
   const maxTurns = seam.maxTurns ?? 200
 
   const controller = new AbortController()
@@ -550,7 +658,9 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
       async execute(task, signal): Promise<ExecutorResult<unknown>> {
         const started = Date.now()
         const messages: Array<Record<string, unknown>> = [
-          ...(taskToMessages(task, spec) as Array<Record<string, unknown>>),
+          ...(taskToMessages(task, spec, profileExecution.systemPrompt) as Array<
+            Record<string, unknown>
+          >),
         ]
         const tokens = zeroTokenUsage()
         let tokensKnown = true
@@ -589,11 +699,16 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 authorization: `Bearer ${seam.routerKey}`,
               },
               body: JSON.stringify({
+                ...safeRouterExtraBody(seam.extraBody),
                 model,
                 messages,
                 tools: seam.tools,
-                tool_choice: 'auto',
-                temperature: 0.2,
+                tool_choice: seam.toolChoice ?? 'auto',
+                ...(seam.temperature !== undefined ? { temperature: seam.temperature } : {}),
+                ...(seam.maxTokens !== undefined ? { max_tokens: seam.maxTokens } : {}),
+                ...(profileExecution.reasoningEffort
+                  ? { reasoning_effort: profileExecution.reasoningEffort }
+                  : {}),
               }),
               signal: turnController.signal,
             })
@@ -655,6 +770,20 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
           for (let i = 0; i < toolCalls.length; i += 1) {
             const tc = toolCalls[i]
             const id = tc?.id ?? `call_${i}`
+            const toolName = tc?.function?.name ?? ''
+            if (!enabledToolNames.has(toolName)) {
+              messages.push({
+                role: 'tool',
+                tool_call_id: id,
+                content: `error: tool ${JSON.stringify(toolName)} is not enabled by AgentProfile.tools`,
+              })
+              try {
+                seam.onToolStep?.({ toolName, args: {}, status: 'error' })
+              } catch {
+                // Monitoring cannot authorize or execute a refused tool call.
+              }
+              continue
+            }
             let args: Record<string, unknown> = {}
             try {
               args = JSON.parse(tc?.function?.arguments ?? '{}') as Record<string, unknown>
@@ -668,7 +797,6 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               })
               continue
             }
-            const toolName = tc?.function?.name ?? ''
             let result: string
             let status: 'ok' | 'error' = 'ok'
             const toolStartedAt = Date.now()
@@ -734,7 +862,19 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         id: executionId,
       },
       materializer: 'router-tools-prompt-model',
-      plan: { kind: 'openai-tool-loop', model, maxTurns, tools: seam.tools },
+      plan: {
+        kind: 'openai-tool-loop',
+        model,
+        provider: spec.profile.model?.provider ?? null,
+        maxTurns,
+        tools: seam.tools,
+        temperature: seam.temperature ?? null,
+        maxTokens: seam.maxTokens ?? null,
+        toolChoice: seam.toolChoice ?? 'auto',
+        extraBody: seam.extraBody ?? null,
+        reasoningEffort: profileExecution.reasoningEffort ?? null,
+        systemPrompt: profileExecution.systemPrompt || null,
+      },
     },
     {
       attemptId,
@@ -3002,17 +3142,201 @@ function taskToPrompt(task: unknown): string {
   return JSON.stringify(task)
 }
 
-/** Router messages from the opaque task + every portable profile prompt instruction. */
-function taskToMessages(task: unknown, spec: AgentSpec): Array<{ role: string; content: string }> {
-  const messages: Array<{ role: string; content: string }> = []
-  const system = [spec.profile.prompt?.systemPrompt, ...(spec.profile.prompt?.instructions ?? [])]
-    .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
-    .join('\n')
-  if (system.length > 0) {
-    messages.push({ role: 'system', content: system })
+interface RouterProfileExecution {
+  systemPrompt: string
+  reasoningEffort?: ReasoningEffort
+}
+
+/** Validate and render every AgentProfile axis the direct Router path claims to carry.
+ * Unsupported behavioral axes fail before the HTTP request; inline resources become
+ * named system-prompt attachments because this executor has no workspace to mount. */
+function routerProfileExecution(profile: AgentProfile, seam: RouterSeam): RouterProfileExecution {
+  assertProfileMaterialization({
+    contract: routerTurnProfileMaterialization,
+    changedAxes: profileMaterializationAxes(profile),
+    context: 'routerInlineExecutor',
+  })
+
+  if (profile.harness !== undefined && profile.harness !== null) {
+    throw new ValidationError(
+      `routerInlineExecutor: AgentProfile.harness ${JSON.stringify(profile.harness)} requires a harness executor; the direct Router executor cannot materialize it`,
+    )
   }
-  messages.push({ role: 'user', content: taskToPrompt(task) })
-  return messages
+
+  const profileEffort = profile.model?.reasoningEffort
+  const seamEffort = seam.reasoningEffort
+  if (profileEffort && seamEffort && profileEffort !== seamEffort) {
+    throw new ValidationError(
+      `routerInlineExecutor: AgentProfile reasoning effort ${JSON.stringify(profileEffort)} conflicts with RouterSeam.reasoningEffort ${JSON.stringify(seamEffort)}`,
+    )
+  }
+  const effort = profileEffort ?? seamEffort
+
+  const declaredTools = profile.tools ?? {}
+  const suppliedTools = seam.tools ?? []
+  const suppliedNames = new Set<string>()
+  for (const tool of suppliedTools) {
+    const name = tool.function.name
+    if (!name || suppliedNames.has(name)) {
+      throw new ValidationError(
+        `routerInlineExecutor: caller tool names must be non-empty and unique (${JSON.stringify(name)})`,
+      )
+    }
+    suppliedNames.add(name)
+    if (declaredTools[name] !== true) {
+      throw new ValidationError(
+        `routerInlineExecutor: caller tool ${JSON.stringify(name)} is not enabled by AgentProfile.tools`,
+      )
+    }
+  }
+  for (const [name, enabled] of Object.entries(declaredTools)) {
+    if (enabled && !suppliedNames.has(name)) {
+      throw new ValidationError(
+        `routerInlineExecutor: AgentProfile enables tool ${JSON.stringify(name)} but the caller supplied no matching schema`,
+      )
+    }
+    if (!enabled && suppliedNames.has(name)) {
+      throw new ValidationError(
+        `routerInlineExecutor: AgentProfile disables tool ${JSON.stringify(name)}`,
+      )
+    }
+  }
+
+  return {
+    systemPrompt: renderRouterProfilePrompt(profile),
+    ...(effort ? { reasoningEffort: effort } : {}),
+  }
+}
+
+/** Resolve the one model id that will cross the Router boundary. A seam value is a fallback for
+ * a profile that delegates selection, never an override hidden from profile identity. */
+function exactRouterModel(
+  profile: AgentProfile,
+  seamModel: string | undefined,
+  context: string,
+): string | undefined {
+  const profileModel = concreteProfileModel(profile)
+  const configuredModel = concreteModelId(seamModel)
+  if (profileModel && configuredModel && profileModel !== configuredModel) {
+    throw new ValidationError(
+      `${context}: AgentProfile model ${JSON.stringify(profileModel)} conflicts with configured model ${JSON.stringify(configuredModel)}`,
+    )
+  }
+  return profileModel ?? configuredModel
+}
+
+function renderRouterProfilePrompt(profile: AgentProfile): string {
+  const sections: string[] = [
+    profile.prompt?.systemPrompt,
+    ...(profile.prompt?.instructions ?? []),
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  const resources = profile.resources
+  if (!resources) return sections.join('\n')
+
+  if (typeof resources.instructions === 'string') {
+    if (resources.instructions.trim()) sections.push(resources.instructions)
+  } else if (resources.instructions) {
+    sections.push(renderRouterResource('instructions', resources.instructions))
+  }
+  for (const file of resources.files ?? []) {
+    if (file.executable === true) {
+      throw new ValidationError(
+        `routerInlineExecutor: executable resource ${JSON.stringify(file.path)} requires a workspace backend`,
+      )
+    }
+    sections.push(renderRouterResource(`file ${file.path}`, file.resource))
+  }
+  for (const [kind, refs] of [
+    ['tool', resources.tools],
+    ['skill', resources.skills],
+    ['agent', resources.agents],
+    ['command', resources.commands],
+  ] as const) {
+    for (const ref of refs ?? []) sections.push(renderRouterResource(kind, ref))
+  }
+  return sections.join('\n\n')
+}
+
+function renderRouterResource(kind: string, resource: AgentProfileResourceRef): string {
+  if (resource.kind !== 'inline') {
+    throw new ValidationError(
+      `routerInlineExecutor: ${kind} resource ${JSON.stringify(resource.name ?? resource.path)} is not inline and cannot be resolved by the direct Router executor`,
+    )
+  }
+  return `## Attached ${kind}: ${resource.name}\n${resource.content}`
+}
+
+function safeRouterExtraBody(
+  extraBody: Readonly<Record<string, unknown>> | undefined,
+): Record<string, unknown> {
+  const safe = { ...(extraBody ?? {}) }
+  for (const key of [
+    'model',
+    'messages',
+    'tools',
+    'tool_choice',
+    'temperature',
+    'max_tokens',
+    'reasoning_effort',
+    'stream',
+    'stream_options',
+  ]) {
+    delete safe[key]
+  }
+  return safe
+}
+
+/** Router messages from the opaque task + every portable profile prompt instruction.
+ * A structured conversation may carry multimodal/tool content, but any system
+ * message must exactly equal the canonical profile prompt. This prevents a
+ * caller from declaring one profile while executing another hidden prompt. */
+function taskToMessages(
+  task: unknown,
+  spec: AgentSpec,
+  resolvedSystem?: string,
+): Array<{ role: string; content: unknown } & Record<string, unknown>> {
+  const system =
+    resolvedSystem ??
+    [spec.profile.prompt?.systemPrompt, ...(spec.profile.prompt?.instructions ?? [])]
+      .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
+      .join('\n')
+
+  if (
+    task &&
+    typeof task === 'object' &&
+    Array.isArray((task as { messages?: unknown }).messages)
+  ) {
+    const supplied = (task as { messages: unknown[] }).messages.map((value, index) => {
+      if (!value || typeof value !== 'object') {
+        throw new ValidationError(`routerInlineExecutor: messages[${index}] must be an object`)
+      }
+      const message = { ...(value as Record<string, unknown>) }
+      if (typeof message.role !== 'string' || !('content' in message)) {
+        throw new ValidationError(
+          `routerInlineExecutor: messages[${index}] requires role and content`,
+        )
+      }
+      return message as { role: string; content: unknown } & Record<string, unknown>
+    })
+    const systemMessages = supplied.filter((message) => message.role === 'system')
+    if (systemMessages.length > 1) {
+      throw new ValidationError('routerInlineExecutor: at most one system message is allowed')
+    }
+    if (systemMessages.length === 1 && systemMessages[0]?.content !== system) {
+      throw new ValidationError(
+        'routerInlineExecutor: supplied system message must exactly match AgentProfile.prompt',
+      )
+    }
+    if (systemMessages.length === 0 && system.length > 0) {
+      return [{ role: 'system', content: system }, ...supplied]
+    }
+    return supplied
+  }
+
+  return [
+    ...(system.length > 0 ? [{ role: 'system', content: system }] : []),
+    { role: 'user', content: taskToPrompt(task) },
+  ]
 }
 
 /** A driver that refines a single task up to `maxIterations` times then stops —

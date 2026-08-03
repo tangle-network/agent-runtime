@@ -32,6 +32,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runBenchRouterTurn } from '../router-turn'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
@@ -206,26 +207,21 @@ function parseJudgeOutput(content: string): { resolved: boolean; score: number; 
 
 /** Run the record's own judge via the router. Fail loud on transport/parse errors. */
 async function runRecordJudge(meta: FinSearchMeta, response: string, router: JudgeRouter): Promise<BenchScore> {
-  const res = await fetch(`${router.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${router.key}` },
-    body: JSON.stringify({
-      model: router.model,
+  const turn = await runBenchRouterTurn(
+    {
+      routerBaseUrl: router.baseUrl,
+      routerKey: router.key,
+      profile: {
+        name: 'finsearchcomp-judge',
+        model: { provider: 'tangle-router', default: router.model },
+        prompt: { systemPrompt: meta.judgeSystemPrompt },
+      },
       temperature: 0,
-      messages: [
-        { role: 'system', content: meta.judgeSystemPrompt },
-        { role: 'user', content: fillJudgePrompt(meta, response) },
-      ],
-    }),
-  })
-  if (!res.ok) {
-    throw new Error(`FinSearchComp judge HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  }
-  const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  const content = body.choices?.[0]?.message?.content
-  if (typeof content !== 'string') {
-    throw new Error(`FinSearchComp judge returned no message content: ${JSON.stringify(body).slice(0, 300)}`)
-  }
+    },
+    fillJudgePrompt(meta, response),
+  )
+  const content = turn.finalText
+  if (!content) throw new Error('FinSearchComp judge returned no message content')
   const { resolved, score, raw } = parseJudgeOutput(content)
   return {
     resolved,

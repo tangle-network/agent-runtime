@@ -17,14 +17,18 @@
 set -euo pipefail
 
 ENV="${1:?usage: run.sh <trata-env-dir> [model]}"
-MODEL="${2:-${WORKER_MODEL:-gpt-4o}}"
+MODEL="${2:-${WORKER_MODEL:-}}"
+if [[ -z "$MODEL" ]]; then
+  echo "WORKER_MODEL is required (or pass it as argument 2)" >&2
+  exit 2
+fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANS=/tmp/thb-answer.txt
 REWARD=/tmp/thb-reward.txt
 DETAILS=/tmp/thb-details.json
 
 echo "[trata] solve: $ENV (model=$MODEL)"
-WORKER_MODEL="$MODEL" python3 "$HERE/solve.py" "$ENV" "$ANS"
+WORKER_MODEL="$MODEL" pnpm --dir "$HERE/../../.." exec tsx "$HERE/../../src/trata-hedge-solve.mts" "$ENV" "$ANS"
 
 sudo -n mkdir -p /app && sudo -n cp "$ANS" /app/answer.txt && sudo -n chmod 644 /app/answer.txt
 

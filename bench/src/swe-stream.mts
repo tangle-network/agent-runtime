@@ -274,9 +274,24 @@ const makeTransport =
     counter.guardedMsgs += assertNoHiddenLeak(marks, msgs)
     // Inject the honored reasoning-budget knob (thinking) here at the single shared worker
     // chokepoint: makeTransport is byte-identical across arms F and L, so the budget is symmetric.
+    const model = String(body.model ?? '')
+    const systemPrompt = msgs.find((message) => message.role === 'system')?.content
+    const toolNames = Array.isArray(body.tools)
+      ? (body.tools as Array<{ function?: { name?: unknown } }>).flatMap((tool) =>
+          typeof tool.function?.name === 'string' ? [tool.function.name] : [],
+        )
+      : []
     const { json, attempts } = await zaiChatRaw(
       { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt: guard.deadlineAt },
       { ...body, ...WORKER_REASONING },
+      {
+        name: 'swe-stream-worker',
+        model: { provider: 'tangle-router', default: model },
+        ...(typeof systemPrompt === 'string' ? { prompt: { systemPrompt } } : {}),
+        ...(toolNames.length > 0
+          ? { tools: Object.fromEntries(toolNames.map((name) => [name, true])) }
+          : {}),
+      },
     )
     counter.calls += 1
     counter.httpAttempts += attempts
@@ -643,6 +658,11 @@ async function acquireRepro(
       const { json } = await zaiChatRaw(
         { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt },
         { model: REPRO_MODEL, max_tokens: MAX_TOKENS, temperature: 0.2, messages },
+        {
+          name: 'swe-reproduction-author',
+          model: { provider: 'tangle-router', default: REPRO_MODEL },
+          prompt: { systemPrompt: reproAuthorSystem(REPRO_TIMEOUT_S) },
+        },
       )
       const d = json as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
       out.authorCalls += 1
@@ -810,6 +830,10 @@ async function superviseRepair(
     const { json, attempts } = await zaiChatRaw(
       { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt },
       { model: SUPERVISOR_MODEL, max_tokens: SUPERVISOR_MAX_TOKENS, temperature: 0.2, messages },
+      {
+        name: 'swe-repair-supervisor',
+        model: { provider: 'tangle-router', default: SUPERVISOR_MODEL },
+      },
     )
     const d = json as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
     const planRaw = d.choices?.[0]?.message?.content ?? ''
