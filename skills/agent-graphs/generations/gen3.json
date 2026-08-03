@@ -695,7 +695,8 @@
       "author JSON contract aligned with the skill text (remove perWorker.maxIterations or lower it correctly)",
       "holdout refresh: cases authored blind by an agent given only the case schema, never failure history; contaminated comparison retired",
       "persist revision-prompt inputs alongside the sha",
-      "fix in-loop gate wiring so the upstream record is authoritative"
+      "fix in-loop gate wiring so the upstream record is authoritative",
+      "layering doctrine: foundation harnesses ship TRAINED orchestration (Claude Code subagents, codex goal-mode, pi extensions) and prose is its native API \u2014 the graph layer composes ACROSS harnesses (conserved budget, ledger evidence, resume, heterogeneous models), it does not re-choreograph WITHIN one. Outer layer coarse, inner layer maximal: prefer one harness-sized node instructed to use its native fan-out over N externally-choreographed thin nodes. The unmeasured-harness case expectation (nodes=3) and v3's held N-roles-N-nodes lesson are both suspect under this rule; gen4 needs a case whose correct answer is one node + native-fanout instruction, and the harness KB row decides which harnesses qualify"
     ]
   }
 }
