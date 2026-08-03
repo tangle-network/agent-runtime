@@ -5,7 +5,7 @@ import {
   type LoopTraceEmitter,
   type LoopTraceEvent,
   type OutputAdapter,
-  runLoop,
+  runAgentRounds,
 } from '../../src/runtime'
 import { type ScriptedMove, type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
@@ -27,7 +27,7 @@ function spec(name: string, taskToPrompt = (t: Task) => JSON.stringify(t)): Agen
   return { profile: { name }, name, taskToPrompt }
 }
 
-describe('runLoop — abort short-circuits before launching a fresh batch', () => {
+describe('runAgentRounds — abort short-circuits before launching a fresh batch', () => {
   it('an abort during plan() prevents the next round of workers from dispatching', async () => {
     const ctrl = new AbortController()
     let created = 0
@@ -49,7 +49,7 @@ describe('runLoop — abort short-circuits before launching a fresh batch', () =
       return { kind: 'refine', task: { goal: 'x' } }
     }
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
@@ -75,13 +75,13 @@ function abortingBox(ctrl: AbortController): SandboxInstance {
   } as unknown as SandboxInstance
 }
 
-describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)', () => {
+describe('runAgentRounds — fail-loud on abort mid-iteration (no soft-failure masking)', () => {
   it('an AbortError thrown during streamPrompt rejects the loop, not a recorded empty iteration', async () => {
     const ctrl = new AbortController()
     const client = { create: async () => abortingBox(ctrl) }
     const planner: ScriptedPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
@@ -98,7 +98,7 @@ describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)
     const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
     const planner: ScriptedPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
     await expect(
-      runLoop({
+      runAgentRounds({
         driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
@@ -114,7 +114,7 @@ describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)
   })
 })
 
-describe('runLoop — teardown observability + parallelism', () => {
+describe('runAgentRounds — teardown observability + parallelism', () => {
   it('emits loop.teardown.failed when a kept-alive worker box delete throws', async () => {
     const moves: ScriptedMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
     let round = 0
@@ -136,7 +136,7 @@ describe('runLoop — teardown observability + parallelism', () => {
     const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
     // onWorkerBox keeps the box alive across plan(); teardown runs at loop end,
     // and the throwing delete must surface as a loop.teardown.failed span.
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
@@ -179,7 +179,7 @@ describe('runLoop — teardown observability + parallelism', () => {
         } as unknown as SandboxInstance
       },
     }
-    await runLoop({
+    await runAgentRounds({
       driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,

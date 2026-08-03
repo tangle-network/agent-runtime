@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runLoop } from '../../src/runtime/run-loop'
+import { runAgentRounds } from '../../src/runtime/run-loop'
 import type {
   LoopTraceEmitter,
   LoopTraceEvent,
@@ -39,7 +39,7 @@ describe('validator tracing', () => {
       },
     }
 
-    await runLoop({
+    await runAgentRounds({
       driver: {
         name: 'test',
         async plan(_task, history) {
@@ -77,7 +77,7 @@ describe('validator tracing', () => {
       },
     }
 
-    await runLoop({
+    await runAgentRounds({
       driver: {
         name: 'test',
         async plan(_task, history) {
@@ -127,7 +127,7 @@ describe('validator tracing', () => {
       },
     }
 
-    await runLoop({
+    await runAgentRounds({
       driver: {
         name: 'test',
         async plan(_task, history) {

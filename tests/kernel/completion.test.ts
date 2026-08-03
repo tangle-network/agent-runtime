@@ -7,7 +7,7 @@ import {
   completionAuthorizes,
   deterministicCompletion,
   type OutputAdapter,
-  runLoop,
+  runAgentRounds,
   sentinelCompletion,
   stopSentinel,
   type Validator,
@@ -49,7 +49,7 @@ function echoClient() {
 const alwaysRefine: ScriptedPlanner<string, string> = () => ({ kind: 'refine', task: 'good' })
 
 const run = (complete?: CompletionAnalyst<string, string>) =>
-  runLoop<string, string, 'continue' | 'done'>({
+  runAgentRounds<string, string, 'continue' | 'done'>({
     driver: scriptedDriver<string, string>({
       planner: alwaysRefine,
       maxIterations: 5,

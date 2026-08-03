@@ -11,8 +11,8 @@
  * NOT A SECOND SCHEDULER. `runGraph` is an interpretation layer over what already runs:
  * `supervise()` is the execution core — the same `supervisorAgent`/`driverAgent` machinery,
  * `makeWorkerAgent` seam, conserved-pool budget, and deliverable-gated settlement every
- * supervised run uses. (`runLoop` is a deprecated alias of `runAgentRounds` and is deliberately
- * NOT the substrate here.) What the graph layer ADDS is exactly what a bespoke driver loop never
+ * supervised run uses. (`runAgentRounds` is deliberately NOT the substrate here.) What the graph
+ * layer ADDS is exactly what a bespoke driver loop never
  * had:
  *
  *  1. **Node pinning** — a spawn names a node (`profile.name` = node id) and the node's canonical

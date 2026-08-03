@@ -5695,16 +5695,6 @@ SDK contract — re-invoking with the same ids returns the same outcome.
 
 ***
 
-### ~~StdioToolDescriptor~~
-
-> **StdioToolDescriptor** = [`McpToolDescriptor`](#mcptooldescriptor)
-
-#### Deprecated
-
-Use `McpToolDescriptor`; both names are the same protocol contract.
-
-***
-
 ### LocalHarness
 
 > **LocalHarness** = `Extract`\<`HarnessType`, `"claude-code"` \| `"codex"` \| `"opencode"`\>

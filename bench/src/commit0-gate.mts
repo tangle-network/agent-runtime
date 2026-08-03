@@ -191,7 +191,7 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: s
   const timer = cfg.timeoutMs > 0 ? setTimeout(() => controller.abort(), cfg.timeoutMs) : undefined
   // backend.model pins provider/model/baseUrl only; the platform writes the in-box
   // provider config keyed to the box's own OPENCODE_MODEL_API_KEY. The inline
-  // profile + backend override is the same generic AgentRunSpec the runLoop kernel
+  // profile + backend override is the same generic AgentRunSpec the runAgentRounds kernel
   // boots. Never inject an external key — the egress proxy 403s foreign credentials.
   const agentRun: AgentRunSpec<string> = {
     profile: { name: 'commit0-worker', metadata: { backendType: 'opencode' } },

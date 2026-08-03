@@ -77,7 +77,7 @@ The discipline that the architecture leans on — *selector ≠ judge*, judge wr
 |---|---|---|---|
 | **Test-time-compute / search** | Driver = search controller, selector = ranking, judge = oracle reward | Only if a *learned* controller beats fixed best-of-N | Controller is open-loop; refine loses to flat sampling at matched budget |
 | **Active learning / experimental design** | Driver = acquisition function picking the next most-informative source | **Yes — it makes the goal measurable**; the best frame for the research use case | Needs a *calibrated* gap signal; today "gap" is an LLM vibe |
-| **Program synthesis** | Driver = JIT emitting a topology program; runLoop = interpreter | Only if the ISA grows `seq`/nesting and the emitter reads an IR | It's a **3-opcode flat enum**, not a DSL; GEPA tunes a prompt comment, not the emitter |
+| **Program synthesis** | Driver = JIT emitting a topology program; runAgentRounds = interpreter | Only if the ISA grows `seq`/nesting and the emitter reads an IR | It's a **3-opcode flat enum**, not a DSL; GEPA tunes a prompt comment, not the emitter |
 | **Two-timescale / RSI** | Inner answers; outer rewrites the answerer from traces + judge | Only with the missing wire **and** a cross-benchmark transfer test | RSI is the **shape, not the system**; no transfer test exists |
 | **Skeptic / Occam** | self-refine (loses) steering best-of-N (wins) | No — vocabulary, not capability | Overclaims past "untested ≠ disproven" for a trace-fed driver |
 
@@ -139,7 +139,7 @@ Breaks: the load-bearing assumption — a **calibrated** gap signal — is absen
 
 ### 3.3 Program synthesis / interpreter
 
-`runLoop` is a fetch-execute-halt trampoline; the planner is a JIT that emits one instruction per round. The vocabulary describes the real control flow — but as a *language* it is barely one: the implemented ISA is a 3-value flat union `{refine, fanout, stop}`, emitted one-at-a-time, with no `seq`, no nesting, no emittable `select`. The two ops that would make it non-vacuous (`select`, `seq`) are interpreter builtins the agent cannot author; GEPA rewrites a static directive string (a `#define`), not the emit function; and the emitter compiles from a return-code-plus-truncated-stdout summary, not an IR. Today: a JIT in shape, a switch statement in substance. *(Status: the richer program space this lens asks for is the canonical path: `defineStrategy` (`src/runtime/strategy.ts`), where a strategy is ordinary code composing `shot()`/`critique()` with arbitrary sequencing and branching, authored by `authorStrategy` (`src/runtime/strategy-author.ts`).)*
+`runAgentRounds` is a fetch-execute-halt trampoline; the planner is a JIT that emits one instruction per round. The vocabulary describes the real control flow — but as a *language* it is barely one: the implemented ISA is a 3-value flat union `{refine, fanout, stop}`, emitted one-at-a-time, with no `seq`, no nesting, no emittable `select`. The two ops that would make it non-vacuous (`select`, `seq`) are interpreter builtins the agent cannot author; GEPA rewrites a static directive string (a `#define`), not the emit function; and the emitter compiles from a return-code-plus-truncated-stdout summary, not an IR. Today: a JIT in shape, a switch statement in substance. *(Status: the richer program space this lens asks for is the canonical path: `defineStrategy` (`src/runtime/strategy.ts`), where a strategy is ordinary code composing `shot()`/`critique()` with arbitrary sequencing and branching, authored by `authorStrategy` (`src/runtime/strategy-author.ts`).)*
 
 ### 3.4 Two-timescale / recursive self-improvement
 
@@ -216,7 +216,7 @@ Then run the §5 gate. If a findings-fed driver beats random@k at equal k under 
   (spawn · observe · steer · stop). The diagnosis→decision edge runs over the
   `Scope`/`Supervisor` (`src/runtime/supervise/`).
 - `src/runtime/run-loop.ts` — the surviving leaf kernel; `defaultSelectWinner` (`:983`) /
-  `branchPoint` (`:797`); `RunLoopOptions.selectWinner` (`:104`) is the selector-injection seam.
+  `branchPoint` (`:797`); `RunAgentRoundsOptions.selectWinner` (`:104`) is the selector-injection seam.
 - `src/runtime/strategy.ts` / `src/runtime/strategy-author.ts` — `defineStrategy` /
   `authorStrategy`: the program space where the Gate-A strategies run.
 - `src/analyst-loop/` — `runAnalystLoop`; the trace observer feeding the canonical loop

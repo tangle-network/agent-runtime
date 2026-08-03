@@ -16,7 +16,7 @@ So the phases are ordered to make each step measurable on an honest baseline *be
 > an `AgentProfile` driving another via `createCoordinationTools`
 > (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`
 > (`src/runtime/supervise/`), plus `runAgentic`/`defineStrategy`/`runPersonified`
-> (`strategy.ts`/`persona.ts`); the `runLoop` kernel (`src/runtime/run-loop.ts`) is
+> (`strategy.ts`/`persona.ts`); the `runAgentRounds` kernel (`src/runtime/run-loop.ts`) is
 > one leaf backend. **Gate A's +16.4pp anchor was
 > RETRACTED to a TIE at power.** On the canonical `Scope`/`Supervisor` + `observe()` +
 > `defineStrategy` loop the n=16 EOPS-itsm signal (depth +16.4pp CI [+5.3, +29.8], 6W/0L,
@@ -62,7 +62,7 @@ So the phases are ordered to make each step measurable on an honest baseline *be
 At audit time the selector was **faked with the judge**: `defaultSelectWinner` (`src/runtime/run-loop.ts:983`) and `branchPoint` (`:797`) rank by `verdict.score`, and in the bench the validator *was* the judge — so every `random@k`/`refine@k`/`oracle@k` number was judge-selected (an oracle upper bound). This phase builds the deployable ranker — the piece that actually makes best-of-N pay.
 
 - **Build `rank(attempts: AttemptRecord[]) -> index`** — a pure function over *stored outputs/traces only* (self-consistency / answer-agreement / a PRM). Never reads `verdict`. (Open: evaluate `@tangle-network/agent-eval`'s `/prm` subpath before hand-rolling agreement scoring.)
-- **Inject** via `RunLoopOptions.selectWinner` (`src/runtime/run-loop.ts:104`, honored at `:881`). No kernel surgery. Note: `branchPoint` (`:797`) also ranks edge lineage on `verdict.score` — make it selector-aware for a fully oracle-free deployment.
+- **Inject** via `RunAgentRoundsOptions.selectWinner` (`src/runtime/run-loop.ts:104`, honored at `:881`). No kernel surgery. Note: `branchPoint` (`:797`) also ranks edge lineage on `verdict.score` — make it selector-aware for a fully oracle-free deployment.
 - **Measure OFFLINE first** via `corpus-replay.mts`'s `scoreCandidateOffline` seam: per instance, pick one of the k stored outputs, then judge only the pick (zero new rollouts; deterministic judges free, LLM judge = 1 call/instance). Report `selector@k − random@k` (PRIMARY family) and `selector@k − oracle@k` (exploratory headroom-gap) as `TestEntry` rows in `corpus-report.mts` (reuse `pairedLift` + `benjaminiHochberg`). Compute the **test-retest** flip rate from the same corpus (run the picker twice; report flip fraction + paired-bootstrap CI). Power with `requiredSampleSize`/`pairedMde` from `agent-eval/statistics`.
 - **Ship gate** via `heldoutSignificance(pairHoldout(...))` (packaged as `promotionGate`, `src/runtime/promotion-gate.ts`) or `compareDrivers`, on a frozen held-out split disjoint from the threshold-tuning split.
 
@@ -72,7 +72,7 @@ At audit time the selector was **faked with the judge**: `defaultSelectWinner` (
 
 ## Phase 2 — Wire `analyses → driver`
 
-The load-bearing edge. **Status: lives on the agent-driver.** The diagnosis→decision edge runs on the **agent-driver**: a parent `AgentProfile` consumes `observe()` findings (`AnalystFinding`, the substrate type from `@tangle-network/agent-eval` — **never redefined**, the layering rule) and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. The `runLoop` kernel (`src/runtime/run-loop.ts`) stays analyst-free. **No bench feeds the findings-fed treatment arm against the `random@k` control under the Phase-1 selector live yet** — that is the remaining work on this substrate.
+The load-bearing edge. **Status: lives on the agent-driver.** The diagnosis→decision edge runs on the **agent-driver**: a parent `AgentProfile` consumes `observe()` findings (`AnalystFinding`, the substrate type from `@tangle-network/agent-eval` — **never redefined**, the layering rule) and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. The `runAgentRounds` kernel (`src/runtime/run-loop.ts`) stays analyst-free. **No bench feeds the findings-fed treatment arm against the `random@k` control under the Phase-1 selector live yet** — that is the remaining work on this substrate.
 
 **Exit gate — Gate A (inner GO/NO-GO).** `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, statistically significant, surviving selector test-retest. **If it fails:** stop building the *within-run recursive-driver layer* — ship Phases 0–1 + Phase 4 (agentic RAG with a verifier) and delete the *steering machinery*. The recursive-driver layer is unjustified overhead unless this clears. **This is scoped to within-run steering only — it is NOT the flywheel-success criterion (Gate B, [learning-flywheel.md](./learning-flywheel.md)); a failed Gate A never deletes the corpus+controller product.**
 

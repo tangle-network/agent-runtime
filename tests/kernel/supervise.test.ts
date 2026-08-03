@@ -1136,7 +1136,7 @@ describe('open executor registry', () => {
     })
     expect(router.succeeded).toBe(true)
     expect(sandbox.succeeded).toBe(true)
-    // Distinct factories: router/inline vs the sandbox-composing-runLoop built-in.
+    // Distinct factories: router/inline vs the sandbox-composing-runAgentRounds built-in.
     if (router.succeeded && sandbox.succeeded) {
       expect(router.value).not.toBe(sandbox.value)
     }
@@ -1639,7 +1639,7 @@ describe('replay determinism', () => {
 
 // ── 9. one observable tree — spawn/settle ride the lifecycle hook stream ─────────
 //
-// The recursive tree is observable through the SAME `RuntimeHooks` stream `runLoop`/
+// The recursive tree is observable through the SAME `RuntimeHooks` stream `runAgentRounds`/
 // `tool-loop` feed: `scope.spawn` emits `agent.spawn`, the settle cursor emits
 // `agent.child`. This is what the topology viewer reads — without it the tree is only
 // in the journal (replay-only, not live). The journal stays the durable record; the

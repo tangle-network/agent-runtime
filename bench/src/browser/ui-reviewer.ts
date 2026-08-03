@@ -3,7 +3,7 @@
  * browser-agent harness (./agent-adapter.ts).
  *
  * "More reviewers, the better": run a PANEL of UI reviewers over the same target
- * and union their findings — #114's runLoop ui-auditor, browser-agent-driver's
+ * and union their findings — #114's runAgentRounds ui-auditor, browser-agent-driver's
  * `bad design-audit`, a future reviewer — each a pluggable `UiReviewerAdapter`,
  * none of them owning the verdict.
  *

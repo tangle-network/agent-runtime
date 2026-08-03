@@ -1,13 +1,13 @@
 /**
  * OFFLINE scripted seams for the P1 parity arms — zero network, zero env, $0. Mirrors
  * examples/graphs/shared.ts and reuses its `leafSeam` / `scriptedBrain` directly for the graph
- * arm, so only the loop arm's transports are new scripting. Both arms' seams are generated from
+ * arm, so only the multishot arm's transports are new scripting. Both arms' seams are generated from
  * the same {@link ShotScript}, so the SAME cell produces the SAME shot outcomes in both forms —
  * the CI-runnable proof path, and the capture point for the input-equivalence test.
  *
  * Synthetic accounting: every scripted completion reports `usage {5,5}` and `$0`, mirroring the
  * leaf seam's per-shot spend, so the two arms' metering pipelines carry comparable numbers
- * offline. The loop arm additionally meters its scripted DRIVER completions (the legacy loop's
+ * offline. The multishot arm additionally meters its scripted DRIVER completions (`runMultishot`'s
  * driver is an inference leg); the graph arm's scripted brain meters nothing (a live graph
  * driver would meter through `spentBreakdown.driverInference`). Real numbers arrive only with
  * the live backend.
@@ -20,7 +20,7 @@ import type {
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { MakeWorkerAgent } from '@tangle-network/agent-runtime/kernel'
 import { type LeafShot, leafSeam, type ScriptedTurn, scriptedBrain } from '../graphs/shared'
-import type { CellSpec, GraphArmBackend, LoopArmBackend } from './arms'
+import type { CellSpec, GraphArmBackend, MultishotArmBackend } from './arms'
 
 /** Per-shot scripted outcome; the last entry repeats for later shots. */
 export type ShotScript = ReadonlyArray<'pass' | 'fail'>
@@ -28,7 +28,7 @@ export type ShotScript = ReadonlyArray<'pass' | 'fail'>
 export const SHOT_PASS_TEXT = 'TESTS: pass'
 export const SHOT_FAIL_TEXT = 'TESTS: fail'
 
-/** The one completion check BOTH offline arms share (loop reply text = graph settle output). */
+/** The one completion check BOTH offline arms share (multishot reply = graph settle output). */
 export const offlineShotPassed = (text: string): boolean => text.includes(SHOT_PASS_TEXT)
 
 /** The reviewer's re-brief for shot N — identical wording in both arms, so steering payloads
@@ -41,7 +41,7 @@ const scriptedUsage = () => ({ prompt_tokens: 5, completion_tokens: 5 })
 const shotAt = (script: ShotScript, index: number): 'pass' | 'fail' =>
   script[Math.min(index, script.length - 1)] ?? 'fail'
 
-// ── Loop arm: scripted transports ──────────────────────────────────────────────
+// ── Multishot arm: scripted transports ─────────────────────────────────────────
 
 export interface LoopCapture {
   /** Every request the coder (agent) leg received, in order — the input-equivalence evidence. */
@@ -50,10 +50,10 @@ export interface LoopCapture {
   readonly driverRequests: MultishotTransportRequest[]
 }
 
-/** Scripted loop backend: coder replies follow the shot script; the reviewer re-briefs between
+/** Scripted multishot backend: coder replies follow the shot script; the reviewer re-briefs between
  *  shots with {@link rebriefText}. All requests are captured for assertion. */
-export function offlineLoopBackend(script: ShotScript): {
-  backend: LoopArmBackend
+export function offlineMultishotBackend(script: ShotScript): {
+  backend: MultishotArmBackend
   capture: LoopCapture
 } {
   const agentRequests: MultishotTransportRequest[] = []
@@ -69,7 +69,7 @@ export function offlineLoopBackend(script: ShotScript): {
   }
   const driverTransport: MultishotTransport = async (req) => {
     driverRequests.push(req)
-    // Driver call k re-briefs shot k+1 (the loop drives one driver turn between shots).
+    // Driver call k re-briefs shot k+1 (`runMultishot` drives one driver turn between shots).
     return {
       message: { content: rebriefText(driverRequests.length + 1) },
       usage: scriptedUsage(),

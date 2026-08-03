@@ -396,25 +396,6 @@ export async function runAgentRounds<Task, Output, Decision>(
 }
 
 /**
- * Pre-rename name for {@link runAgentRounds}; identical function, kept so existing
- * call sites keep working.
- *
- * @deprecated Use {@link runAgentRounds}. The clearer name says what it is: the
- * multi-agent fanout/vote/refine kernel over sandboxes, NOT the one-turn tool loop
- * (`runToolLoop` / `streamToolLoop`, `/tool-loop`). `runLoop` shipped on `/kernel`
- * next to `routerToolLoop`, which made the two read as variants of one thing. The alias
- * is removed in the next major.
- */
-export const runLoop = runAgentRounds
-
-/**
- * Pre-rename name for {@link RunAgentRoundsOptions}.
- *
- * @deprecated Use {@link RunAgentRoundsOptions}. Removed in the next major.
- */
-export type RunLoopOptions<Task, Output, Decision> = RunAgentRoundsOptions<Task, Output, Decision>
-
-/**
  * Per-loop lineage state: the backend-blind lineage, the caller's opt-in flags,
  * and the live handle for each completed iteration so a later round can continue
  * or fork from it. `undefined` ⇒ no lineage; the kernel uses the fresh-box path.

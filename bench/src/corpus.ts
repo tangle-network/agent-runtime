@@ -23,7 +23,7 @@ import type { BenchRuntimeDecisionPoint, BenchRuntimeHookEvent } from './runtime
  *  verdict, the measured economics, and a bounded trace summary.
  *
  *  `costUsd`/`tokensIn`/`tokensOut`/`wallMs` are OPTIONAL on purpose: they are
- *  present only when the worker actually reported them (the `runLoop`/kernel
+ *  present only when the worker actually reported them (the `runAgentRounds`/kernel
  *  path). A worker that reports no usage (e.g. a raw opencode-stdout shot)
  *  OMITS them — it never writes a fabricated `0`. Absence means "unmeasured",
  *  which is honest and lets the canonical bridge below refuse to forge a
@@ -106,7 +106,7 @@ function summarizeAttempt<Task, Output>(iter: Iteration<Task, Output>): AttemptR
   }
 }
 
-/** Build a RunRecord from a runLoop result. `now` injected for determinism in tests. */
+/** Build a RunRecord from a runAgentRounds result. `now` injected for determinism in tests. */
 export function buildRunRecord<Task, Output>(args: {
   benchmark: string
   instanceId: string
@@ -247,7 +247,7 @@ export interface CorpusProjection {
  * (`costUsd`/`tokensIn`/`tokensOut`/`wallMs`/`output`) is reported in
  * `unmappable` rather than backfilled with phantom zeros. This is WHY the local
  * raw-stdout path (which omits economics) cannot feed the gate — only the
- * measured `runLoop`/sandbox path can, which is the correct, honest constraint.
+ * measured `runAgentRounds`/sandbox path can, which is the correct, honest constraint.
  */
 export async function benchRecordToCorpusRecords(
   rec: RunRecord,

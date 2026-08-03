@@ -1,13 +1,13 @@
 /**
- * P1 parity CLI — replay N identical coding cells through BOTH loop forms and print paired
- * records (issue #694 P1: the loop→graph measurement harness).
+ * P1 parity CLI — replay N identical coding cells through `runMultishot` and `runGraph`, then
+ * print paired records.
  *
  *   pnpm tsx examples/p1-parity/run-parity.ts --backend offline --cells 2 --shots 3
  *   pnpm tsx examples/p1-parity/run-parity.ts --backend cli-bridge --cells 1 --shots 3
  *
  * offline    — scripted seams (mirrors examples/graphs/shared.ts): zero network, zero env, $0.
  *              Shot script per cell: fail × (shots−1), then pass — so the graph arm settles on
- *              the final shot while the loop arm burns its whole budget, and the paired records
+ *              the final shot while the multishot arm burns its whole budget, and the paired records
  *              show exactly that. This mode is CI-safe and is what the vitest suite exercises.
  * cli-bridge — the LIVE one-command entry for later: wires the real cli-bridge backend from
  *              VB_CLI_BRIDGE_URL / VB_CLI_BRIDGE_BEARER (+ VB_PARITY_MODEL for the coder's
@@ -16,9 +16,9 @@
 
 import { parseArgs } from 'node:util'
 import type { MultishotTransport } from '@tangle-network/agent-eval/multishot'
-import type { CellSpec, GraphArmBackend, LoopArmBackend, ParityRecord } from './arms'
-import { runGraphArm, runLoopArm } from './arms'
-import { offlineGraphBackend, offlineLoopBackend } from './offline'
+import type { CellSpec, GraphArmBackend, MultishotArmBackend, ParityRecord } from './arms'
+import { runGraphArm, runMultishotArm } from './arms'
+import { offlineGraphBackend, offlineMultishotBackend } from './offline'
 
 interface CliOptions {
   backend: 'offline' | 'cli-bridge'
@@ -133,10 +133,13 @@ function bridgeTransport(env: BridgeEnv): MultishotTransport {
 const LIVE_PASS_MARKER = 'ALL TESTS PASS'
 const livePassed = (text: string): boolean => text.includes(LIVE_PASS_MARKER)
 
-function liveBackends(env: BridgeEnv): { loop: LoopArmBackend; graph: GraphArmBackend } {
+function liveBackends(env: BridgeEnv): {
+  multishot: MultishotArmBackend
+  graph: GraphArmBackend
+} {
   const transport = bridgeTransport(env)
   return {
-    loop: {
+    multishot: {
       agentTransport: transport,
       driverTransport: transport,
       shotPassed: livePassed,
@@ -157,7 +160,7 @@ function liveBackends(env: BridgeEnv): { loop: LoopArmBackend; graph: GraphArmBa
 
 interface PairedRow {
   cell: number
-  arm: 'loop' | 'graph'
+  arm: 'multishot' | 'graph'
   record: ParityRecord
 }
 
@@ -167,7 +170,7 @@ function printRecord(row: PairedRow): void {
     `cell ${row.cell} ${row.arm.padEnd(5)} converged=${r.converged} shotsUsed=${r.shotsUsed} ` +
       `tokens=${r.spend.tokens.input}/${r.spend.tokens.output} usd=${r.spend.usd} ` +
       `wallMs=${r.wallMs} steering=${r.steeringDelivered.count}×/${r.steeringDelivered.bytes}B ` +
-      `ledger=${r.ledger === undefined ? 'none (legacy loop has no edge ledger)' : `${r.ledger.length} rows`}`,
+      `ledger=${r.ledger === undefined ? 'none (runMultishot has no edge ledger)' : `${r.ledger.length} rows`}`,
   )
   if (r.ledger !== undefined) {
     for (const t of r.ledger) {
@@ -182,25 +185,25 @@ export async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   const rows: PairedRow[] = []
   for (let i = 0; i < cli.cells; i += 1) {
-    let loopBackend: LoopArmBackend
+    let multishotBackend: MultishotArmBackend
     let graphBackend: GraphArmBackend
     let cell: CellSpec
     if (cli.backend === 'offline') {
       // fail × (shots−1) then pass: converges exactly on the final shot.
       const script = [...Array<'fail'>(cli.shots - 1).fill('fail'), 'pass' as const]
       cell = parityCell(i, cli.shots)
-      loopBackend = offlineLoopBackend(script).backend
+      multishotBackend = offlineMultishotBackend(script).backend
       graphBackend = offlineGraphBackend(cell, script).backend
     } else {
       const env = requireBridgeEnv()
       const backends = liveBackends(env)
       cell = liveParityCell(i, cli.shots, env.model)
-      loopBackend = backends.loop
+      multishotBackend = backends.multishot
       graphBackend = backends.graph
     }
-    const loop = await runLoopArm(cell, loopBackend)
+    const multishot = await runMultishotArm(cell, multishotBackend)
     const graph = await runGraphArm(cell, graphBackend)
-    rows.push({ cell: i + 1, arm: 'loop', record: loop })
+    rows.push({ cell: i + 1, arm: 'multishot', record: multishot })
     rows.push({ cell: i + 1, arm: 'graph', record: graph })
   }
   console.log(`p1-parity — backend=${cli.backend} cells=${cli.cells} shots=${cli.shots}\n`)

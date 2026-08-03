@@ -36,7 +36,7 @@ The work is ordered to prove the two-agent atom before adding scale.
 - Make `runInteraction` the explicit multi-actor entry point.
 - Implement conversation turn order as an interaction policy.
 - Implement personified and agentic modes as policy helpers.
-- Make `runLoop` an internal sandbox batch implementation.
+- Make `runAgentRounds` an internal sandbox batch implementation.
 - Keep existing exports as deprecated wrappers for one release cycle.
 
 **Complete when:**
@@ -45,7 +45,7 @@ The work is ordered to prove the two-agent atom before adding scale.
 - `agent-knowledge` builds and tests without `agent-runtime` installed.
 - One two-agent test exercises the shared state through both dynamic and alternating policies.
 - All existing public behavior tests pass through the new internal path.
-- New examples need no knowledge of `runLoop`, `Supervisor` construction, or MCP server wiring.
+- New examples need no knowledge of `runAgentRounds`, `Supervisor` construction, or MCP server wiring.
 - Generated API documentation shows one recommended run path and one advanced multi-actor path.
 
 ## Phase 2: Durable Run Ownership And Recovery
