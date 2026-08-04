@@ -11,6 +11,7 @@
  */
 
 import assert from 'node:assert/strict'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
   AgentSpec,
   DefaultVerdict,
@@ -80,7 +81,12 @@ function stubAdapter(n: number): BenchmarkAdapter {
   }
 }
 
-const profile = { name: 'stub-solver', model: { default: 'stub-model' } } as never
+const profile = {
+  name: 'stub-solver',
+  harness: 'pi',
+  model: { provider: 'test', default: 'stub-model' },
+  prompt: { systemPrompt: 'Solve the supplied benchmark task.' },
+} satisfies AgentProfile
 
 const report = await runGate({
   adapter: stubAdapter(5),

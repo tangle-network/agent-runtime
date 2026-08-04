@@ -152,10 +152,9 @@ export function benchSolverRegistry(opts: BenchSolverOptions): ExecutorRegistry 
   }
 }
 
-/** Build the solver `Persona` from the developer's `AgentProfile` + a solve-and-grade registry.
- *  The deliverable type is the candidate text (`string`); `harness: null` is nominal — the
- *  supplied registry overrides resolution, so the root never falls through to the router/sandbox
- *  built-ins. */
+/** Build the solver `Persona` from the developer's exact `AgentProfile` + a solve-and-grade
+ *  registry. The profile still declares its execution identity; `AgentSpec.harness: null` only
+ *  says that the supplied registry owns placement instead of a built-in executor. */
 export function defineSolverPersona(
   profile: AgentProfile,
   registry: ExecutorRegistry,
