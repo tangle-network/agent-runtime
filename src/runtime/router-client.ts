@@ -199,7 +199,7 @@ export async function routerChatWithUsage(
     opts?.signal,
     retry,
   )
-  return parseChatResult(await response.json(), cfg.model, attempts)
+  return parseChatResult(await routerResponseJson(response, attempts), cfg.model, attempts)
 }
 
 function parseChatResult(
@@ -366,7 +366,7 @@ export async function routerChatWithTools(
           retry,
         )
         transportAttempts = result.attempts
-        return result.response.json()
+        return routerResponseJson(result.response, result.attempts)
       })()
   const data = raw as {
     model?: unknown
@@ -698,7 +698,7 @@ export async function streamRouterChatWithTools(
   const calls = new Map<number, StreamingToolCall>()
   let lastCallIndex = -1
 
-  for await (const chunk of readChatCompletionChunks(res.body)) {
+  for await (const chunk of readChatCompletionChunksWithAttempts(res.body, transportAttempts)) {
     if (chunk.error) {
       throw new ValidationError(
         `router stream error: ${chunk.error.message ?? chunk.error.type ?? 'unknown'}`,
@@ -839,34 +839,67 @@ async function retryRouterOperation<T>(
   operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<{ value: T; attempts: number }> {
   let attempts = 0
-  const value = await withRetry(
-    async (attempt) => {
-      attempts = attempt + 1
-      const attemptSignal = withRouterRequestTimeout(callerSignal, retry.requestTimeoutMs)
-      try {
-        return await operation(attemptSignal.signal)
-      } catch (error) {
-        if (callerSignal?.aborted) throw callerSignal.reason ?? error
-        if (attemptSignal.signal.aborted) {
-          throw new SDKError(`router request timeout after ${retry.requestTimeoutMs}ms`, {
-            code: 'TIMEOUT',
-            cause: error instanceof Error ? error : new Error(String(error)),
-          })
+  try {
+    const value = await withRetry(
+      async (attempt) => {
+        attempts = attempt + 1
+        const attemptSignal = withRouterRequestTimeout(callerSignal, retry.requestTimeoutMs)
+        try {
+          return await operation(attemptSignal.signal)
+        } catch (error) {
+          if (callerSignal?.aborted) throw callerSignal.reason ?? error
+          if (attemptSignal.signal.aborted) {
+            throw new SDKError(`router request timeout after ${retry.requestTimeoutMs}ms`, {
+              code: 'TIMEOUT',
+              cause: error instanceof Error ? error : new Error(String(error)),
+            })
+          }
+          if (error instanceof TypeError && error.message.includes('fetch')) {
+            throw new SDKError(`router network failure: ${error.message}`, {
+              code: 'NETWORK',
+              cause: error,
+            })
+          }
+          throw error
+        } finally {
+          attemptSignal.dispose()
         }
-        if (error instanceof TypeError && error.message.includes('fetch')) {
-          throw new SDKError(`router network failure: ${error.message}`, {
-            code: 'NETWORK',
-            cause: error,
-          })
-        }
-        throw error
-      } finally {
-        attemptSignal.dispose()
-      }
-    },
-    agentCoreRetryConfig(retry, callerSignal),
-  )
-  return { value, attempts }
+      },
+      agentCoreRetryConfig(retry, callerSignal),
+    )
+    return { value, attempts }
+  } catch (error) {
+    throwRouterFailureWithAttempts(error, attempts)
+  }
+}
+
+const routerFailureAttempts = new WeakMap<object, number>()
+
+/** Internal evidence carried alongside a failed Router call without replacing the original error.
+ * Runtime uses it when an intentional interrupt resumes the worker instead of surfacing the error. */
+export function routerTransportAttemptsFromError(error: unknown): number | undefined {
+  const identity = routerErrorIdentity(error)
+  return identity === undefined ? undefined : routerFailureAttempts.get(identity)
+}
+
+function throwRouterFailureWithAttempts(error: unknown, attempts: number): never {
+  const identity = routerErrorIdentity(error)
+  if (identity !== undefined) routerFailureAttempts.set(identity, attempts)
+  throw error
+}
+
+function routerErrorIdentity(error: unknown): object | undefined {
+  return (typeof error === 'object' && error !== null) || typeof error === 'function'
+    ? (error as object)
+    : undefined
+}
+
+async function routerResponseJson(response: Response, attempts: number): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch (error) {
+    throwRouterFailureWithAttempts(error, attempts)
+  }
 }
 
 function agentCoreRetryConfig(
@@ -971,6 +1004,17 @@ async function* readChatCompletionChunks(
       await reader.cancel().catch(() => undefined)
     }
     reader.releaseLock()
+  }
+}
+
+async function* readChatCompletionChunksWithAttempts(
+  body: ReadableStream<Uint8Array>,
+  attempts: number,
+): AsyncIterable<ChatCompletionChunk> {
+  try {
+    yield* readChatCompletionChunks(body)
+  } catch (error) {
+    throwRouterFailureWithAttempts(error, attempts)
   }
 }
 

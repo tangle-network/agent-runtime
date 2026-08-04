@@ -74,6 +74,7 @@ import {
   type RouterConfig,
   routerChatWithTools,
   routerChatWithUsage,
+  routerTransportAttemptsFromError,
   streamRouterChatWithTools,
   type ToolSpec,
 } from '../router-client'
@@ -796,8 +797,9 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             } catch (e) {
               cleanup()
               // Re-plan ONLY when a forceful inbox message aborted this turn (a real AbortError, with the
-              // interrupt — not the external teardown/budget signal). The re-planned turn still consumes a
-              // loop slot when the caller configured a finite maxTurns, but does not bill a turn.
+              // interrupt — not the external teardown/budget signal). The request reached the transport,
+              // so count its iteration and exact physical attempts. Without a terminal receipt its token,
+              // reasoning, and dollar totals are unknown; treating it as free can overspend the pool.
               // Any other error — incl. a network fault coincident with an interrupt — is fatal: rethrow.
               const interruptAbort =
                 e instanceof DOMException &&
@@ -805,11 +807,18 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 interruptSig.aborted &&
                 !signal.aborted &&
                 !controller.signal.aborted
-              if (interruptAbort) continue
+              if (interruptAbort) {
+                turns += 1
+                transportAttempts += routerTransportAttemptsFromError(e) ?? 1
+                tokensKnown = false
+                usdKnown = false
+                reasoningKnown = false
+                continue
+              }
               throwRouterTransportFailure('routerToolsInlineExecutor', e)
             }
             cleanup()
-            // The inference completed — count the turn now (an interrupted, re-planned turn doesn't bill).
+            // The inference completed — count the turn and merge its terminal receipt.
             turns += 1
             transportAttempts += res.transportAttempts
             assertObservedRouterModel(res.model, model, 'routerToolsInlineExecutor')

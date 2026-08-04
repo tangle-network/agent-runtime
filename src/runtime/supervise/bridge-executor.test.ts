@@ -5,9 +5,9 @@ import {
   canonicalAgentProfileDigest,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { spendFromUsageEvents } from './budget'
-import { bridgeExecutor } from './runtime'
+import { bridgeExecutor, createExecutor } from './runtime'
 import type { UsageEvent } from './types'
 
 const TEST_RUN_DIGEST = `sha256:${'b'.repeat(64)}`
@@ -197,9 +197,57 @@ async function drain(stream: AsyncIterable<UsageEvent>): Promise<UsageEvent[]> {
   return events
 }
 
+function terminalOpenAiReceipt(input: number, output: number, finishReason: string): string {
+  return [
+    `data: ${JSON.stringify({
+      choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+      usage: { prompt_tokens: input, completion_tokens: output, total_tokens: input + output },
+    })}`,
+    'data: [DONE]',
+    '',
+  ].join('\n\n')
+}
+
+async function consumeDirectRouterReceipt(body: string) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Promise.resolve(new Response(body, { headers: { 'content-type': 'text/event-stream' } })),
+    ),
+  )
+  try {
+    const profile: AgentProfile = {
+      name: 'direct-router-receipt-test',
+      harness: 'cli-base',
+      model: {
+        provider: 'tangle-router',
+        default: 'glm-5.2',
+        metadata: { stream: true },
+      },
+    }
+    const executor = createExecutor({
+      backend: 'router',
+      routerBaseUrl: 'https://router.example.test/v1',
+      routerKey: 'test-key',
+      tools: [],
+    })(
+      {
+        profile,
+        harness: null,
+      },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    await executor.execute('do the task', new AbortController().signal)
+    return executor.resultArtifact()
+  } finally {
+    vi.unstubAllGlobals()
+  }
+}
+
 describe('bridgeExecutor upstream-error propagation', () => {
   let server: Server | undefined
   afterEach(async () => {
+    vi.unstubAllGlobals()
     if (server) await new Promise((resolve) => server?.close(resolve))
     server = undefined
   })
@@ -329,6 +377,46 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const artifact = executor.resultArtifact()
     expect(artifact.out).toMatchObject({ content: 'final answer' })
     expect(artifact.spent.tokens).toEqual({ input: 10, output: 4 })
+  })
+
+  it('meters the same terminal OpenAI receipt through direct Router and bridge paths', async () => {
+    const receipt = terminalOpenAiReceipt(3_020, 55, 'stop')
+    const direct = await consumeDirectRouterReceipt(receipt)
+    const stub = await startBridgeStub(receipt)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(direct).toMatchObject({
+      out: { finishReason: 'stop' },
+      spent: { tokens: { input: 3_020, output: 55 } },
+    })
+    expect(events.filter((event) => event.kind === 'tokens')).toEqual([
+      { kind: 'tokens', input: 3_020, output: 55 },
+    ])
+    expect(executor.resultArtifact().spent.tokens).toEqual(direct.spent.tokens)
+  })
+
+  it('meters an error-shaped terminal OpenAI receipt instead of treating it as free', async () => {
+    const receipt = terminalOpenAiReceipt(408, 12, 'error')
+    const direct = await consumeDirectRouterReceipt(receipt)
+    const stub = await startBridgeStub(receipt)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(direct).toMatchObject({
+      out: { finishReason: 'error' },
+      spent: { tokens: { input: 408, output: 12 } },
+    })
+    expect(events.filter((event) => event.kind === 'tokens')).toEqual([
+      { kind: 'tokens', input: 408, output: 12 },
+    ])
+    expect(executor.resultArtifact().spent.tokens).toEqual(direct.spent.tokens)
   })
 
   it('meters one iteration per bridge turn instead of one per content chunk', async () => {

@@ -809,6 +809,65 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(result.kind).toBeDefined()
   })
 
+  it('allowedModels rejects a dynamically authored child before spawn, execution, or metering', async () => {
+    const journal = new InMemorySpawnJournal()
+    let childTransportCalls = 0
+    const runId = 'forbidden-dynamic-child'
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'glm-5.2' },
+      }),
+      'keep every descendant on glm-5.2',
+      {
+        budget,
+        allowedModels: ['glm-5.2'],
+        backend: {
+          backend: 'router-tools',
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          tools: [],
+          executeToolCall: async () => '',
+          complete: async () => {
+            childTransportCalls += 1
+            return {
+              model: 'sonnet',
+              choices: [{ message: { content: 'must not execute', tool_calls: [] } }],
+              usage: { prompt_tokens: 1, completion_tokens: 1, cost_usd: 0.01 },
+            }
+          },
+        },
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              {
+                name: 'spawn_agent',
+                arguments: {
+                  profile: testAgentProfile('forbidden', {
+                    harness: 'pi',
+                    model: { provider: 'amazon-bedrock', default: 'sonnet' },
+                  }),
+                  task: 'must be refused',
+                },
+              },
+            ],
+          },
+          { content: 'stop after refusal' },
+        ]),
+        journal,
+        runId,
+      },
+    )
+
+    expect(result.kind).toBe('no-winner')
+    expect(childTransportCalls).toBe(0)
+    const events = await journal.loadTree(runId)
+    expect(events?.filter((event) => event.kind === 'spawned').map((event) => event.id)).toEqual([
+      runId,
+    ])
+    expect(events?.some((event) => event.kind === 'metered' && event.id !== runId)).toBe(false)
+  })
+
   it('allowedModels unset is unrestricted (any model passes)', async () => {
     const result = await supervise(
       testAgentProfile('root', {
